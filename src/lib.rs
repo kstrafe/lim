@@ -327,6 +327,8 @@ pub enum Statement {
         condition: Expr,
         body: Vec<Statement>,
     },
+    Break,
+    Continue,
     Expr(Expr),
 }
 
@@ -477,6 +479,18 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             condition: items[1].clone(),
             body,
         });
+    }
+    if is_form(expression, "break") {
+        if expect_list(expression, "break statement")?.len() != 1 {
+            return Err("break takes no arguments".into());
+        }
+        return Ok(Statement::Break);
+    }
+    if is_form(expression, "continue") {
+        if expect_list(expression, "continue statement")?.len() != 1 {
+            return Err("continue takes no arguments".into());
+        }
+        return Ok(Statement::Continue);
     }
     Ok(Statement::Expr(expression.clone()))
 }
@@ -760,5 +774,18 @@ mod tests {
         assert!(check_types(&too_large)
             .unwrap_err()
             .contains("does not fit"));
+    }
+
+    #[test]
+    fn checks_break_and_continue_scope() {
+        let valid = parse_program(
+            "(fn main () u64 (let mut n u64 0) (while (< n 3) (set n (+ n 1)) (continue)) n)",
+        )
+        .unwrap();
+        assert!(check_types(&valid).is_ok());
+        let invalid = parse_program("(fn main () () (break))").unwrap();
+        assert!(check_types(&invalid)
+            .unwrap_err()
+            .contains("outside a loop"));
     }
 }

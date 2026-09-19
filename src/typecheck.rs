@@ -68,10 +68,10 @@ fn check_function(
             if let Statement::Expr(value) = statement {
                 expression(value, &variables, functions, Some(&function.return_type))?
             } else {
-                statement_type(statement, &mut variables, &mut mutable, functions)?
+                statement_type(statement, &mut variables, &mut mutable, functions, false)?
             }
         } else {
-            statement_type(statement, &mut variables, &mut mutable, functions)?
+            statement_type(statement, &mut variables, &mut mutable, functions, false)?
         };
     }
     require_type(
@@ -86,6 +86,7 @@ fn statement_type(
     variables: &mut HashMap<String, Type>,
     mutable: &mut HashSet<String>,
     functions: &HashMap<String, Signature>,
+    in_loop: bool,
 ) -> Result<Type, String> {
     match statement {
         Statement::Let {
@@ -121,9 +122,16 @@ fn statement_type(
             let actual = expression(condition, variables, functions, Some(&Type::Bool))?;
             require_type(&actual, &Type::Bool, "while condition")?;
             for nested in body {
-                statement_type(nested, variables, mutable, functions)?;
+                statement_type(nested, variables, mutable, functions, true)?;
             }
             Ok(Type::Unit)
+        }
+        Statement::Break | Statement::Continue => {
+            if in_loop {
+                Ok(Type::Unit)
+            } else {
+                Err("break or continue used outside a loop".into())
+            }
         }
         Statement::Expr(value) => expression(value, variables, functions, None),
     }

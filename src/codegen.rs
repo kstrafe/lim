@@ -70,6 +70,7 @@ fn generate_function(function: &Function, output: &mut String) -> Result<(), Str
         locals,
         labels: 0,
         stack_depth: 0,
+        loop_labels: Vec::new(),
         output: String::new(),
     };
     for statement in &function.body {
@@ -98,7 +99,7 @@ fn collect_locals(
                 collect_locals(statement, locals, next_slot)?;
             }
         }
-        Statement::Assign { .. } | Statement::Expr(_) => {}
+        Statement::Assign { .. } | Statement::Break | Statement::Continue | Statement::Expr(_) => {}
     }
     Ok(())
 }
@@ -144,6 +145,7 @@ struct FunctionContext {
     locals: HashMap<String, usize>,
     labels: usize,
     stack_depth: usize,
+    loop_labels: Vec<(String, String)>,
     output: String,
 }
 
@@ -173,10 +175,24 @@ impl FunctionContext {
                 self.expression(condition)?;
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {end}\n"));
+                self.loop_labels.push((start.clone(), end.clone()));
                 for statement in body {
                     self.statement(statement)?;
                 }
+                self.loop_labels.pop();
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
+            }
+            Statement::Break => {
+                let Some((_, end)) = self.loop_labels.last() else {
+                    return Err("break used outside a loop".into());
+                };
+                self.output.push_str(&format!("    jmp {end}\n"));
+            }
+            Statement::Continue => {
+                let Some((start, _)) = self.loop_labels.last() else {
+                    return Err("continue used outside a loop".into());
+                };
+                self.output.push_str(&format!("    jmp {start}\n"));
             }
             Statement::Expr(expression) => self.expression(expression)?,
         }
