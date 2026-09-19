@@ -6,6 +6,10 @@
 
 use std::fmt;
 
+mod codegen;
+
+pub use codegen::generate_assembly;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Span {
     pub start: usize,
@@ -647,5 +651,15 @@ mod tests {
         assert!(parse_program("(unknown form)")
             .unwrap_err()
             .contains("unknown top-level"));
+    }
+
+    #[test]
+    fn generates_native_integer_assembly() {
+        let program = parse_program("(fn main () i64 (+ 20 22))").unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains(".globl main"));
+        assert!(assembly.contains("add rax, rcx"));
+        assert!(assembly.contains("ret"));
+        assert!(assembly.contains(".note.GNU-stack"));
     }
 }

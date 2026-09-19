@@ -20,6 +20,15 @@ standard input, and prints the parsed AST:
 printf '%s\n' '(@optional MyType MyType?)' | nix develop --command cargo run
 ```
 
+Emit x86-64 assembly with the native backend:
+
+```sh
+nix develop --command cargo run -- --emit-asm examples/fibonacci.lim /tmp/fibonacci.s
+cc /tmp/fibonacci.s -o /tmp/fibonacci
+/tmp/fibonacci
+# exits with 55
+```
+
 ## Syntax currently recognized
 
 - Lists: `(fn name ((arg i32)) i32 (body...))`
