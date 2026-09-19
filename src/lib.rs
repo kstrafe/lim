@@ -7,8 +7,10 @@
 use std::fmt;
 
 mod codegen;
+mod typecheck;
 
 pub use codegen::generate_assembly;
+pub use typecheck::check_types;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Span {
@@ -661,5 +663,19 @@ mod tests {
         assert!(assembly.contains("add rax, rcx"));
         assert!(assembly.contains("ret"));
         assert!(assembly.contains(".note.GNU-stack"));
+    }
+
+    #[test]
+    fn type_checks_variables_calls_and_returns() {
+        let program =
+            parse_program("(fn inc ((value u32)) u32 (+ value 1)) (fn main () u32 (inc 41))")
+                .unwrap();
+        assert!(check_types(&program).is_ok());
+        let mismatch = parse_program("(fn main () u32 true)").unwrap();
+        assert!(check_types(&mismatch).unwrap_err().contains("expected U32"));
+        let unknown = parse_program("(fn main () u32 missing)").unwrap();
+        assert!(check_types(&unknown)
+            .unwrap_err()
+            .contains("unknown variable"));
     }
 }

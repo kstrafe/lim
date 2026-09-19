@@ -7,11 +7,12 @@
 
 use std::collections::HashMap;
 
-use crate::{Expr, Function, Item, Program, Statement, Type};
+use crate::{check_types, Expr, Function, Item, Program, Statement, Type};
 
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 
 pub fn generate_assembly(program: &Program) -> Result<String, String> {
+    check_types(program)?;
     let mut output = String::from(".intel_syntax noprefix\n.text\n");
     for item in &program.items {
         match item {

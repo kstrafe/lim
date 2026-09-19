@@ -1,0 +1,218 @@
+use std::collections::HashMap;
+
+use crate::{Expr, Function, Item, Program, Statement, Type};
+
+#[derive(Clone)]
+struct Signature {
+    parameters: Vec<Type>,
+    return_type: Type,
+}
+
+pub fn check_types(program: &Program) -> Result<(), String> {
+    let mut functions = HashMap::new();
+    for item in &program.items {
+        let Item::Function(function) = item else {
+            continue;
+        };
+        if functions
+            .insert(
+                function.name.clone(),
+                Signature {
+                    parameters: function
+                        .parameters
+                        .iter()
+                        .map(|parameter| parameter.ty.clone())
+                        .collect(),
+                    return_type: function.return_type.clone(),
+                },
+            )
+            .is_some()
+        {
+            return Err(format!("duplicate function '{}'", function.name));
+        }
+    }
+    for item in &program.items {
+        match item {
+            Item::Function(function) => check_function(function, &functions)?,
+            Item::Let { name, ty, value } => {
+                let actual = expression(value, &HashMap::new(), &functions, Some(ty))?;
+                require_type(&actual, ty, &format!("top-level let '{name}'"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_function(
+    function: &Function,
+    functions: &HashMap<String, Signature>,
+) -> Result<(), String> {
+    let mut variables = HashMap::new();
+    for parameter in &function.parameters {
+        if variables
+            .insert(parameter.name.clone(), parameter.ty.clone())
+            .is_some()
+        {
+            return Err(format!(
+                "duplicate parameter '{}' in function '{}'",
+                parameter.name, function.name
+            ));
+        }
+    }
+    let mut last_type = Type::Unit;
+    for statement in &function.body {
+        match statement {
+            Statement::Let { name, ty, value } => {
+                if variables.contains_key(name) {
+                    return Err(format!(
+                        "duplicate local '{name}' in function '{}'",
+                        function.name
+                    ));
+                }
+                let actual = expression(value, &variables, functions, Some(ty))?;
+                require_type(&actual, ty, &format!("let '{name}'"))?;
+                variables.insert(name.clone(), ty.clone());
+                last_type = Type::Unit;
+            }
+            Statement::Expr(value) => last_type = expression(value, &variables, functions, None)?,
+        }
+    }
+    require_type(
+        &last_type,
+        &function.return_type,
+        &format!("return of function '{}'", function.name),
+    )
+}
+
+fn expression(
+    expression: &Expr,
+    variables: &HashMap<String, Type>,
+    functions: &HashMap<String, Signature>,
+    expected: Option<&Type>,
+) -> Result<Type, String> {
+    match expression {
+        Expr::Integer(_) => Ok(expected
+            .filter(|ty| is_integer(ty))
+            .cloned()
+            .unwrap_or(Type::I64)),
+        Expr::Symbol(name) if name == "true" || name == "false" => Ok(Type::Bool),
+        Expr::Symbol(name) => variables
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("unknown variable '{name}'")),
+        Expr::String(_) => Ok(Type::Named("str".into())),
+        Expr::At | Expr::Quote(_) => {
+            Err("generated and quoted expressions are not typed yet".into())
+        }
+        Expr::List(items) => list_expression(items, variables, functions, expected),
+    }
+}
+
+fn list_expression(
+    items: &[Expr],
+    variables: &HashMap<String, Type>,
+    functions: &HashMap<String, Signature>,
+    expected: Option<&Type>,
+) -> Result<Type, String> {
+    let Some(Expr::Symbol(operator)) = items.first() else {
+        return Err("expression list must start with a symbol".into());
+    };
+    match operator.as_str() {
+        "+" | "-" | "*" => {
+            require_arity(operator, items, 3)?;
+            let left = expression(&items[1], variables, functions, expected)?;
+            let right = expression(&items[2], variables, functions, Some(&left))?;
+            require_same(&left, &right, operator)?;
+            if !is_integer(&left) {
+                return Err(format!("operator '{operator}' requires integer operands"));
+            }
+            Ok(left)
+        }
+        "<" | "<=" | ">" | ">=" | "==" | "!=" => {
+            require_arity(operator, items, 3)?;
+            let left = expression(&items[1], variables, functions, None)?;
+            let right = expression(&items[2], variables, functions, Some(&left))?;
+            require_same(&left, &right, operator)?;
+            Ok(Type::Bool)
+        }
+        "if" => {
+            require_arity(operator, items, 4)?;
+            let condition = expression(&items[1], variables, functions, Some(&Type::Bool))?;
+            require_type(&condition, &Type::Bool, "if condition")?;
+            let then_type = expression(&items[2], variables, functions, expected)?;
+            let else_type = expression(&items[3], variables, functions, Some(&then_type))?;
+            require_same(&then_type, &else_type, "if branches")?;
+            Ok(then_type)
+        }
+        "let" => Err("let is only valid as a statement".into()),
+        _ => {
+            let signature = functions
+                .get(operator)
+                .ok_or_else(|| format!("unknown function '{operator}'"))?;
+            if items.len() - 1 != signature.parameters.len() {
+                return Err(format!(
+                    "function '{operator}' expects {} arguments",
+                    signature.parameters.len()
+                ));
+            }
+            for (argument, parameter_type) in items[1..].iter().zip(&signature.parameters) {
+                let actual = expression(argument, variables, functions, Some(parameter_type))?;
+                require_type(
+                    &actual,
+                    parameter_type,
+                    &format!("argument to '{operator}'"),
+                )?;
+            }
+            Ok(signature.return_type.clone())
+        }
+    }
+}
+
+fn require_arity(operator: &str, items: &[Expr], expected: usize) -> Result<(), String> {
+    if items.len() != expected {
+        Err(format!(
+            "operator '{operator}' expects {} operands",
+            expected - 1
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn require_type(actual: &Type, expected: &Type, context: &str) -> Result<(), String> {
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "{context} has type {actual:?}, expected {expected:?}"
+        ))
+    }
+}
+
+fn require_same(left: &Type, right: &Type, context: &str) -> Result<(), String> {
+    if left == right {
+        Ok(())
+    } else {
+        Err(format!(
+            "{context} has mismatched types {left:?} and {right:?}"
+        ))
+    }
+}
+
+fn is_integer(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::I8
+            | Type::I16
+            | Type::I32
+            | Type::I64
+            | Type::I128
+            | Type::Isize
+            | Type::U8
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::U128
+            | Type::Usize
+    )
+}
