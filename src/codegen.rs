@@ -72,6 +72,7 @@ fn generate_function(function: &Function, output: &mut String) -> Result<(), Str
     let mut context = FunctionContext {
         locals,
         labels: 0,
+        stack_depth: 0,
         output: String::new(),
     };
     for statement in &function.body {
@@ -109,7 +110,8 @@ fn add_local(
 fn ensure_integer_type(ty: &Type) -> Result<(), String> {
     if matches!(
         ty,
-        Type::I8
+        Type::Bool
+            | Type::I8
             | Type::I16
             | Type::I32
             | Type::I64
@@ -133,6 +135,7 @@ fn ensure_integer_type(ty: &Type) -> Result<(), String> {
 struct FunctionContext {
     locals: HashMap<String, usize>,
     labels: usize,
+    stack_depth: usize,
     output: String,
 }
 
@@ -140,6 +143,8 @@ impl FunctionContext {
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         match expression {
             Expr::Integer(value) => self.output.push_str(&format!("    mov rax, {value}\n")),
+            Expr::Symbol(name) if name == "true" => self.output.push_str("    mov eax, 1\n"),
+            Expr::Symbol(name) if name == "false" => self.output.push_str("    xor eax, eax\n"),
             Expr::Symbol(name) => {
                 let slot = self
                     .locals
@@ -174,9 +179,10 @@ impl FunctionContext {
             return Err(format!("operator '{operator}' requires two operands"));
         }
         self.expression(&items[1])?;
-        self.output.push_str("    push rax\n");
+        self.push_rax();
         self.expression(&items[2])?;
         self.output.push_str("    mov rcx, rax\n    pop rax\n");
+        self.stack_depth -= 1;
         match operator {
             "+" => self.output.push_str("    add rax, rcx\n"),
             "-" => self.output.push_str("    sub rax, rcx\n"),
@@ -191,10 +197,11 @@ impl FunctionContext {
             return Err(format!("comparison '{operator}' requires two operands"));
         }
         self.expression(&items[1])?;
-        self.output.push_str("    push rax\n");
+        self.push_rax();
         self.expression(&items[2])?;
         self.output
             .push_str("    mov rcx, rax\n    pop rax\n    cmp rax, rcx\n");
+        self.stack_depth -= 1;
         let condition = match operator {
             "<" => "l",
             "<=" => "le",
@@ -232,13 +239,26 @@ impl FunctionContext {
         }
         for argument in arguments {
             self.expression(argument)?;
-            self.output.push_str("    push rax\n");
+            self.push_rax();
         }
         for register in ARGUMENT_REGISTERS[..arguments.len()].iter().rev() {
             self.output.push_str(&format!("    pop {register}\n"));
+            self.stack_depth -= 1;
+        }
+        let needs_padding = self.stack_depth % 2 == 1;
+        if needs_padding {
+            self.output.push_str("    sub rsp, 8\n");
         }
         self.output.push_str(&format!("    call {name}\n"));
+        if needs_padding {
+            self.output.push_str("    add rsp, 8\n");
+        }
         Ok(())
+    }
+
+    fn push_rax(&mut self) {
+        self.output.push_str("    push rax\n");
+        self.stack_depth += 1;
     }
 
     fn label(&mut self, prefix: &str) -> String {
