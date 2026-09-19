@@ -30,6 +30,20 @@ printf '%s\n' '(@optional MyType MyType?)' | nix develop --command cargo run
 - `#` and `;` line comments
 - The generated-code sigil `@` as a first-class AST node
 
+The typed declaration pass recognizes primitive Rust-style types (`u8` through
+`u128`, `usize`, signed integers, `f32`, `f64`, `bool`, `char`, and `()`), as
+well as named types. Local variables use explicit types:
+
+```lisp
+(fn add ((left u32) (right u32)) u32
+  (let total u32 (+ left right))
+  total)
+```
+
+Top-level `let` declarations use the same form. Function bodies are currently
+represented as statements, while their expressions remain generic S-expressions
+for the type checker and later compiler stages.
+
 Every token and top-level expression has a byte span plus line and column
 information. Expansion, type checking, monomorphization, and native assembly
 code generation are intentionally subsequent compiler stages.

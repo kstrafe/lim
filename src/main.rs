@@ -19,11 +19,9 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    match lim::parse(&input) {
-        Ok(expressions) => {
-            for expression in expressions {
-                println!("{expression:?}");
-            }
+    match lim::parse_program(&input) {
+        Ok(program) => {
+            println!("{program:#?}");
             ExitCode::SUCCESS
         }
         Err(error) => {

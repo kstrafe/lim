@@ -251,6 +251,198 @@ pub fn parse(source: &str) -> Result<Vec<SpannedExpr>, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Rust-like scalar types understood by the first typed AST pass.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Type {
+    Unit,
+    Bool,
+    Char,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    Isize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Usize,
+    F32,
+    F64,
+    Named(String),
+}
+
+impl Type {
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "()" => Self::Unit,
+            "bool" => Self::Bool,
+            "char" => Self::Char,
+            "i8" => Self::I8,
+            "i16" => Self::I16,
+            "i32" => Self::I32,
+            "i64" => Self::I64,
+            "i128" => Self::I128,
+            "isize" => Self::Isize,
+            "u8" => Self::U8,
+            "u16" => Self::U16,
+            "u32" => Self::U32,
+            "u64" => Self::U64,
+            "u128" => Self::U128,
+            "usize" => Self::Usize,
+            "f32" => Self::F32,
+            "f64" => Self::F64,
+            _ => Self::Named(name.to_owned()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Parameter {
+    pub name: String,
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Statement {
+    Let { name: String, ty: Type, value: Expr },
+    Expr(Expr),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Function {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub return_type: Type,
+    pub body: Vec<Statement>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Item {
+    Function(Function),
+    Let { name: String, ty: Type, value: Expr },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Program {
+    pub items: Vec<Item>,
+}
+
+/// Parse top-level `fn` and `let` forms into the typed declaration AST.
+///
+/// The lower-level [`parse`] function remains available for syntax that has
+/// not acquired a language-level meaning yet, such as future macros.
+pub fn parse_program(source: &str) -> Result<Program, String> {
+    let expressions = parse(source)?;
+    let mut items = Vec::with_capacity(expressions.len());
+    for expression in expressions {
+        items.push(parse_item(&expression.expr)?);
+    }
+    Ok(Program { items })
+}
+
+fn parse_item(expression: &Expr) -> Result<Item, String> {
+    let items = expect_list(expression, "top-level declaration")?;
+    let keyword = expect_symbol(items.first(), "declaration keyword")?;
+    match keyword {
+        "fn" => Ok(Item::Function(parse_function(items)?)),
+        "let" => {
+            let binding = parse_let(items)?;
+            Ok(Item::Let {
+                name: binding.name,
+                ty: binding.ty,
+                value: binding.value,
+            })
+        }
+        other => Err(format!("unknown top-level form '{other}'")),
+    }
+}
+
+fn parse_function(items: &[Expr]) -> Result<Function, String> {
+    if items.len() < 5 {
+        return Err("fn requires a name, parameter list, return type, and body".into());
+    }
+    let name = expect_symbol(items.get(1), "function name")?.to_owned();
+    let parameter_items = expect_list(items.get(2).unwrap(), "function parameters")?;
+    let mut parameters = Vec::with_capacity(parameter_items.len());
+    for parameter in parameter_items {
+        let fields = expect_list(parameter, "function parameter")?;
+        if fields.len() != 2 {
+            return Err("function parameters must have the form (name Type)".into());
+        }
+        parameters.push(Parameter {
+            name: expect_symbol(fields.first(), "parameter name")?.to_owned(),
+            ty: parse_type(fields.get(1))?,
+        });
+    }
+
+    let return_type = parse_type(items.get(3))?;
+    let mut body = Vec::with_capacity(items.len() - 4);
+    for expression in &items[4..] {
+        if is_form(expression, "let") {
+            let binding = parse_let(expect_list(expression, "let statement")?)?;
+            body.push(Statement::Let {
+                name: binding.name,
+                ty: binding.ty,
+                value: binding.value,
+            });
+        } else {
+            body.push(Statement::Expr(expression.clone()));
+        }
+    }
+    Ok(Function {
+        name,
+        parameters,
+        return_type,
+        body,
+    })
+}
+
+struct LetBinding {
+    name: String,
+    ty: Type,
+    value: Expr,
+}
+
+fn parse_let(items: &[Expr]) -> Result<LetBinding, String> {
+    if items.len() != 4 || !matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "let")
+    {
+        return Err("let requires the form (let name Type value)".into());
+    }
+    Ok(LetBinding {
+        name: expect_symbol(items.get(1), "binding name")?.to_owned(),
+        ty: parse_type(items.get(2))?,
+        value: items[3].clone(),
+    })
+}
+
+fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
+    if matches!(expression, Some(Expr::List(items)) if items.is_empty()) {
+        return Ok(Type::Unit);
+    }
+    Ok(Type::from_name(expect_symbol(expression, "type")?))
+}
+
+fn expect_list<'a>(expression: &'a Expr, context: &str) -> Result<&'a [Expr], String> {
+    match expression {
+        Expr::List(items) => Ok(items),
+        _ => Err(format!("expected list for {context}")),
+    }
+}
+
+fn expect_symbol<'a>(expression: Option<&'a Expr>, context: &str) -> Result<&'a str, String> {
+    match expression {
+        Some(Expr::Symbol(value)) => Ok(value),
+        _ => Err(format!("expected symbol for {context}")),
+    }
+}
+
+fn is_form(expression: &Expr, name: &str) -> bool {
+    matches!(expression, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == name))
+}
+
 struct Parser<'a> {
     tokens: &'a [Token],
     index: usize,
@@ -406,5 +598,54 @@ mod tests {
     fn reports_unterminated_list() {
         let error = parse("(fn missing").unwrap_err();
         assert!(error.contains("unterminated list"));
+    }
+
+    #[test]
+    fn parses_typed_lets_and_functions() {
+        let program = parse_program(
+            "(fn add ((left u32) (right u64)) u64 (let total u64 (+ left right)) total)",
+        )
+        .unwrap();
+        let Item::Function(function) = &program.items[0] else {
+            panic!()
+        };
+        assert_eq!(function.name, "add");
+        assert_eq!(function.parameters[0].ty, Type::U32);
+        assert_eq!(function.parameters[1].ty, Type::U64);
+        assert_eq!(function.return_type, Type::U64);
+        assert!(matches!(
+            function.body[0],
+            Statement::Let { ty: Type::U64, .. }
+        ));
+        assert!(
+            matches!(function.body[1], Statement::Expr(Expr::Symbol(ref name)) if name == "total")
+        );
+    }
+
+    #[test]
+    fn parses_all_builtin_scalar_types_and_named_types() {
+        let program = parse_program(
+            "(fn types ((a u8) (b u16) (c u32) (d u64) (e u128) (f usize) (g i8) (h i16) (i i32) (j i64) (k i128) (l isize) (m f32) (n f64) (o bool) (p char) (q UserId)) () ())",
+        )
+        .unwrap();
+        let Item::Function(function) = &program.items[0] else {
+            panic!()
+        };
+        assert_eq!(function.parameters.len(), 17);
+        assert_eq!(function.parameters[16].ty, Type::Named("UserId".into()));
+        assert_eq!(function.return_type, Type::Unit);
+    }
+
+    #[test]
+    fn rejects_malformed_let_and_functions() {
+        assert!(parse_program("(let value u32)")
+            .unwrap_err()
+            .contains("let requires"));
+        assert!(parse_program("(fn broken ((value u32)) u32)")
+            .unwrap_err()
+            .contains("fn requires"));
+        assert!(parse_program("(unknown form)")
+            .unwrap_err()
+            .contains("unknown top-level"));
     }
 }
