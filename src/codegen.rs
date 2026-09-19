@@ -46,10 +46,7 @@ fn generate_function(function: &Function, output: &mut String) -> Result<(), Str
         add_local(&mut locals, &parameter.name, &mut next_slot)?;
     }
     for statement in &function.body {
-        if let Statement::Let { name, ty, .. } = statement {
-            ensure_integer_type(ty)?;
-            add_local(&mut locals, name, &mut next_slot)?;
-        }
+        collect_locals(statement, &mut locals, &mut next_slot)?;
     }
     let frame_size = ((next_slot.saturating_sub(1) * 8 + 15) / 16) * 16;
 
@@ -76,22 +73,33 @@ fn generate_function(function: &Function, output: &mut String) -> Result<(), Str
         output: String::new(),
     };
     for statement in &function.body {
-        match statement {
-            Statement::Let { name, value, .. } => {
-                context.expression(value)?;
-                context.output.push_str(&format!(
-                    "    mov QWORD PTR [rbp-{}], rax\n",
-                    context.locals[name] * 8
-                ));
-            }
-            Statement::Expr(expression) => context.expression(expression)?,
-        }
+        context.statement(statement)?;
     }
     if function.body.is_empty() {
         context.output.push_str("    xor eax, eax\n");
     }
     output.push_str(&context.output);
     output.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
+    Ok(())
+}
+
+fn collect_locals(
+    statement: &Statement,
+    locals: &mut HashMap<String, usize>,
+    next_slot: &mut usize,
+) -> Result<(), String> {
+    match statement {
+        Statement::Let { name, ty, .. } => {
+            ensure_integer_type(ty)?;
+            add_local(locals, name, next_slot)?;
+        }
+        Statement::While { body, .. } => {
+            for statement in body {
+                collect_locals(statement, locals, next_slot)?;
+            }
+        }
+        Statement::Assign { .. } | Statement::Expr(_) => {}
+    }
     Ok(())
 }
 
@@ -140,6 +148,41 @@ struct FunctionContext {
 }
 
 impl FunctionContext {
+    fn statement(&mut self, statement: &Statement) -> Result<(), String> {
+        match statement {
+            Statement::Let { name, value, .. } => {
+                self.expression(value)?;
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], rax\n",
+                    self.locals[name] * 8
+                ));
+            }
+            Statement::Assign { name, value } => {
+                self.expression(value)?;
+                let slot = self
+                    .locals
+                    .get(name)
+                    .ok_or_else(|| format!("unknown variable '{name}'"))?;
+                self.output
+                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+            }
+            Statement::While { condition, body } => {
+                let start = self.label("while");
+                let end = self.label("endwhile");
+                self.output.push_str(&format!("{start}:\n"));
+                self.expression(condition)?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {end}\n"));
+                for statement in body {
+                    self.statement(statement)?;
+                }
+                self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
+            }
+            Statement::Expr(expression) => self.expression(expression)?,
+        }
+        Ok(())
+    }
+
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         match expression {
             Expr::Integer(value) => self.output.push_str(&format!("    mov rax, {value}\n")),

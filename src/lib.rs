@@ -313,7 +313,20 @@ pub struct Parameter {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Statement {
-    Let { name: String, ty: Type, value: Expr },
+    Let {
+        name: String,
+        ty: Type,
+        value: Expr,
+        mutable: bool,
+    },
+    Assign {
+        name: String,
+        value: Expr,
+    },
+    While {
+        condition: Expr,
+        body: Vec<Statement>,
+    },
     Expr(Expr),
 }
 
@@ -328,7 +341,12 @@ pub struct Function {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
     Function(Function),
-    Let { name: String, ty: Type, value: Expr },
+    Let {
+        name: String,
+        ty: Type,
+        value: Expr,
+        mutable: bool,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -360,6 +378,7 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
                 name: binding.name,
                 ty: binding.ty,
                 value: binding.value,
+                mutable: binding.mutable,
             })
         }
         other => Err(format!("unknown top-level form '{other}'")),
@@ -387,16 +406,7 @@ fn parse_function(items: &[Expr]) -> Result<Function, String> {
     let return_type = parse_type(items.get(3))?;
     let mut body = Vec::with_capacity(items.len() - 4);
     for expression in &items[4..] {
-        if is_form(expression, "let") {
-            let binding = parse_let(expect_list(expression, "let statement")?)?;
-            body.push(Statement::Let {
-                name: binding.name,
-                ty: binding.ty,
-                value: binding.value,
-            });
-        } else {
-            body.push(Statement::Expr(expression.clone()));
-        }
+        body.push(parse_statement(expression)?);
     }
     Ok(Function {
         name,
@@ -410,18 +420,65 @@ struct LetBinding {
     name: String,
     ty: Type,
     value: Expr,
+    mutable: bool,
 }
 
 fn parse_let(items: &[Expr]) -> Result<LetBinding, String> {
-    if items.len() != 4 || !matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "let")
+    if !matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "let")
+        || !(items.len() == 4 || items.len() == 5)
     {
         return Err("let requires the form (let name Type value)".into());
     }
+    let mutable = matches!(items.get(1), Some(Expr::Symbol(keyword)) if keyword == "mut");
+    let name_index = if mutable { 2 } else { 1 };
+    let type_index = name_index + 1;
+    let value_index = type_index + 1;
+    if mutable && items.len() != 5 {
+        return Err("mutable let requires the form (let mut name Type value)".into());
+    }
     Ok(LetBinding {
-        name: expect_symbol(items.get(1), "binding name")?.to_owned(),
-        ty: parse_type(items.get(2))?,
-        value: items[3].clone(),
+        name: expect_symbol(items.get(name_index), "binding name")?.to_owned(),
+        ty: parse_type(items.get(type_index))?,
+        value: items[value_index].clone(),
+        mutable,
     })
+}
+
+fn parse_statement(expression: &Expr) -> Result<Statement, String> {
+    if is_form(expression, "let") {
+        let binding = parse_let(expect_list(expression, "let statement")?)?;
+        return Ok(Statement::Let {
+            name: binding.name,
+            ty: binding.ty,
+            value: binding.value,
+            mutable: binding.mutable,
+        });
+    }
+    if is_form(expression, "set") {
+        let items = expect_list(expression, "assignment")?;
+        if items.len() != 3 {
+            return Err("set requires the form (set name value)".into());
+        }
+        return Ok(Statement::Assign {
+            name: expect_symbol(items.get(1), "assignment name")?.to_owned(),
+            value: items[2].clone(),
+        });
+    }
+    if is_form(expression, "while") {
+        let items = expect_list(expression, "while statement")?;
+        if items.len() < 2 {
+            return Err("while requires a condition and body".into());
+        }
+        let mut body = Vec::with_capacity(items.len() - 2);
+        for expression in &items[2..] {
+            body.push(parse_statement(expression)?);
+        }
+        return Ok(Statement::While {
+            condition: items[1].clone(),
+            body,
+        });
+    }
+    Ok(Statement::Expr(expression.clone()))
 }
 
 fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
@@ -677,5 +734,21 @@ mod tests {
         assert!(check_types(&unknown)
             .unwrap_err()
             .contains("unknown variable"));
+    }
+
+    #[test]
+    fn parses_mutable_while_statements() {
+        let program =
+            parse_program("(fn count () u64 (let mut n u64 0) (while (< n 3) (set n (+ n 1))) n)")
+                .unwrap();
+        let Item::Function(function) = &program.items[0] else {
+            panic!()
+        };
+        assert!(matches!(
+            function.body[0],
+            Statement::Let { mutable: true, .. }
+        ));
+        assert!(matches!(function.body[1], Statement::While { .. }));
+        assert!(check_types(&program).is_ok());
     }
 }

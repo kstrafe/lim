@@ -49,6 +49,18 @@ well as named types. Local variables use explicit types:
   total)
 ```
 
+Mutable locals, assignment, and `while` are also supported:
+
+```lisp
+(fn sum ((n u64)) u64
+  (let mut i u64 0)
+  (let mut total u64 0)
+  (while (< i n)
+    (set total (+ total i))
+    (set i (+ i 1)))
+  total)
+```
+
 Top-level `let` declarations use the same form. Function bodies are currently
 represented as statements, while their expressions remain generic S-expressions
 for the type checker and later compiler stages.

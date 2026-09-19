@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{Expr, Function, Item, Program, Statement, Type};
 
@@ -34,7 +34,9 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     for item in &program.items {
         match item {
             Item::Function(function) => check_function(function, &functions)?,
-            Item::Let { name, ty, value } => {
+            Item::Let {
+                name, ty, value, ..
+            } => {
                 let actual = expression(value, &HashMap::new(), &functions, Some(ty))?;
                 require_type(&actual, ty, &format!("top-level let '{name}'"))?;
             }
@@ -48,6 +50,7 @@ fn check_function(
     functions: &HashMap<String, Signature>,
 ) -> Result<(), String> {
     let mut variables = HashMap::new();
+    let mut mutable = HashSet::new();
     for parameter in &function.parameters {
         if variables
             .insert(parameter.name.clone(), parameter.ty.clone())
@@ -61,27 +64,61 @@ fn check_function(
     }
     let mut last_type = Type::Unit;
     for statement in &function.body {
-        match statement {
-            Statement::Let { name, ty, value } => {
-                if variables.contains_key(name) {
-                    return Err(format!(
-                        "duplicate local '{name}' in function '{}'",
-                        function.name
-                    ));
-                }
-                let actual = expression(value, &variables, functions, Some(ty))?;
-                require_type(&actual, ty, &format!("let '{name}'"))?;
-                variables.insert(name.clone(), ty.clone());
-                last_type = Type::Unit;
-            }
-            Statement::Expr(value) => last_type = expression(value, &variables, functions, None)?,
-        }
+        last_type = statement_type(statement, &mut variables, &mut mutable, functions)?;
     }
     require_type(
         &last_type,
         &function.return_type,
         &format!("return of function '{}'", function.name),
     )
+}
+
+fn statement_type(
+    statement: &Statement,
+    variables: &mut HashMap<String, Type>,
+    mutable: &mut HashSet<String>,
+    functions: &HashMap<String, Signature>,
+) -> Result<Type, String> {
+    match statement {
+        Statement::Let {
+            name,
+            ty,
+            value,
+            mutable: is_mutable,
+        } => {
+            if variables.contains_key(name) {
+                return Err(format!("duplicate local '{name}'"));
+            }
+            let actual = expression(value, variables, functions, Some(ty))?;
+            require_type(&actual, ty, &format!("let '{name}'"))?;
+            variables.insert(name.clone(), ty.clone());
+            if *is_mutable {
+                mutable.insert(name.clone());
+            }
+            Ok(Type::Unit)
+        }
+        Statement::Assign { name, value } => {
+            let ty = variables
+                .get(name)
+                .ok_or_else(|| format!("unknown variable '{name}'"))?
+                .clone();
+            if !mutable.contains(name) {
+                return Err(format!("cannot assign to immutable variable '{name}'"));
+            }
+            let actual = expression(value, variables, functions, Some(&ty))?;
+            require_type(&actual, &ty, &format!("assignment to '{name}'"))?;
+            Ok(Type::Unit)
+        }
+        Statement::While { condition, body } => {
+            let actual = expression(condition, variables, functions, Some(&Type::Bool))?;
+            require_type(&actual, &Type::Bool, "while condition")?;
+            for nested in body {
+                statement_type(nested, variables, mutable, functions)?;
+            }
+            Ok(Type::Unit)
+        }
+        Statement::Expr(value) => expression(value, variables, functions, None),
+    }
 }
 
 fn expression(
