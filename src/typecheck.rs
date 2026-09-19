@@ -63,8 +63,16 @@ fn check_function(
         }
     }
     let mut last_type = Type::Unit;
-    for statement in &function.body {
-        last_type = statement_type(statement, &mut variables, &mut mutable, functions)?;
+    for (index, statement) in function.body.iter().enumerate() {
+        last_type = if index + 1 == function.body.len() {
+            if let Statement::Expr(value) = statement {
+                expression(value, &variables, functions, Some(&function.return_type))?
+            } else {
+                statement_type(statement, &mut variables, &mut mutable, functions)?
+            }
+        } else {
+            statement_type(statement, &mut variables, &mut mutable, functions)?
+        };
     }
     require_type(
         &last_type,
@@ -128,10 +136,16 @@ fn expression(
     expected: Option<&Type>,
 ) -> Result<Type, String> {
     match expression {
-        Expr::Integer(_) => Ok(expected
-            .filter(|ty| is_integer(ty))
-            .cloned()
-            .unwrap_or(Type::I64)),
+        Expr::Integer(value) => {
+            let ty = expected
+                .filter(|ty| is_integer(ty))
+                .cloned()
+                .unwrap_or(Type::I64);
+            if !fits_integer(*value, &ty) {
+                return Err(format!("integer literal {value} does not fit in {ty:?}"));
+            }
+            Ok(ty)
+        }
         Expr::Symbol(name) if name == "true" || name == "false" => Ok(Type::Bool),
         Expr::Symbol(name) => variables
             .get(name)
@@ -252,4 +266,23 @@ fn is_integer(ty: &Type) -> bool {
             | Type::U128
             | Type::Usize
     )
+}
+
+fn fits_integer(value: i128, ty: &Type) -> bool {
+    let (minimum, maximum) = match ty {
+        Type::I8 => (i8::MIN as i128, i8::MAX as i128),
+        Type::I16 => (i16::MIN as i128, i16::MAX as i128),
+        Type::I32 => (i32::MIN as i128, i32::MAX as i128),
+        Type::I64 => (i64::MIN as i128, i64::MAX as i128),
+        Type::I128 => (i128::MIN, i128::MAX),
+        Type::Isize => (isize::MIN as i128, isize::MAX as i128),
+        Type::U8 => (0, u8::MAX as i128),
+        Type::U16 => (0, u16::MAX as i128),
+        Type::U32 => (0, u32::MAX as i128),
+        Type::U64 => (0, u64::MAX as i128),
+        Type::U128 => (0, i128::MAX),
+        Type::Usize => (0, usize::MAX as i128),
+        _ => return false,
+    };
+    (minimum..=maximum).contains(&value)
 }

@@ -38,7 +38,7 @@ pub enum TokenKind {
     Quote,
     At,
     Symbol(String),
-    Integer(i64),
+    Integer(i128),
     String(String),
 }
 
@@ -157,7 +157,7 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
         let text = std::str::from_utf8(&self.source[start..self.offset]).unwrap();
-        let kind = match text.parse::<i64>() {
+        let kind = match text.parse::<i128>() {
             Ok(value) => TokenKind::Integer(value),
             Err(_) => TokenKind::Symbol(text.to_owned()),
         };
@@ -219,7 +219,7 @@ impl<'a> Lexer<'a> {
 pub enum Expr {
     List(Vec<Expr>),
     Symbol(String),
-    Integer(i64),
+    Integer(i128),
     String(String),
     /// The generated-code sigil in source, e.g. `(@optional T T?)`.
     At,
@@ -750,5 +750,15 @@ mod tests {
         ));
         assert!(matches!(function.body[1], Statement::While { .. }));
         assert!(check_types(&program).is_ok());
+    }
+
+    #[test]
+    fn accepts_u64_literals_above_i64_range() {
+        let program = parse_program("(fn main () u64 18446744073709551615)").unwrap();
+        assert!(check_types(&program).is_ok());
+        let too_large = parse_program("(fn main () u32 4294967296)").unwrap();
+        assert!(check_types(&too_large)
+            .unwrap_err()
+            .contains("does not fit"));
     }
 }
