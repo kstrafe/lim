@@ -68,10 +68,24 @@ fn check_function(
             if let Statement::Expr(value) = statement {
                 expression(value, &variables, functions, Some(&function.return_type))?
             } else {
-                statement_type(statement, &mut variables, &mut mutable, functions, false)?
+                statement_type(
+                    statement,
+                    &mut variables,
+                    &mut mutable,
+                    functions,
+                    &function.return_type,
+                    false,
+                )?
             }
         } else {
-            statement_type(statement, &mut variables, &mut mutable, functions, false)?
+            statement_type(
+                statement,
+                &mut variables,
+                &mut mutable,
+                functions,
+                &function.return_type,
+                false,
+            )?
         };
     }
     require_type(
@@ -86,6 +100,7 @@ fn statement_type(
     variables: &mut HashMap<String, Type>,
     mutable: &mut HashSet<String>,
     functions: &HashMap<String, Signature>,
+    return_type: &Type,
     in_loop: bool,
 ) -> Result<Type, String> {
     match statement {
@@ -122,7 +137,7 @@ fn statement_type(
             let actual = expression(condition, variables, functions, Some(&Type::Bool))?;
             require_type(&actual, &Type::Bool, "while condition")?;
             for nested in body {
-                statement_type(nested, variables, mutable, functions, true)?;
+                statement_type(nested, variables, mutable, functions, return_type, true)?;
             }
             Ok(Type::Unit)
         }
@@ -132,6 +147,14 @@ fn statement_type(
             } else {
                 Err("break or continue used outside a loop".into())
             }
+        }
+        Statement::Return(value) => {
+            let actual = match value {
+                Some(value) => expression(value, variables, functions, Some(return_type))?,
+                None => Type::Unit,
+            };
+            require_type(&actual, return_type, "return statement")?;
+            Ok(return_type.clone())
         }
         Statement::Expr(value) => expression(value, variables, functions, None),
     }

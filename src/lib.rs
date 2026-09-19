@@ -329,6 +329,7 @@ pub enum Statement {
     },
     Break,
     Continue,
+    Return(Option<Expr>),
     Expr(Expr),
 }
 
@@ -491,6 +492,13 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             return Err("continue takes no arguments".into());
         }
         return Ok(Statement::Continue);
+    }
+    if is_form(expression, "return") {
+        let items = expect_list(expression, "return statement")?;
+        if items.len() > 2 {
+            return Err("return takes zero or one expression".into());
+        }
+        return Ok(Statement::Return(items.get(1).cloned()));
     }
     Ok(Statement::Expr(expression.clone()))
 }
@@ -787,5 +795,14 @@ mod tests {
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("outside a loop"));
+    }
+
+    #[test]
+    fn checks_and_lowers_early_return() {
+        let program = parse_program("(fn main () u64 (return 42) 0)").unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("mov rax, 42"));
+        assert!(assembly.contains("jmp .Lreturn_main"));
     }
 }

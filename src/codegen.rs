@@ -66,11 +66,13 @@ fn generate_function(function: &Function, output: &mut String) -> Result<(), Str
         ));
     }
 
+    let return_label = format!(".Lreturn_{}", function.name);
     let mut context = FunctionContext {
         locals,
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
+        return_label: return_label.clone(),
         output: String::new(),
     };
     for statement in &function.body {
@@ -80,6 +82,7 @@ fn generate_function(function: &Function, output: &mut String) -> Result<(), Str
         context.output.push_str("    xor eax, eax\n");
     }
     output.push_str(&context.output);
+    output.push_str(&format!("{return_label}:\n"));
     output.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
     Ok(())
 }
@@ -99,7 +102,11 @@ fn collect_locals(
                 collect_locals(statement, locals, next_slot)?;
             }
         }
-        Statement::Assign { .. } | Statement::Break | Statement::Continue | Statement::Expr(_) => {}
+        Statement::Assign { .. }
+        | Statement::Break
+        | Statement::Continue
+        | Statement::Return(_)
+        | Statement::Expr(_) => {}
     }
     Ok(())
 }
@@ -146,6 +153,7 @@ struct FunctionContext {
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
+    return_label: String,
     output: String,
 }
 
@@ -193,6 +201,15 @@ impl FunctionContext {
                     return Err("continue used outside a loop".into());
                 };
                 self.output.push_str(&format!("    jmp {start}\n"));
+            }
+            Statement::Return(value) => {
+                if let Some(value) = value {
+                    self.expression(value)?;
+                } else {
+                    self.output.push_str("    xor eax, eax\n");
+                }
+                self.output
+                    .push_str(&format!("    jmp {}\n", self.return_label));
             }
             Statement::Expr(expression) => self.expression(expression)?,
         }
