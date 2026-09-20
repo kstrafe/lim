@@ -3557,6 +3557,21 @@ mod tests {
     }
 
     #[test]
+    fn reads_nested_enum_statics() {
+        let program = parse_program(
+            "(#enum Boxed ((Wrapped (#tuple u64 u64)) Empty)) \
+             (#static Value Boxed (Wrapped (#tuple (#tuple u64 u64) 10 22))) \
+             (#fn main () u64 \
+               (#return (#match Value \
+                 ((Wrapped (#tuple left right)) (#u64.+.wrap left right)) \
+                 (Empty 0))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

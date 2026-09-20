@@ -2679,14 +2679,23 @@ fn constant_aggregate_words(
             if items.len() - 1 != variant.fields.len() {
                 return Err("static enum initializer has the wrong payload count".into());
             }
-            let payload_count = variants
+            let payload_words = variants
                 .iter()
-                .map(|candidate| candidate.fields.len())
+                .map(|candidate| {
+                    candidate
+                        .fields
+                        .iter()
+                        .map(|field| value_word_count(field, structs, enums))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map(|words| words.into_iter().sum::<usize>())
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
                 .max()
                 .unwrap_or(0);
             let mut words = vec![variant_index as u64];
             for (field, value) in variant.fields.iter().zip(&items[1..]) {
-                let field_words = constant_aggregate_words(
+                words.extend(constant_aggregate_words(
                     value,
                     field,
                     structs,
@@ -2696,13 +2705,9 @@ fn constant_aggregate_words(
                     initializers,
                     evaluating_constants,
                     evaluating_float_constants,
-                )?;
-                if field_words.len() != 1 {
-                    return Err("static enum payloads must be scalar".into());
-                }
-                words.push(field_words[0]);
+                )?);
             }
-            words.resize(payload_count + 1, 0);
+            words.resize(payload_words + 1, 0);
             Ok(words)
         }
         _ => Ok(vec![scalar_word(expression)?]),
@@ -3420,7 +3425,8 @@ impl FunctionContext {
                     ) {
                         let words =
                             value_word_count(&self.return_type, &self.structs, &self.enums)?;
-                        for (index, register) in VALUE_REGISTERS[..words].iter().enumerate() {
+                        for index in (0..words).rev() {
+                            let register = VALUE_REGISTERS[index];
                             self.load_global_word(name, index)?;
                             self.output.push_str(&format!("    mov {register}, rax\n"));
                         }
@@ -3463,7 +3469,8 @@ impl FunctionContext {
                 if words > VALUE_REGISTERS.len() {
                     return Err("native struct return has too many fields".into());
                 }
-                for (index, register) in VALUE_REGISTERS[..words].iter().enumerate() {
+                for index in (0..words).rev() {
+                    let register = VALUE_REGISTERS[index];
                     self.load_global_word(name, index)?;
                     self.output.push_str(&format!("    mov {register}, rax\n"));
                 }
@@ -3522,7 +3529,9 @@ impl FunctionContext {
                 if fields.len() > VALUE_REGISTERS.len() {
                     return Err("native tuple return has too many fields".into());
                 }
-                for (index, register) in VALUE_REGISTERS[..fields.len()].iter().enumerate() {
+                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                for index in (0..words).rev() {
+                    let register = VALUE_REGISTERS[index];
                     self.load_global_word(name, index)?;
                     self.output.push_str(&format!("    mov {register}, rax\n"));
                 }
@@ -3583,7 +3592,9 @@ impl FunctionContext {
                 if length > VALUE_REGISTERS.len() {
                     return Err("native array return has too many elements".into());
                 }
-                for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
+                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                for index in (0..words).rev() {
+                    let register = VALUE_REGISTERS[index];
                     self.load_global_word(name, index)?;
                     self.output.push_str(&format!("    mov {register}, rax\n"));
                 }
@@ -4553,7 +4564,8 @@ impl FunctionContext {
                     && matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) =>
             {
                 let words = 1 + payload_count;
-                for (index, register) in VALUE_REGISTERS[..words].iter().enumerate() {
+                for index in (0..words).rev() {
+                    let register = VALUE_REGISTERS[index];
                     self.load_global_word(name, index)?;
                     self.output.push_str(&format!("    mov {register}, rax\n"));
                 }
