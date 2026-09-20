@@ -5,8 +5,20 @@
 (#static Pair (#tuple u64 f64)
   (#tuple (#tuple u64 f64) 4 2.5))
 
-(#fn main () u64
+(#fn take ((values (#array u64 3)) (point Point)) u64
   (#return
     (#u64.+.wrap
-      (#index Values 1)
-      (#u64.+.wrap (#get Origin y) (#get Pair 0)))))
+      (#index values 1)
+      (#get point y))))
+
+(#fn return-values () (#array u64 3)
+  (#return Values))
+
+(#fn main () u64
+  (#let copied (#array u64 3) Values)
+  (#return
+    (#u64.+.wrap
+      (#index copied 0)
+      (#u64.+.wrap
+        (#index (return-values) 2)
+        (take Values Origin)))))

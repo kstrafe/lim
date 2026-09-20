@@ -2681,6 +2681,17 @@ impl FunctionContext {
             return Ok(());
         };
         if let Expr::Symbol(name) = value {
+            if matches!(self.global_types.get(name), Some(Type::Named(global_name)) if global_name == struct_name)
+            {
+                if fields.len() > VALUE_REGISTERS.len() {
+                    return Err("native struct return has too many fields".into());
+                }
+                for (index, register) in VALUE_REGISTERS[..fields.len()].iter().enumerate() {
+                    self.load_global_word(name, index)?;
+                    self.output.push_str(&format!("    mov {register}, rax\n"));
+                }
+                return Ok(());
+            }
             let Storage::Struct(slots) = self
                 .locals
                 .get(name)
@@ -2724,6 +2735,17 @@ impl FunctionContext {
 
     fn return_tuple_value(&mut self, fields: &[Type], value: &Expr) -> Result<(), String> {
         if let Expr::Symbol(name) = value {
+            if matches!(self.global_types.get(name), Some(Type::Tuple(global_fields)) if global_fields == fields)
+            {
+                if fields.len() > VALUE_REGISTERS.len() {
+                    return Err("native tuple return has too many fields".into());
+                }
+                for (index, register) in VALUE_REGISTERS[..fields.len()].iter().enumerate() {
+                    self.load_global_word(name, index)?;
+                    self.output.push_str(&format!("    mov {register}, rax\n"));
+                }
+                return Ok(());
+            }
             let Storage::Tuple(slots) = self
                 .locals
                 .get(name)
@@ -2771,6 +2793,19 @@ impl FunctionContext {
 
     fn return_array_value(&mut self, length: usize, value: &Expr) -> Result<(), String> {
         if let Expr::Symbol(name) = value {
+            if matches!(
+                self.global_types.get(name),
+                Some(Type::Array(_, global_length)) if *global_length == length
+            ) {
+                if length > VALUE_REGISTERS.len() {
+                    return Err("native array return has too many elements".into());
+                }
+                for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
+                    self.load_global_word(name, index)?;
+                    self.output.push_str(&format!("    mov {register}, rax\n"));
+                }
+                return Ok(());
+            }
             let Storage::Array {
                 base,
                 length: local_length,
@@ -2879,6 +2914,19 @@ impl FunctionContext {
         let Some(Storage::Struct(slots)) = self.locals.get(name).cloned() else {
             return Err(format!("'{name}' is not a struct"));
         };
+        if let Expr::Symbol(source) = value {
+            if matches!(
+                self.global_types.get(source),
+                Some(Type::Named(global_name)) if global_name == struct_name
+            ) {
+                for (index, (_, slot)) in slots.iter().enumerate() {
+                    self.load_global_word(source, index)?;
+                    self.output
+                        .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+                }
+                return Ok(());
+            }
+        }
         if !matches!(value, Expr::List(_)) {
             self.expression(value)?;
             if let Some((_, slot)) = slots.first() {
@@ -3020,6 +3068,17 @@ impl FunctionContext {
             Some(Type::Tuple(fields)) => fields,
             _ => return Err(format!("'{name}' is not a tuple")),
         };
+        if let Expr::Symbol(source) = value {
+            if matches!(self.global_types.get(source), Some(Type::Tuple(global_fields)) if *global_fields == fields)
+            {
+                for (index, slot) in slots.iter().enumerate() {
+                    self.load_global_word(source, index)?;
+                    self.output
+                        .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+                }
+                return Ok(());
+            }
+        }
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "tuple") {
                 let value_start = if parse_type(items.get(1))
@@ -3059,6 +3118,21 @@ impl FunctionContext {
             return Err(format!("'{name}' is not an array"));
         };
         let (base, length) = (*base, *length);
+        if let Expr::Symbol(source) = value {
+            if matches!(
+                self.global_types.get(source),
+                Some(Type::Array(_, global_length)) if *global_length == length
+            ) {
+                for index in 0..length {
+                    self.load_global_word(source, index)?;
+                    self.output.push_str(&format!(
+                        "    mov QWORD PTR [rbp-{}], rax\n",
+                        (base + index) * 8
+                    ));
+                }
+                return Ok(());
+            }
+        }
         if let Expr::String(string) = value {
             let characters = string.chars().collect::<Vec<_>>();
             if characters.len() != length {
@@ -5228,6 +5302,21 @@ impl FunctionContext {
                 return Ok(());
             }
             if let Expr::Symbol(local) = value {
+                if matches!(
+                    self.global_types.get(local),
+                    Some(Type::Array(_, global_length)) if *global_length == *length
+                ) {
+                    let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                        Box::new((0..*length).rev())
+                    } else {
+                        Box::new(0..*length)
+                    };
+                    for index in indices {
+                        self.load_global_word(local, index)?;
+                        self.push_rax();
+                    }
+                    return Ok(());
+                }
                 let Storage::Array {
                     base,
                     length: local_length,
@@ -5321,6 +5410,21 @@ impl FunctionContext {
         }
         if let Type::Tuple(fields) = ty {
             let slots = if let Expr::Symbol(local) = value {
+                if matches!(
+                    self.global_types.get(local),
+                    Some(Type::Tuple(global_fields)) if global_fields == fields
+                ) {
+                    let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                        Box::new((0..fields.len()).rev())
+                    } else {
+                        Box::new(0..fields.len())
+                    };
+                    for index in indices {
+                        self.load_global_word(local, index)?;
+                        self.push_rax();
+                    }
+                    return Ok(());
+                }
                 let Storage::Tuple(slots) = self
                     .locals
                     .get(local)
@@ -5387,6 +5491,21 @@ impl FunctionContext {
         if let Type::Named(name) = ty {
             if let Some(fields) = self.structs.get(name).cloned() {
                 if let Expr::Symbol(local) = value {
+                    if matches!(
+                        self.global_types.get(local),
+                        Some(Type::Named(global_name)) if global_name == name
+                    ) {
+                        let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                            Box::new((0..fields.len()).rev())
+                        } else {
+                            Box::new(0..fields.len())
+                        };
+                        for index in indices {
+                            self.load_global_word(local, index)?;
+                            self.push_rax();
+                        }
+                        return Ok(());
+                    }
                     let Storage::Struct(slots) = self
                         .locals
                         .get(local)
@@ -5500,6 +5619,25 @@ impl FunctionContext {
     fn push_rax(&mut self) {
         self.output.push_str("    push rax\n");
         self.stack_depth += 1;
+    }
+
+    fn load_global_word(&mut self, name: &str, index: usize) -> Result<(), String> {
+        if !matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) {
+            return Err(format!("global '{name}' is not aggregate storage"));
+        }
+        let offset = index * 8;
+        if offset == 0 {
+            self.output.push_str(&format!(
+                "    mov rax, QWORD PTR [rip+{}]\n",
+                asm_symbol(name)
+            ));
+        } else {
+            self.output.push_str(&format!(
+                "    mov rax, QWORD PTR [rip+{}+{offset}]\n",
+                asm_symbol(name)
+            ));
+        }
+        Ok(())
     }
 
     fn label(&mut self, prefix: &str) -> String {

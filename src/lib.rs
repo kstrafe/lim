@@ -2335,8 +2335,13 @@ mod tests {
              (#static Values (#array u64 3) (#array (#array u64 3) 10 20 30)) \
              (#static Origin Point (Point 7 9)) \
              (#static Pair (#tuple u64 f64) (#tuple (#tuple u64 f64) 4 2.5)) \
+             (#fn take ((values (#array u64 3)) (point Point)) u64 \
+               (#return (#u64.+.wrap (#index values 1) (#get point y)))) \
+             (#fn return-values () (#array u64 3) (#return Values)) \
              (#fn main () u64 \
-               (#return (#u64.+.wrap (#index Values 1) (#get Pair 0))))",
+               (#let copied (#array u64 3) Values) \
+               (#return (#u64.+.wrap (#index copied 0) \
+                 (#u64.+.wrap (#index (return-values) 2) (take Values Origin)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
