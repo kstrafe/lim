@@ -1337,6 +1337,18 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_integer_width_after_arithmetic() {
+        let program = parse_program(
+            "(fn main () u64 (let value u8 (+ (as 255 u8) 1)) (if (== value 0) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap()
+            .contains("movzx eax, al"));
+    }
+
+    #[test]
     fn lowers_unit_functions_and_calls() {
         let program = parse_program("(fn noop () () ()) (fn main () u64 (noop) 42)").unwrap();
         assert!(check_types(&program).is_ok());

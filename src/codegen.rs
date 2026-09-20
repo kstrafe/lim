@@ -844,6 +844,10 @@ fn ensure_integer_type(ty: &Type) -> Result<(), String> {
     }
 }
 
+fn is_narrow_integer(ty: &Type) -> bool {
+    ensure_integer_type(ty).is_ok()
+}
+
 fn is_unsigned_type(ty: &Type) -> bool {
     matches!(
         ty,
@@ -1041,6 +1045,9 @@ impl FunctionContext {
                         self.expression_as_float(value, &ty)?;
                     } else {
                         self.expression(value)?;
+                        if is_narrow_integer(&ty) {
+                            self.normalize_integer(&ty)?;
+                        }
                     }
                     let slot = scalar_slot(&self.locals, name) * 8;
                     if matches!(ty, Type::F32) {
@@ -1063,6 +1070,9 @@ impl FunctionContext {
                     self.expression_as_float(value, ty)?;
                 } else {
                     self.expression(value)?;
+                    if let Some(ty) = expected.as_ref().filter(|ty| is_narrow_integer(ty)) {
+                        self.normalize_integer(ty)?;
+                    }
                 }
                 let storage = self
                     .locals
@@ -1290,6 +1300,9 @@ impl FunctionContext {
             ));
         } else {
             self.expression(value)?;
+            if is_narrow_integer(ty) {
+                self.normalize_integer(ty)?;
+            }
             self.output
                 .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
         }
@@ -2320,6 +2333,11 @@ impl FunctionContext {
         } else {
             self.expression(&items[1])?;
             self.output.push_str("    neg rax\n");
+            if let Some(ty) = self.expression_type(&items[1]) {
+                if is_narrow_integer(&ty) {
+                    self.normalize_integer(&ty)?;
+                }
+            }
         }
         Ok(())
     }
@@ -2508,6 +2526,11 @@ impl FunctionContext {
             self.output.push_str("    xor eax, 1\n");
         } else {
             self.output.push_str("    not rax\n");
+            if let Some(ty) = self.expression_type(&items[1]) {
+                if is_narrow_integer(&ty) {
+                    self.normalize_integer(&ty)?;
+                }
+            }
         }
         Ok(())
     }
@@ -2591,6 +2614,11 @@ impl FunctionContext {
                 }
             }
             _ => unreachable!(),
+        }
+        if let Some(ty) = self.expression_type(&items[1]) {
+            if is_narrow_integer(&ty) {
+                self.normalize_integer(&ty)?;
+            }
         }
         Ok(())
     }

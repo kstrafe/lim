@@ -73,6 +73,10 @@ scalar types:
 Integer casts also support the two-word `i128` and `u128` representations,
 including sign extension when widening signed values.
 
+Integer arithmetic normalizes results to the operand width, so operations on
+`u8`, `u16`, `u32`, and the signed narrow types have Rust-style low-width
+semantics.
+
 Native `f32` and `f64` locals, homogeneous parameters, mixed scalar parameters,
 arithmetic, comparisons, and returns use SSE registers where appropriate.
 
