@@ -147,9 +147,6 @@ fn generate_function(
         .parameters
         .iter()
         .any(|parameter| !matches!(resolve_type(&parameter.ty, aliases), Ok(Type::F64)));
-    if has_float_parameter && has_integer_parameter {
-        return Err("native backend does not support mixed integer/floating parameters yet".into());
-    }
 
     let mut locals = HashMap::new();
     let mut next_slot = 1usize;
@@ -195,11 +192,60 @@ fn generate_function(
         output.push_str(&format!("    sub rsp, {frame_size}\n"));
     }
     let all_float_parameters = has_float_parameter && !has_integer_parameter;
+    let mixed_parameters = has_float_parameter && has_integer_parameter;
     if all_float_parameters && function.parameters.len() > FLOAT_ARGUMENT_REGISTERS.len() {
         return Err("native backend supports at most eight f64 parameters".into());
     }
+    if mixed_parameters {
+        let mut integer_index = 0usize;
+        let mut float_index = 0usize;
+        let mut stack_word = 0usize;
+        for parameter in &function.parameters {
+            let ty = resolve_type(&parameter.ty, aliases)?;
+            if value_word_count(&ty, structs, enums)? != 1 {
+                return Err(
+                    "native backend does not support aggregate values in mixed ABI calls".into(),
+                );
+            }
+            let slot = local_slots(&locals, &parameter.name)?[0];
+            if matches!(ty, Type::F64) {
+                if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
+                    output.push_str(&format!(
+                        "    movq QWORD PTR [rbp-{}], {}\n",
+                        slot * 8,
+                        FLOAT_ARGUMENT_REGISTERS[float_index]
+                    ));
+                    float_index += 1;
+                } else {
+                    let offset = 16 + stack_word * 8;
+                    output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp+{offset}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                        slot * 8
+                    ));
+                    stack_word += 1;
+                }
+            } else if integer_index < ARGUMENT_REGISTERS.len() {
+                output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {}\n",
+                    slot * 8,
+                    ARGUMENT_REGISTERS[integer_index]
+                ));
+                integer_index += 1;
+            } else {
+                let offset = 16 + stack_word * 8;
+                output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp+{offset}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                    slot * 8
+                ));
+                stack_word += 1;
+            }
+        }
+    }
     let mut incoming_word = 0usize;
     for parameter in &function.parameters {
+        if mixed_parameters {
+            continue;
+        }
         let ty = resolve_type(&parameter.ty, aliases)?;
         let words = value_word_count(&ty, structs, enums)?;
         let slots = local_slots(&locals, &parameter.name)?;
@@ -241,6 +287,7 @@ fn generate_function(
         local_types,
         return_type,
         functions: functions.clone(),
+        function_name: function.name.clone(),
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
@@ -741,6 +788,7 @@ struct FunctionContext {
     local_types: HashMap<String, Type>,
     return_type: Type,
     functions: HashMap<String, FunctionAbi>,
+    function_name: String,
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
@@ -1774,7 +1822,7 @@ impl FunctionContext {
             return self.call_float(name, arguments);
         }
         if abi.parameters.iter().any(|ty| matches!(ty, Type::F64)) {
-            return Err("native backend does not support mixed integer/floating calls yet".into());
+            return self.call_mixed(name, arguments, &abi.parameters);
         }
         let word_count = abi
             .parameters
@@ -1847,6 +1895,65 @@ impl FunctionContext {
             self.stack_depth -= 1;
             self.output.push_str(&format!("    movq {register}, rax\n"));
         }
+        let needs_padding = self.stack_depth % 2 == 1;
+        if needs_padding {
+            self.output.push_str("    sub rsp, 8\n");
+        }
+        self.output.push_str(&format!("    call {name}\n"));
+        if needs_padding {
+            self.output.push_str("    add rsp, 8\n");
+        }
+        Ok(())
+    }
+
+    fn call_mixed(
+        &mut self,
+        name: &str,
+        arguments: &[Expr],
+        parameters: &[Type],
+    ) -> Result<(), String> {
+        if arguments.len() > ARGUMENT_REGISTERS.len() {
+            return Err("native backend supports mixed calls with at most six arguments".into());
+        }
+        for ty in parameters {
+            if value_word_count(ty, &self.structs, &self.enums)? != 1 {
+                return Err(
+                    "native backend does not support aggregate values in mixed calls".into(),
+                );
+            }
+        }
+        for (argument, ty) in arguments.iter().zip(parameters) {
+            if matches!(ty, Type::F64) {
+                self.expression(argument)?;
+                self.output.push_str("    movq rax, xmm0\n    push rax\n");
+            } else {
+                self.expression(argument)?;
+                self.output.push_str("    push rax\n");
+            }
+            self.stack_depth += 1;
+        }
+        let mut integer_index = 0usize;
+        let mut float_index = 0usize;
+        let total = arguments.len();
+        for (index, ty) in parameters.iter().enumerate() {
+            let offset = (total - 1 - index) * 8;
+            if matches!(ty, Type::F64) {
+                self.output.push_str(&format!(
+                    "    movq xmm{}, QWORD PTR [rsp+{offset}]\n",
+                    float_index
+                ));
+                float_index += 1;
+            } else {
+                self.output.push_str(&format!(
+                    "    mov {}, QWORD PTR [rsp+{offset}]\n",
+                    ARGUMENT_REGISTERS[integer_index]
+                ));
+                integer_index += 1;
+            }
+        }
+        self.output
+            .push_str(&format!("    add rsp, {}\n", total * 8));
+        self.stack_depth -= total;
         let needs_padding = self.stack_depth % 2 == 1;
         if needs_padding {
             self.output.push_str("    sub rsp, 8\n");
@@ -2027,7 +2134,7 @@ impl FunctionContext {
     }
 
     fn label(&mut self, prefix: &str) -> String {
-        let label = format!(".L{prefix}_{}", self.labels);
+        let label = format!(".L{prefix}_{}_{}", self.function_name, self.labels);
         self.labels += 1;
         label
     }

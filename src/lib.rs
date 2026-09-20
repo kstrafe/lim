@@ -1163,6 +1163,12 @@ mod tests {
         )
         .unwrap();
         assert!(generate_assembly(&called).unwrap().contains("call add"));
+        let mixed = parse_program(
+            "(fn choose ((value u64) (scale f64)) u64 (if (> scale 1.0) value 0)) (fn main () u64 (choose 42 2.0))",
+        )
+        .unwrap();
+        assert!(check_types(&mixed).is_ok());
+        assert!(generate_assembly(&mixed).unwrap().contains("movq xmm0"));
     }
 
     #[test]
