@@ -3289,6 +3289,19 @@ mod tests {
     }
 
     #[test]
+    fn lowers_array_match_patterns() {
+        let program = parse_program(
+            "(#fn classify ((value (#array u64 3))) u64 \
+              (#return (#match value ((#array 10 middle _) middle) (_ 0)))) \
+             (#fn main () u64 \
+              (#return (classify (#array (#array u64 3) 10 32 12))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

@@ -305,6 +305,9 @@ Fixed arrays support the same explicit form:
       (#array (#array u64 3) 10 20 12))
 ```
 
+Array values can also be matched with literal, binding, and wildcard
+patterns, for example `((#array 10 middle _) middle)`.
+
 Payload-free enums use integer discriminants and support exhaustive `match`:
 
 ```lisp

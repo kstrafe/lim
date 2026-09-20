@@ -1221,6 +1221,12 @@ fn list_expression(
                     expected,
                 );
             }
+            if matches!(scrutinee, Type::Array(_, _)) {
+                return check_array_match(
+                    items, &scrutinee, variables, functions, structs, enums, mutable, aliases,
+                    expected,
+                );
+            }
             if let Type::Named(struct_name) = &scrutinee {
                 if structs.contains_key(struct_name) {
                     return check_struct_match(
@@ -1702,6 +1708,69 @@ fn check_tuple_pattern(
         Expr::Char(_) if matches!(ty, Type::Char) => Ok(()),
         _ => Err("tuple field pattern does not match its field type".into()),
     }
+}
+
+fn check_array_match(
+    items: &[Expr],
+    scrutinee: &Type,
+    variables: &HashMap<String, Type>,
+    functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    mutable: &HashSet<String>,
+    aliases: &HashMap<String, Type>,
+    expected: Option<&Type>,
+) -> Result<Type, String> {
+    let Type::Array(element, length) = scrutinee else {
+        unreachable!()
+    };
+    let fields = vec![element.as_ref().clone(); *length];
+    let mut wildcard = false;
+    let mut result_type = None;
+    for arm in &items[2..] {
+        let arm = match arm {
+            Expr::List(arm) if arm.len() == 2 => arm,
+            _ => return Err("match arms must have the form (pattern expression)".into()),
+        };
+        let mut arm_variables = variables.clone();
+        match &arm[0] {
+            Expr::Symbol(pattern) if pattern == "_" => {
+                if wildcard {
+                    return Err("duplicate wildcard match pattern".into());
+                }
+                wildcard = true;
+            }
+            Expr::List(pattern) if matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "array") =>
+            {
+                if pattern.len() - 1 != *length {
+                    return Err(format!("array match pattern expects {} elements", length));
+                }
+                for (pattern, field) in pattern[1..].iter().zip(&fields) {
+                    check_tuple_pattern(pattern, field, &mut arm_variables, variables)?;
+                }
+            }
+            _ => return Err("array match pattern must be _ or (array pattern ...)".into()),
+        }
+        let arm_type = expression(
+            &arm[1],
+            &arm_variables,
+            functions,
+            structs,
+            enums,
+            mutable,
+            aliases,
+            result_type.as_ref().or(expected),
+        )?;
+        if let Some(previous) = &result_type {
+            require_same(previous, &arm_type, "match arms")?;
+        } else {
+            result_type = Some(arm_type);
+        }
+    }
+    if !wildcard {
+        return Err("array match is not exhaustive; add '_' arm".into());
+    }
+    Ok(result_type.unwrap_or(Type::Unit))
 }
 
 fn check_enum_payload_pattern(

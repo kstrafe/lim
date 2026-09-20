@@ -1104,6 +1104,27 @@ fn collect_expr_types(
                             }
                         }
                     }
+                    if let Some(Type::Array(element, length)) = types.get(name).cloned() {
+                        for arm in items.iter().skip(2) {
+                            let Expr::List(arm) = arm else { continue };
+                            let Some(Expr::List(pattern)) = arm.first() else {
+                                continue;
+                            };
+                            if !matches!(
+                                pattern.first(),
+                                Some(Expr::Symbol(operator)) if operator == "array"
+                            ) {
+                                continue;
+                            }
+                            for binding in pattern[1..].iter().take(length) {
+                                if let Expr::Symbol(binding) = binding {
+                                    if binding != "_" {
+                                        types.entry(binding.clone()).or_insert((*element).clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if let Some(Type::Named(struct_name)) = types.get(name).cloned() {
                         if let Some(fields) = structs.get(&struct_name) {
                             for arm in items.iter().skip(2) {
@@ -1282,6 +1303,31 @@ fn collect_expr_locals(
                                 }
                                 add_local(
                                     locals, binding, field_type, structs, enums, aliases, next_slot,
+                                )?;
+                            }
+                        }
+                    }
+                    if let Some(Type::Array(element, length)) = types.get(name) {
+                        for arm in items.iter().skip(2) {
+                            let Expr::List(arm) = arm else { continue };
+                            let Some(Expr::List(pattern)) = arm.first() else {
+                                continue;
+                            };
+                            if !matches!(
+                                pattern.first(),
+                                Some(Expr::Symbol(operator)) if operator == "array"
+                            ) {
+                                continue;
+                            }
+                            for binding in pattern[1..].iter().take(*length) {
+                                let Expr::Symbol(binding) = binding else {
+                                    continue;
+                                };
+                                if binding == "_" || locals.contains_key(binding) {
+                                    continue;
+                                }
+                                add_local(
+                                    locals, binding, element, structs, enums, aliases, next_slot,
                                 )?;
                             }
                         }
@@ -4004,6 +4050,10 @@ impl FunctionContext {
         if let Some(Type::Tuple(fields)) = self.expression_type(&items[1]) {
             return self.aggregate_match_expression(items, "tuple", &fields, float_type);
         }
+        if let Some(Type::Array(element, length)) = self.expression_type(&items[1]) {
+            let fields = vec![*element; length];
+            return self.aggregate_match_expression(items, "array", &fields, float_type);
+        }
         if let Some(Type::Named(name)) = self.expression_type(&items[1]) {
             if let Some(fields) = self.structs.get(&name).cloned() {
                 let field_types = fields.into_iter().map(|field| field.ty).collect::<Vec<_>>();
@@ -4267,6 +4317,12 @@ impl FunctionContext {
     ) -> Result<(), String> {
         let ty = if constructor == "tuple" {
             Type::Tuple(fields.to_vec())
+        } else if constructor == "array" {
+            let element = fields
+                .first()
+                .ok_or_else(|| "array match requires at least one element".to_owned())?
+                .clone();
+            Type::Array(Box::new(element), fields.len())
         } else {
             Type::Named(constructor.to_owned())
         };
