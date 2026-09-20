@@ -677,6 +677,14 @@ fn add_local(
             base,
             length: *length,
         }
+    } else if let Type::Tuple(fields) = &ty {
+        for field in fields {
+            ensure_scalar_type(field, enums)
+                .map_err(|_| "native backend only supports tuples of scalar values".to_owned())?;
+        }
+        let base = *next_slot;
+        *next_slot += fields.len();
+        Storage::Tuple((base..base + fields.len()).collect())
     } else if let Type::Named(struct_name) = &ty {
         let fields = structs
             .get(struct_name)
@@ -713,6 +721,7 @@ fn local_slots(locals: &HashMap<String, Storage>, name: &str) -> Result<Vec<usiz
             .chain(payload.iter().copied())
             .collect()),
         Storage::Array { base, length } => Ok((*base..*base + *length).collect()),
+        Storage::Tuple(slots) => Ok(slots.clone()),
     }
 }
 
@@ -763,6 +772,15 @@ fn value_word_count(
             return Ok(*length);
         }
     }
+    if let Type::Tuple(fields) = ty {
+        if fields.len() <= VALUE_REGISTERS.len()
+            && fields
+                .iter()
+                .all(|field| ensure_scalar_type(field, enums).is_ok())
+        {
+            return Ok(fields.len());
+        }
+    }
     Err(format!("native ABI does not support value type {ty:?}"))
 }
 
@@ -773,6 +791,7 @@ enum Storage {
         base: usize,
         length: usize,
     },
+    Tuple(Vec<usize>),
     Struct(Vec<(String, usize)>),
     Wide {
         low: usize,
@@ -788,6 +807,7 @@ fn scalar_slot(locals: &HashMap<String, Storage>, name: &str) -> usize {
     match locals.get(name).expect("validated local") {
         Storage::Scalar(slot) => *slot,
         Storage::Array { .. }
+        | Storage::Tuple(_)
         | Storage::Struct(_)
         | Storage::Wide { .. }
         | Storage::Enum { .. } => {
@@ -996,6 +1016,8 @@ impl FunctionContext {
                     }
                 } else if matches!(ty, Type::Array(_, _)) {
                     self.store_array(name, value)?;
+                } else if matches!(ty, Type::Tuple(_)) {
+                    self.store_tuple(name, value)?;
                 } else if is_wide_integer(&ty) {
                     self.expression(value)?;
                     let Storage::Wide { low, high } = self
@@ -1376,6 +1398,12 @@ impl FunctionContext {
                 {
                     items.get(1).and_then(|value| self.expression_type(value))
                 }
+                Some(Expr::Symbol(operator)) if operator == "tuple" => Some(Type::Tuple(
+                    items[1..]
+                        .iter()
+                        .map(|value| self.expression_type(value))
+                        .collect::<Option<Vec<_>>>()?,
+                )),
                 Some(Expr::Symbol(operator)) => self
                     .enums
                     .iter()
@@ -1405,6 +1433,9 @@ impl FunctionContext {
         }
         if let Type::Array(_, length) = &self.return_type {
             return self.return_array_value(*length, value);
+        }
+        if let Type::Tuple(fields) = self.return_type.clone() {
+            return self.return_tuple_value(&fields, value);
         }
         let Type::Named(struct_name) = &self.return_type else {
             self.expression(value)?;
@@ -1489,6 +1520,45 @@ impl FunctionContext {
         self.expression(value)
     }
 
+    fn return_tuple_value(&mut self, fields: &[Type], value: &Expr) -> Result<(), String> {
+        if let Expr::Symbol(name) = value {
+            let Storage::Tuple(slots) = self
+                .locals
+                .get(name)
+                .ok_or_else(|| format!("unknown tuple local '{name}'"))?
+            else {
+                return Err(format!("'{name}' is not a tuple"));
+            };
+            for (index, slot) in slots.iter().enumerate() {
+                let register = VALUE_REGISTERS
+                    .get(index)
+                    .ok_or_else(|| "native tuple return has too many fields".to_owned())?;
+                self.output.push_str(&format!(
+                    "    mov {register}, QWORD PTR [rbp-{}]\n",
+                    slot * 8
+                ));
+            }
+            return Ok(());
+        }
+        if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "tuple") {
+                if items.len() - 1 != fields.len() {
+                    return Err("tuple return has the wrong length".into());
+                }
+                for (field, ty) in items[1..].iter().zip(fields) {
+                    self.expression_as_abi_word(field, ty)?;
+                    self.push_rax();
+                }
+                for register in VALUE_REGISTERS[..fields.len()].iter().rev() {
+                    self.output.push_str(&format!("    pop {register}\n"));
+                    self.stack_depth -= 1;
+                }
+                return Ok(());
+            }
+        }
+        self.expression(value)
+    }
+
     fn return_array_value(&mut self, length: usize, value: &Expr) -> Result<(), String> {
         if let Expr::Symbol(name) = value {
             let Storage::Array {
@@ -1553,7 +1623,7 @@ impl FunctionContext {
     }
 
     fn is_aggregate_type(&self, ty: &Type) -> bool {
-        if matches!(ty, Type::Array(_, _)) {
+        if matches!(ty, Type::Array(_, _) | Type::Tuple(_)) {
             return true;
         }
         let Type::Named(name) = ty else { return false };
@@ -1692,6 +1762,41 @@ impl FunctionContext {
                 self.output
                     .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
             }
+        }
+        Ok(())
+    }
+
+    fn store_tuple(&mut self, name: &str, value: &Expr) -> Result<(), String> {
+        let Storage::Tuple(slots) = self
+            .locals
+            .get(name)
+            .ok_or_else(|| format!("unknown tuple local '{name}'"))?
+        else {
+            return Err(format!("'{name}' is not a tuple"));
+        };
+        let slots = slots.clone();
+        let fields = match self.local_types.get(name).cloned() {
+            Some(Type::Tuple(fields)) => fields,
+            _ => return Err(format!("'{name}' is not a tuple")),
+        };
+        if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "tuple") {
+                if items.len() - 1 != fields.len() {
+                    return Err("tuple constructor has the wrong length".into());
+                }
+                for ((slot, ty), field) in slots.iter().zip(&fields).zip(&items[1..]) {
+                    self.store_scalar_at_slot(field, ty, *slot)?;
+                }
+                return Ok(());
+            }
+        }
+        self.expression(value)?;
+        for (index, slot) in slots.iter().enumerate() {
+            self.output.push_str(&format!(
+                "    mov QWORD PTR [rbp-{}], {}\n",
+                slot * 8,
+                VALUE_REGISTERS[index]
+            ));
         }
         Ok(())
     }
@@ -2198,6 +2303,71 @@ impl FunctionContext {
     fn field_expression(&mut self, items: &[Expr]) -> Result<(), String> {
         if items.len() != 3 {
             return Err("get requires a value and field".into());
+        }
+        if let Expr::Integer(index) = &items[2] {
+            if *index < 0 {
+                return Err("tuple field index must be non-negative".into());
+            }
+            let index =
+                usize::try_from(*index).map_err(|_| "tuple field index is too large".to_owned())?;
+            let tuple_type = self
+                .expression_type(&items[1])
+                .ok_or_else(|| "get requires a tuple value".to_owned())?;
+            let Type::Tuple(fields) = tuple_type else {
+                return Err("integer tuple fields require a tuple value".into());
+            };
+            let field_type = fields
+                .get(index)
+                .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?
+                .clone();
+            if let Expr::List(constructor) = &items[1] {
+                if matches!(constructor.first(), Some(Expr::Symbol(name)) if name == "tuple") {
+                    let value = constructor
+                        .get(index + 1)
+                        .ok_or_else(|| "tuple constructor has too few fields".to_owned())?;
+                    return self.expression_as_expected(value, &field_type);
+                }
+            }
+            if let Expr::Symbol(local) = &items[1] {
+                let Storage::Tuple(slots) = self
+                    .locals
+                    .get(local)
+                    .ok_or_else(|| format!("unknown tuple local '{local}'"))?
+                else {
+                    return Err(format!("'{local}' is not a tuple"));
+                };
+                let slot = *slots
+                    .get(index)
+                    .ok_or_else(|| "native tuple has too many fields".to_owned())?;
+                match field_type {
+                    Type::F32 => self
+                        .output
+                        .push_str(&format!("    movss xmm0, DWORD PTR [rbp-{}]\n", slot * 8)),
+                    Type::F64 => self
+                        .output
+                        .push_str(&format!("    movq xmm0, QWORD PTR [rbp-{}]\n", slot * 8)),
+                    _ => self
+                        .output
+                        .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8)),
+                }
+            } else {
+                self.expression(&items[1])?;
+                let register = VALUE_REGISTERS
+                    .get(index)
+                    .ok_or_else(|| "native tuple has too many fields".to_owned())?;
+                match field_type {
+                    Type::F32 => self
+                        .output
+                        .push_str(&format!("    movd xmm0, {}\n", low_register(register))),
+                    Type::F64 => self
+                        .output
+                        .push_str(&format!("    movq xmm0, {register}\n")),
+                    _ => {
+                        self.output.push_str(&format!("    mov rax, {register}\n"));
+                    }
+                }
+            }
+            return Ok(());
         }
         let field_name = match &items[2] {
             Expr::Symbol(name) => name,
@@ -3080,6 +3250,63 @@ impl FunctionContext {
                 Box::new(VALUE_REGISTERS[..*length].iter().rev().copied())
             } else {
                 Box::new(VALUE_REGISTERS[..*length].iter().copied())
+            };
+            for register in registers {
+                self.output.push_str(&format!("    push {register}\n"));
+                self.stack_depth += 1;
+            }
+            return Ok(());
+        }
+        if let Type::Tuple(fields) = ty {
+            let slots = if let Expr::Symbol(local) = value {
+                let Storage::Tuple(slots) = self
+                    .locals
+                    .get(local)
+                    .ok_or_else(|| format!("unknown tuple local '{local}'"))?
+                else {
+                    return Err(format!("'{local}' is not a tuple"));
+                };
+                slots.clone()
+            } else {
+                Vec::new()
+            };
+            if !slots.is_empty() {
+                let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                    Box::new((0..slots.len()).rev())
+                } else {
+                    Box::new(0..slots.len())
+                };
+                for index in indices {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n",
+                        slots[index] * 8
+                    ));
+                    self.push_rax();
+                }
+                return Ok(());
+            }
+            if let Expr::List(items) = value {
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "tuple") {
+                    if items.len() - 1 != fields.len() {
+                        return Err("tuple argument has the wrong length".into());
+                    }
+                    let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                        Box::new((0..fields.len()).rev())
+                    } else {
+                        Box::new(0..fields.len())
+                    };
+                    for index in indices {
+                        self.expression_as_abi_word(&items[index + 1], &fields[index])?;
+                        self.push_rax();
+                    }
+                    return Ok(());
+                }
+            }
+            self.expression(value)?;
+            let registers: Box<dyn Iterator<Item = &str>> = if reverse {
+                Box::new(VALUE_REGISTERS[..fields.len()].iter().rev().copied())
+            } else {
+                Box::new(VALUE_REGISTERS[..fields.len()].iter().copied())
             };
             for register in registers {
                 self.output.push_str(&format!("    push {register}\n"));

@@ -138,6 +138,14 @@ Value structs can be declared and checked without pointers or traits:
   (get (Point 7 9) x))
 ```
 
+Tuples are value types with explicit element types and positional `get`:
+
+```lisp
+(fn main () u64
+  (let value (tuple u64 f32) (tuple 40 2.5))
+  (+ (get value 0) (as (get value 1) u64)))
+```
+
 Scalar structs with at most six fields can also cross function boundaries;
 their values use consecutive flattened ABI words in the native value-register
 set.

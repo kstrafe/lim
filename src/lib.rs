@@ -359,6 +359,7 @@ pub enum Type {
     Usize,
     F32,
     F64,
+    Tuple(Vec<Type>),
     Array(Box<Type>, usize),
     Named(String),
 }
@@ -821,6 +822,13 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
         return Ok(Type::Unit);
     }
     if let Some(Expr::List(items)) = expression {
+        if items.len() >= 2 && matches!(&items[0], Expr::Symbol(name) if name == "tuple") {
+            let fields = items[1..]
+                .iter()
+                .map(|field| parse_type(Some(field)))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(Type::Tuple(fields));
+        }
         if items.len() == 3 && matches!(&items[0], Expr::Symbol(name) if name == "array") {
             let element = parse_type(items.get(1))?;
             let length = match items.get(2) {
@@ -1278,6 +1286,18 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("movd xmm0"));
         assert!(assembly.contains("movq xmm1"));
+    }
+
+    #[test]
+    fn passes_tuples_through_functions() {
+        let program = parse_program(
+            "(fn make () (tuple u64 f32) (tuple 40 2.5)) (fn consume ((value (tuple u64 f32))) u64 (+ (get value 0) (as (get value 1) u64))) (fn main () u64 (let value (tuple u64 f32) (make)) (consume value))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("call make"));
+        assert!(assembly.contains("call consume"));
     }
 
     #[test]

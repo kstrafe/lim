@@ -684,6 +684,42 @@ fn list_expression(
             require_type(&actual, element, "array-repeat element")?;
             Ok(Type::Array(element.clone(), *length))
         }
+        "tuple" => {
+            let fields = match expected {
+                Some(Type::Tuple(fields)) => fields.clone(),
+                Some(_) => {
+                    return Err("tuple construction requires an expected (tuple ...) type".into())
+                }
+                None => items[1..]
+                    .iter()
+                    .map(|value| {
+                        expression(
+                            value, variables, functions, structs, enums, mutable, aliases, None,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            };
+            if items.len() - 1 != fields.len() {
+                return Err(format!(
+                    "tuple constructor expects {} elements",
+                    fields.len()
+                ));
+            }
+            for (value, field) in items[1..].iter().zip(fields.iter()) {
+                let actual = expression(
+                    value,
+                    variables,
+                    functions,
+                    structs,
+                    enums,
+                    mutable,
+                    aliases,
+                    Some(field),
+                )?;
+                require_type(&actual, field, "tuple element")?;
+            }
+            Ok(Type::Tuple(fields))
+        }
         "index" => {
             if items.len() != 3 {
                 return Err("index requires the form (index array index)".into());
@@ -849,8 +885,19 @@ fn list_expression(
             let value_type = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
+            if let Type::Tuple(fields) = value_type {
+                let index = match &items[2] {
+                    Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
+                        .map_err(|_| "tuple field index is too large".to_owned())?,
+                    _ => return Err("tuple get requires a non-negative integer index".into()),
+                };
+                return fields
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| format!("tuple field index {index} is out of bounds"));
+            }
             let Type::Named(struct_name) = value_type else {
-                return Err("get requires a struct value".into());
+                return Err("get requires a struct or tuple value".into());
             };
             let field_name = match &items[2] {
                 Expr::Symbol(name) => name,
@@ -1034,6 +1081,12 @@ fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, Stri
         Type::Array(element, length) => Ok(Type::Array(
             Box::new(resolve_type(element, aliases)?),
             *length,
+        )),
+        Type::Tuple(fields) => Ok(Type::Tuple(
+            fields
+                .iter()
+                .map(|field| resolve_type(field, aliases))
+                .collect::<Result<Vec<_>, _>>()?,
         )),
         _ => Ok(ty.clone()),
     }
