@@ -1,0 +1,5 @@
+(#const Values (#array u64 3)
+  (#array (#array u64 3) 10u64 20u64 42u64))
+
+(#fn main () u64
+  (#return (#index Values 2u64)))

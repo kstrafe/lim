@@ -826,8 +826,11 @@ read-only storage and can be read with index and get:
 (#static Values (#array u64 3)
   (#array (#array u64 3) 10 20 30))
 (#fn main () u64
-  (#return (#index Values 1)))
+(#return (#index Values 1)))
 ```
+
+Compile-time `const` declarations can likewise hold fixed aggregate values;
+see `examples/const_aggregate.lim`.
 
 Floating-point aggregate statics use the same typed value representation:
 
