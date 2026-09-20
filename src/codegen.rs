@@ -2625,6 +2625,7 @@ fn constant_value(
                 evaluating,
                 target,
             )?;
+            let operation_type = qualifier.map(Type::from_name).or_else(|| target.cloned());
             let result: i128 = match operator {
                 "+" => left
                     .checked_add(right)
@@ -2635,6 +2636,18 @@ fn constant_value(
                 "*" => left
                     .checked_mul(right)
                     .ok_or_else(|| "constant multiplication overflowed".to_owned()),
+                "/" if mode == Some("saturate")
+                    && operation_type
+                        .as_ref()
+                        .and_then(integer_bounds)
+                        .is_some_and(|(minimum, _)| left == minimum && right == -1) =>
+                {
+                    Ok(operation_type
+                        .as_ref()
+                        .and_then(integer_bounds)
+                        .expect("checked saturating constant bounds")
+                        .1)
+                }
                 "/" => left
                     .checked_div(right)
                     .ok_or_else(|| "constant division failed".to_owned()),
@@ -2668,9 +2681,7 @@ fn constant_value(
                 _ => Err("global initializer is not constant".to_owned()),
             }?;
             if mode == Some("saturate") {
-                let operation_type = qualifier
-                    .map(Type::from_name)
-                    .or_else(|| target.cloned())
+                let operation_type = operation_type
                     .ok_or_else(|| "saturating constant requires a typed operand".to_owned())?;
                 if let Some((minimum, maximum)) = integer_bounds(&operation_type) {
                     return Ok(result.clamp(minimum, maximum));

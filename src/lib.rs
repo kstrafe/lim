@@ -4039,6 +4039,18 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_saturating_minimum_division_constants() {
+        let program = parse_program(
+            "(#const Minimum i8 -128) \
+             (#const Quotient i8 (#i8./.saturate Minimum -1)) \
+             (#fn main () u64 (#return (#as Quotient u64)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

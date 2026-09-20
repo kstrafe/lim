@@ -160,6 +160,7 @@ Integer arithmetic normalizes results to the operand width, so operations on
 semantics.
 The same explicit `.wrap` and `.saturate` modes are honored when evaluating
 typed integer constants.
+This includes the signed minimum-value divided by `-1` saturation case.
 Wrapping signed machine-width division and remainder also handle the minimum
 value divided by -1 without relying on a trapping native idiv case.
 Saturating signed machine-width division maps that same overflow to the
