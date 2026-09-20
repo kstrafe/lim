@@ -1063,4 +1063,17 @@ mod tests {
             .unwrap()
             .contains("mov QWORD PTR"));
     }
+
+    #[test]
+    fn lowers_immutable_globals() {
+        let program = parse_program("(let ANSWER u64 40) (fn main () u64 (+ ANSWER 2))").unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap()
+            .contains("[rip+ANSWER]"));
+        let invalid = parse_program("(let mut ANSWER u64 40) (fn main () u64 ANSWER)").unwrap();
+        assert!(check_types(&invalid)
+            .unwrap_err()
+            .contains("cannot be mutable"));
+    }
 }

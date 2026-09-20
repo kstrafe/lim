@@ -9,6 +9,20 @@ struct Signature {
 }
 
 pub fn check_types(program: &Program) -> Result<(), String> {
+    let mut globals = HashMap::new();
+    for item in &program.items {
+        if let Item::Let {
+            name, ty, mutable, ..
+        } = item
+        {
+            if *mutable {
+                return Err(format!("top-level binding '{name}' cannot be mutable"));
+            }
+            if globals.insert(name.clone(), ty.clone()).is_some() {
+                return Err(format!("duplicate global '{name}'"));
+            }
+        }
+    }
     let mut structs = HashMap::new();
     for item in &program.items {
         if let Item::Struct { name, fields } = item {
@@ -49,14 +63,16 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     }
     for item in &program.items {
         match item {
-            Item::Function(function) => check_function(function, &functions, &structs, &enums)?,
+            Item::Function(function) => {
+                check_function(function, &functions, &structs, &enums, &globals)?
+            }
             Item::Struct { .. } | Item::Enum { .. } => {}
             Item::Let {
                 name, ty, value, ..
             } => {
                 let actual = expression(
                     value,
-                    &HashMap::new(),
+                    &globals,
                     &functions,
                     &structs,
                     &enums,
@@ -75,8 +91,9 @@ fn check_function(
     functions: &HashMap<String, Signature>,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
+    globals: &HashMap<String, Type>,
 ) -> Result<(), String> {
-    let mut variables = HashMap::new();
+    let mut variables = globals.clone();
     let mut mutable = HashSet::new();
     for parameter in &function.parameters {
         if variables

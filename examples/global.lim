@@ -1,0 +1,4 @@
+(let ANSWER u64 40)
+
+(fn main () u64
+  (+ ANSWER 2))

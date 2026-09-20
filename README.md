@@ -115,6 +115,14 @@ Counted loops use explicit init, condition, step, and body forms:
     (block value))
 ```
 
+Top-level immutable scalar `let` bindings are emitted in read-only data and
+can be referenced by functions:
+
+```lisp
+(let ANSWER u64 40)
+(fn main () u64 (+ ANSWER 2))
+```
+
 Top-level `let` declarations use the same form. Function bodies are currently
 represented as statements, while their expressions remain generic S-expressions
 for the type checker and later compiler stages.

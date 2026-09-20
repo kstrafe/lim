@@ -35,17 +35,39 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             _ => None,
         })
         .collect();
-    let mut output = String::from(".intel_syntax noprefix\n.text\n");
+    let mut globals = HashMap::new();
+    for item in &program.items {
+        if let Item::Let {
+            name,
+            ty,
+            value,
+            mutable,
+        } = item
+        {
+            if *mutable {
+                return Err(format!("top-level binding '{name}' cannot be mutable"));
+            }
+            ensure_scalar_type(ty, &enums)?;
+            let value = constant_value(value, &enums)?;
+            globals.insert(name.clone(), value);
+        }
+    }
+    let mut output = String::from(".intel_syntax noprefix\n");
+    if !globals.is_empty() {
+        output.push_str(".section .rodata\n");
+        for (name, value) in &globals {
+            output.push_str(&format!(".align 8\n{name}:\n    .quad {value}\n"));
+        }
+    }
+    output.push_str(".text\n");
     for item in &program.items {
         match item {
-            Item::Function(function) => generate_function(function, &mut output, &structs, &enums)?,
+            Item::Function(function) => {
+                generate_function(function, &mut output, &structs, &enums, &globals)?
+            }
             Item::Struct { .. } => {}
             Item::Enum { .. } => {}
-            Item::Let { name, .. } => {
-                return Err(format!(
-                    "top-level let '{name}' is not supported by the native backend"
-                ));
-            }
+            Item::Let { .. } => {}
         }
     }
     output.push_str(".section .note.GNU-stack,\"\",@progbits\n");
@@ -57,6 +79,7 @@ fn generate_function(
     output: &mut String,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<String>>,
+    globals: &HashMap<String, i128>,
 ) -> Result<(), String> {
     ensure_scalar_type(&function.return_type, enums)?;
     for parameter in &function.parameters {
@@ -109,6 +132,7 @@ fn generate_function(
         locals,
         structs: structs.clone(),
         enums: enums.clone(),
+        globals: globals.clone(),
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
@@ -290,10 +314,43 @@ fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<String>>) -> Result
     }
 }
 
+fn constant_value(expression: &Expr, enums: &HashMap<String, Vec<String>>) -> Result<i128, String> {
+    match expression {
+        Expr::Integer(value) => Ok(*value),
+        Expr::Symbol(name) if name == "true" => Ok(1),
+        Expr::Symbol(name) if name == "false" => Ok(0),
+        Expr::Symbol(name) => enums
+            .values()
+            .find_map(|variants| {
+                variants
+                    .iter()
+                    .position(|variant| variant == name)
+                    .map(|value| value as i128)
+            })
+            .ok_or_else(|| format!("global initializer '{name}' is not a constant")),
+        Expr::List(items) if items.len() == 3 => {
+            let operator = match &items[0] {
+                Expr::Symbol(name) => name.as_str(),
+                _ => return Err("global initializer is not constant".into()),
+            };
+            let left = constant_value(&items[1], enums)?;
+            let right = constant_value(&items[2], enums)?;
+            match operator {
+                "+" => Ok(left + right),
+                "-" => Ok(left - right),
+                "*" => Ok(left * right),
+                _ => Err("global initializer is not constant".into()),
+            }
+        }
+        _ => Err("global initializer is not constant".into()),
+    }
+}
+
 struct FunctionContext {
     locals: HashMap<String, Storage>,
     structs: HashMap<String, Vec<Field>>,
     enums: HashMap<String, Vec<String>>,
+    globals: HashMap<String, i128>,
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
@@ -514,9 +571,16 @@ impl FunctionContext {
                 ));
             }
             Expr::Symbol(name) => {
-                let slot = scalar_slot(&self.locals, name);
-                self.output
-                    .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+                if self.locals.contains_key(name) {
+                    let slot = scalar_slot(&self.locals, name);
+                    self.output
+                        .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+                } else if self.globals.contains_key(name) {
+                    self.output
+                        .push_str(&format!("    mov rax, QWORD PTR [rip+{name}]\n"));
+                } else {
+                    return Err(format!("unknown variable '{name}'"));
+                }
             }
             Expr::List(items) => self.list_expression(items)?,
             Expr::String(_) => return Err("strings are not supported by the native backend".into()),
