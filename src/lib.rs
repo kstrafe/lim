@@ -1378,6 +1378,17 @@ mod tests {
         assert_eq!(identity.type_parameters, vec!["T"]);
         assert_eq!(identity.parameters[0].ty, Type::Generic("T".into()));
         assert_eq!(identity.return_type, Type::Generic("T".into()));
+        let instantiated = parse_program(
+            "(fn identity (T) ((value T)) T value) (fn main () u64 (identity<u64> 42))",
+        )
+        .unwrap();
+        assert!(check_types(&instantiated).is_ok());
+        let missing_arguments =
+            parse_program("(fn identity (T) ((value T)) T value) (fn main () u64 (identity 42))")
+                .unwrap();
+        assert!(check_types(&missing_arguments)
+            .unwrap_err()
+            .contains("expects 1 type arguments"));
     }
 
     #[test]

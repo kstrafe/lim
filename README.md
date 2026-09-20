@@ -65,6 +65,9 @@ well as named types. Local variables use explicit types:
   total)
 ```
 
+Generic functions declare type parameters explicitly, and calls provide explicit
+type arguments such as `(identity<u64> 42)`; type inference is not used.
+
 Conversions are explicit casts between integer, character, and floating-point
 scalar types:
 

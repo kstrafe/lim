@@ -4,6 +4,7 @@ use crate::{parse_type, EnumVariant, Expr, Field, Function, Item, Program, State
 
 #[derive(Clone)]
 struct Signature {
+    type_parameters: Vec<String>,
     parameters: Vec<Type>,
     return_type: Type,
 }
@@ -81,6 +82,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             .insert(
                 function.name.clone(),
                 Signature {
+                    type_parameters: function.type_parameters.clone(),
                     parameters: function
                         .parameters
                         .iter()
@@ -1067,16 +1069,24 @@ fn list_expression(
                 }
                 return Ok(Type::Named(enum_name.clone()));
             }
+            let (function_name, type_arguments) = split_generic_call(operator)?;
             let signature = functions
-                .get(operator)
+                .get(&function_name)
                 .ok_or_else(|| format!("unknown function '{operator}'"))?;
+            let substitutions = generic_substitutions(signature, &type_arguments, aliases)?;
+            let parameter_types = signature
+                .parameters
+                .iter()
+                .map(|parameter| substitute_type(parameter, &substitutions))
+                .collect::<Vec<_>>();
+            let return_type = substitute_type(&signature.return_type, &substitutions);
             if items.len() - 1 != signature.parameters.len() {
                 return Err(format!(
                     "function '{operator}' expects {} arguments",
-                    signature.parameters.len()
+                    parameter_types.len()
                 ));
             }
-            for (argument, parameter_type) in items[1..].iter().zip(&signature.parameters) {
+            for (argument, parameter_type) in items[1..].iter().zip(&parameter_types) {
                 let actual = expression(
                     argument,
                     variables,
@@ -1093,7 +1103,7 @@ fn list_expression(
                     &format!("argument to '{operator}'"),
                 )?;
             }
-            Ok(signature.return_type.clone())
+            Ok(return_type)
         }
     }
 }
@@ -1170,6 +1180,84 @@ fn require_arity(operator: &str, items: &[Expr], expected: usize) -> Result<(), 
         ))
     } else {
         Ok(())
+    }
+}
+
+fn split_generic_call(operator: &str) -> Result<(String, Vec<String>), String> {
+    let Some(open) = operator.find('<') else {
+        return Ok((operator.to_owned(), Vec::new()));
+    };
+    if !operator.ends_with('>') || open == 0 {
+        return Err(format!("malformed generic call '{operator}'"));
+    }
+    let name = operator[..open].to_owned();
+    let arguments = &operator[open + 1..operator.len() - 1];
+    if arguments.is_empty() {
+        return Err(format!("generic call '{operator}' has no type arguments"));
+    }
+    let arguments = arguments
+        .split(',')
+        .map(str::trim)
+        .map(|argument| {
+            if argument.is_empty() {
+                Err(format!(
+                    "generic call '{operator}' has an empty type argument"
+                ))
+            } else {
+                Ok(argument.to_owned())
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((name, arguments))
+}
+
+fn generic_substitutions(
+    signature: &Signature,
+    arguments: &[String],
+    aliases: &HashMap<String, Type>,
+) -> Result<HashMap<String, Type>, String> {
+    if signature.type_parameters.len() != arguments.len() {
+        if signature.type_parameters.is_empty() && arguments.is_empty() {
+            return Ok(HashMap::new());
+        }
+        return Err(format!(
+            "generic function expects {} type arguments, got {}",
+            signature.type_parameters.len(),
+            arguments.len()
+        ));
+    }
+    signature
+        .type_parameters
+        .iter()
+        .zip(arguments)
+        .map(|(parameter, argument)| {
+            let ty = resolve_type(&Type::from_name(argument), aliases)?;
+            if matches!(ty, Type::Generic(_)) {
+                return Err(format!(
+                    "generic type argument '{argument}' is not concrete"
+                ));
+            }
+            Ok((parameter.clone(), ty))
+        })
+        .collect()
+}
+
+fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
+    match ty {
+        Type::Generic(name) => substitutions
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| ty.clone()),
+        Type::Array(element, length) => {
+            Type::Array(Box::new(substitute_type(element, substitutions)), *length)
+        }
+        Type::Tuple(fields) => Type::Tuple(
+            fields
+                .iter()
+                .map(|field| substitute_type(field, substitutions))
+                .collect(),
+        ),
+        _ => ty.clone(),
     }
 }
 
