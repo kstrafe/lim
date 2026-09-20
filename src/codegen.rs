@@ -7243,14 +7243,25 @@ impl FunctionContext {
                     self.global_types.get(local),
                     Some(Type::Array(_, global_length)) if *global_length == *length
                 ) {
+                    let Type::Array(element, _) = ty else {
+                        unreachable!()
+                    };
+                    let element_words = value_word_count(element, &self.structs, &self.enums)?;
                     let indices: Box<dyn Iterator<Item = usize>> = if reverse {
                         Box::new((0..*length).rev())
                     } else {
                         Box::new(0..*length)
                     };
                     for index in indices {
-                        self.load_global_word(local, index)?;
-                        self.push_rax();
+                        let words: Box<dyn Iterator<Item = usize>> = if reverse {
+                            Box::new((0..element_words).rev())
+                        } else {
+                            Box::new(0..element_words)
+                        };
+                        for word in words {
+                            self.load_global_word(local, index * element_words + word)?;
+                            self.push_rax();
+                        }
                     }
                     return Ok(());
                 }
@@ -7270,11 +7281,6 @@ impl FunctionContext {
                 }
                 let base = *base;
                 let element_words = *element_words;
-                if element_words != 1 {
-                    return Err(
-                        "native array arguments currently support scalar elements only".into(),
-                    );
-                }
                 let length = *length;
                 let indices: Box<dyn Iterator<Item = usize>> = if reverse {
                     Box::new((0..length).rev())
@@ -7282,11 +7288,18 @@ impl FunctionContext {
                     Box::new(0..length)
                 };
                 for index in indices {
-                    self.output.push_str(&format!(
-                        "    mov rax, QWORD PTR [rbp-{}]\n",
-                        (base + index * element_words) * 8
-                    ));
-                    self.push_rax();
+                    let words: Box<dyn Iterator<Item = usize>> = if reverse {
+                        Box::new((0..element_words).rev())
+                    } else {
+                        Box::new(0..element_words)
+                    };
+                    for word in words {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n",
+                            (base + index * element_words + word) * 8
+                        ));
+                        self.push_rax();
+                    }
                 }
                 return Ok(());
             }
@@ -7307,9 +7320,13 @@ impl FunctionContext {
                     let Type::Array(element, _) = ty else {
                         unreachable!()
                     };
-                    for _ in 0..*length {
-                        self.expression_as_abi_word(&items[value_start], element)?;
-                        self.push_rax();
+                    let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                        Box::new((0..*length).rev())
+                    } else {
+                        Box::new(0..*length)
+                    };
+                    for _ in indices {
+                        self.push_value_words(&items[value_start], element, reverse)?;
                     }
                     return Ok(());
                 }
@@ -7334,7 +7351,7 @@ impl FunctionContext {
                         unreachable!()
                     };
                     for index in values {
-                        self.push_value_words(&items[index + value_start], element, false)?;
+                        self.push_value_words(&items[index + value_start], element, reverse)?;
                     }
                     return Ok(());
                 }

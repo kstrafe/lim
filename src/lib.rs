@@ -3878,6 +3878,37 @@ mod tests {
     }
 
     #[test]
+    fn passes_aggregate_arrays_through_functions() {
+        let program = parse_program(
+            "(#fn consume ((values (#array (#tuple u64 u64) 2))) u64 \
+               (#return (#get (#index values 1) 0))) \
+             (#fn main () u64 \
+               (#let values (#array (#tuple u64 u64) 2) \
+                 (#array (#array (#tuple u64 u64) 2) \
+                   (#tuple (#tuple u64 u64) 10 20) \
+                   (#tuple (#tuple u64 u64) 30 12))) \
+               (#return (consume values)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn passes_repeated_aggregate_arrays_through_functions() {
+        let program = parse_program(
+            "(#fn consume ((values (#array (#tuple u64 u64) 2))) u64 \
+               (#return (#get (#index values 1) 0))) \
+             (#fn main () u64 \
+               (#return \
+                 (consume (#array-repeat (#tuple 30 12)))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

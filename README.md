@@ -311,6 +311,8 @@ flattened six-word ABI when every leaf value is natively representable. Nested
 fixed-array returns from local storage now use the flattened ABI when their
 total representation fits six words. Nested tuple/struct field mutation and
 aggregate array element replacement use the same flattened representation;
+aggregate arrays can also be passed through function calls using that same
+flattened representation.
 Enum payloads can be updated explicitly by naming the active variant and
 payload field index:
 
