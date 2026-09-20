@@ -44,6 +44,9 @@ cc /tmp/fibonacci.s -o /tmp/fibonacci
 The first built-in generated declaration is `@optional`, which expands to a
 enum and a generated `-construct` helper:
 
+The assembly CLI materializes each generated declaration as inspectable Lim
+source under a `.lim/` directory beside the input file.
+
 ```lisp
 (@optional u64 Maybe?)
 (fn identity ((value Maybe?)) Maybe? value)

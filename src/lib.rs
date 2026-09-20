@@ -4,7 +4,7 @@
 //! `@` sigil as a first-class expression so macro/generated-code expansion can
 //! be implemented later without changing the parser's public representation.
 
-use std::fmt;
+use std::{fmt, fs, path::Path};
 
 mod codegen;
 mod typecheck;
@@ -542,6 +542,81 @@ pub fn parse_program(source: &str) -> Result<Program, String> {
     Ok(Program { items })
 }
 
+/// Materialize built-in generated declarations as source files.
+///
+/// Expansion remains part of parse_program; this helper gives command-line
+/// builds an inspectable cache of generated Lim source under .lim/.
+pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), String> {
+    let expressions = parse(source)?;
+    let mut generated = Vec::new();
+    for expression in expressions {
+        let Expr::List(forms) = expression.expr else {
+            continue;
+        };
+        if !matches!(forms.first(), Some(Expr::At)) {
+            continue;
+        }
+        let item = parse_generated_item(&forms)?;
+        let Item::Enum { name, variants } = item else {
+            continue;
+        };
+        let payload = variants
+            .first()
+            .and_then(|variant| variant.fields.first())
+            .ok_or_else(|| "optional expansion has no payload type".to_owned())?;
+        let some = variants
+            .first()
+            .map(|variant| variant.name.as_str())
+            .ok_or_else(|| "optional expansion has no payload constructor".to_owned())?;
+        let none = variants
+            .get(1)
+            .map(|variant| variant.name.as_str())
+            .unwrap_or("none");
+        let payload_source = type_source(payload);
+        generated.push(format!(
+            "(enum {name} (({some} {payload_source}) {none}))\n(fn {name}-construct ((value {payload_source})) {name} ({some} value))\n",
+        ));
+    }
+    if generated.is_empty() {
+        return Ok(());
+    }
+    fs::create_dir_all(directory)
+        .map_err(|error| format!("cannot create generated-code directory: {error}"))?;
+    for (index, source) in generated.iter().enumerate() {
+        let path = directory.join(format!("optional-{index}.lim"));
+        fs::write(path, source)
+            .map_err(|error| format!("cannot write generated source: {error}"))?;
+    }
+    Ok(())
+}
+
+fn type_source(ty: &Type) -> String {
+    match ty {
+        Type::Unit => "()".into(),
+        Type::Bool => "bool".into(),
+        Type::Char => "char".into(),
+        Type::I8 => "i8".into(),
+        Type::I16 => "i16".into(),
+        Type::I32 => "i32".into(),
+        Type::I64 => "i64".into(),
+        Type::I128 => "i128".into(),
+        Type::Isize => "isize".into(),
+        Type::U8 => "u8".into(),
+        Type::U16 => "u16".into(),
+        Type::U32 => "u32".into(),
+        Type::U64 => "u64".into(),
+        Type::U128 => "u128".into(),
+        Type::Usize => "usize".into(),
+        Type::F32 => "f32".into(),
+        Type::F64 => "f64".into(),
+        Type::Named(name) => name.clone(),
+        Type::Tuple(fields) => format!(
+            "(tuple {})",
+            fields.iter().map(type_source).collect::<Vec<_>>().join(" ")
+        ),
+        Type::Array(element, length) => format!("(array {} {})", type_source(element), length),
+    }
+}
 fn parse_item(expression: &Expr) -> Result<Item, String> {
     let items = expect_list(expression, "top-level declaration")?;
     if matches!(items.first(), Some(Expr::At)) {

@@ -1,6 +1,7 @@
 use std::{
     env, fs,
     io::{self, Read},
+    path::Path,
     process::ExitCode,
 };
 
@@ -18,6 +19,14 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+        let generated_directory = Path::new(input_path)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(".lim");
+        if let Err(error) = lim::write_generated_sources(&input, &generated_directory) {
+            eprintln!("lim: {error}");
+            return ExitCode::FAILURE;
+        }
         let program = match lim::parse_program(&input) {
             Ok(program) => program,
             Err(error) => {
