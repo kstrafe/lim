@@ -706,6 +706,16 @@ bindings):
   ((#or Maybe?-some Maybe?-none) 42))
 ```
 
+Enum alternatives may also spell payload constructors explicitly. These
+alternatives cannot bind values; a bare payload variant remains a wildcard for
+that variant's payload:
+
+```lisp
+(#match value
+  ((#or (Some 1u64) (Some 2u64) None) 42)
+  (_ 0))
+```
+
 Scalar enum payloads also accept `#or` alternatives:
 
 ```lisp

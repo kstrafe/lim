@@ -1603,12 +1603,21 @@ fn list_expression(
                         let alternatives = pattern[1..]
                             .iter()
                             .map(|alternative| match alternative {
-                                Expr::Symbol(name) => Ok(name.as_str()),
+                                Expr::Symbol(name) => Ok((name.as_str(), Vec::new())),
+                                Expr::List(items) if !items.is_empty() => {
+                                    let Expr::Symbol(name) = &items[0] else {
+                                        return Err(
+                                            "enum or-pattern alternatives must be variants"
+                                                .to_owned(),
+                                        );
+                                    };
+                                    Ok((name.as_str(), items[1..].iter().collect()))
+                                }
                                 _ => {
                                     Err("enum or-pattern alternatives must be variants".to_owned())
                                 }
                             })
-                            .collect::<Result<Vec<_>, String>>()?;
+                            .collect::<Result<Vec<(&str, Vec<&Expr>)>, String>>()?;
                         ("", Vec::new(), alternatives)
                     }
                     Expr::List(pattern) if !pattern.is_empty() => {
@@ -1622,11 +1631,36 @@ fn list_expression(
                     _ => return Err("match pattern must be a symbol or (variant _)".into()),
                 };
                 if !alternatives.is_empty() {
-                    for alternative in alternatives {
-                        if !variants.iter().any(|variant| variant.name == alternative) {
+                    for (alternative, alternative_payloads) in alternatives {
+                        let Some(variant) =
+                            variants.iter().find(|variant| variant.name == alternative)
+                        else {
                             return Err(format!(
                                 "'{alternative}' is not a variant of '{enum_name}'"
                             ));
+                        };
+                        if !alternative_payloads.is_empty()
+                            && alternative_payloads.len() != variant.fields.len()
+                        {
+                            return Err(format!(
+                                "variant '{alternative}' expects {} payload patterns",
+                                variant.fields.len()
+                            ));
+                        }
+                        let mut alternative_variables = variables.clone();
+                        for (binding, field_type) in
+                            alternative_payloads.iter().zip(&variant.fields)
+                        {
+                            check_enum_payload_pattern(
+                                binding,
+                                field_type,
+                                &mut alternative_variables,
+                                variables,
+                                structs,
+                            )?;
+                        }
+                        if alternative_variables.len() != variables.len() {
+                            return Err("enum or-pattern alternatives cannot bind values".into());
                         }
                         if guard.is_none() && !seen.contains(&alternative) {
                             seen.push(alternative);

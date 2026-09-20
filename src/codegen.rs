@@ -7388,20 +7388,74 @@ impl FunctionContext {
                             .is_some_and(|ty| self.is_enum_type(&ty)) =>
                 {
                     let matched = self.label("enum_or_pattern_matched");
-                    for alternative in &pattern[1..] {
-                        let Expr::Symbol(alternative) = alternative else {
-                            return Err("enum or-pattern alternatives must be variants".into());
+                    let scrutinee_type = self
+                        .expression_type(&items[1])
+                        .ok_or_else(|| "enum match scrutinee has no known type".to_owned())?;
+                    let Type::Named(enum_name) = scrutinee_type else {
+                        return Err("enum or-pattern scrutinee has no named type".into());
+                    };
+                    for (index, alternative) in pattern[1..].iter().enumerate() {
+                        let (alternative_name, payload_patterns): (&str, Vec<&Expr>) =
+                            match alternative {
+                                Expr::Symbol(name) => (name, Vec::new()),
+                                Expr::List(items) if !items.is_empty() => {
+                                    let Expr::Symbol(name) = &items[0] else {
+                                        return Err(
+                                            "enum or-pattern alternatives must be variants".into(),
+                                        );
+                                    };
+                                    (name, items[1..].iter().collect())
+                                }
+                                _ => {
+                                    return Err(
+                                        "enum or-pattern alternatives must be variants".into()
+                                    )
+                                }
+                            };
+                        let last = index + 1 == pattern.len() - 1;
+                        let alternative_next = if last {
+                            next.clone()
+                        } else {
+                            self.label("enum_or_pattern_next")
                         };
                         let value = self
-                            .enum_value(alternative)
-                            .ok_or_else(|| format!("unknown enum variant '{alternative}'"))?;
+                            .enums
+                            .get(&enum_name)
+                            .and_then(|variants| {
+                                variants
+                                    .iter()
+                                    .find(|variant| variant.name == alternative_name)
+                            })
+                            .ok_or_else(|| format!("unknown enum variant '{alternative_name}'"))?
+                            .clone();
                         self.output.push_str(&format!(
-                            "    cmp QWORD PTR [rsp], {}\n    je {matched}\n",
-                            asm_u64_immediate(value)
+                            "    cmp QWORD PTR [rsp], {}\n    jne {alternative_next}\n",
+                            asm_u64_immediate(value.discriminant)
                         ));
+                        if !payload_patterns.is_empty()
+                            && payload_patterns.len() != value.fields.len()
+                        {
+                            return Err(format!(
+                                "variant '{alternative_name}' has the wrong payload count"
+                            ));
+                        }
+                        let mut offset = 0;
+                        for (payload, field_type) in payload_patterns.iter().zip(&value.fields) {
+                            self.emit_enum_payload_pattern(
+                                payload,
+                                field_type,
+                                offset,
+                                payload_slots.as_ref(),
+                                &alternative_next,
+                            )?;
+                            offset += storage_word_count(field_type, &self.structs, &self.enums)?;
+                        }
+                        self.output.push_str(&format!("    jmp {matched}\n"));
+                        if !last {
+                            self.output.push_str(&format!("{alternative_next}:\n"));
+                        }
                     }
-                    self.output
-                        .push_str(&format!("    jmp {next}\n{matched}:\n"));
+                    self.output.push_str(&format!("{matched}:\n"));
                     ("", Vec::new())
                 }
                 Expr::List(pattern)
