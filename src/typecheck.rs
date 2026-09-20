@@ -673,7 +673,11 @@ fn list_expression(
             Ok(Type::Bool)
         }
         "if" => {
-            require_arity(operator, items, 4)?;
+            if items.len() != 3 && items.len() != 4 {
+                return Err(
+                    "if requires a condition, then expression, and optional else expression".into(),
+                );
+            }
             let condition = expression(
                 &items[1],
                 variables,
@@ -686,8 +690,23 @@ fn list_expression(
             )?;
             require_type(&condition, &Type::Bool, "if condition")?;
             let then_type = expression(
-                &items[2], variables, functions, structs, enums, mutable, aliases, expected,
+                &items[2],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                if items.len() == 3 {
+                    Some(&Type::Unit)
+                } else {
+                    expected
+                },
             )?;
+            if items.len() == 3 {
+                require_type(&then_type, &Type::Unit, "if without else")?;
+                return Ok(Type::Unit);
+            }
             let else_type = expression(
                 &items[3],
                 variables,

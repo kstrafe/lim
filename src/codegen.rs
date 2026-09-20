@@ -3162,8 +3162,10 @@ impl FunctionContext {
     }
 
     fn if_expression(&mut self, items: &[Expr]) -> Result<(), String> {
-        if items.len() != 4 {
-            return Err("if requires a condition, then expression, and else expression".into());
+        if items.len() != 3 && items.len() != 4 {
+            return Err(
+                "if requires a condition, then expression, and optional else expression".into(),
+            );
         }
         let else_label = self.label("else");
         let end_label = self.label("endif");
@@ -3171,9 +3173,14 @@ impl FunctionContext {
         self.output
             .push_str(&format!("    test rax, rax\n    jz {else_label}\n"));
         self.expression(&items[2])?;
-        self.output
-            .push_str(&format!("    jmp {end_label}\n{else_label}:\n"));
-        self.expression(&items[3])?;
+        self.output.push_str(&format!("    jmp {end_label}\n"));
+        if items.len() == 4 {
+            self.output.push_str(&format!("{else_label}:\n"));
+            self.expression(&items[3])?;
+        } else {
+            self.output
+                .push_str(&format!("{else_label}:\n    xor eax, eax\n"));
+        }
         self.output.push_str(&format!("{end_label}:\n"));
         Ok(())
     }

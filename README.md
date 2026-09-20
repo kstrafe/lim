@@ -132,8 +132,11 @@ Unit functions use `()` and can be called for side effects:
 (fn noop () () ())
 (fn main () u64
   (noop)
-  42)
+ 42)
 ```
+
+Unit-valued `if` expressions may omit their else branch; a value-producing
+if still requires both branches.
 
 Unary `!` negates booleans and performs a bitwise complement on integer
 values:

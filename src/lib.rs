@@ -1624,6 +1624,15 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("and_false"));
         assert!(assembly.contains("xor eax, 1"));
+        let unit_if = parse_program("(fn main () () (if true ()))").unwrap();
+        assert!(check_types(&unit_if).is_ok());
+        assert!(generate_assembly(&unit_if)
+            .unwrap()
+            .contains("xor eax, eax"));
+        let missing_else = parse_program("(fn main () u64 (if true 1))").unwrap();
+        assert!(check_types(&missing_else)
+            .unwrap_err()
+            .contains("if without else"));
     }
 
     #[test]
