@@ -168,6 +168,9 @@ Payload variants may contain multiple scalar fields and bind them in order:
     (Empty 0)))
 ```
 
+Multi-payload enums can also be passed to and returned from native functions
+when their payloads fit the scalar integer ABI.
+
 Fixed-size arrays are value types with stack storage:
 
 ```lisp

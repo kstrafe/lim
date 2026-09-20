@@ -1387,6 +1387,16 @@ mod tests {
     }
 
     #[test]
+    fn passes_multi_payload_enums_through_functions() {
+        let program = parse_program(
+            "(enum Pair ((Pair u64 u64) Empty)) (fn make () Pair (let value Pair (Pair 20 22)) value) (fn sum ((value Pair)) u64 (match value ((Pair left right) (+ left right)) (Empty 0))) (fn main () u64 (sum (make)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("call sum"));
+    }
+
+    #[test]
     fn checks_and_lowers_scalar_enum_payloads() {
         let program = parse_program(
             "(enum Maybe ((Some u64) None)) (fn main () u64 (let value Maybe (Some 42)) (match value ((Some _) 42) (None 7)))",

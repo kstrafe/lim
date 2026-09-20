@@ -651,11 +651,22 @@ fn value_word_count(
         }
         if let Some(variants) = enums.get(name) {
             if variants.iter().any(|variant| !variant.fields.is_empty()) {
-                return Ok(1 + variants
+                let payload_count = variants
                     .iter()
                     .map(|variant| variant.fields.len())
                     .max()
-                    .unwrap_or(0));
+                    .unwrap_or(0);
+                if payload_count + 1 > VALUE_REGISTERS.len()
+                    || !variants
+                        .iter()
+                        .flat_map(|variant| variant.fields.iter())
+                        .all(|field| ensure_integer_type(field).is_ok())
+                {
+                    return Err(format!(
+                        "native ABI does not support enum value type {ty:?}"
+                    ));
+                }
+                return Ok(1 + payload_count);
             }
         }
     }
@@ -1242,10 +1253,19 @@ impl FunctionContext {
                         return Err(format!("'{name}' is not a payload enum"));
                     };
                     self.output.push_str(&format!(
-                        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
-                        discriminant * 8,
-                        payload.first().copied().unwrap_or(*discriminant) * 8
+                        "    mov rax, QWORD PTR [rbp-{}]\n",
+                        discriminant * 8
                     ));
+                    for (index, slot) in payload.iter().enumerate() {
+                        if index + 1 >= VALUE_REGISTERS.len() {
+                            return Err("native enum return has too many payloads".into());
+                        }
+                        self.output.push_str(&format!(
+                            "    mov {}, QWORD PTR [rbp-{}]\n",
+                            VALUE_REGISTERS[index + 1],
+                            slot * 8
+                        ));
+                    }
                     return Ok(());
                 }
             }
@@ -1437,9 +1457,12 @@ impl FunctionContext {
                 "    mov QWORD PTR [rbp-{}], rax\n",
                 discriminant * 8
             ));
-            if let Some(slot) = payload.first() {
-                self.output
-                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rdx\n", slot * 8));
+            for (index, slot) in payload.iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {}\n",
+                    slot * 8,
+                    VALUE_REGISTERS[index + 1]
+                ));
             }
             return Ok(());
         }
@@ -1464,9 +1487,12 @@ impl FunctionContext {
                 "    mov QWORD PTR [rbp-{}], rax\n",
                 discriminant * 8
             ));
-            if let Some(slot) = payload.first() {
-                self.output
-                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rdx\n", slot * 8));
+            for (index, slot) in payload.iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {}\n",
+                    slot * 8,
+                    VALUE_REGISTERS[index + 1]
+                ));
             }
             return Ok(());
         };
@@ -1649,9 +1675,10 @@ impl FunctionContext {
                         .position(|candidate| candidate.name == operator)
                 })
                 .expect("validated enum variant");
-            if let Some(value) = items.get(1) {
+            for (index, value) in items[1..].iter().enumerate().rev() {
                 self.expression(value)?;
-                self.output.push_str("    mov rdx, rax\n");
+                self.output
+                    .push_str(&format!("    mov {}, rax\n", VALUE_REGISTERS[index + 1]));
             }
             self.output
                 .push_str(&format!("    mov rax, {variant_index}\n"));
@@ -2532,13 +2559,14 @@ impl FunctionContext {
         if matches!(ty, Type::Named(name) if self.enums.get(name).is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty())))
         {
             self.expression(value)?;
-            if reverse {
-                self.output.push_str("    push rdx\n");
-                self.stack_depth += 1;
-                self.push_rax();
+            let words = value_word_count(ty, &self.structs, &self.enums)?;
+            let registers: Box<dyn Iterator<Item = &str>> = if reverse {
+                Box::new(VALUE_REGISTERS[..words].iter().rev().copied())
             } else {
-                self.push_rax();
-                self.output.push_str("    push rdx\n");
+                Box::new(VALUE_REGISTERS[..words].iter().copied())
+            };
+            for register in registers {
+                self.output.push_str(&format!("    push {register}\n"));
                 self.stack_depth += 1;
             }
             return Ok(());
