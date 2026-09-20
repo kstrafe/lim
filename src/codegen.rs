@@ -6541,6 +6541,27 @@ impl FunctionContext {
         float_type: Option<&Type>,
         result_type: Option<&Type>,
     ) -> Result<(), String> {
+        if storage_word_count(&ty, &self.structs, &self.enums)
+            .is_ok_and(|storage_words| storage_words > VALUE_REGISTERS.len())
+        {
+            if let Expr::Symbol(name) = &items[1] {
+                if self.locals.contains_key(name)
+                    && fields.iter().all(|field| {
+                        value_word_count(field, &self.structs, &self.enums)
+                            .is_ok_and(|words| words == 1)
+                    })
+                {
+                    return self.large_scalar_aggregate_match_local(
+                        items,
+                        constructor,
+                        fields,
+                        name,
+                        float_type,
+                        result_type,
+                    );
+                }
+            }
+        }
         let words = value_word_count(&ty, &self.structs, &self.enums)?;
         let base_depth = self.stack_depth;
         let direct_values = if let Expr::List(value_items) = &items[1] {
@@ -6657,6 +6678,131 @@ impl FunctionContext {
         }
         self.output.push_str(&format!("{end}:\n"));
         self.stack_depth = base_depth;
+        Ok(())
+    }
+
+    fn large_scalar_aggregate_match_local(
+        &mut self,
+        items: &[Expr],
+        constructor: &str,
+        fields: &[Type],
+        name: &str,
+        float_type: Option<&Type>,
+        result_type: Option<&Type>,
+    ) -> Result<(), String> {
+        let source_slots = local_slots(&self.locals, name)?;
+        if source_slots.len() != fields.len() {
+            return Err("large aggregate match has an inconsistent local layout".into());
+        }
+        let end = self.label("large_local_match_end");
+        for arm in &items[2..] {
+            let (pattern, guard, body) = match_arm_parts(arm)?;
+            let next = self.label("large_local_match_next");
+            let mut bindings = Vec::new();
+            match pattern {
+                Expr::Symbol(pattern) if pattern == "_" => {}
+                Expr::List(pattern_items) => {
+                    if !matches!(
+                        pattern_items.first(),
+                        Some(Expr::Symbol(name)) if name == constructor
+                    ) {
+                        return Err("aggregate match pattern has the wrong shape".into());
+                    }
+                    if pattern_items.len() - 1 != fields.len() {
+                        return Err("aggregate match pattern has the wrong shape".into());
+                    }
+                    for (index, (field_pattern, field_type)) in
+                        pattern_items[1..].iter().zip(fields).enumerate()
+                    {
+                        let slot = source_slots[index];
+                        match field_pattern {
+                            Expr::Symbol(field) if field == "_" => {}
+                            Expr::Symbol(field) if field == "true" || field == "false" => {
+                                if !matches!(field_type, Type::Bool) {
+                                    return Err(
+                                        "boolean aggregate pattern has a non-boolean field".into(),
+                                    );
+                                }
+                                self.output.push_str(&format!(
+                                    "    cmp QWORD PTR [rbp-{}], {}\n    jne {next}\n",
+                                    slot * 8,
+                                    if field == "true" { 1 } else { 0 }
+                                ));
+                            }
+                            Expr::Symbol(field) => {
+                                bindings.push((field.clone(), slot, field_type.clone()));
+                            }
+                            Expr::Integer(value) => {
+                                if ensure_integer_type(field_type).is_err() {
+                                    return Err(
+                                        "integer aggregate pattern has a non-integer field".into(),
+                                    );
+                                }
+                                self.output.push_str(&format!(
+                                    "    cmp QWORD PTR [rbp-{}], {}\n    jne {next}\n",
+                                    slot * 8,
+                                    value
+                                ));
+                            }
+                            Expr::UnsignedInteger(value) => {
+                                if ensure_integer_type(field_type).is_err() {
+                                    return Err(
+                                        "integer aggregate pattern has a non-integer field".into(),
+                                    );
+                                }
+                                self.output.push_str(&format!(
+                                    "    cmp QWORD PTR [rbp-{}], {}\n    jne {next}\n",
+                                    slot * 8,
+                                    *value as u64
+                                ));
+                            }
+                            Expr::Char(value) => {
+                                if !matches!(field_type, Type::Char) {
+                                    return Err(
+                                        "character aggregate pattern has a non-character field"
+                                            .into(),
+                                    );
+                                }
+                                self.output.push_str(&format!(
+                                    "    cmp QWORD PTR [rbp-{}], {}\n    jne {next}\n",
+                                    slot * 8,
+                                    *value as u32
+                                ));
+                            }
+                            _ => return Err("unsupported large aggregate field pattern".into()),
+                        }
+                    }
+                }
+                _ => return Err("aggregate match pattern has the wrong shape".into()),
+            }
+            for (binding, source_slot, binding_type) in bindings {
+                let destination_slots = local_slots(&self.locals, &binding)?;
+                if destination_slots.len() != 1
+                    || value_word_count(&binding_type, &self.structs, &self.enums)? != 1
+                {
+                    return Err("large aggregate bindings must be scalar".into());
+                }
+                self.output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                    source_slot * 8,
+                    destination_slots[0] * 8
+                ));
+            }
+            if let Some(guard) = guard {
+                self.expression(guard)?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {next}\n"));
+            }
+            if let Some(ty) = float_type {
+                self.expression_as_float(body, ty)?;
+            } else if let Some(ty) = result_type {
+                self.expression_as_expected(body, ty)?;
+            } else {
+                self.expression(body)?;
+            }
+            self.output.push_str(&format!("    jmp {end}\n{next}:\n"));
+        }
+        self.output.push_str(&format!("{end}:\n"));
         Ok(())
     }
 

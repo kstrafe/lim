@@ -429,6 +429,9 @@ scalar aggregate returns; see `examples/direct_large_aggregate_access.lim`.
 Large scalar enum returns can also be matched directly; see
 `examples/direct_large_enum_match.lim`.
 
+Large scalar tuple and struct locals can also be matched directly from their
+stack storage; see `examples/large_aggregate_match.lim`.
+
 Large scalar arrays can be materialized directly from `#if` branches into a
 local stack value; see `examples/large_array_if.lim`.
 
