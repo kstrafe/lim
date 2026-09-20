@@ -3917,6 +3917,32 @@ impl FunctionContext {
         } else {
             None
         };
+        let native_operand_type = operand_type
+            .clone()
+            .or_else(|| self.expression_type(&items[1]));
+        let wrapping_division = if mode == Some("wrap")
+            && matches!(operator, "/" | "%")
+            && native_operand_type
+                .as_ref()
+                .is_some_and(|ty| matches!(ty, Type::I64 | Type::Isize))
+        {
+            let normal = self.label("wrapping_division_normal");
+            let done = self.label("wrapping_division_done");
+            self.output.push_str(&format!(
+                "    mov r8, 0x8000000000000000\n    cmp rax, r8\n    jne {normal}\n    cmp rcx, -1\n    jne {normal}\n"
+            ));
+            if operator == "/" {
+                self.output.push_str(&format!(
+                    "    mov rax, 0x8000000000000000\n    jmp {done}\n{normal}:\n"
+                ));
+            } else {
+                self.output
+                    .push_str(&format!("    xor eax, eax\n    jmp {done}\n{normal}:\n"));
+            }
+            Some(done)
+        } else {
+            None
+        };
         match operator {
             "+" => self.output.push_str("    add rax, rcx\n"),
             "-" => self.output.push_str("    sub rax, rcx\n"),
@@ -3977,6 +4003,9 @@ impl FunctionContext {
             let done = self.label("shift_done");
             self.output
                 .push_str(&format!("    jmp {done}\n{label}:\n    ud2\n{done}:\n"));
+        }
+        if let Some(done) = wrapping_division {
+            self.output.push_str(&format!("{done}:\n"));
         }
         Ok(())
     }

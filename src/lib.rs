@@ -3331,6 +3331,17 @@ mod tests {
     }
 
     #[test]
+    fn wraps_signed_machine_width_division_overflow() {
+        let program =
+            parse_program("(#fn main () i64 (#return (#i64./.wrap -9223372036854775808 -1)))")
+                .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap()
+            .contains("wrapping_division_done"));
+    }
+
+    #[test]
     fn lowers_saturating_wide_addition_and_subtraction() {
         let program = parse_program(
             "(#fn main () u128 (#return (#u128.+.saturate 340282366920938463463374607431768211455 1)))",
