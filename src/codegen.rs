@@ -2471,6 +2471,24 @@ fn collect_aggregate_binding_types(
             Ok(())
         }
         Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Char(_) => Ok(()),
+        Expr::List(items)
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "literal") =>
+        {
+            Ok(())
+        }
+        Expr::List(items)
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "range") =>
+        {
+            Ok(())
+        }
+        Expr::List(items)
+            if items.len() >= 2
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or") =>
+        {
+            Ok(())
+        }
         Expr::List(items) => {
             let Some(Expr::Symbol(constructor)) = items.first() else {
                 return Err("let-else aggregate pattern must start with a constructor".into());
@@ -4370,6 +4388,14 @@ impl FunctionContext {
                 );
                 if enum_type {
                     self.emit_let_else_enum_pattern(pattern, ty, &failure, &mut bindings)?;
+                } else if is_scalar_pattern_type(ty) {
+                    let low_operand = "QWORD PTR [rsp]";
+                    let high_operand = if is_wide_integer(ty) {
+                        Some("QWORD PTR [rsp+8]")
+                    } else {
+                        None
+                    };
+                    self.emit_scalar_pattern_at(pattern, ty, low_operand, high_operand, &failure)?;
                 } else {
                     let constructor = match pattern {
                         Expr::List(items) => match items.first() {
