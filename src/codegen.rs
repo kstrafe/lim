@@ -1412,6 +1412,12 @@ fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, Stri
             Box::new(resolve_type(element, aliases)?),
             *length,
         )),
+        Type::Tuple(fields) => Ok(Type::Tuple(
+            fields
+                .iter()
+                .map(|field| resolve_type(field, aliases))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
         _ => Ok(ty.clone()),
     }
 }

@@ -3033,6 +3033,11 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&nested).is_ok());
+        let tuple_alias =
+            parse_program("(type UserId u64) (fn main () (tuple UserId u32) (tuple 40 2))")
+                .unwrap();
+        assert!(check_types(&tuple_alias).is_ok());
+        assert!(generate_assembly(&tuple_alias).is_ok());
         let enum_payload = parse_program(
             "(type Value u64) (enum Box ((Some Value) None)) (fn main () u64 (match (Some 42) ((Some value) value) (None 0)))",
         )
