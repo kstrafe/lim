@@ -2649,6 +2649,12 @@ fn constant_value(
                 evaluating,
                 target,
             )?;
+            if operator == "&&" && left == 0 {
+                return Ok(0);
+            }
+            if operator == "||" && left != 0 {
+                return Ok(1);
+            }
             let right = constant_value(
                 &items[2],
                 enums,

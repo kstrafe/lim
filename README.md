@@ -658,6 +658,8 @@ read-only storage and can be read with index and get:
 Explicit integer casts are also folded in constant initializers.
 Constant references may also point to a later top-level declaration; cycles
 are rejected during constant evaluation.
+Boolean constant expressions preserve the runtime short-circuit behavior of
+`&&` and `||`, so an unreachable right-hand expression is not evaluated.
 
 Every token and top-level expression has a byte span plus line and column
 information. Expansion, type checking, monomorphization, and native assembly

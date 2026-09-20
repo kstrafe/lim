@@ -4198,6 +4198,18 @@ mod tests {
     }
 
     #[test]
+    fn preserves_boolean_constant_short_circuiting() {
+        let program = parse_program(
+            "(#const FalseAnd bool (#bool.&& false (#u64.== (#u64./.wrap 1 0) 0))) \
+             (#const TrueOr bool (#bool.|| true (#u64.== (#u64./.wrap 1 0) 0))) \
+             (#fn main () u64 (#return (#if (#bool.&& (#bool.! FalseAnd) TrueOr) 42 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
