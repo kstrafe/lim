@@ -6108,10 +6108,9 @@ impl FunctionContext {
                         return Err("indirect aggregate indexing requires an array result".into());
                     };
                     let element_words = value_word_count(&element, &self.structs, &self.enums)?;
-                    if element_words != 1 {
+                    if element_words > VALUE_REGISTERS.len() {
                         return Err(
-                            "direct indexing of large arrays currently requires scalar elements"
-                                .into(),
+                            "direct indexing of large arrays exceeds value registers".into()
                         );
                     }
                     let base = self.call_to_aggregate_temp(function_name, &call_items[1..])?;
@@ -6123,7 +6122,15 @@ impl FunctionContext {
                         base * 8,
                         element_words
                     ));
-                    if matches!(*element, Type::F32) {
+                    if element_words > 1 {
+                        for (index, register) in VALUE_REGISTERS[..element_words].iter().enumerate()
+                        {
+                            self.output.push_str(&format!(
+                                "    mov {register}, QWORD PTR [r11-{}]\n",
+                                index * 8
+                            ));
+                        }
+                    } else if matches!(*element, Type::F32) {
                         self.output.push_str("    movss xmm0, DWORD PTR [r11]\n");
                     } else if matches!(*element, Type::F64) {
                         self.output.push_str("    movq xmm0, QWORD PTR [r11]\n");
@@ -7416,10 +7423,8 @@ impl FunctionContext {
                     {
                         let field_words =
                             value_word_count(&field_type, &self.structs, &self.enums)?;
-                        if field_words != 1 {
-                            return Err(
-                                "direct large tuple access currently requires scalar fields".into(),
-                            );
+                        if field_words > VALUE_REGISTERS.len() {
+                            return Err("direct large tuple access exceeds value registers".into());
                         }
                         let offset = fields[..index]
                             .iter()
@@ -7428,7 +7433,7 @@ impl FunctionContext {
                             .into_iter()
                             .sum::<usize>();
                         let base = self.call_to_aggregate_temp(function_name, &call_items[1..])?;
-                        self.load_aggregate_temp_scalar(base, offset, &field_type)?;
+                        self.load_aggregate_temp_value(base, offset, &field_type)?;
                         return Ok(());
                     }
                 }
@@ -7722,10 +7727,9 @@ impl FunctionContext {
                             let field_type = fields[index].ty.clone();
                             let field_words =
                                 value_word_count(&field_type, &self.structs, &self.enums)?;
-                            if field_words != 1 {
+                            if field_words > VALUE_REGISTERS.len() {
                                 return Err(
-                                    "direct large struct access currently requires scalar fields"
-                                        .into(),
+                                    "direct large struct access exceeds value registers".into()
                                 );
                             }
                             let offset = fields[..index]
@@ -7738,7 +7742,7 @@ impl FunctionContext {
                                 .sum::<usize>();
                             let base =
                                 self.call_to_aggregate_temp(function_name, &call_items[1..])?;
-                            self.load_aggregate_temp_scalar(base, offset, &field_type)?;
+                            self.load_aggregate_temp_value(base, offset, &field_type)?;
                             return Ok(());
                         }
                     }
@@ -8878,6 +8882,28 @@ impl FunctionContext {
         } else {
             self.output
                 .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+        }
+        Ok(())
+    }
+
+    fn load_aggregate_temp_value(
+        &mut self,
+        base: usize,
+        offset: usize,
+        ty: &Type,
+    ) -> Result<(), String> {
+        let words = value_word_count(ty, &self.structs, &self.enums)?;
+        if words == 1 {
+            return self.load_aggregate_temp_scalar(base, offset, ty);
+        }
+        if words > VALUE_REGISTERS.len() {
+            return Err("aggregate temporary value exceeds value registers".into());
+        }
+        for (index, register) in VALUE_REGISTERS[..words].iter().enumerate() {
+            self.output.push_str(&format!(
+                "    mov {register}, QWORD PTR [rbp-{}]\n",
+                (base + offset + index) * 8
+            ));
         }
         Ok(())
     }

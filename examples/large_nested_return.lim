@@ -9,4 +9,5 @@
 (#fn main () u64
   (#let values (#array (#tuple u128 u64) 4) (make))
   (#let item (#tuple u128 u64) (#index values 3u64))
-  (#return (#get item 1)))
+  (#let direct-item (#tuple u128 u64) (#index (make) 3u64))
+  (#return (#u64.+.wrap (#get item 1) (#get direct-item 1))))

@@ -5670,7 +5670,7 @@ mod tests {
     #[test]
     fn returns_large_arrays_with_nested_wide_elements() {
         let program = parse_program_strict(
-            "(#fn make () (#array (#tuple u128 u64) 4) (#return (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64)))) (#fn main () u64 (#let values (#array (#tuple u128 u64) 4) (make)) (#let item (#tuple u128 u64) (#index values 3u64)) (#return (#get item 1)))",
+            "(#fn make () (#array (#tuple u128 u64) 4) (#return (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64)))) (#fn main () u64 (#let values (#array (#tuple u128 u64) 4) (make)) (#let item (#tuple u128 u64) (#index values 3u64)) (#let direct-item (#tuple u128 u64) (#index (make) 3u64)) (#return (#u64.+.wrap (#get item 1) (#get direct-item 1))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
