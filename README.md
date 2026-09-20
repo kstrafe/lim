@@ -432,6 +432,9 @@ Large scalar enum returns can also be matched directly; see
 Large scalar arrays can be materialized directly from `#if` branches into a
 local stack value; see `examples/large_array_if.lim`.
 
+The same direct branch materialization applies to large tuples, structs, and
+payload enums.
+
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
 Nested tuple locals and fixed-array locals can also be stored and indexed using

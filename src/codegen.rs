@@ -5077,6 +5077,26 @@ impl FunctionContext {
             .ok_or_else(|| format!("unknown struct '{struct_name}'"))?
             .clone();
         if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
+                if items.len() != 4 {
+                    return Err(
+                        "if requires a condition, then expression, and else expression".into(),
+                    );
+                }
+                let else_label = self.label("large_struct_if_else");
+                let done_label = self.label("large_struct_if_done");
+                self.expression(&items[1])?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {else_label}\n"));
+                self.store_struct(name, struct_name, &items[2])?;
+                self.output
+                    .push_str(&format!("    jmp {done_label}\n{else_label}:\n"));
+                self.store_struct(name, struct_name, &items[3])?;
+                self.output.push_str(&format!("{done_label}:\n"));
+                return Ok(());
+            }
+        }
+        if let Expr::List(items) = value {
             if let Some(Expr::Symbol(function_name)) = items.first() {
                 if self
                     .functions
@@ -5148,6 +5168,26 @@ impl FunctionContext {
             return Err(format!("'{name}' is not a payload enum"));
         };
         if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
+                if items.len() != 4 {
+                    return Err(
+                        "if requires a condition, then expression, and else expression".into(),
+                    );
+                }
+                let else_label = self.label("large_enum_if_else");
+                let done_label = self.label("large_enum_if_done");
+                self.expression(&items[1])?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {else_label}\n"));
+                self.store_enum(name, enum_name, &items[2])?;
+                self.output
+                    .push_str(&format!("    jmp {done_label}\n{else_label}:\n"));
+                self.store_enum(name, enum_name, &items[3])?;
+                self.output.push_str(&format!("{done_label}:\n"));
+                return Ok(());
+            }
+        }
+        if let Expr::List(items) = value {
             if let Some(Expr::Symbol(function_name)) = items.first() {
                 if self
                     .functions
@@ -5195,6 +5235,24 @@ impl FunctionContext {
                         source_slot * 8,
                         destination_slot * 8
                     ));
+                }
+                return Ok(());
+            }
+        }
+        if let Expr::Symbol(variant_name) = value {
+            if let Some(variant) = self.enums.get(enum_name).and_then(|variants| {
+                variants
+                    .iter()
+                    .find(|variant| variant.name == *variant_name)
+            }) {
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {}\n",
+                    discriminant * 8,
+                    variant.discriminant
+                ));
+                for slot in &payload {
+                    self.output
+                        .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
                 }
                 return Ok(());
             }
@@ -5285,6 +5343,26 @@ impl FunctionContext {
             Some(Type::Tuple(fields)) => fields,
             _ => return Err(format!("'{name}' is not a tuple")),
         };
+        if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
+                if items.len() != 4 {
+                    return Err(
+                        "if requires a condition, then expression, and else expression".into(),
+                    );
+                }
+                let else_label = self.label("large_tuple_if_else");
+                let done_label = self.label("large_tuple_if_done");
+                self.expression(&items[1])?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {else_label}\n"));
+                self.store_tuple(name, &items[2])?;
+                self.output
+                    .push_str(&format!("    jmp {done_label}\n{else_label}:\n"));
+                self.store_tuple(name, &items[3])?;
+                self.output.push_str(&format!("{done_label}:\n"));
+                return Ok(());
+            }
+        }
         if let Expr::List(items) = value {
             if let Some(Expr::Symbol(function_name)) = items.first() {
                 if self
@@ -5577,6 +5655,12 @@ impl FunctionContext {
                                 .unwrap_or(0)
                         })
                 }) {
+                    if payload_count + 1 > VALUE_REGISTERS.len() {
+                        return Err(
+                            "large payload enum values must be stored in local aggregate storage"
+                                .into(),
+                        );
+                    }
                     for index in 0..payload_count {
                         self.output.push_str(&format!(
                             "    xor {}, {}\n",

@@ -1,0 +1,28 @@
+(#struct Large
+  ((a u64) (b u64) (c u64) (d u64)
+   (e u64) (f u64) (g u64)))
+
+(#enum LargePayload
+  ((Big u64 u64 u64 u64 u64 u64 u64) Empty))
+
+(#fn main () u64
+  (#let tuple-value (#tuple u64 u64 u64 u64 u64 u64 u64)
+    (#if true
+      (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64)
+        1u64 2u64 3u64 4u64 5u64 6u64 40u64)
+      (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64)
+        0u64 0u64 0u64 0u64 0u64 0u64 0u64)))
+  (#let struct-value Large
+    (#if true
+      (Large 1u64 2u64 3u64 4u64 5u64 6u64 1u64)
+      (Large 0u64 0u64 0u64 0u64 0u64 0u64 0u64)))
+  (#let enum-value LargePayload
+    (#if true
+      (Big 1u64 2u64 3u64 4u64 5u64 6u64 1u64)
+      Empty))
+  (#return
+    (#u64.+.wrap
+      (#u64.+.wrap (#get tuple-value 6) (#get struct-value g))
+      (#match enum-value
+        ((Big first second third fourth fifth sixth seventh) seventh)
+        (Empty 0u64)))))
