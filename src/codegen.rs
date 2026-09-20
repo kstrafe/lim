@@ -1236,6 +1236,7 @@ fn generate_function(
         stack_depth: 0,
         loop_labels: Vec::new(),
         loop_result_types: Vec::new(),
+        loop_indirect_results: Vec::new(),
         return_label: return_label.clone(),
         return_pointer_slot,
         aggregate_temp_base,
@@ -3624,6 +3625,7 @@ struct FunctionContext {
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
     loop_result_types: Vec<Option<Type>>,
+    loop_indirect_results: Vec<bool>,
     return_label: String,
     return_pointer_slot: Option<usize>,
     aggregate_temp_base: Option<usize>,
@@ -4067,11 +4069,13 @@ impl FunctionContext {
                     .push_str(&format!("    test rax, rax\n    jz {end}\n"));
                 self.loop_labels.push((start.clone(), end.clone()));
                 self.loop_result_types.push(None);
+                self.loop_indirect_results.push(false);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
                 self.loop_result_types.pop();
+                self.loop_indirect_results.pop();
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
             }
             Statement::Loop { body } => {
@@ -4080,11 +4084,13 @@ impl FunctionContext {
                 self.output.push_str(&format!("{start}:\n"));
                 self.loop_labels.push((start.clone(), end.clone()));
                 self.loop_result_types.push(None);
+                self.loop_indirect_results.push(false);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
                 self.loop_result_types.pop();
+                self.loop_indirect_results.pop();
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
             }
             Statement::For {
@@ -4103,11 +4109,13 @@ impl FunctionContext {
                     .push_str(&format!("    test rax, rax\n    jz {end}\n"));
                 self.loop_labels.push((step_label.clone(), end.clone()));
                 self.loop_result_types.push(None);
+                self.loop_indirect_results.push(false);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
                 self.loop_result_types.pop();
+                self.loop_indirect_results.pop();
                 self.output.push_str(&format!("{step_label}:\n"));
                 self.statement(step)?;
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
@@ -4122,7 +4130,14 @@ impl FunctionContext {
                 let Some((_, end)) = self.loop_labels.last().cloned() else {
                     return Err("break with a value used outside a loop".into());
                 };
-                if let Some(Some(ty)) = self.loop_result_types.last().cloned() {
+                if self.loop_indirect_results.last().copied().unwrap_or(false) {
+                    let ty = self
+                        .loop_result_types
+                        .last()
+                        .and_then(Clone::clone)
+                        .ok_or_else(|| "indirect loop result has no type".to_owned())?;
+                    self.store_indirect_value_words(value, &ty, 0)?;
+                } else if let Some(Some(ty)) = self.loop_result_types.last().cloned() {
                     self.expression_as_expected(value, &ty)?;
                 } else {
                     self.expression(value)?;
@@ -4702,6 +4717,16 @@ impl FunctionContext {
         {
             let return_type = self.return_type.clone();
             return self.store_indirect_value_words(value, &return_type, 0);
+        }
+        if self.return_pointer_slot.is_some()
+            && self.is_aggregate_type(&self.return_type)
+            && matches!(value, Expr::Loop(_))
+        {
+            let return_type = self.return_type.clone();
+            let Expr::Loop(body) = value else {
+                unreachable!()
+            };
+            return self.loop_expression_indirect(body, &return_type);
         }
         if self.is_aggregate_type(&self.return_type)
             && matches!(
@@ -5950,11 +5975,34 @@ impl FunctionContext {
         self.output.push_str(&format!("{start}:\n"));
         self.loop_labels.push((start.clone(), end.clone()));
         self.loop_result_types.push(result_type.cloned());
+        self.loop_indirect_results.push(false);
         for statement in body {
             self.statement(statement)?;
         }
         self.loop_labels.pop();
         self.loop_result_types.pop();
+        self.loop_indirect_results.pop();
+        self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
+        Ok(())
+    }
+
+    fn loop_expression_indirect(
+        &mut self,
+        body: &[Statement],
+        result_type: &Type,
+    ) -> Result<(), String> {
+        let start = self.label("indirect_value_loop");
+        let end = self.label("end_indirect_value_loop");
+        self.output.push_str(&format!("{start}:\n"));
+        self.loop_labels.push((start.clone(), end.clone()));
+        self.loop_result_types.push(Some(result_type.clone()));
+        self.loop_indirect_results.push(true);
+        for statement in body {
+            self.statement(statement)?;
+        }
+        self.loop_labels.pop();
+        self.loop_result_types.pop();
+        self.loop_indirect_results.pop();
         self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
         Ok(())
     }
