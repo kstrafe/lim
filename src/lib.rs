@@ -5677,6 +5677,15 @@ mod tests {
     }
 
     #[test]
+    fn passes_large_arrays_with_nested_wide_elements() {
+        let program = parse_program_strict(
+            "(#fn consume ((value (#array (#tuple u128 u64) 4))) u64 (#let item (#tuple u128 u64) (#index value 3u64)) (#return (#get item 1))) (#fn main () u64 (#let values (#array (#tuple u128 u64) 4) (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64))) (#return (consume values)))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn checks_and_lowers_type_aliases() {
         let program = parse_program(
             "(type UserId u64) (fn add_one ((id UserId)) UserId (+ id 1)) (fn main () UserId (add_one 41))",
