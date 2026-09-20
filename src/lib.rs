@@ -703,7 +703,7 @@ fn parse_enum_variants(items: &[Expr]) -> Result<Vec<EnumVariant>, String> {
 }
 
 fn parse_function(items: &[Expr]) -> Result<Function, String> {
-    if items.len() < 5 {
+    if items.len() < 4 {
         return Err("fn requires a name, parameter list, return type, and body".into());
     }
     let name = expect_symbol(items.get(1), "function name")?.to_owned();
@@ -1193,12 +1193,20 @@ mod tests {
         assert!(parse_program("(let value u32)")
             .unwrap_err()
             .contains("let requires"));
-        assert!(parse_program("(fn broken ((value u32)) u32)")
+        let broken = parse_program("(fn broken ((value u32)) u32)").unwrap();
+        assert!(check_types(&broken)
             .unwrap_err()
-            .contains("fn requires"));
+            .contains("return of function"));
         assert!(parse_program("(unknown form)")
             .unwrap_err()
             .contains("unknown top-level"));
+        let empty = parse_program("(fn empty () ())").unwrap();
+        assert!(check_types(&empty).is_ok());
+        assert!(generate_assembly(&empty).is_ok());
+        let missing_value = parse_program("(fn missing () u64)").unwrap();
+        assert!(check_types(&missing_value)
+            .unwrap_err()
+            .contains("return of function"));
     }
 
     #[test]
