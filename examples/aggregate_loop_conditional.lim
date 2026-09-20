@@ -1,0 +1,8 @@
+(#fn values () (#tuple u64 u64)
+  (#return (#loop
+    (#if true
+      (#block (#break (#tuple (#tuple u64 u64) 30 12)))
+      (#unreachable)))))
+
+(#fn main () u64
+  (#return (#get (values) 1)))

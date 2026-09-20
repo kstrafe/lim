@@ -317,6 +317,8 @@ array returns.
 Aggregate-valued `#if` and `#match` expressions also preserve all flattened
 value words across their branches.
 Value-producing `#loop` expressions can likewise break with aggregate values.
+Conditional loop paths may carry the aggregate break value while alternate
+paths diverge explicitly.
 Aggregate values in `#block` expressions preserve the block's preceding local
 statements before lowering the final value.
 Enum payloads can be updated explicitly by naming the active variant and

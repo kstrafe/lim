@@ -3458,7 +3458,9 @@ impl FunctionContext {
                     .push_str(&format!("    jmp {}\n", self.return_label));
             }
             Statement::Expr(expression) => {
-                if self.is_aggregate_type(&self.return_type) {
+                if let Some(Some(ty)) = self.loop_result_types.last().cloned() {
+                    self.expression_as_expected(expression, &ty)?;
+                } else if self.is_aggregate_type(&self.return_type) {
                     self.return_value(expression)?;
                 } else if is_float_type(&self.return_type) {
                     self.expression_as_float(expression, &self.return_type.clone())?;
