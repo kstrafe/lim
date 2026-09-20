@@ -1349,6 +1349,16 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_typed_global_constants() {
+        let program =
+            parse_program("(let WRAPPED u8 (+ 255 1)) (fn main () u64 (if (== WRAPPED 0) 42 0))")
+                .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("WRAPPED:\n    .quad 0"));
+    }
+
+    #[test]
     fn lowers_unit_functions_and_calls() {
         let program = parse_program("(fn noop () () ()) (fn main () u64 (noop) 42)").unwrap();
         assert!(check_types(&program).is_ok());

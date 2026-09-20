@@ -1,0 +1,5 @@
+(let WRAPPED u8
+  (+ 255 1))
+
+(fn main () u64
+  (if (== WRAPPED 0) 42 0))

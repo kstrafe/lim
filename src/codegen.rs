@@ -111,7 +111,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             }
             let ty = resolve_type(ty, &aliases)?;
             ensure_scalar_type(&ty, &enums)?;
-            let global = match ty {
+            let global = match &ty {
                 Type::F32 => {
                     let Expr::Float(value) = value else {
                         return Err(format!("global '{name}' requires an f32 literal"));
@@ -134,7 +134,10 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                             .to_bits(),
                     )
                 }
-                _ => GlobalValue::Integer(constant_value(value, &enums)?),
+                _ => GlobalValue::Integer(normalize_global_integer(
+                    constant_value(value, &enums)?,
+                    &ty,
+                )),
             };
             global_types.insert(name.clone(), ty);
             globals.insert(name.clone(), global);
@@ -986,6 +989,22 @@ fn constant_value(
             }
         }
         _ => Err("global initializer is not constant".into()),
+    }
+}
+
+fn normalize_global_integer(value: i128, ty: &Type) -> i128 {
+    match ty {
+        Type::I8 => (value as i8) as i128,
+        Type::I16 => (value as i16) as i128,
+        Type::I32 => (value as i32) as i128,
+        Type::I64 | Type::Isize => (value as i64) as i128,
+        Type::U8 => (value as u8) as i128,
+        Type::U16 => (value as u16) as i128,
+        Type::U32 => (value as u32) as i128,
+        Type::U64 | Type::Usize => (value as u64) as i128,
+        Type::Bool => i128::from(value != 0),
+        Type::Char => (value as u32) as i128,
+        _ => value,
     }
 }
 
