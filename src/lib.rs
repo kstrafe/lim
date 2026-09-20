@@ -3838,6 +3838,19 @@ mod tests {
     }
 
     #[test]
+    fn matches_wide_enum_payload_literals() {
+        let program = parse_program(
+            "(#enum Maybe ((Some i128) None)) \
+             (#fn main () u64 \
+               (#let value Maybe (Some 42)) \
+               (#return (#match value ((Some 42) 42) (_ 0))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

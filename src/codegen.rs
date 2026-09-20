@@ -5335,21 +5335,38 @@ impl FunctionContext {
                     bindings.push((name.clone(), field_offset, field_type.clone()))
                 }
                 Expr::Integer(value) => {
-                    if field_words != 1 {
-                        return Err("wide integer aggregate patterns are unsupported".into());
+                    if field_words == 2 {
+                        let bits = *value as u128;
+                        self.output.push_str(&format!(
+                            "    cmp QWORD PTR [rsp+{address}], 0x{:016x}\n    jne {next}\n    cmp QWORD PTR [rsp+{}], 0x{:016x}\n    jne {next}\n",
+                            bits as u64,
+                            address + 8,
+                            (bits >> 64) as u64
+                        ));
+                    } else if field_words == 1 {
+                        self.output.push_str(&format!(
+                            "    cmp QWORD PTR [rsp+{address}], {value}\n    jne {next}\n"
+                        ));
+                    } else {
+                        return Err("integer aggregate pattern has an unsupported width".into());
                     }
-                    self.output.push_str(&format!(
-                        "    cmp QWORD PTR [rsp+{address}], {value}\n    jne {next}\n"
-                    ));
                 }
                 Expr::UnsignedInteger(value) => {
-                    if field_words != 1 {
-                        return Err("wide integer aggregate patterns are unsupported".into());
+                    if field_words == 2 {
+                        self.output.push_str(&format!(
+                            "    cmp QWORD PTR [rsp+{address}], 0x{:016x}\n    jne {next}\n    cmp QWORD PTR [rsp+{}], 0x{:016x}\n    jne {next}\n",
+                            *value as u64,
+                            address + 8,
+                            (*value >> 64) as u64
+                        ));
+                    } else if field_words == 1 {
+                        self.output.push_str(&format!(
+                            "    cmp QWORD PTR [rsp+{address}], {}\n    jne {next}\n",
+                            *value as u64
+                        ));
+                    } else {
+                        return Err("integer aggregate pattern has an unsupported width".into());
                     }
-                    self.output.push_str(&format!(
-                        "    cmp QWORD PTR [rsp+{address}], {}\n    jne {next}\n",
-                        *value as u64
-                    ));
                 }
                 Expr::Char(value) => {
                     if field_words != 1 {
@@ -5492,24 +5509,45 @@ impl FunctionContext {
             }
             Expr::Symbol(_) => Ok(()),
             Expr::Integer(value) => {
-                if value_word_count(ty, &self.structs, &self.enums)? != 1 {
-                    return Err("wide integer enum payload patterns are unsupported".into());
+                let words = value_word_count(ty, &self.structs, &self.enums)?;
+                if words == 2 {
+                    let bits = *value as u128;
+                    self.output.push_str(&format!(
+                        "    cmp {}, 0x{:016x}\n    jne {next}\n    cmp {}, 0x{:016x}\n    jne {next}\n",
+                        operand(offset)?,
+                        bits as u64,
+                        operand(offset + 1)?,
+                        (bits >> 64) as u64
+                    ));
+                } else if words == 1 {
+                    self.output.push_str(&format!(
+                        "    cmp {}, {value}\n    jne {next}\n",
+                        operand(offset)?
+                    ));
+                } else {
+                    return Err("integer enum payload pattern has an unsupported width".into());
                 }
-                self.output.push_str(&format!(
-                    "    cmp {}, {value}\n    jne {next}\n",
-                    operand(offset)?
-                ));
                 Ok(())
             }
             Expr::UnsignedInteger(value) => {
-                if value_word_count(ty, &self.structs, &self.enums)? != 1 {
-                    return Err("wide integer enum payload patterns are unsupported".into());
+                let words = value_word_count(ty, &self.structs, &self.enums)?;
+                if words == 2 {
+                    self.output.push_str(&format!(
+                        "    cmp {}, 0x{:016x}\n    jne {next}\n    cmp {}, 0x{:016x}\n    jne {next}\n",
+                        operand(offset)?,
+                        *value as u64,
+                        operand(offset + 1)?,
+                        (*value >> 64) as u64
+                    ));
+                } else if words == 1 {
+                    self.output.push_str(&format!(
+                        "    cmp {}, {}\n    jne {next}\n",
+                        operand(offset)?,
+                        *value as u64
+                    ));
+                } else {
+                    return Err("integer enum payload pattern has an unsupported width".into());
                 }
-                self.output.push_str(&format!(
-                    "    cmp {}, {}\n    jne {next}\n",
-                    operand(offset)?,
-                    *value as u64
-                ));
                 Ok(())
             }
             Expr::Char(value) => {

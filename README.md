@@ -421,6 +421,9 @@ when their payloads fit the scalar integer ABI.
 Scalar floating-point enum payloads are also preserved through local storage,
 function calls, returns, and `match` bindings.
 
+Wide integer payload patterns compare both native words, so `i128` and `u128`
+values can be matched inside enum and aggregate patterns.
+
 `match` can inspect a constructor or enum-returning call directly; the
 compiler stages its discriminant and payload words before selecting an arm.
 Integer matches also support unsigned literals, including full-width `u128`

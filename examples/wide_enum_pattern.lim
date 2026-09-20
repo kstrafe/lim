@@ -1,0 +1,8 @@
+(#enum Maybe ((Some i128) None))
+
+(#fn main () u64
+  (#let value Maybe (Some 42))
+  (#return
+    (#match value
+      ((Some 42) 42)
+      (_ 0))))

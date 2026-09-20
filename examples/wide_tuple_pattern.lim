@@ -1,0 +1,7 @@
+(#fn main () u64
+  (#let value (#tuple i128 u64)
+    (#tuple (#tuple i128 u64) 42 7))
+  (#return
+    (#match value
+      ((#tuple 42 7) 42)
+      (_ 0))))
