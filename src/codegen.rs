@@ -740,7 +740,11 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
         let return_type = resolve_type(&function.return_type, &aliases)?;
         let indirect_return = supports_indirect_return_type(&return_type, &structs, &enums);
         if function.external
-            && (indirect_parameters.iter().any(|indirect| *indirect) || indirect_return)
+            && (parameters
+                .iter()
+                .any(|parameter| !is_external_scalar_type(parameter, &enums))
+                || (!matches!(return_type, Type::Unit)
+                    && !is_external_scalar_type(&return_type, &enums)))
         {
             return Err(format!(
                 "external function '{}' must use directly passed scalar values",
@@ -2913,6 +2917,10 @@ fn ensure_parameter_type(
         ));
     }
     Ok(())
+}
+
+fn is_external_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> bool {
+    is_wide_integer(ty) || ensure_scalar_type(ty, enums).is_ok()
 }
 
 fn is_flat_native_value(
