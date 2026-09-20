@@ -432,6 +432,9 @@ Large scalar enum returns can also be matched directly; see
 Large scalar tuple and struct locals can also be matched directly from their
 stack storage; see `examples/large_aggregate_match.lim`.
 
+Large scalar array locals use the same stack-slot match path; see
+`examples/large_array_match.lim`.
+
 Large scalar arrays can be materialized directly from `#if` branches into a
 local stack value; see `examples/large_array_if.lim`.
 
