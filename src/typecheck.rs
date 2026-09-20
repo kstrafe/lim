@@ -641,6 +641,9 @@ fn statement_type(
             Ok(Type::Unit)
         }
         Statement::While { condition, body } => {
+            if body.iter().any(statement_has_value_break) {
+                return Err("break with a value is only valid in a loop expression".into());
+            }
             let actual = expression(
                 condition,
                 variables,
@@ -670,6 +673,9 @@ fn statement_type(
             Ok(Type::Unit)
         }
         Statement::Loop { body } => {
+            if body.iter().any(statement_has_value_break) {
+                return Err("break with a value is only valid in a loop expression".into());
+            }
             let mut loop_variables = variables.clone();
             let mut loop_mutable = mutable.clone();
             for nested in body {
@@ -693,6 +699,9 @@ fn statement_type(
             step,
             body,
         } => {
+            if body.iter().any(statement_has_value_break) {
+                return Err("break with a value is only valid in a loop expression".into());
+            }
             let mut loop_variables = variables.clone();
             let mut loop_mutable = mutable.clone();
             statement_type(
@@ -744,7 +753,7 @@ fn statement_type(
             Ok(Type::Unit)
         }
         Statement::BreakValue(value) => {
-            if !in_loop && !mutable.contains(LOOP_VALUE_CONTEXT) {
+            if !mutable.contains(LOOP_VALUE_CONTEXT) {
                 return Err("break with a value used outside a loop".into());
             }
             expression(

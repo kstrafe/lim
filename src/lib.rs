@@ -3757,6 +3757,18 @@ mod tests {
     }
 
     #[test]
+    fn rejects_value_breaks_in_statement_loops() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#while true (#break 1)) \
+               (#return 0))",
+        )
+        .unwrap();
+        let error = check_types(&program).unwrap_err();
+        assert!(error.contains("only valid in a loop expression"));
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
