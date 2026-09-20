@@ -218,6 +218,14 @@ Enums can also carry one scalar payload:
 (if-let (Some payload) value payload 0)
 ```
 
+`while-let` repeats while its pattern matches and breaks on the first failure:
+
+```lisp
+(while-let (Some payload) value
+  (set total (+ total payload))
+  (set value None))
+```
+
 Payload variants may contain multiple scalar fields and bind them in order:
 
 ```lisp

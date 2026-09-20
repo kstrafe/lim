@@ -1542,6 +1542,23 @@ impl FunctionContext {
             }
             Statement::Assign { name, value } => {
                 let expected = self.local_types.get(name).cloned();
+                if let Some(ty) = expected.as_ref() {
+                    match ty {
+                        Type::Named(type_name)
+                            if self.enums.get(type_name).is_some_and(|variants| {
+                                variants.iter().any(|variant| !variant.fields.is_empty())
+                            }) =>
+                        {
+                            return self.store_enum(name, type_name, value);
+                        }
+                        Type::Named(type_name) if self.structs.contains_key(type_name) => {
+                            return self.store_struct(name, type_name, value);
+                        }
+                        Type::Tuple(_) => return self.store_tuple(name, value),
+                        Type::Array(_, _) => return self.store_array(name, value),
+                        _ => {}
+                    }
+                }
                 if let Some(ty) = expected.as_ref().filter(|ty| is_float_type(ty)) {
                     self.expression_as_float(value, ty)?;
                 } else {

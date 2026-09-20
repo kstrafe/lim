@@ -1005,6 +1005,39 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
 
 fn lower_expr(expression: &Expr) -> Result<Expr, String> {
     match expression {
+        Expr::List(items) if is_form(expression, "while-let") => {
+            if items.len() < 4 {
+                return Err(
+                    "while-let requires a pattern, value, and at least one body statement".into(),
+                );
+            }
+            let condition_pattern = match &items[1] {
+                Expr::List(pattern) if !pattern.is_empty() => Expr::List(
+                    std::iter::once(pattern[0].clone())
+                        .chain(pattern[1..].iter().map(|_| Expr::Symbol("_".into())))
+                        .collect(),
+                ),
+                pattern => pattern.clone(),
+            };
+            let mut body = vec![Expr::Symbol("block".into())];
+            body.extend(items[3..].iter().cloned());
+            let then_value = Expr::List(body);
+            lower_expr(&Expr::List(vec![
+                Expr::Symbol("while".into()),
+                Expr::List(vec![
+                    Expr::Symbol("match".into()),
+                    items[2].clone(),
+                    Expr::List(vec![condition_pattern, Expr::Symbol("true".into())]),
+                    Expr::List(vec![Expr::Symbol("_".into()), Expr::Symbol("false".into())]),
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("if-let".into()),
+                    items[1].clone(),
+                    items[2].clone(),
+                    then_value,
+                ]),
+            ]))
+        }
         Expr::List(items) if is_form(expression, "if-let") => {
             if items.len() != 4 && items.len() != 5 {
                 return Err(
@@ -1949,6 +1982,18 @@ mod tests {
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn lowers_while_let_with_match_guard() {
+        let program = parse_program(
+            "(@optional u64 Maybe?) (fn main () u64 (let mut value Maybe? (Maybe?-construct 42)) (let mut total u64 0) (while-let (Maybe?-some payload) value (set total (+ total payload)) (set value Maybe?-none)) total)",
+        )
+        .unwrap();
+        let type_result = check_types(&program);
+        assert!(type_result.is_ok(), "{type_result:?}");
+        let assembly_result = generate_assembly(&program);
+        assert!(assembly_result.is_ok(), "{assembly_result:?}");
     }
 
     #[test]
