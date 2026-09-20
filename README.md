@@ -161,8 +161,10 @@ The backend exposes representation sizes as a typed `usize` expression:
 
 ```lisp
 (fn main () u64
-  (as (size-of (tuple u64 u32)) u64))
+(as (size-of (tuple u64 u32)) u64))
 ```
+
+The unit type `()` and never type `!` are zero-sized and have alignment one.
 
 `align-of` reports the corresponding native alignment:
 

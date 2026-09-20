@@ -6437,6 +6437,7 @@ impl FunctionContext {
 
     fn native_type_align(&self, ty: &Type) -> Result<usize, String> {
         match ty {
+            Type::Unit | Type::Never => Ok(1),
             Type::I128 | Type::U128 => Ok(8),
             Type::Array(element, _) => self.native_type_align(element),
             Type::Tuple(fields) => Ok(fields
@@ -6468,6 +6469,7 @@ impl FunctionContext {
 
     fn native_type_size(&self, ty: &Type) -> Result<usize, String> {
         match ty {
+            Type::Unit | Type::Never => Ok(0),
             Type::I128 | Type::U128 => Ok(16),
             Type::Array(element, length) => Ok(self.native_type_size(element)? * length),
             Type::Tuple(fields) => fields

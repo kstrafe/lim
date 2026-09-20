@@ -4349,6 +4349,17 @@ mod tests {
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("expected Never"));
+
+        let layout = parse_program_strict(
+            "(#fn main () u64 \
+               (#return (#u64.+.wrap \
+                 (#as (#size-of ()) u64) \
+                 (#as (#size-of !) u64))))",
+        )
+        .unwrap();
+        assert!(check_types(&layout).is_ok());
+        let assembly = generate_assembly(&layout).unwrap();
+        assert!(assembly.contains("mov rax, 0"));
     }
 
     #[test]
