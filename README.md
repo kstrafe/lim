@@ -472,6 +472,9 @@ aggregate array element replacement use the same flattened representation;
 aggregate arrays can also be passed through function calls using that same
 flattened representation, including repeated aggregate values and aggregate
 array returns.
+Large array-valued tuple and struct fields can also be indexed directly; the
+native backend materializes the field in a frame temporary before selecting its
+element. See `examples/large_aggregate_mutation.lim`.
 Aggregate-valued `#if` and `#match` expressions also preserve all flattened
 value words across their branches.
 Aggregate expressions may be used as discarded statements; their flattened
