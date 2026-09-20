@@ -1154,10 +1154,15 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("addsd xmm1, xmm0"));
         assert!(assembly.contains("movq xmm0"));
-        let invalid = parse_program("(fn calculate ((value f64)) f64 value)").unwrap();
-        assert!(generate_assembly(&invalid)
-            .unwrap_err()
-            .contains("floating-point parameters"));
+        let parameter = parse_program("(fn calculate ((value f64)) f64 value)").unwrap();
+        assert!(generate_assembly(&parameter)
+            .unwrap()
+            .contains("movq QWORD PTR [rbp-8], xmm0"));
+        let called = parse_program(
+            "(fn add ((left f64) (right f64)) f64 (+ left right)) (fn main () f64 (add 1.5 2.5))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&called).unwrap().contains("call add"));
     }
 
     #[test]

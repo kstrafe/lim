@@ -11,10 +11,14 @@ use crate::{check_types, EnumVariant, Expr, Field, Function, Item, Program, Stat
 
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 const VALUE_REGISTERS: [&str; 6] = ["rax", "rdx", "rcx", "r8", "r9", "rdi"];
+const FLOAT_ARGUMENT_REGISTERS: [&str; 8] = [
+    "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+];
 
 #[derive(Clone)]
 struct FunctionAbi {
     parameters: Vec<Type>,
+    return_type: Type,
 }
 
 pub fn generate_assembly(program: &Program) -> Result<String, String> {
@@ -62,8 +66,14 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             .iter()
             .map(|parameter| resolve_type(&parameter.ty, &aliases))
             .collect::<Result<Vec<_>, _>>()?;
-        let _return_type = resolve_type(&function.return_type, &aliases)?;
-        functions.insert(function.name.clone(), FunctionAbi { parameters });
+        let return_type = resolve_type(&function.return_type, &aliases)?;
+        functions.insert(
+            function.name.clone(),
+            FunctionAbi {
+                parameters,
+                return_type,
+            },
+        );
     }
     let mut globals = HashMap::new();
     for item in &program.items {
@@ -124,10 +134,21 @@ fn generate_function(
     ensure_return_type(&return_type, enums, structs)?;
     for parameter in &function.parameters {
         let parameter_type = resolve_type(&parameter.ty, aliases)?;
-        if matches!(parameter_type, Type::F32 | Type::F64) {
-            return Err("native backend does not support floating-point parameters yet".into());
+        if matches!(parameter_type, Type::F32) {
+            return Err("native backend does not support f32 parameters yet".into());
         }
         ensure_parameter_type(&parameter_type, enums, structs)?;
+    }
+    let has_float_parameter = function
+        .parameters
+        .iter()
+        .any(|parameter| matches!(resolve_type(&parameter.ty, aliases), Ok(Type::F64)));
+    let has_integer_parameter = function
+        .parameters
+        .iter()
+        .any(|parameter| !matches!(resolve_type(&parameter.ty, aliases), Ok(Type::F64)));
+    if has_float_parameter && has_integer_parameter {
+        return Err("native backend does not support mixed integer/floating parameters yet".into());
     }
 
     let mut locals = HashMap::new();
@@ -173,11 +194,25 @@ fn generate_function(
     if frame_size != 0 {
         output.push_str(&format!("    sub rsp, {frame_size}\n"));
     }
+    let all_float_parameters = has_float_parameter && !has_integer_parameter;
+    if all_float_parameters && function.parameters.len() > FLOAT_ARGUMENT_REGISTERS.len() {
+        return Err("native backend supports at most eight f64 parameters".into());
+    }
     let mut incoming_word = 0usize;
     for parameter in &function.parameters {
         let ty = resolve_type(&parameter.ty, aliases)?;
         let words = value_word_count(&ty, structs, enums)?;
         let slots = local_slots(&locals, &parameter.name)?;
+        if all_float_parameters {
+            let slot = slots[0];
+            output.push_str(&format!(
+                "    movq QWORD PTR [rbp-{}], {}\n",
+                slot * 8,
+                FLOAT_ARGUMENT_REGISTERS[incoming_word]
+            ));
+            incoming_word += 1;
+            continue;
+        }
         for slot in slots.into_iter().take(words) {
             if incoming_word < ARGUMENT_REGISTERS.len() {
                 output.push_str(&format!(
@@ -1688,17 +1723,20 @@ impl FunctionContext {
                 .local_types
                 .get(name)
                 .is_some_and(|ty| matches!(ty, Type::F64)),
-            Expr::List(items) => items
-                .first()
-                .and_then(|operator| match operator {
-                    Expr::Symbol(operator)
-                        if matches!(operator.as_str(), "+" | "-" | "*" | "/") =>
-                    {
-                        items.get(1)
-                    }
-                    _ => None,
-                })
-                .is_some_and(|value| self.expression_is_float(value)),
+            Expr::List(items) => match items.first() {
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "+" | "-" | "*" | "/") =>
+                {
+                    items
+                        .get(1)
+                        .is_some_and(|value| self.expression_is_float(value))
+                }
+                Some(Expr::Symbol(operator)) => self
+                    .functions
+                    .get(operator)
+                    .is_some_and(|function| matches!(function.return_type, Type::F64)),
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -1731,6 +1769,12 @@ impl FunctionContext {
             .ok_or_else(|| format!("unknown function '{name}'"))?;
         if arguments.len() != abi.parameters.len() {
             return Err(format!("call to '{name}' has the wrong argument count"));
+        }
+        if abi.parameters.iter().all(|ty| matches!(ty, Type::F64)) {
+            return self.call_float(name, arguments);
+        }
+        if abi.parameters.iter().any(|ty| matches!(ty, Type::F64)) {
+            return Err("native backend does not support mixed integer/floating calls yet".into());
         }
         let word_count = abi
             .parameters
@@ -1775,6 +1819,33 @@ impl FunctionContext {
         for register in ARGUMENT_REGISTERS[..total_words].iter().rev() {
             self.output.push_str(&format!("    pop {register}\n"));
             self.stack_depth -= 1;
+        }
+        let needs_padding = self.stack_depth % 2 == 1;
+        if needs_padding {
+            self.output.push_str("    sub rsp, 8\n");
+        }
+        self.output.push_str(&format!("    call {name}\n"));
+        if needs_padding {
+            self.output.push_str("    add rsp, 8\n");
+        }
+        Ok(())
+    }
+
+    fn call_float(&mut self, name: &str, arguments: &[Expr]) -> Result<(), String> {
+        if arguments.len() > FLOAT_ARGUMENT_REGISTERS.len() {
+            return Err(format!(
+                "call to '{name}' has too many floating-point arguments"
+            ));
+        }
+        for argument in arguments {
+            self.expression(argument)?;
+            self.output.push_str("    movq rax, xmm0\n    push rax\n");
+            self.stack_depth += 1;
+        }
+        for register in FLOAT_ARGUMENT_REGISTERS[..arguments.len()].iter().rev() {
+            self.output.push_str("    pop rax\n");
+            self.stack_depth -= 1;
+            self.output.push_str(&format!("    movq {register}, rax\n"));
         }
         let needs_padding = self.stack_depth % 2 == 1;
         if needs_padding {

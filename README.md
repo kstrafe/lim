@@ -68,8 +68,8 @@ Conversions are explicit integer casts:
   (as (as 42 u32) u64))
 ```
 
-Native `f64` locals support literals, arithmetic, and comparisons through SSE;
-floating-point function parameters are reserved for a later ABI pass.
+Native `f64` locals, homogeneous function parameters, arithmetic, comparisons,
+and returns use SSE registers.
 
 Named type aliases are explicit and resolve to their target type:
 

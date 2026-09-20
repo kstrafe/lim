@@ -1,4 +1,8 @@
+(fn add ((left f64) (right f64)) f64
+  (+ left right))
+
 (fn main () u64
   (let left f64 1.5)
   (let right f64 2.25)
-  (if (< left right) 42 0))
+  (let total f64 (add left right))
+  (if (> total 3.0) 42 0))
