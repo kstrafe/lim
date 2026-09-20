@@ -1,8 +1,4 @@
-//! Lexer and parser for Lim's Lisp syntax.
-//!
-//! This crate deliberately has no dependencies.  The syntax tree keeps the
-//! `@` sigil as a first-class expression so macro/generated-code expansion can
-//! be implemented later without changing the parser's public representation.
+#![doc = include_str!("../docs/language.md")]
 
 use std::{
     collections::{HashMap, HashSet},
