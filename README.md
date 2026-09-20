@@ -312,7 +312,8 @@ fixed-array returns from local storage now use the flattened ABI when their
 total representation fits six words. Nested tuple/struct field mutation and
 aggregate array element replacement use the same flattened representation;
 aggregate arrays can also be passed through function calls using that same
-flattened representation.
+flattened representation, including repeated aggregate values and aggregate
+array returns.
 Enum payloads can be updated explicitly by naming the active variant and
 payload field index:
 

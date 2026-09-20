@@ -3958,10 +3958,10 @@ impl FunctionContext {
                 self.global_types.get(name),
                 Some(Type::Array(_, global_length)) if *global_length == length
             ) {
-                if length > VALUE_REGISTERS.len() {
-                    return Err("native array return has too many elements".into());
-                }
                 let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                if words > VALUE_REGISTERS.len() {
+                    return Err("native array return has too many value words".into());
+                }
                 for index in (0..words).rev() {
                     let register = VALUE_REGISTERS[index];
                     self.load_global_word(name, index)?;
@@ -4005,7 +4005,8 @@ impl FunctionContext {
                 self.expression_as_abi_word(&Expr::Char(character), &Type::Char)?;
                 self.push_rax();
             }
-            for register in VALUE_REGISTERS[..length].iter().rev() {
+            let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+            for register in VALUE_REGISTERS[..words].iter().rev() {
                 self.output.push_str(&format!("    pop {register}\n"));
                 self.stack_depth -= 1;
             }
@@ -4028,10 +4029,10 @@ impl FunctionContext {
                     unreachable!()
                 };
                 for _ in 0..length {
-                    self.expression_as_abi_word(&items[value_start], &element)?;
-                    self.push_rax();
+                    self.push_value_words(&items[value_start], &element, false)?;
                 }
-                for register in VALUE_REGISTERS[..length].iter().rev() {
+                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                for register in VALUE_REGISTERS[..words].iter().rev() {
                     self.output.push_str(&format!("    pop {register}\n"));
                     self.stack_depth -= 1;
                 }

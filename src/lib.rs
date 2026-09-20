@@ -3909,6 +3909,19 @@ mod tests {
     }
 
     #[test]
+    fn returns_repeated_aggregate_arrays() {
+        let program = parse_program(
+            "(#fn values () (#array (#tuple u64 u64) 2) \
+               (#return (#array-repeat (#tuple 30 12)))) \
+             (#fn main () u64 \
+               (#return (#get (#index (values) 1) 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
