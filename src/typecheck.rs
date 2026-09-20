@@ -692,9 +692,6 @@ fn list_expression(
                     if payload_pattern.is_some() && variant.fields.len() != 1 {
                         return Err(format!("variant '{pattern}' does not have one payload"));
                     }
-                    if payload_pattern.is_some() && payload_pattern != Some("_") {
-                        return Err("payload bindings are not supported yet; use '_'".into());
-                    }
                     if payload_pattern == Some("_") && variant.fields.is_empty() {
                         return Err(format!("variant '{pattern}' has no payload"));
                     }
@@ -702,9 +699,24 @@ fn list_expression(
                         seen.push(pattern);
                     }
                 }
+                let mut arm_variables = variables.clone();
+                if let Some(binding) = payload_pattern.filter(|binding| *binding != "_") {
+                    let field_type = variants
+                        .iter()
+                        .find(|variant| variant.name == pattern)
+                        .and_then(|variant| variant.fields.first())
+                        .ok_or_else(|| format!("variant '{pattern}' has no payload"))?
+                        .clone();
+                    if arm_variables
+                        .insert(binding.to_owned(), field_type)
+                        .is_some()
+                    {
+                        return Err(format!("duplicate match binding '{binding}'"));
+                    }
+                }
                 let arm_type = expression(
                     &arm[1],
-                    variables,
+                    &arm_variables,
                     functions,
                     structs,
                     enums,

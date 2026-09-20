@@ -93,14 +93,13 @@ Payload-free enums use integer discriminants and support exhaustive `match`:
     (_ 30)))
 ```
 
-Enums can also carry one scalar payload. Payload bindings are not yet exposed
-in match arms; use `_` to test the variant:
+Enums can also carry one scalar payload:
 
 ```lisp
 (enum Maybe ((Some u64) None))
 (fn main () u64
   (let value Maybe (Some 42))
-  (match value ((Some _) 42) (None 7)))
+  (match value ((Some payload) payload) (None 7)))
 ```
 
 Fixed-size arrays are value types with stack storage:

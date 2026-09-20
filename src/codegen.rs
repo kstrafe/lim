@@ -321,6 +321,36 @@ fn collect_expr_locals(
 ) -> Result<(), String> {
     match expression {
         Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                for arm in items.iter().skip(2) {
+                    let Expr::List(arm) = arm else { continue };
+                    let Some(Expr::List(pattern)) = arm.first() else {
+                        continue;
+                    };
+                    if pattern.len() != 2 {
+                        continue;
+                    }
+                    let (Some(Expr::Symbol(variant_name)), Some(Expr::Symbol(binding))) =
+                        (pattern.first(), pattern.get(1))
+                    else {
+                        continue;
+                    };
+                    if binding == "_" || locals.contains_key(binding) {
+                        continue;
+                    }
+                    let Some(field_type) = enums.values().find_map(|variants| {
+                        variants
+                            .iter()
+                            .find(|variant| variant.name == *variant_name)
+                            .and_then(|variant| variant.fields.first())
+                    }) else {
+                        continue;
+                    };
+                    add_local(
+                        locals, binding, field_type, structs, enums, aliases, next_slot,
+                    )?;
+                }
+            }
             for item in items {
                 collect_expr_locals(item, locals, structs, enums, aliases, next_slot)?;
             }
@@ -894,6 +924,13 @@ impl FunctionContext {
         }
         let end = self.label("match_end");
         let base_depth = self.stack_depth;
+        let payload_slot = match &items[1] {
+            Expr::Symbol(name) => match self.locals.get(name) {
+                Some(Storage::Enum { payload, .. }) => Some(*payload),
+                _ => None,
+            },
+            _ => None,
+        };
         match &items[1] {
             Expr::Symbol(name) if matches!(self.locals.get(name), Some(Storage::Enum { .. })) => {
                 let Storage::Enum { discriminant, .. } = self.locals.get(name).unwrap() else {
@@ -913,10 +950,12 @@ impl FunctionContext {
                 _ => return Err("invalid match arm".into()),
             };
             let next = self.label("match_next");
-            let pattern = match &arm[0] {
-                Expr::Symbol(pattern) => pattern.as_str(),
-                Expr::List(pattern) if pattern.len() == 2 => match &pattern[0] {
-                    Expr::Symbol(pattern) => pattern.as_str(),
+            let (pattern, binding) = match &arm[0] {
+                Expr::Symbol(pattern) => (pattern.as_str(), None),
+                Expr::List(pattern) if pattern.len() == 2 => match (&pattern[0], &pattern[1]) {
+                    (Expr::Symbol(pattern), Expr::Symbol(binding)) => {
+                        (pattern.as_str(), Some(binding.as_str()))
+                    }
                     _ => return Err("match variant pattern must be a symbol".into()),
                 },
                 _ => return Err("match pattern must be a symbol or (variant _)".into()),
@@ -927,6 +966,17 @@ impl FunctionContext {
                     .ok_or_else(|| format!("unknown enum variant '{pattern}'"))?;
                 self.output.push_str(&format!(
                     "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
+                ));
+            }
+            if let Some(binding) = binding.filter(|binding| *binding != "_") {
+                let Some(payload_slot) = payload_slot else {
+                    return Err("payload binding requires a local payload enum".into());
+                };
+                let slot = scalar_slot(&self.locals, binding);
+                self.output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                    payload_slot * 8,
+                    slot * 8
                 ));
             }
             self.expression(&arm[1])?;

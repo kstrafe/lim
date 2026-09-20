@@ -3,5 +3,5 @@
 (fn main () u64
   (let value Maybe (Some 42))
   (match value
-    ((Some _) 42)
+    ((Some payload) payload)
     (None 7)))

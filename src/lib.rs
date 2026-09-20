@@ -1092,6 +1092,14 @@ mod tests {
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("not exhaustive"));
+        let binding = parse_program(
+            "(enum Maybe ((Some u64) None)) (fn main () u64 (let value Maybe (Some 42)) (match value ((Some payload) payload) (None 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&binding).is_ok());
+        assert!(generate_assembly(&binding)
+            .unwrap()
+            .contains("mov QWORD PTR [rbp-24], rax"));
     }
 
     #[test]
