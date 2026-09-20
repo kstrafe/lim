@@ -39,6 +39,15 @@ The compiler can require the fully explicit syntax at the command line:
 nix develop --command cargo run -- --emit-asm --strict examples/fibonacci.lim /tmp/fibonacci.s
 ```
 
+Run the complete native example sweep inside the development shell:
+
+```sh
+nix develop --command ./scripts/native-sweep.sh
+```
+
+The sweep assembles and executes every example, while counting intentional
+trap examples separately from compiler, linker, and timeout failures.
+
 ## Syntax currently recognized
 
 The `#`-prefixed forms are canonical. `parse_program` continues to accept
