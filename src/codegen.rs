@@ -1320,8 +1320,18 @@ fn collect_local_types(
             collect_expr_types(value, types, aliases, enums, structs);
         }
         Statement::LetElse {
-            value, else_body, ..
+            pattern,
+            ty,
+            value,
+            else_body,
         } => {
+            if let Ok(ty) = resolve_type(ty, aliases) {
+                if let Ok(bindings) = let_else_bindings(pattern, &ty, structs, enums) {
+                    for (name, field_type) in bindings {
+                        types.entry(name).or_insert(field_type);
+                    }
+                }
+            }
             collect_expr_types(value, types, aliases, enums, structs);
             for statement in else_body {
                 collect_local_types(statement, types, aliases, enums, structs);
@@ -4035,7 +4045,7 @@ impl FunctionContext {
                 for (name, offset, binding_type) in bindings {
                     let slots = local_slots(&self.locals, &name)?;
                     let binding_words =
-                        value_word_count(&binding_type, &self.structs, &self.enums)?;
+                        storage_word_count(&binding_type, &self.structs, &self.enums)?;
                     if slots.len() != binding_words {
                         return Err(format!(
                             "let-else binding '{name}' has inconsistent storage"
@@ -5782,7 +5792,7 @@ impl FunctionContext {
             let field_slots = payload
                 .get(offset..offset + field_words)
                 .ok_or_else(|| "enum payload exceeds native storage".to_owned())?;
-            self.store_value_words(&items[index + 1], field_type, field_slots)?;
+            self.store_value_to_slots(&items[index + 1], field_type, field_slots)?;
             offset += field_words;
         }
         for slot in payload.iter().skip(offset) {
