@@ -426,6 +426,9 @@ Direct indexing of a large scalar array return is also supported; see
 Tuple indexing and struct field access can likewise consume direct large
 scalar aggregate returns; see `examples/direct_large_aggregate_access.lim`.
 
+Large scalar enum returns can also be matched directly; see
+`examples/direct_large_enum_match.lim`.
+
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
 Nested tuple locals and fixed-array locals can also be stored and indexed using

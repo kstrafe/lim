@@ -6136,14 +6136,44 @@ impl FunctionContext {
                 );
             }
         }
-        let end = self.label("match_end");
-        let base_depth = self.stack_depth;
-        let payload_slots = match &items[1] {
-            Expr::Symbol(name) => match self.locals.get(name) {
-                Some(Storage::Enum { payload, .. }) => Some(payload.clone()),
+        let direct_enum_call = match &items[1] {
+            Expr::List(call_items) => match call_items.first() {
+                Some(Expr::Symbol(function_name))
+                    if self
+                        .functions
+                        .get(function_name)
+                        .is_some_and(|function| function.indirect_return)
+                        && self
+                            .expression_type(&items[1])
+                            .is_some_and(|ty| self.is_enum_type(&ty)) =>
+                {
+                    Some((function_name.clone(), call_items[1..].to_vec()))
+                }
                 _ => None,
             },
             _ => None,
+        };
+        let direct_enum_base = if let Some((function_name, arguments)) = direct_enum_call {
+            Some(self.call_to_aggregate_temp(&function_name, &arguments)?)
+        } else {
+            None
+        };
+        let end = self.label("match_end");
+        let base_depth = self.stack_depth;
+        let payload_slots = if let Some(base) = direct_enum_base {
+            let ty = self
+                .expression_type(&items[1])
+                .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
+            let payload_words = storage_word_count(&ty, &self.structs, &self.enums)? - 1;
+            Some((base + 1..base + 1 + payload_words).collect())
+        } else {
+            match &items[1] {
+                Expr::Symbol(name) => match self.locals.get(name) {
+                    Some(Storage::Enum { payload, .. }) => Some(payload.clone()),
+                    _ => None,
+                },
+                _ => None,
+            }
         };
         let payload_count = if let Some(payload_slots) = &payload_slots {
             payload_slots.len()
@@ -6176,6 +6206,12 @@ impl FunctionContext {
                 self.output.push_str(&format!(
                     "    mov rax, QWORD PTR [rbp-{}]\n",
                     discriminant * 8
+                ));
+            }
+            Expr::List(_) if direct_enum_base.is_some() => {
+                self.output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp-{}]\n",
+                    direct_enum_base.unwrap() * 8
                 ));
             }
             Expr::Symbol(name)
