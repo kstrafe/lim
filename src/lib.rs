@@ -3306,6 +3306,18 @@ mod tests {
         .unwrap();
         assert!(check_types(&multiplication).is_ok());
         assert!(generate_assembly(&multiplication).is_ok());
+        let signed_multiplication = parse_program(
+            "(#fn main () i128 (#return (#i128.*.saturate 170141183460469231731687303715884105727 2)))",
+        )
+        .unwrap();
+        assert!(check_types(&signed_multiplication).is_ok());
+        assert!(generate_assembly(&signed_multiplication).is_ok());
+        let negative_multiplication = parse_program(
+            "(#fn main () i128 (#return (#i128.*.saturate -170141183460469231731687303715884105728 2)))",
+        )
+        .unwrap();
+        assert!(check_types(&negative_multiplication).is_ok());
+        assert!(generate_assembly(&negative_multiplication).is_ok());
     }
 
     #[test]

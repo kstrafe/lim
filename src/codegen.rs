@@ -3946,10 +3946,11 @@ impl FunctionContext {
             let unsigned = self
                 .expression_type(&items[1])
                 .is_some_and(|ty| matches!(ty, Type::U128));
-            if !unsigned {
-                return Err("saturating signed 128-bit multiplication is not supported yet".into());
+            if unsigned {
+                self.emit_wide_saturating_unsigned_multiply();
+            } else {
+                self.emit_wide_saturating_signed_multiply();
             }
-            self.emit_wide_saturating_unsigned_multiply();
             return Ok(());
         }
         if matches!(operator, "<<" | ">>") {
@@ -4049,6 +4050,92 @@ impl FunctionContext {
         self.output.push_str(&format!(
             "    sub rsp, 16\n    mov QWORD PTR [rsp], rax\n    mov QWORD PTR [rsp+8], rdx\n    mul rcx\n    mov r9, rax\n    mov r10, rdx\n    mov rax, QWORD PTR [rsp+8]\n    mul rcx\n    test rdx, rdx\n    jnz {overflow}\n    add r10, rax\n    jc {overflow}\n    mov rax, QWORD PTR [rsp]\n    mul r8\n    test rdx, rdx\n    jnz {overflow}\n    add r10, rax\n    jc {overflow}\n    mov rax, QWORD PTR [rsp+8]\n    mul r8\n    or rax, rdx\n    jnz {overflow}\n    mov rax, r9\n    mov rdx, r10\n    add rsp, 16\n    jmp {done}\n{overflow}:\n    add rsp, 16\n    mov rax, -1\n    mov rdx, -1\n{done}:\n"
         ));
+    }
+
+    fn emit_wide_saturating_signed_multiply(&mut self) {
+        let multiplication_overflow = self.label("wide_saturate_signed_mul_overflow");
+        let bound_overflow = self.label("wide_saturate_signed_mul_bound_overflow");
+        let positive = self.label("wide_saturate_signed_mul_positive");
+        let negative_path = self.label("wide_saturate_signed_mul_negative");
+        let negative_clamp = self.label("wide_saturate_signed_mul_negative_clamp");
+        let done = self.label("wide_saturate_signed_mul_done");
+        let product = self.label("wide_saturate_signed_mul_product");
+        let within = self.label("wide_saturate_signed_mul_within");
+        let assembly = format!(
+            r#"    mov r11, rdx
+    xor r11, r8
+    shr r11, 63
+    mov r9, rdx
+    sar r9, 63
+    xor rax, r9
+    xor rdx, r9
+    sub rax, r9
+    sbb rdx, r9
+    mov r10, r8
+    sar r10, 63
+    xor rcx, r10
+    xor r8, r10
+    sub rcx, r10
+    sbb r8, r10
+    sub rsp, 16
+    mov QWORD PTR [rsp], rax
+    mov QWORD PTR [rsp+8], rdx
+    mul rcx
+    mov r9, rax
+    mov r10, rdx
+    mov rax, QWORD PTR [rsp+8]
+    mul rcx
+    test rdx, rdx
+    jnz {multiplication_overflow}
+    add r10, rax
+    jc {multiplication_overflow}
+    mov rax, QWORD PTR [rsp]
+    mul r8
+    test rdx, rdx
+    jnz {multiplication_overflow}
+    add r10, rax
+    jc {multiplication_overflow}
+    mov rax, QWORD PTR [rsp+8]
+    mul r8
+    or rax, rdx
+    jnz {multiplication_overflow}
+    mov rax, r9
+    mov rdx, r10
+    jmp {product}
+{multiplication_overflow}:
+    mov rax, 1
+    mov rdx, 0x8000000000000000
+{product}:
+    add rsp, 16
+    test r11, r11
+    jnz {negative_path}
+    jmp {positive}
+{positive}:
+    bt rdx, 63
+    jc {bound_overflow}
+    jmp {within}
+{negative_path}:
+    mov r9, 0x8000000000000000
+    cmp rdx, r9
+    ja {bound_overflow}
+    jne {within}
+    test rax, rax
+    jnz {bound_overflow}
+{within}:
+    jmp {done}
+{bound_overflow}:
+    test r11, r11
+    jnz {negative_clamp}
+    mov rax, 0xffffffffffffffff
+    mov rdx, 0x7fffffffffffffff
+    jmp {done}
+{negative_clamp}:
+    xor eax, eax
+    mov rdx, 0x8000000000000000
+{done}:
+"#,
+        );
+        self.output.push_str(&assembly);
     }
 
     fn wide_division(&mut self, operator: &str, signed: bool) -> Result<(), String> {
