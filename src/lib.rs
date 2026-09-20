@@ -974,4 +974,12 @@ mod tests {
         .unwrap();
         assert!(check_types(&invalid).unwrap_err().contains("out of bounds"));
     }
+
+    #[test]
+    fn lowers_stack_arguments() {
+        let program = parse_program("(fn sum8 ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64) (h u64)) u64 (+ (+ (+ (+ (+ (+ (+ a b) c) d) e) f) g) h)) (fn main () u64 (sum8 1 2 3 4 5 6 7 8))").unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("[rbp+16]"));
+        assert!(assembly.contains("[rbp+24]"));
+    }
 }

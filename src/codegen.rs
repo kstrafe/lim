@@ -59,12 +59,6 @@ fn generate_function(
     enums: &HashMap<String, Vec<String>>,
 ) -> Result<(), String> {
     ensure_scalar_type(&function.return_type, enums)?;
-    if function.parameters.len() > ARGUMENT_REGISTERS.len() {
-        return Err(format!(
-            "function '{}' has more than six parameters",
-            function.name
-        ));
-    }
     for parameter in &function.parameters {
         ensure_scalar_type(&parameter.ty, enums)?;
     }
@@ -95,11 +89,19 @@ fn generate_function(
         output.push_str(&format!("    sub rsp, {frame_size}\n"));
     }
     for (index, parameter) in function.parameters.iter().enumerate() {
-        output.push_str(&format!(
-            "    mov QWORD PTR [rbp-{}], {}\n",
-            scalar_slot(&locals, &parameter.name) * 8,
-            ARGUMENT_REGISTERS[index]
-        ));
+        if index < ARGUMENT_REGISTERS.len() {
+            output.push_str(&format!(
+                "    mov QWORD PTR [rbp-{}], {}\n",
+                scalar_slot(&locals, &parameter.name) * 8,
+                ARGUMENT_REGISTERS[index]
+            ));
+        } else {
+            let incoming_offset = (index - 4) * 8;
+            output.push_str(&format!(
+                "    mov rax, QWORD PTR [rbp+{incoming_offset}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                scalar_slot(&locals, &parameter.name) * 8
+            ));
+        }
     }
 
     let return_label = format!(".Lreturn_{}", function.name);
@@ -678,8 +680,40 @@ impl FunctionContext {
     }
 
     fn call(&mut self, name: &str, arguments: &[Expr]) -> Result<(), String> {
+        if arguments.len() > 32 {
+            return Err(format!("call to '{name}' has more than 32 arguments"));
+        }
         if arguments.len() > ARGUMENT_REGISTERS.len() {
-            return Err(format!("call to '{name}' has more than six arguments"));
+            let stack_arguments = arguments.len() - ARGUMENT_REGISTERS.len();
+            let needs_padding = (self.stack_depth + stack_arguments) % 2 == 1;
+            if needs_padding {
+                self.output.push_str("    sub rsp, 8\n");
+                self.stack_depth += 1;
+            }
+            // Arguments are evaluated in reverse for the stack staging area;
+            // expressions have no side effects, so this preserves observable
+            // behavior while keeping the ABI layout simple.
+            for argument in arguments.iter().rev() {
+                self.expression(argument)?;
+                self.push_rax();
+            }
+            for (index, register) in ARGUMENT_REGISTERS.iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov {register}, QWORD PTR [rsp+{}]\n",
+                    index * 8
+                ));
+            }
+            self.output.push_str("    add rsp, 48\n");
+            self.stack_depth -= ARGUMENT_REGISTERS.len();
+            self.output.push_str(&format!("    call {name}\n"));
+            self.output
+                .push_str(&format!("    add rsp, {}\n", stack_arguments * 8));
+            self.stack_depth -= stack_arguments;
+            if needs_padding {
+                self.output.push_str("    add rsp, 8\n");
+                self.stack_depth -= 1;
+            }
+            return Ok(());
         }
         for argument in arguments {
             self.expression(argument)?;

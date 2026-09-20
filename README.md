@@ -93,6 +93,9 @@ Fixed-size arrays are value types with stack storage:
   (+ (index values 0) (index values 1)))
 ```
 
+Scalar functions also support more than six arguments using the x86-64 SysV
+stack-argument convention.
+
 Top-level `let` declarations use the same form. Function bodies are currently
 represented as statements, while their expressions remain generic S-expressions
 for the type checker and later compiler stages.
