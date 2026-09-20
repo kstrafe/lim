@@ -1245,13 +1245,8 @@ fn collect_expr_types(
                         continue;
                     };
                     for (binding, field_type) in pattern[1..].iter().zip(&variant.fields) {
-                        let Expr::Symbol(binding) = binding else {
-                            continue;
-                        };
-                        if binding != "_" && binding != "true" && binding != "false" {
-                            if let Ok(field_type) = resolve_type(field_type, aliases) {
-                                types.entry(binding.clone()).or_insert(field_type);
-                            }
+                        if let Ok(field_type) = resolve_type(field_type, aliases) {
+                            collect_enum_pattern_types(binding, &field_type, types, structs);
                         }
                     }
                 }
@@ -1299,6 +1294,39 @@ fn collect_match_pattern_types(
     };
     for (nested, field_type) in items[1..].iter().zip(fields.iter()) {
         collect_match_pattern_types(nested, field_type, types, structs);
+    }
+}
+
+fn collect_enum_pattern_types(
+    pattern: &Expr,
+    ty: &Type,
+    types: &mut HashMap<String, Type>,
+    structs: &HashMap<String, Vec<Field>>,
+) {
+    let Expr::List(items) = pattern else {
+        if let Expr::Symbol(name) = pattern {
+            if name != "_" && name != "true" && name != "false" {
+                types.entry(name.clone()).or_insert_with(|| ty.clone());
+            }
+        }
+        return;
+    };
+    let Some(Expr::Symbol(constructor)) = items.first() else {
+        return;
+    };
+    let fields = match ty {
+        Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+        Type::Array(element, length) if constructor == "array" => {
+            vec![element.as_ref().clone(); *length]
+        }
+        Type::Named(name) if constructor == name => structs
+            .get(name)
+            .map(|fields| fields.iter().map(|field| field.ty.clone()).collect())
+            .unwrap_or_default(),
+        _ => return,
+    };
+    for (nested, field_type) in items[1..].iter().zip(fields.iter()) {
+        collect_enum_pattern_types(nested, field_type, types, structs);
     }
 }
 
@@ -1637,20 +1665,10 @@ fn collect_expr_locals(
                         continue;
                     };
                     for (binding, field_type) in pattern[1..].iter().zip(fields) {
-                        let Expr::Symbol(binding) = binding else {
-                            continue;
-                        };
-                        if binding == "_"
-                            || binding == "true"
-                            || binding == "false"
-                            || locals.contains_key(binding)
-                        {
-                            continue;
-                        }
-                        add_local(
-                            locals,
+                        collect_enum_pattern_locals(
                             binding,
                             &field_type,
+                            locals,
                             structs,
                             enums,
                             aliases,
@@ -1669,6 +1687,45 @@ fn collect_expr_locals(
             }
         }
         _ => {}
+    }
+    Ok(())
+}
+
+fn collect_enum_pattern_locals(
+    pattern: &Expr,
+    ty: &Type,
+    locals: &mut HashMap<String, Storage>,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    aliases: &HashMap<String, Type>,
+    next_slot: &mut usize,
+) -> Result<(), String> {
+    let Expr::List(items) = pattern else {
+        if let Expr::Symbol(name) = pattern {
+            if name != "_" && name != "true" && name != "false" && !locals.contains_key(name) {
+                add_local(locals, name, ty, structs, enums, aliases, next_slot)?;
+            }
+        }
+        return Ok(());
+    };
+    let Some(Expr::Symbol(constructor)) = items.first() else {
+        return Ok(());
+    };
+    let fields = match ty {
+        Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+        Type::Array(element, length) if constructor == "array" => {
+            vec![element.as_ref().clone(); *length]
+        }
+        Type::Named(name) if constructor == name => structs
+            .get(name)
+            .map(|fields| fields.iter().map(|field| field.ty.clone()).collect())
+            .unwrap_or_default(),
+        _ => return Ok(()),
+    };
+    for (nested, field_type) in items[1..].iter().zip(fields.iter()) {
+        collect_enum_pattern_locals(
+            nested, field_type, locals, structs, enums, aliases, next_slot,
+        )?;
     }
     Ok(())
 }
@@ -1772,18 +1829,20 @@ fn add_local(
                 *next_slot += 1;
                 let payload_count = variants
                     .iter()
-                    .map(|variant| variant.fields.len())
+                    .map(|variant| {
+                        variant
+                            .fields
+                            .iter()
+                            .map(|field| value_word_count(field, structs, enums))
+                            .collect::<Result<Vec<_>, _>>()
+                            .map(|words| words.into_iter().sum::<usize>())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
                     .max()
                     .unwrap_or(0);
                 let mut payload = Vec::with_capacity(payload_count);
-                for index in 0..payload_count {
-                    let field = variants
-                        .iter()
-                        .find_map(|variant| variant.fields.get(index))
-                        .ok_or_else(|| "enum payload metadata is invalid".to_owned())?;
-                    ensure_scalar_type(field, enums).map_err(|_| {
-                        "native backend only supports scalar enum payloads".to_owned()
-                    })?;
+                for _ in 0..payload_count {
                     payload.push(*next_slot);
                     *next_slot += 1;
                 }
@@ -1906,22 +1965,26 @@ fn value_word_count(
         }
         if let Some(variants) = enums.get(name) {
             if variants.iter().any(|variant| !variant.fields.is_empty()) {
-                let payload_count = variants
+                let payload_words = variants
                     .iter()
-                    .map(|variant| variant.fields.len())
+                    .map(|variant| {
+                        variant
+                            .fields
+                            .iter()
+                            .map(|field| value_word_count(field, structs, enums))
+                            .collect::<Result<Vec<_>, _>>()
+                            .map(|words| words.into_iter().sum::<usize>())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
                     .max()
                     .unwrap_or(0);
-                if payload_count + 1 > VALUE_REGISTERS.len()
-                    || !variants
-                        .iter()
-                        .flat_map(|variant| variant.fields.iter())
-                        .all(|field| ensure_scalar_type(field, enums).is_ok())
-                {
+                if payload_words + 1 > VALUE_REGISTERS.len() {
                     return Err(format!(
                         "native ABI does not support enum value type {ty:?}"
                     ));
                 }
-                return Ok(1 + payload_count);
+                return Ok(1 + payload_words);
             }
         }
     }
@@ -2165,7 +2228,7 @@ fn is_flat_native_value(
                     variant
                         .fields
                         .iter()
-                        .all(|field| ensure_scalar_type(field, enums).is_ok())
+                        .all(|field| is_flat_native_value(field, structs, enums))
                 });
             }
             false
@@ -3751,13 +3814,18 @@ impl FunctionContext {
             discriminant * 8,
             variant_index
         ));
-        for (index, slot) in payload.iter().enumerate() {
-            if let Some(value) = items.get(index + 1) {
-                self.store_scalar_at_slot(value, &variant.fields[index], *slot)?;
-            } else {
-                self.output
-                    .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
-            }
+        let mut offset = 0;
+        for (index, field_type) in variant.fields.iter().enumerate() {
+            let field_words = value_word_count(field_type, &self.structs, &self.enums)?;
+            let field_slots = payload
+                .get(offset..offset + field_words)
+                .ok_or_else(|| "enum payload exceeds native storage".to_owned())?;
+            self.store_value_words(&items[index + 1], field_type, field_slots)?;
+            offset += field_words;
+        }
+        for slot in payload.iter().skip(offset) {
+            self.output
+                .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
         }
         Ok(())
     }
@@ -4073,23 +4141,36 @@ impl FunctionContext {
                         .position(|candidate| candidate.name == operator)
                 })
                 .expect("validated enum variant");
-            for (index, value) in items[1..].iter().enumerate().rev() {
-                self.expression_as_abi_word(value, &variant_fields[index])?;
-                self.output
-                    .push_str(&format!("    mov {}, rax\n", VALUE_REGISTERS[index + 1]));
+            let mut variant_words = 0;
+            for (value, field_type) in items[1..].iter().zip(&variant_fields) {
+                self.push_value_words(value, field_type, false)?;
+                variant_words += value_word_count(field_type, &self.structs, &self.enums)?;
             }
-            let payload_count = self
+            for register in VALUE_REGISTERS[1..1 + variant_words].iter().rev() {
+                self.output.push_str(&format!("    pop {register}\n"));
+                self.stack_depth -= 1;
+            }
+            let payload_words = self
                 .enums
                 .get(&enum_name)
                 .map(|variants| {
                     variants
                         .iter()
-                        .map(|variant| variant.fields.len())
-                        .max()
+                        .map(|variant| {
+                            variant
+                                .fields
+                                .iter()
+                                .map(|field| value_word_count(field, &self.structs, &self.enums))
+                                .collect::<Result<Vec<_>, _>>()
+                                .map(|words| words.into_iter().sum::<usize>())
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                        .ok()
+                        .and_then(|words| words.into_iter().max())
                         .unwrap_or(0)
                 })
                 .unwrap_or(0);
-            for index in items.len() - 1..payload_count {
+            for index in variant_words..payload_words {
                 self.output.push_str(&format!(
                     "    xor {}, {}\n",
                     VALUE_REGISTERS[index + 1],
@@ -4608,34 +4689,37 @@ impl FunctionContext {
                     payload_fields.len()
                 ));
             }
-            for (index, (pattern, field_type)) in
-                payload_patterns.iter().zip(&payload_fields).enumerate()
-            {
+            let mut payload_offset = 0;
+            for (pattern, field_type) in payload_patterns.iter().zip(&payload_fields) {
                 self.emit_enum_payload_pattern(
                     pattern,
                     field_type,
-                    index,
+                    payload_offset,
                     payload_slots.as_ref(),
                     &next,
                 )?;
+                payload_offset += value_word_count(field_type, &self.structs, &self.enums)?;
             }
-            let bindings = payload_patterns
-                .iter()
-                .enumerate()
-                .filter_map(|(index, pattern)| match pattern {
-                    Expr::Symbol(binding)
-                        if binding != "_" && binding != "true" && binding != "false" =>
-                    {
-                        Some((index, binding.as_str()))
-                    }
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            if !bindings.is_empty() {
-                for (index, binding) in bindings {
-                    let slot = scalar_slot(&self.locals, binding);
+            let mut bindings = Vec::new();
+            let mut binding_offset = 0;
+            for (pattern, field_type) in payload_patterns.iter().zip(&payload_fields) {
+                self.collect_enum_pattern_bindings(
+                    pattern,
+                    field_type,
+                    binding_offset,
+                    &mut bindings,
+                )?;
+                binding_offset += value_word_count(field_type, &self.structs, &self.enums)?;
+            }
+            for (binding, offset, binding_type) in bindings {
+                let slots = local_slots(&self.locals, &binding)?;
+                let binding_words = value_word_count(&binding_type, &self.structs, &self.enums)?;
+                if slots.len() != binding_words {
+                    return Err(format!("enum binding '{binding}' has inconsistent storage"));
+                }
+                for (word, slot) in slots.into_iter().enumerate() {
                     if let Some(payload_slots) = payload_slots.as_ref() {
-                        let payload_slot = payload_slots.get(index).ok_or_else(|| {
+                        let payload_slot = payload_slots.get(offset + word).ok_or_else(|| {
                             "payload binding exceeds enum payload count".to_owned()
                         })?;
                         self.output.push_str(&format!(
@@ -4646,7 +4730,7 @@ impl FunctionContext {
                     } else {
                         self.output.push_str(&format!(
                             "    mov rax, QWORD PTR [rsp+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
-                            (index + 1) * 8,
+                            (offset + word + 1) * 8,
                             slot * 8
                         ));
                     }
@@ -4902,55 +4986,127 @@ impl FunctionContext {
         &mut self,
         pattern: &Expr,
         ty: &Type,
-        index: usize,
+        offset: usize,
         payload_slots: Option<&Vec<usize>>,
         next: &str,
     ) -> Result<(), String> {
-        let Expr::Symbol(name) = pattern else {
-            let operand = if let Some(payload_slots) = payload_slots {
-                let slot = payload_slots.get(index).ok_or_else(|| {
-                    "enum payload pattern exceeds local payload storage".to_owned()
-                })?;
-                format!("QWORD PTR [rbp-{}]", slot * 8)
-            } else {
-                format!("QWORD PTR [rsp+{}]", (index + 1) * 8)
+        if let Expr::List(items) = pattern {
+            let Some(Expr::Symbol(constructor)) = items.first() else {
+                return Err("nested enum payload pattern must start with a constructor".into());
             };
-            let value = match pattern {
-                Expr::Integer(value) => value.to_string(),
-                Expr::UnsignedInteger(value) => (*value as u64).to_string(),
-                Expr::Char(value) => (*value as u32).to_string(),
-                _ => return Err("unsupported enum payload pattern".into()),
-            };
-            self.output
-                .push_str(&format!("    cmp {operand}, {value}\n    jne {next}\n"));
-            return Ok(());
-        };
-        if name == "_" || (name == "true" && matches!(ty, Type::Bool)) {
-            if name == "true" {
-                let operand = if let Some(payload_slots) = payload_slots {
-                    let slot = payload_slots.get(index).ok_or_else(|| {
-                        "enum payload pattern exceeds local payload storage".to_owned()
-                    })?;
-                    format!("QWORD PTR [rbp-{}]", slot * 8)
-                } else {
-                    format!("QWORD PTR [rsp+{}]", (index + 1) * 8)
-                };
-                self.output
-                    .push_str(&format!("    cmp {operand}, 1\n    jne {next}\n"));
+            let fields = self.aggregate_pattern_fields(ty, constructor)?;
+            if items.len() - 1 != fields.len() {
+                return Err("nested enum payload pattern has the wrong shape".into());
+            }
+            let mut field_offset = offset;
+            for (nested, field_type) in items[1..].iter().zip(fields) {
+                self.emit_enum_payload_pattern(
+                    nested,
+                    &field_type,
+                    field_offset,
+                    payload_slots,
+                    next,
+                )?;
+                field_offset += value_word_count(&field_type, &self.structs, &self.enums)?;
             }
             return Ok(());
         }
-        if name == "false" && matches!(ty, Type::Bool) {
-            let operand = if let Some(payload_slots) = payload_slots {
-                let slot = payload_slots.get(index).ok_or_else(|| {
+        let operand = |offset: usize| -> Result<String, String> {
+            if let Some(payload_slots) = payload_slots {
+                let slot = payload_slots.get(offset).ok_or_else(|| {
                     "enum payload pattern exceeds local payload storage".to_owned()
                 })?;
-                format!("QWORD PTR [rbp-{}]", slot * 8)
+                Ok(format!("QWORD PTR [rbp-{}]", slot * 8))
             } else {
-                format!("QWORD PTR [rsp+{}]", (index + 1) * 8)
+                Ok(format!("QWORD PTR [rsp+{}]", (offset + 1) * 8))
+            }
+        };
+        match pattern {
+            Expr::Symbol(name) if name == "_" => Ok(()),
+            Expr::Symbol(name) if name == "true" || name == "false" => {
+                if !matches!(ty, Type::Bool) {
+                    return Err("boolean enum payload pattern has a non-boolean type".into());
+                }
+                let value = if name == "true" { 1 } else { 0 };
+                self.output.push_str(&format!(
+                    "    cmp {}, {value}\n    jne {next}\n",
+                    operand(offset)?
+                ));
+                Ok(())
+            }
+            Expr::Symbol(_) => Ok(()),
+            Expr::Integer(value) => {
+                if value_word_count(ty, &self.structs, &self.enums)? != 1 {
+                    return Err("wide integer enum payload patterns are unsupported".into());
+                }
+                self.output.push_str(&format!(
+                    "    cmp {}, {value}\n    jne {next}\n",
+                    operand(offset)?
+                ));
+                Ok(())
+            }
+            Expr::UnsignedInteger(value) => {
+                if value_word_count(ty, &self.structs, &self.enums)? != 1 {
+                    return Err("wide integer enum payload patterns are unsupported".into());
+                }
+                self.output.push_str(&format!(
+                    "    cmp {}, {}\n    jne {next}\n",
+                    operand(offset)?,
+                    *value as u64
+                ));
+                Ok(())
+            }
+            Expr::Char(value) => {
+                self.output.push_str(&format!(
+                    "    cmp {}, {}\n    jne {next}\n",
+                    operand(offset)?,
+                    *value as u32
+                ));
+                Ok(())
+            }
+            _ => Err("unsupported enum payload pattern".into()),
+        }
+    }
+
+    fn aggregate_pattern_fields(&self, ty: &Type, constructor: &str) -> Result<Vec<Type>, String> {
+        match ty {
+            Type::Tuple(fields) if constructor == "tuple" => Ok(fields.clone()),
+            Type::Array(element, length) if constructor == "array" => {
+                Ok(vec![element.as_ref().clone(); *length])
+            }
+            Type::Named(name) if constructor == name => self
+                .structs
+                .get(name)
+                .map(|fields| fields.iter().map(|field| field.ty.clone()).collect())
+                .ok_or_else(|| format!("unknown struct '{name}'")),
+            _ => Err("aggregate pattern constructor does not match its payload type".into()),
+        }
+    }
+
+    fn collect_enum_pattern_bindings(
+        &self,
+        pattern: &Expr,
+        ty: &Type,
+        offset: usize,
+        bindings: &mut Vec<(String, usize, Type)>,
+    ) -> Result<(), String> {
+        if let Expr::List(items) = pattern {
+            let Some(Expr::Symbol(constructor)) = items.first() else {
+                return Err("nested enum payload pattern must start with a constructor".into());
             };
-            self.output
-                .push_str(&format!("    cmp {operand}, 0\n    jne {next}\n"));
+            let fields = self.aggregate_pattern_fields(ty, constructor)?;
+            if items.len() - 1 != fields.len() {
+                return Err("nested enum payload pattern has the wrong shape".into());
+            }
+            let mut field_offset = offset;
+            for (nested, field_type) in items[1..].iter().zip(fields) {
+                self.collect_enum_pattern_bindings(nested, &field_type, field_offset, bindings)?;
+                field_offset += value_word_count(&field_type, &self.structs, &self.enums)?;
+            }
+        } else if let Expr::Symbol(name) = pattern {
+            if name != "_" && name != "true" && name != "false" {
+                bindings.push((name.clone(), offset, ty.clone()));
+            }
         }
         Ok(())
     }
@@ -4963,11 +5119,18 @@ impl FunctionContext {
             .enums
             .get(name)
             .ok_or_else(|| format!("unknown enum '{name}'"))?;
-        Ok(variants
+        variants
             .iter()
-            .map(|variant| variant.fields.len())
-            .max()
-            .unwrap_or(0))
+            .map(|variant| {
+                variant
+                    .fields
+                    .iter()
+                    .map(|field| value_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|words| words.into_iter().sum::<usize>())
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|words| words.into_iter().max().unwrap_or(0))
     }
 
     fn is_enum_type(&self, ty: &Type) -> bool {

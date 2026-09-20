@@ -1321,6 +1321,7 @@ fn list_expression(
                             field_type,
                             &mut arm_variables,
                             variables,
+                            structs,
                         )?;
                     }
                 }
@@ -1820,6 +1821,7 @@ fn check_enum_payload_pattern(
     ty: &Type,
     arm_variables: &mut HashMap<String, Type>,
     variables: &HashMap<String, Type>,
+    structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), String> {
     match pattern {
         Expr::Symbol(name) if name == "_" => Ok(()),
@@ -1853,6 +1855,7 @@ fn check_enum_payload_pattern(
             Ok(())
         }
         Expr::Char(_) if matches!(ty, Type::Char) => Ok(()),
+        Expr::List(_) => check_aggregate_pattern(pattern, ty, arm_variables, variables, structs),
         _ => Err("enum payload pattern does not match its field type".into()),
     }
 }

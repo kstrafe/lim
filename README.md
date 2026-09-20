@@ -374,10 +374,14 @@ Payload variants may contain multiple scalar fields and bind them in order:
 (enum Pair ((Pair u64 u64) Empty))
 (fn sum () u64
   (let value Pair (Pair 20 22))
-  (match value
+(match value
     ((Pair left right) (+ left right))
     (Empty 0)))
 ```
+
+Enum payload fields may also be nested tuples, arrays, or structs when their
+flattened discriminant-plus-payload representation fits the six-word native
+ABI. Nested payload patterns bind recursively.
 
 Multi-payload enums can also be passed to and returned from native functions
 when their payloads fit the scalar integer ABI.

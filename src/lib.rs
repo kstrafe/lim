@@ -3541,6 +3541,22 @@ mod tests {
     }
 
     #[test]
+    fn matches_nested_enum_payloads() {
+        let program = parse_program(
+            "(#enum Boxed ((Wrapped (#tuple u64 u64)) Empty)) \
+             (#fn sum ((value Boxed)) u64 \
+               (#return (#match value \
+                 ((Wrapped (#tuple left right)) (#u64.+.wrap left right)) \
+                 (Empty 0)))) \
+             (#fn main () u64 \
+               (#return (sum (Wrapped (#tuple (#tuple u64 u64) 10 22)))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
