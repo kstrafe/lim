@@ -812,6 +812,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                 Type::F32 => {
                     let value = constant_float_value(
                         value,
+                        &constants,
                         &float_constants,
                         &constant_initializers,
                         &mut evaluating_float_constants,
@@ -825,6 +826,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                 Type::F64 => {
                     let value = constant_float_value(
                         value,
+                        &constants,
                         &float_constants,
                         &constant_initializers,
                         &mut evaluating_float_constants,
@@ -3382,6 +3384,7 @@ fn constant_value(
 
 fn constant_float_value(
     expression: &Expr,
+    integer_constants: &HashMap<String, i128>,
     constants: &HashMap<String, f64>,
     initializers: &HashMap<String, Expr>,
     evaluating: &mut HashSet<String>,
@@ -3412,6 +3415,7 @@ fn constant_float_value(
             }
             let result = constant_float_value(
                 &initializers[name],
+                integer_constants,
                 constants,
                 initializers,
                 evaluating,
@@ -3430,7 +3434,14 @@ fn constant_float_value(
                 Type::F64 => false,
                 _ => return Err("typed floating literal requires f32 or f64".into()),
             };
-            constant_float_value(&items[2], constants, initializers, evaluating, precision)
+            constant_float_value(
+                &items[2],
+                integer_constants,
+                constants,
+                initializers,
+                evaluating,
+                precision,
+            )
         }
         Expr::List(items)
             if items.len() == 4
@@ -3439,10 +3450,14 @@ fn constant_float_value(
             let condition = match &items[1] {
                 Expr::Symbol(name) if name == "true" => true,
                 Expr::Symbol(name) if name == "false" => false,
-                _ => return Err("floating-point constant condition must be true or false".into()),
+                Expr::Symbol(name) if integer_constants.contains_key(name) => {
+                    integer_constants[name] != 0
+                }
+                _ => return Err("floating-point constant condition must be constant".into()),
             };
             constant_float_value(
                 if condition { &items[2] } else { &items[3] },
+                integer_constants,
                 constants,
                 initializers,
                 evaluating,
@@ -3457,6 +3472,7 @@ fn constant_float_value(
             let operator = operator_base(operator);
             let value = constant_float_value(
                 &items[1],
+                integer_constants,
                 constants,
                 initializers,
                 evaluating,
@@ -3475,6 +3491,7 @@ fn constant_float_value(
             let operator = operator_base(operator);
             let left = constant_float_value(
                 &items[1],
+                integer_constants,
                 constants,
                 initializers,
                 evaluating,
@@ -3482,6 +3499,7 @@ fn constant_float_value(
             )?;
             let right = constant_float_value(
                 &items[2],
+                integer_constants,
                 constants,
                 initializers,
                 evaluating,
@@ -3518,6 +3536,7 @@ fn constant_aggregate_words(
         if matches!(ty, Type::F32 | Type::F64) {
             let number = constant_float_value(
                 value,
+                constants,
                 float_constants,
                 initializers,
                 evaluating_float_constants,
