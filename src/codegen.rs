@@ -7581,6 +7581,145 @@ impl FunctionContext {
         }
     }
 
+    fn emit_enum_scalar_pattern_test(
+        &mut self,
+        pattern: &Expr,
+        ty: &Type,
+        low_operand: &str,
+        high_operand: Option<&str>,
+        next: &str,
+    ) -> Result<(), String> {
+        if matches!(pattern, Expr::List(parts) if parts.len() == 3
+            && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "range"))
+        {
+            let range = scalar_range_bounds(pattern, ty)?;
+            match range {
+                ScalarRange::Signed(lower, upper) if matches!(ty, Type::I128) => {
+                    let high_operand = high_operand.ok_or_else(|| {
+                        "wide payload pattern is missing its high word".to_owned()
+                    })?;
+                    return self.emit_wide_scalar_range_at(
+                        lower as u128,
+                        upper as u128,
+                        true,
+                        low_operand,
+                        high_operand,
+                        next,
+                    );
+                }
+                ScalarRange::Unsigned(lower, upper) if matches!(ty, Type::U128) => {
+                    let high_operand = high_operand.ok_or_else(|| {
+                        "wide payload pattern is missing its high word".to_owned()
+                    })?;
+                    return self.emit_wide_scalar_range_at(
+                        lower,
+                        upper,
+                        false,
+                        low_operand,
+                        high_operand,
+                        next,
+                    );
+                }
+                ScalarRange::Signed(lower, upper) => {
+                    self.output.push_str(&format!(
+                        "    cmp {low_operand}, {lower}\n    jl {next}\n    cmp {low_operand}, {upper}\n    jg {next}\n"
+                    ));
+                }
+                ScalarRange::Unsigned(lower, upper) => {
+                    self.output.push_str(&format!(
+                        "    cmp {low_operand}, {}\n    jb {next}\n    cmp {low_operand}, {}\n    ja {next}\n",
+                        asm_u64_immediate(lower as u64),
+                        asm_u64_immediate(upper as u64)
+                    ));
+                }
+                ScalarRange::Char(lower, upper) => {
+                    self.output.push_str(&format!(
+                        "    cmp {low_operand}, {}\n    jb {next}\n    cmp {low_operand}, {}\n    ja {next}\n",
+                        asm_u64_immediate(lower),
+                        asm_u64_immediate(upper)
+                    ));
+                }
+            }
+            return Ok(());
+        }
+        match pattern {
+            Expr::Symbol(name) if name == "_" => Ok(()),
+            Expr::Symbol(name) if name == "true" || name == "false" => {
+                self.output.push_str(&format!(
+                    "    cmp {low_operand}, {}\n    jne {next}\n",
+                    if name == "true" { 1 } else { 0 }
+                ));
+                Ok(())
+            }
+            Expr::Integer(value) => {
+                if is_wide_integer(ty) {
+                    let high_operand = high_operand.ok_or_else(|| {
+                        "wide payload pattern is missing its high word".to_owned()
+                    })?;
+                    let bits = *value as u128;
+                    self.output.push_str(&format!(
+                        "    cmp {low_operand}, {}\n    jne {next}\n    cmp {high_operand}, {}\n    jne {next}\n",
+                        asm_u64_immediate(bits as u64),
+                        asm_u64_immediate((bits >> 64) as u64)
+                    ));
+                } else {
+                    self.output
+                        .push_str(&format!("    cmp {low_operand}, {value}\n    jne {next}\n"));
+                }
+                Ok(())
+            }
+            Expr::UnsignedInteger(value) => {
+                if is_wide_integer(ty) {
+                    let high_operand = high_operand.ok_or_else(|| {
+                        "wide payload pattern is missing its high word".to_owned()
+                    })?;
+                    self.output.push_str(&format!(
+                        "    cmp {low_operand}, {}\n    jne {next}\n    cmp {high_operand}, {}\n    jne {next}\n",
+                        asm_u64_immediate(*value as u64),
+                        asm_u64_immediate((*value >> 64) as u64)
+                    ));
+                } else {
+                    self.output.push_str(&format!(
+                        "    cmp {low_operand}, {}\n    jne {next}\n",
+                        asm_u64_immediate(*value as u64)
+                    ));
+                }
+                Ok(())
+            }
+            Expr::Char(value) => {
+                self.output.push_str(&format!(
+                    "    cmp {low_operand}, {}\n    jne {next}\n",
+                    *value as u32
+                ));
+                Ok(())
+            }
+            _ => Err("invalid scalar enum payload alternative".into()),
+        }
+    }
+
+    fn emit_wide_scalar_range_at(
+        &mut self,
+        lower: u128,
+        upper: u128,
+        signed: bool,
+        low_operand: &str,
+        high_operand: &str,
+        next: &str,
+    ) -> Result<(), String> {
+        let lower_ok = self.label("payload_range_lower_ok");
+        let upper_ok = self.label("payload_range_upper_ok");
+        let low_jump = if signed { "jl" } else { "jb" };
+        let high_jump = if signed { "jg" } else { "ja" };
+        self.output.push_str(&format!(
+            "    cmp {high_operand}, {}\n    {low_jump} {next}\n    {high_jump} {lower_ok}\n    cmp {low_operand}, {}\n    jb {next}\n{lower_ok}:\n    cmp {high_operand}, {}\n    {high_jump} {next}\n    {low_jump} {upper_ok}\n    cmp {low_operand}, {}\n    ja {next}\n{upper_ok}:\n",
+            asm_u64_immediate((lower >> 64) as u64),
+            asm_u64_immediate(lower as u64),
+            asm_u64_immediate((upper >> 64) as u64),
+            asm_u64_immediate(upper as u64),
+        ));
+        Ok(())
+    }
+
     fn emit_wide_scalar_range(
         &mut self,
         lower: u128,
@@ -8232,7 +8371,48 @@ impl FunctionContext {
         payload_slots: Option<&Vec<usize>>,
         next: &str,
     ) -> Result<(), String> {
+        let operand = |offset: usize| -> Result<String, String> {
+            if let Some(payload_slots) = payload_slots {
+                let slot = payload_slots.get(offset).ok_or_else(|| {
+                    "enum payload pattern exceeds local payload storage".to_owned()
+                })?;
+                Ok(format!("QWORD PTR [rbp-{}]", slot * 8))
+            } else {
+                Ok(format!("QWORD PTR [rsp+{}]", (offset + 1) * 8))
+            }
+        };
         if let Expr::List(items) = pattern {
+            if items.len() >= 2 && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or")
+            {
+                let matched = self.label("payload_or_pattern_matched");
+                for (index, alternative) in items[1..].iter().enumerate() {
+                    let last = index + 1 == items.len() - 1;
+                    let alternative_next = if last {
+                        next.to_owned()
+                    } else {
+                        self.label("payload_or_pattern_next")
+                    };
+                    let low_operand = operand(offset)?;
+                    let high_operand = if is_wide_integer(ty) {
+                        Some(operand(offset + 1)?)
+                    } else {
+                        None
+                    };
+                    self.emit_enum_scalar_pattern_test(
+                        alternative,
+                        ty,
+                        &low_operand,
+                        high_operand.as_deref(),
+                        &alternative_next,
+                    )?;
+                    self.output.push_str(&format!("    jmp {matched}\n"));
+                    if !last {
+                        self.output.push_str(&format!("{alternative_next}:\n"));
+                    }
+                }
+                self.output.push_str(&format!("{matched}:\n"));
+                return Ok(());
+            }
             let Some(Expr::Symbol(constructor)) = items.first() else {
                 return Err("nested enum payload pattern must start with a constructor".into());
             };
@@ -8253,16 +8433,6 @@ impl FunctionContext {
             }
             return Ok(());
         }
-        let operand = |offset: usize| -> Result<String, String> {
-            if let Some(payload_slots) = payload_slots {
-                let slot = payload_slots.get(offset).ok_or_else(|| {
-                    "enum payload pattern exceeds local payload storage".to_owned()
-                })?;
-                Ok(format!("QWORD PTR [rbp-{}]", slot * 8))
-            } else {
-                Ok(format!("QWORD PTR [rsp+{}]", (offset + 1) * 8))
-            }
-        };
         match pattern {
             Expr::Symbol(name) if name == "_" => Ok(()),
             Expr::Symbol(name) if name == "true" || name == "false" => {
@@ -8353,6 +8523,11 @@ impl FunctionContext {
         offset: usize,
         bindings: &mut Vec<(String, usize, Type)>,
     ) -> Result<(), String> {
+        if matches!(pattern, Expr::List(items) if items.len() >= 2
+            && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or"))
+        {
+            return Ok(());
+        }
         if let Expr::List(items) = pattern {
             let Some(Expr::Symbol(constructor)) = items.first() else {
                 return Err("nested enum payload pattern must start with a constructor".into());

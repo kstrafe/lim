@@ -2396,6 +2396,15 @@ fn check_enum_payload_pattern(
             arm_variables.insert(name.clone(), ty.clone());
             Ok(())
         }
+        Expr::List(parts)
+            if parts.len() >= 2
+                && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "or") =>
+        {
+            for alternative in &parts[1..] {
+                check_scalar_pattern(alternative, ty)?;
+            }
+            Ok(())
+        }
         Expr::Integer(value) if is_integer(ty) => {
             if !fits_integer(*value, ty) {
                 return Err(format!(

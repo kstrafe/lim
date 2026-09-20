@@ -689,6 +689,14 @@ bindings):
   ((#or Maybe?-some Maybe?-none) 42))
 ```
 
+Scalar enum payloads also accept `#or` alternatives:
+
+```lisp
+(#match value
+  ((Value (#or 1 2 3)) 42)
+  (Empty 0))
+```
+
 Inclusive scalar ranges use the explicit `#range` pattern. Integer ranges are
 validated against the scrutinee width and use signed or unsigned comparisons:
 
