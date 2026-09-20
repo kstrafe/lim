@@ -158,6 +158,8 @@ The backend exposes representation sizes as a typed `usize` expression:
 Integer arithmetic normalizes results to the operand width, so operations on
 `u8`, `u16`, `u32`, and the signed narrow types have Rust-style low-width
 semantics.
+The same explicit `.wrap` and `.saturate` modes are honored when evaluating
+typed integer constants.
 Wrapping signed machine-width division and remainder also handle the minimum
 value divided by -1 without relying on a trapping native idiv case.
 Saturating signed machine-width division maps that same overflow to the

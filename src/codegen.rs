@@ -754,6 +754,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                             &constants,
                             &constant_initializers,
                             &mut evaluating_constants,
+                            Some(&ty),
                         )? as u128,
                     };
                     if matches!(item, Item::Let { .. }) {
@@ -800,6 +801,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                             &constants,
                             &constant_initializers,
                             &mut evaluating_constants,
+                            Some(&ty),
                         )?,
                         &ty,
                     );
@@ -2512,6 +2514,7 @@ fn constant_value(
     constants: &HashMap<String, i128>,
     initializers: &HashMap<String, Expr>,
     evaluating: &mut HashSet<String>,
+    target: Option<&Type>,
 ) -> Result<i128, String> {
     match expression {
         Expr::Integer(value) => Ok(*value),
@@ -2533,6 +2536,7 @@ fn constant_value(
                 constants,
                 initializers,
                 evaluating,
+                target,
             );
             evaluating.remove(name);
             result
@@ -2552,7 +2556,14 @@ fn constant_value(
                 _ => return Err("global initializer is not constant".into()),
             };
             let operator = operator_base(operator);
-            let value = constant_value(&items[1], enums, constants, initializers, evaluating)?;
+            let value = constant_value(
+                &items[1],
+                enums,
+                constants,
+                initializers,
+                evaluating,
+                target,
+            )?;
             match operator {
                 "-" => value
                     .checked_neg()
@@ -2566,12 +2577,19 @@ fn constant_value(
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("global initializer is not constant".into()),
             };
-            let operator = operator_base(operator);
+            let (qualifier, operator, mode) = operator_parts(operator);
             if operator == "as" {
-                let value = constant_value(&items[1], enums, constants, initializers, evaluating)?;
-                let target = parse_type(items.get(2))?;
-                if !matches!(
+                let value = constant_value(
+                    &items[1],
+                    enums,
+                    constants,
+                    initializers,
+                    evaluating,
                     target,
+                )?;
+                let cast_target = parse_type(items.get(2))?;
+                if !matches!(
+                    cast_target,
                     Type::I8
                         | Type::I16
                         | Type::I32
@@ -2589,35 +2607,49 @@ fn constant_value(
                 ) {
                     return Err("global initializer cast is not an integer constant".into());
                 }
-                return Ok(normalize_global_integer(value, &target));
+                return Ok(normalize_global_integer(value, &cast_target));
             }
-            let left = constant_value(&items[1], enums, constants, initializers, evaluating)?;
-            let right = constant_value(&items[2], enums, constants, initializers, evaluating)?;
-            match operator {
+            let left = constant_value(
+                &items[1],
+                enums,
+                constants,
+                initializers,
+                evaluating,
+                target,
+            )?;
+            let right = constant_value(
+                &items[2],
+                enums,
+                constants,
+                initializers,
+                evaluating,
+                target,
+            )?;
+            let result: i128 = match operator {
                 "+" => left
                     .checked_add(right)
-                    .ok_or_else(|| "constant addition overflowed".into()),
+                    .ok_or_else(|| "constant addition overflowed".to_owned()),
                 "-" => left
                     .checked_sub(right)
-                    .ok_or_else(|| "constant subtraction overflowed".into()),
+                    .ok_or_else(|| "constant subtraction overflowed".to_owned()),
                 "*" => left
                     .checked_mul(right)
-                    .ok_or_else(|| "constant multiplication overflowed".into()),
+                    .ok_or_else(|| "constant multiplication overflowed".to_owned()),
                 "/" => left
                     .checked_div(right)
-                    .ok_or_else(|| "constant division failed".into()),
+                    .ok_or_else(|| "constant division failed".to_owned()),
                 "%" => left
                     .checked_rem(right)
-                    .ok_or_else(|| "constant remainder failed".into()),
+                    .ok_or_else(|| "constant remainder failed".to_owned()),
                 "&" => Ok(left & right),
                 "|" => Ok(left | right),
                 "^" => Ok(left ^ right),
                 "<<" => {
                     if !(0..128).contains(&right) {
-                        return Err("constant shift count is out of range".into());
+                        return Err("constant shift count is out of range".to_owned());
                     }
                     left.checked_shl(right as u32)
-                        .ok_or_else(|| "constant left shift overflowed".into())
+                        .ok_or_else(|| "constant left shift overflowed".to_owned())
                 }
                 ">>" => {
                     if !(0..128).contains(&right) {
@@ -2633,8 +2665,18 @@ fn constant_value(
                 "!=" => Ok(i128::from(left != right)),
                 "&&" => Ok(i128::from(left != 0 && right != 0)),
                 "||" => Ok(i128::from(left != 0 || right != 0)),
-                _ => Err("global initializer is not constant".into()),
+                _ => Err("global initializer is not constant".to_owned()),
+            }?;
+            if mode == Some("saturate") {
+                let operation_type = qualifier
+                    .map(Type::from_name)
+                    .or_else(|| target.cloned())
+                    .ok_or_else(|| "saturating constant requires a typed operand".to_owned())?;
+                if let Some((minimum, maximum)) = integer_bounds(&operation_type) {
+                    return Ok(result.clamp(minimum, maximum));
+                }
             }
+            Ok(result)
         }
         _ => Err("global initializer is not constant".into()),
     }
@@ -2757,7 +2799,14 @@ fn constant_aggregate_words(
             });
         }
         Ok(normalize_global_integer(
-            constant_value(value, enums, constants, initializers, evaluating_constants)?,
+            constant_value(
+                value,
+                enums,
+                constants,
+                initializers,
+                evaluating_constants,
+                Some(ty),
+            )?,
             ty,
         ) as u64)
     };
