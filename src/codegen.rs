@@ -2565,14 +2565,22 @@ impl FunctionContext {
         }
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat") {
-                if items.len() != 2 {
+                let value_start = if parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
+                {
+                    2
+                } else {
+                    1
+                };
+                if items.len() != value_start + 1 {
                     return Err("array-repeat requires one value".into());
                 }
                 let Type::Array(element, _) = self.return_type.clone() else {
                     unreachable!()
                 };
                 for _ in 0..length {
-                    self.expression_as_abi_word(&items[1], &element)?;
+                    self.expression_as_abi_word(&items[value_start], &element)?;
                     self.push_rax();
                 }
                 for register in VALUE_REGISTERS[..length].iter().rev() {
@@ -2582,13 +2590,21 @@ impl FunctionContext {
                 return Ok(());
             }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
-                if items.len() - 1 != length {
+                let value_start = if parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
+                {
+                    2
+                } else {
+                    1
+                };
+                if items.len() - value_start != length {
                     return Err("array return has the wrong length".into());
                 }
                 let Type::Array(element, _) = self.return_type.clone() else {
                     unreachable!()
                 };
-                for value in &items[1..] {
+                for value in &items[value_start..] {
                     self.expression_as_abi_word(value, &element)?;
                     self.push_rax();
                 }
@@ -2815,7 +2831,15 @@ impl FunctionContext {
             return Ok(());
         };
         if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat") {
-            if items.len() != 2 {
+            let value_start = if parse_type(items.get(1))
+                .ok()
+                .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
+            {
+                2
+            } else {
+                1
+            };
+            if items.len() != value_start + 1 {
                 return Err("array-repeat requires one value".into());
             }
             let element_type = match self.local_types.get(name).cloned() {
@@ -2823,7 +2847,7 @@ impl FunctionContext {
                 _ => return Err(format!("'{name}' is not an array")),
             };
             for index in 0..length {
-                self.store_scalar_at_slot(&items[1], &element_type, base + index)?;
+                self.store_scalar_at_slot(&items[value_start], &element_type, base + index)?;
             }
             return Ok(());
         }
@@ -2837,14 +2861,22 @@ impl FunctionContext {
             }
             return Ok(());
         }
-        if items.len() - 1 != length {
+        let value_start = if parse_type(items.get(1))
+            .ok()
+            .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
+        {
+            2
+        } else {
+            1
+        };
+        if items.len() - value_start != length {
             return Err("array constructor has the wrong length".into());
         }
         let element_type = match self.local_types.get(name).cloned() {
             Some(Type::Array(element, _)) => *element,
             _ => return Err(format!("'{name}' is not an array")),
         };
-        for (index, value) in items[1..].iter().enumerate() {
+        for (index, value) in items[value_start..].iter().enumerate() {
             self.store_scalar_at_slot(value, &element_type, base + index)?;
         }
         Ok(())
@@ -4870,20 +4902,36 @@ impl FunctionContext {
             if let Expr::List(items) = value {
                 if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat")
                 {
-                    if items.len() != 2 {
+                    let value_start = if parse_type(items.get(1))
+                        .ok()
+                        .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
+                    {
+                        2
+                    } else {
+                        1
+                    };
+                    if items.len() != value_start + 1 {
                         return Err("array-repeat requires one value".into());
                     }
                     let Type::Array(element, _) = ty else {
                         unreachable!()
                     };
                     for _ in 0..*length {
-                        self.expression_as_abi_word(&items[1], element)?;
+                        self.expression_as_abi_word(&items[value_start], element)?;
                         self.push_rax();
                     }
                     return Ok(());
                 }
                 if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
-                    if items.len() - 1 != *length {
+                    let value_start = if parse_type(items.get(1))
+                        .ok()
+                        .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
+                    {
+                        2
+                    } else {
+                        1
+                    };
+                    if items.len() - value_start != *length {
                         return Err("array argument has the wrong length".into());
                     }
                     let values: Box<dyn Iterator<Item = usize>> = if reverse {
@@ -4895,7 +4943,7 @@ impl FunctionContext {
                         unreachable!()
                     };
                     for index in values {
-                        self.expression_as_abi_word(&items[index + 1], element)?;
+                        self.expression_as_abi_word(&items[index + value_start], element)?;
                         self.push_rax();
                     }
                     return Ok(());

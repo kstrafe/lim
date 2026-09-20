@@ -987,7 +987,17 @@ fn list_expression(
         }
         "array" => {
             let (element, length, value_start) = match expected {
-                Some(Type::Array(element, length)) => (element.clone(), *length, 1),
+                Some(Type::Array(element, length)) => {
+                    let explicit = parse_type(items.get(1))
+                        .ok()
+                        .and_then(|ty| resolve_type(&ty, aliases).ok())
+                        .is_some_and(|ty| ty == Type::Array(element.clone(), *length));
+                    (
+                        element.clone(),
+                        *length,
+                        if explicit && items.len() >= 2 { 2 } else { 1 },
+                    )
+                }
                 Some(_) => {
                     return Err("array construction requires an array-typed expected value".into())
                 }

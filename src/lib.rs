@@ -3300,6 +3300,16 @@ mod tests {
     }
 
     #[test]
+    fn passes_explicit_array_constructors_through_functions() {
+        let program = parse_program(
+            "(#fn make () (#array u64 3) (#return (#array (#array u64 3) 10 20 37))) (#fn consume ((values (#array u64 3))) u64 (#return (#index values 2))) (#fn main () u64 (#return (consume (make))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn lowers_explicit_direct_tuple_constructor() {
         let program =
             parse_program("(#fn main () u64 (#return (#get (#tuple (#tuple u64 u64) 40 2) 0)))")
