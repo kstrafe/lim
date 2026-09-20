@@ -2777,10 +2777,18 @@ impl FunctionContext {
         };
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "tuple") {
-                if items.len() - 1 != fields.len() {
+                let value_start = if parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|ty| matches!(ty, Type::Tuple(_)))
+                {
+                    2
+                } else {
+                    1
+                };
+                if items.len() - value_start != fields.len() {
                     return Err("tuple constructor has the wrong length".into());
                 }
-                for ((slot, ty), field) in slots.iter().zip(&fields).zip(&items[1..]) {
+                for ((slot, ty), field) in slots.iter().zip(&fields).zip(&items[value_start..]) {
                     self.store_scalar_at_slot(field, ty, *slot)?;
                 }
                 return Ok(());

@@ -1073,7 +1073,16 @@ fn list_expression(
         }
         "tuple" => {
             let (fields, value_start) = match expected {
-                Some(Type::Tuple(fields)) => (fields.clone(), 1),
+                Some(Type::Tuple(fields)) => {
+                    let explicit = parse_type(items.get(1))
+                        .ok()
+                        .and_then(|ty| resolve_type(&ty, aliases).ok())
+                        .is_some_and(|ty| ty == Type::Tuple(fields.clone()));
+                    (
+                        fields.clone(),
+                        if explicit && items.len() >= 2 { 2 } else { 1 },
+                    )
+                }
                 Some(_) => {
                     return Err("tuple construction requires an expected (tuple ...) type".into())
                 }

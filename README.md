@@ -360,6 +360,8 @@ Repeated direct arrays use the same explicit descriptor:
 
 Direct tuple constructors likewise require an explicit tuple type:
 `(#tuple (#tuple u64 u64) 40 2)`.
+These explicit tuple values can be returned from and passed to functions using
+the same flattened value ABI.
 
 Integer arrays returned from functions can be indexed directly as well:
 

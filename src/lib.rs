@@ -3321,6 +3321,16 @@ mod tests {
     }
 
     #[test]
+    fn passes_explicit_tuple_constructors_through_functions() {
+        let program = parse_program(
+            "(#fn make () (#tuple u64 u64) (#return (#tuple (#tuple u64 u64) 40 2))) (#fn consume ((value (#tuple u64 u64))) u64 (#return (#get value 0))) (#fn main () u64 (#return (consume (make))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn lowers_saturating_wide_addition_and_subtraction() {
         let program = parse_program(
             "(#fn main () u128 (#return (#u128.+.saturate 340282366920938463463374607431768211455 1)))",
