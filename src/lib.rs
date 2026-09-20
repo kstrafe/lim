@@ -2238,9 +2238,6 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
                 }
                 _ => return Err("array length must be a non-negative integer".into()),
             };
-            if length == 0 {
-                return Err("arrays must have a non-zero length".into());
-            }
             return Ok(Type::Array(Box::new(element), length));
         }
     }
@@ -3298,6 +3295,18 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn matches_empty_arrays() {
+        let program = parse_program(
+            "(#fn main () u64 \
+              (#return (#match (#array (#array u64 0)) ((#array) 42) (_ 0))))",
+        )
+        .unwrap();
+        let type_result = check_types(&program);
+        assert!(type_result.is_ok(), "{type_result:?}");
         assert!(generate_assembly(&program).is_ok());
     }
 

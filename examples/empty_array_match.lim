@@ -1,0 +1,5 @@
+(#fn main () u64
+  (#return
+    (#match (#array (#array u64 0))
+      ((#array) 42)
+      (_ 0))))

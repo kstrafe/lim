@@ -2920,7 +2920,7 @@ impl FunctionContext {
                         _ => None,
                     }
                 }
-                Some(Expr::Symbol(operator)) if operator == "array" && items.len() >= 3 => {
+                Some(Expr::Symbol(operator)) if operator == "array" && items.len() >= 2 => {
                     match parse_type(items.get(1))
                         .ok()
                         .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
@@ -4048,16 +4048,35 @@ impl FunctionContext {
             return Err("match requires a value and an arm".into());
         }
         if let Some(Type::Tuple(fields)) = self.expression_type(&items[1]) {
-            return self.aggregate_match_expression(items, "tuple", &fields, float_type);
+            return self.aggregate_match_expression(
+                items,
+                "tuple",
+                &fields,
+                Type::Tuple(fields.clone()),
+                float_type,
+            );
         }
         if let Some(Type::Array(element, length)) = self.expression_type(&items[1]) {
+            let element_type = (*element).clone();
             let fields = vec![*element; length];
-            return self.aggregate_match_expression(items, "array", &fields, float_type);
+            return self.aggregate_match_expression(
+                items,
+                "array",
+                &fields,
+                Type::Array(Box::new(element_type), length),
+                float_type,
+            );
         }
         if let Some(Type::Named(name)) = self.expression_type(&items[1]) {
             if let Some(fields) = self.structs.get(&name).cloned() {
                 let field_types = fields.into_iter().map(|field| field.ty).collect::<Vec<_>>();
-                return self.aggregate_match_expression(items, &name, &field_types, float_type);
+                return self.aggregate_match_expression(
+                    items,
+                    &name,
+                    &field_types,
+                    Type::Named(name.clone()),
+                    float_type,
+                );
             }
         }
         let end = self.label("match_end");
@@ -4313,22 +4332,17 @@ impl FunctionContext {
         items: &[Expr],
         constructor: &str,
         fields: &[Type],
+        ty: Type,
         float_type: Option<&Type>,
     ) -> Result<(), String> {
-        let ty = if constructor == "tuple" {
-            Type::Tuple(fields.to_vec())
-        } else if constructor == "array" {
-            let element = fields
-                .first()
-                .ok_or_else(|| "array match requires at least one element".to_owned())?
-                .clone();
-            Type::Array(Box::new(element), fields.len())
-        } else {
-            Type::Named(constructor.to_owned())
-        };
         let words = value_word_count(&ty, &self.structs, &self.enums)?;
         let base_depth = self.stack_depth;
-        if let Expr::Symbol(name) = &items[1] {
+        let empty_direct_array = words == 0
+            && constructor == "array"
+            && matches!(&items[1], Expr::List(value) if matches!(value.first(), Some(Expr::Symbol(name)) if name == "array"));
+        if empty_direct_array {
+            // An empty value has no ABI words to evaluate or stage.
+        } else if let Expr::Symbol(name) = &items[1] {
             if self.locals.contains_key(name) {
                 for slot in local_slots(&self.locals, name)?.into_iter().rev() {
                     self.output

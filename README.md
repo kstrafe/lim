@@ -307,6 +307,7 @@ Fixed arrays support the same explicit form:
 
 Array values can also be matched with literal, binding, and wildcard
 patterns, for example `((#array 10 middle _) middle)`.
+Zero-length arrays are valid value types and can be matched with `(#array)`.
 
 Payload-free enums use integer discriminants and support exhaustive `match`:
 
