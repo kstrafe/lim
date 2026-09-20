@@ -525,7 +525,7 @@ pub struct Program {
     pub items: Vec<Item>,
 }
 
-/// Parse top-level `fn` and `let` forms into the typed declaration AST.
+/// Parse top-level `fn`, `let`, and `const` forms into the typed declaration AST.
 ///
 /// The lower-level [`parse`] function remains available for syntax that has
 /// not acquired a language-level meaning yet, such as future macros.
@@ -652,6 +652,15 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
                 ty: binding.ty,
                 value: binding.value,
                 mutable: binding.mutable,
+            })
+        }
+        "const" => {
+            let binding = parse_const(items)?;
+            Ok(Item::Let {
+                name: binding.name,
+                ty: binding.ty,
+                value: binding.value,
+                mutable: false,
             })
         }
         other => Err(format!("unknown top-level form '{other}'")),
@@ -1038,6 +1047,20 @@ fn parse_let(items: &[Expr]) -> Result<LetBinding, String> {
         ty: parse_type(items.get(type_index))?,
         value: lower_expr(&items[value_index])?,
         mutable,
+    })
+}
+
+fn parse_const(items: &[Expr]) -> Result<LetBinding, String> {
+    if !matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "const")
+        || items.len() != 4
+    {
+        return Err("const requires the form (const name Type value)".into());
+    }
+    Ok(LetBinding {
+        name: expect_symbol(items.get(1), "constant name")?.to_owned(),
+        ty: parse_type(items.get(2))?,
+        value: lower_expr(&items[3])?,
+        mutable: false,
     })
 }
 
@@ -1465,6 +1488,14 @@ mod tests {
         assert_eq!(function.parameters.len(), 17);
         assert_eq!(function.parameters[16].ty, Type::Named("UserId".into()));
         assert_eq!(function.return_type, Type::Unit);
+    }
+
+    #[test]
+    fn parses_and_checks_typed_constants() {
+        let program = parse_program("(const Answer u64 (+ 40 2)) (fn main () u64 Answer)").unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("Answer:"));
     }
 
     #[test]

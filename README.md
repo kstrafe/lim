@@ -114,6 +114,13 @@ Named type aliases are explicit and resolve to their target type:
 (fn add_one ((id UserId)) UserId (+ id 1))
 ```
 
+Compile-time constants use explicit types and constant initializers:
+
+```lisp
+(const Answer u64 (+ 40 2))
+(fn main () u64 Answer)
+```
+
 Mutable locals, assignment, and `while` are also supported:
 
 ```lisp
