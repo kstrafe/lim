@@ -595,6 +595,13 @@ fn validate_prefixed_forms(expression: &Expr) -> Result<(), String> {
                 "builtin '{name}' must use its '#' prefix in prefixed syntax"
             ));
         }
+        if let Some(operator) = name.strip_prefix('#') {
+            if is_unqualified_arithmetic_operator(operator) {
+                return Err(format!(
+                    "arithmetic operator '{name}' must use an explicit type and overflow mode"
+                ));
+            }
+        }
     }
     for item in items {
         validate_prefixed_forms(item)?;
@@ -662,6 +669,10 @@ fn is_operator_symbol(name: &str) -> bool {
             | "&&"
             | "||"
     )
+}
+
+fn is_unqualified_arithmetic_operator(name: &str) -> bool {
+    matches!(name, "+" | "-" | "*" | "/" | "%")
 }
 
 fn normalize_keywords(expression: Expr) -> Expr {
@@ -2203,6 +2214,9 @@ mod tests {
         assert!(missing_prefix.contains("must use its '#' prefix"));
         let missing_return = parse_program_strict("(#fn main () u64 42)").unwrap_err();
         assert!(missing_return.contains("explicit"));
+        let unqualified_arithmetic =
+            parse_program_strict("(#fn main () u64 (#return (#+ 40 2)))").unwrap_err();
+        assert!(unqualified_arithmetic.contains("explicit type and overflow mode"));
         let valid = parse_program_strict("(#fn main () u64 (#return (#u64.+.wrap 40 2)))");
         assert!(valid.is_ok());
     }
