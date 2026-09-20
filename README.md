@@ -410,10 +410,17 @@ Payload-free enums use integer discriminants and support exhaustive `match`:
 ```lisp
 (enum Color (Red Green Blue))
 (fn color-value () u64
-  (match Green
+(match Green
     (Red 10)
     (Green 20)
     (_ 30)))
+```
+
+Fieldless enum values can be explicitly cast to integer types to read their
+discriminant. Payload enums cannot be cast this way:
+
+```lisp
+(#as Green u64)
 ```
 
 Enum variants may specify an explicit non-negative `u64` discriminant as their

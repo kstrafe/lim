@@ -1310,7 +1310,14 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             let target = resolve_type(&parse_type(items.get(2))?, aliases)?;
-            if !is_cast_operand(&source) || !is_cast_target(&target) {
+            let fieldless_enum = matches!(&source, Type::Named(name)
+            if enums.get(name).is_some_and(|variants| {
+                variants.iter().all(|variant| variant.fields.is_empty())
+            }));
+            if (!is_cast_operand(&source) && !fieldless_enum)
+                || !is_cast_target(&target)
+                || (fieldless_enum && !is_integer(&target))
+            {
                 return Err(
                     "as requires numeric, char, or bool operands and a numeric or char target"
                         .into(),

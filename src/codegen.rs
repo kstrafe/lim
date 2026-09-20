@@ -3219,7 +3219,15 @@ impl FunctionContext {
                 name, ty, value, ..
             } => {
                 let ty = resolve_type(ty, &self.aliases)?;
-                if let Type::Named(type_name) = &ty {
+                if matches!(&ty, Type::Named(type_name)
+                if self.structs.contains_key(type_name)
+                    || self.enums.get(type_name).is_some_and(|variants| {
+                        variants.iter().any(|variant| !variant.fields.is_empty())
+                    }))
+                {
+                    let Type::Named(type_name) = &ty else {
+                        unreachable!("named aggregate type matched above")
+                    };
                     if self.enums.get(type_name).is_some_and(|variants| {
                         variants.iter().any(|variant| !variant.fields.is_empty())
                     }) {
@@ -3835,6 +3843,19 @@ impl FunctionContext {
         let source = self.expression_type(value).unwrap_or(Type::I64);
         if source == *target {
             return self.expression_as_expected(value, target);
+        }
+        let fieldless_enum = matches!(&source, Type::Named(name)
+        if self.enums.get(name).is_some_and(|variants| {
+            variants.iter().all(|variant| variant.fields.is_empty())
+        }));
+        if fieldless_enum {
+            self.expression(value)?;
+            if is_wide_integer(target) {
+                self.output.push_str("    xor edx, edx\n");
+            } else {
+                self.normalize_integer(target)?;
+            }
+            return Ok(());
         }
         if matches!(target, Type::F32 | Type::F64) {
             if matches!(source, Type::F32 | Type::F64) {

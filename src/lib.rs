@@ -4363,6 +4363,30 @@ mod tests {
     }
 
     #[test]
+    fn casts_fieldless_enum_discriminants() {
+        let program = parse_program_strict(
+            "(#enum Color (Red Green)) \
+             (#fn discriminant ((value Color)) u64 \
+               (#return (#as value u64))) \
+             (#fn main () u64 \
+               (#let selected Color Green) \
+               (#return (#u64.+.wrap (discriminant selected) 41)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("call discriminant"));
+        assert!(assembly.contains("mov rax, 1"));
+
+        let payload = parse_program_strict(
+            "(#enum Maybe ((Some u64) None)) \
+             (#fn main () u64 (#return (#as (Some 1) u64)))",
+        )
+        .unwrap();
+        assert!(check_types(&payload).is_err());
+    }
+
+    #[test]
     fn rejects_value_breaks_in_statement_loops() {
         let program = parse_program(
             "(#fn main () u64 \
