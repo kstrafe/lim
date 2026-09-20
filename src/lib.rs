@@ -692,7 +692,7 @@ pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), Str
             .unwrap_or("none");
         let payload_source = type_source(payload);
         generated.push(format!(
-            "(enum {name} (({some} {payload_source}) {none}))\n(fn {name}-construct ((value {payload_source})) {name} ({some} value))\n(fn {name}-is-some ((value {name})) bool (match value (({some} _) true) ({none} false)))\n(fn {name}-unwrap-or ((value {name}) (fallback {payload_source})) {payload_source} (match value (({some} payload) payload) ({none} fallback)))\n",
+            "(#enum {name} (({some} {payload_source}) {none}))\n(#fn {name}-construct ((value {payload_source})) {name} (#return ({some} value)))\n(#fn {name}-is-some ((value {name})) bool (#return (#match value (({some} _) true) ({none} false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {payload_source})) {payload_source} (#return (#match value (({some} payload) payload) ({none} fallback))))\n",
         ));
     }
     if generated.is_empty() {
@@ -1360,10 +1360,10 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
                 mutable: false,
             }],
             return_type: optional_type.clone(),
-            body: vec![Statement::Expr(Expr::List(vec![
+            body: vec![Statement::Return(Some(Expr::List(vec![
                 Expr::Symbol(some),
                 Expr::Symbol("value".into()),
-            ]))],
+            ])))],
         }),
         Item::Function(Function {
             name: format!("{name}-is-some"),
@@ -1374,7 +1374,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
                 mutable: false,
             }],
             return_type: Type::Bool,
-            body: vec![Statement::Expr(is_some_body)],
+            body: vec![Statement::Return(Some(is_some_body))],
         }),
         Item::Function(Function {
             name: format!("{name}-unwrap-or"),
@@ -1392,7 +1392,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
                 },
             ],
             return_type: payload,
-            body: vec![Statement::Expr(unwrap_or_body)],
+            body: vec![Statement::Return(Some(unwrap_or_body))],
         }),
     ])
 }
@@ -2832,6 +2832,21 @@ mod tests {
         assert!(generate_assembly(&program)
             .unwrap()
             .contains(".globl Maybe_x3f__x2d_construct"));
+    }
+
+    #[test]
+    fn materializes_strict_optional_source_with_explicit_returns() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-generated-optional-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        write_generated_sources("(@optional u64 Maybe?)", &directory).unwrap();
+        let generated = std::fs::read_to_string(directory.join("optional-0.lim")).unwrap();
+        assert!(generated.contains("#enum"));
+        assert!(generated.contains("#return"));
+        let program = parse_program(&generated).unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
