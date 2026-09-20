@@ -303,8 +303,8 @@ their flattened stack layout. Nested aggregate parameters now use the same
 flattened six-word ABI when every leaf value is natively representable. Nested
 fixed-array returns from local storage now use the flattened ABI when their
 total representation fits six words. Nested tuple/struct field mutation and
-other aggregate element mutation remain explicitly rejected until those ABI
-paths have complete flattened support.
+aggregate array element replacement use the same flattened representation;
+enum payload mutation remains unsupported.
 
 The native backend flattens scalar struct fields into stack slots and supports
 up to six scalar ABI words for struct parameters and returns.

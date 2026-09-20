@@ -2912,9 +2912,6 @@ impl FunctionContext {
                     .find(|(field_name, _)| field_name == field)
                     .map(|(_, slots)| slots.clone())
                     .ok_or_else(|| format!("unknown field '{field}'"))?;
-                if slot.len() != 1 {
-                    return Err("set-field currently supports scalar struct fields only".into());
-                }
                 let struct_name = match self.local_types.get(name) {
                     Some(Type::Named(name)) => name,
                     _ => return Err(format!("'{name}' is not a struct")),
@@ -2925,27 +2922,44 @@ impl FunctionContext {
                     .and_then(|fields| fields.iter().find(|field_info| field_info.name == *field))
                     .map(|field_info| field_info.ty.clone())
                     .ok_or_else(|| format!("unknown field '{field}'"))?;
-                self.store_scalar_at_slot(value, &field_type, slot[0])?;
+                if slot.len() == 1 {
+                    self.store_scalar_at_slot(value, &field_type, slot[0])?;
+                } else {
+                    self.store_value_words(value, &field_type, &slot)?;
+                }
             }
             Statement::TupleAssign { name, index, value } => {
                 let Storage::Tuple(slots) = self
                     .locals
                     .get(name)
                     .ok_or_else(|| format!("unknown tuple local '{name}'"))?
+                    .clone()
                 else {
                     return Err(format!("'{name}' is not a tuple"));
                 };
-                let slot = *slots
-                    .get(*index)
-                    .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?;
-                let field_type = match self.local_types.get(name).cloned() {
-                    Some(Type::Tuple(fields)) => fields
-                        .get(*index)
-                        .cloned()
-                        .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?,
+                let fields = match self.local_types.get(name).cloned() {
+                    Some(Type::Tuple(fields)) => fields,
                     _ => return Err(format!("'{name}' is not a tuple")),
                 };
-                self.store_scalar_at_slot(value, &field_type, slot)?;
+                let field_type = fields
+                    .get(*index)
+                    .cloned()
+                    .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?;
+                let field_offset = fields[..*index]
+                    .iter()
+                    .map(|field| value_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
+                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                let field_slots = slots
+                    .get(field_offset..field_offset + field_words)
+                    .ok_or_else(|| "native tuple has too many fields".to_owned())?;
+                if field_words == 1 {
+                    self.store_scalar_at_slot(value, &field_type, field_slots[0])?;
+                } else {
+                    self.store_value_words(value, &field_type, field_slots)?;
+                }
             }
             Statement::While { condition, body } => {
                 let start = self.label("while");
@@ -5182,13 +5196,21 @@ impl FunctionContext {
                     if !matches!(self.globals.get(local), Some(GlobalValue::Aggregate(_))) {
                         return Err(format!("global '{local}' is not an aggregate struct"));
                     }
-                    let offset = fields[..index]
+                    let offset_words = fields[..index]
                         .iter()
                         .map(|field| value_word_count(&field.ty, &self.structs, &self.enums))
                         .collect::<Result<Vec<_>, _>>()?
                         .into_iter()
-                        .sum::<usize>()
-                        * 8;
+                        .sum::<usize>();
+                    let offset = offset_words * 8;
+                    let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                    if field_words > 1 {
+                        for (word, register) in VALUE_REGISTERS[..field_words].iter().enumerate() {
+                            self.load_global_word(local, offset_words + word)?;
+                            self.output.push_str(&format!("    mov {register}, rax\n"));
+                        }
+                        return Ok(());
+                    }
                     if matches!(field_type, Type::F32) {
                         self.output.push_str(&format!(
                             "    movss xmm0, DWORD PTR [rip+{}+{offset}]\n",
@@ -5211,6 +5233,7 @@ impl FunctionContext {
                     .locals
                     .get(local)
                     .ok_or_else(|| format!("unknown local '{local}'"))?
+                    .clone()
                 else {
                     return Err(format!("'{local}' is not a struct"));
                 };
@@ -5219,10 +5242,6 @@ impl FunctionContext {
                     .find(|(name, _)| name == field_name)
                     .map(|(_, slots)| slots.clone())
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;
-                if slot.len() != 1 {
-                    return Err("get currently supports scalar struct fields only".into());
-                }
-                let slot = slot[0];
                 let struct_name = match self.local_types.get(local) {
                     Some(Type::Named(name)) => name,
                     _ => return Err(format!("'{local}' is not a struct")),
@@ -5233,6 +5252,20 @@ impl FunctionContext {
                     .and_then(|fields| fields.iter().find(|field| field.name == *field_name))
                     .map(|field| field.ty.clone())
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                if field_words > 1 {
+                    for (word, register) in VALUE_REGISTERS[..field_words].iter().enumerate() {
+                        let source_slot = slot
+                            .get(word)
+                            .ok_or_else(|| "native struct has too many fields".to_owned())?;
+                        self.output.push_str(&format!(
+                            "    mov {register}, QWORD PTR [rbp-{}]\n",
+                            source_slot * 8
+                        ));
+                    }
+                    return Ok(());
+                }
+                let slot = slot[0];
                 if matches!(field_type, Type::F32) {
                     self.output
                         .push_str(&format!("    movss xmm0, DWORD PTR [rbp-{}]\n", slot * 8));
@@ -5263,6 +5296,15 @@ impl FunctionContext {
                     .get(index + 1)
                     .ok_or_else(|| "constructor has too few fields".to_owned())?;
                 let field_type = fields[index].ty.clone();
+                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                if field_words > 1 {
+                    self.push_value_words(value, &field_type, false)?;
+                    for register in VALUE_REGISTERS[..field_words].iter().rev() {
+                        self.output.push_str(&format!("    pop {register}\n"));
+                        self.stack_depth -= 1;
+                    }
+                    return Ok(());
+                }
                 self.expression_as_expected(value, &field_type)
             }
             _ => {
@@ -5281,12 +5323,32 @@ impl FunctionContext {
                     .iter()
                     .position(|field| field.name == *field_name)
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;
-                if index >= VALUE_REGISTERS.len() {
-                    return Err("native returned struct has too many fields".into());
-                }
                 self.expression(&items[1])?;
-                let register = VALUE_REGISTERS[index];
                 let field_type = fields[index].ty.clone();
+                let register_index = fields[..index]
+                    .iter()
+                    .map(|field| value_word_count(&field.ty, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
+                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                if field_words > 1 {
+                    for word in 0..field_words {
+                        let source =
+                            VALUE_REGISTERS.get(register_index + word).ok_or_else(|| {
+                                "native returned struct has too many fields".to_owned()
+                            })?;
+                        let destination = VALUE_REGISTERS[word];
+                        if *source != destination {
+                            self.output
+                                .push_str(&format!("    mov {destination}, {source}\n"));
+                        }
+                    }
+                    return Ok(());
+                }
+                let register = VALUE_REGISTERS
+                    .get(register_index)
+                    .ok_or_else(|| "native returned struct has too many fields".to_owned())?;
                 match field_type {
                     Type::F32 => self
                         .output

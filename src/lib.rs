@@ -3496,6 +3496,36 @@ mod tests {
     }
 
     #[test]
+    fn mutates_nested_tuple_fields() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#let mut value (#tuple (#tuple u64 u64) u64) \
+                 (#tuple (#tuple (#tuple u64 u64) u64) \
+                   (#tuple (#tuple u64 u64) 10 20) 30)) \
+               (#set-field value 0 (#tuple (#tuple u64 u64) 50 60)) \
+               (#return (#get (#get value 0) 1)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn mutates_nested_struct_fields() {
+        let program = parse_program(
+            "(#struct Inner ((left u64) (right u64))) \
+             (#struct Outer ((inner Inner) (tail u64))) \
+             (#fn main () u64 \
+               (#let mut value Outer (Outer (Inner 10 20) 30)) \
+               (#set-field value inner (Inner 50 60)) \
+               (#return (#get (#get value inner) right)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
