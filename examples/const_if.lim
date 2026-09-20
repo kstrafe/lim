@@ -1,5 +1,8 @@
+(#const Enabled bool
+  (#bool.== true true))
+
 (#const Answer u64
-  (#if true 42u64 0u64))
+  (#if Enabled 42u64 0u64))
 
 (#const Scale f32
   (#if false 0.0f32 2.5f32))
