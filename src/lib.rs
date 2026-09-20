@@ -392,6 +392,7 @@ pub enum Type {
     Usize,
     F32,
     F64,
+    Generic(String),
     Tuple(Vec<Type>),
     Array(Box<Type>, usize),
     Named(String),
@@ -478,6 +479,7 @@ pub enum Statement {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Function {
     pub name: String,
+    pub type_parameters: Vec<String>,
     pub parameters: Vec<Parameter>,
     pub return_type: Type,
     pub body: Vec<Statement>,
@@ -609,6 +611,7 @@ fn type_source(ty: &Type) -> String {
         Type::Usize => "usize".into(),
         Type::F32 => "f32".into(),
         Type::F64 => "f64".into(),
+        Type::Generic(name) => name.clone(),
         Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
             "(tuple {})",
@@ -723,6 +726,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         generated,
         Item::Function(Function {
             name: format!("{name}-construct"),
+            type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "value".into(),
                 ty: payload_for_construct,
@@ -736,6 +740,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         }),
         Item::Function(Function {
             name: format!("{name}-is-some"),
+            type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "value".into(),
                 ty: optional_type.clone(),
@@ -746,6 +751,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         }),
         Item::Function(Function {
             name: format!("{name}-unwrap-or"),
+            type_parameters: Vec::new(),
             parameters: vec![
                 Parameter {
                     name: "value".into(),
@@ -853,7 +859,32 @@ fn parse_function(items: &[Expr]) -> Result<Function, String> {
         return Err("fn requires a name, parameter list, return type, and body".into());
     }
     let name = expect_symbol(items.get(1), "function name")?.to_owned();
-    let parameter_items = expect_list(items.get(2).unwrap(), "function parameters")?;
+    let (type_parameters, parameter_index, return_index, body_index) =
+        if let Some(Expr::List(generic_items)) = items.get(2) {
+            if !generic_items.is_empty()
+                && generic_items
+                    .iter()
+                    .all(|item| matches!(item, Expr::Symbol(_)))
+            {
+                let mut names = Vec::with_capacity(generic_items.len());
+                for item in generic_items {
+                    let name = expect_symbol(Some(item), "generic type parameter")?.to_owned();
+                    if names.iter().any(|existing| existing == &name) {
+                        return Err(format!("duplicate generic type parameter '{name}'"));
+                    }
+                    names.push(name);
+                }
+                (names, 3, 4, 5)
+            } else {
+                (Vec::new(), 2, 3, 4)
+            }
+        } else {
+            (Vec::new(), 2, 3, 4)
+        };
+    if items.len() <= return_index {
+        return Err("fn requires a name, parameter list, return type, and body".into());
+    }
+    let parameter_items = expect_list(items.get(parameter_index).unwrap(), "function parameters")?;
     let mut parameters = Vec::with_capacity(parameter_items.len());
     for parameter in parameter_items {
         let fields = expect_list(parameter, "function parameter")?;
@@ -866,24 +897,46 @@ fn parse_function(items: &[Expr]) -> Result<Function, String> {
         }
         let name_index = if mutable { 1 } else { 0 };
         let type_index = if mutable { 2 } else { 1 };
+        let ty = replace_generic_types(&parse_type(fields.get(type_index))?, &type_parameters);
         parameters.push(Parameter {
             name: expect_symbol(fields.get(name_index), "parameter name")?.to_owned(),
-            ty: parse_type(fields.get(type_index))?,
+            ty,
             mutable,
         });
     }
 
-    let return_type = parse_type(items.get(3))?;
-    let mut body = Vec::with_capacity(items.len() - 4);
-    for expression in &items[4..] {
+    let return_type =
+        replace_generic_types(&parse_type(items.get(return_index))?, &type_parameters);
+    let mut body = Vec::with_capacity(items.len().saturating_sub(body_index));
+    for expression in &items[body_index..] {
         body.push(parse_statement(expression)?);
     }
     Ok(Function {
         name,
+        type_parameters,
         parameters,
         return_type,
         body,
     })
+}
+
+fn replace_generic_types(ty: &Type, parameters: &[String]) -> Type {
+    match ty {
+        Type::Named(name) if parameters.iter().any(|parameter| parameter == name) => {
+            Type::Generic(name.clone())
+        }
+        Type::Array(element, length) => Type::Array(
+            Box::new(replace_generic_types(element, parameters)),
+            *length,
+        ),
+        Type::Tuple(fields) => Type::Tuple(
+            fields
+                .iter()
+                .map(|field| replace_generic_types(field, parameters))
+                .collect(),
+        ),
+        _ => ty.clone(),
+    }
 }
 
 fn lower_expr(expression: &Expr) -> Result<Expr, String> {
@@ -1318,6 +1371,13 @@ mod tests {
         assert!(
             matches!(function.body[1], Statement::Expr(Expr::Symbol(ref name)) if name == "total")
         );
+        let generic = parse_program("(fn identity (T) ((value T)) T value)").unwrap();
+        let Item::Function(identity) = &generic.items[0] else {
+            panic!()
+        };
+        assert_eq!(identity.type_parameters, vec!["T"]);
+        assert_eq!(identity.parameters[0].ty, Type::Generic("T".into()));
+        assert_eq!(identity.return_type, Type::Generic("T".into()));
     }
 
     #[test]
