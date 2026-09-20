@@ -2334,7 +2334,7 @@ fn add_local(
         } else if let Some(fields) = structs.get(enum_name) {
             let mut slots = Vec::with_capacity(fields.len());
             for field in fields {
-                let words = value_word_count(&field.ty, structs, enums)?;
+                let words = storage_word_count(&field.ty, structs, enums)?;
                 let field_slots = flat_slots(*next_slot, words);
                 *next_slot += words;
                 slots.push((field.name.clone(), field_slots));
@@ -2353,7 +2353,7 @@ fn add_local(
         *next_slot += 2;
         Storage::Wide { low, high }
     } else if let Type::Array(element, length) = &ty {
-        let element_words = value_word_count(element, structs, enums)?;
+        let element_words = storage_word_count(element, structs, enums)?;
         let base = *next_slot;
         *next_slot += length * element_words;
         Storage::Array {
@@ -2461,25 +2461,22 @@ fn supports_indirect_return_type(
         return false;
     }
     match ty {
-        Type::Array(element, _) => value_word_count(element, structs, enums)
-            .is_ok_and(|words| words <= VALUE_REGISTERS.len()),
-        Type::Tuple(fields) => fields.iter().all(|field| {
-            value_word_count(field, structs, enums)
-                .is_ok_and(|words| words <= VALUE_REGISTERS.len())
-        }),
+        Type::Array(element, _) => storage_word_count(element, structs, enums).is_ok(),
+        Type::Tuple(fields) => fields
+            .iter()
+            .all(|field| storage_word_count(field, structs, enums).is_ok()),
         Type::Named(name) => {
             if let Some(fields) = structs.get(name) {
-                return fields.iter().all(|field| {
-                    value_word_count(&field.ty, structs, enums)
-                        .is_ok_and(|words| words <= VALUE_REGISTERS.len())
-                });
+                return fields
+                    .iter()
+                    .all(|field| storage_word_count(&field.ty, structs, enums).is_ok());
             }
             enums.get(name).is_some_and(|variants| {
                 variants.iter().all(|variant| {
-                    variant.fields.iter().all(|field| {
-                        value_word_count(field, structs, enums)
-                            .is_ok_and(|words| words <= VALUE_REGISTERS.len())
-                    })
+                    variant
+                        .fields
+                        .iter()
+                        .all(|field| storage_word_count(field, structs, enums).is_ok())
                 })
             })
         }
@@ -2557,7 +2554,7 @@ fn value_word_count(
         }
     }
     if let Type::Array(element, length) = ty {
-        let element_words = value_word_count(element, structs, enums)?;
+        let element_words = storage_word_count(element, structs, enums)?;
         let total = element_words.saturating_mul(*length);
         if total <= VALUE_REGISTERS.len() {
             return Ok(total);
@@ -2727,18 +2724,16 @@ fn ensure_return_type(
     }
     if let Type::Array(element, _) = ty {
         if storage_word_count(ty, structs, enums).is_ok()
-            && value_word_count(element, structs, enums)
-                .is_ok_and(|words| words <= VALUE_REGISTERS.len())
+            && storage_word_count(element, structs, enums).is_ok()
         {
             return Ok(());
         }
     }
     if let Type::Tuple(fields) = ty {
         if storage_word_count(ty, structs, enums).is_ok()
-            && fields.iter().all(|field| {
-                value_word_count(field, structs, enums)
-                    .is_ok_and(|words| words <= VALUE_REGISTERS.len())
-            })
+            && fields
+                .iter()
+                .all(|field| storage_word_count(field, structs, enums).is_ok())
         {
             return Ok(());
         }
@@ -4539,7 +4534,7 @@ impl FunctionContext {
         value: &Expr,
     ) -> Result<(), String> {
         if fields.iter().any(|field| {
-            value_word_count(&field.ty, &self.structs, &self.enums).is_ok_and(|words| words > 1)
+            storage_word_count(&field.ty, &self.structs, &self.enums).is_ok_and(|words| words > 1)
         }) {
             let ty = Type::Named(struct_name.to_owned());
             return self.store_indirect_value_words(value, &ty, 0);
@@ -4551,7 +4546,7 @@ impl FunctionContext {
         if let Expr::Symbol(name) = value {
             if let Some(Storage::Struct(source_fields)) = self.locals.get(name).cloned() {
                 for ((_, source_slots), field) in source_fields.iter().zip(fields) {
-                    let words = value_word_count(&field.ty, &self.structs, &self.enums)?;
+                    let words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
                     if words != 1 || source_slots.len() != 1 {
                         return Err("large struct returns currently require scalar fields".into());
                     }
@@ -4570,7 +4565,7 @@ impl FunctionContext {
                 Some(Type::Named(global_name)) if global_name == struct_name
             ) {
                 for field in fields {
-                    let words = value_word_count(&field.ty, &self.structs, &self.enums)?;
+                    let words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
                     if words != 1 {
                         return Err("large struct returns currently require scalar fields".into());
                     }
@@ -4591,7 +4586,7 @@ impl FunctionContext {
                     return Err(format!("constructor '{struct_name}' has wrong field count"));
                 }
                 for (field_value, field) in items[1..].iter().zip(fields) {
-                    let words = value_word_count(&field.ty, &self.structs, &self.enums)?;
+                    let words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
                     self.store_indirect_value_words(field_value, &field.ty, offset)?;
                     offset += words;
                 }
@@ -4605,7 +4600,8 @@ impl FunctionContext {
         if self.enums.get(enum_name).is_some_and(|variants| {
             variants.iter().any(|variant| {
                 variant.fields.iter().any(|field| {
-                    value_word_count(field, &self.structs, &self.enums).is_ok_and(|words| words > 1)
+                    storage_word_count(field, &self.structs, &self.enums)
+                        .is_ok_and(|words| words > 1)
                 })
             })
         }) {
@@ -4681,7 +4677,7 @@ impl FunctionContext {
         ));
         let mut offset = 1usize;
         for (field_value, field_type) in items[1..].iter().zip(&variant.fields) {
-            let words = value_word_count(field_type, &self.structs, &self.enums)?;
+            let words = storage_word_count(field_type, &self.structs, &self.enums)?;
             self.store_indirect_value_words(field_value, field_type, offset)?;
             offset += words;
         }
@@ -4851,7 +4847,7 @@ impl FunctionContext {
 
     fn return_indirect_tuple_value(&mut self, fields: &[Type], value: &Expr) -> Result<(), String> {
         if fields.iter().any(|field| {
-            value_word_count(field, &self.structs, &self.enums).is_ok_and(|words| words > 1)
+            storage_word_count(field, &self.structs, &self.enums).is_ok_and(|words| words > 1)
         }) {
             let ty = Type::Tuple(fields.to_vec());
             return self.store_indirect_value_words(value, &ty, 0);
@@ -4866,7 +4862,7 @@ impl FunctionContext {
                     return Err("tuple return has an inconsistent flattened layout".into());
                 }
                 for (source_slot, field) in slots.iter().zip(fields) {
-                    let words = value_word_count(field, &self.structs, &self.enums)?;
+                    let words = storage_word_count(field, &self.structs, &self.enums)?;
                     if words != 1 {
                         return Err("large tuple returns currently require scalar fields".into());
                     }
@@ -4885,7 +4881,7 @@ impl FunctionContext {
                 Some(Type::Tuple(global_fields)) if global_fields == fields
             ) {
                 for field in fields {
-                    let words = value_word_count(field, &self.structs, &self.enums)?;
+                    let words = storage_word_count(field, &self.structs, &self.enums)?;
                     if words != 1 {
                         return Err("large tuple returns currently require scalar fields".into());
                     }
@@ -4914,7 +4910,7 @@ impl FunctionContext {
                     return Err("tuple return has the wrong length".into());
                 }
                 for (field_value, field) in items[value_start..].iter().zip(fields) {
-                    let words = value_word_count(field, &self.structs, &self.enums)?;
+                    let words = storage_word_count(field, &self.structs, &self.enums)?;
                     self.store_indirect_value_words(field_value, field, offset)?;
                     offset += words;
                 }
@@ -5184,7 +5180,7 @@ impl FunctionContext {
         let Type::Array(element, _) = self.return_type.clone() else {
             return Err("indirect return target is not an array".into());
         };
-        let element_words = value_word_count(&element, &self.structs, &self.enums)?;
+        let element_words = storage_word_count(&element, &self.structs, &self.enums)?;
         let pointer_slot = self
             .return_pointer_slot
             .ok_or_else(|| "missing indirect return pointer".to_owned())?;
@@ -5212,7 +5208,7 @@ impl FunctionContext {
                 self.global_types.get(name),
                 Some(Type::Array(_, global_length)) if *global_length == length
             ) {
-                for index in 0..length {
+                for index in 0..length * element_words {
                     self.load_global_word(name, index)?;
                     self.output.push_str(&format!(
                         "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
