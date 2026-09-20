@@ -2360,6 +2360,17 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_referenced_global_constants_and_integer_operators() {
+        let program = parse_program(
+            "(const Base u64 40) (const Answer u64 (+ (* Base 2) 2)) (fn main () u64 (if (&& (== Answer 82) (>= (<< 1 6) 64)) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("Answer:\n    .quad 82"));
+    }
+
+    #[test]
     fn preserves_float_width_across_control_flow() {
         let program = parse_program(
             "(fn choose ((flag bool)) f32 (if flag 1.5 2.5)) (fn main () u64 (if (> (choose true) 1.0) 42 0))",

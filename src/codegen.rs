@@ -542,6 +542,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     }
     let mut globals = HashMap::new();
     let mut global_types = HashMap::new();
+    let mut constants = HashMap::new();
     for item in &program.items {
         let (name, ty, value, mutable) = match item {
             Item::Let {
@@ -582,10 +583,14 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                             .to_bits(),
                     )
                 }
-                _ => GlobalValue::Integer(normalize_global_integer(
-                    constant_value(value, &enums)?,
-                    &ty,
-                )),
+                _ => {
+                    let normalized =
+                        normalize_global_integer(constant_value(value, &enums, &constants)?, &ty);
+                    if matches!(item, Item::Let { .. }) {
+                        constants.insert(name.clone(), normalized);
+                    }
+                    GlobalValue::Integer(normalized)
+                }
             };
             global_types.insert(name.clone(), ty);
             globals.insert(name.clone(), global);
@@ -1425,13 +1430,18 @@ fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, Stri
 fn constant_value(
     expression: &Expr,
     enums: &HashMap<String, Vec<EnumVariant>>,
+    constants: &HashMap<String, i128>,
 ) -> Result<i128, String> {
     match expression {
         Expr::Integer(value) => Ok(*value),
+        Expr::UnsignedInteger(value) => (*value)
+            .try_into()
+            .map_err(|_| "unsigned constant is too large for the native global evaluator".into()),
         Expr::Char(value) => Ok(*value as i128),
         Expr::Float(_) => Err("floating-point global initializers are not supported".into()),
         Expr::Symbol(name) if name == "true" => Ok(1),
         Expr::Symbol(name) if name == "false" => Ok(0),
+        Expr::Symbol(name) if constants.contains_key(name) => Ok(constants[name]),
         Expr::Symbol(name) => enums
             .values()
             .find_map(|variants| {
@@ -1441,17 +1451,67 @@ fn constant_value(
                     .map(|value| value as i128)
             })
             .ok_or_else(|| format!("global initializer '{name}' is not a constant")),
+        Expr::List(items) if items.len() == 2 => {
+            let operator = match &items[0] {
+                Expr::Symbol(name) => name.as_str(),
+                _ => return Err("global initializer is not constant".into()),
+            };
+            let value = constant_value(&items[1], enums, constants)?;
+            match operator {
+                "-" => value
+                    .checked_neg()
+                    .ok_or_else(|| "constant negation overflowed".into()),
+                "!" => Ok(!value),
+                _ => Err("global initializer is not constant".into()),
+            }
+        }
         Expr::List(items) if items.len() == 3 => {
             let operator = match &items[0] {
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("global initializer is not constant".into()),
             };
-            let left = constant_value(&items[1], enums)?;
-            let right = constant_value(&items[2], enums)?;
+            let left = constant_value(&items[1], enums, constants)?;
+            let right = constant_value(&items[2], enums, constants)?;
             match operator {
-                "+" => Ok(left + right),
-                "-" => Ok(left - right),
-                "*" => Ok(left * right),
+                "+" => left
+                    .checked_add(right)
+                    .ok_or_else(|| "constant addition overflowed".into()),
+                "-" => left
+                    .checked_sub(right)
+                    .ok_or_else(|| "constant subtraction overflowed".into()),
+                "*" => left
+                    .checked_mul(right)
+                    .ok_or_else(|| "constant multiplication overflowed".into()),
+                "/" => left
+                    .checked_div(right)
+                    .ok_or_else(|| "constant division failed".into()),
+                "%" => left
+                    .checked_rem(right)
+                    .ok_or_else(|| "constant remainder failed".into()),
+                "&" => Ok(left & right),
+                "|" => Ok(left | right),
+                "^" => Ok(left ^ right),
+                "<<" => {
+                    if !(0..128).contains(&right) {
+                        return Err("constant shift count is out of range".into());
+                    }
+                    left.checked_shl(right as u32)
+                        .ok_or_else(|| "constant left shift overflowed".into())
+                }
+                ">>" => {
+                    if !(0..128).contains(&right) {
+                        return Err("constant shift count is out of range".into());
+                    }
+                    Ok(left >> right)
+                }
+                "<" => Ok(i128::from(left < right)),
+                "<=" => Ok(i128::from(left <= right)),
+                ">" => Ok(i128::from(left > right)),
+                ">=" => Ok(i128::from(left >= right)),
+                "==" => Ok(i128::from(left == right)),
+                "!=" => Ok(i128::from(left != right)),
+                "&&" => Ok(i128::from(left != 0 && right != 0)),
+                "||" => Ok(i128::from(left != 0 || right != 0)),
                 _ => Err("global initializer is not constant".into()),
             }
         }

@@ -389,8 +389,9 @@ can be referenced by functions:
 
 Top-level `let` declarations use the same form. Integer, character, and
 floating-point constants are emitted in read-only data and can be referenced
-by functions. Integer constant expressions are normalized to their declared
-width before emission.
+by functions. Integer constant expressions may reference earlier constants and
+use the supported integer, comparison, and boolean operators. They are
+normalized to their declared width before emission.
 
 Every token and top-level expression has a byte span plus line and column
 information. Expansion, type checking, monomorphization, and native assembly
