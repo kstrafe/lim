@@ -2079,6 +2079,16 @@ mod tests {
     }
 
     #[test]
+    fn requires_explicit_returns_in_prefixed_functions() {
+        let missing = parse_program("(#fn main () u64 42)").unwrap_err();
+        assert!(missing.contains("explicit"));
+        let unit = parse_program("(#fn main () () (#return ()))").unwrap();
+        assert!(check_types(&unit).is_ok());
+        let no_value = parse_program("(#fn main () () (#return))").unwrap_err();
+        assert!(no_value.contains("exactly one expression"));
+    }
+
+    #[test]
     fn parses_nested_lists_quotes_and_comments() {
         let expressions = parse("# header\n'(fn main () i32 42) ; tail\n").unwrap();
         assert!(matches!(expressions[0].expr, Expr::Quote(_)));
