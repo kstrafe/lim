@@ -61,6 +61,419 @@ struct FunctionAbi {
     return_type: Type,
 }
 
+fn generic_call_parts(operator: &str) -> Option<(&str, Vec<&str>)> {
+    let open = operator.find('<')?;
+    if !operator.ends_with('>') || open == 0 {
+        return None;
+    }
+    let base = &operator[..open];
+    let arguments = &operator[open + 1..operator.len() - 1];
+    if arguments.is_empty() {
+        return None;
+    }
+    Some((base, arguments.split(',').map(str::trim).collect()))
+}
+
+fn specialized_type_name(ty: &Type) -> String {
+    match ty {
+        Type::Unit => "unit".into(),
+        Type::Bool => "bool".into(),
+        Type::Char => "char".into(),
+        Type::I8 => "i8".into(),
+        Type::I16 => "i16".into(),
+        Type::I32 => "i32".into(),
+        Type::I64 => "i64".into(),
+        Type::I128 => "i128".into(),
+        Type::Isize => "isize".into(),
+        Type::U8 => "u8".into(),
+        Type::U16 => "u16".into(),
+        Type::U32 => "u32".into(),
+        Type::U64 => "u64".into(),
+        Type::U128 => "u128".into(),
+        Type::Usize => "usize".into(),
+        Type::F32 => "f32".into(),
+        Type::F64 => "f64".into(),
+        Type::Generic(name) | Type::Named(name) => name.clone(),
+        Type::Tuple(fields) => format!(
+            "tuple{}",
+            fields
+                .iter()
+                .map(specialized_type_name)
+                .collect::<Vec<_>>()
+                .join("_")
+        ),
+        Type::Array(element, length) => {
+            format!("array{}_{}", specialized_type_name(element), length)
+        }
+    }
+}
+
+fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
+    match ty {
+        Type::Generic(name) => substitutions
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| ty.clone()),
+        Type::Array(element, length) => {
+            Type::Array(Box::new(substitute_type(element, substitutions)), *length)
+        }
+        Type::Tuple(fields) => Type::Tuple(
+            fields
+                .iter()
+                .map(|field| substitute_type(field, substitutions))
+                .collect(),
+        ),
+        _ => ty.clone(),
+    }
+}
+
+fn substitute_expr(expression: &Expr, substitutions: &HashMap<String, Type>) -> Expr {
+    match expression {
+        Expr::List(items) => Expr::List(
+            items
+                .iter()
+                .map(|item| substitute_expr(item, substitutions))
+                .collect(),
+        ),
+        Expr::Block(statements) => Expr::Block(
+            statements
+                .iter()
+                .map(|statement| substitute_statement(statement, substitutions))
+                .collect(),
+        ),
+        Expr::Quote(value) => Expr::Quote(Box::new(substitute_expr(value, substitutions))),
+        _ => expression.clone(),
+    }
+}
+
+fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, Type>) -> Statement {
+    match statement {
+        Statement::Let {
+            name,
+            ty,
+            value,
+            mutable,
+        } => Statement::Let {
+            name: name.clone(),
+            ty: substitute_type(ty, substitutions),
+            value: substitute_expr(value, substitutions),
+            mutable: *mutable,
+        },
+        Statement::Assign { name, value } => Statement::Assign {
+            name: name.clone(),
+            value: substitute_expr(value, substitutions),
+        },
+        Statement::ArrayAssign { name, index, value } => Statement::ArrayAssign {
+            name: name.clone(),
+            index: substitute_expr(index, substitutions),
+            value: substitute_expr(value, substitutions),
+        },
+        Statement::FieldAssign { name, field, value } => Statement::FieldAssign {
+            name: name.clone(),
+            field: field.clone(),
+            value: substitute_expr(value, substitutions),
+        },
+        Statement::TupleAssign { name, index, value } => Statement::TupleAssign {
+            name: name.clone(),
+            index: *index,
+            value: substitute_expr(value, substitutions),
+        },
+        Statement::While { condition, body } => Statement::While {
+            condition: substitute_expr(condition, substitutions),
+            body: body
+                .iter()
+                .map(|s| substitute_statement(s, substitutions))
+                .collect(),
+        },
+        Statement::Loop { body } => Statement::Loop {
+            body: body
+                .iter()
+                .map(|s| substitute_statement(s, substitutions))
+                .collect(),
+        },
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => Statement::For {
+            init: Box::new(substitute_statement(init, substitutions)),
+            condition: substitute_expr(condition, substitutions),
+            step: Box::new(substitute_statement(step, substitutions)),
+            body: body
+                .iter()
+                .map(|s| substitute_statement(s, substitutions))
+                .collect(),
+        },
+        Statement::Return(value) => Statement::Return(
+            value
+                .as_ref()
+                .map(|value| substitute_expr(value, substitutions)),
+        ),
+        Statement::Expr(value) => Statement::Expr(substitute_expr(value, substitutions)),
+        Statement::Break | Statement::Continue => statement.clone(),
+    }
+}
+
+fn rewrite_expr(expression: &Expr, specializations: &HashMap<String, String>) -> Expr {
+    match expression {
+        Expr::List(items) => Expr::List(
+            items
+                .iter()
+                .map(|item| rewrite_expr(item, specializations))
+                .collect(),
+        ),
+        Expr::Block(statements) => Expr::Block(
+            statements
+                .iter()
+                .map(|statement| rewrite_statement(statement, specializations))
+                .collect(),
+        ),
+        Expr::Quote(value) => Expr::Quote(Box::new(rewrite_expr(value, specializations))),
+        Expr::Symbol(name) => specializations
+            .get(name)
+            .cloned()
+            .map(Expr::Symbol)
+            .unwrap_or_else(|| expression.clone()),
+        _ => expression.clone(),
+    }
+}
+
+fn rewrite_statement(
+    statement: &Statement,
+    specializations: &HashMap<String, String>,
+) -> Statement {
+    match statement {
+        Statement::Let {
+            name,
+            ty,
+            value,
+            mutable,
+        } => Statement::Let {
+            name: name.clone(),
+            ty: ty.clone(),
+            value: rewrite_expr(value, specializations),
+            mutable: *mutable,
+        },
+        Statement::Assign { name, value } => Statement::Assign {
+            name: name.clone(),
+            value: rewrite_expr(value, specializations),
+        },
+        Statement::ArrayAssign { name, index, value } => Statement::ArrayAssign {
+            name: name.clone(),
+            index: rewrite_expr(index, specializations),
+            value: rewrite_expr(value, specializations),
+        },
+        Statement::FieldAssign { name, field, value } => Statement::FieldAssign {
+            name: name.clone(),
+            field: field.clone(),
+            value: rewrite_expr(value, specializations),
+        },
+        Statement::TupleAssign { name, index, value } => Statement::TupleAssign {
+            name: name.clone(),
+            index: *index,
+            value: rewrite_expr(value, specializations),
+        },
+        Statement::While { condition, body } => Statement::While {
+            condition: rewrite_expr(condition, specializations),
+            body: body
+                .iter()
+                .map(|s| rewrite_statement(s, specializations))
+                .collect(),
+        },
+        Statement::Loop { body } => Statement::Loop {
+            body: body
+                .iter()
+                .map(|s| rewrite_statement(s, specializations))
+                .collect(),
+        },
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => Statement::For {
+            init: Box::new(rewrite_statement(init, specializations)),
+            condition: rewrite_expr(condition, specializations),
+            step: Box::new(rewrite_statement(step, specializations)),
+            body: body
+                .iter()
+                .map(|s| rewrite_statement(s, specializations))
+                .collect(),
+        },
+        Statement::Return(value) => Statement::Return(
+            value
+                .as_ref()
+                .map(|value| rewrite_expr(value, specializations)),
+        ),
+        Statement::Expr(value) => Statement::Expr(rewrite_expr(value, specializations)),
+        Statement::Break | Statement::Continue => statement.clone(),
+    }
+}
+
+fn collect_generic_calls_expr(expression: &Expr, calls: &mut Vec<String>) {
+    match expression {
+        Expr::List(items) => {
+            if let Some(Expr::Symbol(operator)) = items.first() {
+                if generic_call_parts(operator).is_some() {
+                    calls.push(operator.clone());
+                }
+            }
+            for item in items {
+                collect_generic_calls_expr(item, calls);
+            }
+        }
+        Expr::Block(statements) => {
+            for statement in statements {
+                collect_generic_calls_statement(statement, calls);
+            }
+        }
+        Expr::Quote(value) => collect_generic_calls_expr(value, calls),
+        _ => {}
+    }
+}
+
+fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String>) {
+    match statement {
+        Statement::Let { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::FieldAssign { value, .. }
+        | Statement::TupleAssign { value, .. }
+        | Statement::Return(Some(value))
+        | Statement::Expr(value) => collect_generic_calls_expr(value, calls),
+        Statement::ArrayAssign { index, value, .. } => {
+            collect_generic_calls_expr(index, calls);
+            collect_generic_calls_expr(value, calls);
+        }
+        Statement::While { condition, body } => {
+            collect_generic_calls_expr(condition, calls);
+            for statement in body {
+                collect_generic_calls_statement(statement, calls);
+            }
+        }
+        Statement::Loop { body } => {
+            for statement in body {
+                collect_generic_calls_statement(statement, calls);
+            }
+        }
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            collect_generic_calls_statement(init, calls);
+            collect_generic_calls_expr(condition, calls);
+            collect_generic_calls_statement(step, calls);
+            for statement in body {
+                collect_generic_calls_statement(statement, calls);
+            }
+        }
+        Statement::Break | Statement::Continue | Statement::Return(None) => {}
+    }
+}
+
+fn monomorphize_program(
+    program: &Program,
+    aliases: &HashMap<String, Type>,
+) -> Result<Program, String> {
+    let generic_functions: HashMap<String, Function> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(function) if !function.type_parameters.is_empty() => {
+                Some((function.name.clone(), function.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut specializations = HashMap::new();
+    let mut generated = Vec::new();
+    let mut pending = Vec::new();
+    for item in &program.items {
+        if let Item::Function(function) = item {
+            for statement in &function.body {
+                collect_generic_calls_statement(statement, &mut pending);
+            }
+        }
+    }
+    let mut cursor = 0;
+    while cursor < pending.len() {
+        let operator = pending[cursor].clone();
+        cursor += 1;
+        if specializations.contains_key(&operator) {
+            continue;
+        }
+        let Some((base, arguments)) = generic_call_parts(&operator) else {
+            continue;
+        };
+        let Some(template) = generic_functions.get(base) else {
+            return Err(format!("unknown generic function '{base}'"));
+        };
+        if arguments.len() != template.type_parameters.len() {
+            return Err(format!(
+                "generic function '{base}' expects {} type arguments, got {}",
+                template.type_parameters.len(),
+                arguments.len()
+            ));
+        }
+        let concrete = arguments
+            .iter()
+            .map(|argument| resolve_type(&Type::from_name(argument), aliases))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut substitutions = HashMap::new();
+        for (parameter, ty) in template.type_parameters.iter().zip(&concrete) {
+            substitutions.insert(parameter.clone(), ty.clone());
+        }
+        let name = format!(
+            "{}${}",
+            base,
+            concrete
+                .iter()
+                .map(specialized_type_name)
+                .collect::<Vec<_>>()
+                .join("$")
+        );
+        specializations.insert(operator, name.clone());
+        let mut function = template.clone();
+        function.name = name;
+        function.type_parameters.clear();
+        for parameter in &mut function.parameters {
+            parameter.ty = substitute_type(&parameter.ty, &substitutions);
+        }
+        function.return_type = substitute_type(&function.return_type, &substitutions);
+        function.body = function
+            .body
+            .iter()
+            .map(|statement| substitute_statement(statement, &substitutions))
+            .map(|statement| rewrite_statement(&statement, &specializations))
+            .collect();
+        let mut nested = Vec::new();
+        for statement in &function.body {
+            collect_generic_calls_statement(statement, &mut nested);
+        }
+        pending.extend(nested);
+        generated.push(function);
+    }
+    let mut items = Vec::new();
+    for item in &program.items {
+        if !matches!(item, Item::Function(function) if !function.type_parameters.is_empty()) {
+            items.push(item.clone());
+        }
+    }
+    items.extend(generated.into_iter().map(Item::Function));
+    for item in &mut items {
+        if let Item::Function(function) = item {
+            function.body = function
+                .body
+                .iter()
+                .map(|statement| rewrite_statement(statement, &specializations))
+                .collect();
+        }
+    }
+    Ok(Program { items })
+}
+
 pub fn generate_assembly(program: &Program) -> Result<String, String> {
     check_types(program)?;
     let aliases: HashMap<String, Type> = program
@@ -71,6 +484,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             _ => None,
         })
         .collect();
+    let program = monomorphize_program(program, &aliases)?;
     let structs: HashMap<String, Vec<Field>> = program
         .items
         .iter()

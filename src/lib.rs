@@ -1383,6 +1383,8 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&instantiated).is_ok());
+        let assembly = generate_assembly(&instantiated).unwrap();
+        assert!(assembly.contains("identity_x24_u64"));
         let missing_arguments =
             parse_program("(fn identity (T) ((value T)) T value) (fn main () u64 (identity 42))")
                 .unwrap();
