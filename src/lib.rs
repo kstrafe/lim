@@ -3267,7 +3267,7 @@ mod tests {
     #[test]
     fn lowers_fixed_string_arrays() {
         let program = parse_program(
-            "(#fn main () u64 (#let chars (#array char 2) \"Hi\") (#return (#if (#char.== (#index chars 0) #\\H) 42 0)))",
+            "(#fn main () u64 (#let chars (#array char 2) \"Hi\") (#return (#if (#char.== (#index \"Hi\" 1) #\\i) (#if (#char.== (#index chars 0) #\\H) 42 0) 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());

@@ -3053,6 +3053,26 @@ impl FunctionContext {
         if items.len() != 3 {
             return Err("index requires an array and index".into());
         }
+        if let Expr::String(string) = &items[1] {
+            let characters = string.chars().collect::<Vec<_>>();
+            let bounds_failure = self.label("string_index_bounds_failure");
+            let done = self.label("string_index_done");
+            self.expression(&items[2])?;
+            self.output.push_str(&format!(
+                "    mov rcx, rax\n    cmp rcx, {}\n    jae {bounds_failure}\n",
+                characters.len()
+            ));
+            for (index, character) in characters.iter().enumerate() {
+                let next = self.label("string_index_next");
+                self.output.push_str(&format!(
+                    "    cmp rcx, {index}\n    jne {next}\n    mov rax, {}\n    jmp {done}\n{next}:\n",
+                    *character as u32
+                ));
+            }
+            self.output
+                .push_str(&format!("{bounds_failure}:\n    ud2\n{done}:\n"));
+            return Ok(());
+        }
         let Some(name) = (match &items[1] {
             Expr::Symbol(name) => Some(name),
             _ => None,
