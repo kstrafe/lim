@@ -2326,6 +2326,15 @@ impl FunctionContext {
                         _ => None,
                     }
                 }
+                Some(Expr::Symbol(operator)) if operator == "array-repeat" && items.len() == 3 => {
+                    match parse_type(items.get(1))
+                        .ok()
+                        .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
+                    {
+                        Some(Type::Array(element, length)) => Some(Type::Array(element, length)),
+                        _ => None,
+                    }
+                }
                 Some(Expr::Symbol(operator)) if operator == "get" && items.len() == 3 => match self
                     .expression_type(&items[1])?
                 {
@@ -3083,6 +3092,42 @@ impl FunctionContext {
             self.output
                 .push_str(&format!("{bounds_failure}:\n    ud2\n{done}:\n"));
             return Ok(());
+        }
+        if let Expr::List(repeat_items) = &items[1] {
+            if matches!(
+                repeat_items.first(),
+                Some(Expr::Symbol(operator)) if operator == "array-repeat"
+            ) {
+                let Some(Type::Array(element, length)) = parse_type(repeat_items.get(1))
+                    .ok()
+                    .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
+                else {
+                    return Err(
+                        "direct array-repeat constructors require an explicit (array Element Length) type"
+                            .into(),
+                    );
+                };
+                if repeat_items.len() != 3 {
+                    return Err("array-repeat requires one value".into());
+                }
+                if matches!(
+                    *element,
+                    Type::Tuple(_) | Type::Array(_, _) | Type::Named(_)
+                ) {
+                    return Err("native computed indexing supports scalar arrays only".into());
+                }
+                let bounds_failure = self.label("array_repeat_index_bounds_failure");
+                let done = self.label("array_repeat_index_done");
+                self.expression(&items[2])?;
+                self.output.push_str(&format!(
+                    "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n"
+                ));
+                self.expression_as_expected(&repeat_items[2], &element)?;
+                self.output.push_str(&format!(
+                    "    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n"
+                ));
+                return Ok(());
+            }
         }
         if let Expr::List(array_items) = &items[1] {
             if !matches!(

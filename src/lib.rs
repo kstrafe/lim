@@ -3290,6 +3290,16 @@ mod tests {
     }
 
     #[test]
+    fn lowers_direct_array_repeat_indexing() {
+        let program = parse_program(
+            "(#fn main () u64 (#return (#index (#array-repeat (#array u64 3) 42) 2)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn lowers_saturating_wide_addition_and_subtraction() {
         let program = parse_program(
             "(#fn main () u128 (#return (#u128.+.saturate 340282366920938463463374607431768211455 1)))",

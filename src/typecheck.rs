@@ -1024,24 +1024,42 @@ fn list_expression(
             Ok(Type::Array(element, length))
         }
         "array-repeat" => {
-            let Some(Type::Array(element, length)) = expected else {
-                return Err(
-                    "array-repeat construction requires an expected (array Element N) type".into(),
-                );
+            let (element, length, value_index) = match expected {
+                Some(Type::Array(element, length)) => (element.clone(), *length, 1),
+                Some(_) => {
+                    return Err(
+                        "array-repeat construction requires an array-typed expected value".into(),
+                    )
+                }
+                None => {
+                    let declared = resolve_type(
+                        &parse_type(items.get(1)).map_err(|_| {
+                            "direct array-repeat constructors require an explicit (array Element Length) type"
+                                .to_owned()
+                        })?,
+                        aliases,
+                    )?;
+                    let Type::Array(element, length) = declared else {
+                        return Err("direct array-repeat constructors require an explicit (array Element Length) type".into());
+                    };
+                    (element, length, 2)
+                }
             };
-            require_arity(operator, items, 2)?;
+            if items.len() != value_index + 1 {
+                return Err("array-repeat requires one value".into());
+            }
             let actual = expression(
-                &items[1],
+                &items[value_index],
                 variables,
                 functions,
                 structs,
                 enums,
                 mutable,
                 aliases,
-                Some(element),
+                Some(element.as_ref()),
             )?;
-            require_type(&actual, element, "array-repeat element")?;
-            Ok(Type::Array(element.clone(), *length))
+            require_type(&actual, element.as_ref(), "array-repeat element")?;
+            Ok(Type::Array(element, length))
         }
         "tuple" => {
             let fields = match expected {

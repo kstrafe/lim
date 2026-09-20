@@ -355,6 +355,9 @@ there is no element-type inference:
   (#return (#index (#array (#array u64 3) 10 20 42) 2)))
 ```
 
+Repeated direct arrays use the same explicit descriptor:
+`(#array-repeat (#array u64 3) 42)`.
+
 Integer arrays returned from functions can be indexed directly as well:
 
 ```lisp
