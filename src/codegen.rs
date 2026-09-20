@@ -4655,11 +4655,9 @@ impl FunctionContext {
                 if repeat_items.len() != 3 {
                     return Err("array-repeat requires one value".into());
                 }
-                if matches!(
-                    *element,
-                    Type::Tuple(_) | Type::Array(_, _) | Type::Named(_)
-                ) {
-                    return Err("native computed indexing supports scalar arrays only".into());
+                let element_words = value_word_count(&element, &self.structs, &self.enums)?;
+                if element_words > VALUE_REGISTERS.len() {
+                    return Err("native computed indexing supports at most six value words".into());
                 }
                 let bounds_failure = self.label("array_repeat_index_bounds_failure");
                 let done = self.label("array_repeat_index_done");
@@ -4667,7 +4665,15 @@ impl FunctionContext {
                 self.output.push_str(&format!(
                     "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n"
                 ));
-                self.expression_as_expected(&repeat_items[2], &element)?;
+                if element_words == 1 {
+                    self.expression_as_expected(&repeat_items[2], &element)?;
+                } else {
+                    self.push_value_words(&repeat_items[2], &element, false)?;
+                    for register in VALUE_REGISTERS[..element_words].iter().rev() {
+                        self.output.push_str(&format!("    pop {register}\n"));
+                        self.stack_depth -= 1;
+                    }
+                }
                 self.output.push_str(&format!(
                     "    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n"
                 ));
@@ -4697,11 +4703,9 @@ impl FunctionContext {
             if values.is_empty() {
                 return Err("cannot index an empty array constructor".into());
             }
-            if matches!(
-                *element,
-                Type::Tuple(_) | Type::Array(_, _) | Type::Named(_)
-            ) {
-                return Err("native computed indexing supports scalar arrays only".into());
+            let element_words = value_word_count(&element, &self.structs, &self.enums)?;
+            if element_words > VALUE_REGISTERS.len() {
+                return Err("native computed indexing supports at most six value words".into());
             }
             let bounds_failure = self.label("array_index_bounds_failure");
             let done = self.label("array_index_done");
@@ -4714,7 +4718,15 @@ impl FunctionContext {
                 let next = self.label("array_index_next");
                 self.output
                     .push_str(&format!("    cmp rcx, {index}\n    jne {next}\n"));
-                self.expression_as_expected(value, &element)?;
+                if element_words == 1 {
+                    self.expression_as_expected(value, &element)?;
+                } else {
+                    self.push_value_words(value, &element, false)?;
+                    for register in VALUE_REGISTERS[..element_words].iter().rev() {
+                        self.output.push_str(&format!("    pop {register}\n"));
+                        self.stack_depth -= 1;
+                    }
+                }
                 self.output.push_str(&format!("    jmp {done}\n{next}:\n"));
             }
             self.output

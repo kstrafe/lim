@@ -474,6 +474,9 @@ type and fills all positions.
 Array reads and writes perform native unsigned bounds checks before touching
 the stack slot; an out-of-range index traps with `ud2`.
 
+Computed indexing also supports aggregate array elements when their flattened
+representation fits the native six-word value ABI.
+
 Direct array constructors must carry their element type and length explicitly;
 there is no element-type inference:
 
