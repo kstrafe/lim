@@ -68,6 +68,16 @@ well as named types. Local variables use explicit types:
 Generic functions declare type parameters explicitly, and calls provide explicit
 type arguments such as `(identity<u64> 42)`; type inference is not used.
 
+Value structs and enums may also declare explicit type parameters. Concrete uses
+are specialized before type checking and native code generation:
+
+```lisp
+(struct Box (T) ((value T)))
+(fn main () u64
+  (let boxed Box<u64> (Box<u64> 42))
+  (get boxed value))
+```
+
 Conversions are explicit casts between integer, character, and floating-point
 scalar types:
 

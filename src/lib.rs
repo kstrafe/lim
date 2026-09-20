@@ -4,7 +4,7 @@
 //! `@` sigil as a first-class expression so macro/generated-code expansion can
 //! be implemented later without changing the parser's public representation.
 
-use std::{fmt, fs, path::Path};
+use std::{collections::HashMap, fmt, fs, path::Path};
 
 mod codegen;
 mod typecheck;
@@ -506,10 +506,12 @@ pub enum Item {
     Function(Function),
     Struct {
         name: String,
+        type_parameters: Vec<String>,
         fields: Vec<Field>,
     },
     Enum {
         name: String,
+        type_parameters: Vec<String>,
         variants: Vec<EnumVariant>,
     },
     Let {
@@ -541,7 +543,9 @@ pub fn parse_program(source: &str) -> Result<Program, String> {
         }
         items.push(parse_item(&expression.expr)?);
     }
-    Ok(Program { items })
+    Ok(Program {
+        items: specialize_generic_types(items)?,
+    })
 }
 
 /// Materialize built-in generated declarations as source files.
@@ -559,7 +563,7 @@ pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), Str
             continue;
         }
         let item = parse_generated_item(&forms)?;
-        let Item::Enum { name, variants } = item else {
+        let Item::Enum { name, variants, .. } = item else {
             continue;
         };
         let payload = variants
@@ -620,6 +624,440 @@ fn type_source(ty: &Type) -> String {
         Type::Array(element, length) => format!("(array {} {})", type_source(element), length),
     }
 }
+
+fn applied_type_parts(name: &str) -> Option<(String, Vec<String>)> {
+    let open = name.find('<')?;
+    if open == 0 || !name.ends_with('>') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut start = open + 1;
+    let mut arguments = Vec::new();
+    for (index, character) in name.char_indices().skip(open + 1) {
+        match character {
+            '<' => depth += 1,
+            '>' if depth > 0 => depth -= 1,
+            ',' if depth == 0 => {
+                arguments.push(name[start..index].trim().to_owned());
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    let end = name.len() - 1;
+    arguments.push(name[start..end].trim().to_owned());
+    if arguments.iter().any(String::is_empty) {
+        return None;
+    }
+    Some((name[..open].to_owned(), arguments))
+}
+
+fn specialized_type_name(base: &str, arguments: &[Type]) -> String {
+    format!(
+        "{}${}",
+        base,
+        arguments
+            .iter()
+            .map(type_source)
+            .map(|name| name.replace(['(', ')', ' ', ','], "_"))
+            .collect::<Vec<_>>()
+            .join("$")
+    )
+}
+
+fn specialize_type(
+    ty: &Type,
+    substitutions: &HashMap<String, Type>,
+    templates: &HashMap<String, Item>,
+    names: &mut HashMap<String, String>,
+    generated: &mut Vec<Item>,
+) -> Result<Type, String> {
+    match ty {
+        Type::Generic(name) => Ok(substitutions
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| ty.clone())),
+        Type::Array(element, length) => Ok(Type::Array(
+            Box::new(specialize_type(
+                element,
+                substitutions,
+                templates,
+                names,
+                generated,
+            )?),
+            *length,
+        )),
+        Type::Tuple(fields) => Ok(Type::Tuple(
+            fields
+                .iter()
+                .map(|field| specialize_type(field, substitutions, templates, names, generated))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        Type::Named(name) => {
+            let Some((base, argument_names)) = applied_type_parts(name) else {
+                return Ok(Type::Named(name.clone()));
+            };
+            let Some(template) = templates.get(&base).cloned() else {
+                return Ok(Type::Named(name.clone()));
+            };
+            let (parameters, _) = match &template {
+                Item::Struct {
+                    type_parameters,
+                    fields,
+                    ..
+                } => (type_parameters.clone(), fields.len()),
+                Item::Enum {
+                    type_parameters,
+                    variants,
+                    ..
+                } => (type_parameters.clone(), variants.len()),
+                _ => return Ok(Type::Named(name.clone())),
+            };
+            if parameters.len() != argument_names.len() {
+                return Err(format!(
+                    "generic type '{base}' expects {} type arguments, got {}",
+                    parameters.len(),
+                    argument_names.len()
+                ));
+            }
+            let arguments = argument_names
+                .iter()
+                .map(|argument| {
+                    let parsed = Type::from_name(argument);
+                    specialize_type(&parsed, substitutions, templates, names, generated)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if arguments
+                .iter()
+                .any(|argument| matches!(argument, Type::Generic(_)))
+            {
+                return Ok(Type::Named(name.clone()));
+            }
+            if let Some(specialized) = names.get(name) {
+                return Ok(Type::Named(specialized.clone()));
+            }
+            let specialized = specialized_type_name(&base, &arguments);
+            names.insert(name.clone(), specialized.clone());
+            let mut type_substitutions = HashMap::new();
+            for (parameter, argument) in parameters.iter().zip(arguments) {
+                type_substitutions.insert(parameter.clone(), argument);
+            }
+            let concrete = match template {
+                Item::Struct {
+                    name: _, fields, ..
+                } => Item::Struct {
+                    name: specialized.clone(),
+                    type_parameters: Vec::new(),
+                    fields: fields
+                        .iter()
+                        .map(|field| {
+                            Ok(Field {
+                                name: field.name.clone(),
+                                ty: specialize_type(
+                                    &field.ty,
+                                    &type_substitutions,
+                                    templates,
+                                    names,
+                                    generated,
+                                )?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, String>>()?,
+                },
+                Item::Enum {
+                    name: _, variants, ..
+                } => Item::Enum {
+                    name: specialized.clone(),
+                    type_parameters: Vec::new(),
+                    variants: variants
+                        .iter()
+                        .map(|variant| {
+                            Ok(EnumVariant {
+                                name: variant.name.clone(),
+                                fields: variant
+                                    .fields
+                                    .iter()
+                                    .map(|field| {
+                                        specialize_type(
+                                            field,
+                                            &type_substitutions,
+                                            templates,
+                                            names,
+                                            generated,
+                                        )
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, String>>()?,
+                },
+                _ => unreachable!("generic type template is not an aggregate"),
+            };
+            generated.push(concrete);
+            Ok(Type::Named(specialized))
+        }
+        _ => Ok(ty.clone()),
+    }
+}
+
+fn specialize_expr(
+    expression: &Expr,
+    substitutions: &HashMap<String, Type>,
+    templates: &HashMap<String, Item>,
+    names: &mut HashMap<String, String>,
+    generated: &mut Vec<Item>,
+) -> Result<Expr, String> {
+    match expression {
+        Expr::List(items) => Ok(Expr::List(
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    if index == 0 {
+                        if let Expr::Symbol(name) = item {
+                            if let Type::Named(ty) = specialize_type(
+                                &Type::Named(name.clone()),
+                                substitutions,
+                                templates,
+                                names,
+                                generated,
+                            )? {
+                                return Ok(Expr::Symbol(ty));
+                            }
+                        }
+                    }
+                    specialize_expr(item, substitutions, templates, names, generated)
+                })
+                .collect::<Result<Vec<_>, String>>()?,
+        )),
+        Expr::Block(statements) => Ok(Expr::Block(
+            statements
+                .iter()
+                .map(|statement| {
+                    specialize_statement(statement, substitutions, templates, names, generated)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        Expr::Quote(value) => Ok(Expr::Quote(Box::new(specialize_expr(
+            value,
+            substitutions,
+            templates,
+            names,
+            generated,
+        )?))),
+        _ => Ok(expression.clone()),
+    }
+}
+
+fn specialize_statement(
+    statement: &Statement,
+    substitutions: &HashMap<String, Type>,
+    templates: &HashMap<String, Item>,
+    names: &mut HashMap<String, String>,
+    generated: &mut Vec<Item>,
+) -> Result<Statement, String> {
+    Ok(match statement {
+        Statement::Let {
+            name,
+            ty,
+            value,
+            mutable,
+        } => Statement::Let {
+            name: name.clone(),
+            ty: specialize_type(ty, substitutions, templates, names, generated)?,
+            value: specialize_expr(value, substitutions, templates, names, generated)?,
+            mutable: *mutable,
+        },
+        Statement::Assign { name, value } => Statement::Assign {
+            name: name.clone(),
+            value: specialize_expr(value, substitutions, templates, names, generated)?,
+        },
+        Statement::ArrayAssign { name, index, value } => Statement::ArrayAssign {
+            name: name.clone(),
+            index: specialize_expr(index, substitutions, templates, names, generated)?,
+            value: specialize_expr(value, substitutions, templates, names, generated)?,
+        },
+        Statement::FieldAssign { name, field, value } => Statement::FieldAssign {
+            name: name.clone(),
+            field: field.clone(),
+            value: specialize_expr(value, substitutions, templates, names, generated)?,
+        },
+        Statement::TupleAssign { name, index, value } => Statement::TupleAssign {
+            name: name.clone(),
+            index: *index,
+            value: specialize_expr(value, substitutions, templates, names, generated)?,
+        },
+        Statement::While { condition, body } => Statement::While {
+            condition: specialize_expr(condition, substitutions, templates, names, generated)?,
+            body: body
+                .iter()
+                .map(|statement| {
+                    specialize_statement(statement, substitutions, templates, names, generated)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+        Statement::Loop { body } => Statement::Loop {
+            body: body
+                .iter()
+                .map(|statement| {
+                    specialize_statement(statement, substitutions, templates, names, generated)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => Statement::For {
+            init: Box::new(specialize_statement(
+                init,
+                substitutions,
+                templates,
+                names,
+                generated,
+            )?),
+            condition: specialize_expr(condition, substitutions, templates, names, generated)?,
+            step: Box::new(specialize_statement(
+                step,
+                substitutions,
+                templates,
+                names,
+                generated,
+            )?),
+            body: body
+                .iter()
+                .map(|statement| {
+                    specialize_statement(statement, substitutions, templates, names, generated)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+        Statement::Return(value) => Statement::Return(
+            value
+                .as_ref()
+                .map(|value| specialize_expr(value, substitutions, templates, names, generated))
+                .transpose()?,
+        ),
+        Statement::Expr(value) => Statement::Expr(specialize_expr(
+            value,
+            substitutions,
+            templates,
+            names,
+            generated,
+        )?),
+        Statement::Break | Statement::Continue => statement.clone(),
+    })
+}
+
+fn specialize_generic_types(mut items: Vec<Item>) -> Result<Vec<Item>, String> {
+    let templates = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct {
+                name,
+                type_parameters,
+                ..
+            }
+            | Item::Enum {
+                name,
+                type_parameters,
+                ..
+            } if !type_parameters.is_empty() => Some((name.clone(), item.clone())),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+    if templates.is_empty() {
+        return Ok(items);
+    }
+    let mut names = HashMap::new();
+    let mut generated = Vec::new();
+    for item in &mut items {
+        let is_generic = matches!(item, Item::Struct { type_parameters, .. } | Item::Enum { type_parameters, .. } if !type_parameters.is_empty());
+        if is_generic {
+            continue;
+        }
+        match item {
+            Item::TypeAlias { target, .. } => {
+                *target = specialize_type(
+                    target,
+                    &HashMap::new(),
+                    &templates,
+                    &mut names,
+                    &mut generated,
+                )?;
+            }
+            Item::Function(function) => {
+                for parameter in &mut function.parameters {
+                    parameter.ty = specialize_type(
+                        &parameter.ty,
+                        &HashMap::new(),
+                        &templates,
+                        &mut names,
+                        &mut generated,
+                    )?;
+                }
+                function.return_type = specialize_type(
+                    &function.return_type,
+                    &HashMap::new(),
+                    &templates,
+                    &mut names,
+                    &mut generated,
+                )?;
+                function.body = function
+                    .body
+                    .iter()
+                    .map(|statement| {
+                        specialize_statement(
+                            statement,
+                            &HashMap::new(),
+                            &templates,
+                            &mut names,
+                            &mut generated,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+            }
+            Item::Struct { fields, .. } => {
+                for field in fields {
+                    field.ty = specialize_type(
+                        &field.ty,
+                        &HashMap::new(),
+                        &templates,
+                        &mut names,
+                        &mut generated,
+                    )?;
+                }
+            }
+            Item::Enum { variants, .. } => {
+                for variant in variants {
+                    for field in &mut variant.fields {
+                        *field = specialize_type(
+                            field,
+                            &HashMap::new(),
+                            &templates,
+                            &mut names,
+                            &mut generated,
+                        )?;
+                    }
+                }
+            }
+            Item::Let { ty, value, .. } => {
+                *ty = specialize_type(ty, &HashMap::new(), &templates, &mut names, &mut generated)?;
+                *value = specialize_expr(
+                    value,
+                    &HashMap::new(),
+                    &templates,
+                    &mut names,
+                    &mut generated,
+                )?;
+            }
+        }
+    }
+    items.retain(|item| !matches!(item, Item::Struct { type_parameters, .. } | Item::Enum { type_parameters, .. } if !type_parameters.is_empty()));
+    items.extend(generated);
+    Ok(items)
+}
+
 fn parse_item(expression: &Expr) -> Result<Item, String> {
     let items = expect_list(expression, "top-level declaration")?;
     if matches!(items.first(), Some(Expr::At)) {
@@ -637,14 +1075,22 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
             })
         }
         "fn" => Ok(Item::Function(parse_function(items)?)),
-        "struct" => Ok(Item::Struct {
-            name: parse_struct_name(items)?,
-            fields: parse_struct_fields(items)?,
-        }),
-        "enum" => Ok(Item::Enum {
-            name: parse_enum_name(items)?,
-            variants: parse_enum_variants(items)?,
-        }),
+        "struct" => {
+            let (type_parameters, field_index) = parse_type_parameters(items, 2)?;
+            Ok(Item::Struct {
+                name: expect_symbol(items.get(1), "struct name")?.to_owned(),
+                type_parameters: type_parameters.clone(),
+                fields: parse_struct_fields_at(items, field_index, &type_parameters)?,
+            })
+        }
+        "enum" => {
+            let (type_parameters, variant_index) = parse_type_parameters(items, 2)?;
+            Ok(Item::Enum {
+                name: expect_symbol(items.get(1), "enum name")?.to_owned(),
+                type_parameters: type_parameters.clone(),
+                variants: parse_enum_variants_at(items, variant_index, &type_parameters)?,
+            })
+        }
         "let" => {
             let binding = parse_let(items)?;
             Ok(Item::Let {
@@ -680,6 +1126,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
     let name = expect_symbol(items.get(3), "generated optional type name")?.to_owned();
     Ok(Item::Enum {
         name: name.clone(),
+        type_parameters: Vec::new(),
         variants: vec![
             EnumVariant {
                 name: format!("{name}-some"),
@@ -695,7 +1142,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
 
 fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
     let generated = parse_generated_item(items)?;
-    let Item::Enum { name, variants } = &generated else {
+    let Item::Enum { name, variants, .. } = &generated else {
         unreachable!("optional expansion always produces an enum")
     };
     let name = name.clone();
@@ -800,15 +1247,40 @@ fn optional_match(
         Expr::List(vec![Expr::Symbol(none.into()), none_result]),
     ])
 }
-fn parse_struct_name(items: &[Expr]) -> Result<String, String> {
-    if items.len() != 3 {
-        return Err("struct requires a name and field list".into());
+fn parse_type_parameters(items: &[Expr], index: usize) -> Result<(Vec<String>, usize), String> {
+    if items.len() <= index + 1 {
+        return Ok((Vec::new(), index));
     }
-    Ok(expect_symbol(items.get(1), "struct name")?.to_owned())
+    let Some(Expr::List(parameters)) = items.get(index) else {
+        return Ok((Vec::new(), index));
+    };
+    if parameters.is_empty()
+        || !parameters
+            .iter()
+            .all(|item| matches!(item, Expr::Symbol(_)))
+    {
+        return Ok((Vec::new(), index));
+    }
+    let mut result = Vec::with_capacity(parameters.len());
+    for parameter in parameters {
+        let parameter = expect_symbol(Some(parameter), "type parameter")?.to_owned();
+        if result.iter().any(|existing| existing == &parameter) {
+            return Err(format!("duplicate generic type parameter '{parameter}'"));
+        }
+        result.push(parameter);
+    }
+    Ok((result, index + 1))
 }
 
-fn parse_struct_fields(items: &[Expr]) -> Result<Vec<Field>, String> {
-    let fields = expect_list(items.get(2).unwrap(), "struct fields")?;
+fn parse_struct_fields_at(
+    items: &[Expr],
+    field_index: usize,
+    type_parameters: &[String],
+) -> Result<Vec<Field>, String> {
+    if items.len() != field_index + 1 {
+        return Err("struct requires a name and field list".into());
+    }
+    let fields = expect_list(items.get(field_index).unwrap(), "struct fields")?;
     let mut result = Vec::with_capacity(fields.len());
     for field in fields {
         let fields = expect_list(field, "struct field")?;
@@ -817,21 +1289,21 @@ fn parse_struct_fields(items: &[Expr]) -> Result<Vec<Field>, String> {
         }
         result.push(Field {
             name: expect_symbol(fields.first(), "field name")?.to_owned(),
-            ty: parse_type(fields.get(1))?,
+            ty: replace_generic_types(&parse_type(fields.get(1))?, type_parameters),
         });
     }
     Ok(result)
 }
 
-fn parse_enum_name(items: &[Expr]) -> Result<String, String> {
-    if items.len() != 3 {
+fn parse_enum_variants_at(
+    items: &[Expr],
+    variant_index: usize,
+    type_parameters: &[String],
+) -> Result<Vec<EnumVariant>, String> {
+    if items.len() != variant_index + 1 {
         return Err("enum requires a name and variant list".into());
     }
-    Ok(expect_symbol(items.get(1), "enum name")?.to_owned())
-}
-
-fn parse_enum_variants(items: &[Expr]) -> Result<Vec<EnumVariant>, String> {
-    let variants = expect_list(items.get(2).unwrap(), "enum variants")?;
+    let variants = expect_list(items.get(variant_index).unwrap(), "enum variants")?;
     if variants.is_empty() {
         return Err("enum requires at least one variant".into());
     }
@@ -846,7 +1318,10 @@ fn parse_enum_variants(items: &[Expr]) -> Result<Vec<EnumVariant>, String> {
                 let name = expect_symbol(items.first(), "enum variant name")?.to_owned();
                 let fields = items[1..]
                     .iter()
-                    .map(|field| parse_type(Some(field)))
+                    .map(|field| {
+                        parse_type(Some(field))
+                            .map(|ty| replace_generic_types(&ty, type_parameters))
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 (name, fields)
             }
@@ -2033,6 +2508,21 @@ mod tests {
         assert!(generate_assembly(&unsupported_parameter)
             .unwrap()
             .contains("call identity"));
+        let generic = parse_program(
+            "(struct Box (T) ((value T))) (fn main () u64 (let boxed Box<u64> (Box<u64> 42)) (get boxed value))",
+        )
+        .unwrap();
+        assert!(check_types(&generic).is_ok());
+        assert!(generic.items.iter().any(|item| {
+            matches!(item, Item::Struct { name, fields, .. } if name == "Box$u64" && fields[0].ty == Type::U64)
+        }));
+        assert!(generate_assembly(&generic).unwrap().contains("mov rax, 42"));
+        let generic_enum = parse_program(
+            "(enum Maybe (T) ((Some T) None)) (fn main () u64 (let value Maybe<u64> (Some 42)) (match value ((Some payload) payload) (None 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&generic_enum).is_ok());
+        assert!(generate_assembly(&generic_enum).is_ok());
     }
 
     #[test]

@@ -37,7 +37,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     }
     let mut structs = HashMap::new();
     for item in &program.items {
-        if let Item::Struct { name, fields } = item {
+        if let Item::Struct { name, fields, .. } = item {
             let fields = fields
                 .iter()
                 .map(|field| {
@@ -54,7 +54,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     }
     let mut enums = HashMap::new();
     for item in &program.items {
-        if let Item::Enum { name, variants } = item {
+        if let Item::Enum { name, variants, .. } = item {
             let variants = variants
                 .iter()
                 .map(|variant| {

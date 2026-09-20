@@ -489,7 +489,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::Struct { name, fields } => Some((
+            Item::Struct { name, fields, .. } => Some((
                 name.clone(),
                 fields
                     .iter()
@@ -504,7 +504,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
         .collect();
     let mut enums = HashMap::new();
     for item in &program.items {
-        if let Item::Enum { name, variants } = item {
+        if let Item::Enum { name, variants, .. } = item {
             let variants = variants
                 .iter()
                 .map(|variant| {
