@@ -61,6 +61,17 @@ Mutable locals, assignment, and `while` are also supported:
   total)
 ```
 
+Value structs can be declared and checked without pointers or traits:
+
+```lisp
+(struct Point ((x u64) (y u64)))
+(fn point-x () u64
+  (get (Point 7 9) x))
+```
+
+Struct layout lowering is the next native-backend stage; the current backend
+reports a clear error rather than compiling aggregate values incorrectly.
+
 Top-level `let` declarations use the same form. Function bodies are currently
 represented as statements, while their expressions remain generic S-expressions
 for the type checker and later compiler stages.

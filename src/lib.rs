@@ -342,8 +342,18 @@ pub struct Function {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Field {
+    pub name: String,
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
     Function(Function),
+    Struct {
+        name: String,
+        fields: Vec<Field>,
+    },
     Let {
         name: String,
         ty: Type,
@@ -375,6 +385,10 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
     let keyword = expect_symbol(items.first(), "declaration keyword")?;
     match keyword {
         "fn" => Ok(Item::Function(parse_function(items)?)),
+        "struct" => Ok(Item::Struct {
+            name: parse_struct_name(items)?,
+            fields: parse_struct_fields(items)?,
+        }),
         "let" => {
             let binding = parse_let(items)?;
             Ok(Item::Let {
@@ -386,6 +400,29 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
         }
         other => Err(format!("unknown top-level form '{other}'")),
     }
+}
+
+fn parse_struct_name(items: &[Expr]) -> Result<String, String> {
+    if items.len() != 3 {
+        return Err("struct requires a name and field list".into());
+    }
+    Ok(expect_symbol(items.get(1), "struct name")?.to_owned())
+}
+
+fn parse_struct_fields(items: &[Expr]) -> Result<Vec<Field>, String> {
+    let fields = expect_list(items.get(2).unwrap(), "struct fields")?;
+    let mut result = Vec::with_capacity(fields.len());
+    for field in fields {
+        let fields = expect_list(field, "struct field")?;
+        if fields.len() != 2 {
+            return Err("struct fields must have the form (name Type)".into());
+        }
+        result.push(Field {
+            name: expect_symbol(fields.first(), "field name")?.to_owned(),
+            ty: parse_type(fields.get(1))?,
+        });
+    }
+    Ok(result)
 }
 
 fn parse_function(items: &[Expr]) -> Result<Function, String> {
@@ -812,5 +849,17 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("idiv rcx"));
         assert!(assembly.contains("xor rax, rcx"));
+    }
+
+    #[test]
+    fn parses_and_checks_value_structs() {
+        let program = parse_program(
+            "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap_err()
+            .contains("struct 'Point'"));
     }
 }

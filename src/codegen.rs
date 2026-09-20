@@ -17,6 +17,11 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     for item in &program.items {
         match item {
             Item::Function(function) => generate_function(function, &mut output)?,
+            Item::Struct { name, .. } => {
+                return Err(format!(
+                    "struct '{name}' code generation is not implemented yet"
+                ));
+            }
             Item::Let { name, .. } => {
                 return Err(format!(
                     "top-level let '{name}' is not supported by the native backend"

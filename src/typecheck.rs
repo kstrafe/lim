@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{Expr, Function, Item, Program, Statement, Type};
+use crate::{Expr, Field, Function, Item, Program, Statement, Type};
 
 #[derive(Clone)]
 struct Signature {
@@ -9,6 +9,14 @@ struct Signature {
 }
 
 pub fn check_types(program: &Program) -> Result<(), String> {
+    let mut structs = HashMap::new();
+    for item in &program.items {
+        if let Item::Struct { name, fields } = item {
+            if structs.insert(name.clone(), fields.clone()).is_some() {
+                return Err(format!("duplicate struct '{name}'"));
+            }
+        }
+    }
     let mut functions = HashMap::new();
     for item in &program.items {
         let Item::Function(function) = item else {
@@ -33,11 +41,12 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     }
     for item in &program.items {
         match item {
-            Item::Function(function) => check_function(function, &functions)?,
+            Item::Function(function) => check_function(function, &functions, &structs)?,
+            Item::Struct { .. } => {}
             Item::Let {
                 name, ty, value, ..
             } => {
-                let actual = expression(value, &HashMap::new(), &functions, Some(ty))?;
+                let actual = expression(value, &HashMap::new(), &functions, &structs, Some(ty))?;
                 require_type(&actual, ty, &format!("top-level let '{name}'"))?;
             }
         }
@@ -48,6 +57,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
 fn check_function(
     function: &Function,
     functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), String> {
     let mut variables = HashMap::new();
     let mut mutable = HashSet::new();
@@ -66,13 +76,20 @@ fn check_function(
     for (index, statement) in function.body.iter().enumerate() {
         last_type = if index + 1 == function.body.len() {
             if let Statement::Expr(value) = statement {
-                expression(value, &variables, functions, Some(&function.return_type))?
+                expression(
+                    value,
+                    &variables,
+                    functions,
+                    structs,
+                    Some(&function.return_type),
+                )?
             } else {
                 statement_type(
                     statement,
                     &mut variables,
                     &mut mutable,
                     functions,
+                    structs,
                     &function.return_type,
                     false,
                 )?
@@ -83,6 +100,7 @@ fn check_function(
                 &mut variables,
                 &mut mutable,
                 functions,
+                structs,
                 &function.return_type,
                 false,
             )?
@@ -100,6 +118,7 @@ fn statement_type(
     variables: &mut HashMap<String, Type>,
     mutable: &mut HashSet<String>,
     functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
     return_type: &Type,
     in_loop: bool,
 ) -> Result<Type, String> {
@@ -113,7 +132,7 @@ fn statement_type(
             if variables.contains_key(name) {
                 return Err(format!("duplicate local '{name}'"));
             }
-            let actual = expression(value, variables, functions, Some(ty))?;
+            let actual = expression(value, variables, functions, structs, Some(ty))?;
             require_type(&actual, ty, &format!("let '{name}'"))?;
             variables.insert(name.clone(), ty.clone());
             if *is_mutable {
@@ -129,15 +148,23 @@ fn statement_type(
             if !mutable.contains(name) {
                 return Err(format!("cannot assign to immutable variable '{name}'"));
             }
-            let actual = expression(value, variables, functions, Some(&ty))?;
+            let actual = expression(value, variables, functions, structs, Some(&ty))?;
             require_type(&actual, &ty, &format!("assignment to '{name}'"))?;
             Ok(Type::Unit)
         }
         Statement::While { condition, body } => {
-            let actual = expression(condition, variables, functions, Some(&Type::Bool))?;
+            let actual = expression(condition, variables, functions, structs, Some(&Type::Bool))?;
             require_type(&actual, &Type::Bool, "while condition")?;
             for nested in body {
-                statement_type(nested, variables, mutable, functions, return_type, true)?;
+                statement_type(
+                    nested,
+                    variables,
+                    mutable,
+                    functions,
+                    structs,
+                    return_type,
+                    true,
+                )?;
             }
             Ok(Type::Unit)
         }
@@ -150,13 +177,13 @@ fn statement_type(
         }
         Statement::Return(value) => {
             let actual = match value {
-                Some(value) => expression(value, variables, functions, Some(return_type))?,
+                Some(value) => expression(value, variables, functions, structs, Some(return_type))?,
                 None => Type::Unit,
             };
             require_type(&actual, return_type, "return statement")?;
             Ok(return_type.clone())
         }
-        Statement::Expr(value) => expression(value, variables, functions, None),
+        Statement::Expr(value) => expression(value, variables, functions, structs, None),
     }
 }
 
@@ -164,6 +191,7 @@ fn expression(
     expression: &Expr,
     variables: &HashMap<String, Type>,
     functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
     expected: Option<&Type>,
 ) -> Result<Type, String> {
     match expression {
@@ -186,7 +214,7 @@ fn expression(
         Expr::At | Expr::Quote(_) => {
             Err("generated and quoted expressions are not typed yet".into())
         }
-        Expr::List(items) => list_expression(items, variables, functions, expected),
+        Expr::List(items) => list_expression(items, variables, functions, structs, expected),
     }
 }
 
@@ -194,6 +222,7 @@ fn list_expression(
     items: &[Expr],
     variables: &HashMap<String, Type>,
     functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
     expected: Option<&Type>,
 ) -> Result<Type, String> {
     let Some(Expr::Symbol(operator)) = items.first() else {
@@ -202,8 +231,8 @@ fn list_expression(
     match operator.as_str() {
         "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
             require_arity(operator, items, 3)?;
-            let left = expression(&items[1], variables, functions, expected)?;
-            let right = expression(&items[2], variables, functions, Some(&left))?;
+            let left = expression(&items[1], variables, functions, structs, expected)?;
+            let right = expression(&items[2], variables, functions, structs, Some(&left))?;
             require_same(&left, &right, operator)?;
             if !is_integer(&left) {
                 return Err(format!("operator '{operator}' requires integer operands"));
@@ -212,22 +241,62 @@ fn list_expression(
         }
         "<" | "<=" | ">" | ">=" | "==" | "!=" => {
             require_arity(operator, items, 3)?;
-            let left = expression(&items[1], variables, functions, None)?;
-            let right = expression(&items[2], variables, functions, Some(&left))?;
+            let left = expression(&items[1], variables, functions, structs, None)?;
+            let right = expression(&items[2], variables, functions, structs, Some(&left))?;
             require_same(&left, &right, operator)?;
             Ok(Type::Bool)
         }
         "if" => {
             require_arity(operator, items, 4)?;
-            let condition = expression(&items[1], variables, functions, Some(&Type::Bool))?;
+            let condition =
+                expression(&items[1], variables, functions, structs, Some(&Type::Bool))?;
             require_type(&condition, &Type::Bool, "if condition")?;
-            let then_type = expression(&items[2], variables, functions, expected)?;
-            let else_type = expression(&items[3], variables, functions, Some(&then_type))?;
+            let then_type = expression(&items[2], variables, functions, structs, expected)?;
+            let else_type = expression(&items[3], variables, functions, structs, Some(&then_type))?;
             require_same(&then_type, &else_type, "if branches")?;
             Ok(then_type)
         }
         "let" => Err("let is only valid as a statement".into()),
+        "get" => {
+            if items.len() != 3 {
+                return Err("get requires the form (get value field)".into());
+            }
+            let value_type = expression(&items[1], variables, functions, structs, None)?;
+            let Type::Named(struct_name) = value_type else {
+                return Err("get requires a struct value".into());
+            };
+            let field_name = match &items[2] {
+                Expr::Symbol(name) => name,
+                _ => return Err("get requires a field name".into()),
+            };
+            let fields = structs
+                .get(&struct_name)
+                .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+            fields
+                .iter()
+                .find(|field| field.name == *field_name)
+                .map(|field| field.ty.clone())
+                .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))
+        }
         _ => {
+            if let Some(fields) = structs.get(operator) {
+                if items.len() - 1 != fields.len() {
+                    return Err(format!(
+                        "constructor '{operator}' expects {} fields",
+                        fields.len()
+                    ));
+                }
+                for (argument, field) in items[1..].iter().zip(fields) {
+                    let actual =
+                        expression(argument, variables, functions, structs, Some(&field.ty))?;
+                    require_type(
+                        &actual,
+                        &field.ty,
+                        &format!("field '{}' of '{operator}'", field.name),
+                    )?;
+                }
+                return Ok(Type::Named(operator.clone()));
+            }
             let signature = functions
                 .get(operator)
                 .ok_or_else(|| format!("unknown function '{operator}'"))?;
@@ -238,7 +307,13 @@ fn list_expression(
                 ));
             }
             for (argument, parameter_type) in items[1..].iter().zip(&signature.parameters) {
-                let actual = expression(argument, variables, functions, Some(parameter_type))?;
+                let actual = expression(
+                    argument,
+                    variables,
+                    functions,
+                    structs,
+                    Some(parameter_type),
+                )?;
                 require_type(
                     &actual,
                     parameter_type,
