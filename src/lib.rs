@@ -4404,6 +4404,23 @@ mod tests {
     }
 
     #[test]
+    fn lowers_unit_like_structs() {
+        let program = parse_program_strict(
+            "(#struct Marker ()) \
+             (#fn make () Marker (#return (Marker))) \
+             (#fn consume ((marker Marker)) u64 (#return 41)) \
+             (#fn main () u64 \
+               (#let marker Marker (make)) \
+               (#return (consume marker)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("call make"));
+        assert!(assembly.contains("call consume"));
+    }
+
+    #[test]
     fn rejects_value_breaks_in_statement_loops() {
         let program = parse_program(
             "(#fn main () u64 \

@@ -168,6 +168,14 @@ The unit type `()` and never type `!` are zero-sized and have alignment one.
 Zero-sized values can be used in locals, function parameters, tuples, structs,
 and fixed arrays without consuming native ABI words.
 
+Empty structs are unit-like zero-sized values:
+
+```lisp
+(#struct Marker ())
+(#fn make () Marker
+  (#return (Marker)))
+```
+
 `align-of` reports the corresponding native alignment:
 
 ```lisp

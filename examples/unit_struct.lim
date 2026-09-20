@@ -1,0 +1,11 @@
+(#struct Marker ())
+
+(#fn make () Marker
+  (#return (Marker)))
+
+(#fn consume ((marker Marker)) u64
+  (#return 41))
+
+(#fn main () u64
+  (#let marker Marker (make))
+  (#return (consume marker)))
