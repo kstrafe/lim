@@ -179,6 +179,9 @@ Payload variants may contain multiple scalar fields and bind them in order:
 Multi-payload enums can also be passed to and returned from native functions
 when their payloads fit the scalar integer ABI.
 
+Scalar floating-point enum payloads are also preserved through local storage,
+function calls, returns, and `match` bindings.
+
 `match` can inspect a constructor or enum-returning call directly; the
 compiler stages its discriminant and payload words before selecting an arm.
 

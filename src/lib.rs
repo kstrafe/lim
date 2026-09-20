@@ -1579,6 +1579,18 @@ mod tests {
     }
 
     #[test]
+    fn passes_floating_enum_payloads_through_functions() {
+        let program = parse_program(
+            "(enum MaybeF ((SomeF f32) None)) (fn make () MaybeF (SomeF 2.5)) (fn read ((value MaybeF)) f32 (match value ((SomeF payload) payload) (None 0.0))) (fn main () u64 (if (> (read (make)) 2.0) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("call make"));
+        assert!(assembly.contains("movss xmm0, DWORD PTR"));
+    }
+
+    #[test]
     fn checks_and_lowers_fixed_arrays() {
         let program = parse_program("(fn main () u64 (let mut values (array u64 2) (array 3 4)) (set-index values 1 40) (+ (index values 0) (index values 1)))").unwrap();
         assert!(check_types(&program).is_ok());

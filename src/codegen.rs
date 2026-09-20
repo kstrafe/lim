@@ -236,7 +236,7 @@ fn generate_function(
         );
     }
     for statement in &function.body {
-        collect_local_types(statement, &mut local_types, aliases);
+        collect_local_types(statement, &mut local_types, aliases, enums);
     }
     for statement in &function.body {
         collect_locals(
@@ -388,6 +388,7 @@ fn collect_local_types(
     statement: &Statement,
     types: &mut HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
 ) {
     match statement {
         Statement::Let {
@@ -396,17 +397,17 @@ fn collect_local_types(
             if let Ok(ty) = resolve_type(ty, aliases) {
                 types.insert(name.clone(), ty);
             }
-            collect_expr_types(value, types, aliases);
+            collect_expr_types(value, types, aliases, enums);
         }
         Statement::While { condition, body } => {
-            collect_expr_types(condition, types, aliases);
+            collect_expr_types(condition, types, aliases, enums);
             for statement in body {
-                collect_local_types(statement, types, aliases);
+                collect_local_types(statement, types, aliases, enums);
             }
         }
         Statement::Loop { body } => {
             for statement in body {
-                collect_local_types(statement, types, aliases);
+                collect_local_types(statement, types, aliases, enums);
             }
         }
         Statement::For {
@@ -415,20 +416,20 @@ fn collect_local_types(
             step,
             body,
         } => {
-            collect_local_types(init, types, aliases);
-            collect_expr_types(condition, types, aliases);
-            collect_local_types(step, types, aliases);
+            collect_local_types(init, types, aliases, enums);
+            collect_expr_types(condition, types, aliases, enums);
+            collect_local_types(step, types, aliases, enums);
             for statement in body {
-                collect_local_types(statement, types, aliases);
+                collect_local_types(statement, types, aliases, enums);
             }
         }
         Statement::Assign { value, .. }
         | Statement::FieldAssign { value, .. }
         | Statement::Return(Some(value))
-        | Statement::Expr(value) => collect_expr_types(value, types, aliases),
+        | Statement::Expr(value) => collect_expr_types(value, types, aliases, enums),
         Statement::ArrayAssign { index, value, .. } => {
-            collect_expr_types(index, types, aliases);
-            collect_expr_types(value, types, aliases);
+            collect_expr_types(index, types, aliases, enums);
+            collect_expr_types(value, types, aliases, enums);
         }
         Statement::Break | Statement::Continue | Statement::Return(None) => {}
     }
@@ -438,16 +439,45 @@ fn collect_expr_types(
     expression: &Expr,
     types: &mut HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
 ) {
     match expression {
         Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                for arm in items.iter().skip(2) {
+                    let Expr::List(arm) = arm else { continue };
+                    let Some(Expr::List(pattern)) = arm.first() else {
+                        continue;
+                    };
+                    let Some(Expr::Symbol(variant_name)) = pattern.first() else {
+                        continue;
+                    };
+                    let Some(variant) = enums
+                        .values()
+                        .flat_map(|variants| variants.iter())
+                        .find(|variant| variant.name == *variant_name)
+                    else {
+                        continue;
+                    };
+                    for (binding, field_type) in pattern[1..].iter().zip(&variant.fields) {
+                        let Expr::Symbol(binding) = binding else {
+                            continue;
+                        };
+                        if binding != "_" {
+                            if let Ok(field_type) = resolve_type(field_type, aliases) {
+                                types.entry(binding.clone()).or_insert(field_type);
+                            }
+                        }
+                    }
+                }
+            }
             for item in items {
-                collect_expr_types(item, types, aliases);
+                collect_expr_types(item, types, aliases, enums);
             }
         }
         Expr::Block(statements) => {
             for statement in statements {
-                collect_local_types(statement, types, aliases);
+                collect_local_types(statement, types, aliases, enums);
             }
         }
         _ => {}
@@ -716,7 +746,7 @@ fn value_word_count(
                     || !variants
                         .iter()
                         .flat_map(|variant| variant.fields.iter())
-                        .all(|field| ensure_integer_type(field).is_ok())
+                        .all(|field| ensure_scalar_type(field, enums).is_ok())
                 {
                     return Err(format!(
                         "native ABI does not support enum value type {ty:?}"
