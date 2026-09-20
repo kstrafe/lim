@@ -1082,6 +1082,19 @@ fn collect_expr_types(
     match expression {
         Expr::List(items) => {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                if let Some(scrutinee_type) = items.get(1).and_then(|scrutinee| {
+                    collected_expression_type(scrutinee, types, aliases, structs)
+                }) {
+                    if matches!(&scrutinee_type, Type::Tuple(_) | Type::Array(_, _))
+                        || matches!(&scrutinee_type, Type::Named(name) if structs.contains_key(name))
+                    {
+                        for arm in items.iter().skip(2) {
+                            let Expr::List(arm) = arm else { continue };
+                            let Some(pattern) = arm.first() else { continue };
+                            collect_match_pattern_types(pattern, &scrutinee_type, types, structs);
+                        }
+                    }
+                }
                 if let Some(Expr::Symbol(name)) = items.get(1) {
                     if let Some(Type::Tuple(fields)) = types.get(name).cloned() {
                         for arm in items.iter().skip(2) {
@@ -1256,6 +1269,37 @@ fn collect_expr_types(
     }
 }
 
+fn collect_match_pattern_types(
+    pattern: &Expr,
+    ty: &Type,
+    types: &mut HashMap<String, Type>,
+    structs: &HashMap<String, Vec<Field>>,
+) {
+    let Expr::List(items) = pattern else {
+        if let Expr::Symbol(name) = pattern {
+            if name != "_" && name != "true" && name != "false" {
+                types.entry(name.clone()).or_insert_with(|| ty.clone());
+            }
+        }
+        return;
+    };
+    let Some(Expr::Symbol(constructor)) = items.first() else { return };
+    let fields = match ty {
+        Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+        Type::Array(element, length) if constructor == "array" => {
+            vec![element.as_ref().clone(); *length]
+        }
+        Type::Named(name) if constructor == name => structs
+            .get(name)
+            .map(|fields| fields.iter().map(|field| field.ty.clone()).collect())
+            .unwrap_or_default(),
+        _ => return,
+    };
+    for (nested, field_type) in items[1..].iter().zip(fields.iter()) {
+        collect_match_pattern_types(nested, field_type, types, structs);
+    }
+}
+
 fn collect_locals(
     statement: &Statement,
     locals: &mut HashMap<String, Storage>,
@@ -1334,6 +1378,43 @@ fn collect_locals(
     Ok(())
 }
 
+fn collect_match_pattern_locals(
+    pattern: &Expr,
+    ty: &Type,
+    locals: &mut HashMap<String, Storage>,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    aliases: &HashMap<String, Type>,
+    next_slot: &mut usize,
+) -> Result<(), String> {
+    let Expr::List(items) = pattern else {
+        if let Expr::Symbol(name) = pattern {
+            if name != "_" && name != "true" && name != "false" && !locals.contains_key(name) {
+                add_local(locals, name, ty, structs, enums, aliases, next_slot)?;
+            }
+        }
+        return Ok(());
+    };
+    let Some(Expr::Symbol(constructor)) = items.first() else { return Ok(()) };
+    let fields = match ty {
+        Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+        Type::Array(element, length) if constructor == "array" => {
+            vec![element.as_ref().clone(); *length]
+        }
+        Type::Named(name) if constructor == name => structs
+            .get(name)
+            .map(|fields| fields.iter().map(|field| field.ty.clone()).collect())
+            .unwrap_or_default(),
+        _ => return Ok(()),
+    };
+    for (nested, field_type) in items[1..].iter().zip(fields.iter()) {
+        collect_match_pattern_locals(
+            nested, field_type, locals, structs, enums, aliases, next_slot,
+        )?;
+    }
+    Ok(())
+}
+
 fn collect_expr_locals(
     expression: &Expr,
     locals: &mut HashMap<String, Storage>,
@@ -1346,6 +1427,27 @@ fn collect_expr_locals(
     match expression {
         Expr::List(items) => {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                if let Some(scrutinee_type) = items.get(1).and_then(|scrutinee| {
+                    collected_expression_type(scrutinee, types, aliases, structs)
+                }) {
+                    if matches!(&scrutinee_type, Type::Tuple(_) | Type::Array(_, _))
+                        || matches!(&scrutinee_type, Type::Named(name) if structs.contains_key(name))
+                    {
+                        for arm in items.iter().skip(2) {
+                            let Expr::List(arm) = arm else { continue };
+                            let Some(pattern) = arm.first() else { continue };
+                            collect_match_pattern_locals(
+                                pattern,
+                                &scrutinee_type,
+                                locals,
+                                structs,
+                                enums,
+                                aliases,
+                                next_slot,
+                            )?;
+                        }
+                    }
+                }
                 if let Some(scrutinee_type) = items.get(1).and_then(|scrutinee| {
                     collected_expression_type(scrutinee, types, aliases, structs)
                 }) {
@@ -4628,14 +4730,20 @@ impl FunctionContext {
             };
             let next = self.label("tuple_match_next");
             let mut bindings = Vec::new();
-            self.emit_aggregate_pattern(&arm[0], constructor, fields, 0, &next, &mut bindings)?;
-            for (name, offset) in bindings {
-                let slot = scalar_slot(&self.locals, &name);
-                self.output.push_str(&format!(
-                    "    mov rax, QWORD PTR [rsp+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
-                    offset * 8,
-                    slot * 8
-                ));
+            self.emit_aggregate_pattern(&arm[0], constructor, &ty, 0, &next, &mut bindings)?;
+            for (name, offset, binding_type) in bindings {
+                let slots = local_slots(&self.locals, &name)?;
+                let binding_words = value_word_count(&binding_type, &self.structs, &self.enums)?;
+                if slots.len() != binding_words {
+                    return Err(format!("match binding '{name}' has inconsistent storage"));
+                }
+                for (index, slot) in slots.into_iter().enumerate() {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rsp+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                        (offset + index) * 8,
+                        slot * 8
+                    ));
+                }
             }
             if let Some(ty) = float_type {
                 self.expression_as_float(&arm[1], ty)?;
@@ -4661,10 +4769,10 @@ impl FunctionContext {
         &mut self,
         pattern: &Expr,
         constructor: &str,
-        fields: &[Type],
+        ty: &Type,
         offset: usize,
         next: &str,
-        bindings: &mut Vec<(String, usize)>,
+        bindings: &mut Vec<(String, usize, Type)>,
     ) -> Result<(), String> {
         if matches!(pattern, Expr::Symbol(name) if name == "_") {
             return Ok(());
@@ -4672,17 +4780,34 @@ impl FunctionContext {
         let Expr::List(pattern) = pattern else {
             return Err("aggregate match pattern must be a constructor pattern".into());
         };
-        if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == constructor)
-            || pattern.len() - 1 != fields.len()
-        {
+        if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == constructor) {
             return Err("aggregate match pattern has the wrong shape".into());
         }
-        for (index, (field, ty)) in pattern[1..].iter().zip(fields).enumerate() {
-            let address = (offset + index) * 8;
+        let fields = match ty {
+            Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+            Type::Array(element, length) if constructor == "array" => {
+                vec![element.as_ref().clone(); *length]
+            }
+            Type::Named(name) if constructor == name => self
+                .structs
+                .get(name)
+                .ok_or_else(|| format!("unknown struct '{name}'"))?
+                .iter()
+                .map(|field| field.ty.clone())
+                .collect(),
+            _ => return Err("aggregate match pattern has the wrong type".into()),
+        };
+        if pattern.len() - 1 != fields.len() {
+            return Err("aggregate match pattern has the wrong shape".into());
+        }
+        let mut field_offset = offset;
+        for (field, field_type) in pattern[1..].iter().zip(fields) {
+            let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+            let address = field_offset * 8;
             match field {
                 Expr::Symbol(name) if name == "_" => {}
                 Expr::Symbol(name) if name == "true" || name == "false" => {
-                    if !matches!(ty, Type::Bool) {
+                    if !matches!(&field_type, Type::Bool) || field_words != 1 {
                         return Err("boolean aggregate pattern has a non-boolean field".into());
                     }
                     self.output.push_str(&format!(
@@ -4690,26 +4815,53 @@ impl FunctionContext {
                         if name == "true" { 1 } else { 0 }
                     ));
                 }
-                Expr::Symbol(name) => bindings.push((name.clone(), offset + index)),
+                Expr::Symbol(name) => bindings.push((name.clone(), field_offset, field_type.clone())),
                 Expr::Integer(value) => {
+                    if field_words != 1 {
+                        return Err("wide integer aggregate patterns are unsupported".into());
+                    }
                     self.output.push_str(&format!(
                         "    cmp QWORD PTR [rsp+{address}], {value}\n    jne {next}\n"
                     ));
                 }
                 Expr::UnsignedInteger(value) => {
+                    if field_words != 1 {
+                        return Err("wide integer aggregate patterns are unsupported".into());
+                    }
                     self.output.push_str(&format!(
                         "    cmp QWORD PTR [rsp+{address}], {}\n    jne {next}\n",
                         *value as u64
                     ));
                 }
                 Expr::Char(value) => {
+                    if field_words != 1 {
+                        return Err("wide character aggregate patterns are unsupported".into());
+                    }
                     self.output.push_str(&format!(
                         "    cmp QWORD PTR [rsp+{address}], {}\n    jne {next}\n",
                         *value as u32
                     ));
                 }
+                Expr::List(_) => {
+                    let nested_constructor = match field {
+                        Expr::List(items) => match items.first() {
+                            Some(Expr::Symbol(name)) => name.as_str(),
+                            _ => return Err("nested aggregate pattern must start with a constructor".into()),
+                        },
+                        _ => unreachable!(),
+                    };
+                    self.emit_aggregate_pattern(
+                        field,
+                        nested_constructor,
+                        &field_type,
+                        field_offset,
+                        next,
+                        bindings,
+                    )?;
+                }
                 _ => return Err("unsupported aggregate field pattern".into()),
             }
+            field_offset += field_words;
         }
         Ok(())
     }

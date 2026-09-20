@@ -1641,7 +1641,7 @@ fn check_tuple_match(
                     ));
                 }
                 for (pattern, field) in pattern[1..].iter().zip(fields) {
-                    check_tuple_pattern(pattern, field, &mut arm_variables, variables)?;
+                    check_aggregate_pattern(pattern, field, &mut arm_variables, variables, structs)?;
                 }
             }
             _ => return Err("tuple match pattern must be _ or (tuple pattern ...)".into()),
@@ -1668,11 +1668,12 @@ fn check_tuple_match(
     Ok(result_type.unwrap_or(Type::Unit))
 }
 
-fn check_tuple_pattern(
+fn check_aggregate_pattern(
     pattern: &Expr,
     ty: &Type,
     arm_variables: &mut HashMap<String, Type>,
     variables: &HashMap<String, Type>,
+    structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), String> {
     match pattern {
         Expr::Symbol(name) if name == "_" => Ok(()),
@@ -1706,6 +1707,34 @@ fn check_tuple_pattern(
             Ok(())
         }
         Expr::Char(_) if matches!(ty, Type::Char) => Ok(()),
+        Expr::List(items) => {
+            let Some(Expr::Symbol(constructor)) = items.first() else {
+                return Err("aggregate pattern must start with a constructor".into());
+            };
+            let fields = match ty {
+                Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+                Type::Array(element, length) if constructor == "array" => {
+                    vec![element.as_ref().clone(); *length]
+                }
+                Type::Named(name) if constructor == name => structs
+                    .get(name)
+                    .ok_or_else(|| format!("unknown struct '{name}'"))?
+                    .iter()
+                    .map(|field| field.ty.clone())
+                    .collect(),
+                _ => return Err("aggregate pattern constructor does not match its field type".into()),
+            };
+            if items.len() - 1 != fields.len() {
+                return Err(format!(
+                    "aggregate pattern expects {} fields",
+                    fields.len()
+                ));
+            }
+            for (nested, field) in items[1..].iter().zip(fields) {
+                check_aggregate_pattern(nested, &field, arm_variables, variables, structs)?;
+            }
+            Ok(())
+        }
         _ => Err("tuple field pattern does not match its field type".into()),
     }
 }
@@ -1746,7 +1775,7 @@ fn check_array_match(
                     return Err(format!("array match pattern expects {} elements", length));
                 }
                 for (pattern, field) in pattern[1..].iter().zip(&fields) {
-                    check_tuple_pattern(pattern, field, &mut arm_variables, variables)?;
+                    check_aggregate_pattern(pattern, field, &mut arm_variables, variables, structs)?;
                 }
             }
             _ => return Err("array match pattern must be _ or (array pattern ...)".into()),
@@ -1853,7 +1882,7 @@ fn check_struct_match(
                     ));
                 }
                 for (pattern, field) in pattern[1..].iter().zip(fields) {
-                    check_tuple_pattern(pattern, &field.ty, &mut arm_variables, variables)?;
+                    check_aggregate_pattern(pattern, &field.ty, &mut arm_variables, variables, structs)?;
                 }
             }
             _ => {
