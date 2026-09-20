@@ -2583,6 +2583,20 @@ fn constant_value(
                     .map(|variant| variant.discriminant as i128)
             })
             .ok_or_else(|| format!("global initializer '{name}' is not a constant")),
+        Expr::List(items)
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "literal") =>
+        {
+            let literal_type = parse_type(items.get(1))?;
+            constant_value(
+                &items[2],
+                enums,
+                constants,
+                initializers,
+                evaluating,
+                Some(&literal_type),
+            )
+        }
         Expr::List(items) if items.len() == 2 => {
             let operator = match &items[0] {
                 Expr::Symbol(name) => name.as_str(),
@@ -4029,6 +4043,11 @@ impl FunctionContext {
                         .ok()
                         .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
                 }
+                Some(Expr::Symbol(operator)) if operator == "literal" && items.len() == 3 => {
+                    parse_type(items.get(1))
+                        .ok()
+                        .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
+                }
                 Some(Expr::Symbol(operator)) if operator == "if" => {
                     if items.len() == 4 {
                         self.expression_type(&items[2])
@@ -5012,6 +5031,17 @@ impl FunctionContext {
                 }
                 let target = resolve_type(&parse_type(items.get(2))?, &self.aliases)?;
                 self.cast_expression(&items[1], &target)
+            }
+            "literal" => {
+                if items.len() != 3 {
+                    return Err("literal requires an integer type and value".into());
+                }
+                let target = resolve_type(&parse_type(items.get(1))?, &self.aliases)?;
+                self.expression(&items[2])?;
+                if is_narrow_integer(&target) {
+                    self.normalize_integer(&target)?;
+                }
+                Ok(())
             }
             "size-of" => self.layout_size_expression("size-of", items),
             "align-of" => self.layout_size_expression("align-of", items),

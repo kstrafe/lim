@@ -1325,6 +1325,25 @@ fn list_expression(
             }
             Ok(target)
         }
+        "literal" => {
+            require_arity(operator, items, 3)?;
+            let ty = resolve_type(&parse_type(items.get(1))?, aliases)?;
+            if !is_integer(&ty) {
+                return Err("typed literal suffix must name an integer type".into());
+            }
+            let actual = expression(
+                &items[2],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&ty),
+            )?;
+            require_type(&actual, &ty, "typed integer literal")?;
+            Ok(ty)
+        }
         "size-of" | "align-of" => {
             require_arity(operator, items, 2)?;
             let ty = resolve_type(&parse_type(items.get(1))?, aliases)?;

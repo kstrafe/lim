@@ -339,6 +339,22 @@ fn parse_unsigned_integer_literal(text: &str) -> Option<u128> {
     u128::from_str_radix(&digits.replace('_', ""), radix).ok()
 }
 
+fn parse_typed_integer_atom(text: &str) -> Option<(Expr, &'static str)> {
+    const SUFFIXES: [&str; 12] = [
+        "i128", "u128", "isize", "usize", "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8",
+    ];
+    let (digits, suffix) = SUFFIXES
+        .iter()
+        .find_map(|suffix| text.strip_suffix(suffix).map(|digits| (digits, *suffix)))?;
+    if digits.is_empty() || !digits.as_bytes().iter().any(u8::is_ascii_digit) {
+        return None;
+    }
+    let literal = parse_integer_literal(digits)
+        .map(Expr::Integer)
+        .or_else(|| parse_unsigned_integer_literal(digits).map(Expr::UnsignedInteger))?;
+    Some((literal, suffix))
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
     List(Vec<Expr>),
@@ -1033,6 +1049,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "debug-assert"
             | "panic"
             | "unreachable"
+            | "literal"
     )
 }
 
@@ -2885,6 +2902,16 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Symbol(value) => {
                 self.index += 1;
+                if let Some((literal, ty)) = parse_typed_integer_atom(value) {
+                    return Ok(SpannedExpr {
+                        expr: Expr::List(vec![
+                            Expr::Symbol("#literal".into()),
+                            Expr::Symbol(ty.into()),
+                            literal,
+                        ]),
+                        span: token.span,
+                    });
+                }
                 Ok(SpannedExpr {
                     expr: Expr::Symbol(value.clone()),
                     span: token.span,
@@ -5530,6 +5557,23 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("VALUES:"), "{assembly}");
         assert!(assembly.contains(".quad 1075838976"), "{assembly}");
+    }
+
+    #[test]
+    fn parses_and_lowers_typed_integer_literals() {
+        let program = parse_program_strict(
+            "(#const BYTE u8 255u8) (#fn main () u64 (#return (#as (#u32.+.wrap 1u32 41u32) u64)))",
+        )
+        .unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("mov rax, 1"), "{assembly}");
+        assert!(assembly.contains("mov rax, 41"), "{assembly}");
+
+        let wide = parse_program_strict(
+            "(#fn main () u128 (#return 0xffffffffffffffffffffffffffffffffu128))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&wide).is_ok());
     }
 
     #[test]

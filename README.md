@@ -50,6 +50,7 @@ making new keywords unambiguous and leaving future identifiers available.
 - Symbols, including names such as `MyType?` and `-construct`
 - Signed decimal integers
 - Binary (`0b`), octal (`0o`), hexadecimal (`0x`), and underscore-separated integer literals
+- Explicit integer suffixes such as `42u32`, `-1i8`, and `0xffffu128`
 - Strings with `\\n`, `\\r`, `\\t`, `\\\\`, and `\\"` escapes
 - Quote syntax (`'form`)
 - Lisp character literals (`#\a`, `#\space`, `#\newline`)
@@ -135,6 +136,13 @@ native backend can calculate call-stack requirements ahead of time.
 
 Generic functions declare type parameters explicitly, and calls provide explicit
 type arguments such as `(identity<u64> 42)`; type inference is not used.
+Integer literals may carry their type directly when contextual typing would be
+too implicit:
+
+```lisp
+(#fn main () u64
+  (#return (#as (#u32.+.wrap 1u32 41u32) u64)))
+```
 
 Value structs and enums may also declare explicit type parameters. Concrete uses
 are specialized before type checking and native code generation:
