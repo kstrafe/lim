@@ -3275,6 +3275,15 @@ mod tests {
         assert!(bare_keyword.contains("must use its '#' prefix"));
         let bare_operator = parse_program("(#fn main () u32 (#return (+ 20 22)))").unwrap_err();
         assert!(bare_operator.contains("must use its '#' prefix"));
+        let bare_division =
+            parse_program_strict("(#fn main () u128 (#return (/ 100u128 7u128)))").unwrap_err();
+        assert!(bare_division.contains("must use its '#' prefix"));
+        let qualified_division =
+            parse_program_strict("(#fn main () u128 (#return (#u128./.wrap 100u128 7u128)))");
+        assert!(qualified_division.is_ok());
+        let qualified_remainder =
+            parse_program_strict("(#fn main () u128 (#return (#u128.%.wrap 100u128 7u128)))");
+        assert!(qualified_remainder.is_ok());
         assert_eq!(
             lex("(#&& true false)").unwrap()[1].kind,
             TokenKind::Symbol("#&&".into())

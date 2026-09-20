@@ -1,4 +1,4 @@
-(fn main () u64
-  (let left u64 20)
-  (let right u64 3)
-  (+ (/ left right) (% left right)))
+(#fn main () u64
+  (#let left u64 20)
+  (#let right u64 3)
+  (#return (#u64.+.wrap (#u64./.wrap left right) (#u64.%.wrap left right))))
