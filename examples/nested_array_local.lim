@@ -1,0 +1,6 @@
+(#fn main () u64
+  (#let value (#array (#array u64 2) 2)
+    (#array (#array (#array u64 2) 2)
+      (#array (#array u64 2) 10 20)
+      (#array (#array u64 2) 30 40)))
+  (#return (#index (#index value 1) 0)))

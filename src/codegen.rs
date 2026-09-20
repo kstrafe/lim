@@ -1712,13 +1712,13 @@ fn add_local(
         *next_slot += 2;
         Storage::Wide { low, high }
     } else if let Type::Array(element, length) = &ty {
-        ensure_scalar_type(element, enums)
-            .map_err(|_| "native backend only supports arrays of scalar values".to_owned())?;
+        let element_words = value_word_count(element, structs, enums)?;
         let base = *next_slot;
-        *next_slot += length;
+        *next_slot += length * element_words;
         Storage::Array {
             base,
             length: *length,
+            element_words,
         }
     } else if matches!(&ty, Type::Tuple(_)) {
         let base = *next_slot;
@@ -1760,9 +1760,17 @@ fn local_slots(locals: &HashMap<String, Storage>, name: &str) -> Result<Vec<usiz
         } => Ok(std::iter::once(*discriminant)
             .chain(payload.iter().copied())
             .collect()),
-        Storage::Array { base, length } => Ok((*base..*base + *length).collect()),
+        Storage::Array {
+            base,
+            length,
+            element_words,
+        } => Ok((*base..*base + *length * *element_words).collect()),
         Storage::Tuple(slots) => Ok(slots.clone()),
     }
+}
+
+fn flat_slots(base: usize, words: usize) -> Vec<usize> {
+    (base..base + words).collect()
 }
 
 fn value_word_count(
@@ -1834,6 +1842,7 @@ enum Storage {
     Array {
         base: usize,
         length: usize,
+        element_words: usize,
     },
     Tuple(Vec<usize>),
     Struct(Vec<(String, usize)>),
@@ -2704,7 +2713,11 @@ impl FunctionContext {
                 }
             }
             Statement::ArrayAssign { name, index, value } => {
-                let Storage::Array { base, length } = self
+                let Storage::Array {
+                    base,
+                    length,
+                    element_words,
+                } = self
                     .locals
                     .get(name)
                     .ok_or_else(|| format!("unknown array '{name}'"))?
@@ -2713,6 +2726,9 @@ impl FunctionContext {
                 };
                 let base = *base;
                 let length = *length;
+                if *element_words != 1 {
+                    return Err("set-index currently supports scalar array elements only".into());
+                }
                 let element_type = match self.local_types.get(name).cloned() {
                     Some(Type::Array(element, _)) => *element,
                     _ => return Err(format!("'{name}' is not an array")),
@@ -3422,6 +3438,7 @@ impl FunctionContext {
             let Storage::Array {
                 base,
                 length: local_length,
+                element_words,
             } = self
                 .locals
                 .get(name)
@@ -3432,11 +3449,14 @@ impl FunctionContext {
             if *local_length != length {
                 return Err("array return length mismatch".into());
             }
+            if *element_words != 1 {
+                return Err("native array returns currently support scalar elements only".into());
+            }
             let base = *base;
             for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
                 self.output.push_str(&format!(
                     "    mov {register}, QWORD PTR [rbp-{}]\n",
-                    (base + index) * 8
+                    (base + index * element_words) * 8
                 ));
             }
             return Ok(());
@@ -3753,103 +3773,80 @@ impl FunctionContext {
     }
 
     fn store_array(&mut self, name: &str, value: &Expr) -> Result<(), String> {
-        let Storage::Array { base, length } = self
+        let Storage::Array {
+            base,
+            length,
+            element_words,
+        } = self
             .locals
             .get(name)
             .ok_or_else(|| format!("unknown array '{name}'"))?
         else {
             return Err(format!("'{name}' is not an array"));
         };
-        let (base, length) = (*base, *length);
-        if let Expr::Symbol(source) = value {
-            if matches!(
-                self.global_types.get(source),
-                Some(Type::Array(_, global_length)) if *global_length == length
-            ) {
-                for index in 0..length {
-                    self.load_global_word(source, index)?;
-                    self.output.push_str(&format!(
-                        "    mov QWORD PTR [rbp-{}], rax\n",
-                        (base + index) * 8
-                    ));
-                }
-                return Ok(());
-            }
+        let (base, length, element_words) = (*base, *length, *element_words);
+        let array_type = self
+            .local_types
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("unknown array local '{name}'"))?;
+        let Type::Array(element_type, declared_length) = &array_type else {
+            return Err(format!("'{name}' is not an array"));
+        };
+        if *declared_length != length {
+            return Err("array local length metadata is inconsistent".into());
         }
         if let Expr::String(string) = value {
             let characters = string.chars().collect::<Vec<_>>();
-            if characters.len() != length {
+            if characters.len() != length || element_words != 1 {
                 return Err("string length does not match array local".into());
             }
             for (index, character) in characters.into_iter().enumerate() {
                 self.output.push_str(&format!(
                     "    mov QWORD PTR [rbp-{}], {}\n",
-                    (base + index) * 8,
+                    (base + index * element_words) * 8,
                     character as u32
                 ));
             }
             return Ok(());
         }
-        let Expr::List(items) = value else {
-            self.expression(value)?;
-            for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
-                self.output.push_str(&format!(
-                    "    mov QWORD PTR [rbp-{}], {register}\n",
-                    (base + index) * 8
-                ));
-            }
-            return Ok(());
-        };
-        if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat") {
-            let value_start = if parse_type(items.get(1))
-                .ok()
-                .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
+        if let Expr::List(items) = value {
+            let value_start = if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array" || operator == "array-repeat")
+                && parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
             {
                 2
             } else {
                 1
             };
-            if items.len() != value_start + 1 {
-                return Err("array-repeat requires one value".into());
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat") {
+                if items.len() != value_start + 1 {
+                    return Err("array-repeat requires one value".into());
+                }
+                for index in 0..length {
+                    let start = base + index * element_words;
+                    self.store_value_words(
+                        &items[value_start],
+                        element_type,
+                        &flat_slots(start, element_words),
+                    )?;
+                }
+                return Ok(());
             }
-            let element_type = match self.local_types.get(name).cloned() {
-                Some(Type::Array(element, _)) => *element,
-                _ => return Err(format!("'{name}' is not an array")),
-            };
-            for index in 0..length {
-                self.store_scalar_at_slot(&items[value_start], &element_type, base + index)?;
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
+                if items.len() - value_start != length {
+                    return Err("array constructor has the wrong length".into());
+                }
+                for (index, value) in items[value_start..].iter().enumerate() {
+                    let start = base + index * element_words;
+                    self.store_value_words(value, element_type, &flat_slots(start, element_words))?;
+                }
+                return Ok(());
             }
-            return Ok(());
         }
-        if !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
-            self.expression(value)?;
-            for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
-                self.output.push_str(&format!(
-                    "    mov QWORD PTR [rbp-{}], {register}\n",
-                    (base + index) * 8
-                ));
-            }
-            return Ok(());
-        }
-        let value_start = if parse_type(items.get(1))
-            .ok()
-            .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
-        {
-            2
-        } else {
-            1
-        };
-        if items.len() - value_start != length {
-            return Err("array constructor has the wrong length".into());
-        }
-        let element_type = match self.local_types.get(name).cloned() {
-            Some(Type::Array(element, _)) => *element,
-            _ => return Err(format!("'{name}' is not an array")),
-        };
-        for (index, value) in items[value_start..].iter().enumerate() {
-            self.store_scalar_at_slot(value, &element_type, base + index)?;
-        }
-        Ok(())
+        let slots = flat_slots(base, length * element_words);
+        self.store_value_words(value, &array_type, &slots)
     }
 
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
@@ -4202,31 +4199,45 @@ impl FunctionContext {
             else {
                 return Err("index requires an array value".into());
             };
-            if length > VALUE_REGISTERS.len() {
-                return Err("native computed indexing supports at most six elements".into());
+            let element_words = value_word_count(&element, &self.structs, &self.enums)?;
+            let words = length.saturating_mul(element_words);
+            if words > VALUE_REGISTERS.len() {
+                return Err("native computed indexing supports at most six value words".into());
             }
             let bounds_failure = self.label("bounds_failure");
             self.expression(&items[1])?;
-            for register in VALUE_REGISTERS[..length].iter().rev() {
+            for register in VALUE_REGISTERS[..words].iter().rev() {
                 self.output.push_str(&format!("    push {register}\n"));
                 self.stack_depth += 1;
             }
             self.expression(&items[2])?;
             self.output.push_str(&format!(
-                "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    mov rax, QWORD PTR [rsp+rcx*8+{}]\n    add rsp, {}\n    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n",
-                0,
-                length * 8
+                "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    imul rcx, {element_words}\n"
             ));
-            if matches!(*element, Type::F32) {
-                self.output.push_str("    movd xmm0, eax\n");
-            } else if matches!(*element, Type::F64) {
-                self.output.push_str("    movq xmm0, rax\n");
+            if element_words == 1 {
+                self.output.push_str("    mov rax, QWORD PTR [rsp+rcx*8]\n");
             } else {
+                for (index, register) in VALUE_REGISTERS[..element_words].iter().enumerate() {
+                    self.output.push_str(&format!(
+                        "    mov {register}, QWORD PTR [rsp+rcx*8+{}]\n",
+                        index * 8
+                    ));
+                }
+            }
+            self.output.push_str(&format!(
+                "    add rsp, {}\n    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n",
+                words * 8
+            ));
+            if element_words == 1 && matches!(*element, Type::F32) {
+                self.output.push_str("    movd xmm0, eax\n");
+            } else if element_words == 1 && matches!(*element, Type::F64) {
+                self.output.push_str("    movq xmm0, rax\n");
+            } else if element_words == 1 {
                 ensure_integer_type(&element).map_err(|_| {
                     "native computed indexing supports scalar arrays only".to_owned()
                 })?;
             }
-            self.stack_depth -= length;
+            self.stack_depth -= words;
             return Ok(());
         };
         if let Some(Type::Array(element, length)) = self.global_types.get(name).cloned() {
@@ -4235,23 +4246,41 @@ impl FunctionContext {
             }
             let bounds_failure = self.label("global_array_bounds_failure");
             let done = self.label("global_array_index_done");
+            let element_words = value_word_count(&element, &self.structs, &self.enums)?;
             self.expression(&items[2])?;
             self.output.push_str(&format!(
-                "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    lea rdx, [rip+{}]\n    mov rax, QWORD PTR [rdx+rcx*8]\n    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n",
+                "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    imul rcx, {element_words}\n    lea rdx, [rip+{}]\n",
                 asm_symbol(name)
             ));
-            if matches!(*element, Type::F32) {
-                self.output.push_str("    movd xmm0, eax\n");
-            } else if matches!(*element, Type::F64) {
-                self.output.push_str("    movq xmm0, rax\n");
+            if element_words == 1 {
+                self.output.push_str("    mov rax, QWORD PTR [rdx+rcx*8]\n");
             } else {
+                for (index, register) in VALUE_REGISTERS[..element_words].iter().enumerate() {
+                    self.output.push_str(&format!(
+                        "    mov {register}, QWORD PTR [rdx+rcx*8+{}]\n",
+                        index * 8
+                    ));
+                }
+            }
+            self.output.push_str(&format!(
+                "    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n"
+            ));
+            if element_words == 1 && matches!(*element, Type::F32) {
+                self.output.push_str("    movd xmm0, eax\n");
+            } else if element_words == 1 && matches!(*element, Type::F64) {
+                self.output.push_str("    movq xmm0, rax\n");
+            } else if element_words == 1 {
                 ensure_integer_type(&element).map_err(|_| {
                     "native computed indexing supports scalar arrays only".to_owned()
                 })?;
             }
             return Ok(());
         }
-        let Storage::Array { base, .. } = self
+        let Storage::Array {
+            base,
+            element_words,
+            ..
+        } = self
             .locals
             .get(name)
             .ok_or_else(|| format!("unknown array '{name}'"))?
@@ -4259,6 +4288,7 @@ impl FunctionContext {
             return Err(format!("'{name}' is not an array"));
         };
         let base = *base;
+        let element_words = *element_words;
         let Storage::Array { length, .. } = self.locals.get(name).unwrap() else {
             unreachable!()
         };
@@ -4274,15 +4304,23 @@ impl FunctionContext {
             "    cmp rcx, {length}\n    jae {bounds_failure}\n"
         ));
         self.output.push_str(&format!(
-            "    lea rdx, [rbp-{}]\n    shl rcx, 3\n    sub rdx, rcx\n",
-            base * 8
+            "    lea rdx, [rbp-{}]\n    imul rcx, {}\n    shl rcx, 3\n    sub rdx, rcx\n",
+            base * 8,
+            element_words
         ));
-        if matches!(element_type, Type::F32) {
+        if element_words == 1 && matches!(element_type, Type::F32) {
             self.output.push_str("    movss xmm0, DWORD PTR [rdx]\n");
-        } else if matches!(element_type, Type::F64) {
+        } else if element_words == 1 && matches!(element_type, Type::F64) {
             self.output.push_str("    movq xmm0, QWORD PTR [rdx]\n");
-        } else {
+        } else if element_words == 1 {
             self.output.push_str("    mov rax, QWORD PTR [rdx]\n");
+        } else {
+            for (index, register) in VALUE_REGISTERS[..element_words].iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov {register}, QWORD PTR [rdx+{}]\n",
+                    index * 8
+                ));
+            }
         }
         self.output.push_str(&format!(
             "    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n"
@@ -6338,6 +6376,7 @@ impl FunctionContext {
                 let Storage::Array {
                     base,
                     length: local_length,
+                    element_words,
                 } = self
                     .locals
                     .get(local)
@@ -6349,6 +6388,12 @@ impl FunctionContext {
                     return Err("array argument length mismatch".into());
                 }
                 let base = *base;
+                let element_words = *element_words;
+                if element_words != 1 {
+                    return Err(
+                        "native array arguments currently support scalar elements only".into(),
+                    );
+                }
                 let length = *length;
                 let indices: Box<dyn Iterator<Item = usize>> = if reverse {
                     Box::new((0..length).rev())
@@ -6358,7 +6403,7 @@ impl FunctionContext {
                 for index in indices {
                     self.output.push_str(&format!(
                         "    mov rax, QWORD PTR [rbp-{}]\n",
-                        (base + index) * 8
+                        (base + index * element_words) * 8
                     ));
                     self.push_rax();
                 }

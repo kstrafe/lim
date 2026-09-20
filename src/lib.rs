@@ -3373,6 +3373,21 @@ mod tests {
     }
 
     #[test]
+    fn stores_and_indexes_nested_array_locals() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#let value (#array (#array u64 2) 2) \
+                 (#array (#array (#array u64 2) 2) \
+                   (#array (#array u64 2) 10 20) \
+                   (#array (#array u64 2) 30 40))) \
+               (#return (#index (#index value 1) 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
