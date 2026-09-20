@@ -448,6 +448,10 @@ fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, T
         Statement::BreakValue(value) => {
             Statement::BreakValue(substitute_expr(value, substitutions))
         }
+        Statement::BreakToValue { label, value } => Statement::BreakToValue {
+            label: label.clone(),
+            value: substitute_expr(value, substitutions),
+        },
         Statement::Break
         | Statement::BreakTo(_)
         | Statement::Continue
@@ -598,6 +602,10 @@ fn rewrite_statement(
         ),
         Statement::Expr(value) => Statement::Expr(rewrite_expr(value, specializations)),
         Statement::BreakValue(value) => Statement::BreakValue(rewrite_expr(value, specializations)),
+        Statement::BreakToValue { label, value } => Statement::BreakToValue {
+            label: label.clone(),
+            value: rewrite_expr(value, specializations),
+        },
         Statement::Break
         | Statement::BreakTo(_)
         | Statement::Continue
@@ -642,6 +650,7 @@ fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String
         | Statement::TupleAssign { value, .. }
         | Statement::EnumPayloadAssign { value, .. }
         | Statement::BreakValue(value)
+        | Statement::BreakToValue { value, .. }
         | Statement::Return(Some(value))
         | Statement::Expr(value) => collect_generic_calls_expr(value, calls),
         Statement::ArrayAssign { index, value, .. } => {
@@ -1508,6 +1517,9 @@ fn collect_local_types(
         Statement::Labeled { statement, .. } => {
             collect_local_types(statement, types, aliases, enums, structs);
         }
+        Statement::BreakToValue { value, .. } => {
+            collect_expr_types(value, types, aliases, enums, structs);
+        }
         Statement::Break
         | Statement::BreakTo(_)
         | Statement::Continue
@@ -1784,7 +1796,10 @@ fn max_let_else_storage_in_statement(
             max_let_else_storage_in_expression(condition, structs, enums, aliases)?
                 .max(nested(body)?),
         ),
-        Statement::Expr(value) | Statement::Return(Some(value)) | Statement::BreakValue(value) => {
+        Statement::Expr(value)
+        | Statement::Return(Some(value))
+        | Statement::BreakValue(value)
+        | Statement::BreakToValue { value, .. } => {
             max_let_else_storage_in_expression(value, structs, enums, aliases)
         }
         Statement::Let { value, .. }
@@ -1878,6 +1893,7 @@ fn max_projection_depth_in_statement(statement: &Statement) -> usize {
         Statement::Labeled { statement, .. } => max_projection_depth_in_statement(statement),
         Statement::Break
         | Statement::BreakTo(_)
+        | Statement::BreakToValue { .. }
         | Statement::Continue
         | Statement::ContinueTo(_)
         | Statement::Return(None) => 0,
@@ -2047,6 +2063,9 @@ fn collect_locals(
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
         Statement::BreakValue(value) => {
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
+        }
+        Statement::BreakToValue { value, .. } => {
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
         Statement::Return(Some(value)) | Statement::Expr(value) => {
@@ -4643,6 +4662,34 @@ impl FunctionContext {
                     return Err(format!("unknown or inactive loop label '{label}'"));
                 };
                 let end = self.loop_labels[index].1.clone();
+                self.output.push_str(&format!("    jmp {end}\n"));
+            }
+            Statement::BreakToValue { label, value } => {
+                let Some(index) = self
+                    .loop_names
+                    .iter()
+                    .rposition(|name| name.as_deref() == Some(label))
+                else {
+                    return Err(format!("unknown or inactive loop label '{label}'"));
+                };
+                let end = self.loop_labels[index].1.clone();
+                if self
+                    .loop_indirect_results
+                    .get(index)
+                    .copied()
+                    .unwrap_or(false)
+                {
+                    let ty = self
+                        .loop_result_types
+                        .get(index)
+                        .and_then(Clone::clone)
+                        .ok_or_else(|| "indirect labeled loop result has no type".to_owned())?;
+                    self.store_indirect_value_words(value, &ty, 0)?;
+                } else if let Some(Some(ty)) = self.loop_result_types.get(index).cloned() {
+                    self.expression_as_expected(value, &ty)?;
+                } else {
+                    self.expression(value)?;
+                }
                 self.output.push_str(&format!("    jmp {end}\n"));
             }
             Statement::BreakValue(value) => {

@@ -589,6 +589,10 @@ pub enum Statement {
     Break,
     BreakValue(Expr),
     BreakTo(String),
+    BreakToValue {
+        label: String,
+        value: Expr,
+    },
     Continue,
     ContinueTo(String),
     Return(Option<Expr>),
@@ -921,6 +925,9 @@ fn rename_statement(
             rename_statement(statement, bindings, used, next_id, globals, variants);
         }
         Statement::BreakValue(value) | Statement::Return(Some(value)) | Statement::Expr(value) => {
+            rename_expression(value, bindings, used, next_id, globals, variants);
+        }
+        Statement::BreakToValue { value, .. } => {
             rename_expression(value, bindings, used, next_id, globals, variants);
         }
         Statement::Break
@@ -1704,6 +1711,10 @@ fn specialize_statement(
             names,
             generated,
         )?),
+        Statement::BreakToValue { label, value } => Statement::BreakToValue {
+            label: label.clone(),
+            value: specialize_expr(value, substitutions, templates, names, generated)?,
+        },
         Statement::Break
         | Statement::BreakTo(_)
         | Statement::Continue
@@ -2514,6 +2525,7 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
         | Statement::Break
         | Statement::BreakValue(_)
         | Statement::BreakTo(_)
+        | Statement::BreakToValue { .. }
         | Statement::Continue
         | Statement::ContinueTo(_)
         | Statement::Return(None)
@@ -2958,8 +2970,14 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
     }
     if is_form(expression, "break-to") {
         let items = expect_list(expression, "labeled break statement")?;
+        if items.len() == 3 {
+            return Ok(Statement::BreakToValue {
+                label: expect_symbol(items.get(1), "break label")?.to_owned(),
+                value: items[2].clone(),
+            });
+        }
         if items.len() != 2 {
-            return Err("break-to requires exactly one label".into());
+            return Err("break-to requires a label and optional value".into());
         }
         return Ok(Statement::BreakTo(
             expect_symbol(items.get(1), "break label")?.to_owned(),
@@ -2994,7 +3012,9 @@ fn loop_has_value_break(expression: &Expr) -> bool {
 fn loop_body_has_value_break(expression: &Expr) -> bool {
     match expression {
         Expr::List(items) => {
-            if is_form(expression, "break") && items.len() == 2 {
+            if (is_form(expression, "break") && items.len() == 2)
+                || (is_form(expression, "break-to") && items.len() == 3)
+            {
                 return true;
             }
             if matches!(
@@ -3013,7 +3033,7 @@ fn loop_body_has_value_break(expression: &Expr) -> bool {
 
 fn statement_has_value_break(statement: &Statement) -> bool {
     match statement {
-        Statement::BreakValue(_) => true,
+        Statement::BreakValue(_) | Statement::BreakToValue { .. } => true,
         Statement::Expr(expression) => loop_body_has_value_break(expression),
         Statement::Labeled { statement, .. } => statement_has_value_break(statement),
         Statement::While { .. } | Statement::Loop { .. } | Statement::For { .. } => false,
@@ -5756,7 +5776,7 @@ mod tests {
                      (#set count (#u64.+.wrap count 1u64)) \
                      (#if (#u64.< count 3u64) \
                        (#block (#continue-to outer)) ()) \
-                     (#break 42u64)))) \
+                     (#break-to outer 42u64)))) \
                (#return result))",
         )
         .unwrap();

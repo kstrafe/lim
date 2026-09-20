@@ -7,5 +7,5 @@
         (#if (#u64.< count 3u64)
           (#block (#continue-to outer))
           ())
-        (#break 42u64))))
+        (#break-to outer 42u64))))
   (#return result))

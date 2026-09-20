@@ -277,6 +277,7 @@ fn collect_statement_calls(
         | Statement::TupleAssign { value, .. }
         | Statement::EnumPayloadAssign { value, .. }
         | Statement::BreakValue(value)
+        | Statement::BreakToValue { value, .. }
         | Statement::Return(Some(value))
         | Statement::Expr(value) => collect_expression_calls(value, functions, calls),
         Statement::ArrayAssign { index, value, .. } => {
@@ -858,6 +859,16 @@ fn statement_type(
                 value, variables, functions, structs, enums, mutable, aliases, None,
             )
         }
+        Statement::BreakToValue { label, value } => {
+            if !mutable.contains(&format!("\0lim-value-label:{label}")) {
+                return Err(format!(
+                    "value break used with inactive or non-value label '{label}'"
+                ));
+            }
+            expression(
+                value, variables, functions, structs, enums, mutable, aliases, None,
+            )
+        }
         Statement::BreakTo(label) | Statement::ContinueTo(label) => {
             if mutable.contains(&format!("\0lim-label:{label}")) {
                 Ok(Type::Unit)
@@ -1162,7 +1173,9 @@ fn expression(
             let mut result_type = None;
             for statement in statements {
                 let has_value_break = statement_has_value_break(statement);
-                let actual = if let Statement::BreakValue(value) = statement {
+                let actual = if let Statement::BreakValue(value)
+                | Statement::BreakToValue { value, .. } = statement
+                {
                     expression(
                         value,
                         &loop_variables,
@@ -1213,6 +1226,7 @@ fn expression(
             }
             let mut labeled_mutable = mutable.clone();
             labeled_mutable.insert(marker);
+            labeled_mutable.insert(format!("\0lim-value-label:{label}"));
             expression(
                 loop_expression,
                 variables,
@@ -1235,7 +1249,7 @@ fn expression(
 
 fn statement_has_value_break(statement: &Statement) -> bool {
     match statement {
-        Statement::BreakValue(_) => true,
+        Statement::BreakValue(_) | Statement::BreakToValue { .. } => true,
         Statement::Expr(expression) => expression_has_value_break(expression),
         Statement::While { .. } | Statement::Loop { .. } | Statement::For { .. } => false,
         _ => false,
