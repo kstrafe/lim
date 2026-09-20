@@ -1,0 +1,7 @@
+(#let value u64 10)
+
+(#fn read ((value u64)) u64
+  (#return value))
+
+(#fn main () u64
+  (#return (read 42)))
