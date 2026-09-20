@@ -1151,6 +1151,71 @@ fn collect_expr_types(
                 }
             }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                if let Some(scrutinee_type) = items.get(1).and_then(|scrutinee| {
+                    collected_expression_type(scrutinee, types, aliases, structs)
+                }) {
+                    if let Type::Tuple(fields) = scrutinee_type.clone() {
+                        for arm in items.iter().skip(2) {
+                            let Expr::List(arm) = arm else { continue };
+                            let Some(Expr::List(pattern)) = arm.first() else {
+                                continue;
+                            };
+                            if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "tuple")
+                            {
+                                continue;
+                            }
+                            for (binding, field_type) in pattern[1..].iter().zip(&fields) {
+                                if let Expr::Symbol(binding) = binding {
+                                    if binding != "_" {
+                                        types.entry(binding.clone()).or_insert(field_type.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Type::Array(element, length) = scrutinee_type.clone() {
+                        for arm in items.iter().skip(2) {
+                            let Expr::List(arm) = arm else { continue };
+                            let Some(Expr::List(pattern)) = arm.first() else {
+                                continue;
+                            };
+                            if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "array")
+                            {
+                                continue;
+                            }
+                            for binding in pattern[1..].iter().take(length) {
+                                if let Expr::Symbol(binding) = binding {
+                                    if binding != "_" {
+                                        types.entry(binding.clone()).or_insert((*element).clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Type::Named(struct_name) = scrutinee_type {
+                        if let Some(fields) = structs.get(&struct_name) {
+                            for arm in items.iter().skip(2) {
+                                let Expr::List(arm) = arm else { continue };
+                                let Some(Expr::List(pattern)) = arm.first() else {
+                                    continue;
+                                };
+                                if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == &struct_name)
+                                {
+                                    continue;
+                                }
+                                for (binding, field) in pattern[1..].iter().zip(fields) {
+                                    if let Expr::Symbol(binding) = binding {
+                                        if binding != "_" {
+                                            types
+                                                .entry(binding.clone())
+                                                .or_insert(field.ty.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 for arm in items.iter().skip(2) {
                     let Expr::List(arm) = arm else { continue };
                     let Some(Expr::List(pattern)) = arm.first() else {
@@ -1281,6 +1346,87 @@ fn collect_expr_locals(
     match expression {
         Expr::List(items) => {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                if let Some(scrutinee_type) = items.get(1).and_then(|scrutinee| {
+                    collected_expression_type(scrutinee, types, aliases, structs)
+                }) {
+                    match scrutinee_type {
+                        Type::Tuple(fields) => {
+                            for arm in items.iter().skip(2) {
+                                let Expr::List(arm) = arm else { continue };
+                                let Some(Expr::List(pattern)) = arm.first() else {
+                                    continue;
+                                };
+                                if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "tuple")
+                                {
+                                    continue;
+                                }
+                                for (binding, field_type) in pattern[1..].iter().zip(&fields) {
+                                    let Expr::Symbol(binding) = binding else {
+                                        continue;
+                                    };
+                                    if binding == "_" || locals.contains_key(binding) {
+                                        continue;
+                                    }
+                                    add_local(
+                                        locals, binding, field_type, structs, enums, aliases,
+                                        next_slot,
+                                    )?;
+                                }
+                            }
+                        }
+                        Type::Array(element, length) => {
+                            for arm in items.iter().skip(2) {
+                                let Expr::List(arm) = arm else { continue };
+                                let Some(Expr::List(pattern)) = arm.first() else {
+                                    continue;
+                                };
+                                if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "array")
+                                {
+                                    continue;
+                                }
+                                for binding in pattern[1..].iter().take(length) {
+                                    let Expr::Symbol(binding) = binding else {
+                                        continue;
+                                    };
+                                    if binding == "_" || locals.contains_key(binding) {
+                                        continue;
+                                    }
+                                    add_local(
+                                        locals, binding, &element, structs, enums, aliases,
+                                        next_slot,
+                                    )?;
+                                }
+                            }
+                        }
+                        Type::Named(struct_name) => {
+                            if let Some(fields) = structs.get(&struct_name) {
+                                for arm in items.iter().skip(2) {
+                                    let Expr::List(arm) = arm else { continue };
+                                    let Some(Expr::List(pattern)) = arm.first() else {
+                                        continue;
+                                    };
+                                    if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == &struct_name)
+                                    {
+                                        continue;
+                                    }
+                                    for (binding, field) in pattern[1..].iter().zip(fields) {
+                                        let Expr::Symbol(binding) = binding else {
+                                            continue;
+                                        };
+                                        if binding == "_" || locals.contains_key(binding) {
+                                            continue;
+                                        }
+                                        add_local(
+                                            locals, binding, &field.ty, structs, enums, aliases,
+                                            next_slot,
+                                        )?;
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 if let Some(Expr::Symbol(name)) = items.get(1) {
                     if let Some(Type::Tuple(fields)) = types.get(name) {
                         for arm in items.iter().skip(2) {
@@ -1419,6 +1565,46 @@ fn collect_expr_locals(
         _ => {}
     }
     Ok(())
+}
+
+fn collected_expression_type(
+    expression: &Expr,
+    types: &HashMap<String, Type>,
+    aliases: &HashMap<String, Type>,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Option<Type> {
+    match expression {
+        Expr::Symbol(name) => types.get(name).cloned(),
+        Expr::List(items) => match items.first() {
+            Some(Expr::Symbol(name)) if name == "array" && items.len() >= 2 => {
+                match parse_type(items.get(1))
+                    .ok()
+                    .and_then(|ty| resolve_type(&ty, aliases).ok())
+                {
+                    Some(Type::Array(element, length)) if items.len() - 2 == length => {
+                        Some(Type::Array(element, length))
+                    }
+                    _ => None,
+                }
+            }
+            Some(Expr::Symbol(name)) if name == "tuple" && items.len() >= 2 => {
+                match parse_type(items.get(1))
+                    .ok()
+                    .and_then(|ty| resolve_type(&ty, aliases).ok())
+                {
+                    Some(Type::Tuple(fields)) if items.len() - 2 == fields.len() => {
+                        Some(Type::Tuple(fields))
+                    }
+                    _ => None,
+                }
+            }
+            Some(Expr::Symbol(name)) if structs.contains_key(name) => {
+                (items.len() - 1 == structs[name].len()).then(|| Type::Named(name.clone()))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn destructure_bindings(
@@ -4337,11 +4523,54 @@ impl FunctionContext {
     ) -> Result<(), String> {
         let words = value_word_count(&ty, &self.structs, &self.enums)?;
         let base_depth = self.stack_depth;
+        let direct_values = if let Expr::List(value_items) = &items[1] {
+            let value_start = match constructor {
+                "tuple" | "array" if matches!(value_items.first(), Some(Expr::Symbol(name)) if name == constructor) => {
+                    if parse_type(value_items.get(1))
+                        .ok()
+                        .is_some_and(|declared| declared == ty)
+                    {
+                        2
+                    } else {
+                        1
+                    }
+                }
+                _ if constructor != "tuple"
+                    && constructor != "array"
+                    && matches!(value_items.first(), Some(Expr::Symbol(name)) if name == constructor) =>
+                {
+                    1
+                }
+                _ => usize::MAX,
+            };
+            if value_start != usize::MAX && value_items.len() - value_start == fields.len() {
+                Some(value_items[value_start..].iter().collect::<Vec<_>>())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(values) = direct_values.as_ref() {
+            for (value, field_type) in values.iter().zip(fields) {
+                self.expression_as_abi_word(value, field_type)?;
+                self.push_rax();
+            }
+            for register in VALUE_REGISTERS[..words].iter().rev() {
+                self.output.push_str(&format!("    pop {register}\n"));
+                self.stack_depth -= 1;
+            }
+        }
         let empty_direct_array = words == 0
             && constructor == "array"
             && matches!(&items[1], Expr::List(value) if matches!(value.first(), Some(Expr::Symbol(name)) if name == "array"));
         if empty_direct_array {
             // An empty value has no ABI words to evaluate or stage.
+        } else if direct_values.is_some() {
+            for register in VALUE_REGISTERS[..words].iter().rev() {
+                self.output.push_str(&format!("    push {register}\n"));
+                self.stack_depth += 1;
+            }
         } else if let Expr::Symbol(name) = &items[1] {
             if self.locals.contains_key(name) {
                 for slot in local_slots(&self.locals, name)?.into_iter().rev() {

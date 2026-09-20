@@ -3311,6 +3311,18 @@ mod tests {
     }
 
     #[test]
+    fn matches_direct_array_values() {
+        let program = parse_program(
+            "(#fn main () u64 \
+              (#return (#match (#array (#array u64 3) 10 32 12) \
+                ((#array 10 middle _) middle) (_ 0))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
