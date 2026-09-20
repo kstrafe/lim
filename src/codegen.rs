@@ -1290,7 +1290,12 @@ impl FunctionContext {
             Expr::Char(_) => Some(Type::Char),
             Expr::Float(_) => Some(Type::F64),
             Expr::Symbol(name) if name == "true" || name == "false" => Some(Type::Bool),
-            Expr::Symbol(name) => self.local_types.get(name).cloned(),
+            Expr::Symbol(name) => self.local_types.get(name).cloned().or_else(|| {
+                self.enums
+                    .iter()
+                    .find(|(_, variants)| variants.iter().any(|variant| variant.name == *name))
+                    .map(|(enum_name, _)| Type::Named(enum_name.clone()))
+            }),
             Expr::List(items) => match items.first() {
                 Some(Expr::Symbol(operator)) if operator == "as" && items.len() == 3 => {
                     parse_type(items.get(2))
@@ -1306,9 +1311,15 @@ impl FunctionContext {
                     items.get(1).and_then(|value| self.expression_type(value))
                 }
                 Some(Expr::Symbol(operator)) => self
-                    .functions
-                    .get(operator)
-                    .map(|function| function.return_type.clone()),
+                    .enums
+                    .iter()
+                    .find(|(_, variants)| variants.iter().any(|variant| variant.name == *operator))
+                    .map(|(name, _)| Type::Named(name.clone()))
+                    .or_else(|| {
+                        self.functions
+                            .get(operator)
+                            .map(|function| function.return_type.clone())
+                    }),
                 _ => None,
             },
             _ => None,
@@ -1894,6 +1905,19 @@ impl FunctionContext {
             },
             _ => None,
         };
+        let payload_count = if let Some(payload_slots) = &payload_slots {
+            payload_slots.len()
+        } else {
+            let ty = self
+                .expression_type(&items[1])
+                .ok_or_else(|| "match scrutinee is not an enum value".to_owned())?;
+            self.enum_payload_count(&ty)?
+        };
+        let staged_words = if payload_slots.is_some() {
+            1
+        } else {
+            payload_count + 1
+        };
         match &items[1] {
             Expr::Symbol(name) if matches!(self.locals.get(name), Some(Storage::Enum { .. })) => {
                 let Storage::Enum { discriminant, .. } = self.locals.get(name).unwrap() else {
@@ -1904,9 +1928,19 @@ impl FunctionContext {
                     discriminant * 8
                 ));
             }
-            _ => self.expression(&items[1])?,
+            _ => {
+                self.expression(&items[1])?;
+                for index in (0..payload_count).rev() {
+                    self.output
+                        .push_str(&format!("    push {}\n", VALUE_REGISTERS[index + 1]));
+                    self.stack_depth += 1;
+                }
+                self.push_rax();
+            }
         }
-        self.push_rax();
+        if payload_slots.is_some() {
+            self.push_rax();
+        }
         for arm in &items[2..] {
             let arm = match arm {
                 Expr::List(arm) if arm.len() == 2 => arm,
@@ -1939,33 +1973,56 @@ impl FunctionContext {
                 ));
             }
             if !bindings.is_empty() {
-                let Some(payload_slots) = payload_slots.as_ref() else {
-                    return Err("payload binding requires a local payload enum".into());
-                };
                 for (index, binding) in bindings.iter().enumerate() {
                     if *binding == "_" {
                         continue;
                     }
-                    let payload_slot = payload_slots
-                        .get(index)
-                        .ok_or_else(|| "payload binding exceeds enum payload count".to_owned())?;
                     let slot = scalar_slot(&self.locals, binding);
-                    self.output.push_str(&format!(
-                        "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
-                        payload_slot * 8,
-                        slot * 8
-                    ));
+                    if let Some(payload_slots) = payload_slots.as_ref() {
+                        let payload_slot = payload_slots.get(index).ok_or_else(|| {
+                            "payload binding exceeds enum payload count".to_owned()
+                        })?;
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                            payload_slot * 8,
+                            slot * 8
+                        ));
+                    } else {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rsp+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                            (index + 1) * 8,
+                            slot * 8
+                        ));
+                    }
                 }
             }
             self.expression(&arm[1])?;
-            self.output
-                .push_str("    mov rdx, rax\n    pop rcx\n    mov rax, rdx\n");
+            self.output.push_str(&format!(
+                "    mov rdx, rax\n    add rsp, {}\n    mov rax, rdx\n",
+                staged_words * 8
+            ));
+            self.stack_depth -= staged_words;
             self.output.push_str(&format!("    jmp {end}\n{next}:\n"));
-            self.stack_depth = base_depth + 1;
+            self.stack_depth = base_depth + staged_words;
         }
         self.output.push_str(&format!("{end}:\n"));
         self.stack_depth = base_depth;
         Ok(())
+    }
+
+    fn enum_payload_count(&self, ty: &Type) -> Result<usize, String> {
+        let Type::Named(name) = ty else {
+            return Err("match scrutinee is not an enum value".into());
+        };
+        let variants = self
+            .enums
+            .get(name)
+            .ok_or_else(|| format!("unknown enum '{name}'"))?;
+        Ok(variants
+            .iter()
+            .map(|variant| variant.fields.len())
+            .max()
+            .unwrap_or(0))
     }
 
     fn unary_negate(&mut self, items: &[Expr]) -> Result<(), String> {

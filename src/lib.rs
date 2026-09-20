@@ -1502,6 +1502,16 @@ mod tests {
     }
 
     #[test]
+    fn matches_computed_enum_values() {
+        let program = parse_program(
+            "(enum Maybe ((Some u64) None)) (fn main () u64 (match (Some 42) ((Some value) value) (None 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("add rsp, 16"));
+    }
+
+    #[test]
     fn checks_and_lowers_fixed_arrays() {
         let program = parse_program("(fn main () u64 (let mut values (array u64 2) (array 3 4)) (set-index values 1 40) (+ (index values 0) (index values 1)))").unwrap();
         assert!(check_types(&program).is_ok());

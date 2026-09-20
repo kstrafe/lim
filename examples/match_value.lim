@@ -1,0 +1,6 @@
+(enum Maybe ((Some u64) None))
+
+(fn main () u64
+  (match (Some 42)
+    ((Some value) value)
+    (None 0)))

@@ -171,6 +171,9 @@ Payload variants may contain multiple scalar fields and bind them in order:
 Multi-payload enums can also be passed to and returned from native functions
 when their payloads fit the scalar integer ABI.
 
+`match` can inspect a constructor or enum-returning call directly; the
+compiler stages its discriminant and payload words before selecting an arm.
+
 Fixed-size arrays are value types with stack storage:
 
 ```lisp
