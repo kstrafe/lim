@@ -991,6 +991,11 @@ fn generate_function(
             .entry(name.clone())
             .or_insert_with(|| abi.return_type.clone());
     }
+    for (name, ty) in global_types {
+        local_types
+            .entry(name.clone())
+            .or_insert_with(|| ty.clone());
+    }
     for statement in &function.body {
         collect_local_types(statement, &mut local_types, aliases, enums, structs);
     }
@@ -6953,6 +6958,24 @@ impl FunctionContext {
                     result_type,
                 );
             }
+            if let Expr::Symbol(name) = &items[1] {
+                if self.global_types.get(name) == Some(&ty) {
+                    let base_depth = self.stack_depth;
+                    for index in (0..storage_words).rev() {
+                        self.load_global_word(name, index)?;
+                        self.push_rax();
+                    }
+                    return self.aggregate_match_from_staged_stack(
+                        items,
+                        constructor,
+                        &ty,
+                        storage_words,
+                        float_type,
+                        result_type,
+                        base_depth,
+                    );
+                }
+            }
         }
         let words = value_word_count(&ty, &self.structs, &self.enums)?;
         let base_depth = self.stack_depth;
@@ -7092,6 +7115,27 @@ impl FunctionContext {
                 .push_str(&format!("    push QWORD PTR [rbp-{}]\n", slot * 8));
             self.stack_depth += 1;
         }
+        self.aggregate_match_from_staged_stack(
+            items,
+            constructor,
+            ty,
+            storage_words,
+            float_type,
+            result_type,
+            base_depth,
+        )
+    }
+
+    fn aggregate_match_from_staged_stack(
+        &mut self,
+        items: &[Expr],
+        constructor: &str,
+        ty: &Type,
+        storage_words: usize,
+        float_type: Option<&Type>,
+        result_type: Option<&Type>,
+        base_depth: usize,
+    ) -> Result<(), String> {
         let end = self.label("aggregate_match_end");
         for arm in &items[2..] {
             let (pattern, guard, body) = match_arm_parts(arm)?;
