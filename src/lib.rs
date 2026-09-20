@@ -1793,10 +1793,14 @@ fn parse_enum_variants_at(
         return Err("enum requires at least one variant".into());
     }
     let mut result = Vec::with_capacity(variants.len());
-    let mut next_discriminant = 0u64;
+    let mut next_discriminant = Some(0u64);
     for variant in variants {
         let (name, fields, discriminant) = match variant {
-            Expr::Symbol(name) => (name.clone(), Vec::new(), next_discriminant),
+            Expr::Symbol(name) => (
+                name.clone(),
+                Vec::new(),
+                next_discriminant.ok_or_else(|| "enum discriminant overflowed".to_owned())?,
+            ),
             Expr::List(items) => {
                 if items.is_empty() {
                     return Err("enum variant cannot be empty".into());
@@ -1811,7 +1815,13 @@ fn parse_enum_variants_at(
                             .map(|ty| replace_generic_types(&ty, type_parameters))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                (name, fields, explicit.unwrap_or(next_discriminant))
+                (
+                    name,
+                    fields,
+                    explicit
+                        .or(next_discriminant)
+                        .ok_or_else(|| "enum discriminant overflowed".to_owned())?,
+                )
             }
             _ => return Err("enum variant must be a symbol or (name Type ...)".into()),
         };
@@ -1834,9 +1844,7 @@ fn parse_enum_variants_at(
             fields,
             discriminant,
         });
-        next_discriminant = discriminant
-            .checked_add(1)
-            .ok_or_else(|| "enum discriminant overflowed".to_owned())?;
+        next_discriminant = discriminant.checked_add(1);
     }
     Ok(result)
 }
@@ -4622,6 +4630,18 @@ mod tests {
     fn rejects_duplicate_enum_discriminants() {
         let program = parse_program_strict("(#enum Code ((Ready 7) (AlsoReady 7)))");
         assert!(program.unwrap_err().contains("duplicate discriminant 7"));
+    }
+
+    #[test]
+    fn accepts_maximum_final_enum_discriminant() {
+        let program = parse_program_strict(
+            "(#enum Code ((Maximum 18446744073709551615))) \
+             (#fn main () u64 \
+               (#return (#match Maximum (Maximum 42) (_ 0))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
     }
 
     #[test]
