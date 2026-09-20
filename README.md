@@ -373,6 +373,13 @@ Counted loops use explicit init, condition, step, and body forms:
   (set total (+ total i)))
 ```
 
+Half-open range loops lower to the same checked, typed loop form:
+
+```lisp
+(for-range (i u64) 0 10
+  (set total (+ total i)))
+```
+
 Infinite loops support `break` and `continue`:
 
 ```lisp

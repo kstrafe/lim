@@ -1544,6 +1544,55 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
 }
 
 fn lower_expr(expression: &Expr) -> Result<Expr, String> {
+    if let Expr::List(items) = expression {
+        if is_form(expression, "for-range") {
+            if items.len() < 5 {
+                return Err(
+                    "for-range requires (name Type), start, end, and at least one body statement"
+                        .into(),
+                );
+            }
+            let binding = expect_list(
+                items
+                    .get(1)
+                    .ok_or_else(|| "for-range is missing its binding".to_owned())?,
+                "for-range binding",
+            )?;
+            if binding.len() != 2 {
+                return Err("for-range binding must have the form (name Type)".into());
+            }
+            let name = expect_symbol(binding.first(), "for-range binding name")?.to_owned();
+            let ty = binding.get(1).cloned().unwrap();
+            let start = lower_expr(&items[2])?;
+            let end = lower_expr(&items[3])?;
+            let mut lowered = vec![
+                Expr::Symbol("for".into()),
+                Expr::List(vec![
+                    Expr::Symbol("let".into()),
+                    Expr::Symbol("mut".into()),
+                    Expr::Symbol(name.clone()),
+                    ty,
+                    start,
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("<".into()),
+                    Expr::Symbol(name.clone()),
+                    end,
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("set".into()),
+                    Expr::Symbol(name.clone()),
+                    Expr::List(vec![
+                        Expr::Symbol("+".into()),
+                        Expr::Symbol(name),
+                        Expr::Integer(1),
+                    ]),
+                ]),
+            ];
+            lowered.extend(items[4..].iter().cloned());
+            return lower_expr(&Expr::List(lowered));
+        }
+    }
     match expression {
         Expr::List(items) if is_form(expression, "while-let") => {
             if items.len() < 4 {
@@ -3032,6 +3081,16 @@ mod tests {
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("for_step"));
+    }
+
+    #[test]
+    fn lowers_explicit_range_loops() {
+        let program = parse_program(
+            "(fn main () u64 (let mut total u64 0) (for-range (i u64) 0 10 (set total (+ total i))) total)",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("for_step"));
     }
 
     #[test]
