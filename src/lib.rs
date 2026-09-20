@@ -748,7 +748,7 @@ pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), Str
                 .ok_or_else(|| "result expansion has no error payload type".to_owned())?;
             let second_source = type_source(second);
             generated.push(format!(
-                "(#enum {name} (({first_name} {first_source}) ({second_name} {second_source})))\n(#fn {name}-ok ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-err ((error {second_source})) {name} (#return ({second_name} error)))\n(#fn {name}-is-ok ((value {name})) bool (#return (#match value (({first_name} _) true) (({second_name} _) false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (({first_name} payload) payload) (({second_name} _) fallback))))\n",
+                "(#enum {name} (({first_name} {first_source}) ({second_name} {second_source})))\n(#fn {name}-ok ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-err ((error {second_source})) {name} (#return ({second_name} error)))\n(#fn {name}-is-ok ((value {name})) bool (#return (#match value (({first_name} _) true) (({second_name} _) false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (({first_name} payload) payload) (({second_name} _) fallback))))\n(#fn {name}-unwrap-err-or ((value {name}) (fallback {second_source})) {second_source} (#return (#match value (({first_name} _) fallback) (({second_name} error) error))))\n",
             ));
         }
     }
@@ -1529,6 +1529,24 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Expr::Symbol("payload".into()),
         Expr::Symbol("fallback".into()),
     );
+    let unwrap_err_or = Expr::List(vec![
+        Expr::Symbol("match".into()),
+        Expr::Symbol("value".into()),
+        Expr::List(vec![
+            Expr::List(vec![
+                Expr::Symbol(ok_name.clone()),
+                Expr::Symbol("_".into()),
+            ]),
+            Expr::Symbol("fallback".into()),
+        ]),
+        Expr::List(vec![
+            Expr::List(vec![
+                Expr::Symbol(err_name.clone()),
+                Expr::Symbol("error".into()),
+            ]),
+            Expr::Symbol("error".into()),
+        ]),
+    ]);
     Ok(vec![
         generated,
         Item::Function(Function {
@@ -1587,6 +1605,24 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
             ],
             return_type: ok,
             body: vec![Statement::Return(Some(unwrap_or))],
+        }),
+        Item::Function(Function {
+            name: format!("{name}-unwrap-err-or"),
+            type_parameters: Vec::new(),
+            parameters: vec![
+                Parameter {
+                    name: "value".into(),
+                    ty: Type::Named(name.clone()),
+                    mutable: false,
+                },
+                Parameter {
+                    name: "fallback".into(),
+                    ty: error.clone(),
+                    mutable: false,
+                },
+            ],
+            return_type: error,
+            body: vec![Statement::Return(Some(unwrap_err_or))],
         }),
     ])
 }
@@ -3103,6 +3139,7 @@ mod tests {
         let generated = std::fs::read_to_string(directory.join("result-0.lim")).unwrap();
         assert!(generated.contains("Result-ok-value"));
         assert!(generated.contains("Result-unwrap-or"));
+        assert!(generated.contains("Result-unwrap-err-or"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

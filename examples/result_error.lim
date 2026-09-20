@@ -1,0 +1,5 @@
+(@result u64 u32 Result)
+
+(#fn main () u64
+  (#return
+    (#as (Result-unwrap-err-or (Result-err 7) 0) u64)))

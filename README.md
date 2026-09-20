@@ -51,7 +51,7 @@ The first built-in generated declaration is `@optional`, which expands to a
 enum and generated `-construct`, `-is-some`, and `-unwrap-or` helpers:
 
 `@result` generates a two-payload result enum and explicit `-ok`, `-err`,
-`-is-ok`, and `-unwrap-or` helpers:
+`-is-ok`, `-unwrap-or`, and `-unwrap-err-or` helpers:
 
 The assembly CLI materializes each generated declaration as inspectable Lim
 source under a `.lim/` directory beside the input file.
