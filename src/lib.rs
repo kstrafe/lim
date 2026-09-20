@@ -929,6 +929,16 @@ fn rename_expression(
                         rename_expression(item, bindings, used, next_id, globals, variants);
                     }
                 }
+                "tuple" => {
+                    let value_start = items
+                        .get(1)
+                        .and_then(|item| parse_type(Some(item)).ok())
+                        .filter(|ty| matches!(ty, Type::Tuple(_)))
+                        .map_or(1, |_| 2);
+                    for item in items.iter_mut().skip(value_start) {
+                        rename_expression(item, bindings, used, next_id, globals, variants);
+                    }
+                }
                 _ => {
                     for item in items.iter_mut().skip(1) {
                         rename_expression(item, bindings, used, next_id, globals, variants);
@@ -3300,6 +3310,19 @@ mod tests {
                (#return (#match (Some 1) \
                  ((Some value) (#u64.+.wrap value 1)) \
                  (None value))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn preserves_type_descriptors_when_a_local_matches_a_type_name() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#let u64 u64 40) \
+               (#return (#u64.+.wrap \
+                 (#get (#tuple (#tuple u64 u64) u64 2) 0) 2)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
