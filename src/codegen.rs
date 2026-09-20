@@ -661,6 +661,7 @@ fn ensure_integer_type(ty: &Type) -> Result<(), String> {
     if matches!(
         ty,
         Type::Bool
+            | Type::Char
             | Type::I8
             | Type::I16
             | Type::I32
@@ -782,6 +783,7 @@ fn constant_value(
 ) -> Result<i128, String> {
     match expression {
         Expr::Integer(value) => Ok(*value),
+        Expr::Char(value) => Ok(*value as i128),
         Expr::Float(_) => Err("floating-point global initializers are not supported".into()),
         Expr::Symbol(name) if name == "true" => Ok(1),
         Expr::Symbol(name) if name == "false" => Ok(0),
@@ -1359,6 +1361,9 @@ impl FunctionContext {
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         match expression {
             Expr::Integer(value) => self.output.push_str(&format!("    mov rax, {value}\n")),
+            Expr::Char(value) => self
+                .output
+                .push_str(&format!("    mov rax, {}\n", *value as u32)),
             Expr::Float(value) => {
                 let bits = value
                     .parse::<f64>()

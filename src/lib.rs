@@ -40,6 +40,7 @@ pub enum TokenKind {
     Symbol(String),
     Integer(i128),
     Float(String),
+    Char(char),
     String(String),
 }
 
@@ -95,7 +96,10 @@ impl<'a> Lexer<'a> {
                 b' ' | b'\t' | b'\r' | b'\n' => {
                     self.advance();
                 }
-                b'#' | b';' => {
+                b';' => {
+                    self.skip_comment();
+                }
+                b'#' if self.source.get(self.offset + 1) != Some(&b'\\') => {
                     self.skip_comment();
                 }
                 b'(' => tokens.push(self.one(TokenKind::LParen)),
@@ -103,6 +107,9 @@ impl<'a> Lexer<'a> {
                 b'\'' => tokens.push(self.one(TokenKind::Quote)),
                 b'@' => tokens.push(self.one(TokenKind::At)),
                 b'"' => tokens.push(self.string_token()?),
+                b'#' if self.source.get(self.offset + 1) == Some(&b'\\') => {
+                    tokens.push(self.char_token()?)
+                }
                 _ => tokens.push(self.atom()?),
             }
         }
@@ -213,6 +220,46 @@ impl<'a> Lexer<'a> {
         })
     }
 
+    fn char_token(&mut self) -> Result<Token, LexError> {
+        let start = self.offset;
+        let line = self.line;
+        let column = self.column;
+        self.advance(); // '#'
+        self.advance(); // '\\'
+        let value_start = self.offset;
+        while let Some(byte) = self.peek() {
+            if byte.is_ascii_whitespace()
+                || matches!(byte, b'(' | b')' | b'\'' | b'"' | b'@' | b'#' | b';')
+            {
+                break;
+            }
+            self.advance();
+        }
+        let text = std::str::from_utf8(&self.source[value_start..self.offset])
+            .expect("lexer input is valid UTF-8");
+        let character = match text {
+            "space" => ' ',
+            "newline" => '\n',
+            "tab" => '\t',
+            "return" => '\r',
+            "null" => '\0',
+            _ => {
+                let mut chars = text.chars();
+                let Some(character) = chars.next() else {
+                    return Err(self.error("character literal is empty"));
+                };
+                if chars.next().is_some() {
+                    return Err(self.error("character literal must contain one character"));
+                }
+                character
+            }
+        };
+        Ok(Token {
+            kind: TokenKind::Char(character),
+            span: Span::new(start, self.offset, line, column),
+        })
+    }
+
     fn error(&self, message: &str) -> LexError {
         LexError {
             message: message.to_owned(),
@@ -254,6 +301,7 @@ pub enum Expr {
     Symbol(String),
     Integer(i128),
     Float(String),
+    Char(char),
     String(String),
     /// The generated-code sigil in source, e.g. `(@optional T T?)`.
     At,
@@ -879,6 +927,13 @@ impl<'a> Parser<'a> {
                     span: token.span,
                 })
             }
+            TokenKind::Char(value) => {
+                self.index += 1;
+                Ok(SpannedExpr {
+                    expr: Expr::Char(*value),
+                    span: token.span,
+                })
+            }
             TokenKind::String(value) => {
                 self.index += 1;
                 Ok(SpannedExpr {
@@ -973,6 +1028,15 @@ mod tests {
                 Expr::Integer(10),
                 Expr::Integer(1000),
             ])
+        );
+    }
+
+    #[test]
+    fn parses_lisp_character_literals() {
+        let expressions = parse("(#\\a #\\space #\\newline)").unwrap();
+        assert_eq!(
+            expressions[0].expr,
+            Expr::List(vec![Expr::Char('a'), Expr::Char(' '), Expr::Char('\n')])
         );
     }
 
@@ -1182,6 +1246,13 @@ mod tests {
         assert!(assembly.contains("addss xmm1, xmm0"));
         assert!(assembly.contains("ucomiss xmm1, xmm0"));
         assert!(assembly.contains("movd xmm0"));
+    }
+
+    #[test]
+    fn checks_and_lowers_char_values() {
+        let program = parse_program("(fn main () u64 (if (== #\\a #\\a) 42 0))").unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("mov rax, 97"));
     }
 
     #[test]

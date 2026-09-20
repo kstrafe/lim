@@ -37,6 +37,7 @@ cc /tmp/fibonacci.s -o /tmp/fibonacci
 - Binary (`0b`), octal (`0o`), hexadecimal (`0x`), and underscore-separated integer literals
 - Strings with `\\n`, `\\r`, `\\t`, `\\\\`, and `\\"` escapes
 - Quote syntax (`'form`)
+- Lisp character literals (`#\a`, `#\space`, `#\newline`)
 - `#` and `;` line comments
 - The generated-code sigil `@` as a first-class AST node
 
@@ -70,6 +71,13 @@ Conversions are explicit integer casts:
 
 Native `f32` and `f64` locals, homogeneous parameters, mixed scalar parameters,
 arithmetic, comparisons, and returns use SSE registers where appropriate.
+
+Character literals have the Rust `char` type and lower to native scalar values:
+
+```lisp
+(fn is-a () u64
+  (if (== #\a #\a) 1 0))
+```
 
 Named type aliases are explicit and resolve to their target type:
 

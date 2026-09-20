@@ -468,6 +468,7 @@ fn expression(
             }
             Ok(ty)
         }
+        Expr::Char(_) => Ok(Type::Char),
         Expr::Symbol(name) if name == "true" || name == "false" => Ok(Type::Bool),
         Expr::Symbol(name) => variables
             .get(name)
