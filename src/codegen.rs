@@ -6607,6 +6607,51 @@ impl FunctionContext {
     }
 
     fn index_expression_without_literal(&mut self, items: &[Expr]) -> Result<(), String> {
+        if !matches!(&items[1], Expr::Symbol(_)) {
+            if let Some(Type::Array(element, length)) = self.expression_type(&items[1]) {
+                let element_words = storage_word_count(&element, &self.structs, &self.enums)?;
+                let words = length.saturating_mul(element_words);
+                if words > VALUE_REGISTERS.len() {
+                    if element_words > VALUE_REGISTERS.len() {
+                        return Err(
+                            "native computed indexing cannot return an oversized array element"
+                                .into(),
+                        );
+                    }
+                    let temp_base = self
+                        .aggregate_temp_base
+                        .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
+                    self.store_value_to_slots(
+                        &items[1],
+                        &Type::Array(element.clone(), length),
+                        &flat_slots(temp_base, words),
+                    )?;
+                    let bounds_failure = self.label("temporary_array_bounds_failure");
+                    let done = self.label("temporary_array_index_done");
+                    self.expression(&items[2])?;
+                    self.output.push_str(&format!(
+                        "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    imul rcx, {}\n    shl rcx, 3\n    lea r11, [rbp-{}]\n    sub r11, rcx\n",
+                        element_words,
+                        temp_base * 8
+                    ));
+                    for (word, register) in VALUE_REGISTERS[..element_words].iter().enumerate() {
+                        self.output.push_str(&format!(
+                            "    mov {register}, QWORD PTR [r11-{}]\n",
+                            word * 8
+                        ));
+                    }
+                    self.output.push_str(&format!(
+                        "    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n"
+                    ));
+                    if element_words == 1 && matches!(*element, Type::F32) {
+                        self.output.push_str("    movd xmm0, eax\n");
+                    } else if element_words == 1 && matches!(*element, Type::F64) {
+                        self.output.push_str("    movq xmm0, rax\n");
+                    }
+                    return Ok(());
+                }
+            }
+        }
         let Some(name) = (match &items[1] {
             Expr::Symbol(name) => Some(name),
             _ => None,

@@ -1,0 +1,22 @@
+(#struct Wrapped
+  ((payload (#array u64 7))))
+
+(#enum Envelope
+  ((Values (#array u64 7)) Empty))
+
+(#fn main () u64
+  (#let mut tuple (#tuple u64 (#array u64 7))
+    (#tuple (#tuple u64 (#array u64 7))
+      1u64
+      (#array (#array u64 7) 2u64 3u64 4u64 5u64 6u64 7u64 8u64)))
+  (#set-field tuple 1
+    (#array (#array u64 7) 10u64 20u64 30u64 40u64 50u64 60u64 42u64))
+  (#let mut structure Wrapped
+    (Wrapped (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)))
+  (#set-field structure payload
+    (#array (#array u64 7) 11u64 22u64 33u64 44u64 55u64 66u64 42u64))
+  (#let mut envelope Envelope
+    (Values (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)))
+  (#set-payload envelope Values 0
+    (#array (#array u64 7) 12u64 24u64 36u64 48u64 60u64 72u64 42u64))
+  (#return (#index (#get structure payload) 6u64)))
