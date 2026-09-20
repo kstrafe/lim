@@ -1,5 +1,25 @@
-(fn make () (array u64 3)
-  (array 10 20 30))
+(
+  #fn
+  make
+  ()
+  (#array u64 3)
+  (
+    #return
+    (#array 10 20 30)
+  )
+)
 
-(fn main () u64
-  (index (make) 1))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #index
+      (make)
+      1
+    )
+  )
+)

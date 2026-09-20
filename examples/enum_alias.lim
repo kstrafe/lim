@@ -1,7 +1,29 @@
-(type Value u64)
-(enum Box ((Some Value) None))
+(#type Value u64)
 
-(fn main () u64
-  (match (Some 42)
-    ((Some value) value)
-    (None 0)))
+(
+  #enum
+  Box
+  (
+    (Some Value)
+    None
+  )
+)
+
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #match
+      (Some 42)
+      (
+        (Some value)
+        value
+      )
+      (None 0)
+    )
+  )
+)

@@ -1,5 +1,23 @@
-(fn main () u64
-  (let value f64 41.75)
-  (let whole u64 (as value u64))
-  (let small f32 (as whole f32))
-  (as small u64))
+(
+  #fn
+  main
+  ()
+  u64
+  (#let value f64 41.75)
+  (
+    #let
+    whole
+    u64
+    (#as value u64)
+  )
+  (
+    #let
+    small
+    f32
+    (#as whole f32)
+  )
+  (
+    #return
+    (#as small u64)
+  )
+)

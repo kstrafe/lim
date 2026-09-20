@@ -1,6 +1,25 @@
-(fn increment ((mut value u64)) u64
-  (set value (+ value 1))
-  value)
+(
+  #fn
+  increment
+  (
+    (mut value u64)
+  )
+  u64
+  (
+    #set
+    value
+    (#u64.+.wrap  value 1)
+  )
+  (#return value)
+)
 
-(fn main () u64
-  (increment 41))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (increment 41)
+  )
+)

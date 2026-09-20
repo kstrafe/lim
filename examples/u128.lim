@@ -1,5 +1,28 @@
-(fn add ((left u128) (right u128)) u128
-  (+ left right))
+(
+  #fn
+  add
+  (
+    (left u128)
+    (right u128)
+  )
+  u128
+  (
+    #return
+    (#u128.+.wrap  left right)
+  )
+)
 
-(fn main () u64
-  (as (add 20 22) u64))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #as
+      (add 20 22)
+      u64
+    )
+  )
+)

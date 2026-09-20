@@ -1,8 +1,38 @@
-(struct Point ((x u64) (y u64)))
+(
+  #struct
+  Point
+  (
+    (x u64)
+    (y u64)
+  )
+)
 
-(fn identity ((point Point)) Point
-  point)
+(
+  #fn
+  identity
+  (
+    (point Point)
+  )
+  Point
+  (#return point)
+)
 
-(fn main () u64
-  (let result Point (identity (Point 11 37)))
-  (get result y))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    result
+    Point
+    (
+      identity
+      (Point 11 37)
+    )
+  )
+  (
+    #return
+    (#get result y)
+  )
+)

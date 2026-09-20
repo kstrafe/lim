@@ -5,9 +5,8 @@ S-expressions, but its type and evaluation rules are deliberately explicit.
 The compiler currently targets native x86-64 assembly for the host system.
 
 This document describes the language implemented by this crate.  The
-canonical spelling uses `#` before every builtin form.  The parser also has a
-compatibility mode for older, unprefixed examples; new programs should use
-the canonical spelling.
+canonical spelling uses `#` before every builtin form. Unprefixed builtin
+forms are rejected.
 
 ## Design and scope
 
@@ -43,14 +42,13 @@ assemble/link it with the compiler toolchain in the dev shell:
 
 ```sh
 nix develop --command cargo run -- \
-  --emit-asm --strict examples/fibonacci.lim /tmp/fibonacci.s
+  --emit-asm examples/fibonacci.lim /tmp/fibonacci.s
 nix develop --command clang /tmp/fibonacci.s -o /tmp/fibonacci
 /tmp/fibonacci
 echo $? # 55 for the Fibonacci example
 ```
 
-`--emit-asm` takes `INPUT OUTPUT`.  `--strict` is optional for compatibility
-input, but is recommended for canonical Lim.  Generated `@` declarations are
+`--emit-asm` takes `INPUT OUTPUT`. Generated `@` declarations are
 materialized under `.lim/` beside the input source.
 
 ## Lexical syntax
@@ -490,7 +488,7 @@ The library exposes these stages:
 
 1. `lex` converts source into tokens with byte and line/column spans.
 2. `parse` builds untyped S-expressions and preserves `@` as `Expr::At`.
-3. `parse_program` or `parse_program_strict` lowers declarations and builtin
+3. `parse_program` or `parse_program` lowers declarations and builtin
    forms into the typed program representation, including generated forms and
    generic specialization.
 4. `check_types` validates declarations, expressions, layouts, patterns,
@@ -503,8 +501,7 @@ The crate is dependency-free.  Its primary public types and functions are:
 
 - `lex(&str) -> Result<Vec<Token>, LexError>`;
 - `parse(&str) -> Result<Vec<SpannedExpr>, String>`;
-- `parse_program(&str) -> Result<Program, String>` for compatibility syntax;
-- `parse_program_strict(&str) -> Result<Program, String>` for canonical syntax;
+- `parse_program(&str) -> Result<Program, String>` for canonical syntax;
 - `check_types(&Program) -> Result<(), String>`;
 - `generate_assembly(&Program) -> Result<String, String>`;
 - `write_generated_sources(&str, &Path) -> Result<(), String>`;

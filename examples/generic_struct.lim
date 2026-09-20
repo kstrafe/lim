@@ -1,5 +1,25 @@
-(struct Box (T) ((value T)))
+(
+  #struct
+  Box
+  (T)
+  (
+    (value T)
+  )
+)
 
-(fn main () u64
-  (let boxed Box<u64> (Box<u64> 42))
-  (get boxed value))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    boxed
+    Box<u64>
+    (Box<u64> 42)
+  )
+  (
+    #return
+    (#get boxed value)
+  )
+)

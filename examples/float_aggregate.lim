@@ -1,8 +1,51 @@
-(struct Point ((x f64) (y f32)))
+(
+  #struct
+  Point
+  (
+    (x f64)
+    (y f32)
+  )
+)
 
-(fn main () u64
-  (let point Point (Point 1.5 2.5))
-  (let x f64 (get point x))
-  (let values (array f32 2) (array 1.5 2.5))
-  (let y f32 (index values 1))
-  (if (&& (> x 1.0) (> y 2.0)) 42 0))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    point
+    Point
+    (Point 1.5 2.5)
+  )
+  (
+    #let
+    x
+    f64
+    (#get point x)
+  )
+  (
+    #let
+    values
+    (#array f32 2)
+    (#array 1.5 2.5)
+  )
+  (
+    #let
+    y
+    f32
+    (#index values 1)
+  )
+  (
+    #return
+    (
+      #if
+      (#bool.&&
+        (#f64.>  x 1.0)
+        (#f32.>  y 2.0)
+      )
+      42
+      0
+    )
+  )
+)

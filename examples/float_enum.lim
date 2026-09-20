@@ -1,13 +1,62 @@
-(enum MaybeF
-  ((SomeF f32) None))
+(
+  #enum
+  MaybeF
+  (
+    (SomeF f32)
+    None
+  )
+)
 
-(fn make () MaybeF
-  (SomeF 2.5))
+(
+  #fn
+  make
+  ()
+  MaybeF
+  (
+    #return
+    (SomeF 2.5)
+  )
+)
 
-(fn read ((value MaybeF)) f32
-  (match value
-    ((SomeF payload) payload)
-    (None 0.0)))
+(
+  #fn
+  read
+  (
+    (value MaybeF)
+  )
+  f32
+  (
+    #return
+    (
+      #match
+      value
+      (
+        (SomeF payload)
+        payload
+      )
+      (None 0.0)
+    )
+  )
+)
 
-(fn main () u64
-  (if (> (read (make)) 2.0) 42 0))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #if
+      (#f32.>
+        (
+          read
+          (make)
+        )
+        2.0
+      )
+      42
+      0
+    )
+  )
+)

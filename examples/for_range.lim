@@ -1,5 +1,19 @@
-(fn main () u64
-  (let mut total u64 0)
-  (for-range (i u64) 0 10
-    (set total (+ total i)))
-  total)
+(
+  #fn
+  main
+  ()
+  u64
+  (#let mut total u64 0)
+  (
+    #for-range
+    (i u64)
+    0
+    10
+    (
+      #set
+      total
+      (#u64.+.wrap  total i)
+    )
+  )
+  (#return total)
+)

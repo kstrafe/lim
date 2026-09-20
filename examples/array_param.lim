@@ -1,6 +1,32 @@
-(fn identity ((values (array u64 3))) (array u64 3)
-  values)
+(
+  #fn
+  identity
+  (
+    (
+      values
+      (#array u64 3)
+    )
+  )
+  (#array u64 3)
+  (#return values)
+)
 
-(fn main () u64
-  (let values (array u64 3) (identity (array 10 20 37)))
-  (index values 2))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    values
+    (#array u64 3)
+    (
+      identity
+      (#array 10 20 37)
+    )
+  )
+  (
+    #return
+    (#index values 2)
+  )
+)

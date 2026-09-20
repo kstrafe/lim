@@ -1,7 +1,34 @@
-(struct Point ((x u64) (y u64)))
+(
+  #struct
+  Point
+  (
+    (x u64)
+    (y u64)
+  )
+)
 
-(fn make () Point
-  (Point 7 9))
+(
+  #fn
+  make
+  ()
+  Point
+  (
+    #return
+    (Point 7 9)
+  )
+)
 
-(fn main () u64
-  (get (make) y))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #get
+      (make)
+      y
+    )
+  )
+)

@@ -1,10 +1,52 @@
-(struct Point ((x f64) (y f32)))
+(
+  #struct
+  Point
+  (
+    (x f64)
+    (y f32)
+  )
+)
 
-(fn make () Point
-  (Point 1.5 2.5))
+(
+  #fn
+  make
+  ()
+  Point
+  (
+    #return
+    (Point 1.5 2.5)
+  )
+)
 
-(fn main () u64
-  (if (&& (> (get (make) x) 1.0)
-          (> (get (make) y) 2.0))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #if
+      (#bool.&&
+        (#f64.>
+          (
+            #get
+            (make)
+            x
+          )
+          1.0
+        )
+        (#f32.>
+          (
+            #get
+            (make)
+            y
+          )
+          2.0
+        )
+      )
       42
-      0))
+      0
+    )
+  )
+)

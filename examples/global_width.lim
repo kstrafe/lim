@@ -1,5 +1,22 @@
-(let WRAPPED u8
-  (+ 255 1))
+(
+  #let
+  WRAPPED
+  u8
+  (#u8.+.wrap  255 1)
+)
 
-(fn main () u64
-  (if (== WRAPPED 0) 42 0))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #if
+      (#u8.==  WRAPPED 0)
+      42
+      0
+    )
+  )
+)

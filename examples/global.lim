@@ -1,4 +1,12 @@
-(let ANSWER u64 40)
+(#let ANSWER u64 40)
 
-(fn main () u64
-  (+ ANSWER 2))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (#u64.+.wrap  ANSWER 2)
+  )
+)

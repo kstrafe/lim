@@ -1,5 +1,19 @@
-(fn noop () () ())
+(
+  #fn
+  noop
+  ()
+  ()
+  (
+    #return
+    ()
+  )
+)
 
-(fn main () u64
+(
+  #fn
+  main
+  ()
+  u64
   (noop)
-  42)
+  (#return 42)
+)

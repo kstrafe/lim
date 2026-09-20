@@ -1,6 +1,30 @@
-(struct Point ((x u64) (y u64)))
+(
+  #struct
+  Point
+  (
+    (x u64)
+    (y u64)
+  )
+)
 
-(fn main () u64
-  (let mut point Point (Point 1 2))
-  (set-field point y 40)
-  (+ (get point x) (get point y)))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    mut
+    point
+    Point
+    (Point 1 2)
+  )
+  (#set-field point y 40)
+  (
+    #return
+    (#u64.+.wrap
+      (#get point x)
+      (#get point y)
+    )
+  )
+)

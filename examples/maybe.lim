@@ -1,10 +1,44 @@
-(enum Maybe ((Some u64) None))
+(
+  #enum
+  Maybe
+  (
+    (Some u64)
+    None
+  )
+)
 
-(fn make () Maybe
-  (Some 42))
+(
+  #fn
+  make
+  ()
+  Maybe
+  (
+    #return
+    (Some 42)
+  )
+)
 
-(fn main () u64
-  (let value Maybe (make))
-  (match value
-    ((Some payload) payload)
-    (None 7)))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    value
+    Maybe
+    (make)
+  )
+  (
+    #return
+    (
+      #match
+      value
+      (
+        (Some payload)
+        payload
+      )
+      (None 7)
+    )
+  )
+)

@@ -1,4 +1,18 @@
-(fn main () u64
-  (assert (== (+ 20 22) 42))
-  (debug-assert (>= 42 0))
-  42)
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #assert
+    (#u64.==
+      (#u64.+.wrap  20 22)
+      42
+    )
+  )
+  (
+    #debug-assert
+    (#u64.>=  42 0)
+  )
+  (#return 42)
+)

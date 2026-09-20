@@ -1,4 +1,29 @@
-(struct Point ((x u64) (y u64)))
+(
+  #struct
+  Point
+  (
+    (x u64)
+    (y u64)
+  )
+)
 
-(fn main () u64
-  (as (+ (size-of Point) (size-of (array u32 2))) u64))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #as
+      (#usize.+.wrap
+        (#size-of Point)
+        (
+          #size-of
+          (#array u32 2)
+        )
+      )
+      u64
+    )
+  )
+)

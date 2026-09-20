@@ -1,5 +1,33 @@
-(fn make () (array f32 2)
-  (array 1.5 2.5))
+(
+  #fn
+  make
+  ()
+  (#array f32 2)
+  (
+    #return
+    (#array 1.5 2.5)
+  )
+)
 
-(fn main () u64
-  (if (> (index (make) 1) 2.0) 42 0))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #if
+      (#f32.>
+        (
+          #index
+          (make)
+          1
+        )
+        2.0
+      )
+      42
+      0
+    )
+  )
+)

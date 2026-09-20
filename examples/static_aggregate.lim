@@ -32,9 +32,9 @@
     (#u64.+.wrap
       (#index copied 0)
       (#u64.+.wrap
-        (#index (return-values) 2)
+        (#index (#return-values) 2)
         (#u64.+.wrap
           (take Values Origin)
           (#u64.+.wrap
             (read-choice copied-choice)
-            (read-choice (return-choice))))))))
+            (read-choice (#return-choice))))))))

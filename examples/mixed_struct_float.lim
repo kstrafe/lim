@@ -1,9 +1,48 @@
-(struct Pair ((scale f32) (value u64)))
+(
+  #struct
+  Pair
+  (
+    (scale f32)
+    (value u64)
+  )
+)
 
-(fn consume ((pair Pair) (factor f32)) u64
-  (if (> (get pair scale) 1.0)
-      (+ (get pair value) 1)
-      0))
+(
+  #fn
+  consume
+  (
+    (pair Pair)
+    (factor f32)
+  )
+  u64
+  (
+    #return
+    (
+      #if
+      (#f32.>
+        (#get pair scale)
+        1.0
+      )
+      (#u64.+.wrap
+        (#get pair value)
+        1
+      )
+      0
+    )
+  )
+)
 
-(fn main () u64
-  (consume (Pair 1.5 41) 2.0))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      consume
+      (Pair 1.5 41)
+      2.0
+    )
+  )
+)

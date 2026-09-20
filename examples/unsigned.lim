@@ -1,5 +1,16 @@
-(fn main () u64
-  (let value u64 1)
-  (if (< value 2)
+(
+  #fn
+  main
+  ()
+  u64
+  (#let value u64 1)
+  (
+    #return
+    (
+      #if
+      (#u64.<  value 2)
       42
-      7))
+      7
+    )
+  )
+)

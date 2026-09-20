@@ -1,6 +1,27 @@
-(fn widen () u128
-  (as 42 u128))
+(
+  #fn
+  widen
+  ()
+  u128
+  (
+    #return
+    (#as 42 u128)
+  )
+)
 
-(fn main () u64
-  (let value u128 (widen))
-  (as value u64))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    value
+    u128
+    (widen)
+  )
+  (
+    #return
+    (#as value u64)
+  )
+)

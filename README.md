@@ -16,12 +16,12 @@ cargo test --all-targets
 ```
 
 The command-line parser reads a file passed as its first argument, or reads
-standard input, and prints the parsed AST. Use `--strict` for the canonical
-fully explicit syntax:
+standard input, and prints the parsed AST. Lim has one canonical syntax, with
+all builtin forms and operators prefixed by `#`:
 
 ```sh
 printf '%s\n' '(@optional MyType MyType?)' | nix develop --command cargo run
-printf '%s\n' '(#fn main () u64 (#return 42))' | nix develop --command cargo run -- --strict
+printf '%s\n' '(#fn main () u64 (#return 42))' | nix develop --command cargo run
 ```
 
 Emit x86-64 assembly with the native backend:
@@ -31,12 +31,6 @@ nix develop --command cargo run -- --emit-asm examples/fibonacci.lim /tmp/fibona
 cc /tmp/fibonacci.s -o /tmp/fibonacci
 /tmp/fibonacci
 # exits with 55
-```
-
-The compiler can require the fully explicit syntax at the command line:
-
-```sh
-nix develop --command cargo run -- --emit-asm --strict examples/fibonacci.lim /tmp/fibonacci.s
 ```
 
 Run the complete native example sweep inside the development shell:
@@ -50,10 +44,8 @@ trap examples separately from compiler, linker, and timeout failures.
 
 ## Syntax currently recognized
 
-The `#`-prefixed forms are canonical. `parse_program` continues to accept
-unprefixed forms as compatibility input, while `parse_program_strict` and the
-CLI's `--strict` option reject them. This keeps old source readable while
-making new keywords unambiguous and leaving future identifiers available.
+The `#`-prefixed forms are the only accepted builtin forms. This makes
+keywords unambiguous and leaves future identifiers available.
 
 - Lists: `(#fn name ((arg i32)) i32 (#return value))`
 - Symbols, including names such as `MyType?` and `-construct`

@@ -1,5 +1,35 @@
-(fn blend ((small f32) (large f64)) f64
-  (+ (as small f64) large))
+(
+  #fn
+  blend
+  (
+    (small f32)
+    (large f64)
+  )
+  f64
+  (
+    #return
+    (#f64.+
+      (#as small f64)
+      large
+    )
+  )
+)
 
-(fn main () u64
-  (if (> (blend 1.5 2.5) 4.0) 42 0))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #if
+      (#f64.>
+        (blend 1.5 2.5)
+        4.0
+      )
+      42
+      0
+    )
+  )
+)

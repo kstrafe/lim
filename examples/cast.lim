@@ -1,2 +1,14 @@
-(fn main () u64
-  (as (as 42 u32) u64))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #as
+      (#as 42 u32)
+      u64
+    )
+  )
+)

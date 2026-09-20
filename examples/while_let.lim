@@ -1,9 +1,28 @@
 (@optional u64 Maybe?)
 
-(fn main () u64
-  (let mut value Maybe? (Maybe?-construct 42))
-  (let mut total u64 0)
-  (while-let (Maybe?-some payload) value
-    (set total (+ total payload))
-    (set value Maybe?-none))
-  total)
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    mut
+    value
+    Maybe?
+    (Maybe?-construct 42)
+  )
+  (#let mut total u64 0)
+  (
+    #while-let
+    (Maybe?-some payload)
+    value
+    (
+      #set
+      total
+      (#u64.+.wrap  total payload)
+    )
+    (#set value Maybe?-none)
+  )
+  (#return total)
+)

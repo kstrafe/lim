@@ -1,7 +1,22 @@
-(enum Color (Red Green Blue))
+(
+  #enum
+  Color
+  (Red Green Blue)
+)
 
-(fn main () u64
-  (match Green
-    (Red 10)
-    (Green 20)
-    (_ 30)))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      #match
+      Green
+      (Red 10)
+      (Green 20)
+      (_ 30)
+    )
+  )
+)

@@ -1,13 +1,57 @@
-(enum Pair ((Pair u64 u64) Empty))
+(
+  #enum
+  Pair
+  (
+    (Pair u64 u64)
+    Empty
+  )
+)
 
-(fn make () Pair
-  (let value Pair (Pair 20 22))
-  value)
+(
+  #fn
+  make
+  ()
+  Pair
+  (
+    #let
+    value
+    Pair
+    (Pair 20 22)
+  )
+  (#return value)
+)
 
-(fn sum ((value Pair)) u64
-  (match value
-    ((Pair left right) (+ left right))
-    (Empty 0)))
+(
+  #fn
+  sum
+  (
+    (value Pair)
+  )
+  u64
+  (
+    #return
+    (
+      #match
+      value
+      (
+        (Pair left right)
+        (#u64.+.wrap  left right)
+      )
+      (Empty 0)
+    )
+  )
+)
 
-(fn main () u64
-  (sum (make)))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (
+      sum
+      (make)
+    )
+  )
+)

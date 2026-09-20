@@ -1,3 +1,24 @@
-(fn main () u64
-  (let value u8 (+ (as 255 u8) 1))
-  (if (== value 0) 42 0))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    value
+    u8
+    (#u8.+.wrap
+      (#as 255 u8)
+      1
+    )
+  )
+  (
+    #return
+    (
+      #if
+      (#u8.==  value 0)
+      42
+      0
+    )
+  )
+)

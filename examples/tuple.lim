@@ -1,10 +1,50 @@
-(fn make () (tuple u64 f32)
-  (tuple 40 2.5))
+(
+  #fn
+  make
+  ()
+  (#tuple u64 f32)
+  (
+    #return
+    (#tuple 40 2.5)
+  )
+)
 
-(fn consume ((value (tuple u64 f32))) u64
-  (+ (get value 0)
-     (as (get value 1) u64)))
+(
+  #fn
+  consume
+  (
+    (
+      value
+      (#tuple u64 f32)
+    )
+  )
+  u64
+  (
+    #return
+    (#u64.+.wrap
+      (#get value 0)
+      (
+        #as
+        (#get value 1)
+        u64
+      )
+    )
+  )
+)
 
-(fn main () u64
-  (let value (tuple u64 f32) (make))
-  (consume value))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    value
+    (#tuple u64 f32)
+    (make)
+  )
+  (
+    #return
+    (consume value)
+  )
+)

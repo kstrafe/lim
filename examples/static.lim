@@ -1,4 +1,12 @@
-(static BuildId u64 7)
+(#static BuildId u64 7)
 
-(fn main () u64
-  (+ BuildId 35))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (#u64.+.wrap  BuildId 35)
+  )
+)

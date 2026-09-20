@@ -1,7 +1,34 @@
-(enum Maybe (T) ((Some T) None))
+(
+  #enum
+  Maybe
+  (T)
+  (
+    (Some T)
+    None
+  )
+)
 
-(fn main () u64
-  (let value Maybe<u64> (Some 42))
-  (match value
-    ((Some payload) payload)
-    (None 0)))
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    value
+    Maybe<u64>
+    (Some 42)
+  )
+  (
+    #return
+    (
+      #match
+      value
+      (
+        (Some payload)
+        payload
+      )
+      (None 0)
+    )
+  )
+)

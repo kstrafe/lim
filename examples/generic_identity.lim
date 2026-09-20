@@ -1,2 +1,21 @@
-(fn identity (T) ((value T)) T value)
-(fn main () u64 (identity<u64> 42))
+(
+  #fn
+  identity
+  (T)
+  (
+    (value T)
+  )
+  T
+  (#return value)
+)
+
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #return
+    (identity<u64> 42)
+  )
+)

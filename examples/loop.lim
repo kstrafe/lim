@@ -1,6 +1,17 @@
-(fn main () u64
-  (let mut value u64 0)
-  (loop
-    (set value (+ value 1))
-    (break))
-  value)
+(
+  #fn
+  main
+  ()
+  u64
+  (#let mut value u64 0)
+  (
+    #loop
+    (
+      #set
+      value
+      (#u64.+.wrap  value 1)
+    )
+    (#break)
+  )
+  (#return value)
+)
