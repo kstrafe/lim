@@ -156,6 +156,9 @@ Fixed-size arrays are value types with stack storage:
   (+ (index values 0) (index values 1)))
 ```
 
+Scalar floating-point fields and array elements are stored and loaded with
+width-correct SSE instructions as well.
+
 When every element is the same, `(array-repeat value)` uses the expected array
 type and fills all positions.
 

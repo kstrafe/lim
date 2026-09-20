@@ -1187,6 +1187,18 @@ mod tests {
     }
 
     #[test]
+    fn lowers_float_values_inside_aggregates() {
+        let program = parse_program(
+            "(struct Point ((x f64) (y f32))) (fn main () u64 (let point Point (Point 1.5 2.5)) (let x f64 (get point x)) (let values (array f32 2) (array 1.5 2.5)) (let y f32 (index values 1)) (if (&& (> x 1.0) (> y 2.0)) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("movss xmm0, DWORD PTR"));
+        assert!(assembly.contains("movq xmm0, QWORD PTR"));
+    }
+
+    #[test]
     fn preserves_unsigned_comparisons_and_shifts() {
         let program =
             parse_program("(fn main () u64 (let value u64 1) (if (< value 2) (>> value 1) 0))")

@@ -914,17 +914,38 @@ impl FunctionContext {
                 };
                 let base = *base;
                 let length = *length;
+                let element_type = match self.local_types.get(name).cloned() {
+                    Some(Type::Array(element, _)) => *element,
+                    _ => return Err(format!("'{name}' is not an array")),
+                };
                 let bounds_failure = self.label("bounds_failure");
                 self.expression(index)?;
                 self.output.push_str(&format!(
                     "    cmp rax, {length}\n    jae {bounds_failure}\n"
                 ));
                 self.push_rax();
-                self.expression(value)?;
-                self.output.push_str("    mov rdx, rax\n    pop rcx\n");
+                if is_float_type(&element_type) {
+                    self.expression_as_float(value, &element_type)?;
+                    if matches!(element_type, Type::F32) {
+                        self.output.push_str("    movd edx, xmm0\n");
+                    } else {
+                        self.output.push_str("    movq rdx, xmm0\n");
+                    }
+                } else {
+                    self.expression(value)?;
+                    self.output.push_str("    mov rdx, rax\n");
+                }
+                self.output.push_str("    pop rcx\n");
                 self.stack_depth -= 1;
+                let store = if matches!(element_type, Type::F32) {
+                    "mov DWORD PTR [rax], edx"
+                } else if matches!(element_type, Type::F64) {
+                    "mov QWORD PTR [rax], rdx"
+                } else {
+                    "mov QWORD PTR [rax], rdx"
+                };
                 self.output.push_str(&format!(
-                    "    lea rax, [rbp-{}]\n    shl rcx, 3\n    sub rax, rcx\n    mov QWORD PTR [rax], rdx\n",
+                    "    lea rax, [rbp-{}]\n    shl rcx, 3\n    sub rax, rcx\n    {store}\n",
                     base * 8
                 ));
                 self.output
@@ -943,9 +964,17 @@ impl FunctionContext {
                     .find(|(field_name, _)| field_name == field)
                     .map(|(_, slot)| *slot)
                     .ok_or_else(|| format!("unknown field '{field}'"))?;
-                self.expression(value)?;
-                self.output
-                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+                let struct_name = match self.local_types.get(name) {
+                    Some(Type::Named(name)) => name,
+                    _ => return Err(format!("'{name}' is not a struct")),
+                };
+                let field_type = self
+                    .structs
+                    .get(struct_name)
+                    .and_then(|fields| fields.iter().find(|field_info| field_info.name == *field))
+                    .map(|field_info| field_info.ty.clone())
+                    .ok_or_else(|| format!("unknown field '{field}'"))?;
+                self.store_scalar_at_slot(value, &field_type, slot)?;
             }
             Statement::While { condition, body } => {
                 let start = self.label("while");
@@ -1027,6 +1056,35 @@ impl FunctionContext {
             }
         }
         Ok(())
+    }
+
+    fn store_scalar_at_slot(&mut self, value: &Expr, ty: &Type, slot: usize) -> Result<(), String> {
+        if matches!(ty, Type::F32) {
+            self.expression_as_float(value, ty)?;
+            self.output.push_str(&format!(
+                "    movd eax, xmm0\n    mov DWORD PTR [rbp-{}], eax\n",
+                slot * 8
+            ));
+        } else if matches!(ty, Type::F64) {
+            self.expression_as_float(value, ty)?;
+            self.output.push_str(&format!(
+                "    movq rax, xmm0\n    mov QWORD PTR [rbp-{}], rax\n",
+                slot * 8
+            ));
+        } else {
+            self.expression(value)?;
+            self.output
+                .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+        }
+        Ok(())
+    }
+
+    fn expression_as_expected(&mut self, value: &Expr, ty: &Type) -> Result<(), String> {
+        if is_float_type(ty) {
+            self.expression_as_float(value, ty)
+        } else {
+            self.expression(value)
+        }
     }
 
     fn return_value(&mut self, value: &Expr) -> Result<(), String> {
@@ -1234,10 +1292,8 @@ impl FunctionContext {
         if items.len() - 1 != fields.len() {
             return Err(format!("constructor '{struct_name}' has wrong field count"));
         }
-        for ((_, slot), value) in slots.iter().zip(&items[1..]) {
-            self.expression(value)?;
-            self.output
-                .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+        for ((_, slot), (field, value)) in slots.iter().zip(fields.iter().zip(&items[1..])) {
+            self.store_scalar_at_slot(value, &field.ty, *slot)?;
         }
         Ok(())
     }
@@ -1326,12 +1382,12 @@ impl FunctionContext {
             if items.len() != 2 {
                 return Err("array-repeat requires one value".into());
             }
+            let element_type = match self.local_types.get(name).cloned() {
+                Some(Type::Array(element, _)) => *element,
+                _ => return Err(format!("'{name}' is not an array")),
+            };
             for index in 0..length {
-                self.expression(&items[1])?;
-                self.output.push_str(&format!(
-                    "    mov QWORD PTR [rbp-{}], rax\n",
-                    (base + index) * 8
-                ));
+                self.store_scalar_at_slot(&items[1], &element_type, base + index)?;
             }
             return Ok(());
         }
@@ -1348,12 +1404,12 @@ impl FunctionContext {
         if items.len() - 1 != length {
             return Err("array constructor has the wrong length".into());
         }
+        let element_type = match self.local_types.get(name).cloned() {
+            Some(Type::Array(element, _)) => *element,
+            _ => return Err(format!("'{name}' is not an array")),
+        };
         for (index, value) in items[1..].iter().enumerate() {
-            self.expression(value)?;
-            self.output.push_str(&format!(
-                "    mov QWORD PTR [rbp-{}], rax\n",
-                (base + index) * 8
-            ));
+            self.store_scalar_at_slot(value, &element_type, base + index)?;
         }
         Ok(())
     }
@@ -1512,6 +1568,10 @@ impl FunctionContext {
             unreachable!()
         };
         let length = *length;
+        let element_type = match self.local_types.get(name).cloned() {
+            Some(Type::Array(element, _)) => *element,
+            _ => return Err(format!("'{name}' is not an array")),
+        };
         let bounds_failure = self.label("bounds_failure");
         self.expression(&items[2])?;
         self.output.push_str("    mov rcx, rax\n");
@@ -1519,9 +1579,16 @@ impl FunctionContext {
             "    cmp rcx, {length}\n    jae {bounds_failure}\n"
         ));
         self.output.push_str(&format!(
-            "    lea rdx, [rbp-{}]\n    shl rcx, 3\n    sub rdx, rcx\n    mov rax, QWORD PTR [rdx]\n",
+            "    lea rdx, [rbp-{}]\n    shl rcx, 3\n    sub rdx, rcx\n",
             base * 8
         ));
+        if matches!(element_type, Type::F32) {
+            self.output.push_str("    movss xmm0, DWORD PTR [rdx]\n");
+        } else if matches!(element_type, Type::F64) {
+            self.output.push_str("    movq xmm0, QWORD PTR [rdx]\n");
+        } else {
+            self.output.push_str("    mov rax, QWORD PTR [rdx]\n");
+        }
         self.output.push_str(&format!(
             "    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n"
         ));
@@ -1641,8 +1708,26 @@ impl FunctionContext {
                     .find(|(name, _)| name == field_name)
                     .map(|(_, slot)| *slot)
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;
-                self.output
-                    .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+                let struct_name = match self.local_types.get(local) {
+                    Some(Type::Named(name)) => name,
+                    _ => return Err(format!("'{local}' is not a struct")),
+                };
+                let field_type = self
+                    .structs
+                    .get(struct_name)
+                    .and_then(|fields| fields.iter().find(|field| field.name == *field_name))
+                    .map(|field| field.ty.clone())
+                    .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                if matches!(field_type, Type::F32) {
+                    self.output
+                        .push_str(&format!("    movss xmm0, DWORD PTR [rbp-{}]\n", slot * 8));
+                } else if matches!(field_type, Type::F64) {
+                    self.output
+                        .push_str(&format!("    movq xmm0, QWORD PTR [rbp-{}]\n", slot * 8));
+                } else {
+                    self.output
+                        .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+                }
                 Ok(())
             }
             Expr::List(constructor) => {
@@ -1661,7 +1746,8 @@ impl FunctionContext {
                 let value = constructor
                     .get(index + 1)
                     .ok_or_else(|| "constructor has too few fields".to_owned())?;
-                self.expression(value)
+                let field_type = fields[index].ty.clone();
+                self.expression_as_expected(value, &field_type)
             }
             _ => Err("get requires a struct local or constructor".into()),
         }
