@@ -371,6 +371,9 @@ applies when a value crosses a native function boundary:
 Large tuple locals can also be copied directly between stack slots; copying
 does not turn the value into a function-call argument.
 
+The same rule applies to large struct locals: fields remain stack-resident and
+can be copied without crossing the flattened function ABI.
+
 Tuple values can also be destructured in `match` patterns. Bindings are
 explicit value bindings, and an aggregate match requires a wildcard arm:
 

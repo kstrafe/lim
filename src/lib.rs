@@ -5632,6 +5632,15 @@ mod tests {
     }
 
     #[test]
+    fn supports_large_struct_locals_without_abi_flattening() {
+        let program = parse_program_strict(
+            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn main () u64 (#let value Large (Large 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#let copy Large value) (#return (#u64.+.wrap (#get copy a) (#get copy g))))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn checks_and_lowers_type_aliases() {
         let program = parse_program(
             "(type UserId u64) (fn add_one ((id UserId)) UserId (+ id 1)) (fn main () UserId (add_one 41))",

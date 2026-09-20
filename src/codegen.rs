@@ -4585,6 +4585,29 @@ impl FunctionContext {
                 return Ok(());
             }
         }
+        if let Expr::Symbol(source) = value {
+            if let Some(Storage::Struct(source_fields)) = self.locals.get(source).cloned() {
+                let source_slots = source_fields
+                    .iter()
+                    .flat_map(|(_, field_slots)| field_slots.iter().copied())
+                    .collect::<Vec<_>>();
+                let destination_slots = slots
+                    .iter()
+                    .flat_map(|(_, field_slots)| field_slots.iter().copied())
+                    .collect::<Vec<_>>();
+                if source_slots.len() != destination_slots.len() {
+                    return Err("struct assignment has an inconsistent flattened layout".into());
+                }
+                for (source_slot, destination_slot) in source_slots.iter().zip(destination_slots) {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                        source_slot * 8,
+                        destination_slot * 8
+                    ));
+                }
+                return Ok(());
+            }
+        }
         let ty = Type::Named(struct_name.to_owned());
         let flat = slots
             .iter()
