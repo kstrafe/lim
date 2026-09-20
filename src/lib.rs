@@ -418,6 +418,11 @@ pub enum Statement {
         field: String,
         value: Expr,
     },
+    TupleAssign {
+        name: String,
+        index: usize,
+        value: Expr,
+    },
     While {
         condition: Expr,
         body: Vec<Statement>,
@@ -748,8 +753,20 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
         if items.len() != 4 {
             return Err("set-field requires the form (set-field struct field value)".into());
         }
+        let name = expect_symbol(items.get(1), "struct or tuple name")?.to_owned();
+        if let Some(Expr::Integer(index)) = items.get(2) {
+            if *index < 0 {
+                return Err("tuple field index must be non-negative".into());
+            }
+            return Ok(Statement::TupleAssign {
+                name,
+                index: usize::try_from(*index)
+                    .map_err(|_| "tuple field index is too large".to_owned())?,
+                value: items[3].clone(),
+            });
+        }
         return Ok(Statement::FieldAssign {
-            name: expect_symbol(items.get(1), "struct name")?.to_owned(),
+            name,
             field: expect_symbol(items.get(2), "field name")?.to_owned(),
             value: items[3].clone(),
         });
@@ -1298,6 +1315,25 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("call make"));
         assert!(assembly.contains("call consume"));
+    }
+
+    #[test]
+    fn mutates_tuple_fields() {
+        let program = parse_program(
+            "(fn main () u64 (let mut value (tuple u64 f32) (tuple 1 2.5)) (set-field value 0 40) (+ (get value 0) 2))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap()
+            .contains("QWORD PTR [rbp-8]"));
+        let invalid = parse_program(
+            "(fn main () u64 (let value (tuple u64 f32) (tuple 1 2.5)) (set-field value 0 40) 0)",
+        )
+        .unwrap();
+        assert!(check_types(&invalid)
+            .unwrap_err()
+            .contains("immutable variable"));
     }
 
     #[test]

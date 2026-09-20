@@ -146,6 +146,9 @@ Tuples are value types with explicit element types and positional `get`:
   (+ (get value 0) (as (get value 1) u64)))
 ```
 
+Mutable tuple locals support positional writes with `set-field`:
+`(set-field value 0 new-value)`.
+
 Scalar structs with at most six fields can also cross function boundaries;
 their values use consecutive flattened ABI words in the native value-register
 set.

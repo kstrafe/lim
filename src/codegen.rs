@@ -427,6 +427,7 @@ fn collect_local_types(
         }
         Statement::Assign { value, .. }
         | Statement::FieldAssign { value, .. }
+        | Statement::TupleAssign { value, .. }
         | Statement::Return(Some(value))
         | Statement::Expr(value) => collect_expr_types(value, types, aliases, enums),
         Statement::ArrayAssign { index, value, .. } => {
@@ -533,6 +534,9 @@ fn collect_locals(
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?;
         }
         Statement::FieldAssign { value, .. } => {
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?
+        }
+        Statement::TupleAssign { value, .. } => {
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?
         }
         Statement::Return(Some(value)) | Statement::Expr(value) => {
@@ -1167,6 +1171,26 @@ impl FunctionContext {
                     .and_then(|fields| fields.iter().find(|field_info| field_info.name == *field))
                     .map(|field_info| field_info.ty.clone())
                     .ok_or_else(|| format!("unknown field '{field}'"))?;
+                self.store_scalar_at_slot(value, &field_type, slot)?;
+            }
+            Statement::TupleAssign { name, index, value } => {
+                let Storage::Tuple(slots) = self
+                    .locals
+                    .get(name)
+                    .ok_or_else(|| format!("unknown tuple local '{name}'"))?
+                else {
+                    return Err(format!("'{name}' is not a tuple"));
+                };
+                let slot = *slots
+                    .get(*index)
+                    .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?;
+                let field_type = match self.local_types.get(name).cloned() {
+                    Some(Type::Tuple(fields)) => fields
+                        .get(*index)
+                        .cloned()
+                        .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?,
+                    _ => return Err(format!("'{name}' is not a tuple")),
+                };
                 self.store_scalar_at_slot(value, &field_type, slot)?;
             }
             Statement::While { condition, body } => {

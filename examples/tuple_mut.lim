@@ -1,0 +1,4 @@
+(fn main () u64
+  (let mut value (tuple u64 f32) (tuple 1 2.5))
+  (set-field value 0 40)
+  (+ (get value 0) 2))

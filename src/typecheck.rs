@@ -305,6 +305,37 @@ fn statement_type(
             )?;
             Ok(Type::Unit)
         }
+        Statement::TupleAssign { name, index, value } => {
+            let ty = variables
+                .get(name)
+                .ok_or_else(|| format!("unknown variable '{name}'"))?
+                .clone();
+            if !mutable.contains(name) {
+                return Err(format!("cannot assign to immutable variable '{name}'"));
+            }
+            let Type::Tuple(fields) = ty else {
+                return Err(format!("'{name}' is not a tuple"));
+            };
+            let field_type = fields
+                .get(*index)
+                .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?;
+            let actual = expression(
+                value,
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(field_type),
+            )?;
+            require_type(
+                &actual,
+                field_type,
+                &format!("assignment to tuple field {index}"),
+            )?;
+            Ok(Type::Unit)
+        }
         Statement::While { condition, body } => {
             let actual = expression(
                 condition,
