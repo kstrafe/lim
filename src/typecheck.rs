@@ -1143,6 +1143,12 @@ fn list_expression(
             let scrutinee = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
+            if matches!(scrutinee, Type::Tuple(_)) {
+                return check_tuple_match(
+                    items, &scrutinee, variables, functions, structs, enums, mutable, aliases,
+                    expected,
+                );
+            }
             let Type::Named(enum_name) = &scrutinee else {
                 if !is_matchable_scalar(&scrutinee) {
                     return Err("match requires an enum or scalar value".into());
@@ -1511,6 +1517,128 @@ fn check_scalar_match(
         return Err("match is not exhaustive; add '_' arm".into());
     }
     Ok(result_type.unwrap_or(Type::Unit))
+}
+
+fn check_tuple_match(
+    items: &[Expr],
+    scrutinee: &Type,
+    variables: &HashMap<String, Type>,
+    functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    mutable: &HashSet<String>,
+    aliases: &HashMap<String, Type>,
+    expected: Option<&Type>,
+) -> Result<Type, String> {
+    let Type::Tuple(fields) = scrutinee else {
+        unreachable!()
+    };
+    let mut wildcard = false;
+    let mut result_type = None;
+    for arm in &items[2..] {
+        let arm = match arm {
+            Expr::List(arm) if arm.len() == 2 => arm,
+            _ => return Err("match arms must have the form (pattern expression)".into()),
+        };
+        let mut arm_variables = variables.clone();
+        match &arm[0] {
+            Expr::Symbol(pattern) if pattern == "_" => {
+                if wildcard {
+                    return Err("duplicate wildcard match pattern".into());
+                }
+                wildcard = true;
+            }
+            Expr::List(pattern) if matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "tuple") =>
+            {
+                if pattern.len() - 1 != fields.len() {
+                    return Err(format!(
+                        "tuple match pattern expects {} elements",
+                        fields.len()
+                    ));
+                }
+                for (pattern, field) in pattern[1..].iter().zip(fields) {
+                    check_tuple_pattern(
+                        pattern,
+                        field,
+                        &mut arm_variables,
+                        variables,
+                        functions,
+                        structs,
+                        enums,
+                        mutable,
+                        aliases,
+                    )?;
+                }
+            }
+            _ => return Err("tuple match pattern must be _ or (tuple pattern ...)".into()),
+        }
+        let arm_type = expression(
+            &arm[1],
+            &arm_variables,
+            functions,
+            structs,
+            enums,
+            mutable,
+            aliases,
+            result_type.as_ref().or(expected),
+        )?;
+        if let Some(previous) = &result_type {
+            require_same(previous, &arm_type, "match arms")?;
+        } else {
+            result_type = Some(arm_type);
+        }
+    }
+    if !wildcard {
+        return Err("tuple match is not exhaustive; add '_' arm".into());
+    }
+    Ok(result_type.unwrap_or(Type::Unit))
+}
+
+fn check_tuple_pattern(
+    pattern: &Expr,
+    ty: &Type,
+    arm_variables: &mut HashMap<String, Type>,
+    variables: &HashMap<String, Type>,
+    _functions: &HashMap<String, Signature>,
+    _structs: &HashMap<String, Vec<Field>>,
+    _enums: &HashMap<String, Vec<EnumVariant>>,
+    _mutable: &HashSet<String>,
+    _aliases: &HashMap<String, Type>,
+) -> Result<(), String> {
+    match pattern {
+        Expr::Symbol(name) if name == "_" => Ok(()),
+        Expr::Symbol(name) if name == "true" || name == "false" => {
+            if !matches!(ty, Type::Bool) {
+                return Err("boolean tuple pattern does not match its field type".into());
+            }
+            Ok(())
+        }
+        Expr::Symbol(name) => {
+            if variables.contains_key(name) || arm_variables.contains_key(name) {
+                return Err(format!("duplicate match binding '{name}'"));
+            }
+            arm_variables.insert(name.clone(), ty.clone());
+            Ok(())
+        }
+        Expr::Integer(value) if is_integer(ty) => {
+            if !fits_integer(*value, ty) {
+                return Err(format!(
+                    "integer match pattern {value} does not fit in {ty:?}"
+                ));
+            }
+            Ok(())
+        }
+        Expr::UnsignedInteger(value) if is_integer(ty) => {
+            if !fits_unsigned_integer(*value, ty) {
+                return Err(format!(
+                    "unsigned integer match pattern {value} does not fit in {ty:?}"
+                ));
+            }
+            Ok(())
+        }
+        Expr::Char(_) if matches!(ty, Type::Char) => Ok(()),
+        _ => Err("tuple field pattern does not match its field type".into()),
+    }
 }
 
 fn require_arity(operator: &str, items: &[Expr], expected: usize) -> Result<(), String> {

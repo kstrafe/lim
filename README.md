@@ -252,7 +252,16 @@ Tuples are value types with explicit element types and positional `get`:
 ```lisp
 (fn main () u64
   (let value (tuple u64 f32) (tuple 40 2.5))
-  (+ (get value 0) (as (get value 1) u64)))
+(+ (get value 0) (as (get value 1) u64)))
+```
+
+Tuple values can also be destructured in `match` patterns. Bindings are
+explicit value bindings, and an aggregate match requires a wildcard arm:
+
+```lisp
+(#match value
+  ((#tuple first second) (#u64.+.wrap first second))
+  (_ 0))
 ```
 
 Mutable tuple locals support positional writes with `set-field`:

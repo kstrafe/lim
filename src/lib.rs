@@ -3442,6 +3442,19 @@ mod tests {
     }
 
     #[test]
+    fn lowers_tuple_destructuring_match() {
+        let program = parse_program(
+            "(#fn classify ((value (#tuple u64 u64))) u64 \
+              (#return (#match value ((#tuple 40 second) second) (_ 0)))) \
+             (#fn main () u64 \
+              (#return (classify (#tuple (#tuple u64 u64) 40 2))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn wraps_signed_machine_width_division_overflow() {
         let program =
             parse_program("(#fn main () i64 (#return (#i64./.wrap -9223372036854775808 -1)))")

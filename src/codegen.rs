@@ -831,6 +831,7 @@ fn generate_function(
             enums,
             aliases,
             &mut next_slot,
+            &local_types,
         )?;
     }
     let frame_size = ((next_slot.saturating_sub(1) * 8 + 15) / 16) * 16;
@@ -1044,6 +1045,31 @@ fn collect_expr_types(
     match expression {
         Expr::List(items) => {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                if let Some(Expr::Symbol(name)) = items.get(1) {
+                    if let Some(Type::Tuple(fields)) = types.get(name).cloned() {
+                        for arm in items.iter().skip(2) {
+                            let Expr::List(arm) = arm else { continue };
+                            let Some(Expr::List(pattern)) = arm.first() else {
+                                continue;
+                            };
+                            if !matches!(
+                                pattern.first(),
+                                Some(Expr::Symbol(operator)) if operator == "tuple"
+                            ) {
+                                continue;
+                            }
+                            for (binding, field_type) in pattern[1..].iter().zip(fields.iter()) {
+                                if let Expr::Symbol(binding) = binding {
+                                    if binding != "_" {
+                                        types.entry(binding.clone()).or_insert(field_type.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
                 for arm in items.iter().skip(2) {
                     let Expr::List(arm) = arm else { continue };
                     let Some(Expr::List(pattern)) = arm.first() else {
@@ -1091,23 +1117,24 @@ fn collect_locals(
     enums: &HashMap<String, Vec<EnumVariant>>,
     aliases: &HashMap<String, Type>,
     next_slot: &mut usize,
+    types: &HashMap<String, Type>,
 ) -> Result<(), String> {
     match statement {
         Statement::Let { name, ty, .. } => {
             add_local(locals, name, ty, structs, enums, aliases, next_slot)?;
             if let Statement::Let { value, .. } = statement {
-                collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?;
+                collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?;
             }
         }
         Statement::While { condition, body } => {
-            collect_expr_locals(condition, locals, structs, enums, aliases, next_slot)?;
+            collect_expr_locals(condition, locals, structs, enums, aliases, next_slot, types)?;
             for statement in body {
-                collect_locals(statement, locals, structs, enums, aliases, next_slot)?;
+                collect_locals(statement, locals, structs, enums, aliases, next_slot, types)?;
             }
         }
         Statement::Loop { body } => {
             for statement in body {
-                collect_locals(statement, locals, structs, enums, aliases, next_slot)?;
+                collect_locals(statement, locals, structs, enums, aliases, next_slot, types)?;
             }
         }
         Statement::For {
@@ -1116,28 +1143,28 @@ fn collect_locals(
             step,
             body,
         } => {
-            collect_locals(init, locals, structs, enums, aliases, next_slot)?;
-            collect_expr_locals(condition, locals, structs, enums, aliases, next_slot)?;
-            collect_locals(step, locals, structs, enums, aliases, next_slot)?;
+            collect_locals(init, locals, structs, enums, aliases, next_slot, types)?;
+            collect_expr_locals(condition, locals, structs, enums, aliases, next_slot, types)?;
+            collect_locals(step, locals, structs, enums, aliases, next_slot, types)?;
             for statement in body {
-                collect_locals(statement, locals, structs, enums, aliases, next_slot)?;
+                collect_locals(statement, locals, structs, enums, aliases, next_slot, types)?;
             }
         }
         Statement::Assign { value, .. } => {
-            collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
         Statement::ArrayAssign { index, value, .. } => {
-            collect_expr_locals(index, locals, structs, enums, aliases, next_slot)?;
-            collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?;
+            collect_expr_locals(index, locals, structs, enums, aliases, next_slot, types)?;
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?;
         }
         Statement::FieldAssign { value, .. } => {
-            collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
         Statement::TupleAssign { value, .. } => {
-            collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
         Statement::Return(Some(value)) | Statement::Expr(value) => {
-            collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
         Statement::Break | Statement::Continue | Statement::Return(None) => {}
     }
@@ -1151,9 +1178,39 @@ fn collect_expr_locals(
     enums: &HashMap<String, Vec<EnumVariant>>,
     aliases: &HashMap<String, Type>,
     next_slot: &mut usize,
+    types: &HashMap<String, Type>,
 ) -> Result<(), String> {
     match expression {
         Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                if let Some(Expr::Symbol(name)) = items.get(1) {
+                    if let Some(Type::Tuple(fields)) = types.get(name) {
+                        for arm in items.iter().skip(2) {
+                            let Expr::List(arm) = arm else { continue };
+                            let Some(Expr::List(pattern)) = arm.first() else {
+                                continue;
+                            };
+                            if !matches!(
+                                pattern.first(),
+                                Some(Expr::Symbol(operator)) if operator == "tuple"
+                            ) {
+                                continue;
+                            }
+                            for (binding, field_type) in pattern[1..].iter().zip(fields) {
+                                let Expr::Symbol(binding) = binding else {
+                                    continue;
+                                };
+                                if binding == "_" || locals.contains_key(binding) {
+                                    continue;
+                                }
+                                add_local(
+                                    locals, binding, field_type, structs, enums, aliases, next_slot,
+                                )?;
+                            }
+                        }
+                    }
+                }
+            }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
                 for arm in items.iter().skip(2) {
                     let Expr::List(arm) = arm else { continue };
@@ -1194,12 +1251,12 @@ fn collect_expr_locals(
                 }
             }
             for item in items {
-                collect_expr_locals(item, locals, structs, enums, aliases, next_slot)?;
+                collect_expr_locals(item, locals, structs, enums, aliases, next_slot, types)?;
             }
         }
         Expr::Block(statements) => {
             for statement in statements {
-                collect_locals(statement, locals, structs, enums, aliases, next_slot)?;
+                collect_locals(statement, locals, structs, enums, aliases, next_slot, types)?;
             }
         }
         _ => {}
@@ -3687,6 +3744,9 @@ impl FunctionContext {
         if items.len() < 3 {
             return Err("match requires a value and an arm".into());
         }
+        if let Some(Type::Tuple(fields)) = self.expression_type(&items[1]) {
+            return self.tuple_match_expression(items, &fields, float_type);
+        }
         let end = self.label("match_end");
         let base_depth = self.stack_depth;
         let payload_slots = match &items[1] {
@@ -3894,6 +3954,129 @@ impl FunctionContext {
         }
         self.output.push_str(&format!("{end}:\n"));
         self.stack_depth = base_depth;
+        Ok(())
+    }
+
+    fn tuple_match_expression(
+        &mut self,
+        items: &[Expr],
+        fields: &[Type],
+        float_type: Option<&Type>,
+    ) -> Result<(), String> {
+        let ty = Type::Tuple(fields.to_vec());
+        let words = value_word_count(&ty, &self.structs, &self.enums)?;
+        let base_depth = self.stack_depth;
+        if let Expr::Symbol(name) = &items[1] {
+            if self.locals.contains_key(name) {
+                for slot in local_slots(&self.locals, name)?.into_iter().rev() {
+                    self.output
+                        .push_str(&format!("    push QWORD PTR [rbp-{}]\n", slot * 8));
+                    self.stack_depth += 1;
+                }
+            } else {
+                self.expression(&items[1])?;
+                for register in VALUE_REGISTERS[..words].iter().rev() {
+                    self.output.push_str(&format!("    push {register}\n"));
+                    self.stack_depth += 1;
+                }
+            }
+        } else {
+            self.expression(&items[1])?;
+            for register in VALUE_REGISTERS[..words].iter().rev() {
+                self.output.push_str(&format!("    push {register}\n"));
+                self.stack_depth += 1;
+            }
+        }
+        let end = self.label("tuple_match_end");
+        for arm in &items[2..] {
+            let arm = match arm {
+                Expr::List(arm) if arm.len() == 2 => arm,
+                _ => return Err("invalid match arm".into()),
+            };
+            let next = self.label("tuple_match_next");
+            let mut bindings = Vec::new();
+            self.emit_tuple_pattern(&arm[0], fields, 0, &next, &mut bindings)?;
+            for (name, offset) in bindings {
+                let slot = scalar_slot(&self.locals, &name);
+                self.output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rsp+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                    offset * 8,
+                    slot * 8
+                ));
+            }
+            if let Some(ty) = float_type {
+                self.expression_as_float(&arm[1], ty)?;
+                self.output.push_str(&format!(
+                    "    add rsp, {}\n    jmp {end}\n{next}:\n",
+                    words * 8
+                ));
+            } else {
+                self.expression(&arm[1])?;
+                self.output.push_str(&format!(
+                    "    mov rdx, rax\n    add rsp, {}\n    mov rax, rdx\n    jmp {end}\n{next}:\n",
+                    words * 8
+                ));
+            }
+            self.stack_depth = base_depth + words;
+        }
+        self.output.push_str(&format!("{end}:\n"));
+        self.stack_depth = base_depth;
+        Ok(())
+    }
+
+    fn emit_tuple_pattern(
+        &mut self,
+        pattern: &Expr,
+        fields: &[Type],
+        offset: usize,
+        next: &str,
+        bindings: &mut Vec<(String, usize)>,
+    ) -> Result<(), String> {
+        if matches!(pattern, Expr::Symbol(name) if name == "_") {
+            return Ok(());
+        }
+        let Expr::List(pattern) = pattern else {
+            return Err("tuple match pattern must be (tuple pattern ...)".into());
+        };
+        if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "tuple")
+            || pattern.len() - 1 != fields.len()
+        {
+            return Err("tuple match pattern has the wrong shape".into());
+        }
+        for (index, (field, ty)) in pattern[1..].iter().zip(fields).enumerate() {
+            let address = (offset + index) * 8;
+            match field {
+                Expr::Symbol(name) if name == "_" => {}
+                Expr::Symbol(name) if name == "true" || name == "false" => {
+                    if !matches!(ty, Type::Bool) {
+                        return Err("boolean tuple pattern has a non-boolean field".into());
+                    }
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp+{address}], {}\n    jne {next}\n",
+                        if name == "true" { 1 } else { 0 }
+                    ));
+                }
+                Expr::Symbol(name) => bindings.push((name.clone(), offset + index)),
+                Expr::Integer(value) => {
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp+{address}], {value}\n    jne {next}\n"
+                    ));
+                }
+                Expr::UnsignedInteger(value) => {
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp+{address}], {}\n    jne {next}\n",
+                        *value as u64
+                    ));
+                }
+                Expr::Char(value) => {
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp+{address}], {}\n    jne {next}\n",
+                        *value as u32
+                    ));
+                }
+                _ => return Err("unsupported tuple field pattern".into()),
+            }
+        }
         Ok(())
     }
 
