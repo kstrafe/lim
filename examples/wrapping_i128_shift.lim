@@ -1,0 +1,5 @@
+(#const Shifted i128 (#i128.<< 1 127))
+(#const Minimum i128 -170141183460469231731687303715884105728)
+
+(#fn main () u64
+  (#return (#if (#i128.== Shifted Minimum) 42 0)))

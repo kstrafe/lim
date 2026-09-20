@@ -4225,6 +4225,19 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_wrapping_i128_constant_shifts() {
+        let program = parse_program(
+            "(#const Shifted i128 (#i128.<< 1 127)) \
+             (#const Minimum i128 -170141183460469231731687303715884105728) \
+             (#fn main () u64 \
+               (#return (#if (#i128.== Shifted Minimum) 42 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

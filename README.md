@@ -646,6 +646,8 @@ normalized to their declared width before emission.
 Machine-width unsigned constants are evaluated in their declared unsigned
 domain, including wrapping and saturating multiplication at the full `u64`
 range.
+Wide integer constant left shifts match the native two-word shift lowering when
+high bits are discarded.
 
 Immutable static values may also be fixed arrays, tuples, or structs, including
 nested value aggregates. Their elements and fields remain value data in

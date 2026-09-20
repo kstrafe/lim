@@ -2834,8 +2834,12 @@ fn constant_value(
                     if !(0..128).contains(&right) {
                         return Err("constant shift count is out of range".to_owned());
                     }
-                    left.checked_shl(right as u32)
-                        .ok_or_else(|| "constant left shift overflowed".to_owned())
+                    if matches!(operation_type, Some(Type::I128)) {
+                        Ok(left.wrapping_shl(right as u32))
+                    } else {
+                        left.checked_shl(right as u32)
+                            .ok_or_else(|| "constant left shift overflowed".to_owned())
+                    }
                 }
                 ">>" => {
                     if !(0..128).contains(&right) {
