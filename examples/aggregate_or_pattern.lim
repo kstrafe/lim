@@ -1,0 +1,6 @@
+(#fn main () u64
+  (#let value (#tuple u64 u64) (#tuple 1 2))
+  (#return
+    (#match value
+      ((#or (#tuple 1 2) (#tuple 3 4)) 42)
+      (_ 0))))

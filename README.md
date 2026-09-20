@@ -697,6 +697,15 @@ Scalar enum payloads also accept `#or` alternatives:
   (Empty 0))
 ```
 
+Aggregate constructors can use the same form when alternatives introduce no
+bindings:
+
+```lisp
+(#match value
+  ((#or (#tuple 1 2) (#tuple 3 4)) 42)
+  (_ 0))
+```
+
 Inclusive scalar ranges use the explicit `#range` pattern. Integer ranges are
 validated against the scrutinee width and use signed or unsigned comparisons:
 

@@ -8201,6 +8201,38 @@ impl FunctionContext {
         if matches!(pattern, Expr::Symbol(name) if name == "_") {
             return Ok(());
         }
+        if let Expr::List(parts) = pattern {
+            if parts.len() >= 2 && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "or")
+            {
+                let matched = self.label("aggregate_or_pattern_matched");
+                for (index, alternative) in parts[1..].iter().enumerate() {
+                    let last = index + 1 == parts.len() - 1;
+                    let alternative_next = if last {
+                        next.to_owned()
+                    } else {
+                        self.label("aggregate_or_pattern_next")
+                    };
+                    let mut alternative_bindings = Vec::new();
+                    self.emit_aggregate_pattern(
+                        alternative,
+                        constructor,
+                        ty,
+                        offset,
+                        &alternative_next,
+                        &mut alternative_bindings,
+                    )?;
+                    if !alternative_bindings.is_empty() {
+                        return Err("aggregate or-pattern alternatives cannot bind values".into());
+                    }
+                    self.output.push_str(&format!("    jmp {matched}\n"));
+                    if !last {
+                        self.output.push_str(&format!("{alternative_next}:\n"));
+                    }
+                }
+                self.output.push_str(&format!("{matched}:\n"));
+                return Ok(());
+            }
+        }
         let Expr::List(pattern) = pattern else {
             return Err("aggregate match pattern must be a constructor pattern".into());
         };

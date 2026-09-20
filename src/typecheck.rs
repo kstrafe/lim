@@ -2160,6 +2160,14 @@ fn check_tuple_match(
                     wildcard = true;
                 }
             }
+            Expr::List(pattern)
+                if pattern.len() >= 2
+                    && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "or") =>
+            {
+                if check_aggregate_or_pattern(pattern, scrutinee, structs)? && guard.is_none() {
+                    wildcard = true;
+                }
+            }
             Expr::List(pattern) if matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "tuple") =>
             {
                 if pattern.len() - 1 != fields.len() {
@@ -2290,6 +2298,25 @@ fn check_aggregate_pattern(
     }
 }
 
+fn check_aggregate_or_pattern(
+    pattern: &[Expr],
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Result<bool, String> {
+    let mut wildcard = false;
+    for alternative in &pattern[1..] {
+        if matches!(alternative, Expr::Symbol(name) if name == "_") {
+            wildcard = true;
+        }
+        let mut bindings = HashMap::new();
+        check_aggregate_pattern(alternative, ty, &mut bindings, &HashMap::new(), structs)?;
+        if !bindings.is_empty() {
+            return Err("aggregate or-pattern alternatives cannot bind values".into());
+        }
+    }
+    Ok(wildcard)
+}
+
 fn check_array_match(
     items: &[Expr],
     scrutinee: &Type,
@@ -2316,6 +2343,14 @@ fn check_array_match(
                     return Err("duplicate wildcard match pattern".into());
                 }
                 if guard.is_none() {
+                    wildcard = true;
+                }
+            }
+            Expr::List(pattern)
+                if pattern.len() >= 2
+                    && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "or") =>
+            {
+                if check_aggregate_or_pattern(pattern, scrutinee, structs)? && guard.is_none() {
                     wildcard = true;
                 }
             }
@@ -2452,6 +2487,19 @@ fn check_struct_match(
                     return Err("duplicate wildcard match pattern".into());
                 }
                 if guard.is_none() {
+                    wildcard = true;
+                }
+            }
+            Expr::List(pattern)
+                if pattern.len() >= 2
+                    && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "or") =>
+            {
+                if check_aggregate_or_pattern(
+                    pattern,
+                    &Type::Named(struct_name.to_owned()),
+                    structs,
+                )? && guard.is_none()
+                {
                     wildcard = true;
                 }
             }
