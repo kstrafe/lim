@@ -1,0 +1,5 @@
+(fn multiply ((left u128) (right u128)) u128
+  (* left right))
+
+(fn main () u64
+  (as (multiply 6 7) u64))

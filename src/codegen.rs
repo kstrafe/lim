@@ -2098,7 +2098,7 @@ impl FunctionContext {
     }
 
     fn wide_binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
-        if !matches!(operator, "+" | "-" | "&" | "|" | "^" | "<<" | ">>") {
+        if !matches!(operator, "+" | "-" | "*" | "&" | "|" | "^" | "<<" | ">>") {
             return Err(format!("128-bit operator '{operator}' is unsupported"));
         }
         self.expression(&items[1])?;
@@ -2147,6 +2147,12 @@ impl FunctionContext {
             self.output.push_str(&format!(
                 "    jmp {done}\n{zero}:\n    xor eax, eax\n    xor edx, edx\n{done}:\n"
             ));
+            return Ok(());
+        }
+        if operator == "*" {
+            self.output.push_str(
+                "    sub rsp, 16\n    mov QWORD PTR [rsp], rax\n    mov QWORD PTR [rsp+8], rdx\n    mul rcx\n    mov r9, rax\n    mov r10, rdx\n    mov rax, QWORD PTR [rsp+8]\n    mul rcx\n    add r10, rax\n    mov rax, QWORD PTR [rsp]\n    mul r8\n    add r10, rax\n    mov rax, r9\n    mov rdx, r10\n    add rsp, 16\n",
+            );
             return Ok(());
         }
         match operator {

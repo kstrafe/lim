@@ -195,6 +195,8 @@ stack-argument convention.
 `i128` and `u128` values use two native words (`rax`/`rdx` for results) and
 support local storage, parameters, returns, addition, subtraction, and
 bitwise operations, comparisons, and shifts.
+128-bit multiplication is lowered to the low 128 bits using native multiply
+and carry accumulation.
 
 Unsigned integer comparisons and right shifts use unsigned native instructions
 when their operands have an unsigned type; unsigned division and remainder use

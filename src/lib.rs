@@ -1421,6 +1421,16 @@ mod tests {
     }
 
     #[test]
+    fn lowers_128_bit_multiplication() {
+        let program = parse_program(
+            "(fn multiply ((left u128) (right u128)) u128 (* left right)) (fn main () u64 (as (multiply 6 7) u64))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("mul rcx"));
+    }
+
+    #[test]
     fn checks_and_lowers_scalar_enum_payloads() {
         let program = parse_program(
             "(enum Maybe ((Some u64) None)) (fn main () u64 (let value Maybe (Some 42)) (match value ((Some _) 42) (None 7)))",
