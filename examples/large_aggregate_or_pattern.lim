@@ -1,0 +1,20 @@
+(#struct LargeOr
+  ((a u64) (b u64) (c u64) (d u64)
+   (e u64) (f u64) (g u64)))
+
+(#fn main () u64
+  (#let tuple-value (#tuple u64 u64 u64 u64 u64 u64 u64)
+    (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64)
+      1u64 2u64 3u64 4u64 5u64 6u64 42u64))
+  (#let struct-value LargeOr
+    (LargeOr 1u64 2u64 3u64 4u64 5u64 6u64 42u64))
+  (#return
+    (#u64.+.wrap
+      (#match tuple-value
+        ((#or (#tuple 1 2 3 4 5 6 41)
+              (#tuple 1 2 3 4 5 6 42)) 20u64)
+        (_ 0u64))
+      (#match struct-value
+        ((#or (LargeOr 1 2 3 4 5 6 41)
+              (LargeOr 1 2 3 4 5 6 42)) 22u64)
+        (_ 0u64)))))
