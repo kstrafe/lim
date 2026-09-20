@@ -1,8 +1,10 @@
 # Lim
 
 Lim is an experimental, compiled Lisp intended to make generated code
-explicit for LLM-written programs. The current implementation is the
-dependency-free lexer/parser foundation.
+explicit for LLM-written programs. It has a dependency-free parser, a
+strict static type checker, generic monomorphization, and a native x86-64
+assembly backend. The value representation deliberately excludes references,
+pointers, slices, traits, and other indirection mechanisms.
 
 ## Development
 
@@ -10,14 +12,16 @@ The repository uses the Rust toolchain from the copied Liftoff Nix flake:
 
 ```sh
 nix develop
-cargo test
+cargo test --all-targets
 ```
 
 The command-line parser reads a file passed as its first argument, or reads
-standard input, and prints the parsed AST:
+standard input, and prints the parsed AST. Use `--strict` for the canonical
+fully explicit syntax:
 
 ```sh
 printf '%s\n' '(@optional MyType MyType?)' | nix develop --command cargo run
+printf '%s\n' '(#fn main () u64 (#return 42))' | nix develop --command cargo run -- --strict
 ```
 
 Emit x86-64 assembly with the native backend:
@@ -37,7 +41,12 @@ nix develop --command cargo run -- --emit-asm --strict examples/fibonacci.lim /t
 
 ## Syntax currently recognized
 
-- Lists: `(fn name ((arg i32)) i32 (body...))`
+The `#`-prefixed forms are canonical. `parse_program` continues to accept
+unprefixed forms as compatibility input, while `parse_program_strict` and the
+CLI's `--strict` option reject them. This keeps old source readable while
+making new keywords unambiguous and leaving future identifiers available.
+
+- Lists: `(#fn name ((arg i32)) i32 (#return value))`
 - Symbols, including names such as `MyType?` and `-construct`
 - Signed decimal integers
 - Binary (`0b`), octal (`0o`), hexadecimal (`0x`), and underscore-separated integer literals
@@ -58,10 +67,13 @@ source under a `.lim/` directory beside the input file.
 
 ```lisp
 (@optional u64 Maybe?)
-(fn identity ((value Maybe?)) Maybe? value)
-(fn main () u64
-  (let value Maybe? (identity (Maybe?-construct 42)))
-(match value ((Maybe?-some payload) payload) (Maybe?-none 0)))
+(#fn identity ((value Maybe?)) Maybe?
+  (#return value))
+(#fn main () u64
+  (#let value Maybe? (identity (Maybe?-construct 42)))
+  (#return (#match value
+    ((Maybe?-some payload) payload)
+    (Maybe?-none 0))))
 ```
 
 ```lisp
@@ -86,9 +98,9 @@ allocation:
 ```
 
 ```lisp
-(fn add ((left u32) (right u32)) u32
-  (let total u32 (+ left right))
-  total)
+(#fn add ((left u32) (right u32)) u32
+  (#let total u32 (#u32.+.wrap left right))
+  (#return total))
 ```
 
 Builtin forms may be written with a `#` prefix, which keeps them distinct from
@@ -97,7 +109,7 @@ operand type:
 
     (#fn add ((left u32) (right u32)) u32
       (#let total u32 (#u32.+.wrap left right))
-      total)
+      (#return total))
 
 Integer arithmetic must also specify overflow behavior: use `.wrap` for
 modular arithmetic or `.saturate` for clamping arithmetic. Plain integer
