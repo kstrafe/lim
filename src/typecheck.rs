@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::collections::{HashMap, HashSet};
 
 use crate::{parse_type, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
@@ -1565,7 +1567,7 @@ fn list_expression(
                             variant.fields.len()
                         ));
                     }
-                    if guard.is_none() && seen.iter().any(|seen: &&str| *seen == pattern) {
+                    if guard.is_none() && seen.contains(&pattern) {
                         return Err(format!("duplicate enum match pattern '{pattern}'"));
                     }
                     if guard.is_none() {

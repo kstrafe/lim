@@ -5,6 +5,8 @@
 //! have a representation in this first backend instead of silently generating
 //! incorrect code.
 
+#![allow(clippy::too_many_arguments)]
+
 use std::collections::{HashMap, HashSet};
 
 use crate::typecheck::function_call_depths;
@@ -939,7 +941,7 @@ fn generate_function(
             &local_types,
         )?;
     }
-    let frame_size = ((next_slot.saturating_sub(1) * 8 + 15) / 16) * 16;
+    let frame_size = (next_slot.saturating_sub(1) * 8).div_ceil(16) * 16;
     let function_symbol = asm_symbol(&function.name);
     let max_call_depth = functions
         .get(&function.name)
@@ -2106,18 +2108,6 @@ fn add_local(
         let words = value_word_count(&ty, structs, enums)?;
         *next_slot += words;
         Storage::Tuple((base..base + words).collect())
-    } else if let Type::Named(struct_name) = &ty {
-        let fields = structs
-            .get(struct_name)
-            .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
-        let mut slots = Vec::with_capacity(fields.len());
-        for field in fields {
-            let words = value_word_count(&field.ty, structs, enums)?;
-            let field_slots = flat_slots(*next_slot, words);
-            *next_slot += words;
-            slots.push((field.name.clone(), field_slots));
-        }
-        Storage::Struct(slots)
     } else {
         return Err(format!("native backend does not support local type {ty:?}"));
     };
@@ -2722,11 +2712,11 @@ fn constant_value(
                 let left = left as u128;
                 let right = right as u128;
                 let result = match operator {
-                    "+" if mode == Some("saturate") => left.checked_add(right).unwrap_or(u128::MAX),
+                    "+" if mode == Some("saturate") => left.saturating_add(right),
                     "+" => left.wrapping_add(right),
                     "-" if mode == Some("saturate") => left.saturating_sub(right),
                     "-" => left.wrapping_sub(right),
-                    "*" if mode == Some("saturate") => left.checked_mul(right).unwrap_or(u128::MAX),
+                    "*" if mode == Some("saturate") => left.saturating_mul(right),
                     "*" => left.wrapping_mul(right),
                     "/" => left
                         .checked_div(right)
@@ -3411,8 +3401,6 @@ impl FunctionContext {
                 self.stack_depth -= 1;
                 let store = if matches!(element_type, Type::F32) {
                     "mov DWORD PTR [rax], edx"
-                } else if matches!(element_type, Type::F64) {
-                    "mov QWORD PTR [rax], rdx"
                 } else {
                     "mov QWORD PTR [rax], rdx"
                 };
@@ -6146,12 +6134,12 @@ impl FunctionContext {
                 let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
                 self.expression_as_expected(&items[1], &Type::Tuple(fields.clone()))?;
                 if field_words > 1 {
-                    for word in 0..field_words {
+                    for (word, destination) in VALUE_REGISTERS.iter().enumerate().take(field_words)
+                    {
                         let source = VALUE_REGISTERS
                             .get(register_index + word)
                             .ok_or_else(|| "native tuple has too many fields".to_owned())?;
-                        let destination = VALUE_REGISTERS[word];
-                        if *source != destination {
+                        if *source != *destination {
                             self.output
                                 .push_str(&format!("    mov {destination}, {source}\n"));
                         }
@@ -6332,13 +6320,13 @@ impl FunctionContext {
                     .sum::<usize>();
                 let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
                 if field_words > 1 {
-                    for word in 0..field_words {
+                    for (word, destination) in VALUE_REGISTERS.iter().enumerate().take(field_words)
+                    {
                         let source =
                             VALUE_REGISTERS.get(register_index + word).ok_or_else(|| {
                                 "native returned struct has too many fields".to_owned()
                             })?;
-                        let destination = VALUE_REGISTERS[word];
-                        if *source != destination {
+                        if *source != *destination {
                             self.output
                                 .push_str(&format!("    mov {destination}, {source}\n"));
                         }
@@ -6450,26 +6438,22 @@ impl FunctionContext {
         match ty {
             Type::I128 | Type::U128 => Ok(8),
             Type::Array(element, _) => self.native_type_align(element),
-            Type::Tuple(fields) => fields
+            Type::Tuple(fields) => Ok(fields
                 .iter()
                 .map(|field| self.native_type_align(field))
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
                 .max()
-                .unwrap_or(1)
-                .try_into()
-                .map_err(|_| "alignment is too large".to_owned()),
+                .unwrap_or(1)),
             Type::Named(name) => {
                 if let Some(fields) = self.structs.get(name) {
-                    return fields
+                    return Ok(fields
                         .iter()
                         .map(|field| self.native_type_align(&field.ty))
                         .collect::<Result<Vec<_>, _>>()?
                         .into_iter()
                         .max()
-                        .unwrap_or(1)
-                        .try_into()
-                        .map_err(|_| "alignment is too large".to_owned());
+                        .unwrap_or(1));
                 }
                 if self.enums.contains_key(name) {
                     return Ok(8);
@@ -7116,7 +7100,7 @@ impl FunctionContext {
                 } else {
                     true_label.as_str()
                 },
-                if operator == "==" { "jne" } else { "jne" },
+                "jne",
                 if operator == "==" {
                     false_label.as_str()
                 } else {
