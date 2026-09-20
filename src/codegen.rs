@@ -5056,15 +5056,20 @@ impl FunctionContext {
             if let Some(Storage::Struct(source_fields)) = self.locals.get(name).cloned() {
                 for ((_, source_slots), field) in source_fields.iter().zip(fields) {
                     let words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
-                    if words != 1 || source_slots.len() != 1 {
+                    if words == 0 {
+                        continue;
+                    }
+                    if source_slots.len() != words {
                         return Err("large struct returns currently require scalar fields".into());
                     }
-                    self.output.push_str(&format!(
-                        "    mov rax, QWORD PTR [rbp-{}]\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
-                        source_slots[0] * 8,
-                        pointer_slot * 8,
-                        offset * 8
-                    ));
+                    for (index, source_slot) in source_slots.iter().enumerate() {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                            source_slot * 8,
+                            pointer_slot * 8,
+                            (offset + index) * 8
+                        ));
+                    }
                     offset += words;
                 }
                 return Ok(());
@@ -5075,6 +5080,9 @@ impl FunctionContext {
             ) {
                 for field in fields {
                     let words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
+                    if words == 0 {
+                        continue;
+                    }
                     if words != 1 {
                         return Err("large struct returns currently require scalar fields".into());
                     }
@@ -5418,17 +5426,23 @@ impl FunctionContext {
                 if slots.len() != fields.len() {
                     return Err("tuple return has an inconsistent flattened layout".into());
                 }
-                for (source_slot, field) in slots.iter().zip(fields) {
+                let mut source_offset = 0;
+                for field in fields {
                     let words = storage_word_count(field, &self.structs, &self.enums)?;
-                    if words != 1 {
+                    if words == 0 {
+                        continue;
+                    }
+                    if words != 1 || slots.get(source_offset).is_none() {
                         return Err("large tuple returns currently require scalar fields".into());
                     }
+                    let source_slot = slots[source_offset];
                     self.output.push_str(&format!(
                         "    mov rax, QWORD PTR [rbp-{}]\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
                         source_slot * 8,
                         pointer_slot * 8,
                         offset * 8
                     ));
+                    source_offset += words;
                     offset += words;
                 }
                 return Ok(());
@@ -5439,6 +5453,9 @@ impl FunctionContext {
             ) {
                 for field in fields {
                     let words = storage_word_count(field, &self.structs, &self.enums)?;
+                    if words == 0 {
+                        continue;
+                    }
                     if words != 1 {
                         return Err("large tuple returns currently require scalar fields".into());
                     }
