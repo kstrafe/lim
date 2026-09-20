@@ -5,4 +5,8 @@
   (#let mut value BigPayload
     (Big 1u64 2u64 3u64 4u64 5u64 6u64 7u64))
   (#set-payload value Big 6 42u64)
-  (#return 42u64))
+  (#let copied BigPayload value)
+  (#return
+    (#match copied
+      ((Big first second third fourth fifth sixth seventh) seventh)
+      (Empty 0u64))))

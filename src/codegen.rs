@@ -4643,6 +4643,26 @@ impl FunctionContext {
                 }
                 return Ok(());
             }
+            if let Some(Storage::Enum {
+                discriminant: source_discriminant,
+                payload: source_payload,
+            }) = self.locals.get(source).cloned()
+            {
+                if source_payload.len() != payload.len() {
+                    return Err("enum assignment has an inconsistent storage layout".into());
+                }
+                for (source_slot, destination_slot) in std::iter::once(source_discriminant)
+                    .chain(source_payload)
+                    .zip(std::iter::once(discriminant).chain(payload.iter().copied()))
+                {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                        source_slot * 8,
+                        destination_slot * 8
+                    ));
+                }
+                return Ok(());
+            }
         }
         if !matches!(value, Expr::List(_)) {
             self.expression(value)?;
