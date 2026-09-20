@@ -348,11 +348,13 @@ fn statement_type(
                 Some(&Type::Bool),
             )?;
             require_type(&actual, &Type::Bool, "while condition")?;
+            let mut loop_variables = variables.clone();
+            let mut loop_mutable = mutable.clone();
             for nested in body {
                 statement_type(
                     nested,
-                    variables,
-                    mutable,
+                    &mut loop_variables,
+                    &mut loop_mutable,
                     functions,
                     structs,
                     enums,
@@ -364,11 +366,13 @@ fn statement_type(
             Ok(Type::Unit)
         }
         Statement::Loop { body } => {
+            let mut loop_variables = variables.clone();
+            let mut loop_mutable = mutable.clone();
             for nested in body {
                 statement_type(
                     nested,
-                    variables,
-                    mutable,
+                    &mut loop_variables,
+                    &mut loop_mutable,
                     functions,
                     structs,
                     enums,
@@ -385,10 +389,12 @@ fn statement_type(
             step,
             body,
         } => {
+            let mut loop_variables = variables.clone();
+            let mut loop_mutable = mutable.clone();
             statement_type(
                 init,
-                variables,
-                mutable,
+                &mut loop_variables,
+                &mut loop_mutable,
                 functions,
                 structs,
                 enums,
@@ -398,11 +404,11 @@ fn statement_type(
             )?;
             let actual = expression(
                 condition,
-                variables,
+                &loop_variables,
                 functions,
                 structs,
                 enums,
-                mutable,
+                &loop_mutable,
                 aliases,
                 Some(&Type::Bool),
             )?;
@@ -410,8 +416,8 @@ fn statement_type(
             for nested in body {
                 statement_type(
                     nested,
-                    variables,
-                    mutable,
+                    &mut loop_variables,
+                    &mut loop_mutable,
                     functions,
                     structs,
                     enums,
@@ -422,8 +428,8 @@ fn statement_type(
             }
             statement_type(
                 step,
-                variables,
-                mutable,
+                &mut loop_variables,
+                &mut loop_mutable,
                 functions,
                 structs,
                 enums,

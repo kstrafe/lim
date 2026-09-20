@@ -1929,6 +1929,21 @@ mod tests {
     }
 
     #[test]
+    fn keeps_loop_locals_in_lexical_scope() {
+        for source in [
+            "(fn main () u64 (while false (let value u64 7) (break)) value)",
+            "(fn main () u64 (loop (let value u64 7) (break)) value)",
+            "(fn main () u64 (for (let mut i u64 0) false (set i 1) (let value u64 7)) value)",
+        ] {
+            let program = parse_program(source).unwrap();
+            let error = check_types(&program).unwrap_err();
+            assert!(error.contains("value"), "{source}: {error}");
+        }
+        let valid =
+            parse_program("(fn main () u64 (while false (let value u64 7) (break)) 0)").unwrap();
+        assert!(check_types(&valid).is_ok());
+    }
+    #[test]
     fn lowers_immutable_globals() {
         let program = parse_program("(let ANSWER u64 40) (fn main () u64 (+ ANSWER 2))").unwrap();
         assert!(check_types(&program).is_ok());
