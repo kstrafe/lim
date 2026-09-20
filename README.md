@@ -192,6 +192,10 @@ the stack slot; an out-of-range index traps with `ud2`.
 Scalar functions also support more than six arguments using the x86-64 SysV
 stack-argument convention.
 
+`i128` and `u128` values use two native words (`rax`/`rdx` for results) and
+support local storage, parameters, returns, addition, subtraction, and
+bitwise operations.
+
 Unsigned integer comparisons and right shifts use unsigned native instructions
 when their operands have an unsigned type; unsigned division and remainder use
 the native `div` instruction.

@@ -584,6 +584,11 @@ fn add_local(
         let slot = *next_slot;
         *next_slot += 1;
         Storage::Scalar(slot)
+    } else if is_wide_integer(&ty) {
+        let low = *next_slot;
+        let high = low + 1;
+        *next_slot += 2;
+        Storage::Wide { low, high }
     } else if let Type::Array(element, length) = &ty {
         ensure_scalar_type(element, enums)
             .map_err(|_| "native backend only supports arrays of scalar values".to_owned())?;
@@ -620,6 +625,7 @@ fn local_slots(locals: &HashMap<String, Storage>, name: &str) -> Result<Vec<usiz
         .ok_or_else(|| format!("unknown local '{name}'"))?
     {
         Storage::Scalar(slot) => Ok(vec![*slot]),
+        Storage::Wide { low, high } => Ok(vec![*low, *high]),
         Storage::Struct(slots) => Ok(slots.iter().map(|(_, slot)| *slot).collect()),
         Storage::Enum {
             discriminant,
@@ -636,6 +642,9 @@ fn value_word_count(
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
 ) -> Result<usize, String> {
+    if is_wide_integer(ty) {
+        return Ok(2);
+    }
     if ensure_scalar_type(ty, enums).is_ok() {
         return Ok(1);
     }
@@ -686,6 +695,10 @@ enum Storage {
         length: usize,
     },
     Struct(Vec<(String, usize)>),
+    Wide {
+        low: usize,
+        high: usize,
+    },
     Enum {
         discriminant: usize,
         payload: Vec<usize>,
@@ -695,7 +708,10 @@ enum Storage {
 fn scalar_slot(locals: &HashMap<String, Storage>, name: &str) -> usize {
     match locals.get(name).expect("validated local") {
         Storage::Scalar(slot) => *slot,
-        Storage::Array { .. } | Storage::Struct(_) | Storage::Enum { .. } => {
+        Storage::Array { .. }
+        | Storage::Struct(_)
+        | Storage::Wide { .. }
+        | Storage::Enum { .. } => {
             panic!("validated scalar local is aggregate")
         }
     }
@@ -710,13 +726,11 @@ fn ensure_integer_type(ty: &Type) -> Result<(), String> {
             | Type::I16
             | Type::I32
             | Type::I64
-            | Type::I128
             | Type::Isize
             | Type::U8
             | Type::U16
             | Type::U32
             | Type::U64
-            | Type::U128
             | Type::Usize
     ) {
         Ok(())
@@ -734,6 +748,10 @@ fn is_unsigned_type(ty: &Type) -> bool {
     )
 }
 
+fn is_wide_integer(ty: &Type) -> bool {
+    matches!(ty, Type::I128 | Type::U128)
+}
+
 fn is_float_type(ty: &Type) -> bool {
     matches!(ty, Type::F32 | Type::F64)
 }
@@ -741,6 +759,9 @@ fn is_float_type(ty: &Type) -> bool {
 fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
     if matches!(ty, Type::F32 | Type::F64) {
         return Ok(());
+    }
+    if is_wide_integer(ty) {
+        return Err("128-bit integers occupy two native words".into());
     }
     if let Type::Named(name) = ty {
         if let Some(variants) = enums.get(name) {
@@ -895,6 +916,20 @@ impl FunctionContext {
                     }
                 } else if matches!(ty, Type::Array(_, _)) {
                     self.store_array(name, value)?;
+                } else if is_wide_integer(&ty) {
+                    self.expression(value)?;
+                    let Storage::Wide { low, high } = self
+                        .locals
+                        .get(name)
+                        .ok_or_else(|| format!("unknown variable '{name}'"))?
+                    else {
+                        return Err(format!("'{name}' is not a 128-bit integer"));
+                    };
+                    self.output.push_str(&format!(
+                        "    mov QWORD PTR [rbp-{}], rax\n    mov QWORD PTR [rbp-{}], rdx\n",
+                        low * 8,
+                        high * 8
+                    ));
                 } else {
                     if is_float_type(&ty) {
                         self.expression_as_float(value, &ty)?;
@@ -927,6 +962,15 @@ impl FunctionContext {
                     .locals
                     .get(name)
                     .ok_or_else(|| format!("unknown variable '{name}'"))?;
+                if let Storage::Wide { low, high } = storage {
+                    let (low, high) = (*low, *high);
+                    self.output.push_str(&format!(
+                        "    mov QWORD PTR [rbp-{}], rax\n    mov QWORD PTR [rbp-{}], rdx\n",
+                        low * 8,
+                        high * 8
+                    ));
+                    return Ok(());
+                }
                 let Storage::Scalar(slot) = storage else {
                     return Err(format!("cannot assign aggregate local '{name}'"));
                 };
@@ -1227,6 +1271,9 @@ impl FunctionContext {
         if is_float_type(&self.return_type) {
             let ty = self.return_type.clone();
             return self.expression_as_float(value, &ty);
+        }
+        if is_wide_integer(&self.return_type) {
+            return self.expression(value);
         }
         if let Type::Array(_, length) = &self.return_type {
             return self.return_array_value(*length, value);
@@ -1576,7 +1623,13 @@ impl FunctionContext {
 
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         match expression {
-            Expr::Integer(value) => self.output.push_str(&format!("    mov rax, {value}\n")),
+            Expr::Integer(value) => {
+                self.output.push_str(&format!("    mov rax, {value}\n"));
+                self.output.push_str(&format!(
+                    "    mov rdx, {}\n",
+                    if *value < 0 { -1 } else { 0 }
+                ));
+            }
             Expr::Char(value) => self
                 .output
                 .push_str(&format!("    mov rax, {}\n", *value as u32)),
@@ -1606,30 +1659,38 @@ impl FunctionContext {
             }
             Expr::Symbol(name) => {
                 if self.locals.contains_key(name) {
-                    let slot = scalar_slot(&self.locals, name);
-                    if self
-                        .local_types
-                        .get(name)
-                        .is_some_and(|ty| matches!(ty, Type::F32 | Type::F64))
-                    {
+                    if let Some(Storage::Wide { low, high }) = self.locals.get(name) {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
+                            low * 8,
+                            high * 8
+                        ));
+                    } else {
+                        let slot = scalar_slot(&self.locals, name);
                         if self
                             .local_types
                             .get(name)
-                            .is_some_and(|ty| matches!(ty, Type::F32))
+                            .is_some_and(|ty| matches!(ty, Type::F32 | Type::F64))
                         {
-                            self.output.push_str(&format!(
-                                "    movss xmm0, DWORD PTR [rbp-{}]\n",
-                                slot * 8
-                            ));
+                            if self
+                                .local_types
+                                .get(name)
+                                .is_some_and(|ty| matches!(ty, Type::F32))
+                            {
+                                self.output.push_str(&format!(
+                                    "    movss xmm0, DWORD PTR [rbp-{}]\n",
+                                    slot * 8
+                                ));
+                            } else {
+                                self.output.push_str(&format!(
+                                    "    movq xmm0, QWORD PTR [rbp-{}]\n",
+                                    slot * 8
+                                ));
+                            }
                         } else {
-                            self.output.push_str(&format!(
-                                "    movq xmm0, QWORD PTR [rbp-{}]\n",
-                                slot * 8
-                            ));
+                            self.output
+                                .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
                         }
-                    } else {
-                        self.output
-                            .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
                     }
                 } else if self.globals.contains_key(name) {
                     self.output
@@ -1848,6 +1909,14 @@ impl FunctionContext {
     }
 
     fn unary_negate(&mut self, items: &[Expr]) -> Result<(), String> {
+        if self
+            .expression_type(&items[1])
+            .is_some_and(|ty| is_wide_integer(&ty))
+        {
+            self.expression(&items[1])?;
+            self.output.push_str("    neg rax\n    sbb rdx, 0\n");
+            return Ok(());
+        }
         if let Some(ty) = self.expression_float_type(&items[1]) {
             self.expression_as_float(&items[1], &ty)?;
             if matches!(ty, Type::F32) {
@@ -1978,6 +2047,12 @@ impl FunctionContext {
         if self.expression_is_float(&items[1]) {
             return self.float_binary_operator(operator, items);
         }
+        if self
+            .expression_type(&items[1])
+            .is_some_and(|ty| is_wide_integer(&ty))
+        {
+            return self.wide_binary_operator(operator, items);
+        }
         self.expression(&items[1])?;
         self.push_rax();
         self.expression(&items[2])?;
@@ -2014,6 +2089,28 @@ impl FunctionContext {
                     self.output.push_str("    sar rax, cl\n");
                 }
             }
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
+
+    fn wide_binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+        if !matches!(operator, "+" | "-" | "&" | "|" | "^") {
+            return Err(format!("128-bit operator '{operator}' is unsupported"));
+        }
+        self.expression(&items[1])?;
+        self.output.push_str("    push rdx\n    push rax\n");
+        self.stack_depth += 2;
+        self.expression(&items[2])?;
+        self.output
+            .push_str("    mov rcx, rax\n    mov r8, rdx\n    pop rax\n    pop rdx\n");
+        self.stack_depth -= 2;
+        match operator {
+            "+" => self.output.push_str("    add rax, rcx\n    adc rdx, r8\n"),
+            "-" => self.output.push_str("    sub rax, rcx\n    sbb rdx, r8\n"),
+            "&" => self.output.push_str("    and rax, rcx\n    and rdx, r8\n"),
+            "|" => self.output.push_str("    or rax, rcx\n    or rdx, r8\n"),
+            "^" => self.output.push_str("    xor rax, rcx\n    xor rdx, r8\n"),
             _ => unreachable!(),
         }
         Ok(())
@@ -2412,6 +2509,19 @@ impl FunctionContext {
     }
 
     fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
+        if is_wide_integer(ty) {
+            self.expression(value)?;
+            let registers = if reverse {
+                ["rdx", "rax"]
+            } else {
+                ["rax", "rdx"]
+            };
+            for register in registers {
+                self.output.push_str(&format!("    push {register}\n"));
+                self.stack_depth += 1;
+            }
+            return Ok(());
+        }
         if let Type::Array(_, length) = ty {
             if let Expr::Symbol(local) = value {
                 let Storage::Array {
