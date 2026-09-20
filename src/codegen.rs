@@ -1319,7 +1319,7 @@ impl FunctionContext {
                 Some(Expr::Symbol(operator))
                     if matches!(
                         operator.as_str(),
-                        "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
+                        "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" | "!"
                     ) =>
                 {
                     items.get(1).and_then(|value| self.expression_type(value))
@@ -2211,7 +2211,14 @@ impl FunctionContext {
             return Err("! requires one operand".into());
         }
         self.expression(&items[1])?;
-        self.output.push_str("    xor eax, 1\n");
+        if self
+            .expression_type(&items[1])
+            .is_some_and(|ty| matches!(ty, Type::Bool))
+        {
+            self.output.push_str("    xor eax, 1\n");
+        } else {
+            self.output.push_str("    not rax\n");
+        }
         Ok(())
     }
 

@@ -1363,6 +1363,17 @@ mod tests {
     }
 
     #[test]
+    fn checks_and_lowers_integer_bitwise_not() {
+        let program = parse_program("(fn main () u32 (let value u32 (! 0)) (& value 42))").unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("not rax"));
+        let invalid = parse_program("(fn main () u64 (! 1.0))").unwrap();
+        assert!(check_types(&invalid)
+            .unwrap_err()
+            .contains("must be a boolean or integer"));
+    }
+
+    #[test]
     fn checks_and_lowers_payload_free_enums() {
         let program = parse_program(
             "(enum Color (Red Green Blue)) (fn main () u64 (match Green (Red 10) (Green 20) (_ 30)))",

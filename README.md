@@ -116,6 +116,14 @@ Unit functions use `()` and can be called for side effects:
   42)
 ```
 
+Unary `!` negates booleans and performs a bitwise complement on integer
+values:
+
+```lisp
+(fn main () u32
+  (& (! 0) 42))
+```
+
 Value structs can be declared and checked without pointers or traits:
 
 ```lisp

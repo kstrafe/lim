@@ -802,17 +802,12 @@ fn list_expression(
         "!" => {
             require_arity(operator, items, 2)?;
             let operand = expression(
-                &items[1],
-                variables,
-                functions,
-                structs,
-                enums,
-                mutable,
-                aliases,
-                Some(&Type::Bool),
+                &items[1], variables, functions, structs, enums, mutable, aliases, expected,
             )?;
-            require_type(&operand, &Type::Bool, "! operand")?;
-            Ok(Type::Bool)
+            if !matches!(operand, Type::Bool) && !is_integer(&operand) {
+                return Err("! operand must be a boolean or integer".into());
+            }
+            Ok(operand)
         }
         "&&" | "||" => {
             require_arity(operator, items, 3)?;
