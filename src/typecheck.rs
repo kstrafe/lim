@@ -720,23 +720,26 @@ fn list_expression(
                     Expr::List(arm) if arm.len() == 2 => arm,
                     _ => return Err("match arms must have the form (pattern expression)".into()),
                 };
-                let (pattern, payload_pattern) = match &arm[0] {
-                    Expr::Symbol(pattern) => (pattern.as_str(), None),
-                    Expr::List(pattern) if pattern.len() == 2 => {
+                let (pattern, payload_patterns) = match &arm[0] {
+                    Expr::Symbol(pattern) => (pattern.as_str(), Vec::new()),
+                    Expr::List(pattern) if !pattern.is_empty() => {
                         let variant = match &pattern[0] {
                             Expr::Symbol(variant) => variant.as_str(),
                             _ => return Err("match variant pattern must be a symbol".into()),
                         };
-                        let payload = match &pattern[1] {
-                            Expr::Symbol(payload) => payload.as_str(),
-                            _ => return Err("match payload pattern must be a symbol".into()),
-                        };
-                        (variant, Some(payload))
+                        let payloads = pattern[1..]
+                            .iter()
+                            .map(|payload| match payload {
+                                Expr::Symbol(payload) => Ok(payload.as_str()),
+                                _ => Err("match payload pattern must be a symbol".to_owned()),
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        (variant, payloads)
                     }
                     _ => return Err("match pattern must be a symbol or (variant _)".into()),
                 };
                 if pattern == "_" {
-                    if payload_pattern.is_some() {
+                    if !payload_patterns.is_empty() {
                         return Err("wildcard pattern cannot have a payload".into());
                     }
                     wildcard = true;
@@ -745,29 +748,34 @@ fn list_expression(
                     else {
                         return Err(format!("'{pattern}' is not a variant of '{enum_name}'"));
                     };
-                    if payload_pattern.is_some() && variant.fields.len() != 1 {
-                        return Err(format!("variant '{pattern}' does not have one payload"));
-                    }
-                    if payload_pattern == Some("_") && variant.fields.is_empty() {
-                        return Err(format!("variant '{pattern}' has no payload"));
+                    if !payload_patterns.is_empty()
+                        && payload_patterns.len() != variant.fields.len()
+                    {
+                        return Err(format!(
+                            "variant '{pattern}' expects {} payload patterns",
+                            variant.fields.len()
+                        ));
                     }
                     if !seen.iter().any(|seen: &&str| *seen == pattern) {
                         seen.push(pattern);
                     }
                 }
                 let mut arm_variables = variables.clone();
-                if let Some(binding) = payload_pattern.filter(|binding| *binding != "_") {
-                    let field_type = variants
+                if !payload_patterns.is_empty() {
+                    let variant = variants
                         .iter()
                         .find(|variant| variant.name == pattern)
-                        .and_then(|variant| variant.fields.first())
-                        .ok_or_else(|| format!("variant '{pattern}' has no payload"))?
-                        .clone();
-                    if arm_variables
-                        .insert(binding.to_owned(), field_type)
-                        .is_some()
-                    {
-                        return Err(format!("duplicate match binding '{binding}'"));
+                        .ok_or_else(|| format!("unknown variant '{pattern}'"))?;
+                    for (binding, field_type) in payload_patterns.iter().zip(&variant.fields) {
+                        if *binding == "_" {
+                            continue;
+                        }
+                        if arm_variables
+                            .insert((*binding).to_owned(), field_type.clone())
+                            .is_some()
+                        {
+                            return Err(format!("duplicate match binding '{binding}'"));
+                        }
                     }
                 }
                 let arm_type = expression(

@@ -157,6 +157,17 @@ Enums can also carry one scalar payload:
   (match value ((Some payload) payload) (None 7)))
 ```
 
+Payload variants may contain multiple scalar fields and bind them in order:
+
+```lisp
+(enum Pair ((Pair u64 u64) Empty))
+(fn sum () u64
+  (let value Pair (Pair 20 22))
+  (match value
+    ((Pair left right) (+ left right))
+    (Empty 0)))
+```
+
 Fixed-size arrays are value types with stack storage:
 
 ```lisp

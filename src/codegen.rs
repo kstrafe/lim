@@ -480,28 +480,37 @@ fn collect_expr_locals(
                     let Some(Expr::List(pattern)) = arm.first() else {
                         continue;
                     };
-                    if pattern.len() != 2 {
+                    if pattern.len() < 2 {
                         continue;
                     }
-                    let (Some(Expr::Symbol(variant_name)), Some(Expr::Symbol(binding))) =
-                        (pattern.first(), pattern.get(1))
-                    else {
+                    let Some(Expr::Symbol(variant_name)) = pattern.first() else {
                         continue;
                     };
-                    if binding == "_" || locals.contains_key(binding) {
-                        continue;
-                    }
-                    let Some(field_type) = enums.values().find_map(|variants| {
+                    let Some(fields) = enums.values().find_map(|variants| {
                         variants
                             .iter()
                             .find(|variant| variant.name == *variant_name)
-                            .and_then(|variant| variant.fields.first())
+                            .map(|variant| variant.fields.clone())
                     }) else {
                         continue;
                     };
-                    add_local(
-                        locals, binding, field_type, structs, enums, aliases, next_slot,
-                    )?;
+                    for (binding, field_type) in pattern[1..].iter().zip(fields) {
+                        let Expr::Symbol(binding) = binding else {
+                            continue;
+                        };
+                        if binding == "_" || locals.contains_key(binding) {
+                            continue;
+                        }
+                        add_local(
+                            locals,
+                            binding,
+                            &field_type,
+                            structs,
+                            enums,
+                            aliases,
+                            next_slot,
+                        )?;
+                    }
                 }
             }
             for item in items {
@@ -531,15 +540,25 @@ fn add_local(
     let storage = if let Type::Named(enum_name) = &ty {
         if let Some(variants) = enums.get(enum_name) {
             if variants.iter().any(|variant| !variant.fields.is_empty()) {
-                let payload = variants
-                    .iter()
-                    .find_map(|variant| variant.fields.first())
-                    .ok_or_else(|| "enum payload metadata is invalid".to_owned())?;
-                ensure_scalar_type(payload, enums)
-                    .map_err(|_| "native backend only supports scalar enum payloads".to_owned())?;
                 let discriminant = *next_slot;
-                let payload = discriminant + 1;
-                *next_slot += 2;
+                *next_slot += 1;
+                let payload_count = variants
+                    .iter()
+                    .map(|variant| variant.fields.len())
+                    .max()
+                    .unwrap_or(0);
+                let mut payload = Vec::with_capacity(payload_count);
+                for index in 0..payload_count {
+                    let field = variants
+                        .iter()
+                        .find_map(|variant| variant.fields.get(index))
+                        .ok_or_else(|| "enum payload metadata is invalid".to_owned())?;
+                    ensure_scalar_type(field, enums).map_err(|_| {
+                        "native backend only supports scalar enum payloads".to_owned()
+                    })?;
+                    payload.push(*next_slot);
+                    *next_slot += 1;
+                }
                 Storage::Enum {
                     discriminant,
                     payload,
@@ -605,7 +624,9 @@ fn local_slots(locals: &HashMap<String, Storage>, name: &str) -> Result<Vec<usiz
         Storage::Enum {
             discriminant,
             payload,
-        } => Ok(vec![*discriminant, *payload]),
+        } => Ok(std::iter::once(*discriminant)
+            .chain(payload.iter().copied())
+            .collect()),
         Storage::Array { base, length } => Ok((*base..*base + *length).collect()),
     }
 }
@@ -630,7 +651,11 @@ fn value_word_count(
         }
         if let Some(variants) = enums.get(name) {
             if variants.iter().any(|variant| !variant.fields.is_empty()) {
-                return Ok(2);
+                return Ok(1 + variants
+                    .iter()
+                    .map(|variant| variant.fields.len())
+                    .max()
+                    .unwrap_or(0));
             }
         }
     }
@@ -645,9 +670,15 @@ fn value_word_count(
 #[derive(Clone, Debug)]
 enum Storage {
     Scalar(usize),
-    Array { base: usize, length: usize },
+    Array {
+        base: usize,
+        length: usize,
+    },
     Struct(Vec<(String, usize)>),
-    Enum { discriminant: usize, payload: usize },
+    Enum {
+        discriminant: usize,
+        payload: Vec<usize>,
+    },
 }
 
 fn scalar_slot(locals: &HashMap<String, Storage>, name: &str) -> usize {
@@ -1213,7 +1244,7 @@ impl FunctionContext {
                     self.output.push_str(&format!(
                         "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
                         discriminant * 8,
-                        payload * 8
+                        payload.first().copied().unwrap_or(*discriminant) * 8
                     ));
                     return Ok(());
                 }
@@ -1403,10 +1434,13 @@ impl FunctionContext {
         if !matches!(value, Expr::List(_)) {
             self.expression(value)?;
             self.output.push_str(&format!(
-                "    mov QWORD PTR [rbp-{}], rax\n    mov QWORD PTR [rbp-{}], rdx\n",
-                discriminant * 8,
-                payload * 8
+                "    mov QWORD PTR [rbp-{}], rax\n",
+                discriminant * 8
             ));
+            if let Some(slot) = payload.first() {
+                self.output
+                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rdx\n", slot * 8));
+            }
             return Ok(());
         }
         let Expr::List(items) = value else {
@@ -1427,10 +1461,13 @@ impl FunctionContext {
         let Some(variant) = variant else {
             self.expression(value)?;
             self.output.push_str(&format!(
-                "    mov QWORD PTR [rbp-{}], rax\n    mov QWORD PTR [rbp-{}], rdx\n",
-                discriminant * 8,
-                payload * 8
+                "    mov QWORD PTR [rbp-{}], rax\n",
+                discriminant * 8
             ));
+            if let Some(slot) = payload.first() {
+                self.output
+                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rdx\n", slot * 8));
+            }
             return Ok(());
         };
         if items.len() - 1 != variant.fields.len() {
@@ -1445,10 +1482,13 @@ impl FunctionContext {
             discriminant * 8,
             variant_index
         ));
-        if let Some(value) = items.get(1) {
-            self.expression(value)?;
-            self.output
-                .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", payload * 8));
+        for (index, slot) in payload.iter().enumerate() {
+            if let Some(value) = items.get(index + 1) {
+                self.store_scalar_at_slot(value, &variant.fields[index], *slot)?;
+            } else {
+                self.output
+                    .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
+            }
         }
         Ok(())
     }
@@ -1699,9 +1739,9 @@ impl FunctionContext {
         }
         let end = self.label("match_end");
         let base_depth = self.stack_depth;
-        let payload_slot = match &items[1] {
+        let payload_slots = match &items[1] {
             Expr::Symbol(name) => match self.locals.get(name) {
-                Some(Storage::Enum { payload, .. }) => Some(*payload),
+                Some(Storage::Enum { payload, .. }) => Some(payload.clone()),
                 _ => None,
             },
             _ => None,
@@ -1725,14 +1765,21 @@ impl FunctionContext {
                 _ => return Err("invalid match arm".into()),
             };
             let next = self.label("match_next");
-            let (pattern, binding) = match &arm[0] {
-                Expr::Symbol(pattern) => (pattern.as_str(), None),
-                Expr::List(pattern) if pattern.len() == 2 => match (&pattern[0], &pattern[1]) {
-                    (Expr::Symbol(pattern), Expr::Symbol(binding)) => {
-                        (pattern.as_str(), Some(binding.as_str()))
-                    }
-                    _ => return Err("match variant pattern must be a symbol".into()),
-                },
+            let (pattern, bindings) = match &arm[0] {
+                Expr::Symbol(pattern) => (pattern.as_str(), Vec::new()),
+                Expr::List(pattern) if !pattern.is_empty() => {
+                    let Expr::Symbol(pattern_name) = &pattern[0] else {
+                        return Err("match variant pattern must be a symbol".into());
+                    };
+                    let bindings = pattern[1..]
+                        .iter()
+                        .map(|binding| match binding {
+                            Expr::Symbol(binding) => Ok(binding.as_str()),
+                            _ => Err("match payload pattern must be a symbol".to_owned()),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    (pattern_name.as_str(), bindings)
+                }
                 _ => return Err("match pattern must be a symbol or (variant _)".into()),
             };
             if pattern != "_" {
@@ -1743,16 +1790,24 @@ impl FunctionContext {
                     "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
                 ));
             }
-            if let Some(binding) = binding.filter(|binding| *binding != "_") {
-                let Some(payload_slot) = payload_slot else {
+            if !bindings.is_empty() {
+                let Some(payload_slots) = payload_slots.as_ref() else {
                     return Err("payload binding requires a local payload enum".into());
                 };
-                let slot = scalar_slot(&self.locals, binding);
-                self.output.push_str(&format!(
-                    "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
-                    payload_slot * 8,
-                    slot * 8
-                ));
+                for (index, binding) in bindings.iter().enumerate() {
+                    if *binding == "_" {
+                        continue;
+                    }
+                    let payload_slot = payload_slots
+                        .get(index)
+                        .ok_or_else(|| "payload binding exceeds enum payload count".to_owned())?;
+                    let slot = scalar_slot(&self.locals, binding);
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                        payload_slot * 8,
+                        slot * 8
+                    ));
+                }
             }
             self.expression(&arm[1])?;
             self.output
@@ -2459,11 +2514,12 @@ impl FunctionContext {
                     else {
                         return Err(format!("'{local}' is not a payload enum"));
                     };
-                    let slots = if reverse {
-                        [*payload, *discriminant]
-                    } else {
-                        [*discriminant, *payload]
-                    };
+                    let mut slots = Vec::with_capacity(1 + payload.len());
+                    slots.push(*discriminant);
+                    slots.extend(payload.iter().copied());
+                    if reverse {
+                        slots.reverse();
+                    }
                     for slot in slots {
                         self.output
                             .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));

@@ -1,0 +1,7 @@
+(enum Pair ((Pair u64 u64) Empty))
+
+(fn main () u64
+  (let value Pair (Pair 20 22))
+  (match value
+    ((Pair left right) (+ left right))
+    (Empty 0)))
