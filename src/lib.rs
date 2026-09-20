@@ -212,6 +212,10 @@ impl<'a> Lexer<'a> {
                     Some(b't') => value.push('\t'),
                     Some(b'\\') => value.push('\\'),
                     Some(b'"') => value.push('"'),
+                    Some(b'u') => {
+                        let character = self.unicode_escape_character()?;
+                        value.push(character);
+                    }
                     Some(byte) => {
                         return Err(self.error(&format!("unknown escape \\{}", byte as char)))
                     }
@@ -234,6 +238,27 @@ impl<'a> Lexer<'a> {
             kind: TokenKind::String(value),
             span: Span::new(start, self.offset, line, column),
         })
+    }
+
+    fn unicode_escape_character(&mut self) -> Result<char, LexError> {
+        if self.peek() != Some(b'{') {
+            return Err(self.error("Unicode escape must use the form \\u{...}"));
+        }
+        self.advance();
+        let digits_start = self.offset;
+        while let Some(byte) = self.peek() {
+            if byte == b'}' {
+                let digits = std::str::from_utf8(&self.source[digits_start..self.offset])
+                    .expect("lexer input is valid UTF-8");
+                self.advance();
+                return decode_unicode_escape(digits).map_err(|message| self.error(message));
+            }
+            if !byte.is_ascii_hexdigit() {
+                return Err(self.error("Unicode escape contains a non-hexadecimal digit"));
+            }
+            self.advance();
+        }
+        Err(self.error("unterminated Unicode escape"))
     }
 
     fn char_token(&mut self) -> Result<Token, LexError> {
@@ -260,14 +285,21 @@ impl<'a> Lexer<'a> {
             "return" => '\r',
             "null" => '\0',
             _ => {
-                let mut chars = text.chars();
-                let Some(character) = chars.next() else {
-                    return Err(self.error("character literal is empty"));
-                };
-                if chars.next().is_some() {
-                    return Err(self.error("character literal must contain one character"));
+                if let Some(digits) = text.strip_prefix("u{") {
+                    let Some(digits) = digits.strip_suffix('}') else {
+                        return Err(self.error("Unicode character escape must end with '}'"));
+                    };
+                    decode_unicode_escape(digits).map_err(|message| self.error(message))?
+                } else {
+                    let mut chars = text.chars();
+                    let Some(character) = chars.next() else {
+                        return Err(self.error("character literal is empty"));
+                    };
+                    if chars.next().is_some() {
+                        return Err(self.error("character literal must contain one character"));
+                    }
+                    character
                 }
-                character
             }
         };
         Ok(Token {
@@ -282,6 +314,18 @@ impl<'a> Lexer<'a> {
             span: Span::new(self.offset, self.offset, self.line, self.column),
         }
     }
+}
+
+fn decode_unicode_escape(digits: &str) -> Result<char, &'static str> {
+    if digits.is_empty() {
+        return Err("Unicode escape must contain at least one hexadecimal digit");
+    }
+    if digits.len() > 6 {
+        return Err("Unicode escape contains too many hexadecimal digits");
+    }
+    let value = u32::from_str_radix(digits, 16)
+        .map_err(|_| "Unicode escape contains an invalid hexadecimal value")?;
+    char::from_u32(value).ok_or("Unicode escape is not a valid Unicode scalar value")
 }
 
 fn parse_integer_literal(text: &str) -> Option<i128> {
@@ -3171,6 +3215,13 @@ mod tests {
             expressions[0].expr,
             Expr::List(vec![Expr::Char('a'), Expr::Char(' '), Expr::Char('\n')])
         );
+        let unicode = parse("(#\\u{03bb} \"A\\u{1f600}\")").unwrap();
+        assert_eq!(
+            unicode[0].expr,
+            Expr::List(vec![Expr::Char('λ'), Expr::String("A😀".into())])
+        );
+        assert!(parse("#\\u{d800}").is_err());
+        assert!(parse("\"bad\\u{110000}\"").is_err());
     }
 
     #[test]

@@ -52,9 +52,10 @@ making new keywords unambiguous and leaving future identifiers available.
 - Binary (`0b`), octal (`0o`), hexadecimal (`0x`), and underscore-separated integer literals
 - Explicit integer suffixes such as `42u32`, `-1i8`, and `0xffffu128`
 - Explicit floating-point suffixes such as `1.5f32` and `0.25f64`
-- Strings with `\\n`, `\\r`, `\\t`, `\\\\`, and `\\"` escapes
+- Strings with `\\n`, `\\r`, `\\t`, `\\\\`, `\\"`, and validated Unicode `\\u{...}` escapes
 - Quote syntax (`'form`)
 - Lisp character literals (`#\a`, `#\space`, `#\newline`)
+- Unicode character escapes such as `#\u{03bb}`
 - `#` and `;` line comments
 - The generated-code sigil `@` as a first-class AST node
 
