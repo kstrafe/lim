@@ -4064,6 +4064,19 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_i128_saturating_constants_at_signed_bounds() {
+        let program = parse_program(
+            "(#const Minimum i128 -170141183460469231731687303715884105728) \
+             (#const Saturated i128 (#i128.-.saturate Minimum 1)) \
+             (#fn main () u64 \
+               (#return (#if (#i128.== Saturated Minimum) 42 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

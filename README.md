@@ -545,6 +545,8 @@ This includes unsigned literals above `i128::MAX` when the declared type is
 Compile-time `u128` arithmetic evaluates in the unsigned two-word domain, so
 wrapping and saturating constant expressions preserve the same semantics as
 native `u128` operations.
+Signed `i128` constant saturation uses the exact `i128::MIN` and `i128::MAX`
+bounds as well.
 Positive literals above `i128::MAX` are represented as `u128` literals and can
 be used in explicitly typed `u128` positions.
 128-bit multiplication is lowered to the low 128 bits using native multiply

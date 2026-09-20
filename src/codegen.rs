@@ -2316,6 +2316,13 @@ fn integer_bit_width(ty: Type) -> Option<i128> {
 
 fn integer_bounds(ty: &Type) -> Option<(i128, i128)> {
     let width = integer_bit_width(ty.clone())?;
+    if width == 128 {
+        return if is_unsigned_type(ty) {
+            None
+        } else {
+            Some((i128::MIN, i128::MAX))
+        };
+    }
     if is_unsigned_type(ty) {
         Some((0, (1_i128 << width) - 1))
     } else {
@@ -2559,7 +2566,7 @@ fn constant_value(
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("global initializer is not constant".into()),
             };
-            let (qualifier, operator, _) = operator_parts(operator);
+            let (qualifier, operator, mode) = operator_parts(operator);
             let value = constant_value(
                 &items[1],
                 enums,
@@ -2573,6 +2580,20 @@ fn constant_value(
                     || matches!(target, Some(Type::U128)))
             {
                 return Ok((0u128.wrapping_sub(value as u128)) as i128);
+            }
+            if operator == "-"
+                && (matches!(qualifier.map(Type::from_name), Some(Type::I128))
+                    || matches!(target, Some(Type::I128)))
+            {
+                return Ok(if mode == Some("saturate") {
+                    if value == i128::MIN {
+                        i128::MAX
+                    } else {
+                        -value
+                    }
+                } else {
+                    value.wrapping_neg()
+                });
             }
             match operator {
                 "-" => value
@@ -2678,6 +2699,32 @@ fn constant_value(
                     _ => return Err("global initializer is not constant".to_owned()),
                 };
                 return Ok(result as i128);
+            }
+            if matches!(operation_type, Some(Type::I128)) {
+                match operator {
+                    "+" => {
+                        return Ok(if mode == Some("saturate") {
+                            left.saturating_add(right)
+                        } else {
+                            left.wrapping_add(right)
+                        });
+                    }
+                    "-" => {
+                        return Ok(if mode == Some("saturate") {
+                            left.saturating_sub(right)
+                        } else {
+                            left.wrapping_sub(right)
+                        });
+                    }
+                    "*" => {
+                        return Ok(if mode == Some("saturate") {
+                            left.saturating_mul(right)
+                        } else {
+                            left.wrapping_mul(right)
+                        });
+                    }
+                    _ => {}
+                }
             }
             let result: i128 = match operator {
                 "+" => left
