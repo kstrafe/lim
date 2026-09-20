@@ -992,8 +992,33 @@ fn generate_function(
     }
     let all_float_parameters = has_float_parameter && !has_integer_parameter;
     let mixed_parameters = has_float_parameter && has_integer_parameter;
-    if all_float_parameters && function.parameters.len() > FLOAT_ARGUMENT_REGISTERS.len() {
-        return Err("native backend supports at most eight f64 parameters".into());
+    if all_float_parameters {
+        let mut float_index = 0usize;
+        let mut stack_index = 0usize;
+        for parameter in &function.parameters {
+            let ty = resolve_type(&parameter.ty, aliases)?;
+            let slot = local_slots(&locals, &parameter.name)?[0];
+            if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
+                output.push_str(&format!(
+                    "    {} QWORD PTR [rbp-{}], {}\n",
+                    if matches!(ty, Type::F32) {
+                        "movd"
+                    } else {
+                        "movq"
+                    },
+                    slot * 8,
+                    FLOAT_ARGUMENT_REGISTERS[float_index]
+                ));
+                float_index += 1;
+            } else {
+                let incoming_offset = 16 + stack_index * 8;
+                output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp+{incoming_offset}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                    slot * 8
+                ));
+                stack_index += 1;
+            }
+        }
     }
     if mixed_parameters {
         let mut integer_index = 0usize;
@@ -1057,19 +1082,6 @@ fn generate_function(
         let words = value_word_count(&ty, structs, enums)?;
         let slots = local_slots(&locals, &parameter.name)?;
         if all_float_parameters {
-            let slot = slots[0];
-            let register_type = ty.clone();
-            output.push_str(&format!(
-                "    {} QWORD PTR [rbp-{}], {}\n",
-                if matches!(register_type, Type::F32) {
-                    "movd"
-                } else {
-                    "movq"
-                },
-                slot * 8,
-                FLOAT_ARGUMENT_REGISTERS[incoming_word]
-            ));
-            incoming_word += 1;
             continue;
         }
         for slot in slots.into_iter().take(words) {
@@ -7773,10 +7785,14 @@ impl FunctionContext {
     }
 
     fn call_float(&mut self, name: &str, arguments: &[Expr], ty: &Type) -> Result<(), String> {
-        if arguments.len() > FLOAT_ARGUMENT_REGISTERS.len() {
-            return Err(format!(
-                "call to '{name}' has too many floating-point arguments"
-            ));
+        let overflow_words = arguments
+            .len()
+            .saturating_sub(FLOAT_ARGUMENT_REGISTERS.len());
+        let total_words = arguments.len();
+        let needs_padding = (self.stack_depth + total_words + overflow_words) % 2 == 1;
+        if needs_padding {
+            self.output.push_str("    sub rsp, 8\n");
+            self.stack_depth += 1;
         }
         for argument in arguments {
             self.expression_as_float(argument, ty)?;
@@ -7787,22 +7803,39 @@ impl FunctionContext {
             }
             self.stack_depth += 1;
         }
-        for register in FLOAT_ARGUMENT_REGISTERS[..arguments.len()].iter().rev() {
-            self.output.push_str("    pop rax\n");
-            self.stack_depth -= 1;
+        for (copied_words, argument_index) in (FLOAT_ARGUMENT_REGISTERS.len()..arguments.len())
+            .rev()
+            .enumerate()
+        {
             self.output.push_str(&format!(
-                "    mov{} {register}, rax\n",
-                if matches!(ty, Type::F32) { "d" } else { "q" }
+                "    mov rax, QWORD PTR [rsp+{}]\n    push rax\n",
+                (total_words - argument_index - 1 + copied_words) * 8
             ));
+            self.stack_depth += 1;
         }
-        let needs_padding = self.stack_depth % 2 == 1;
-        if needs_padding {
-            self.output.push_str("    sub rsp, 8\n");
+        for argument_index in 0..arguments.len().min(FLOAT_ARGUMENT_REGISTERS.len()) {
+            let offset = (overflow_words + total_words - argument_index - 1) * 8;
+            self.output.push_str(&format!(
+                "    mov{} {}, {} PTR [rsp+{offset}]\n",
+                if matches!(ty, Type::F32) { "d" } else { "q" },
+                FLOAT_ARGUMENT_REGISTERS[argument_index],
+                if matches!(ty, Type::F32) {
+                    "DWORD"
+                } else {
+                    "QWORD"
+                }
+            ));
         }
         self.output
             .push_str(&format!("    call {}\n", asm_symbol(name)));
+        self.output.push_str(&format!(
+            "    add rsp, {}\n",
+            (total_words + overflow_words) * 8
+        ));
+        self.stack_depth -= total_words + overflow_words;
         if needs_padding {
             self.output.push_str("    add rsp, 8\n");
+            self.stack_depth -= 1;
         }
         Ok(())
     }
