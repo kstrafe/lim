@@ -928,15 +928,43 @@ fn check_let_else_pattern(
                 if items.len() >= 2
                     && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or")
                 {
-                    if variants.iter().any(|variant| !variant.fields.is_empty()) {
-                        return Err("enum let-else or-pattern requires fieldless variants".into());
-                    }
                     for alternative in &items[1..] {
-                        let Expr::Symbol(name) = alternative else {
-                            return Err("enum let-else alternatives must be variants".into());
+                        let (name, payload_patterns): (&str, Vec<&Expr>) = match alternative {
+                            Expr::Symbol(name) => (name, Vec::new()),
+                            Expr::List(items) if !items.is_empty() => {
+                                let Expr::Symbol(name) = &items[0] else {
+                                    return Err(
+                                        "enum let-else alternatives must be variants".into()
+                                    );
+                                };
+                                (name, items[1..].iter().collect())
+                            }
+                            _ => return Err("enum let-else alternatives must be variants".into()),
                         };
-                        if !variants.iter().any(|variant| variant.name == *name) {
+                        let Some(variant) = variants.iter().find(|variant| variant.name == name)
+                        else {
                             return Err(format!("unknown enum variant '{name}'"));
+                        };
+                        if !payload_patterns.is_empty()
+                            && payload_patterns.len() != variant.fields.len()
+                        {
+                            return Err(format!(
+                                "variant '{name}' expects {} payload patterns",
+                                variant.fields.len()
+                            ));
+                        }
+                        let mut alternative_variables = variables.clone();
+                        for (binding, field_type) in payload_patterns.iter().zip(&variant.fields) {
+                            check_enum_payload_pattern(
+                                binding,
+                                field_type,
+                                &mut alternative_variables,
+                                variables,
+                                structs,
+                            )?;
+                        }
+                        if alternative_variables.len() != variables.len() {
+                            return Err("enum let-else alternatives cannot bind values".into());
                         }
                     }
                     return Ok(Vec::new());

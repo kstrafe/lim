@@ -607,6 +607,14 @@ The terminal else statement may also be `#panic` or `#unreachable`.
 The same aggregate patterns used by `match` are also valid in `if-let` and
 `while-let`, including tuple and struct constructor patterns.
 
+Payload-enum constructors can also be grouped in binding-free `#let-else`
+alternatives:
+
+```lisp
+(#let-else (#or (Some 1u64) (Some 2u64) None) Maybe value
+  (#return 0u64))
+```
+
 `#let-else` also accepts scalar patterns and fieldless enum discriminants. The
 failure arm must still diverge, and fieldless enum alternatives can be grouped
 with `#or`:

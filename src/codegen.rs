@@ -2431,15 +2431,28 @@ fn let_else_bindings(
                 if items.len() >= 2
                     && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or")
                 {
-                    if variants.iter().any(|variant| !variant.fields.is_empty()) {
-                        return Err("enum let-else or-pattern requires fieldless variants".into());
-                    }
                     for alternative in &items[1..] {
-                        let Expr::Symbol(name) = alternative else {
-                            return Err("enum let-else alternatives must be variants".into());
+                        let (name, payload): (&str, Vec<&Expr>) = match alternative {
+                            Expr::Symbol(name) => (name, Vec::new()),
+                            Expr::List(items) if !items.is_empty() => {
+                                let Expr::Symbol(name) = &items[0] else {
+                                    return Err(
+                                        "enum let-else alternatives must be variants".into()
+                                    );
+                                };
+                                (name, items[1..].iter().collect())
+                            }
+                            _ => return Err("enum let-else alternatives must be variants".into()),
                         };
-                        if !variants.iter().any(|variant| variant.name == *name) {
+                        let Some(variant) = variants.iter().find(|variant| variant.name == name)
+                        else {
                             return Err(format!("unknown enum variant '{name}'"));
+                        };
+                        if !payload.is_empty() && payload.len() != variant.fields.len() {
+                            return Err(format!(
+                                "variant '{name}' expects {} payload patterns",
+                                variant.fields.len()
+                            ));
                         }
                     }
                     return Ok(Vec::new());
@@ -4415,7 +4428,16 @@ impl FunctionContext {
                 if fieldless_enum_type {
                     self.emit_let_else_fieldless_enum_pattern(pattern, ty, &failure)?;
                 } else if enum_type {
-                    self.emit_let_else_enum_pattern(pattern, ty, &failure, &mut bindings)?;
+                    if matches!(
+                        pattern,
+                        Expr::List(items)
+                            if items.len() >= 2
+                                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or")
+                    ) {
+                        self.emit_let_else_enum_or_pattern(pattern, ty, &failure)?;
+                    } else {
+                        self.emit_let_else_enum_pattern(pattern, ty, &failure, &mut bindings)?;
+                    }
                 } else if is_scalar_pattern_type(ty) {
                     let low_operand = "QWORD PTR [rsp]";
                     let high_operand = if is_wide_integer(ty) {
@@ -8768,6 +8790,74 @@ impl FunctionContext {
         }
         self.output
             .push_str(&format!("    jmp {failure}\n{matched}:\n"));
+        Ok(())
+    }
+
+    fn emit_let_else_enum_or_pattern(
+        &mut self,
+        pattern: &Expr,
+        ty: &Type,
+        failure: &str,
+    ) -> Result<(), String> {
+        let Type::Named(enum_name) = ty else {
+            return Err("enum let-else or-pattern requires a named enum".into());
+        };
+        let variants = self
+            .enums
+            .get(enum_name)
+            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
+            .clone();
+        let Expr::List(items) = pattern else {
+            return Err("enum let-else or-pattern must be a list".into());
+        };
+        let matched = self.label("enum_let_else_or_matched");
+        for (index, alternative) in items[1..].iter().enumerate() {
+            let (variant_name, payload_patterns): (&str, Vec<&Expr>) = match alternative {
+                Expr::Symbol(name) => (name, Vec::new()),
+                Expr::List(items) if !items.is_empty() => {
+                    let Expr::Symbol(name) = &items[0] else {
+                        return Err("enum let-else alternatives must be variants".into());
+                    };
+                    (name, items[1..].iter().collect())
+                }
+                _ => return Err("enum let-else alternatives must be variants".into()),
+            };
+            let variant = variants
+                .iter()
+                .find(|variant| variant.name == variant_name)
+                .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
+            let alternative_next = if index + 1 == items.len() - 2 {
+                failure.to_owned()
+            } else {
+                self.label("enum_let_else_or_next")
+            };
+            self.output.push_str(&format!(
+                "    cmp QWORD PTR [rsp], {}\n    jne {alternative_next}\n",
+                asm_u64_immediate(variant.discriminant)
+            ));
+            if !payload_patterns.is_empty() && payload_patterns.len() != variant.fields.len() {
+                return Err(format!(
+                    "variant '{variant_name}' expects {} payload patterns",
+                    variant.fields.len()
+                ));
+            }
+            let mut offset = 0;
+            for (payload, field_type) in payload_patterns.iter().zip(&variant.fields) {
+                self.emit_enum_payload_pattern(
+                    payload,
+                    field_type,
+                    offset,
+                    None,
+                    &alternative_next,
+                )?;
+                offset += storage_word_count(field_type, &self.structs, &self.enums)?;
+            }
+            self.output.push_str(&format!("    jmp {matched}\n"));
+            if index + 1 != items.len() - 2 {
+                self.output.push_str(&format!("{alternative_next}:\n"));
+            }
+        }
+        self.output.push_str(&format!("{matched}:\n"));
         Ok(())
     }
 
