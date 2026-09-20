@@ -2568,6 +2568,19 @@ mod tests {
     }
 
     #[test]
+    fn checks_and_lowers_size_of() {
+        let program = parse_program(
+            "(struct Point ((x u64) (y u64))) (fn main () u64 (as (+ (size-of Point) (size-of (array u32 2))) u64))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("mov rax, 16"));
+        let invalid = parse_program("(fn main () usize (size-of Unknown))").unwrap();
+        assert!(check_types(&invalid).is_err());
+    }
+
+    #[test]
     fn checks_and_lowers_integer_bitwise_not() {
         let program = parse_program("(fn main () u32 (let value u32 (! 0)) (& value 42))").unwrap();
         assert!(check_types(&program).is_ok());

@@ -1934,6 +1934,7 @@ impl FunctionContext {
                 {
                     Some(Type::Unit)
                 }
+                Some(Expr::Symbol(operator)) if operator == "size-of" => Some(Type::Usize),
                 Some(Expr::Symbol(operator)) if operator == "tuple" => Some(Type::Tuple(
                     items[1..]
                         .iter()
@@ -2597,6 +2598,7 @@ impl FunctionContext {
                 let target = resolve_type(&parse_type(items.get(2))?, &self.aliases)?;
                 self.cast_expression(&items[1], &target)
             }
+            "size-of" => self.size_of_expression(items),
             "match" => self.match_expression(items, None),
             "index" => self.index_expression(items),
             "get" => self.field_expression(items),
@@ -3141,6 +3143,54 @@ impl FunctionContext {
             "    test rax, rax\n    jz {failure}\n    jmp {done}\n{failure}:\n    ud2\n{done}:\n    xor eax, eax\n"
         ));
         Ok(())
+    }
+
+    fn size_of_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 2 {
+            return Err("size-of requires one type".into());
+        }
+        let ty = resolve_type(&parse_type(items.get(1))?, &self.aliases)?;
+        let size = self.native_type_size(&ty)?;
+        self.output.push_str(&format!("    mov rax, {size}\n"));
+        Ok(())
+    }
+
+    fn native_type_size(&self, ty: &Type) -> Result<usize, String> {
+        match ty {
+            Type::I128 | Type::U128 => Ok(16),
+            Type::Array(element, length) => Ok(self.native_type_size(element)? * length),
+            Type::Tuple(fields) => fields
+                .iter()
+                .map(|field| self.native_type_size(field))
+                .sum(),
+            Type::Named(name) => {
+                if let Some(fields) = self.structs.get(name) {
+                    return fields
+                        .iter()
+                        .map(|field| self.native_type_size(&field.ty))
+                        .sum();
+                }
+                if let Some(variants) = self.enums.get(name) {
+                    let payload = variants
+                        .iter()
+                        .map(|variant| {
+                            variant
+                                .fields
+                                .iter()
+                                .map(|field| self.native_type_size(field))
+                                .sum::<Result<usize, String>>()
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .max()
+                        .unwrap_or(0);
+                    return Ok(8 + payload);
+                }
+                Err(format!("unknown type '{name}' in size-of"))
+            }
+            Type::Generic(name) => Err(format!("generic type '{name}' has no concrete size")),
+            _ => Ok(8),
+        }
     }
 
     fn binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {

@@ -89,6 +89,13 @@ scalar types:
 Integer casts also support the two-word `i128` and `u128` representations,
 including sign extension when widening signed values.
 
+The backend exposes representation sizes as a typed `usize` expression:
+
+```lisp
+(fn main () u64
+  (as (size-of (tuple u64 u32)) u64))
+```
+
 Integer arithmetic normalizes results to the operand width, so operations on
 `u8`, `u16`, `u32`, and the signed narrow types have Rust-style low-width
 semantics.

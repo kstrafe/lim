@@ -744,6 +744,12 @@ fn list_expression(
             }
             Ok(target)
         }
+        "size-of" => {
+            require_arity(operator, items, 2)?;
+            let ty = resolve_type(&parse_type(items.get(1))?, aliases)?;
+            validate_layout_type(&ty, structs, enums)?;
+            Ok(Type::Usize)
+        }
         "array" => {
             let Some(Type::Array(element, length)) = expected else {
                 return Err(
@@ -1294,6 +1300,33 @@ fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, Stri
                 .collect::<Result<Vec<_>, _>>()?,
         )),
         _ => Ok(ty.clone()),
+    }
+}
+
+fn validate_layout_type(
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+) -> Result<(), String> {
+    match ty {
+        Type::Named(name) if structs.contains_key(name) => structs
+            .get(name)
+            .into_iter()
+            .flat_map(|fields| fields.iter())
+            .try_for_each(|field| validate_layout_type(&field.ty, structs, enums)),
+        Type::Named(name) if enums.contains_key(name) => enums
+            .get(name)
+            .into_iter()
+            .flat_map(|variants| variants.iter())
+            .flat_map(|variant| variant.fields.iter())
+            .try_for_each(|field| validate_layout_type(field, structs, enums)),
+        Type::Named(name) => Err(format!("unknown type '{name}' in size-of")),
+        Type::Array(element, _) => validate_layout_type(element, structs, enums),
+        Type::Tuple(fields) => fields
+            .iter()
+            .try_for_each(|field| validate_layout_type(field, structs, enums)),
+        Type::Generic(name) => Err(format!("generic type '{name}' has no concrete size")),
+        _ => Ok(()),
     }
 }
 
