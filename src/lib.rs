@@ -5612,6 +5612,17 @@ mod tests {
     }
 
     #[test]
+    fn mangles_assembler_reserved_identifiers() {
+        let program = parse_program_strict(
+            "(#fn offset () u64 (#return 41)) (#fn main () u64 (#return (#u64.+.wrap (offset) 1u64)))",
+        )
+        .unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains(".globl _lim_offset"), "{assembly}");
+        assert!(assembly.contains("call _lim_offset"), "{assembly}");
+    }
+
+    #[test]
     fn checks_and_lowers_type_aliases() {
         let program = parse_program(
             "(type UserId u64) (fn add_one ((id UserId)) UserId (+ id 1)) (fn main () UserId (add_one 41))",
