@@ -1865,6 +1865,21 @@ fn check_scalar_match(
         let (pattern, guard, body) = match_arm_parts(arm)?;
         match pattern {
             Expr::List(parts)
+                if parts.len() >= 2
+                    && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "or") =>
+            {
+                if parts[1..]
+                    .iter()
+                    .any(|alternative| matches!(alternative, Expr::Symbol(name) if name == "_"))
+                    && guard.is_none()
+                {
+                    wildcard = true;
+                }
+                for alternative in &parts[1..] {
+                    check_scalar_pattern(alternative, scrutinee)?;
+                }
+            }
+            Expr::List(parts)
                 if parts.len() == 3
                     && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "range") =>
             {
@@ -1952,6 +1967,31 @@ fn check_scalar_match(
         return Err("match is not exhaustive; add '_' arm".into());
     }
     Ok(result_type.unwrap_or(Type::Unit))
+}
+
+fn check_scalar_pattern(pattern: &Expr, scrutinee: &Type) -> Result<(), String> {
+    match pattern {
+        Expr::List(parts)
+            if parts.len() == 3
+                && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "range") =>
+        {
+            check_scalar_range_pattern(parts, scrutinee)
+        }
+        Expr::Symbol(name) if name == "_" => Ok(()),
+        Expr::Symbol(name)
+            if matches!(scrutinee, Type::Bool) && matches!(name.as_str(), "true" | "false") =>
+        {
+            Ok(())
+        }
+        Expr::Integer(value) if is_integer(scrutinee) && fits_integer(*value, scrutinee) => Ok(()),
+        Expr::UnsignedInteger(value)
+            if is_integer(scrutinee) && fits_unsigned_integer(*value, scrutinee) =>
+        {
+            Ok(())
+        }
+        Expr::Char(_) if matches!(scrutinee, Type::Char) => Ok(()),
+        _ => Err("scalar or-pattern alternative does not match the scrutinee type".into()),
+    }
 }
 
 fn check_scalar_range_pattern(parts: &[Expr], scrutinee: &Type) -> Result<(), String> {

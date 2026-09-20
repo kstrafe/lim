@@ -1,0 +1,6 @@
+(#fn main () u64
+  (#let value u32 2)
+  (#return
+    (#match value
+      ((#or 1 2 3) 42)
+      (_ 0))))

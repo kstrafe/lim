@@ -673,6 +673,14 @@ integer and character domains. Boolean matches may cover both `true` and
     (_ 30)))
 ```
 
+Scalar alternatives can be grouped explicitly with `#or`:
+
+```lisp
+(#match value
+  ((#or 1 2 3) 42)
+  (_ 0))
+```
+
 Inclusive scalar ranges use the explicit `#range` pattern. Integer ranges are
 validated against the scrutinee width and use signed or unsigned comparisons:
 

@@ -1098,6 +1098,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "match"
             | "when"
             | "range"
+            | "or"
             | "as"
             | "array"
             | "array-repeat"

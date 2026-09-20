@@ -7252,6 +7252,34 @@ impl FunctionContext {
                     (pattern.as_str(), Vec::new())
                 }
                 Expr::List(pattern)
+                    if pattern.len() >= 2
+                        && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "or") =>
+                {
+                    let scrutinee_type = self
+                        .expression_type(&items[1])
+                        .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
+                    let matched = self.label("or_pattern_matched");
+                    for (index, alternative) in pattern[1..].iter().enumerate() {
+                        let last = index + 1 == pattern.len() - 1;
+                        let alternative_next = if last {
+                            next.clone()
+                        } else {
+                            self.label("or_pattern_next")
+                        };
+                        self.emit_scalar_pattern_test(
+                            alternative,
+                            &scrutinee_type,
+                            &alternative_next,
+                        )?;
+                        self.output.push_str(&format!("    jmp {matched}\n"));
+                        if !last {
+                            self.output.push_str(&format!("{alternative_next}:\n"));
+                        }
+                    }
+                    self.output.push_str(&format!("{matched}:\n"));
+                    ("", Vec::new())
+                }
+                Expr::List(pattern)
                     if pattern.len() == 3
                         && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "range") =>
                 {
@@ -7466,6 +7494,67 @@ impl FunctionContext {
             }
         }
         Ok(())
+    }
+
+    fn emit_scalar_pattern_test(
+        &mut self,
+        pattern: &Expr,
+        ty: &Type,
+        next: &str,
+    ) -> Result<(), String> {
+        if matches!(pattern, Expr::List(parts) if parts.len() == 3
+            && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "range"))
+        {
+            return self.emit_scalar_range_pattern(pattern, ty, next);
+        }
+        match pattern {
+            Expr::Symbol(name) if name == "_" => Ok(()),
+            Expr::Symbol(name) if name == "true" || name == "false" => {
+                self.output.push_str(&format!(
+                    "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
+                    if name == "true" { 1 } else { 0 }
+                ));
+                Ok(())
+            }
+            Expr::Integer(value) => {
+                if is_wide_integer(ty) {
+                    let bits = *value as u128;
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp], {}\n    jne {next}\n    cmp QWORD PTR [rsp+8], {}\n    jne {next}\n",
+                        asm_u64_immediate(bits as u64),
+                        asm_u64_immediate((bits >> 64) as u64)
+                    ));
+                } else {
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
+                    ));
+                }
+                Ok(())
+            }
+            Expr::UnsignedInteger(value) => {
+                if is_wide_integer(ty) {
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp], {}\n    jne {next}\n    cmp QWORD PTR [rsp+8], {}\n    jne {next}\n",
+                        asm_u64_immediate(*value as u64),
+                        asm_u64_immediate((*value >> 64) as u64)
+                    ));
+                } else {
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
+                        asm_u64_immediate(*value as u64)
+                    ));
+                }
+                Ok(())
+            }
+            Expr::Char(value) => {
+                self.output.push_str(&format!(
+                    "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
+                    *value as u32
+                ));
+                Ok(())
+            }
+            _ => Err("invalid scalar or-pattern alternative".into()),
+        }
     }
 
     fn emit_wide_scalar_range(
