@@ -2860,14 +2860,13 @@ fn ensure_return_type(
     let Some(variants) = enums.get(name) else {
         return Err(format!("unknown return type '{name}'"));
     };
-    if variants.iter().all(|variant| variant.fields.len() <= 1)
+    if (variants.iter().all(|variant| variant.fields.len() <= 1)
         && variants
             .iter()
             .filter_map(|variant| variant.fields.first())
-            .all(|field| ensure_integer_type(field).is_ok())
+            .all(|field| ensure_integer_type(field).is_ok()))
+        || supports_indirect_return_type(ty, structs, enums)
     {
-        Ok(())
-    } else if supports_indirect_return_type(ty, structs, enums) {
         Ok(())
     } else {
         Err(format!(
@@ -9596,12 +9595,11 @@ impl FunctionContext {
         if slots.len() != words {
             return Err("aggregate temporary has an inconsistent layout".into());
         }
-        if words > VALUE_REGISTERS.len() {
-            if self.store_oversized_index_to_slots(value, ty, slots)?
-                || self.store_oversized_field_to_slots(value, ty, slots)?
-            {
-                return Ok(());
-            }
+        if words > VALUE_REGISTERS.len()
+            && (self.store_oversized_index_to_slots(value, ty, slots)?
+                || self.store_oversized_field_to_slots(value, ty, slots)?)
+        {
+            return Ok(());
         }
         if words <= VALUE_REGISTERS.len() {
             return self.store_value_words(value, ty, slots);
@@ -10306,12 +10304,16 @@ impl FunctionContext {
             ));
             self.stack_depth += 1;
         }
-        for argument_index in 0..arguments.len().min(FLOAT_ARGUMENT_REGISTERS.len()) {
+        for (argument_index, register) in FLOAT_ARGUMENT_REGISTERS
+            .iter()
+            .enumerate()
+            .take(arguments.len())
+        {
             let offset = (overflow_words + total_words - argument_index - 1) * 8;
             self.output.push_str(&format!(
                 "    mov{} {}, {} PTR [rsp+{offset}]\n",
                 if matches!(ty, Type::F32) { "d" } else { "q" },
-                FLOAT_ARGUMENT_REGISTERS[argument_index],
+                register,
                 if matches!(ty, Type::F32) {
                     "DWORD"
                 } else {
