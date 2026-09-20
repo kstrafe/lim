@@ -4898,6 +4898,13 @@ mod tests {
         assert!(check_types(&invalid_float)
             .unwrap_err()
             .contains("requires integer or boolean"));
+        let invalid_aggregate = parse_program(
+            "(fn main () bool (== (tuple (tuple u64 u64) 1 2) (tuple (tuple u64 u64) 1 2)))",
+        )
+        .unwrap();
+        assert!(check_types(&invalid_aggregate)
+            .unwrap_err()
+            .contains("requires scalar operands"));
         let unit_if = parse_program("(fn main () () (if true ()))").unwrap();
         assert!(check_types(&unit_if).is_ok());
         assert!(generate_assembly(&unit_if)

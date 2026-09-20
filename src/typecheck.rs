@@ -1251,6 +1251,11 @@ fn list_expression(
             if let Some(qualifier) = qualifier {
                 require_operator_type(qualifier, &left, raw_operator)?;
             }
+            if !is_numeric(&left) && !matches!(left, Type::Bool | Type::Char) {
+                return Err(format!(
+                    "comparison operator '{operator}' requires scalar operands"
+                ));
+            }
             Ok(Type::Bool)
         }
         "if" => {
