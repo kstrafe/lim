@@ -660,6 +660,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "align-of"
             | "assert"
             | "debug-assert"
+            | "panic"
+            | "unreachable"
     )
 }
 
@@ -3737,6 +3739,17 @@ mod tests {
                  (#if (#u64.== i 3) \
                    (#block (#break i)) \
                    (#u64.+.wrap i 0)))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn checks_and_lowers_diverging_expressions() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#return (#if true 42 (#panic))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());

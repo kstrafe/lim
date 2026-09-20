@@ -1,0 +1,5 @@
+(#fn main () u64
+  (#return
+    (#if (#bool.== true true)
+      42
+      (#unreachable))))

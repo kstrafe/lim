@@ -1530,6 +1530,10 @@ fn list_expression(
             require_type(&actual, &Type::Bool, &format!("{operator} condition"))?;
             Ok(Type::Unit)
         }
+        "panic" | "unreachable" => {
+            require_arity(operator, items, 1)?;
+            Ok(expected.cloned().unwrap_or(Type::Unit))
+        }
         "let" => Err("let is only valid as a statement".into()),
         "get" => {
             if items.len() != 3 {

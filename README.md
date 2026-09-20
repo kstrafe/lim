@@ -253,6 +253,13 @@ Boolean assertions lower directly to a native trap on failure:
 (debug-assert (>= value 0))
 ```
 
+`#panic` and `#unreachable` are explicit diverging expressions. They lower to
+the native `ud2` trap and can inhabit a branch with any expected static type:
+
+```lisp
+(#if condition value (#unreachable))
+```
+
 Unary `!` negates booleans and performs a bitwise complement on integer
 values:
 

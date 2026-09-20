@@ -4376,6 +4376,13 @@ impl FunctionContext {
             "!" => self.boolean_not(items),
             "&&" | "||" => self.boolean_logic(operator, items),
             "assert" | "debug-assert" => self.assert_expression(operator, items),
+            "panic" | "unreachable" => {
+                if items.len() != 1 {
+                    return Err(format!("{operator} takes no arguments"));
+                }
+                self.output.push_str("    ud2\n");
+                Ok(())
+            }
             _ => self.call(operator, &items[1..]),
         }
     }
