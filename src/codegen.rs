@@ -2496,7 +2496,7 @@ fn constant_aggregate_words(
                 if items.len() != 3 {
                     return Err("array-repeat requires one value".into());
                 }
-                let word = constant_aggregate_words(
+                let words = constant_aggregate_words(
                     &items[2],
                     element,
                     structs,
@@ -2507,10 +2507,11 @@ fn constant_aggregate_words(
                     evaluating_constants,
                     evaluating_float_constants,
                 )?;
-                if word.len() != 1 {
-                    return Err("static arrays only support scalar elements".into());
+                let mut result = Vec::with_capacity(words.len() * *length);
+                for _ in 0..*length {
+                    result.extend_from_slice(&words);
                 }
-                return Ok(std::iter::repeat_n(word[0], *length).collect());
+                return Ok(result);
             }
             if items.len() - value_start != *length {
                 return Err("static array initializer has the wrong length".into());
@@ -2529,15 +2530,9 @@ fn constant_aggregate_words(
                         evaluating_constants,
                         evaluating_float_constants,
                     )
-                    .and_then(|words| {
-                        if words.len() == 1 {
-                            Ok(words[0])
-                        } else {
-                            Err("static arrays only support scalar elements".into())
-                        }
-                    })
                 })
-                .collect()
+                .collect::<Result<Vec<_>, _>>()
+                .map(|words| words.into_iter().flatten().collect())
         }
         Type::Tuple(fields) => {
             let Expr::List(items) = expression else {
@@ -2569,15 +2564,9 @@ fn constant_aggregate_words(
                         evaluating_constants,
                         evaluating_float_constants,
                     )
-                    .and_then(|words| {
-                        if words.len() == 1 {
-                            Ok(words[0])
-                        } else {
-                            Err("static tuples only support scalar fields".into())
-                        }
-                    })
                 })
-                .collect()
+                .collect::<Result<Vec<_>, _>>()
+                .map(|words| words.into_iter().flatten().collect())
         }
         Type::Named(name) if structs.contains_key(name) => {
             let Expr::List(items) = expression else {
@@ -2605,15 +2594,9 @@ fn constant_aggregate_words(
                         evaluating_constants,
                         evaluating_float_constants,
                     )
-                    .and_then(|words| {
-                        if words.len() == 1 {
-                            Ok(words[0])
-                        } else {
-                            Err("static structs only support scalar fields".into())
-                        }
-                    })
                 })
-                .collect()
+                .collect::<Result<Vec<_>, _>>()
+                .map(|words| words.into_iter().flatten().collect())
         }
         Type::Named(name) if enums.contains_key(name) => {
             let Expr::List(items) = expression else {
