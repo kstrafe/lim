@@ -484,6 +484,16 @@ fn expression(
             }
             Ok(ty)
         }
+        Expr::UnsignedInteger(value) => {
+            let ty = expected
+                .filter(|ty| is_integer(ty))
+                .cloned()
+                .unwrap_or(Type::U128);
+            if !fits_unsigned_integer(*value, &ty) {
+                return Err(format!("integer literal {value} does not fit in {ty:?}"));
+            }
+            Ok(ty)
+        }
         Expr::Float(value) => {
             let ty = expected
                 .filter(|ty| matches!(ty, Type::F32 | Type::F64))
@@ -1247,4 +1257,23 @@ fn fits_integer(value: i128, ty: &Type) -> bool {
         _ => return false,
     };
     (minimum..=maximum).contains(&value)
+}
+
+fn fits_unsigned_integer(value: u128, ty: &Type) -> bool {
+    let maximum = match ty {
+        Type::I8 => i8::MAX as u128,
+        Type::I16 => i16::MAX as u128,
+        Type::I32 => i32::MAX as u128,
+        Type::I64 => i64::MAX as u128,
+        Type::I128 => i128::MAX as u128,
+        Type::Isize => isize::MAX as u128,
+        Type::U8 => u8::MAX as u128,
+        Type::U16 => u16::MAX as u128,
+        Type::U32 => u32::MAX as u128,
+        Type::U64 => u64::MAX as u128,
+        Type::U128 => u128::MAX,
+        Type::Usize => usize::MAX as u128,
+        _ => return false,
+    };
+    value <= maximum
 }

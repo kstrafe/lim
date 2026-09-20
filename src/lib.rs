@@ -39,6 +39,7 @@ pub enum TokenKind {
     At,
     Symbol(String),
     Integer(i128),
+    UnsignedInteger(u128),
     Float(String),
     Char(char),
     String(String),
@@ -167,6 +168,8 @@ impl<'a> Lexer<'a> {
         let text = std::str::from_utf8(&self.source[start..self.offset]).unwrap();
         let kind = if let Some(value) = parse_integer_literal(text) {
             TokenKind::Integer(value)
+        } else if let Some(value) = parse_unsigned_integer_literal(text) {
+            TokenKind::UnsignedInteger(value)
         } else if (text.contains('.') || text.contains('e') || text.contains('E'))
             && text.parse::<f64>().is_ok()
         {
@@ -294,12 +297,37 @@ fn parse_integer_literal(text: &str) -> Option<i128> {
     }
 }
 
+fn parse_unsigned_integer_literal(text: &str) -> Option<u128> {
+    if text.starts_with('-') {
+        return None;
+    }
+    let digits = text
+        .strip_prefix("0x")
+        .or_else(|| text.strip_prefix("0o"))
+        .or_else(|| text.strip_prefix("0b"))
+        .unwrap_or(text);
+    let radix = if text.starts_with("0x") {
+        16
+    } else if text.starts_with("0o") {
+        8
+    } else if text.starts_with("0b") {
+        2
+    } else {
+        10
+    };
+    if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') {
+        return None;
+    }
+    u128::from_str_radix(&digits.replace('_', ""), radix).ok()
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
     List(Vec<Expr>),
     Block(Vec<Statement>),
     Symbol(String),
     Integer(i128),
+    UnsignedInteger(u128),
     Float(String),
     Char(char),
     String(String),
@@ -945,6 +973,13 @@ impl<'a> Parser<'a> {
                     span: token.span,
                 })
             }
+            TokenKind::UnsignedInteger(value) => {
+                self.index += 1;
+                Ok(SpannedExpr {
+                    expr: Expr::UnsignedInteger(*value),
+                    span: token.span,
+                })
+            }
             TokenKind::Float(value) => {
                 self.index += 1;
                 Ok(SpannedExpr {
@@ -1398,6 +1433,17 @@ mod tests {
         assert!(generate_assembly(&wide)
             .unwrap()
             .contains("wide_shift_failure"));
+    }
+
+    #[test]
+    fn accepts_high_bit_u128_literals() {
+        let program = parse_program(
+            "(fn make () u128 0x8000000000000000000000000000002a) (fn main () u64 (as (make) u64))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("mov rdx, 0x8000000000000000"));
     }
 
     #[test]

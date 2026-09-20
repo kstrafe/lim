@@ -1442,6 +1442,7 @@ impl FunctionContext {
     fn expression_type(&self, expression: &Expr) -> Option<Type> {
         match expression {
             Expr::Integer(_) => Some(Type::I64),
+            Expr::UnsignedInteger(_) => Some(Type::U128),
             Expr::Char(_) => Some(Type::Char),
             Expr::Float(_) => Some(Type::F64),
             Expr::Symbol(name) if name == "true" || name == "false" => Some(Type::Bool),
@@ -1930,6 +1931,13 @@ impl FunctionContext {
                 self.output.push_str(&format!(
                     "    mov rdx, {}\n",
                     if *value < 0 { -1 } else { 0 }
+                ));
+            }
+            Expr::UnsignedInteger(value) => {
+                self.output.push_str(&format!(
+                    "    mov rax, 0x{:016x}\n    mov rdx, 0x{:016x}\n",
+                    *value as u64,
+                    (*value >> 64) as u64
                 ));
             }
             Expr::Char(value) => self
