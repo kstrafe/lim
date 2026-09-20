@@ -86,6 +86,9 @@ own SSE width.
 Floating-point `if` and `match` branches also preserve the expression’s
 expected `f32` or `f64` width.
 
+Floating comparisons explicitly handle unordered NaN results: equality and
+ordering are false, while inequality is true.
+
 Character literals have the Rust `char` type and lower to native scalar values:
 
 ```lisp

@@ -2982,6 +2982,8 @@ impl FunctionContext {
         } else {
             "    ucomisd xmm1, xmm0\n"
         });
+        let unordered = self.label("float_unordered");
+        let done = self.label("float_cmp_done");
         let condition = match operator {
             "<" => "b",
             "<=" => "be",
@@ -2991,8 +2993,10 @@ impl FunctionContext {
             "!=" => "ne",
             _ => unreachable!(),
         };
-        self.output
-            .push_str(&format!("    set{condition} al\n    movzx rax, al\n"));
+        self.output.push_str(&format!(
+            "    jp {unordered}\n    set{condition} al\n    movzx rax, al\n    jmp {done}\n{unordered}:\n    mov eax, {}\n{done}:\n",
+            if operator == "!=" { 1 } else { 0 }
+        ));
         Ok(())
     }
 

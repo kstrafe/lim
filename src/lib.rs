@@ -1378,6 +1378,14 @@ mod tests {
     }
 
     #[test]
+    fn handles_nan_float_comparisons() {
+        let program = parse_program("(fn main () u64 (if (!= (/ 0.0 0.0) 0.0) 42 0))").unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("jp .Lfloat_unordered"));
+    }
+
+    #[test]
     fn lowers_unit_functions_and_calls() {
         let program = parse_program("(fn noop () () ()) (fn main () u64 (noop) 42)").unwrap();
         assert!(check_types(&program).is_ok());
