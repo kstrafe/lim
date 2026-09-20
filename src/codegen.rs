@@ -3153,10 +3153,18 @@ impl FunctionContext {
                     }
                 }
                 Some(Expr::Symbol(operator)) => self
-                    .enums
-                    .iter()
-                    .find(|(_, variants)| variants.iter().any(|variant| variant.name == *operator))
-                    .map(|(name, _)| Type::Named(name.clone()))
+                    .structs
+                    .get(operator)
+                    .filter(|fields| items.len() - 1 == fields.len())
+                    .map(|_| Type::Named(operator.clone()))
+                    .or_else(|| {
+                        self.enums
+                            .iter()
+                            .find(|(_, variants)| {
+                                variants.iter().any(|variant| variant.name == *operator)
+                            })
+                            .map(|(name, _)| Type::Named(name.clone()))
+                    })
                     .or_else(|| {
                         self.functions
                             .get(operator)

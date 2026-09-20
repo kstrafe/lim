@@ -1,0 +1,7 @@
+(#struct Point ((x u64) (y u64)))
+
+(#fn main () u64
+  (#return
+    (#match (Point 10 32)
+      ((Point 10 middle) middle)
+      (_ 0))))
