@@ -501,6 +501,7 @@ pub struct EnumVariant {
 pub enum Item {
     TypeAlias {
         name: String,
+        type_parameters: Vec<String>,
         target: Type,
     },
     Function(Function),
@@ -720,6 +721,9 @@ fn specialize_type(
                     variants,
                     ..
                 } => (type_parameters.clone(), variants.len()),
+                Item::TypeAlias {
+                    type_parameters, ..
+                } => (type_parameters.clone(), 0),
                 _ => return Ok(Type::Named(name.clone())),
             };
             if parameters.len() != argument_names.len() {
@@ -803,6 +807,15 @@ fn specialize_type(
                         })
                         .collect::<Result<Vec<_>, String>>()?,
                 },
+                Item::TypeAlias { target, .. } => {
+                    return specialize_type(
+                        &target,
+                        &type_substitutions,
+                        templates,
+                        names,
+                        generated,
+                    );
+                }
                 _ => unreachable!("generic type template is not an aggregate"),
             };
             generated.push(concrete);
@@ -974,6 +987,11 @@ fn specialize_generic_types(mut items: Vec<Item>) -> Result<Vec<Item>, String> {
                 name,
                 type_parameters,
                 ..
+            }
+            | Item::TypeAlias {
+                name,
+                type_parameters,
+                ..
             } if !type_parameters.is_empty() => Some((name.clone(), item.clone())),
             _ => None,
         })
@@ -984,7 +1002,13 @@ fn specialize_generic_types(mut items: Vec<Item>) -> Result<Vec<Item>, String> {
     let mut names = HashMap::new();
     let mut generated = Vec::new();
     for item in &mut items {
-        let is_generic = matches!(item, Item::Struct { type_parameters, .. } | Item::Enum { type_parameters, .. } if !type_parameters.is_empty());
+        let is_generic = matches!(
+            item,
+            Item::TypeAlias { type_parameters, .. }
+                | Item::Struct { type_parameters, .. }
+                | Item::Enum { type_parameters, .. }
+                if !type_parameters.is_empty()
+        );
         if is_generic {
             continue;
         }
@@ -1075,7 +1099,15 @@ fn specialize_generic_types(mut items: Vec<Item>) -> Result<Vec<Item>, String> {
             }
         }
     }
-    items.retain(|item| !matches!(item, Item::Struct { type_parameters, .. } | Item::Enum { type_parameters, .. } if !type_parameters.is_empty()));
+    items.retain(|item| {
+        !matches!(
+            item,
+            Item::TypeAlias { type_parameters, .. }
+                | Item::Struct { type_parameters, .. }
+                | Item::Enum { type_parameters, .. }
+                if !type_parameters.is_empty()
+        )
+    });
     items.extend(generated);
     Ok(items)
 }
@@ -1088,12 +1120,17 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
     let keyword = expect_symbol(items.first(), "declaration keyword")?;
     match keyword {
         "type" => {
-            if items.len() != 3 {
+            let (type_parameters, target_index) = parse_type_parameters(items, 2)?;
+            if items.len() != target_index + 1 {
                 return Err("type requires a name and target type".into());
             }
             Ok(Item::TypeAlias {
                 name: expect_symbol(items.get(1), "type alias name")?.to_owned(),
-                target: parse_type(items.get(2))?,
+                type_parameters: type_parameters.clone(),
+                target: replace_generic_types(
+                    &parse_type(items.get(target_index))?,
+                    &type_parameters,
+                ),
             })
         }
         "fn" => Ok(Item::Function(parse_function(items)?)),
@@ -3026,5 +3063,11 @@ mod tests {
         .unwrap();
         assert!(check_types(&enum_payload).is_ok());
         assert!(generate_assembly(&enum_payload).is_ok());
+        let generic = parse_program(
+            "(type Pair (T) (tuple T T)) (fn main () u64 (let pair Pair<u64> (tuple 20 22)) (+ (get pair 0) (get pair 1)))",
+        )
+        .unwrap();
+        assert!(check_types(&generic).is_ok());
+        assert!(generate_assembly(&generic).is_ok());
     }
 }

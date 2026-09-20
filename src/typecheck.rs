@@ -12,7 +12,7 @@ struct Signature {
 pub fn check_types(program: &Program) -> Result<(), String> {
     let mut aliases = HashMap::new();
     for item in &program.items {
-        if let Item::TypeAlias { name, target } = item {
+        if let Item::TypeAlias { name, target, .. } = item {
             if aliases.insert(name.clone(), target.clone()).is_some() {
                 return Err(format!("duplicate type alias '{name}'"));
             }

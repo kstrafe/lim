@@ -480,7 +480,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::TypeAlias { name, target } => Some((name.clone(), target.clone())),
+            Item::TypeAlias { name, target, .. } => Some((name.clone(), target.clone())),
             _ => None,
         })
         .collect();
