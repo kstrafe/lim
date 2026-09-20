@@ -518,12 +518,20 @@ fn expression(
                 .filter(|ty| matches!(ty, Type::F32 | Type::F64))
                 .cloned()
                 .unwrap_or(Type::F64);
-            let parsed = value
-                .parse::<f64>()
-                .map_err(|_| format!("invalid floating-point literal '{value}'"))?;
-            if matches!(ty, Type::F32) && !parsed.is_finite() {
+            let finite = if matches!(ty, Type::F32) {
+                value
+                    .parse::<f32>()
+                    .map_err(|_| format!("invalid floating-point literal '{value}'"))?
+                    .is_finite()
+            } else {
+                value
+                    .parse::<f64>()
+                    .map_err(|_| format!("invalid floating-point literal '{value}'"))?
+                    .is_finite()
+            };
+            if !finite {
                 return Err(format!(
-                    "floating-point literal '{value}' is not a finite f32"
+                    "floating-point literal '{value}' is not finite for {ty:?}"
                 ));
             }
             Ok(ty)

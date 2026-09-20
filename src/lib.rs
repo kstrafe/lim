@@ -1546,6 +1546,14 @@ mod tests {
         assert!(assembly.contains("addss xmm1, xmm0"));
         assert!(assembly.contains("ucomiss xmm1, xmm0"));
         assert!(assembly.contains("movd xmm0"));
+        let overflow_f32 = parse_program("(fn main () f32 1e100)").unwrap();
+        assert!(check_types(&overflow_f32)
+            .unwrap_err()
+            .contains("not finite for F32"));
+        let overflow_f64 = parse_program("(fn main () f64 1e400)").unwrap();
+        assert!(check_types(&overflow_f64)
+            .unwrap_err()
+            .contains("not finite for F64"));
     }
 
     #[test]
