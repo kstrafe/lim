@@ -1544,6 +1544,18 @@ mod tests {
     }
 
     #[test]
+    fn passes_floating_arrays_through_functions() {
+        let program = parse_program(
+            "(fn sum ((values (array f32 2))) f32 (index values 1)) (fn make () (array f32 2) (array 1.5 2.5)) (fn main () u64 (let value f32 (sum (make))) (if (> value 2.0) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("movd eax, xmm0"));
+        assert!(assembly.contains("movss xmm0, DWORD PTR"));
+    }
+
+    #[test]
     fn checks_and_lowers_fixed_arrays() {
         let program = parse_program("(fn main () u64 (let mut values (array u64 2) (array 3 4)) (set-index values 1 40) (+ (index values 0) (index values 1)))").unwrap();
         assert!(check_types(&program).is_ok());

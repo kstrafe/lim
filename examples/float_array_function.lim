@@ -1,0 +1,9 @@
+(fn sum ((values (array f32 2))) f32
+  (index values 1))
+
+(fn make () (array f32 2)
+  (array 1.5 2.5))
+
+(fn main () u64
+  (let value f32 (sum (make)))
+  (if (> value 2.0) 42 0))

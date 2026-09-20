@@ -1470,8 +1470,11 @@ impl FunctionContext {
                 if items.len() != 2 {
                     return Err("array-repeat requires one value".into());
                 }
+                let Type::Array(element, _) = self.return_type.clone() else {
+                    unreachable!()
+                };
                 for _ in 0..length {
-                    self.expression(&items[1])?;
+                    self.expression_as_abi_word(&items[1], &element)?;
                     self.push_rax();
                 }
                 for register in VALUE_REGISTERS[..length].iter().rev() {
@@ -1484,8 +1487,11 @@ impl FunctionContext {
                 if items.len() - 1 != length {
                     return Err("array return has the wrong length".into());
                 }
+                let Type::Array(element, _) = self.return_type.clone() else {
+                    unreachable!()
+                };
                 for value in &items[1..] {
-                    self.expression(value)?;
+                    self.expression_as_abi_word(value, &element)?;
                     self.push_rax();
                 }
                 for register in VALUE_REGISTERS[..length].iter().rev() {
@@ -2923,8 +2929,11 @@ impl FunctionContext {
                     if items.len() != 2 {
                         return Err("array-repeat requires one value".into());
                     }
+                    let Type::Array(element, _) = ty else {
+                        unreachable!()
+                    };
                     for _ in 0..*length {
-                        self.expression(&items[1])?;
+                        self.expression_as_abi_word(&items[1], element)?;
                         self.push_rax();
                     }
                     return Ok(());
@@ -2933,13 +2942,16 @@ impl FunctionContext {
                     if items.len() - 1 != *length {
                         return Err("array argument has the wrong length".into());
                     }
-                    let values: Box<dyn Iterator<Item = &Expr>> = if reverse {
-                        Box::new(items[1..].iter().rev())
+                    let values: Box<dyn Iterator<Item = usize>> = if reverse {
+                        Box::new((0..*length).rev())
                     } else {
-                        Box::new(items[1..].iter())
+                        Box::new(0..*length)
                     };
-                    for value in values {
-                        self.expression(value)?;
+                    let Type::Array(element, _) = ty else {
+                        unreachable!()
+                    };
+                    for index in values {
+                        self.expression_as_abi_word(&items[index + 1], element)?;
                         self.push_rax();
                     }
                     return Ok(());
