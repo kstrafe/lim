@@ -3053,6 +3053,18 @@ mod tests {
         assert!(check_types(&incomplete)
             .unwrap_err()
             .contains("not exhaustive"));
+        let duplicate_integer =
+            parse_program("(fn main () u64 (match 1 (1 10) (1 20) (_ 30)))").unwrap();
+        assert!(check_types(&duplicate_integer)
+            .unwrap_err()
+            .contains("duplicate integer match pattern"));
+        let duplicate_enum = parse_program(
+            "(enum Color (Red Blue)) (fn main () u64 (match Red (Red 1) (Red 2) (_ 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&duplicate_enum)
+            .unwrap_err()
+            .contains("duplicate enum match pattern 'Red'"));
     }
 
     #[test]

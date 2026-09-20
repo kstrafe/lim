@@ -929,6 +929,9 @@ fn list_expression(
                     if !payload_patterns.is_empty() {
                         return Err("wildcard pattern cannot have a payload".into());
                     }
+                    if wildcard {
+                        return Err("duplicate wildcard match pattern".into());
+                    }
                     wildcard = true;
                 } else {
                     let Some(variant) = variants.iter().find(|variant| variant.name == pattern)
@@ -943,9 +946,10 @@ fn list_expression(
                             variant.fields.len()
                         ));
                     }
-                    if !seen.iter().any(|seen: &&str| *seen == pattern) {
-                        seen.push(pattern);
+                    if seen.iter().any(|seen: &&str| *seen == pattern) {
+                        return Err(format!("duplicate enum match pattern '{pattern}'"));
                     }
+                    seen.push(pattern);
                 }
                 let mut arm_variables = variables.clone();
                 if !payload_patterns.is_empty() {
@@ -1168,6 +1172,8 @@ fn check_scalar_match(
 ) -> Result<Type, String> {
     let mut wildcard = false;
     let mut seen_bool = [false, false];
+    let mut seen_integers = HashSet::new();
+    let mut seen_chars = HashSet::new();
     let mut result_type = None;
     for arm in &items[2..] {
         let arm = match arm {
@@ -1175,7 +1181,12 @@ fn check_scalar_match(
             _ => return Err("match arms must have the form (pattern expression)".into()),
         };
         match &arm[0] {
-            Expr::Symbol(pattern) if pattern == "_" => wildcard = true,
+            Expr::Symbol(pattern) if pattern == "_" => {
+                if wildcard {
+                    return Err("duplicate wildcard match pattern".into());
+                }
+                wildcard = true;
+            }
             Expr::Symbol(pattern) if matches!(scrutinee, Type::Bool) => {
                 let index = match pattern.as_str() {
                     "false" => 0,
@@ -1193,8 +1204,15 @@ fn check_scalar_match(
                         "integer match pattern {value} does not fit in {scrutinee:?}"
                     ));
                 }
+                if !seen_integers.insert(*value) {
+                    return Err(format!("duplicate integer match pattern {value}"));
+                }
             }
-            Expr::Char(_) if matches!(scrutinee, Type::Char) => {}
+            Expr::Char(value) if matches!(scrutinee, Type::Char) => {
+                if !seen_chars.insert(*value) {
+                    return Err(format!("duplicate character match pattern {value:?}"));
+                }
+            }
             _ => return Err("scalar match pattern does not match the scrutinee type".into()),
         }
         let arm_type = expression(
