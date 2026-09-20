@@ -2837,9 +2837,7 @@ impl FunctionContext {
                 };
                 let base = *base;
                 let length = *length;
-                if *element_words != 1 {
-                    return Err("set-index currently supports scalar array elements only".into());
-                }
+                let element_words = *element_words;
                 let element_type = match self.local_types.get(name).cloned() {
                     Some(Type::Array(element, _)) => *element,
                     _ => return Err(format!("'{name}' is not an array")),
@@ -2850,6 +2848,30 @@ impl FunctionContext {
                     "    cmp rax, {length}\n    jae {bounds_failure}\n"
                 ));
                 self.push_rax();
+                if element_words > 1 {
+                    self.push_value_words(value, &element_type, false)?;
+                    for register in VALUE_REGISTERS[..element_words].iter().rev() {
+                        self.output.push_str(&format!("    pop {register}\n"));
+                        self.stack_depth -= 1;
+                    }
+                    self.output.push_str("    pop rcx\n");
+                    self.stack_depth -= 1;
+                    self.output.push_str(&format!(
+                        "    lea r11, [rbp-{}]\n    imul rcx, {}\n    shl rcx, 3\n    sub r11, rcx\n",
+                        base * 8,
+                        element_words
+                    ));
+                    for (index, register) in VALUE_REGISTERS[..element_words].iter().enumerate() {
+                        self.output.push_str(&format!(
+                            "    mov QWORD PTR [r11+{}], {register}\n",
+                            index * 8
+                        ));
+                    }
+                    self.output.push_str(&format!(
+                        "    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n"
+                    ));
+                    return Ok(());
+                }
                 if is_float_type(&element_type) {
                     self.expression_as_float(value, &element_type)?;
                     if matches!(element_type, Type::F32) {

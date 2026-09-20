@@ -3480,6 +3480,22 @@ mod tests {
     }
 
     #[test]
+    fn mutates_nested_array_elements() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#let mut values (#array (#array u64 2) 2) \
+                 (#array (#array (#array u64 2) 2) \
+                   (#array (#array u64 2) 10 20) \
+                   (#array (#array u64 2) 30 40))) \
+               (#set-index values 1 (#array (#array u64 2) 50 60)) \
+               (#return (#index (#index values 1) 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
