@@ -157,9 +157,9 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
         let text = std::str::from_utf8(&self.source[start..self.offset]).unwrap();
-        let kind = match text.parse::<i128>() {
-            Ok(value) => TokenKind::Integer(value),
-            Err(_) => TokenKind::Symbol(text.to_owned()),
+        let kind = match parse_integer_literal(text) {
+            Some(value) => TokenKind::Integer(value),
+            None => TokenKind::Symbol(text.to_owned()),
         };
         Ok(Token {
             kind,
@@ -212,6 +212,32 @@ impl<'a> Lexer<'a> {
             message: message.to_owned(),
             span: Span::new(self.offset, self.offset, self.line, self.column),
         }
+    }
+}
+
+fn parse_integer_literal(text: &str) -> Option<i128> {
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(digits) => (true, digits),
+        None => (false, text),
+    };
+    let (radix, digits) = if let Some(digits) = digits.strip_prefix("0x") {
+        (16, digits)
+    } else if let Some(digits) = digits.strip_prefix("0o") {
+        (8, digits)
+    } else if let Some(digits) = digits.strip_prefix("0b") {
+        (2, digits)
+    } else {
+        (10, digits)
+    };
+    if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') {
+        return None;
+    }
+    let digits = digits.replace('_', "");
+    let value = i128::from_str_radix(&digits, radix).ok()?;
+    if negative {
+        value.checked_neg()
+    } else {
+        Some(value)
     }
 }
 
@@ -924,6 +950,16 @@ mod tests {
         };
         assert_eq!(items[1], Expr::String("line\n".into()));
         assert_eq!(items[2], Expr::Integer(-42));
+        let literals = parse("(0xff 0o10 0b1010 1_000)").unwrap();
+        assert_eq!(
+            literals[0].expr,
+            Expr::List(vec![
+                Expr::Integer(255),
+                Expr::Integer(8),
+                Expr::Integer(10),
+                Expr::Integer(1000),
+            ])
+        );
     }
 
     #[test]

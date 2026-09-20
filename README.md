@@ -34,6 +34,7 @@ cc /tmp/fibonacci.s -o /tmp/fibonacci
 - Lists: `(fn name ((arg i32)) i32 (body...))`
 - Symbols, including names such as `MyType?` and `-construct`
 - Signed decimal integers
+- Binary (`0b`), octal (`0o`), hexadecimal (`0x`), and underscore-separated integer literals
 - Strings with `\\n`, `\\r`, `\\t`, `\\\\`, and `\\"` escapes
 - Quote syntax (`'form`)
 - `#` and `;` line comments
