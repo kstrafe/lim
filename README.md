@@ -402,6 +402,10 @@ set.
 Fixed arrays of up to six scalar elements use the same flattened value ABI and
 can also be passed and returned by functions.
 
+Large fixed arrays of scalar elements can be returned through an internal
+caller-provided result area; the language still exposes them as ordinary
+array values with no pointer syntax. See `examples/large_array_return.lim`.
+
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
 Nested tuple locals and fixed-array locals can also be stored and indexed using

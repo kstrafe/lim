@@ -151,6 +151,7 @@ enum GlobalValue {
 struct FunctionAbi {
     parameters: Vec<Type>,
     return_type: Type,
+    indirect_return: bool,
     max_call_depth: usize,
 }
 
@@ -736,6 +737,9 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             function.name.clone(),
             FunctionAbi {
                 parameters,
+                indirect_return: matches!(&return_type, Type::Array(_, _))
+                    && storage_word_count(&return_type, &structs, &enums)
+                        .is_ok_and(|words| words > VALUE_REGISTERS.len()),
                 return_type,
                 max_call_depth: *call_depths.get(&function.name).unwrap_or(&1),
             },
@@ -975,6 +979,16 @@ fn generate_function(
             &local_types,
         )?;
     }
+    let indirect_return = functions
+        .get(&function.name)
+        .is_some_and(|abi| abi.indirect_return);
+    let return_pointer_slot = if indirect_return {
+        let slot = next_slot;
+        next_slot += 1;
+        Some(slot)
+    } else {
+        None
+    };
     let frame_size = (next_slot.saturating_sub(1) * 8).div_ceil(16) * 16;
     let function_symbol = asm_symbol(&function.name);
     let max_call_depth = functions
@@ -989,6 +1003,9 @@ fn generate_function(
     output.push_str("    push rbp\n    mov rbp, rsp\n");
     if frame_size != 0 {
         output.push_str(&format!("    sub rsp, {frame_size}\n"));
+    }
+    if let Some(slot) = return_pointer_slot {
+        output.push_str(&format!("    mov QWORD PTR [rbp-{}], r10\n", slot * 8));
     }
     let all_float_parameters = has_float_parameter && !has_integer_parameter;
     let mixed_parameters = has_float_parameter && has_integer_parameter;
@@ -1119,6 +1136,7 @@ fn generate_function(
         loop_labels: Vec::new(),
         loop_result_types: Vec::new(),
         return_label: return_label.clone(),
+        return_pointer_slot,
         output: String::new(),
     };
     for statement in &function.body {
@@ -2475,6 +2493,13 @@ fn ensure_return_type(
     if value_word_count(ty, structs, enums).is_ok() {
         return Ok(());
     }
+    if let Type::Array(element, _) = ty {
+        if storage_word_count(ty, structs, enums).is_ok()
+            && value_word_count(element, structs, enums).is_ok()
+        {
+            return Ok(());
+        }
+    }
     let Type::Named(name) = ty else {
         return Err(format!(
             "native backend does not support return type {ty:?}"
@@ -3354,6 +3379,7 @@ struct FunctionContext {
     loop_labels: Vec<(String, String)>,
     loop_result_types: Vec<Option<Type>>,
     return_label: String,
+    return_pointer_slot: Option<usize>,
     output: String,
 }
 
@@ -4442,7 +4468,133 @@ impl FunctionContext {
         self.expression(value)
     }
 
+    fn store_indirect_array_element(
+        &mut self,
+        value: &Expr,
+        ty: &Type,
+        offset: usize,
+    ) -> Result<(), String> {
+        if value_word_count(ty, &self.structs, &self.enums)? != 1 {
+            return Err("large array returns currently require scalar elements".into());
+        }
+        self.expression_as_abi_word(value, ty)?;
+        let pointer_slot = self
+            .return_pointer_slot
+            .ok_or_else(|| "missing indirect return pointer".to_owned())?;
+        self.output.push_str(&format!(
+            "    mov r11, QWORD PTR [rbp-{}]\n",
+            pointer_slot * 8
+        ));
+        if matches!(ty, Type::F32) {
+            self.output
+                .push_str(&format!("    movd DWORD PTR [r11-{}], eax\n", offset * 8));
+        } else {
+            self.output
+                .push_str(&format!("    mov QWORD PTR [r11-{}], rax\n", offset * 8));
+        }
+        Ok(())
+    }
+
+    fn return_indirect_array_value(&mut self, length: usize, value: &Expr) -> Result<(), String> {
+        let Type::Array(element, _) = self.return_type.clone() else {
+            return Err("indirect return target is not an array".into());
+        };
+        let element_words = value_word_count(&element, &self.structs, &self.enums)?;
+        if element_words != 1 {
+            return Err("large array returns currently require scalar elements".into());
+        }
+        let pointer_slot = self
+            .return_pointer_slot
+            .ok_or_else(|| "missing indirect return pointer".to_owned())?;
+        if let Expr::Symbol(name) = value {
+            if let Some(Storage::Array {
+                base,
+                length: source_length,
+                element_words: source_element_words,
+            }) = self.locals.get(name).cloned()
+            {
+                if source_length != length || source_element_words != element_words {
+                    return Err("array return length mismatch".into());
+                }
+                for index in 0..length * element_words {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                        (base + index) * 8,
+                        pointer_slot * 8,
+                        index * 8
+                    ));
+                }
+                return Ok(());
+            }
+            if matches!(
+                self.global_types.get(name),
+                Some(Type::Array(_, global_length)) if *global_length == length
+            ) {
+                for index in 0..length {
+                    self.load_global_word(name, index)?;
+                    self.output.push_str(&format!(
+                        "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                        pointer_slot * 8,
+                        index * 8
+                    ));
+                }
+                return Ok(());
+            }
+        }
+        if let Expr::String(string) = value {
+            let characters = string.chars().collect::<Vec<_>>();
+            if characters.len() != length || !matches!(*element, Type::Char) {
+                return Err("string length does not match array return type".into());
+            }
+            for (index, character) in characters.into_iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], {}\n",
+                    pointer_slot * 8,
+                    index * 8,
+                    character as u32
+                ));
+            }
+            return Ok(());
+        }
+        if let Expr::List(items) = value {
+            let value_start = if parse_type(items.get(1))
+                .ok()
+                .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
+            {
+                2
+            } else {
+                1
+            };
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat") {
+                if items.len() != value_start + 1 {
+                    return Err("array-repeat requires one value".into());
+                }
+                for index in 0..length {
+                    self.store_indirect_array_element(
+                        &items[value_start],
+                        &element,
+                        index * element_words,
+                    )?;
+                }
+                return Ok(());
+            }
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
+                if items.len() - value_start != length {
+                    return Err("array return has the wrong length".into());
+                }
+                for (index, item) in items[value_start..].iter().enumerate() {
+                    self.store_indirect_array_element(item, &element, index * element_words)?;
+                }
+                return Ok(());
+            }
+        }
+        Err("large array return requires an array value or local".into())
+    }
+
     fn return_array_value(&mut self, length: usize, value: &Expr) -> Result<(), String> {
+        if self.return_pointer_slot.is_some() {
+            return self.return_indirect_array_value(length, value);
+        }
         if let Expr::Symbol(name) = value {
             if matches!(
                 self.global_types.get(name),
@@ -4847,6 +4999,18 @@ impl FunctionContext {
         if *declared_length != length {
             return Err("array local length metadata is inconsistent".into());
         }
+        if let Expr::List(items) = value {
+            if let Some(Expr::Symbol(function_name)) = items.first() {
+                if self
+                    .functions
+                    .get(function_name)
+                    .is_some_and(|function| function.indirect_return)
+                {
+                    self.call(function_name, &items[1..], Some(base))?;
+                    return Ok(());
+                }
+            }
+        }
         if let Expr::String(string) = value {
             let characters = string.chars().collect::<Vec<_>>();
             if characters.len() != length || element_words != 1 {
@@ -5219,7 +5383,7 @@ impl FunctionContext {
                 self.output.push_str("    ud2\n");
                 Ok(())
             }
-            _ => self.call(operator, &items[1..]),
+            _ => self.call(operator, &items[1..], None),
         }
     }
 
@@ -7705,7 +7869,19 @@ impl FunctionContext {
         }
     }
 
-    fn call(&mut self, name: &str, arguments: &[Expr]) -> Result<(), String> {
+    fn emit_indirect_return_target(&mut self, slot: Option<usize>) {
+        if let Some(slot) = slot {
+            self.output
+                .push_str(&format!("    lea r10, [rbp-{}]\n", slot * 8));
+        }
+    }
+
+    fn call(
+        &mut self,
+        name: &str,
+        arguments: &[Expr],
+        indirect_return_slot: Option<usize>,
+    ) -> Result<(), String> {
         if arguments.len() > 32 {
             return Err(format!("call to '{name}' has more than 32 arguments"));
         }
@@ -7714,18 +7890,23 @@ impl FunctionContext {
             .get(name)
             .cloned()
             .ok_or_else(|| format!("unknown function '{name}'"))?;
+        if abi.indirect_return && indirect_return_slot.is_none() {
+            return Err(format!(
+                "large aggregate call to '{name}' must initialize a local value"
+            ));
+        }
         if arguments.len() != abi.parameters.len() {
             return Err(format!("call to '{name}' has the wrong argument count"));
         }
         if abi.parameters.iter().all(is_float_type) {
             if let Some(ty) = abi.parameters.first() {
                 if abi.parameters.iter().all(|other| other == ty) {
-                    return self.call_float(name, arguments, ty);
+                    return self.call_float(name, arguments, ty, indirect_return_slot);
                 }
             }
         }
         if abi.parameters.iter().any(is_float_type) {
-            return self.call_mixed(name, arguments, &abi.parameters);
+            return self.call_mixed(name, arguments, &abi.parameters, indirect_return_slot);
         }
         let word_count = abi
             .parameters
@@ -7754,6 +7935,7 @@ impl FunctionContext {
             }
             self.output.push_str("    add rsp, 48\n");
             self.stack_depth -= ARGUMENT_REGISTERS.len();
+            self.emit_indirect_return_target(indirect_return_slot);
             self.output
                 .push_str(&format!("    call {}\n", asm_symbol(name)));
             self.output
@@ -7776,6 +7958,7 @@ impl FunctionContext {
         if needs_padding {
             self.output.push_str("    sub rsp, 8\n");
         }
+        self.emit_indirect_return_target(indirect_return_slot);
         self.output
             .push_str(&format!("    call {}\n", asm_symbol(name)));
         if needs_padding {
@@ -7784,7 +7967,13 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn call_float(&mut self, name: &str, arguments: &[Expr], ty: &Type) -> Result<(), String> {
+    fn call_float(
+        &mut self,
+        name: &str,
+        arguments: &[Expr],
+        ty: &Type,
+        indirect_return_slot: Option<usize>,
+    ) -> Result<(), String> {
         let overflow_words = arguments
             .len()
             .saturating_sub(FLOAT_ARGUMENT_REGISTERS.len());
@@ -7826,6 +8015,7 @@ impl FunctionContext {
                 }
             ));
         }
+        self.emit_indirect_return_target(indirect_return_slot);
         self.output
             .push_str(&format!("    call {}\n", asm_symbol(name)));
         self.output.push_str(&format!(
@@ -7845,6 +8035,7 @@ impl FunctionContext {
         name: &str,
         arguments: &[Expr],
         parameters: &[Type],
+        indirect_return_slot: Option<usize>,
     ) -> Result<(), String> {
         let word_counts = parameters
             .iter()
@@ -7925,6 +8116,7 @@ impl FunctionContext {
             }
             source_offset += words;
         }
+        self.emit_indirect_return_target(indirect_return_slot);
         self.output
             .push_str(&format!("    call {}\n", asm_symbol(name)));
         self.output.push_str(&format!(

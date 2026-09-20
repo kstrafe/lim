@@ -1,0 +1,8 @@
+(#fn make ((last u64)) (#array u64 8)
+  (#return
+    (#array (#array u64 8)
+      1u64 2u64 3u64 4u64 5u64 6u64 7u64 last)))
+
+(#fn main () u64
+  (#let values (#array u64 8) (make 42u64))
+  (#return (#index values 7u64)))
