@@ -193,6 +193,15 @@ Integer arithmetic normalizes results to the operand width, so operations on
 semantics.
 The same explicit `.wrap` and `.saturate` modes are honored when evaluating
 typed integer constants.
+Unary integer negation also requires an explicit mode and saturates signed
+minimum values to the corresponding maximum (unsigned negation saturates to
+zero):
+
+```lisp
+(#fn main () u64
+  (#return (#as (#i8.-.saturate -128) u64)))
+```
+
 This includes the signed minimum-value divided by `-1` saturation case.
 Wrapping signed machine-width division and remainder also handle the minimum
 value divided by -1 without relying on a trapping native idiv case.

@@ -1,0 +1,5 @@
+(#fn saturate ((value i8)) i8
+  (#return (#i8.-.saturate value)))
+
+(#fn main () u64
+  (#return (#as (saturate -128) u64)))

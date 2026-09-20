@@ -2601,21 +2601,40 @@ fn constant_value(
                 && (matches!(qualifier.map(Type::from_name), Some(Type::U128))
                     || matches!(target, Some(Type::U128)))
             {
+                if mode == Some("saturate") {
+                    return Ok(0);
+                }
                 return Ok((0u128.wrapping_sub(value as u128)) as i128);
             }
-            if operator == "-"
-                && (matches!(qualifier.map(Type::from_name), Some(Type::I128))
-                    || matches!(target, Some(Type::I128)))
-            {
-                return Ok(if mode == Some("saturate") {
-                    if value == i128::MIN {
-                        i128::MAX
+            if operator == "-" {
+                let operation_type = qualifier.map(Type::from_name).or_else(|| target.cloned());
+                if matches!(operation_type, Some(Type::I128)) {
+                    return Ok(if mode == Some("saturate") {
+                        if value == i128::MIN {
+                            i128::MAX
+                        } else {
+                            -value
+                        }
                     } else {
-                        -value
+                        value.wrapping_neg()
+                    });
+                }
+                if mode == Some("saturate") {
+                    if let Some(ty) = operation_type.as_ref() {
+                        if is_unsigned_type(ty) {
+                            return Ok(0);
+                        }
+                        if let Some((minimum, maximum)) = integer_bounds(ty) {
+                            return Ok(if value == minimum {
+                                maximum
+                            } else {
+                                value.checked_neg().ok_or_else(|| {
+                                    "constant saturating negation overflowed".to_owned()
+                                })?
+                            });
+                        }
                     }
-                } else {
-                    value.wrapping_neg()
-                });
+                }
             }
             match operator {
                 "-" => value
@@ -4981,7 +5000,7 @@ impl FunctionContext {
             return Ok(());
         }
         match operator {
-            "-" if items.len() == 2 => self.unary_negate(items),
+            "-" if items.len() == 2 => self.unary_negate(items, qualifier, mode),
             "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
                 self.binary_operator(operator, qualifier, mode, items)
             }
@@ -6062,13 +6081,30 @@ impl FunctionContext {
         matches!(ty, Type::Named(name) if self.enums.contains_key(name))
     }
 
-    fn unary_negate(&mut self, items: &[Expr]) -> Result<(), String> {
-        if self
-            .expression_type(&items[1])
-            .is_some_and(|ty| is_wide_integer(&ty))
-        {
+    fn unary_negate(
+        &mut self,
+        items: &[Expr],
+        qualifier: Option<&str>,
+        mode: Option<&str>,
+    ) -> Result<(), String> {
+        let operand_type = qualifier
+            .map(Type::from_name)
+            .or_else(|| self.expression_type(&items[1]));
+        if operand_type.as_ref().is_some_and(is_wide_integer) {
             self.expression(&items[1])?;
-            self.output.push_str("    neg rax\n    sbb rdx, 0\n");
+            if mode == Some("saturate") {
+                if operand_type == Some(Type::U128) {
+                    self.output.push_str("    xor eax, eax\n    xor edx, edx\n");
+                } else {
+                    let done = self.label("saturating_negate_done");
+                    let normal = self.label("saturating_negate_normal");
+                    self.output.push_str(&format!(
+                        "    cmp rdx, 0x8000000000000000\n    jne {normal}\n    test rax, rax\n    jne {normal}\n    mov rax, 0xffffffffffffffff\n    mov rdx, 0x7fffffffffffffff\n    jmp {done}\n{normal}:\n    neg rax\n    sbb rdx, 0\n{done}:\n"
+                    ));
+                }
+            } else {
+                self.output.push_str("    neg rax\n    sbb rdx, 0\n");
+            }
             return Ok(());
         }
         if let Some(ty) = self.expression_float_type(&items[1]) {
@@ -6085,9 +6121,12 @@ impl FunctionContext {
         } else {
             self.expression(&items[1])?;
             self.output.push_str("    neg rax\n");
-            if let Some(ty) = self.expression_type(&items[1]) {
-                if is_narrow_integer(&ty) {
-                    self.normalize_integer(&ty)?;
+            if mode == Some("saturate") {
+                self.emit_saturating_integer_result("-", qualifier, items)?;
+            }
+            if let Some(ty) = operand_type.as_ref() {
+                if is_narrow_integer(ty) {
+                    self.normalize_integer(ty)?;
                 }
             }
         }

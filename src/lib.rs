@@ -5511,6 +5511,17 @@ mod tests {
     }
 
     #[test]
+    fn lowers_saturating_unary_negation() {
+        let program = parse_program_strict(
+            "(#fn saturate ((value i8)) i8 (#return (#i8.-.saturate value))) (#fn main () u64 (#return (#as (saturate -128) u64)))",
+        )
+        .unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("mov rax, 127"), "{assembly}");
+        assert!(assembly.contains("cmp rax, -128"), "{assembly}");
+    }
+
+    #[test]
     fn checks_and_lowers_type_aliases() {
         let program = parse_program(
             "(type UserId u64) (fn add_one ((id UserId)) UserId (+ id 1)) (fn main () UserId (add_one 41))",
