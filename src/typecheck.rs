@@ -212,6 +212,55 @@ fn statement_type(
             }
             Ok(Type::Unit)
         }
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            statement_type(
+                init,
+                variables,
+                mutable,
+                functions,
+                structs,
+                enums,
+                return_type,
+                false,
+            )?;
+            let actual = expression(
+                condition,
+                variables,
+                functions,
+                structs,
+                enums,
+                Some(&Type::Bool),
+            )?;
+            require_type(&actual, &Type::Bool, "for condition")?;
+            for nested in body {
+                statement_type(
+                    nested,
+                    variables,
+                    mutable,
+                    functions,
+                    structs,
+                    enums,
+                    return_type,
+                    true,
+                )?;
+            }
+            statement_type(
+                step,
+                variables,
+                mutable,
+                functions,
+                structs,
+                enums,
+                return_type,
+                true,
+            )?;
+            Ok(Type::Unit)
+        }
         Statement::Break | Statement::Continue => {
             if in_loop {
                 Ok(Type::Unit)

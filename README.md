@@ -96,6 +96,15 @@ Fixed-size arrays are value types with stack storage:
 Scalar functions also support more than six arguments using the x86-64 SysV
 stack-argument convention.
 
+Counted loops use explicit init, condition, step, and body forms:
+
+```lisp
+(for (let mut i u64 0)
+     (< i 10)
+     (set i (+ i 1))
+  (set total (+ total i)))
+```
+
 Top-level `let` declarations use the same form. Function bodies are currently
 represented as statements, while their expressions remain generic S-expressions
 for the type checker and later compiler stages.

@@ -333,6 +333,12 @@ pub enum Statement {
         condition: Expr,
         body: Vec<Statement>,
     },
+    For {
+        init: Box<Statement>,
+        condition: Expr,
+        step: Box<Statement>,
+        body: Vec<Statement>,
+    },
     Break,
     Continue,
     Return(Option<Expr>),
@@ -571,6 +577,22 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
         }
         return Ok(Statement::While {
             condition: items[1].clone(),
+            body,
+        });
+    }
+    if is_form(expression, "for") {
+        let items = expect_list(expression, "for statement")?;
+        if items.len() < 5 {
+            return Err("for requires init, condition, step, and body".into());
+        }
+        let mut body = Vec::with_capacity(items.len() - 4);
+        for expression in &items[4..] {
+            body.push(parse_statement(expression)?);
+        }
+        return Ok(Statement::For {
+            init: Box::new(parse_statement(&items[1])?),
+            condition: items[2].clone(),
+            step: Box::new(parse_statement(&items[3])?),
             body,
         });
     }
@@ -981,5 +1003,13 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("[rbp+16]"));
         assert!(assembly.contains("[rbp+24]"));
+    }
+
+    #[test]
+    fn lowers_for_loop_with_continue_step() {
+        let program = parse_program("(fn main () u64 (let mut total u64 0) (for (let mut i u64 0) (< i 3) (set i (+ i 1)) (continue)) total)").unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("for_step"));
     }
 }

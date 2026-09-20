@@ -143,6 +143,15 @@ fn collect_locals(
                 collect_locals(statement, locals, structs, enums, next_slot)?;
             }
         }
+        Statement::For {
+            init, step, body, ..
+        } => {
+            collect_locals(init, locals, structs, enums, next_slot)?;
+            collect_locals(step, locals, structs, enums, next_slot)?;
+            for statement in body {
+                collect_locals(statement, locals, structs, enums, next_slot)?;
+            }
+        }
         Statement::Assign { .. }
         | Statement::ArrayAssign { .. }
         | Statement::Break
@@ -314,6 +323,29 @@ impl FunctionContext {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
+                self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
+            }
+            Statement::For {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                self.statement(init)?;
+                let start = self.label("for");
+                let step_label = self.label("for_step");
+                let end = self.label("endfor");
+                self.output.push_str(&format!("{start}:\n"));
+                self.expression(condition)?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {end}\n"));
+                self.loop_labels.push((step_label.clone(), end.clone()));
+                for statement in body {
+                    self.statement(statement)?;
+                }
+                self.loop_labels.pop();
+                self.output.push_str(&format!("{step_label}:\n"));
+                self.statement(step)?;
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
             }
             Statement::Break => {
