@@ -28,6 +28,7 @@
         lm_sensors
 
         cmake
+        clang
         fontconfig.dev
         just
         libGL
