@@ -1849,9 +1849,35 @@ impl FunctionContext {
         if items.len() != 3 {
             return Err("index requires an array and index".into());
         }
-        let name = match &items[1] {
-            Expr::Symbol(name) => name,
-            _ => return Err("index currently requires an array local".into()),
+        let Some(name) = (match &items[1] {
+            Expr::Symbol(name) => Some(name),
+            _ => None,
+        }) else {
+            let Type::Array(element, length) = self
+                .expression_type(&items[1])
+                .ok_or_else(|| "index requires an array value".to_owned())?
+            else {
+                return Err("index requires an array value".into());
+            };
+            ensure_integer_type(&element)
+                .map_err(|_| "native computed indexing supports integer arrays only".to_owned())?;
+            if length > VALUE_REGISTERS.len() {
+                return Err("native computed indexing supports at most six elements".into());
+            }
+            let bounds_failure = self.label("bounds_failure");
+            self.expression(&items[1])?;
+            for register in VALUE_REGISTERS[..length].iter().rev() {
+                self.output.push_str(&format!("    push {register}\n"));
+                self.stack_depth += 1;
+            }
+            self.expression(&items[2])?;
+            self.output.push_str(&format!(
+                "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    mov rax, QWORD PTR [rsp+rcx*8+{}]\n    add rsp, {}\n    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n",
+                8,
+                length * 8
+            ));
+            self.stack_depth -= length;
+            return Ok(());
         };
         let Storage::Array { base, .. } = self
             .locals

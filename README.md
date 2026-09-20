@@ -192,6 +192,13 @@ type and fills all positions.
 Array reads and writes perform native unsigned bounds checks before touching
 the stack slot; an out-of-range index traps with `ud2`.
 
+Integer arrays returned from functions can be indexed directly as well:
+
+```lisp
+(fn values () (array u64 3) (array 10 20 30))
+(fn main () u64 (index (values) 1))
+```
+
 Scalar functions also support more than six arguments using the x86-64 SysV
 stack-argument convention.
 

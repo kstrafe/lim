@@ -1,0 +1,5 @@
+(fn make () (array u64 3)
+  (array 10 20 30))
+
+(fn main () u64
+  (index (make) 1))

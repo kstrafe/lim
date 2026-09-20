@@ -1512,6 +1512,16 @@ mod tests {
     }
 
     #[test]
+    fn indexes_arrays_returned_by_functions() {
+        let program = parse_program(
+            "(fn make () (array u64 3) (array 10 20 30)) (fn main () u64 (index (make) 1))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("call make"));
+    }
+
+    #[test]
     fn checks_and_lowers_fixed_arrays() {
         let program = parse_program("(fn main () u64 (let mut values (array u64 2) (array 3 4)) (set-index values 1 40) (+ (index values 0) (index values 1)))").unwrap();
         assert!(check_types(&program).is_ok());
