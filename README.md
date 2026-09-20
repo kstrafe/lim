@@ -681,6 +681,14 @@ Scalar alternatives can be grouped explicitly with `#or`:
   (_ 0))
 ```
 
+The same explicit alternatives can select enum variants (without payload
+bindings):
+
+```lisp
+(#match value
+  ((#or Maybe?-some Maybe?-none) 42))
+```
+
 Inclusive scalar ranges use the explicit `#range` pattern. Integer ranges are
 validated against the scrutinee width and use signed or unsigned comparisons:
 

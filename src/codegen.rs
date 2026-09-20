@@ -7253,6 +7253,30 @@ impl FunctionContext {
                 }
                 Expr::List(pattern)
                     if pattern.len() >= 2
+                        && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "or")
+                        && self
+                            .expression_type(&items[1])
+                            .is_some_and(|ty| self.is_enum_type(&ty)) =>
+                {
+                    let matched = self.label("enum_or_pattern_matched");
+                    for alternative in &pattern[1..] {
+                        let Expr::Symbol(alternative) = alternative else {
+                            return Err("enum or-pattern alternatives must be variants".into());
+                        };
+                        let value = self
+                            .enum_value(alternative)
+                            .ok_or_else(|| format!("unknown enum variant '{alternative}'"))?;
+                        self.output.push_str(&format!(
+                            "    cmp QWORD PTR [rsp], {}\n    je {matched}\n",
+                            asm_u64_immediate(value)
+                        ));
+                    }
+                    self.output
+                        .push_str(&format!("    jmp {next}\n{matched}:\n"));
+                    ("", Vec::new())
+                }
+                Expr::List(pattern)
+                    if pattern.len() >= 2
                         && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "or") =>
                 {
                     let scrutinee_type = self

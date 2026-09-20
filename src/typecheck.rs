@@ -1576,19 +1576,45 @@ fn list_expression(
             let mut result_type = None;
             for arm in &items[2..] {
                 let (pattern_expr, guard, body) = match_arm_parts(arm)?;
-                let (pattern, payload_patterns) = match pattern_expr {
-                    Expr::Symbol(pattern) => (pattern.as_str(), Vec::new()),
+                let (pattern, payload_patterns, alternatives) = match pattern_expr {
+                    Expr::Symbol(pattern) => (pattern.as_str(), Vec::new(), Vec::new()),
+                    Expr::List(pattern)
+                        if pattern.len() >= 2
+                            && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "or") =>
+                    {
+                        let alternatives = pattern[1..]
+                            .iter()
+                            .map(|alternative| match alternative {
+                                Expr::Symbol(name) => Ok(name.as_str()),
+                                _ => {
+                                    Err("enum or-pattern alternatives must be variants".to_owned())
+                                }
+                            })
+                            .collect::<Result<Vec<_>, String>>()?;
+                        ("", Vec::new(), alternatives)
+                    }
                     Expr::List(pattern) if !pattern.is_empty() => {
                         let variant = match &pattern[0] {
                             Expr::Symbol(variant) => variant.as_str(),
                             _ => return Err("match variant pattern must be a symbol".into()),
                         };
                         let payloads = pattern[1..].iter().collect::<Vec<_>>();
-                        (variant, payloads)
+                        (variant, payloads, Vec::new())
                     }
                     _ => return Err("match pattern must be a symbol or (variant _)".into()),
                 };
-                if pattern == "_" {
+                if !alternatives.is_empty() {
+                    for alternative in alternatives {
+                        if !variants.iter().any(|variant| variant.name == alternative) {
+                            return Err(format!(
+                                "'{alternative}' is not a variant of '{enum_name}'"
+                            ));
+                        }
+                        if guard.is_none() && !seen.contains(&alternative) {
+                            seen.push(alternative);
+                        }
+                    }
+                } else if pattern == "_" {
                     if !payload_patterns.is_empty() {
                         return Err("wildcard pattern cannot have a payload".into());
                     }
