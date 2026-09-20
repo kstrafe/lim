@@ -4841,6 +4841,13 @@ impl FunctionContext {
         }
         if self.return_pointer_slot.is_some()
             && self.is_aggregate_type(&self.return_type)
+            && matches!(value, Expr::List(items) if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get" || operator == "index"))
+        {
+            return self.return_indirect_projection(value);
+        }
+        if self.return_pointer_slot.is_some()
+            && self.is_aggregate_type(&self.return_type)
             && matches!(&value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if"))
         {
             let return_type = self.return_type.clone();
@@ -5003,6 +5010,30 @@ impl FunctionContext {
             }
         }
         self.expression(value)
+    }
+
+    fn return_indirect_projection(&mut self, value: &Expr) -> Result<(), String> {
+        let pointer_slot = self
+            .return_pointer_slot
+            .ok_or_else(|| "missing indirect return pointer".to_owned())?;
+        let words = storage_word_count(&self.return_type, &self.structs, &self.enums)?;
+        let temp_base = self
+            .aggregate_temp_base
+            .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
+        self.store_value_to_slots(
+            value,
+            &self.return_type.clone(),
+            &flat_slots(temp_base, words),
+        )?;
+        for index in 0..words {
+            self.output.push_str(&format!(
+                "    mov rax, QWORD PTR [rbp-{}]\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                (temp_base + index) * 8,
+                pointer_slot * 8,
+                index * 8
+            ));
+        }
+        Ok(())
     }
 
     fn return_indirect_tuple_value(&mut self, fields: &[Type], value: &Expr) -> Result<(), String> {

@@ -475,6 +475,8 @@ array returns.
 Large array-valued tuple and struct fields can also be indexed directly; the
 native backend materializes the field in a frame temporary before selecting its
 element. See `examples/large_aggregate_mutation.lim`.
+The same projection values can be returned directly from functions with large
+aggregate result areas; see `examples/large_projection_return.lim`.
 Aggregate-valued `#if` and `#match` expressions also preserve all flattened
 value words across their branches.
 Aggregate expressions may be used as discarded statements; their flattened
