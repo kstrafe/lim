@@ -600,6 +600,9 @@ The same aggregate patterns used by `match` are also valid in `if-let` and
   (set value None))
 ```
 
+Large enum payloads retain their complete stack-resident bindings in
+`while-let`; see `examples/large_while_let.lim`.
+
 Payload variants may contain multiple scalar fields and bind them in order:
 
 ```lisp
