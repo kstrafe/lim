@@ -6958,6 +6958,24 @@ impl FunctionContext {
                     result_type,
                 );
             }
+            if let Expr::List(value_items) = &items[1] {
+                if matches!(
+                    value_items.first(),
+                    Some(Expr::Symbol(name)) if name == constructor
+                ) {
+                    let base_depth = self.stack_depth;
+                    self.push_value_words(&items[1], &ty, true)?;
+                    return self.aggregate_match_from_staged_stack(
+                        items,
+                        constructor,
+                        &ty,
+                        storage_words,
+                        float_type,
+                        result_type,
+                        base_depth,
+                    );
+                }
+            }
             if let Expr::Symbol(name) = &items[1] {
                 if self.global_types.get(name) == Some(&ty) {
                     let base_depth = self.stack_depth;
