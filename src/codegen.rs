@@ -737,9 +737,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             function.name.clone(),
             FunctionAbi {
                 parameters,
-                indirect_return: matches!(&return_type, Type::Array(_, _) | Type::Tuple(_))
-                    && storage_word_count(&return_type, &structs, &enums)
-                        .is_ok_and(|words| words > VALUE_REGISTERS.len()),
+                indirect_return: supports_indirect_return_type(&return_type, &structs, &enums),
                 return_type,
                 max_call_depth: *call_depths.get(&function.name).unwrap_or(&1),
             },
@@ -2255,6 +2253,30 @@ fn storage_word_count(
     }
 }
 
+fn supports_indirect_return_type(
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+) -> bool {
+    if !storage_word_count(ty, structs, enums).is_ok_and(|words| words > VALUE_REGISTERS.len()) {
+        return false;
+    }
+    match ty {
+        Type::Array(element, _) => {
+            value_word_count(element, structs, enums).is_ok_and(|words| words == 1)
+        }
+        Type::Tuple(fields) => fields
+            .iter()
+            .all(|field| value_word_count(field, structs, enums).is_ok_and(|words| words == 1)),
+        Type::Named(name) => structs.get(name).is_some_and(|fields| {
+            fields.iter().all(|field| {
+                value_word_count(&field.ty, structs, enums).is_ok_and(|words| words == 1)
+            })
+        }),
+        _ => false,
+    }
+}
+
 fn match_arm_parts(arm: &Expr) -> Result<(&Expr, Option<&Expr>, &Expr), String> {
     let Expr::List(arm) = arm else {
         return Err("match arms must have the form (pattern expression)".into());
@@ -2520,6 +2542,9 @@ fn ensure_return_type(
                 .iter()
                 .all(|field| ensure_scalar_type(&field.ty, enums).is_ok())
         {
+            return Ok(());
+        }
+        if supports_indirect_return_type(ty, structs, enums) {
             return Ok(());
         }
         return Err(format!(
@@ -4271,6 +4296,72 @@ impl FunctionContext {
         }
     }
 
+    fn return_indirect_struct_value(
+        &mut self,
+        struct_name: &str,
+        fields: &[Field],
+        value: &Expr,
+    ) -> Result<(), String> {
+        let pointer_slot = self
+            .return_pointer_slot
+            .ok_or_else(|| "missing indirect return pointer".to_owned())?;
+        let mut offset = 0usize;
+        if let Expr::Symbol(name) = value {
+            if let Some(Storage::Struct(source_fields)) = self.locals.get(name).cloned() {
+                for ((_, source_slots), field) in source_fields.iter().zip(fields) {
+                    let words = value_word_count(&field.ty, &self.structs, &self.enums)?;
+                    if words != 1 || source_slots.len() != 1 {
+                        return Err("large struct returns currently require scalar fields".into());
+                    }
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                        source_slots[0] * 8,
+                        pointer_slot * 8,
+                        offset * 8
+                    ));
+                    offset += words;
+                }
+                return Ok(());
+            }
+            if matches!(
+                self.global_types.get(name),
+                Some(Type::Named(global_name)) if global_name == struct_name
+            ) {
+                for field in fields {
+                    let words = value_word_count(&field.ty, &self.structs, &self.enums)?;
+                    if words != 1 {
+                        return Err("large struct returns currently require scalar fields".into());
+                    }
+                    self.load_global_word(name, offset)?;
+                    self.output.push_str(&format!(
+                        "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                        pointer_slot * 8,
+                        offset * 8
+                    ));
+                    offset += words;
+                }
+                return Ok(());
+            }
+        }
+        if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == struct_name) {
+                if items.len() - 1 != fields.len() {
+                    return Err(format!("constructor '{struct_name}' has wrong field count"));
+                }
+                for (field_value, field) in items[1..].iter().zip(fields) {
+                    let words = value_word_count(&field.ty, &self.structs, &self.enums)?;
+                    if words != 1 {
+                        return Err("large struct returns currently require scalar fields".into());
+                    }
+                    self.store_indirect_array_element(field_value, &field.ty, offset)?;
+                    offset += words;
+                }
+                return Ok(());
+            }
+        }
+        Err("large struct return requires a struct value or local".into())
+    }
+
     fn return_value(&mut self, value: &Expr) -> Result<(), String> {
         if matches!(self.return_type, Type::Unit) {
             return Ok(());
@@ -4356,6 +4447,10 @@ impl FunctionContext {
             self.expression(value)?;
             return Ok(());
         };
+        if self.return_pointer_slot.is_some() {
+            let struct_name = struct_name.to_owned();
+            return self.return_indirect_struct_value(&struct_name, &fields, value);
+        }
         if let Expr::Symbol(name) = value {
             if matches!(self.global_types.get(name), Some(Type::Named(global_name)) if global_name == struct_name)
             {
@@ -4814,6 +4909,24 @@ impl FunctionContext {
             .get(struct_name)
             .ok_or_else(|| format!("unknown struct '{struct_name}'"))?
             .clone();
+        if let Expr::List(items) = value {
+            if let Some(Expr::Symbol(function_name)) = items.first() {
+                if self
+                    .functions
+                    .get(function_name)
+                    .is_some_and(|function| function.indirect_return)
+                {
+                    let base = slots
+                        .iter()
+                        .flat_map(|(_, field_slots)| field_slots.iter())
+                        .next()
+                        .copied()
+                        .ok_or_else(|| "struct has no storage fields".to_owned())?;
+                    self.call(function_name, &items[1..], Some(base))?;
+                    return Ok(());
+                }
+            }
+        }
         if let Expr::List(items) = value {
             let Some(Expr::Symbol(constructor)) = items.first() else {
                 return Err("struct constructor must start with a symbol".into());

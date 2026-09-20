@@ -409,6 +409,8 @@ array values with no pointer syntax. See `examples/large_array_return.lim`.
 Large tuples whose fields are scalar values use the same internal result area;
 see `examples/large_tuple_return.lim`.
 
+Large scalar structs use it as well; see `examples/large_struct_return.lim`.
+
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
 Nested tuple locals and fixed-array locals can also be stored and indexed using
