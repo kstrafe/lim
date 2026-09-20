@@ -2141,7 +2141,7 @@ fn add_local(
         }
     } else if matches!(&ty, Type::Tuple(_)) {
         let base = *next_slot;
-        let words = value_word_count(&ty, structs, enums)?;
+        let words = storage_word_count(&ty, structs, enums)?;
         *next_slot += words;
         Storage::Tuple((base..base + words).collect())
     } else {
@@ -2182,6 +2182,52 @@ fn local_slots(locals: &HashMap<String, Storage>, name: &str) -> Result<Vec<usiz
 
 fn flat_slots(base: usize, words: usize) -> Vec<usize> {
     (base..base + words).collect()
+}
+
+fn storage_word_count(
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+) -> Result<usize, String> {
+    if matches!(ty, Type::Unit | Type::Never) {
+        return Ok(0);
+    }
+    if is_wide_integer(ty) {
+        return Ok(2);
+    }
+    if ensure_scalar_type(ty, enums).is_ok() {
+        return Ok(1);
+    }
+    match ty {
+        Type::Array(element, length) => {
+            Ok(storage_word_count(element, structs, enums)?.saturating_mul(*length))
+        }
+        Type::Tuple(fields) => fields
+            .iter()
+            .map(|field| storage_word_count(field, structs, enums))
+            .sum(),
+        Type::Named(name) if structs.contains_key(name) => structs[name]
+            .iter()
+            .map(|field| storage_word_count(&field.ty, structs, enums))
+            .sum(),
+        Type::Named(name) if enums.contains_key(name) => {
+            let payload_words = enums[name]
+                .iter()
+                .map(|variant| {
+                    variant
+                        .fields
+                        .iter()
+                        .map(|field| storage_word_count(field, structs, enums))
+                        .sum::<Result<usize, String>>()
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .max()
+                .unwrap_or(0);
+            Ok(1 + payload_words)
+        }
+        _ => Err(format!("native backend does not support local type {ty:?}")),
+    }
 }
 
 fn match_arm_parts(arm: &Expr) -> Result<(&Expr, Option<&Expr>, &Expr), String> {

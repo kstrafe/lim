@@ -355,8 +355,17 @@ Tuples are value types with explicit element types and positional `get`:
 
 ```lisp
 (fn main () u64
-  (let value (tuple u64 f32) (tuple 40 2.5))
+(let value (tuple u64 f32) (tuple 40 2.5))
 (+ (get value 0) (as (get value 1) u64)))
+```
+
+Tuple locals may contain more than six machine words; the six-word limit only
+applies when a value crosses a native function boundary:
+
+```lisp
+(#let value (#tuple u64 u64 u64 u64 u64 u64 u64)
+  (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64)
+    1u64 2u64 3u64 4u64 5u64 6u64 7u64))
 ```
 
 Tuple values can also be destructured in `match` patterns. Bindings are
