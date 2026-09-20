@@ -3319,9 +3319,11 @@ mod tests {
 
     #[test]
     fn treats_dotted_names_as_ordinary_identifiers() {
-        let tokens = lex("a.b.c #u64.+.wrap").unwrap();
+        let tokens = lex("a.b.c - . #u64.+.wrap").unwrap();
         assert_eq!(tokens[0].kind, TokenKind::Symbol("a.b.c".into()));
-        assert_eq!(tokens[1].kind, TokenKind::Symbol("#u64.+.wrap".into()));
+        assert_eq!(tokens[1].kind, TokenKind::Symbol("-".into()));
+        assert_eq!(tokens[2].kind, TokenKind::Symbol(".".into()));
+        assert_eq!(tokens[3].kind, TokenKind::Symbol("#u64.+.wrap".into()));
         let program = parse_program(
             "(#fn util.add-one () u64 (#return 42)) (#fn main () u64 (#return (util.add-one)))",
         )
