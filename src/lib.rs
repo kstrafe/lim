@@ -1269,6 +1269,18 @@ mod tests {
     }
 
     #[test]
+    fn passes_mixed_f32_and_f64_parameters() {
+        let program = parse_program(
+            "(fn blend ((small f32) (large f64)) f64 (+ (as small f64) large)) (fn main () u64 (if (> (blend 1.5 2.5) 4.0) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("movd xmm0"));
+        assert!(assembly.contains("movq xmm1"));
+    }
+
+    #[test]
     fn lowers_unit_functions_and_calls() {
         let program = parse_program("(fn noop () () ()) (fn main () u64 (noop) 42)").unwrap();
         assert!(check_types(&program).is_ok());

@@ -208,25 +208,6 @@ fn generate_function(
             Ok(Type::F32 | Type::F64)
         )
     });
-    let float_parameter_type = function
-        .parameters
-        .iter()
-        .find_map(|parameter| match resolve_type(&parameter.ty, aliases) {
-            Ok(ty @ (Type::F32 | Type::F64)) => Some(ty),
-            _ => None,
-        });
-    if function
-        .parameters
-        .iter()
-        .any(|parameter| matches!(resolve_type(&parameter.ty, aliases), Ok(Type::F32)))
-        && function
-            .parameters
-            .iter()
-            .any(|parameter| matches!(resolve_type(&parameter.ty, aliases), Ok(Type::F64)))
-    {
-        return Err("native backend does not support mixed f32/f64 parameters".into());
-    }
-
     let mut locals = HashMap::new();
     let mut next_slot = 1usize;
     for parameter in &function.parameters {
@@ -343,9 +324,10 @@ fn generate_function(
         let slots = local_slots(&locals, &parameter.name)?;
         if all_float_parameters {
             let slot = slots[0];
+            let register_type = ty.clone();
             output.push_str(&format!(
                 "    {} QWORD PTR [rbp-{}], {}\n",
-                if matches!(float_parameter_type, Some(Type::F32)) {
+                if matches!(register_type, Type::F32) {
                     "movd"
                 } else {
                     "movq"

@@ -76,6 +76,9 @@ including sign extension when widening signed values.
 Native `f32` and `f64` locals, homogeneous parameters, mixed scalar parameters,
 arithmetic, comparisons, and returns use SSE registers where appropriate.
 
+Functions may freely mix `f32` and `f64` parameters; each argument keeps its
+own SSE width.
+
 Character literals have the Rust `char` type and lower to native scalar values:
 
 ```lisp

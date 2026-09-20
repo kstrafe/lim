@@ -1,0 +1,5 @@
+(fn blend ((small f32) (large f64)) f64
+  (+ (as small f64) large))
+
+(fn main () u64
+  (if (> (blend 1.5 2.5) 4.0) 42 0))
