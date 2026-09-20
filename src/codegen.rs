@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use crate::{check_types, Expr, Field, Function, Item, Program, Statement, Type};
+use crate::{check_types, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
 
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 
@@ -38,17 +38,11 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             _ => None,
         })
         .collect();
-    let enums: HashMap<String, Vec<String>> = program
+    let enums: HashMap<String, Vec<EnumVariant>> = program
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::Enum { name, variants } => Some((
-                name.clone(),
-                variants
-                    .iter()
-                    .map(|variant| variant.name.clone())
-                    .collect(),
-            )),
+            Item::Enum { name, variants } => Some((name.clone(), variants.clone())),
             _ => None,
         })
         .collect();
@@ -96,7 +90,7 @@ fn generate_function(
     function: &Function,
     output: &mut String,
     structs: &HashMap<String, Vec<Field>>,
-    enums: &HashMap<String, Vec<String>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
     globals: &HashMap<String, i128>,
     aliases: &HashMap<String, Type>,
 ) -> Result<(), String> {
@@ -264,7 +258,7 @@ fn collect_locals(
     statement: &Statement,
     locals: &mut HashMap<String, Storage>,
     structs: &HashMap<String, Vec<Field>>,
-    enums: &HashMap<String, Vec<String>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
     aliases: &HashMap<String, Type>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
@@ -321,7 +315,7 @@ fn collect_expr_locals(
     expression: &Expr,
     locals: &mut HashMap<String, Storage>,
     structs: &HashMap<String, Vec<Field>>,
-    enums: &HashMap<String, Vec<String>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
     aliases: &HashMap<String, Type>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
@@ -346,12 +340,45 @@ fn add_local(
     name: &str,
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
-    enums: &HashMap<String, Vec<String>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
     aliases: &HashMap<String, Type>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
     let ty = resolve_type(ty, aliases)?;
-    let storage = if ensure_scalar_type(&ty, enums).is_ok() {
+    let storage = if let Type::Named(enum_name) = &ty {
+        if let Some(variants) = enums.get(enum_name) {
+            if variants.iter().any(|variant| !variant.fields.is_empty()) {
+                let payload = variants
+                    .iter()
+                    .find_map(|variant| variant.fields.first())
+                    .ok_or_else(|| "enum payload metadata is invalid".to_owned())?;
+                ensure_scalar_type(payload, enums)
+                    .map_err(|_| "native backend only supports scalar enum payloads".to_owned())?;
+                let discriminant = *next_slot;
+                let payload = discriminant + 1;
+                *next_slot += 2;
+                Storage::Enum {
+                    discriminant,
+                    payload,
+                }
+            } else {
+                let slot = *next_slot;
+                *next_slot += 1;
+                Storage::Scalar(slot)
+            }
+        } else if let Some(fields) = structs.get(enum_name) {
+            let mut slots = Vec::with_capacity(fields.len());
+            for field in fields {
+                ensure_scalar_type(&field.ty, enums)
+                    .map_err(|_| format!("struct field '{}' is not scalar", field.name))?;
+                slots.push((field.name.clone(), *next_slot));
+                *next_slot += 1;
+            }
+            Storage::Struct(slots)
+        } else {
+            return Err(format!("unknown named local type '{enum_name}'"));
+        }
+    } else if ensure_scalar_type(&ty, enums).is_ok() {
         let slot = *next_slot;
         *next_slot += 1;
         Storage::Scalar(slot)
@@ -390,12 +417,15 @@ enum Storage {
     Scalar(usize),
     Array { base: usize, length: usize },
     Struct(Vec<(String, usize)>),
+    Enum { discriminant: usize, payload: usize },
 }
 
 fn scalar_slot(locals: &HashMap<String, Storage>, name: &str) -> usize {
     match locals.get(name).expect("validated local") {
         Storage::Scalar(slot) => *slot,
-        Storage::Array { .. } | Storage::Struct(_) => panic!("validated scalar local is aggregate"),
+        Storage::Array { .. } | Storage::Struct(_) | Storage::Enum { .. } => {
+            panic!("validated scalar local is aggregate")
+        }
     }
 }
 
@@ -431,12 +461,16 @@ fn is_unsigned_type(ty: &Type) -> bool {
     )
 }
 
-fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<String>>) -> Result<(), String> {
-    if matches!(ty, Type::Named(name) if enums.contains_key(name)) {
-        Ok(())
-    } else {
-        ensure_integer_type(ty)
+fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
+    if let Type::Named(name) = ty {
+        if let Some(variants) = enums.get(name) {
+            if variants.iter().all(|variant| variant.fields.is_empty()) {
+                return Ok(());
+            }
+            return Err(format!("payload enum '{name}' is not a scalar"));
+        }
     }
+    ensure_integer_type(ty)
 }
 
 fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, String> {
@@ -454,7 +488,10 @@ fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, Stri
     }
 }
 
-fn constant_value(expression: &Expr, enums: &HashMap<String, Vec<String>>) -> Result<i128, String> {
+fn constant_value(
+    expression: &Expr,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+) -> Result<i128, String> {
     match expression {
         Expr::Integer(value) => Ok(*value),
         Expr::Symbol(name) if name == "true" => Ok(1),
@@ -464,7 +501,7 @@ fn constant_value(expression: &Expr, enums: &HashMap<String, Vec<String>>) -> Re
             .find_map(|variants| {
                 variants
                     .iter()
-                    .position(|variant| variant == name)
+                    .position(|variant| variant.name == *name)
                     .map(|value| value as i128)
             })
             .ok_or_else(|| format!("global initializer '{name}' is not a constant")),
@@ -489,7 +526,7 @@ fn constant_value(expression: &Expr, enums: &HashMap<String, Vec<String>>) -> Re
 struct FunctionContext {
     locals: HashMap<String, Storage>,
     structs: HashMap<String, Vec<Field>>,
-    enums: HashMap<String, Vec<String>>,
+    enums: HashMap<String, Vec<EnumVariant>>,
     globals: HashMap<String, i128>,
     aliases: HashMap<String, Type>,
     local_types: HashMap<String, Type>,
@@ -507,8 +544,14 @@ impl FunctionContext {
                 name, ty, value, ..
             } => {
                 let ty = resolve_type(ty, &self.aliases)?;
-                if let Type::Named(struct_name) = &ty {
-                    self.store_struct(name, struct_name, value)?;
+                if let Type::Named(type_name) = &ty {
+                    if self.enums.get(type_name).is_some_and(|variants| {
+                        variants.iter().any(|variant| !variant.fields.is_empty())
+                    }) {
+                        self.store_enum(name, type_name, value)?;
+                    } else {
+                        self.store_struct(name, type_name, value)?;
+                    }
                 } else if matches!(ty, Type::Array(_, _)) {
                     self.store_array(name, value)?;
                 } else {
@@ -675,6 +718,55 @@ impl FunctionContext {
         Ok(())
     }
 
+    fn store_enum(&mut self, name: &str, enum_name: &str, value: &Expr) -> Result<(), String> {
+        let Expr::List(items) = value else {
+            return Err(format!("enum local '{name}' requires a constructor"));
+        };
+        let Some(Expr::Symbol(variant_name)) = items.first() else {
+            return Err("enum constructor must start with a variant name".into());
+        };
+        let variants = self
+            .enums
+            .get(enum_name)
+            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
+            .clone();
+        let variant = variants
+            .iter()
+            .find(|variant| variant.name == *variant_name)
+            .cloned()
+            .ok_or_else(|| format!("unknown variant '{variant_name}'"))?;
+        if items.len() - 1 != variant.fields.len() {
+            return Err(format!("variant '{variant_name}' has wrong payload count"));
+        }
+        let Storage::Enum {
+            discriminant,
+            payload,
+        } = self
+            .locals
+            .get(name)
+            .ok_or_else(|| format!("unknown local '{name}'"))?
+        else {
+            return Err(format!("'{name}' is not a payload enum"));
+        };
+        let discriminant = *discriminant;
+        let payload = *payload;
+        let variant_index = variants
+            .iter()
+            .position(|candidate| candidate.name == *variant_name)
+            .expect("validated enum variant");
+        self.output.push_str(&format!(
+            "    mov QWORD PTR [rbp-{}], {}\n",
+            discriminant * 8,
+            variant_index
+        ));
+        if let Some(value) = items.get(1) {
+            self.expression(value)?;
+            self.output
+                .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", payload * 8));
+        }
+        Ok(())
+    }
+
     fn store_array(&mut self, name: &str, value: &Expr) -> Result<(), String> {
         let Expr::List(items) = value else {
             return Err(format!(
@@ -768,7 +860,7 @@ impl FunctionContext {
     fn enum_value(&self, name: &str) -> Option<usize> {
         self.enums
             .values()
-            .find_map(|variants| variants.iter().position(|variant| variant == name))
+            .find_map(|variants| variants.iter().position(|variant| variant.name == name))
     }
 
     fn index_expression(&mut self, items: &[Expr]) -> Result<(), String> {
@@ -802,7 +894,18 @@ impl FunctionContext {
         }
         let end = self.label("match_end");
         let base_depth = self.stack_depth;
-        self.expression(&items[1])?;
+        match &items[1] {
+            Expr::Symbol(name) if matches!(self.locals.get(name), Some(Storage::Enum { .. })) => {
+                let Storage::Enum { discriminant, .. } = self.locals.get(name).unwrap() else {
+                    unreachable!()
+                };
+                self.output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp-{}]\n",
+                    discriminant * 8
+                ));
+            }
+            _ => self.expression(&items[1])?,
+        }
         self.push_rax();
         for arm in &items[2..] {
             let arm = match arm {
@@ -811,8 +914,12 @@ impl FunctionContext {
             };
             let next = self.label("match_next");
             let pattern = match &arm[0] {
-                Expr::Symbol(pattern) => pattern,
-                _ => return Err("match pattern must be a symbol".into()),
+                Expr::Symbol(pattern) => pattern.as_str(),
+                Expr::List(pattern) if pattern.len() == 2 => match &pattern[0] {
+                    Expr::Symbol(pattern) => pattern.as_str(),
+                    _ => return Err("match variant pattern must be a symbol".into()),
+                },
+                _ => return Err("match pattern must be a symbol or (variant _)".into()),
             };
             if pattern != "_" {
                 let value = self

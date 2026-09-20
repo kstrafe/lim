@@ -371,6 +371,7 @@ pub struct Field {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EnumVariant {
     pub name: String,
+    pub fields: Vec<Type>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -486,14 +487,28 @@ fn parse_enum_variants(items: &[Expr]) -> Result<Vec<EnumVariant>, String> {
     }
     let mut result = Vec::with_capacity(variants.len());
     for variant in variants {
-        let name = expect_symbol(Some(variant), "enum variant")?.to_owned();
+        let (name, fields) = match variant {
+            Expr::Symbol(name) => (name.clone(), Vec::new()),
+            Expr::List(items) => {
+                if items.is_empty() {
+                    return Err("enum variant cannot be empty".into());
+                }
+                let name = expect_symbol(items.first(), "enum variant name")?.to_owned();
+                let fields = items[1..]
+                    .iter()
+                    .map(|field| parse_type(Some(field)))
+                    .collect::<Result<Vec<_>, _>>()?;
+                (name, fields)
+            }
+            _ => return Err("enum variant must be a symbol or (name Type ...)".into()),
+        };
         if result
             .iter()
             .any(|existing: &EnumVariant| existing.name == name)
         {
             return Err(format!("duplicate enum variant '{name}'"));
         }
-        result.push(EnumVariant { name });
+        result.push(EnumVariant { name, fields });
     }
     Ok(result)
 }
@@ -1058,6 +1073,25 @@ mod tests {
         assert!(parse_program("(enum Bad (Same Same))")
             .unwrap_err()
             .contains("duplicate enum variant"));
+    }
+
+    #[test]
+    fn checks_and_lowers_scalar_enum_payloads() {
+        let program = parse_program(
+            "(enum Maybe ((Some u64) None)) (fn main () u64 (let value Maybe (Some 42)) (match value ((Some _) 42) (None 7)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("mov QWORD PTR [rbp-8], 0"));
+        assert!(assembly.contains("cmp QWORD PTR [rsp], 0"));
+        let invalid = parse_program(
+            "(enum Maybe ((Some u64) None)) (fn main () u64 (match None ((Some _) 1)))",
+        )
+        .unwrap();
+        assert!(check_types(&invalid)
+            .unwrap_err()
+            .contains("not exhaustive"));
     }
 
     #[test]

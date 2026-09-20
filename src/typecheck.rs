@@ -664,18 +664,42 @@ fn list_expression(
                     Expr::List(arm) if arm.len() == 2 => arm,
                     _ => return Err("match arms must have the form (pattern expression)".into()),
                 };
-                let pattern = match &arm[0] {
-                    Expr::Symbol(pattern) => pattern,
-                    _ => return Err("match pattern must be a symbol".into()),
+                let (pattern, payload_pattern) = match &arm[0] {
+                    Expr::Symbol(pattern) => (pattern.as_str(), None),
+                    Expr::List(pattern) if pattern.len() == 2 => {
+                        let variant = match &pattern[0] {
+                            Expr::Symbol(variant) => variant.as_str(),
+                            _ => return Err("match variant pattern must be a symbol".into()),
+                        };
+                        let payload = match &pattern[1] {
+                            Expr::Symbol(payload) => payload.as_str(),
+                            _ => return Err("match payload pattern must be a symbol".into()),
+                        };
+                        (variant, Some(payload))
+                    }
+                    _ => return Err("match pattern must be a symbol or (variant _)".into()),
                 };
                 if pattern == "_" {
+                    if payload_pattern.is_some() {
+                        return Err("wildcard pattern cannot have a payload".into());
+                    }
                     wildcard = true;
                 } else {
-                    if !variants.iter().any(|variant| variant.name == *pattern) {
+                    let Some(variant) = variants.iter().find(|variant| variant.name == pattern)
+                    else {
                         return Err(format!("'{pattern}' is not a variant of '{enum_name}'"));
+                    };
+                    if payload_pattern.is_some() && variant.fields.len() != 1 {
+                        return Err(format!("variant '{pattern}' does not have one payload"));
+                    }
+                    if payload_pattern.is_some() && payload_pattern != Some("_") {
+                        return Err("payload bindings are not supported yet; use '_'".into());
+                    }
+                    if payload_pattern == Some("_") && variant.fields.is_empty() {
+                        return Err(format!("variant '{pattern}' has no payload"));
                     }
                     if !seen.iter().any(|seen: &&str| *seen == pattern) {
-                        seen.push(pattern.as_str());
+                        seen.push(pattern);
                     }
                 }
                 let arm_type = expression(
@@ -781,6 +805,32 @@ fn list_expression(
                     )?;
                 }
                 return Ok(Type::Named(operator.clone()));
+            }
+            for (enum_name, variants) in enums {
+                let Some(variant) = variants.iter().find(|variant| variant.name == *operator)
+                else {
+                    continue;
+                };
+                if items.len() - 1 != variant.fields.len() {
+                    return Err(format!(
+                        "variant '{operator}' expects {} payloads",
+                        variant.fields.len()
+                    ));
+                }
+                for (argument, field_type) in items[1..].iter().zip(&variant.fields) {
+                    let actual = expression(
+                        argument,
+                        variables,
+                        functions,
+                        structs,
+                        enums,
+                        mutable,
+                        aliases,
+                        Some(field_type),
+                    )?;
+                    require_type(&actual, field_type, &format!("payload of '{operator}'"))?;
+                }
+                return Ok(Type::Named(enum_name.clone()));
             }
             let signature = functions
                 .get(operator)
