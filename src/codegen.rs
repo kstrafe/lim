@@ -737,7 +737,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             function.name.clone(),
             FunctionAbi {
                 parameters,
-                indirect_return: matches!(&return_type, Type::Array(_, _))
+                indirect_return: matches!(&return_type, Type::Array(_, _) | Type::Tuple(_))
                     && storage_word_count(&return_type, &structs, &enums)
                         .is_ok_and(|words| words > VALUE_REGISTERS.len()),
                 return_type,
@@ -2495,7 +2495,16 @@ fn ensure_return_type(
     }
     if let Type::Array(element, _) = ty {
         if storage_word_count(ty, structs, enums).is_ok()
-            && value_word_count(element, structs, enums).is_ok()
+            && value_word_count(element, structs, enums).is_ok_and(|words| words == 1)
+        {
+            return Ok(());
+        }
+    }
+    if let Type::Tuple(fields) = ty {
+        if storage_word_count(ty, structs, enums).is_ok()
+            && fields
+                .iter()
+                .all(|field| value_word_count(field, structs, enums).is_ok_and(|words| words == 1))
         {
             return Ok(());
         }
@@ -4407,7 +4416,82 @@ impl FunctionContext {
         self.expression(value)
     }
 
+    fn return_indirect_tuple_value(&mut self, fields: &[Type], value: &Expr) -> Result<(), String> {
+        let pointer_slot = self
+            .return_pointer_slot
+            .ok_or_else(|| "missing indirect return pointer".to_owned())?;
+        let mut offset = 0usize;
+        if let Expr::Symbol(name) = value {
+            if let Some(Storage::Tuple(slots)) = self.locals.get(name).cloned() {
+                if slots.len() != fields.len() {
+                    return Err("tuple return has an inconsistent flattened layout".into());
+                }
+                for (source_slot, field) in slots.iter().zip(fields) {
+                    let words = value_word_count(field, &self.structs, &self.enums)?;
+                    if words != 1 {
+                        return Err("large tuple returns currently require scalar fields".into());
+                    }
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                        source_slot * 8,
+                        pointer_slot * 8,
+                        offset * 8
+                    ));
+                    offset += words;
+                }
+                return Ok(());
+            }
+            if matches!(
+                self.global_types.get(name),
+                Some(Type::Tuple(global_fields)) if global_fields == fields
+            ) {
+                for field in fields {
+                    let words = value_word_count(field, &self.structs, &self.enums)?;
+                    if words != 1 {
+                        return Err("large tuple returns currently require scalar fields".into());
+                    }
+                    self.load_global_word(name, offset)?;
+                    self.output.push_str(&format!(
+                        "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                        pointer_slot * 8,
+                        offset * 8
+                    ));
+                    offset += words;
+                }
+                return Ok(());
+            }
+        }
+        if let Expr::List(items) = value {
+            let value_start = if parse_type(items.get(1))
+                .ok()
+                .is_some_and(|ty| matches!(ty, Type::Tuple(_)))
+            {
+                2
+            } else {
+                1
+            };
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "tuple") {
+                if items.len() - value_start != fields.len() {
+                    return Err("tuple return has the wrong length".into());
+                }
+                for (field_value, field) in items[value_start..].iter().zip(fields) {
+                    let words = value_word_count(field, &self.structs, &self.enums)?;
+                    if words != 1 {
+                        return Err("large tuple returns currently require scalar fields".into());
+                    }
+                    self.store_indirect_array_element(field_value, field, offset)?;
+                    offset += words;
+                }
+                return Ok(());
+            }
+        }
+        Err("large tuple return requires a tuple value or local".into())
+    }
+
     fn return_tuple_value(&mut self, fields: &[Type], value: &Expr) -> Result<(), String> {
+        if self.return_pointer_slot.is_some() {
+            return self.return_indirect_tuple_value(fields, value);
+        }
         if let Expr::Symbol(name) = value {
             if matches!(self.global_types.get(name), Some(Type::Tuple(global_fields)) if global_fields == fields)
             {
@@ -4909,6 +4993,21 @@ impl FunctionContext {
             Some(Type::Tuple(fields)) => fields,
             _ => return Err(format!("'{name}' is not a tuple")),
         };
+        if let Expr::List(items) = value {
+            if let Some(Expr::Symbol(function_name)) = items.first() {
+                if self
+                    .functions
+                    .get(function_name)
+                    .is_some_and(|function| function.indirect_return)
+                {
+                    let base = *slots
+                        .first()
+                        .ok_or_else(|| "tuple has no storage slots".to_owned())?;
+                    self.call(function_name, &items[1..], Some(base))?;
+                    return Ok(());
+                }
+            }
+        }
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "tuple") {
                 let value_start = if parse_type(items.get(1))

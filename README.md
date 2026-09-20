@@ -406,6 +406,9 @@ Large fixed arrays of scalar elements can be returned through an internal
 caller-provided result area; the language still exposes them as ordinary
 array values with no pointer syntax. See `examples/large_array_return.lim`.
 
+Large tuples whose fields are scalar values use the same internal result area;
+see `examples/large_tuple_return.lim`.
+
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
 Nested tuple locals and fixed-array locals can also be stored and indexed using
