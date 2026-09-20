@@ -1,0 +1,15 @@
+(#enum Wrapped
+  ((Values (#array u64 7)) Empty))
+
+(#fn make () Wrapped
+  (#return
+    (Values
+      (#array (#array u64 7)
+        1u64 2u64 3u64 4u64 5u64 6u64 42u64))))
+
+(#fn main () u64
+  (#let value Wrapped (make))
+  (#return
+    (#match value
+      ((Values payload) (#index payload 6u64))
+      (Empty 0u64))))

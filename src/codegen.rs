@@ -6973,7 +6973,7 @@ impl FunctionContext {
                     payload_slots.as_ref(),
                     &next,
                 )?;
-                payload_offset += value_word_count(field_type, &self.structs, &self.enums)?;
+                payload_offset += storage_word_count(field_type, &self.structs, &self.enums)?;
             }
             let mut bindings = Vec::new();
             let mut binding_offset = 0;
@@ -6984,11 +6984,11 @@ impl FunctionContext {
                     binding_offset,
                     &mut bindings,
                 )?;
-                binding_offset += value_word_count(field_type, &self.structs, &self.enums)?;
+                binding_offset += storage_word_count(field_type, &self.structs, &self.enums)?;
             }
             for (binding, offset, binding_type) in bindings {
                 let slots = local_slots(&self.locals, &binding)?;
-                let binding_words = value_word_count(&binding_type, &self.structs, &self.enums)?;
+                let binding_words = storage_word_count(&binding_type, &self.structs, &self.enums)?;
                 if slots.len() != binding_words {
                     return Err(format!("enum binding '{binding}' has inconsistent storage"));
                 }
@@ -7651,7 +7651,7 @@ impl FunctionContext {
         for (pattern, field_type) in payload_patterns.iter().zip(&variant_fields) {
             self.emit_enum_payload_pattern(pattern, field_type, offset, None, failure)?;
             self.collect_enum_pattern_bindings(pattern, field_type, offset, bindings)?;
-            offset += value_word_count(field_type, &self.structs, &self.enums)?;
+            offset += storage_word_count(field_type, &self.structs, &self.enums)?;
         }
         Ok(())
     }
@@ -7681,7 +7681,7 @@ impl FunctionContext {
                     payload_slots,
                     next,
                 )?;
-                field_offset += value_word_count(&field_type, &self.structs, &self.enums)?;
+                field_offset += storage_word_count(&field_type, &self.structs, &self.enums)?;
             }
             return Ok(());
         }
@@ -7796,7 +7796,7 @@ impl FunctionContext {
             let mut field_offset = offset;
             for (nested, field_type) in items[1..].iter().zip(fields) {
                 self.collect_enum_pattern_bindings(nested, &field_type, field_offset, bindings)?;
-                field_offset += value_word_count(&field_type, &self.structs, &self.enums)?;
+                field_offset += storage_word_count(&field_type, &self.structs, &self.enums)?;
             }
         } else if let Expr::Symbol(name) = pattern {
             if name != "_" && name != "true" && name != "false" {
@@ -7820,7 +7820,7 @@ impl FunctionContext {
                 variant
                     .fields
                     .iter()
-                    .map(|field| value_word_count(field, &self.structs, &self.enums))
+                    .map(|field| storage_word_count(field, &self.structs, &self.enums))
                     .collect::<Result<Vec<_>, _>>()
                     .map(|words| words.into_iter().sum::<usize>())
             })
