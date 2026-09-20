@@ -2087,7 +2087,7 @@ fn add_local(
                         variant
                             .fields
                             .iter()
-                            .map(|field| value_word_count(field, structs, enums))
+                            .map(|field| storage_word_count(field, structs, enums))
                             .collect::<Result<Vec<_>, _>>()
                             .map(|words| words.into_iter().sum::<usize>())
                     })
@@ -3638,11 +3638,11 @@ impl FunctionContext {
                 })?;
                 let field_offset = variant_fields[..*index]
                     .iter()
-                    .map(|field| value_word_count(field, &self.structs, &self.enums))
+                    .map(|field| storage_word_count(field, &self.structs, &self.enums))
                     .collect::<Result<Vec<_>, _>>()?
                     .into_iter()
                     .sum::<usize>();
-                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                let field_words = storage_word_count(&field_type, &self.structs, &self.enums)?;
                 let field_slots = payload
                     .get(field_offset..field_offset + field_words)
                     .ok_or_else(|| "enum payload exceeds native storage".to_owned())?;
@@ -4703,7 +4703,7 @@ impl FunctionContext {
         ));
         let mut offset = 0;
         for (index, field_type) in variant.fields.iter().enumerate() {
-            let field_words = value_word_count(field_type, &self.structs, &self.enums)?;
+            let field_words = storage_word_count(field_type, &self.structs, &self.enums)?;
             let field_slots = payload
                 .get(offset..offset + field_words)
                 .ok_or_else(|| "enum payload exceeds native storage".to_owned())?;

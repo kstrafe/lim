@@ -376,6 +376,13 @@ can be copied without crossing the flattened function ABI.
 
 Large fixed-array locals are also copied directly in stack storage.
 
+Payload enums may likewise have larger stack-resident local payloads; the
+native ABI limit still applies when passing or returning the enum:
+
+```lisp
+(#enum BigPayload ((Big u64 u64 u64 u64 u64 u64 u64) Empty))
+```
+
 Tuple values can also be destructured in `match` patterns. Bindings are
 explicit value bindings, and an aggregate match requires a wildcard arm:
 

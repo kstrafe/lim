@@ -1,0 +1,8 @@
+(#enum BigPayload
+  ((Big u64 u64 u64 u64 u64 u64 u64) Empty))
+
+(#fn main () u64
+  (#let mut value BigPayload
+    (Big 1u64 2u64 3u64 4u64 5u64 6u64 7u64))
+  (#set-payload value Big 6 42u64)
+  (#return 42u64))
