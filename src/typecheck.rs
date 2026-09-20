@@ -260,6 +260,7 @@ fn collect_statement_calls(
         | Statement::Assign { value, .. }
         | Statement::FieldAssign { value, .. }
         | Statement::TupleAssign { value, .. }
+        | Statement::EnumPayloadAssign { value, .. }
         | Statement::Return(Some(value))
         | Statement::Expr(value) => collect_expression_calls(value, functions, calls),
         Statement::ArrayAssign { index, value, .. } => {
@@ -554,6 +555,49 @@ fn statement_type(
                 &actual,
                 &field_type,
                 &format!("assignment to field '{field}'"),
+            )?;
+            Ok(Type::Unit)
+        }
+        Statement::EnumPayloadAssign {
+            name,
+            variant,
+            index,
+            value,
+        } => {
+            let ty = variables
+                .get(name)
+                .ok_or_else(|| format!("unknown variable '{name}'"))?
+                .clone();
+            if !mutable.contains(name) {
+                return Err(format!("cannot assign to immutable variable '{name}'"));
+            }
+            let Type::Named(enum_name) = ty else {
+                return Err(format!("'{name}' is not an enum"));
+            };
+            let variants = enums
+                .get(&enum_name)
+                .ok_or_else(|| format!("unknown enum '{enum_name}'"))?;
+            let enum_variant = variants
+                .iter()
+                .find(|candidate| candidate.name == *variant)
+                .ok_or_else(|| format!("enum '{enum_name}' has no variant '{variant}'"))?;
+            let field_type = enum_variant.fields.get(*index).ok_or_else(|| {
+                format!("variant '{variant}' has no payload field at index {index}")
+            })?;
+            let actual = expression(
+                value,
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(field_type),
+            )?;
+            require_type(
+                &actual,
+                field_type,
+                &format!("assignment to enum payload '{variant}[{index}]'"),
             )?;
             Ok(Type::Unit)
         }

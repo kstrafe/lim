@@ -257,6 +257,17 @@ fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, T
             index: *index,
             value: substitute_expr(value, substitutions),
         },
+        Statement::EnumPayloadAssign {
+            name,
+            variant,
+            index,
+            value,
+        } => Statement::EnumPayloadAssign {
+            name: name.clone(),
+            variant: variant.clone(),
+            index: *index,
+            value: substitute_expr(value, substitutions),
+        },
         Statement::While { condition, body } => Statement::While {
             condition: substitute_expr(condition, substitutions),
             body: body
@@ -364,6 +375,17 @@ fn rewrite_statement(
             index: *index,
             value: rewrite_expr(value, specializations),
         },
+        Statement::EnumPayloadAssign {
+            name,
+            variant,
+            index,
+            value,
+        } => Statement::EnumPayloadAssign {
+            name: name.clone(),
+            variant: variant.clone(),
+            index: *index,
+            value: rewrite_expr(value, specializations),
+        },
         Statement::While { condition, body } => Statement::While {
             condition: rewrite_expr(condition, specializations),
             body: body
@@ -430,6 +452,7 @@ fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String
         | Statement::Assign { value, .. }
         | Statement::FieldAssign { value, .. }
         | Statement::TupleAssign { value, .. }
+        | Statement::EnumPayloadAssign { value, .. }
         | Statement::Return(Some(value))
         | Statement::Expr(value) => collect_generic_calls_expr(value, calls),
         Statement::ArrayAssign { index, value, .. } => {
@@ -1062,6 +1085,7 @@ fn collect_local_types(
         Statement::Assign { value, .. }
         | Statement::FieldAssign { value, .. }
         | Statement::TupleAssign { value, .. }
+        | Statement::EnumPayloadAssign { value, .. }
         | Statement::Return(Some(value))
         | Statement::Expr(value) => collect_expr_types(value, types, aliases, enums, structs),
         Statement::ArrayAssign { index, value, .. } => {
@@ -1398,6 +1422,9 @@ fn collect_locals(
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
         Statement::TupleAssign { value, .. } => {
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
+        }
+        Statement::EnumPayloadAssign { value, .. } => {
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
         Statement::Return(Some(value)) | Statement::Expr(value) => {
@@ -2978,6 +3005,60 @@ impl FunctionContext {
                 } else {
                     self.store_value_words(value, &field_type, &slot)?;
                 }
+            }
+            Statement::EnumPayloadAssign {
+                name,
+                variant,
+                index,
+                value,
+            } => {
+                let Storage::Enum {
+                    discriminant,
+                    payload,
+                } = self
+                    .locals
+                    .get(name)
+                    .ok_or_else(|| format!("unknown enum '{name}'"))?
+                    .clone()
+                else {
+                    return Err(format!("'{name}' is not a payload enum"));
+                };
+                let enum_name = match self.local_types.get(name) {
+                    Some(Type::Named(enum_name)) => enum_name.clone(),
+                    _ => return Err(format!("'{name}' is not a payload enum")),
+                };
+                let variants = self
+                    .enums
+                    .get(&enum_name)
+                    .ok_or_else(|| format!("unknown enum '{enum_name}'"))?;
+                let variant_index = variants
+                    .iter()
+                    .position(|candidate| candidate.name == *variant)
+                    .ok_or_else(|| format!("enum '{enum_name}' has no variant '{variant}'"))?;
+                let variant_fields = &variants[variant_index].fields;
+                let field_type = variant_fields.get(*index).cloned().ok_or_else(|| {
+                    format!("variant '{variant}' has no payload field at index {index}")
+                })?;
+                let field_offset = variant_fields[..*index]
+                    .iter()
+                    .map(|field| value_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
+                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                let field_slots = payload
+                    .get(field_offset..field_offset + field_words)
+                    .ok_or_else(|| "enum payload exceeds native storage".to_owned())?;
+                let inactive = self.label("inactive_enum_payload");
+                let done = self.label("inactive_enum_payload_done");
+                self.output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp-{}]\n    cmp rax, {}\n    jne {inactive}\n",
+                    discriminant * 8,
+                    variant_index
+                ));
+                self.store_value_words(value, &field_type, field_slots)?;
+                self.output
+                    .push_str(&format!("    jmp {done}\n{inactive}:\n    ud2\n{done}:\n"));
             }
             Statement::TupleAssign { name, index, value } => {
                 let Storage::Tuple(slots) = self

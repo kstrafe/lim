@@ -304,7 +304,15 @@ flattened six-word ABI when every leaf value is natively representable. Nested
 fixed-array returns from local storage now use the flattened ABI when their
 total representation fits six words. Nested tuple/struct field mutation and
 aggregate array element replacement use the same flattened representation;
-enum payload mutation remains unsupported.
+Enum payloads can be updated explicitly by naming the active variant and
+payload field index:
+
+```lisp
+(#let mut value Pair (Pair 20 22))
+(#set-payload value Pair 1 30)
+```
+
+The native backend traps if the value is not currently the named variant.
 
 The native backend flattens scalar struct fields into stack slots and supports
 up to six scalar ABI words for struct parameters and returns.

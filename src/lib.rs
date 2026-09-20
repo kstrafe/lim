@@ -472,6 +472,12 @@ pub enum Statement {
         index: usize,
         value: Expr,
     },
+    EnumPayloadAssign {
+        name: String,
+        variant: String,
+        index: usize,
+        value: Expr,
+    },
     While {
         condition: Expr,
         body: Vec<Statement>,
@@ -638,6 +644,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "set"
             | "set-index"
             | "set-field"
+            | "set-payload"
             | "block"
             | "match"
             | "as"
@@ -1090,6 +1097,17 @@ fn specialize_statement(
         },
         Statement::TupleAssign { name, index, value } => Statement::TupleAssign {
             name: name.clone(),
+            index: *index,
+            value: specialize_expr(value, substitutions, templates, names, generated)?,
+        },
+        Statement::EnumPayloadAssign {
+            name,
+            variant,
+            index,
+            value,
+        } => Statement::EnumPayloadAssign {
+            name: name.clone(),
+            variant: variant.clone(),
             index: *index,
             value: specialize_expr(value, substitutions, templates, names, generated)?,
         },
@@ -1878,6 +1896,7 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
         | Statement::ArrayAssign { .. }
         | Statement::FieldAssign { .. }
         | Statement::TupleAssign { .. }
+        | Statement::EnumPayloadAssign { .. }
         | Statement::Break
         | Statement::Continue
         | Statement::Return(None)
@@ -2153,6 +2172,28 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             name,
             field: expect_symbol(items.get(2), "field name")?.to_owned(),
             value: items[3].clone(),
+        });
+    }
+    if is_form(expression, "set-payload") {
+        let items = expect_list(expression, "enum payload assignment")?;
+        if items.len() != 5 {
+            return Err(
+                "set-payload requires the form (set-payload enum variant index value)".into(),
+            );
+        }
+        let index = match items.get(3) {
+            Some(Expr::Integer(index)) if *index >= 0 => usize::try_from(*index)
+                .map_err(|_| "enum payload field index is too large".to_owned())?,
+            Some(Expr::Integer(_)) => {
+                return Err("enum payload field index must be non-negative".into())
+            }
+            _ => return Err("enum payload field index must be an integer".into()),
+        };
+        return Ok(Statement::EnumPayloadAssign {
+            name: expect_symbol(items.get(1), "enum name")?.to_owned(),
+            variant: expect_symbol(items.get(2), "enum variant")?.to_owned(),
+            index,
+            value: items[4].clone(),
         });
     }
     if is_form(expression, "while") {
@@ -3580,6 +3621,22 @@ mod tests {
                (#let (Outer (Inner left right) tail) Outer \
                  (Outer (Inner 10 20) 30)) \
                (#return (#u64.+.wrap right tail)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn mutates_enum_payload_fields() {
+        let program = parse_program(
+            "(#enum Pair ((Pair u64 u64) Empty)) \
+             (#fn main () u64 \
+               (#let mut value Pair (Pair 20 22)) \
+               (#set-payload value Pair 1 30) \
+               (#return (#match value \
+                 ((Pair left right) (#u64.+.wrap left right)) \
+                 (Empty 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
