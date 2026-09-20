@@ -173,8 +173,10 @@ fn scalar_range_bounds(pattern: &Expr, ty: &Type) -> Result<ScalarRange, String>
         ty,
         Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::I128 | Type::Isize
     ) {
-        let lower = signed_range_bound(&parts[1])?;
-        let upper = signed_range_bound(&parts[2])?;
+        let lower_expression = range_bound_expression(&parts[1], ty)?;
+        let upper_expression = range_bound_expression(&parts[2], ty)?;
+        let lower = signed_range_bound(lower_expression)?;
+        let upper = signed_range_bound(upper_expression)?;
         if lower > upper {
             return Err("integer range pattern lower bound exceeds upper bound".into());
         }
@@ -184,8 +186,10 @@ fn scalar_range_bounds(pattern: &Expr, ty: &Type) -> Result<ScalarRange, String>
         ty,
         Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::U128 | Type::Usize
     ) {
-        let lower = unsigned_range_bound(&parts[1])?;
-        let upper = unsigned_range_bound(&parts[2])?;
+        let lower_expression = range_bound_expression(&parts[1], ty)?;
+        let upper_expression = range_bound_expression(&parts[2], ty)?;
+        let lower = unsigned_range_bound(lower_expression)?;
+        let upper = unsigned_range_bound(upper_expression)?;
         if lower > upper {
             return Err("unsigned range pattern lower bound exceeds upper bound".into());
         }
@@ -204,6 +208,22 @@ fn scalar_range_bounds(pattern: &Expr, ty: &Type) -> Result<ScalarRange, String>
         return Ok(ScalarRange::Char(lower as u64, upper as u64));
     }
     Err("range patterns require an integer or char scrutinee".into())
+}
+
+fn range_bound_expression<'a>(expression: &'a Expr, scrutinee: &Type) -> Result<&'a Expr, String> {
+    let Expr::List(items) = expression else {
+        return Ok(expression);
+    };
+    if items.len() != 3 || !matches!(items.first(), Some(Expr::Symbol(name)) if name == "literal") {
+        return Ok(expression);
+    }
+    let literal_type = parse_type(items.get(1))?;
+    if &literal_type != scrutinee {
+        return Err(format!(
+            "typed range bound has type {literal_type:?}, expected {scrutinee:?}"
+        ));
+    }
+    Ok(&items[2])
 }
 
 fn signed_range_bound(expression: &Expr) -> Result<i128, String> {

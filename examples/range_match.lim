@@ -7,7 +7,7 @@
 (#fn wide-classify ((value i128)) u64
   (#return
     (#match value
-      ((#range -2 2) 42)
+      ((#range -2i128 2i128) 42)
       (_ 0))))
 
 (#fn main () u64
