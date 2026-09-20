@@ -299,9 +299,10 @@ can also be passed and returned by functions.
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
 Nested tuple locals and fixed-array locals can also be stored and indexed using
-their flattened stack layout. Nested aggregate parameters, nested array
-returns from local storage, and aggregate element mutation remain explicitly
-rejected until each ABI path has complete flattened support.
+their flattened stack layout. Nested aggregate parameters now use the same
+flattened six-word ABI when every leaf value is natively representable. Nested
+array returns from local storage and aggregate element mutation remain
+explicitly rejected until each ABI path has complete flattened support.
 
 The native backend flattens scalar struct fields into stack slots and supports
 up to six scalar ABI words for struct parameters and returns.

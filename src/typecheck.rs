@@ -1641,7 +1641,13 @@ fn check_tuple_match(
                     ));
                 }
                 for (pattern, field) in pattern[1..].iter().zip(fields) {
-                    check_aggregate_pattern(pattern, field, &mut arm_variables, variables, structs)?;
+                    check_aggregate_pattern(
+                        pattern,
+                        field,
+                        &mut arm_variables,
+                        variables,
+                        structs,
+                    )?;
                 }
             }
             _ => return Err("tuple match pattern must be _ or (tuple pattern ...)".into()),
@@ -1722,13 +1728,14 @@ fn check_aggregate_pattern(
                     .iter()
                     .map(|field| field.ty.clone())
                     .collect(),
-                _ => return Err("aggregate pattern constructor does not match its field type".into()),
+                _ => {
+                    return Err(
+                        "aggregate pattern constructor does not match its field type".into(),
+                    )
+                }
             };
             if items.len() - 1 != fields.len() {
-                return Err(format!(
-                    "aggregate pattern expects {} fields",
-                    fields.len()
-                ));
+                return Err(format!("aggregate pattern expects {} fields", fields.len()));
             }
             for (nested, field) in items[1..].iter().zip(fields) {
                 check_aggregate_pattern(nested, &field, arm_variables, variables, structs)?;
@@ -1775,7 +1782,13 @@ fn check_array_match(
                     return Err(format!("array match pattern expects {} elements", length));
                 }
                 for (pattern, field) in pattern[1..].iter().zip(&fields) {
-                    check_aggregate_pattern(pattern, field, &mut arm_variables, variables, structs)?;
+                    check_aggregate_pattern(
+                        pattern,
+                        field,
+                        &mut arm_variables,
+                        variables,
+                        structs,
+                    )?;
                 }
             }
             _ => return Err("array match pattern must be _ or (array pattern ...)".into()),
@@ -1882,7 +1895,13 @@ fn check_struct_match(
                     ));
                 }
                 for (pattern, field) in pattern[1..].iter().zip(fields) {
-                    check_aggregate_pattern(pattern, &field.ty, &mut arm_variables, variables, structs)?;
+                    check_aggregate_pattern(
+                        pattern,
+                        &field.ty,
+                        &mut arm_variables,
+                        variables,
+                        structs,
+                    )?;
                 }
             }
             _ => {

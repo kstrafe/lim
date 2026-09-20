@@ -1283,7 +1283,9 @@ fn collect_match_pattern_types(
         }
         return;
     };
-    let Some(Expr::Symbol(constructor)) = items.first() else { return };
+    let Some(Expr::Symbol(constructor)) = items.first() else {
+        return;
+    };
     let fields = match ty {
         Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
         Type::Array(element, length) if constructor == "array" => {
@@ -1395,7 +1397,9 @@ fn collect_match_pattern_locals(
         }
         return Ok(());
     };
-    let Some(Expr::Symbol(constructor)) = items.first() else { return Ok(()) };
+    let Some(Expr::Symbol(constructor)) = items.first() else {
+        return Ok(());
+    };
     let fields = match ty {
         Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
         Type::Array(element, length) if constructor == "array" => {
@@ -2139,20 +2143,22 @@ fn is_flat_native_value(
     }
     match ty {
         Type::Array(element, length) => {
-            *length <= VALUE_REGISTERS.len() && ensure_scalar_type(element, enums).is_ok()
+            *length == 0
+                || (value_word_count(ty, structs, enums).is_ok()
+                    && is_flat_native_value(element, structs, enums))
         }
         Type::Tuple(fields) => {
-            fields.len() <= VALUE_REGISTERS.len()
+            value_word_count(ty, structs, enums).is_ok()
                 && fields
                     .iter()
-                    .all(|field| ensure_scalar_type(field, enums).is_ok())
+                    .all(|field| is_flat_native_value(field, structs, enums))
         }
         Type::Named(name) => {
             if let Some(fields) = structs.get(name) {
-                return fields.len() <= VALUE_REGISTERS.len()
+                return value_word_count(ty, structs, enums).is_ok()
                     && fields
                         .iter()
-                        .all(|field| ensure_scalar_type(&field.ty, enums).is_ok());
+                        .all(|field| is_flat_native_value(&field.ty, structs, enums));
             }
             if let Some(variants) = enums.get(name) {
                 return variants.iter().all(|variant| {
@@ -4815,7 +4821,9 @@ impl FunctionContext {
                         if name == "true" { 1 } else { 0 }
                     ));
                 }
-                Expr::Symbol(name) => bindings.push((name.clone(), field_offset, field_type.clone())),
+                Expr::Symbol(name) => {
+                    bindings.push((name.clone(), field_offset, field_type.clone()))
+                }
                 Expr::Integer(value) => {
                     if field_words != 1 {
                         return Err("wide integer aggregate patterns are unsupported".into());
@@ -4846,7 +4854,11 @@ impl FunctionContext {
                     let nested_constructor = match field {
                         Expr::List(items) => match items.first() {
                             Some(Expr::Symbol(name)) => name.as_str(),
-                            _ => return Err("nested aggregate pattern must start with a constructor".into()),
+                            _ => {
+                                return Err(
+                                    "nested aggregate pattern must start with a constructor".into(),
+                                )
+                            }
                         },
                         _ => unreachable!(),
                     };
@@ -4999,6 +5011,15 @@ impl FunctionContext {
                     let value = constructor
                         .get(index + 2)
                         .ok_or_else(|| "tuple constructor has too few fields".to_owned())?;
+                    let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                    if field_words > 1 {
+                        self.push_value_words(value, &field_type, false)?;
+                        for register in VALUE_REGISTERS[..field_words].iter().rev() {
+                            self.output.push_str(&format!("    pop {register}\n"));
+                            self.stack_depth -= 1;
+                        }
+                        return Ok(());
+                    }
                     return self.expression_as_expected(value, &field_type);
                 }
             }
@@ -5007,13 +5028,21 @@ impl FunctionContext {
                     if !matches!(self.globals.get(local), Some(GlobalValue::Aggregate(_))) {
                         return Err(format!("global '{local}' is not an aggregate tuple"));
                     }
-                    let offset = fields[..index]
+                    let offset_words = fields[..index]
                         .iter()
                         .map(|field| value_word_count(field, &self.structs, &self.enums))
                         .collect::<Result<Vec<_>, _>>()?
                         .into_iter()
-                        .sum::<usize>()
-                        * 8;
+                        .sum::<usize>();
+                    let offset = offset_words * 8;
+                    let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                    if field_words > 1 {
+                        for (word, register) in VALUE_REGISTERS[..field_words].iter().enumerate() {
+                            self.load_global_word(local, offset_words + word)?;
+                            self.output.push_str(&format!("    mov {register}, rax\n"));
+                        }
+                        return Ok(());
+                    }
                     match field_type {
                         Type::F32 => self.output.push_str(&format!(
                             "    movss xmm0, DWORD PTR [rip+{}+{offset}]\n",
@@ -5046,6 +5075,19 @@ impl FunctionContext {
                 let slot = *slots
                     .get(slot_index)
                     .ok_or_else(|| "native tuple has too many fields".to_owned())?;
+                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                if field_words > 1 {
+                    for (word, register) in VALUE_REGISTERS[..field_words].iter().enumerate() {
+                        let source_slot = slots
+                            .get(slot_index + word)
+                            .ok_or_else(|| "native tuple has too many fields".to_owned())?;
+                        self.output.push_str(&format!(
+                            "    mov {register}, QWORD PTR [rbp-{}]\n",
+                            source_slot * 8
+                        ));
+                    }
+                    return Ok(());
+                }
                 match field_type {
                     Type::F32 => self
                         .output
@@ -5065,6 +5107,21 @@ impl FunctionContext {
                     .collect::<Result<Vec<_>, _>>()?
                     .into_iter()
                     .sum::<usize>();
+                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                if field_words > 1 {
+                    self.expression(&items[1])?;
+                    for word in 0..field_words {
+                        let source = VALUE_REGISTERS
+                            .get(register_index + word)
+                            .ok_or_else(|| "native tuple has too many fields".to_owned())?;
+                        let destination = VALUE_REGISTERS[word];
+                        if *source != destination {
+                            self.output
+                                .push_str(&format!("    mov {destination}, {source}\n"));
+                        }
+                    }
+                    return Ok(());
+                }
                 let register = VALUE_REGISTERS
                     .get(register_index)
                     .ok_or_else(|| "native tuple has too many fields".to_owned())?;

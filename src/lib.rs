@@ -3445,6 +3445,24 @@ mod tests {
     }
 
     #[test]
+    fn passes_nested_tuple_parameters_through_native_calls() {
+        let program = parse_program(
+            "(#fn add-inner-and-tail \
+               ((value (#tuple (#tuple u64 u64) u64))) u64 \
+               (#return (#u64.+.wrap \
+                 (#u64.+.wrap (#get (#get value 0) 1) (#get value 1)) \
+                 (#get (#get value 0) 0)))) \
+             (#fn main () u64 \
+               (#return (add-inner-and-tail \
+                 (#tuple (#tuple (#tuple u64 u64) u64) \
+                   (#tuple (#tuple u64 u64) 10 20) 32))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
