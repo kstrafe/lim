@@ -1038,6 +1038,15 @@ fn generate_function(
         .max()
         .unwrap_or(0)
         .max(
+            local_types
+                .values()
+                .map(|ty| storage_word_count(ty, structs, enums))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .max()
+                .unwrap_or(0),
+        )
+        .max(
             function
                 .body
                 .iter()
@@ -3818,6 +3827,35 @@ impl FunctionContext {
                     ));
                     return Ok(());
                 }
+                if element_words > VALUE_REGISTERS.len() {
+                    let temp_base = self
+                        .aggregate_temp_base
+                        .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
+                    self.push_rax();
+                    self.store_value_to_slots(
+                        value,
+                        &element_type,
+                        &flat_slots(temp_base, element_words),
+                    )?;
+                    self.output.push_str("    pop rcx\n");
+                    self.stack_depth -= 1;
+                    self.output.push_str(&format!(
+                        "    lea r11, [rbp-{}]\n    imul rcx, {}\n    shl rcx, 3\n    sub r11, rcx\n",
+                        base * 8,
+                        element_words
+                    ));
+                    for word in 0..element_words {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                            (temp_base + word) * 8,
+                            word * 8
+                        ));
+                    }
+                    self.output.push_str(&format!(
+                        "    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n"
+                    ));
+                    return Ok(());
+                }
                 self.push_rax();
                 if element_words > 1 {
                     self.push_value_words(value, &element_type, false)?;
@@ -3894,7 +3932,7 @@ impl FunctionContext {
                 if slot.len() == 1 {
                     self.store_scalar_at_slot(value, &field_type, slot[0])?;
                 } else {
-                    self.store_value_words(value, &field_type, &slot)?;
+                    self.store_value_to_slots(value, &field_type, &slot)?;
                 }
             }
             Statement::EnumPayloadAssign {
@@ -3947,7 +3985,7 @@ impl FunctionContext {
                     discriminant * 8,
                     variant_index
                 ));
-                self.store_value_words(value, &field_type, field_slots)?;
+                self.store_value_to_slots(value, &field_type, field_slots)?;
                 self.output
                     .push_str(&format!("    jmp {done}\n{inactive}:\n    ud2\n{done}:\n"));
             }
@@ -3970,18 +4008,18 @@ impl FunctionContext {
                     .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?;
                 let field_offset = fields[..*index]
                     .iter()
-                    .map(|field| value_word_count(field, &self.structs, &self.enums))
+                    .map(|field| storage_word_count(field, &self.structs, &self.enums))
                     .collect::<Result<Vec<_>, _>>()?
                     .into_iter()
                     .sum::<usize>();
-                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                let field_words = storage_word_count(&field_type, &self.structs, &self.enums)?;
                 let field_slots = slots
                     .get(field_offset..field_offset + field_words)
                     .ok_or_else(|| "native tuple has too many fields".to_owned())?;
                 if field_words == 1 {
                     self.store_scalar_at_slot(value, &field_type, field_slots[0])?;
                 } else {
-                    self.store_value_words(value, &field_type, field_slots)?;
+                    self.store_value_to_slots(value, &field_type, field_slots)?;
                 }
             }
             Statement::LetElse {
@@ -5595,7 +5633,7 @@ impl FunctionContext {
                     return Err(format!("constructor '{struct_name}' has wrong field count"));
                 }
                 for (index, (field, field_value)) in fields.iter().zip(&items[1..]).enumerate() {
-                    self.store_value_words(field_value, &field.ty, &slots[index].1)?;
+                    self.store_value_to_slots(field_value, &field.ty, &slots[index].1)?;
                 }
                 return Ok(());
             }
@@ -5865,8 +5903,8 @@ impl FunctionContext {
                 }
                 let mut offset = 0;
                 for (field, ty) in items[value_start..].iter().zip(&fields) {
-                    let words = value_word_count(ty, &self.structs, &self.enums)?;
-                    self.store_value_words(field, ty, &slots[offset..offset + words])?;
+                    let words = storage_word_count(ty, &self.structs, &self.enums)?;
+                    self.store_value_to_slots(field, ty, &slots[offset..offset + words])?;
                     offset += words;
                 }
                 return Ok(());
@@ -6052,7 +6090,7 @@ impl FunctionContext {
                 return Ok(());
             }
         }
-        self.store_value_words(value, &array_type, &slots)
+        self.store_value_to_slots(value, &array_type, &slots)
     }
 
     fn loop_expression(
