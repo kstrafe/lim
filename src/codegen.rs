@@ -3510,7 +3510,7 @@ impl FunctionContext {
             let Storage::Array {
                 base,
                 length: local_length,
-                element_words,
+                element_words: _,
             } = self
                 .locals
                 .get(name)
@@ -3521,14 +3521,15 @@ impl FunctionContext {
             if *local_length != length {
                 return Err("array return length mismatch".into());
             }
-            if *element_words != 1 {
-                return Err("native array returns currently support scalar elements only".into());
+            let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+            if words > VALUE_REGISTERS.len() {
+                return Err("native array return has too many value words".into());
             }
             let base = *base;
-            for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
+            for (index, register) in VALUE_REGISTERS[..words].iter().enumerate() {
                 self.output.push_str(&format!(
                     "    mov {register}, QWORD PTR [rbp-{}]\n",
-                    (base + index * element_words) * 8
+                    (base + index) * 8
                 ));
             }
             return Ok(());
