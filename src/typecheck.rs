@@ -1903,6 +1903,17 @@ fn check_scalar_match(
                 }
                 for alternative in &parts[1..] {
                     check_scalar_pattern(alternative, scrutinee)?;
+                    if let Expr::Symbol(name) = alternative {
+                        if matches!(scrutinee, Type::Bool)
+                            && matches!(name.as_str(), "true" | "false")
+                        {
+                            let index = usize::from(name == "true");
+                            if seen_bool[index] {
+                                return Err(format!("duplicate boolean match pattern '{name}'"));
+                            }
+                            seen_bool[index] = true;
+                        }
+                    }
                 }
             }
             Expr::List(parts)

@@ -1,6 +1,13 @@
 (#fn main () u64
   (#let value u32 2)
   (#return
+    (#u64.+.wrap
+      (#match value
+        ((#or 1 2 3) 42)
+        (_ 0))
+      (bool-or true))))
+
+(#fn bool-or ((value bool)) u64
+  (#return
     (#match value
-      ((#or 1 2 3) 42)
-      (_ 0))))
+      ((#or true false) 42))))
