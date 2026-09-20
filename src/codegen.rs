@@ -1293,6 +1293,28 @@ impl FunctionContext {
             }
             return Ok(());
         }
+        if is_wide_integer(target) {
+            if matches!(source, Type::F32 | Type::F64) {
+                self.expression_as_float(value, &source)?;
+                if matches!(source, Type::F32) {
+                    self.output.push_str("    cvttss2si rax, xmm0\n");
+                } else {
+                    self.output.push_str("    cvttsd2si rax, xmm0\n");
+                }
+            } else {
+                self.expression(value)?;
+            }
+            if is_wide_integer(&source) {
+                return Ok(());
+            }
+            self.normalize_integer(&source)?;
+            if matches!(target, Type::U128) || is_unsigned_type(&source) {
+                self.output.push_str("    xor edx, edx\n");
+            } else {
+                self.output.push_str("    mov rdx, rax\n    sar rdx, 63\n");
+            }
+            return Ok(());
+        }
         if matches!(source, Type::F32 | Type::F64) {
             self.expression_as_float(value, &source)?;
             if matches!(source, Type::F32) {
@@ -1315,10 +1337,8 @@ impl FunctionContext {
             Type::U16 => self.output.push_str("    movzx eax, ax\n"),
             Type::U32 | Type::Char => self.output.push_str("    mov eax, eax\n"),
             Type::I64 | Type::U64 | Type::Isize | Type::Usize => {}
-            Type::I128 | Type::U128 => {
-                return Err("native backend does not support 128-bit casts".into())
-            }
-            Type::Bool => return Err("cannot cast to bool".into()),
+            Type::Bool => self.output.push_str("    movzx eax, al\n"),
+            Type::I128 | Type::U128 => unreachable!("wide casts are handled before normalization"),
             _ => {
                 return Err(format!(
                     "native backend cannot normalize cast target {target:?}"

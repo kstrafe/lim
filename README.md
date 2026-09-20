@@ -70,6 +70,9 @@ scalar types:
   (as (as 42 u32) u64))
 ```
 
+Integer casts also support the two-word `i128` and `u128` representations,
+including sign extension when widening signed values.
+
 Native `f32` and `f64` locals, homogeneous parameters, mixed scalar parameters,
 arithmetic, comparisons, and returns use SSE registers where appropriate.
 

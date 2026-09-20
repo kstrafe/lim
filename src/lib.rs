@@ -1231,6 +1231,20 @@ mod tests {
     }
 
     #[test]
+    fn checks_and_lowers_128_bit_casts() {
+        let program = parse_program(
+            "(fn widen () u128 (as 42 u128)) (fn main () u64 (let value u128 (widen)) (as value u64))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("xor edx, edx"));
+        let signed = parse_program("(fn main () i64 (as (as (- 1) i128) i64))").unwrap();
+        assert!(check_types(&signed).is_ok());
+        assert!(generate_assembly(&signed).unwrap().contains("sar rdx, 63"));
+    }
+
+    #[test]
     fn lowers_unit_functions_and_calls() {
         let program = parse_program("(fn noop () () ()) (fn main () u64 (noop) 42)").unwrap();
         assert!(check_types(&program).is_ok());
