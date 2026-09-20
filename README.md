@@ -480,6 +480,8 @@ aggregate result areas; see `examples/large_projection_return.lim`.
 Large indexed projections can likewise be returned directly, including an
 index over a large array-valued field; see
 `examples/large_index_projection_return.lim`.
+Nested struct-field projections can also be returned directly; see
+`examples/nested_field_return.lim`.
 Aggregate-valued `#if` and `#match` expressions also preserve all flattened
 value words across their branches.
 Aggregate expressions may be used as discarded statements; their flattened

@@ -9941,7 +9941,22 @@ impl FunctionContext {
                         storage_word_count(&source_type, &self.structs, &self.enums)?;
                     Some(Source::Slots(flat_slots(base, source_words)))
                 }
-                _ => None,
+                _ => {
+                    let temp_base = self
+                        .aggregate_temp_base
+                        .ok_or_else(|| "no aggregate temporary is available".to_owned())?
+                        + (self.aggregate_projection_depth + 1) * self.aggregate_temp_words;
+                    let source_words =
+                        storage_word_count(&source_type, &self.structs, &self.enums)?;
+                    self.aggregate_projection_depth += 1;
+                    self.store_value_to_slots(
+                        &items[1],
+                        &source_type,
+                        &flat_slots(temp_base, source_words),
+                    )?;
+                    self.aggregate_projection_depth -= 1;
+                    Some(Source::Slots(flat_slots(temp_base, source_words)))
+                }
             },
             _ => None,
         };
