@@ -68,7 +68,7 @@ Conversions are explicit integer casts:
   (as (as 42 u32) u64))
 ```
 
-Native `f64` locals, homogeneous parameters, mixed scalar parameters,
+Native `f32` and `f64` locals, homogeneous parameters, mixed scalar parameters,
 arithmetic, comparisons, and returns use SSE registers where appropriate.
 
 Named type aliases are explicit and resolve to their target type:

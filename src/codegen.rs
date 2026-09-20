@@ -134,19 +134,38 @@ fn generate_function(
     ensure_return_type(&return_type, enums, structs)?;
     for parameter in &function.parameters {
         let parameter_type = resolve_type(&parameter.ty, aliases)?;
-        if matches!(parameter_type, Type::F32) {
-            return Err("native backend does not support f32 parameters yet".into());
-        }
         ensure_parameter_type(&parameter_type, enums, structs)?;
     }
-    let has_float_parameter = function
+    let has_float_parameter = function.parameters.iter().any(|parameter| {
+        matches!(
+            resolve_type(&parameter.ty, aliases),
+            Ok(Type::F32 | Type::F64)
+        )
+    });
+    let has_integer_parameter = function.parameters.iter().any(|parameter| {
+        !matches!(
+            resolve_type(&parameter.ty, aliases),
+            Ok(Type::F32 | Type::F64)
+        )
+    });
+    let float_parameter_type = function
         .parameters
         .iter()
-        .any(|parameter| matches!(resolve_type(&parameter.ty, aliases), Ok(Type::F64)));
-    let has_integer_parameter = function
+        .find_map(|parameter| match resolve_type(&parameter.ty, aliases) {
+            Ok(ty @ (Type::F32 | Type::F64)) => Some(ty),
+            _ => None,
+        });
+    if function
         .parameters
         .iter()
-        .any(|parameter| !matches!(resolve_type(&parameter.ty, aliases), Ok(Type::F64)));
+        .any(|parameter| matches!(resolve_type(&parameter.ty, aliases), Ok(Type::F32)))
+        && function
+            .parameters
+            .iter()
+            .any(|parameter| matches!(resolve_type(&parameter.ty, aliases), Ok(Type::F64)))
+    {
+        return Err("native backend does not support mixed f32/f64 parameters".into());
+    }
 
     let mut locals = HashMap::new();
     let mut next_slot = 1usize;
@@ -208,10 +227,15 @@ fn generate_function(
                 );
             }
             let slot = local_slots(&locals, &parameter.name)?[0];
-            if matches!(ty, Type::F64) {
+            if matches!(ty, Type::F32 | Type::F64) {
                 if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
                     output.push_str(&format!(
-                        "    movq QWORD PTR [rbp-{}], {}\n",
+                        "    {} QWORD PTR [rbp-{}], {}\n",
+                        if matches!(ty, Type::F32) {
+                            "movd"
+                        } else {
+                            "movq"
+                        },
                         slot * 8,
                         FLOAT_ARGUMENT_REGISTERS[float_index]
                     ));
@@ -252,7 +276,12 @@ fn generate_function(
         if all_float_parameters {
             let slot = slots[0];
             output.push_str(&format!(
-                "    movq QWORD PTR [rbp-{}], {}\n",
+                "    {} QWORD PTR [rbp-{}], {}\n",
+                if matches!(float_parameter_type, Some(Type::F32)) {
+                    "movd"
+                } else {
+                    "movq"
+                },
                 slot * 8,
                 FLOAT_ARGUMENT_REGISTERS[incoming_word]
             ));
@@ -660,8 +689,12 @@ fn is_unsigned_type(ty: &Type) -> bool {
     )
 }
 
+fn is_float_type(ty: &Type) -> bool {
+    matches!(ty, Type::F32 | Type::F64)
+}
+
 fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
-    if matches!(ty, Type::F64) {
+    if matches!(ty, Type::F32 | Type::F64) {
         return Ok(());
     }
     if let Type::Named(name) = ty {
@@ -814,9 +847,17 @@ impl FunctionContext {
                 } else if matches!(ty, Type::Array(_, _)) {
                     self.store_array(name, value)?;
                 } else {
-                    self.expression(value)?;
+                    if is_float_type(&ty) {
+                        self.expression_as_float(value, &ty)?;
+                    } else {
+                        self.expression(value)?;
+                    }
                     let slot = scalar_slot(&self.locals, name) * 8;
-                    if matches!(ty, Type::F64) {
+                    if matches!(ty, Type::F32) {
+                        self.output.push_str(&format!(
+                            "    movd eax, xmm0\n    mov DWORD PTR [rbp-{slot}], eax\n"
+                        ));
+                    } else if matches!(ty, Type::F64) {
                         self.output.push_str(&format!(
                             "    movq rax, xmm0\n    mov QWORD PTR [rbp-{slot}], rax\n"
                         ));
@@ -827,7 +868,12 @@ impl FunctionContext {
                 }
             }
             Statement::Assign { name, value } => {
-                self.expression(value)?;
+                let expected = self.local_types.get(name).cloned();
+                if let Some(ty) = expected.as_ref().filter(|ty| is_float_type(ty)) {
+                    self.expression_as_float(value, ty)?;
+                } else {
+                    self.expression(value)?;
+                }
                 let storage = self
                     .locals
                     .get(name)
@@ -838,12 +884,19 @@ impl FunctionContext {
                 if self
                     .local_types
                     .get(name)
-                    .is_some_and(|ty| matches!(ty, Type::F64))
+                    .is_some_and(|ty| matches!(ty, Type::F32 | Type::F64))
                 {
-                    self.output.push_str(&format!(
-                        "    movq rax, xmm0\n    mov QWORD PTR [rbp-{}], rax\n",
-                        slot * 8
-                    ));
+                    if expected.as_ref().is_some_and(|ty| matches!(ty, Type::F32)) {
+                        self.output.push_str(&format!(
+                            "    movd eax, xmm0\n    mov DWORD PTR [rbp-{}], eax\n",
+                            slot * 8
+                        ));
+                    } else {
+                        self.output.push_str(&format!(
+                            "    movq rax, xmm0\n    mov QWORD PTR [rbp-{}], rax\n",
+                            slot * 8
+                        ));
+                    }
                 } else {
                     self.output
                         .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
@@ -964,6 +1017,8 @@ impl FunctionContext {
             Statement::Expr(expression) => {
                 if self.is_aggregate_type(&self.return_type) {
                     self.return_value(expression)?;
+                } else if is_float_type(&self.return_type) {
+                    self.expression_as_float(expression, &self.return_type.clone())?;
                 } else {
                     self.expression(expression)?;
                 }
@@ -973,6 +1028,10 @@ impl FunctionContext {
     }
 
     fn return_value(&mut self, value: &Expr) -> Result<(), String> {
+        if is_float_type(&self.return_type) {
+            let ty = self.return_type.clone();
+            return self.expression_as_float(value, &ty);
+        }
         if let Type::Array(_, length) = &self.return_type {
             return self.return_array_value(*length, value);
         }
@@ -1330,10 +1389,23 @@ impl FunctionContext {
                     if self
                         .local_types
                         .get(name)
-                        .is_some_and(|ty| matches!(ty, Type::F64))
+                        .is_some_and(|ty| matches!(ty, Type::F32 | Type::F64))
                     {
-                        self.output
-                            .push_str(&format!("    movq xmm0, QWORD PTR [rbp-{}]\n", slot * 8));
+                        if self
+                            .local_types
+                            .get(name)
+                            .is_some_and(|ty| matches!(ty, Type::F32))
+                        {
+                            self.output.push_str(&format!(
+                                "    movss xmm0, DWORD PTR [rbp-{}]\n",
+                                slot * 8
+                            ));
+                        } else {
+                            self.output.push_str(&format!(
+                                "    movq xmm0, QWORD PTR [rbp-{}]\n",
+                                slot * 8
+                            ));
+                        }
                     } else {
                         self.output
                             .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
@@ -1524,12 +1596,19 @@ impl FunctionContext {
     }
 
     fn unary_negate(&mut self, items: &[Expr]) -> Result<(), String> {
-        self.expression(&items[1])?;
-        if self.expression_is_float(&items[1]) {
-            self.output.push_str(
-                "    mov rax, 0x8000000000000000\n    movq xmm1, rax\n    xorpd xmm0, xmm1\n",
-            );
+        if let Some(ty) = self.expression_float_type(&items[1]) {
+            self.expression_as_float(&items[1], &ty)?;
+            if matches!(ty, Type::F32) {
+                self.output.push_str(
+                    "    mov eax, 0x80000000\n    movd xmm1, eax\n    xorps xmm0, xmm1\n",
+                );
+            } else {
+                self.output.push_str(
+                    "    mov rax, 0x8000000000000000\n    movq xmm1, rax\n    xorpd xmm0, xmm1\n",
+                );
+            }
         } else {
+            self.expression(&items[1])?;
             self.output.push_str("    neg rax\n");
         }
         Ok(())
@@ -1658,27 +1737,43 @@ impl FunctionContext {
     }
 
     fn float_binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
-        self.expression(&items[1])?;
-        self.output
-            .push_str("    sub rsp, 8\n    movq QWORD PTR [rsp], xmm0\n");
+        let ty = self.expression_float_type(&items[1]).unwrap_or(Type::F64);
+        self.expression_as_float(&items[1], &ty)?;
+        if matches!(ty, Type::F32) {
+            self.output
+                .push_str("    sub rsp, 8\n    movss DWORD PTR [rsp], xmm0\n");
+        } else {
+            self.output
+                .push_str("    sub rsp, 8\n    movq QWORD PTR [rsp], xmm0\n");
+        }
         self.stack_depth += 1;
-        self.expression(&items[2])?;
-        self.output
-            .push_str("    movq xmm1, QWORD PTR [rsp]\n    add rsp, 8\n");
+        self.expression_as_float(&items[2], &ty)?;
+        if matches!(ty, Type::F32) {
+            self.output
+                .push_str("    movss xmm1, DWORD PTR [rsp]\n    add rsp, 8\n");
+        } else {
+            self.output
+                .push_str("    movq xmm1, QWORD PTR [rsp]\n    add rsp, 8\n");
+        }
         self.stack_depth -= 1;
+        let (add, sub, mul, div, copy) = if matches!(ty, Type::F32) {
+            ("addss", "subss", "mulss", "divss", "movaps")
+        } else {
+            ("addsd", "subsd", "mulsd", "divsd", "movapd")
+        };
         match operator {
             "+" => self
                 .output
-                .push_str("    addsd xmm1, xmm0\n    movapd xmm0, xmm1\n"),
+                .push_str(&format!("    {add} xmm1, xmm0\n    {copy} xmm0, xmm1\n")),
             "-" => self
                 .output
-                .push_str("    subsd xmm1, xmm0\n    movapd xmm0, xmm1\n"),
+                .push_str(&format!("    {sub} xmm1, xmm0\n    {copy} xmm0, xmm1\n")),
             "*" => self
                 .output
-                .push_str("    mulsd xmm1, xmm0\n    movapd xmm0, xmm1\n"),
+                .push_str(&format!("    {mul} xmm1, xmm0\n    {copy} xmm0, xmm1\n")),
             "/" => self
                 .output
-                .push_str("    divsd xmm1, xmm0\n    movapd xmm0, xmm1\n"),
+                .push_str(&format!("    {div} xmm1, xmm0\n    {copy} xmm0, xmm1\n")),
             _ => {
                 return Err(format!(
                     "floating-point operator '{operator}' is unsupported"
@@ -1721,15 +1816,30 @@ impl FunctionContext {
     }
 
     fn float_comparison(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
-        self.expression(&items[1])?;
-        self.output
-            .push_str("    sub rsp, 8\n    movq QWORD PTR [rsp], xmm0\n");
+        let ty = self.expression_float_type(&items[1]).unwrap_or(Type::F64);
+        self.expression_as_float(&items[1], &ty)?;
+        if matches!(ty, Type::F32) {
+            self.output
+                .push_str("    sub rsp, 8\n    movss DWORD PTR [rsp], xmm0\n");
+        } else {
+            self.output
+                .push_str("    sub rsp, 8\n    movq QWORD PTR [rsp], xmm0\n");
+        }
         self.stack_depth += 1;
-        self.expression(&items[2])?;
-        self.output
-            .push_str("    movq xmm1, QWORD PTR [rsp]\n    add rsp, 8\n");
+        self.expression_as_float(&items[2], &ty)?;
+        if matches!(ty, Type::F32) {
+            self.output
+                .push_str("    movss xmm1, DWORD PTR [rsp]\n    add rsp, 8\n");
+        } else {
+            self.output
+                .push_str("    movq xmm1, QWORD PTR [rsp]\n    add rsp, 8\n");
+        }
         self.stack_depth -= 1;
-        self.output.push_str("    ucomisd xmm1, xmm0\n");
+        self.output.push_str(if matches!(ty, Type::F32) {
+            "    ucomiss xmm1, xmm0\n"
+        } else {
+            "    ucomisd xmm1, xmm0\n"
+        });
         let condition = match operator {
             "<" => "b",
             "<=" => "be",
@@ -1765,27 +1875,55 @@ impl FunctionContext {
     }
 
     fn expression_is_float(&self, expression: &Expr) -> bool {
+        self.expression_float_type(expression).is_some()
+    }
+
+    fn expression_float_type(&self, expression: &Expr) -> Option<Type> {
         match expression {
-            Expr::Float(_) => true,
+            Expr::Float(_) => Some(Type::F64),
             Expr::Symbol(name) => self
                 .local_types
                 .get(name)
-                .is_some_and(|ty| matches!(ty, Type::F64)),
+                .filter(|ty| is_float_type(ty))
+                .cloned(),
             Expr::List(items) => match items.first() {
                 Some(Expr::Symbol(operator))
                     if matches!(operator.as_str(), "+" | "-" | "*" | "/") =>
                 {
                     items
                         .get(1)
-                        .is_some_and(|value| self.expression_is_float(value))
+                        .and_then(|value| self.expression_float_type(value))
                 }
                 Some(Expr::Symbol(operator)) => self
                     .functions
                     .get(operator)
-                    .is_some_and(|function| matches!(function.return_type, Type::F64)),
-                _ => false,
+                    .map(|function| function.return_type.clone())
+                    .filter(is_float_type),
+                _ => None,
             },
-            _ => false,
+            _ => None,
+        }
+    }
+
+    fn expression_as_float(&mut self, expression: &Expr, ty: &Type) -> Result<(), String> {
+        match expression {
+            Expr::Float(value) => {
+                let parsed = value
+                    .parse::<f64>()
+                    .map_err(|_| format!("invalid floating-point literal '{value}'"))?;
+                if matches!(ty, Type::F32) {
+                    let bits = (parsed as f32).to_bits();
+                    self.output
+                        .push_str(&format!("    mov eax, 0x{bits:x}\n    movd xmm0, eax\n"));
+                } else {
+                    self.output.push_str(&format!(
+                        "    mov rax, 0x{:x}\n    movq xmm0, rax\n",
+                        parsed.to_bits()
+                    ));
+                }
+                Ok(())
+            }
+            _ => self.expression(expression),
         }
     }
 
@@ -1818,10 +1956,14 @@ impl FunctionContext {
         if arguments.len() != abi.parameters.len() {
             return Err(format!("call to '{name}' has the wrong argument count"));
         }
-        if abi.parameters.iter().all(|ty| matches!(ty, Type::F64)) {
-            return self.call_float(name, arguments);
+        if abi.parameters.iter().all(is_float_type) {
+            if let Some(ty) = abi.parameters.first() {
+                if abi.parameters.iter().all(|other| other == ty) {
+                    return self.call_float(name, arguments, ty);
+                }
+            }
         }
-        if abi.parameters.iter().any(|ty| matches!(ty, Type::F64)) {
+        if abi.parameters.iter().any(is_float_type) {
             return self.call_mixed(name, arguments, &abi.parameters);
         }
         let word_count = abi
@@ -1879,21 +2021,28 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn call_float(&mut self, name: &str, arguments: &[Expr]) -> Result<(), String> {
+    fn call_float(&mut self, name: &str, arguments: &[Expr], ty: &Type) -> Result<(), String> {
         if arguments.len() > FLOAT_ARGUMENT_REGISTERS.len() {
             return Err(format!(
                 "call to '{name}' has too many floating-point arguments"
             ));
         }
         for argument in arguments {
-            self.expression(argument)?;
-            self.output.push_str("    movq rax, xmm0\n    push rax\n");
+            self.expression_as_float(argument, ty)?;
+            if matches!(ty, Type::F32) {
+                self.output.push_str("    movd eax, xmm0\n    push rax\n");
+            } else {
+                self.output.push_str("    movq rax, xmm0\n    push rax\n");
+            }
             self.stack_depth += 1;
         }
         for register in FLOAT_ARGUMENT_REGISTERS[..arguments.len()].iter().rev() {
             self.output.push_str("    pop rax\n");
             self.stack_depth -= 1;
-            self.output.push_str(&format!("    movq {register}, rax\n"));
+            self.output.push_str(&format!(
+                "    mov{} {register}, rax\n",
+                if matches!(ty, Type::F32) { "d" } else { "q" }
+            ));
         }
         let needs_padding = self.stack_depth % 2 == 1;
         if needs_padding {
@@ -1923,9 +2072,17 @@ impl FunctionContext {
             }
         }
         for (argument, ty) in arguments.iter().zip(parameters) {
-            if matches!(ty, Type::F64) {
-                self.expression(argument)?;
-                self.output.push_str("    movq rax, xmm0\n    push rax\n");
+            if is_float_type(ty) {
+                self.expression_as_float(argument, ty)?;
+                self.output.push_str(&format!(
+                    "    mov{} {}, xmm0\n    push rax\n",
+                    if matches!(ty, Type::F32) { "d" } else { "q" },
+                    if matches!(ty, Type::F32) {
+                        "eax"
+                    } else {
+                        "rax"
+                    }
+                ));
             } else {
                 self.expression(argument)?;
                 self.output.push_str("    push rax\n");
@@ -1937,10 +2094,16 @@ impl FunctionContext {
         let total = arguments.len();
         for (index, ty) in parameters.iter().enumerate() {
             let offset = (total - 1 - index) * 8;
-            if matches!(ty, Type::F64) {
+            if is_float_type(ty) {
                 self.output.push_str(&format!(
-                    "    movq xmm{}, QWORD PTR [rsp+{offset}]\n",
-                    float_index
+                    "    mov{} xmm{}, {} PTR [rsp+{offset}]\n",
+                    if matches!(ty, Type::F32) { "d" } else { "q" },
+                    float_index,
+                    if matches!(ty, Type::F32) {
+                        "DWORD"
+                    } else {
+                        "QWORD"
+                    }
                 ));
                 float_index += 1;
             } else {

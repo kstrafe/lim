@@ -1172,6 +1172,19 @@ mod tests {
     }
 
     #[test]
+    fn checks_and_lowers_f32_arithmetic_and_calls() {
+        let program = parse_program(
+            "(fn add ((left f32) (right f32)) f32 (+ left right)) (fn main () u64 (if (> (add 1.5 2.5) 3.0) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("addss xmm1, xmm0"));
+        assert!(assembly.contains("ucomiss xmm1, xmm0"));
+        assert!(assembly.contains("movd xmm0"));
+    }
+
+    #[test]
     fn expands_optional_generated_declarations() {
         let program = parse_program(
             "(@optional u64 Maybe?) (fn main () u64 (let value Maybe? (Maybe?-some 42)) (match value ((Maybe?-some payload) payload) (Maybe?-none 0)))",
