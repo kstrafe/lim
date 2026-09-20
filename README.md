@@ -144,6 +144,9 @@ Compile-time constants use explicit types and constant initializers:
 (fn main () u64 Answer)
 ```
 
+Constants may also be declared inside function bodies with the same explicit
+type syntax; local constants are immutable.
+
 Immutable named global storage can be declared with `static`:
 
 ```lisp

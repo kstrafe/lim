@@ -1670,6 +1670,15 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             mutable: binding.mutable,
         });
     }
+    if is_form(expression, "const") {
+        let binding = parse_const(expect_list(expression, "const statement")?)?;
+        return Ok(Statement::Let {
+            name: binding.name,
+            ty: binding.ty,
+            value: binding.value,
+            mutable: false,
+        });
+    }
     if is_form(expression, "set") {
         let items = expect_list(expression, "assignment")?;
         if items.len() != 3 {
@@ -2043,6 +2052,15 @@ mod tests {
         assert!(
             matches!(function.body[1], Statement::Expr(Expr::Symbol(ref name)) if name == "total")
         );
+        let local_const =
+            parse_program("(fn main () u64 (const Answer u64 40) (+ Answer 2))").unwrap();
+        assert!(check_types(&local_const).is_ok());
+        assert!(generate_assembly(&local_const).is_ok());
+        let mutable_const =
+            parse_program("(fn main () u64 (const Answer u64 40) (set Answer 42) Answer)").unwrap();
+        assert!(check_types(&mutable_const)
+            .unwrap_err()
+            .contains("immutable variable 'Answer'"));
         let generic = parse_program("(fn identity (T) ((value T)) T value)").unwrap();
         let Item::Function(identity) = &generic.items[0] else {
             panic!()
