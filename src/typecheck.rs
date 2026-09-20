@@ -172,6 +172,53 @@ fn reject_recursive_calls(
     Ok(())
 }
 
+pub(crate) fn function_call_depths(program: &Program) -> HashMap<String, usize> {
+    let names = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(function) => Some(function.name.clone()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let mut edges = HashMap::<String, HashSet<String>>::new();
+    for item in &program.items {
+        let Item::Function(function) = item else {
+            continue;
+        };
+        let calls = edges.entry(function.name.clone()).or_default();
+        for statement in &function.body {
+            collect_statement_calls(statement, &names, calls);
+        }
+    }
+    let mut depths = HashMap::new();
+    for name in &names {
+        let depth = call_depth(name, &edges, &mut depths);
+        depths.insert(name.clone(), depth);
+    }
+    depths
+}
+
+fn call_depth(
+    name: &str,
+    edges: &HashMap<String, HashSet<String>>,
+    depths: &mut HashMap<String, usize>,
+) -> usize {
+    if let Some(depth) = depths.get(name) {
+        return *depth;
+    }
+    let depth = edges
+        .get(name)
+        .into_iter()
+        .flat_map(|calls| calls.iter())
+        .map(|called| call_depth(called, edges, depths))
+        .max()
+        .unwrap_or(0)
+        + 1;
+    depths.insert(name.to_owned(), depth);
+    depth
+}
+
 fn visit_call_graph(
     name: &str,
     edges: &HashMap<String, HashSet<String>>,

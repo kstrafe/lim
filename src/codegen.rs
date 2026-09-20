@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::typecheck::function_call_depths;
 use crate::{
     check_types, parse_type, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type,
 };
@@ -124,6 +125,7 @@ enum GlobalValue {
 struct FunctionAbi {
     parameters: Vec<Type>,
     return_type: Type,
+    max_call_depth: usize,
 }
 
 fn generic_call_parts(operator: &str) -> Option<(&str, Vec<&str>)> {
@@ -587,6 +589,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
         }
     }
     let mut functions = HashMap::new();
+    let call_depths = function_call_depths(&program);
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;
@@ -602,6 +605,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             FunctionAbi {
                 parameters,
                 return_type,
+                max_call_depth: *call_depths.get(&function.name).unwrap_or(&1),
             },
         );
     }
@@ -816,10 +820,14 @@ fn generate_function(
     }
     let frame_size = ((next_slot.saturating_sub(1) * 8 + 15) / 16) * 16;
     let function_symbol = asm_symbol(&function.name);
+    let max_call_depth = functions
+        .get(&function.name)
+        .map(|abi| abi.max_call_depth)
+        .unwrap_or(1);
 
     output.push_str(&format!(
-        ".globl {}\n.type {}, @function\n{}:\n",
-        function_symbol, function_symbol, function_symbol
+        ".globl {}\n.type {}, @function\n{}:\n    # lim max call depth: {}\n",
+        function_symbol, function_symbol, function_symbol, max_call_depth
     ));
     output.push_str("    push rbp\n    mov rbp, rsp\n");
     if frame_size != 0 {
