@@ -355,6 +355,20 @@ fn parse_typed_integer_atom(text: &str) -> Option<(Expr, &'static str)> {
     Some((literal, suffix))
 }
 
+fn parse_typed_float_atom(text: &str) -> Option<(Expr, &'static str)> {
+    let (digits, suffix) = ["f32", "f64"]
+        .iter()
+        .find_map(|suffix| text.strip_suffix(suffix).map(|digits| (digits, *suffix)))?;
+    if digits.is_empty() || !digits.as_bytes().iter().any(u8::is_ascii_digit) {
+        return None;
+    }
+    digits
+        .parse::<f64>()
+        .ok()?
+        .is_finite()
+        .then(|| (Expr::Float(digits.to_owned()), suffix))
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
     List(Vec<Expr>),
@@ -2903,6 +2917,16 @@ impl<'a> Parser<'a> {
             TokenKind::Symbol(value) => {
                 self.index += 1;
                 if let Some((literal, ty)) = parse_typed_integer_atom(value) {
+                    return Ok(SpannedExpr {
+                        expr: Expr::List(vec![
+                            Expr::Symbol("#literal".into()),
+                            Expr::Symbol(ty.into()),
+                            literal,
+                        ]),
+                        span: token.span,
+                    });
+                }
+                if let Some((literal, ty)) = parse_typed_float_atom(value) {
                     return Ok(SpannedExpr {
                         expr: Expr::List(vec![
                             Expr::Symbol("#literal".into()),
@@ -5574,6 +5598,17 @@ mod tests {
         )
         .unwrap();
         assert!(generate_assembly(&wide).is_ok());
+    }
+
+    #[test]
+    fn parses_and_evaluates_typed_float_literals() {
+        let program = parse_program_strict(
+            "(#const SCALE f32 1.5f32) (#const OFFSET f64 0.25f64) (#fn main () u64 (#return (#if (#bool.&& (#f32.== SCALE 1.5f32) (#f64.== OFFSET 0.25f64)) 42 0)))",
+        )
+        .unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("SCALE:"), "{assembly}");
+        assert!(assembly.contains("_lim_OFFSET:"), "{assembly}");
     }
 
     #[test]

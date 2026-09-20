@@ -51,6 +51,7 @@ making new keywords unambiguous and leaving future identifiers available.
 - Signed decimal integers
 - Binary (`0b`), octal (`0o`), hexadecimal (`0x`), and underscore-separated integer literals
 - Explicit integer suffixes such as `42u32`, `-1i8`, and `0xffffu128`
+- Explicit floating-point suffixes such as `1.5f32` and `0.25f64`
 - Strings with `\\n`, `\\r`, `\\t`, `\\\\`, and `\\"` escapes
 - Quote syntax (`'form`)
 - Lisp character literals (`#\a`, `#\space`, `#\newline`)
@@ -142,6 +143,13 @@ too implicit:
 ```lisp
 (#fn main () u64
   (#return (#as (#u32.+.wrap 1u32 41u32) u64)))
+```
+
+Floating-point literals use the same explicit suffix convention:
+
+```lisp
+(#const Scale f32 1.5f32)
+(#const Offset f64 0.25f64)
 ```
 
 Value structs and enums may also declare explicit type parameters. Concrete uses

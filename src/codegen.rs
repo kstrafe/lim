@@ -36,7 +36,21 @@ fn asm_symbol(name: &str) -> String {
     {
         symbol.insert(0, '_');
     }
+    if is_asm_reserved_symbol(&symbol) {
+        symbol.insert_str(0, "_lim_");
+    }
     symbol
+}
+
+fn is_asm_reserved_symbol(symbol: &str) -> bool {
+    [
+        "offset", "ptr", "byte", "word", "dword", "qword", "tbyte", "oword", "rip", "rsp", "rbp",
+        "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14",
+        "r15", "eax", "ebx", "ecx", "edx", "esi", "edi", "r8d", "r9d", "r10d", "r11d", "r12d",
+        "r13d", "r14d", "r15d", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+    ]
+    .iter()
+    .any(|reserved| symbol.eq_ignore_ascii_case(reserved))
 }
 
 fn asm_u64_immediate(value: u64) -> String {
@@ -2964,6 +2978,18 @@ fn constant_float_value(
             evaluating.remove(name);
             result
         }
+        Expr::List(items)
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "literal") =>
+        {
+            let ty = parse_type(items.get(1))?;
+            let precision = match ty {
+                Type::F32 => true,
+                Type::F64 => false,
+                _ => return Err("typed floating literal requires f32 or f64".into()),
+            };
+            constant_float_value(&items[2], constants, initializers, evaluating, precision)
+        }
         Expr::List(items) if items.len() == 2 => {
             let operator = match &items[0] {
                 Expr::Symbol(name) => name.as_str(),
@@ -5037,9 +5063,13 @@ impl FunctionContext {
                     return Err("literal requires an integer type and value".into());
                 }
                 let target = resolve_type(&parse_type(items.get(1))?, &self.aliases)?;
-                self.expression(&items[2])?;
-                if is_narrow_integer(&target) {
-                    self.normalize_integer(&target)?;
+                if is_float_type(&target) {
+                    self.expression_as_float(&items[2], &target)?;
+                } else {
+                    self.expression(&items[2])?;
+                    if is_narrow_integer(&target) {
+                        self.normalize_integer(&target)?;
+                    }
                 }
                 Ok(())
             }
