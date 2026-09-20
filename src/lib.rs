@@ -100,7 +100,16 @@ impl<'a> Lexer<'a> {
                 b';' => {
                     self.skip_comment();
                 }
-                b'#' if self.source.get(self.offset + 1) != Some(&b'\\') => {
+                b'#' if self.source.get(self.offset + 1) == Some(&b'\\') => {
+                    tokens.push(self.char_token()?)
+                }
+                b'#' if self.source.get(self.offset + 1).is_some_and(|next| {
+                    next.is_ascii_alphabetic() || *next == b'_' || *next == b'!'
+                }) =>
+                {
+                    tokens.push(self.atom()?)
+                }
+                b'#' => {
                     self.skip_comment();
                 }
                 b'(' => tokens.push(self.one(TokenKind::LParen)),
@@ -108,9 +117,6 @@ impl<'a> Lexer<'a> {
                 b'\'' => tokens.push(self.one(TokenKind::Quote)),
                 b'@' => tokens.push(self.one(TokenKind::At)),
                 b'"' => tokens.push(self.string_token()?),
-                b'#' if self.source.get(self.offset + 1) == Some(&b'\\') => {
-                    tokens.push(self.char_token()?)
-                }
                 _ => tokens.push(self.atom()?),
             }
         }
@@ -159,7 +165,7 @@ impl<'a> Lexer<'a> {
         let column = self.column;
         while let Some(byte) = self.peek() {
             if byte.is_ascii_whitespace()
-                || matches!(byte, b'(' | b')' | b'\'' | b'"' | b'@' | b'#' | b';')
+                || matches!(byte, b'(' | b')' | b'\'' | b'"' | b'@' | b';')
             {
                 break;
             }
@@ -541,17 +547,35 @@ pub fn parse_program(source: &str) -> Result<Program, String> {
     let expressions = parse(source)?;
     let mut items = Vec::with_capacity(expressions.len());
     for expression in expressions {
-        if let Expr::List(forms) = &expression.expr {
+        let strict_keywords = matches!(
+            &expression.expr,
+            Expr::List(forms)
+                if matches!(forms.first(), Some(Expr::Symbol(name)) if name.starts_with('#'))
+        );
+        let expression = normalize_keywords(expression.expr);
+        if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
                 items.extend(parse_generated_items(forms)?);
                 continue;
             }
         }
-        items.push(parse_item(&expression.expr)?);
+        items.push(parse_item_with_mode(&expression, strict_keywords)?);
     }
     Ok(Program {
         items: specialize_generic_types(items)?,
     })
+}
+
+fn normalize_keywords(expression: Expr) -> Expr {
+    match expression {
+        Expr::Symbol(name) => {
+            Expr::Symbol(name.strip_prefix('#').map_or(name.clone(), str::to_owned))
+        }
+        Expr::List(items) => Expr::List(items.into_iter().map(normalize_keywords).collect()),
+        Expr::Block(statements) => Expr::Block(statements),
+        Expr::Quote(value) => Expr::Quote(Box::new(normalize_keywords(*value))),
+        other => other,
+    }
 }
 
 /// Materialize built-in generated declarations as source files.
@@ -1108,7 +1132,7 @@ fn specialize_generic_types(mut items: Vec<Item>) -> Result<Vec<Item>, String> {
     Ok(items)
 }
 
-fn parse_item(expression: &Expr) -> Result<Item, String> {
+fn parse_item_with_mode(expression: &Expr, strict_keywords: bool) -> Result<Item, String> {
     let items = expect_list(expression, "top-level declaration")?;
     if matches!(items.first(), Some(Expr::At)) {
         return parse_generated_item(items);
@@ -1129,7 +1153,7 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
                 ),
             })
         }
-        "fn" => Ok(Item::Function(parse_function(items)?)),
+        "fn" => Ok(Item::Function(parse_function(items, strict_keywords)?)),
         "struct" => {
             let (type_parameters, field_index) = parse_type_parameters(items, 2)?;
             Ok(Item::Struct {
@@ -1403,7 +1427,7 @@ fn parse_enum_variants_at(
     Ok(result)
 }
 
-fn parse_function(items: &[Expr]) -> Result<Function, String> {
+fn parse_function(items: &[Expr], strict_keywords: bool) -> Result<Function, String> {
     if items.len() < 4 {
         return Err("fn requires a name, parameter list, return type, and body".into());
     }
@@ -1462,6 +1486,12 @@ fn parse_function(items: &[Expr]) -> Result<Function, String> {
             &parse_statement(expression)?,
             &type_parameters,
         ));
+    }
+    if strict_keywords && !matches!(body.last(), Some(Statement::Return(Some(_)))) {
+        return Err(
+            "prefixed functions require an explicit (#return value) as their final statement"
+                .into(),
+        );
     }
     Ok(Function {
         name,
@@ -1827,10 +1857,10 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
     }
     if is_form(expression, "return") {
         let items = expect_list(expression, "return statement")?;
-        if items.len() > 2 {
-            return Err("return takes zero or one expression".into());
+        if items.len() != 2 {
+            return Err("return requires exactly one expression; use () for void".into());
         }
-        return Ok(Statement::Return(items.get(1).cloned()));
+        return Ok(Statement::Return(Some(items[1].clone())));
     }
     Ok(Statement::Expr(expression.clone()))
 }
@@ -2036,6 +2066,16 @@ mod tests {
         let generated = lex("(@optional MyType MyType?)").unwrap();
         assert_eq!(generated[1].kind, TokenKind::At);
         assert_eq!(generated[4].kind, TokenKind::Symbol("MyType?".into()));
+    }
+
+    #[test]
+    fn lexes_prefixed_keywords_and_typed_operators() {
+        let tokens = lex("(#fn main () u32 (#u32.+ 20 22))").unwrap();
+        assert_eq!(tokens[1].kind, TokenKind::Symbol("#fn".into()));
+        assert_eq!(tokens[7].kind, TokenKind::Symbol("#u32.+".into()));
+        let program = parse_program("(#fn main () u32 (#return (#u32.+ 20 22)))").unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("add"));
     }
 
     #[test]

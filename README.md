@@ -65,6 +65,14 @@ well as named types. Local variables use explicit types:
   total)
 ```
 
+Builtin forms may be written with a `#` prefix, which keeps them distinct from
+user-defined symbols. Numeric operators are explicitly qualified by their
+operand type:
+
+    (#fn add ((left u32) (right u32)) u32
+      (#let total u32 (#u32.+ left right))
+      total)
+
 Generic functions declare type parameters explicitly, and calls provide explicit
 type arguments such as `(identity<u64> 42)`; type inference is not used.
 

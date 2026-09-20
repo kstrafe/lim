@@ -644,13 +644,22 @@ fn list_expression(
     let Some(Expr::Symbol(operator)) = items.first() else {
         return Err("expression list must start with a symbol".into());
     };
-    match operator.as_str() {
+    let raw_operator = operator.as_str();
+    let (qualifier, operator) = raw_operator
+        .rsplit_once('.')
+        .map_or((None, raw_operator), |(qualifier, operator)| {
+            (Some(qualifier), operator)
+        });
+    match operator {
         "-" if items.len() == 2 => {
             let actual = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, expected,
             )?;
             if !is_numeric(&actual) {
                 return Err("unary '-' requires a numeric operand".into());
+            }
+            if let Some(qualifier) = qualifier {
+                require_operator_type(qualifier, &actual, raw_operator)?;
             }
             Ok(actual)
         }
@@ -670,7 +679,10 @@ fn list_expression(
                 Some(&left),
             )?;
             require_same(&left, &right, operator)?;
-            let bitwise = matches!(operator.as_str(), "&" | "|" | "^");
+            if let Some(qualifier) = qualifier {
+                require_operator_type(qualifier, &left, raw_operator)?;
+            }
+            let bitwise = matches!(operator, "&" | "|" | "^");
             let valid = if bitwise {
                 is_integer(&left) || matches!(left, Type::Bool)
             } else {
@@ -681,7 +693,7 @@ fn list_expression(
                     "operator '{operator}' requires integer or boolean operands"
                 ));
             }
-            if matches!(operator.as_str(), "<<" | ">>") {
+            if matches!(operator, "<<" | ">>") {
                 if let Expr::Integer(count) = &items[2] {
                     if *count < 0 || integer_width(&left).is_some_and(|width| *count >= width) {
                         return Err(format!("shift count {count} is out of range for {left:?}"));
@@ -706,6 +718,9 @@ fn list_expression(
                 Some(&left),
             )?;
             require_same(&left, &right, operator)?;
+            if let Some(qualifier) = qualifier {
+                require_operator_type(qualifier, &left, raw_operator)?;
+            }
             Ok(Type::Bool)
         }
         "if" => {
@@ -1092,7 +1107,7 @@ fn list_expression(
                         &format!("field '{}' of '{operator}'", field.name),
                     )?;
                 }
-                return Ok(Type::Named(operator.clone()));
+                return Ok(Type::Named(operator.to_owned()));
             }
             for (enum_name, variants) in enums {
                 let Some(variant) = variants.iter().find(|variant| variant.name == *operator)
@@ -1474,6 +1489,41 @@ fn is_integer(ty: &Type) -> bool {
 
 fn is_numeric(ty: &Type) -> bool {
     is_integer(ty) || matches!(ty, Type::F32 | Type::F64)
+}
+
+fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(), String> {
+    let expected = match ty {
+        Type::Unit => "()",
+        Type::Bool => "bool",
+        Type::Char => "char",
+        Type::I8 => "i8",
+        Type::I16 => "i16",
+        Type::I32 => "i32",
+        Type::I64 => "i64",
+        Type::I128 => "i128",
+        Type::Isize => "isize",
+        Type::U8 => "u8",
+        Type::U16 => "u16",
+        Type::U32 => "u32",
+        Type::U64 => "u64",
+        Type::U128 => "u128",
+        Type::Usize => "usize",
+        Type::F32 => "f32",
+        Type::F64 => "f64",
+        Type::Generic(name) | Type::Named(name) => name,
+        Type::Array(_, _) | Type::Tuple(_) => {
+            return Err(format!(
+                "operator '{operator}' has an unsupported operand type {ty:?}"
+            ))
+        }
+    };
+    if qualifier == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "operator '{operator}' is qualified for '{qualifier}', but its operand type is '{expected}'"
+        ))
+    }
 }
 
 fn is_matchable_scalar(ty: &Type) -> bool {

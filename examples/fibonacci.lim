@@ -1,7 +1,8 @@
-(fn fib ((n u64)) u64
-  (if (<= n 1)
-      n
-      (+ (fib (- n 1)) (fib (- n 2)))))
+(#fn fib ((n u64)) u64
+  (#return
+    (#if (#u64.<= n 1)
+        n
+        (#u64.+ (fib (#u64.- n 1)) (fib (#u64.- n 2))))))
 
-(fn main () u64
-  (fib 10))
+(#fn main () u64
+  (#return (fib 10)))

@@ -48,6 +48,10 @@ fn low_register(register: &str) -> &str {
     }
 }
 
+fn operator_base(operator: &str) -> &str {
+    operator.rsplit_once('.').map_or(operator, |(_, base)| base)
+}
+
 #[derive(Clone)]
 enum GlobalValue {
     Integer(i128),
@@ -1538,6 +1542,7 @@ fn constant_value(
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("global initializer is not constant".into()),
             };
+            let operator = operator_base(operator);
             let value = constant_value(&items[1], enums, constants, initializers, evaluating)?;
             match operator {
                 "-" => value
@@ -1552,6 +1557,7 @@ fn constant_value(
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("global initializer is not constant".into()),
             };
+            let operator = operator_base(operator);
             if operator == "as" {
                 let value = constant_value(&items[1], enums, constants, initializers, evaluating)?;
                 let target = parse_type(items.get(2))?;
@@ -1670,6 +1676,7 @@ fn constant_float_value(
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("floating-point global initializer is not constant".into()),
             };
+            let operator = operator_base(operator);
             let value = constant_float_value(
                 &items[1],
                 constants,
@@ -1687,6 +1694,7 @@ fn constant_float_value(
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("floating-point global initializer is not constant".into()),
             };
+            let operator = operator_base(operator);
             let left = constant_float_value(
                 &items[1],
                 constants,
@@ -2192,19 +2200,19 @@ impl FunctionContext {
                 }
                 Some(Expr::Symbol(operator))
                     if matches!(
-                        operator.as_str(),
+                        operator_base(operator.as_str()),
                         "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" | "!"
                     ) =>
                 {
                     items.get(1).and_then(|value| self.expression_type(value))
                 }
                 Some(Expr::Symbol(operator))
-                    if matches!(operator.as_str(), "assert" | "debug-assert") =>
+                    if matches!(operator_base(operator.as_str()), "assert" | "debug-assert") =>
                 {
                     Some(Type::Unit)
                 }
                 Some(Expr::Symbol(operator))
-                    if matches!(operator.as_str(), "size-of" | "align-of") =>
+                    if matches!(operator_base(operator.as_str()), "size-of" | "align-of") =>
                 {
                     Some(Type::Usize)
                 }
@@ -2836,6 +2844,7 @@ impl FunctionContext {
             Some(Expr::Symbol(name)) => name.as_str(),
             _ => return Err("expression list must start with a symbol".into()),
         };
+        let operator = operator_base(operator);
         if let Some((enum_name, variant_fields)) =
             self.enums.iter().find_map(|(enum_name, variants)| {
                 variants
@@ -3976,7 +3985,7 @@ impl FunctionContext {
             Expr::List(items) => match items.first() {
                 Some(Expr::Symbol(operator))
                     if matches!(
-                        operator.as_str(),
+                        operator_base(operator.as_str()),
                         "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
                     ) =>
                 {
@@ -4010,7 +4019,10 @@ impl FunctionContext {
                 }),
             Expr::List(items) => match items.first() {
                 Some(Expr::Symbol(operator))
-                    if matches!(operator.as_str(), "+" | "-" | "*" | "/" | "%") =>
+                    if matches!(
+                        operator_base(operator.as_str()),
+                        "+" | "-" | "*" | "/" | "%"
+                    ) =>
                 {
                     items
                         .get(1)
@@ -4026,7 +4038,9 @@ impl FunctionContext {
                         _ => None,
                     })
                     .next(),
-                Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "index" | "get") => {
+                Some(Expr::Symbol(operator))
+                    if matches!(operator_base(operator.as_str()), "index" | "get") =>
+                {
                     self.expression_type(expression).filter(is_float_type)
                 }
                 Some(Expr::Symbol(operator)) => self
