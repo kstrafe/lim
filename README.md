@@ -73,6 +73,8 @@ The native backend flattens scalar struct fields into stack slots. Struct
 parameters, nested aggregate fields, and aggregate returns are reserved for a
 later ABI-lowering stage.
 
+Mutable struct locals support field writes with `set-field`.
+
 Payload-free enums use integer discriminants and support exhaustive `match`:
 
 ```lisp

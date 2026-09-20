@@ -154,6 +154,7 @@ fn collect_locals(
         }
         Statement::Assign { .. }
         | Statement::ArrayAssign { .. }
+        | Statement::FieldAssign { .. }
         | Statement::Break
         | Statement::Continue
         | Statement::Return(_)
@@ -310,6 +311,23 @@ impl FunctionContext {
                     "    lea rax, [rbp-{}]\n    mov QWORD PTR [rax+rcx*8], rdx\n",
                     base * 8
                 ));
+            }
+            Statement::FieldAssign { name, field, value } => {
+                let Storage::Struct(fields) = self
+                    .locals
+                    .get(name)
+                    .ok_or_else(|| format!("unknown struct '{name}'"))?
+                else {
+                    return Err(format!("'{name}' is not a struct"));
+                };
+                let slot = fields
+                    .iter()
+                    .find(|(field_name, _)| field_name == field)
+                    .map(|(_, slot)| *slot)
+                    .ok_or_else(|| format!("unknown field '{field}'"))?;
+                self.expression(value)?;
+                self.output
+                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
             }
             Statement::While { condition, body } => {
                 let start = self.label("while");

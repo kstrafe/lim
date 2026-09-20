@@ -329,6 +329,11 @@ pub enum Statement {
         index: Expr,
         value: Expr,
     },
+    FieldAssign {
+        name: String,
+        field: String,
+        value: Expr,
+    },
     While {
         condition: Expr,
         body: Vec<Statement>,
@@ -563,6 +568,17 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
         return Ok(Statement::ArrayAssign {
             name: expect_symbol(items.get(1), "array name")?.to_owned(),
             index: items[2].clone(),
+            value: items[3].clone(),
+        });
+    }
+    if is_form(expression, "set-field") {
+        let items = expect_list(expression, "field assignment")?;
+        if items.len() != 4 {
+            return Err("set-field requires the form (set-field struct field value)".into());
+        }
+        return Ok(Statement::FieldAssign {
+            name: expect_symbol(items.get(1), "struct name")?.to_owned(),
+            field: expect_symbol(items.get(2), "field name")?.to_owned(),
             value: items[3].clone(),
         });
     }
@@ -958,6 +974,8 @@ mod tests {
         )
         .unwrap();
         assert!(generate_assembly(&local).unwrap().contains("[rbp-16]"));
+        let mutable = parse_program("(struct Point ((x u64) (y u64))) (fn main () u64 (let mut p Point (Point 1 2)) (set-field p y 40) (+ (get p x) (get p y)))").unwrap();
+        assert!(check_types(&mutable).is_ok());
     }
 
     #[test]

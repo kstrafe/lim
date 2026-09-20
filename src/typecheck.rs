@@ -188,6 +188,40 @@ fn statement_type(
             require_type(&actual, &element, &format!("array assignment to '{name}'"))?;
             Ok(Type::Unit)
         }
+        Statement::FieldAssign { name, field, value } => {
+            let ty = variables
+                .get(name)
+                .ok_or_else(|| format!("unknown variable '{name}'"))?
+                .clone();
+            if !mutable.contains(name) {
+                return Err(format!("cannot assign to immutable variable '{name}'"));
+            }
+            let Type::Named(struct_name) = ty else {
+                return Err(format!("'{name}' is not a struct"));
+            };
+            let fields = structs
+                .get(&struct_name)
+                .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+            let field_type = fields
+                .iter()
+                .find(|field_info| field_info.name == *field)
+                .map(|field_info| field_info.ty.clone())
+                .ok_or_else(|| format!("struct '{struct_name}' has no field '{field}'"))?;
+            let actual = expression(
+                value,
+                variables,
+                functions,
+                structs,
+                enums,
+                Some(&field_type),
+            )?;
+            require_type(
+                &actual,
+                &field_type,
+                &format!("assignment to field '{field}'"),
+            )?;
+            Ok(Type::Unit)
+        }
         Statement::While { condition, body } => {
             let actual = expression(
                 condition,
