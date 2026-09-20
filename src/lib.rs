@@ -4387,6 +4387,23 @@ mod tests {
     }
 
     #[test]
+    fn lowers_zero_word_unit_values() {
+        let program = parse_program_strict(
+            "(#struct Tagged ((marker ()) (value u64))) \
+             (#fn consume ((marker ())) u64 (#return 41)) \
+             (#fn main () u64 \
+               (#let unit-value () ()) \
+               (#let pair (#tuple () u64) (#tuple (#tuple () u64) unit-value 40)) \
+               (#let tagged Tagged (Tagged unit-value 1)) \
+               (#return (#u64.+.wrap (consume unit-value) \
+                 (#u64.+.wrap (#get pair 1) (#get tagged value)))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn rejects_value_breaks_in_statement_loops() {
         let program = parse_program(
             "(#fn main () u64 \

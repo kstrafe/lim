@@ -2049,7 +2049,9 @@ fn add_local(
     next_slot: &mut usize,
 ) -> Result<(), String> {
     let ty = resolve_type(ty, aliases)?;
-    let storage = if let Type::Named(enum_name) = &ty {
+    let storage = if matches!(ty, Type::Unit | Type::Never) {
+        Storage::Zero
+    } else if let Type::Named(enum_name) = &ty {
         if let Some(variants) = enums.get(enum_name) {
             if variants.iter().any(|variant| !variant.fields.is_empty()) {
                 let discriminant = *next_slot;
@@ -2131,6 +2133,7 @@ fn local_slots(locals: &HashMap<String, Storage>, name: &str) -> Result<Vec<usiz
         .get(name)
         .ok_or_else(|| format!("unknown local '{name}'"))?
     {
+        Storage::Zero => Ok(Vec::new()),
         Storage::Scalar(slot) => Ok(vec![*slot]),
         Storage::Wide { low, high } => Ok(vec![*low, *high]),
         Storage::Struct(slots) => Ok(slots
@@ -2180,6 +2183,9 @@ fn value_word_count(
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
 ) -> Result<usize, String> {
+    if matches!(ty, Type::Unit | Type::Never) {
+        return Ok(0);
+    }
     if is_wide_integer(ty) {
         return Ok(2);
     }
@@ -2244,6 +2250,7 @@ fn value_word_count(
 
 #[derive(Clone, Debug)]
 enum Storage {
+    Zero,
     Scalar(usize),
     Array {
         base: usize,
@@ -2265,7 +2272,8 @@ enum Storage {
 fn scalar_slot(locals: &HashMap<String, Storage>, name: &str) -> usize {
     match locals.get(name).expect("validated local") {
         Storage::Scalar(slot) => *slot,
-        Storage::Array { .. }
+        Storage::Zero
+        | Storage::Array { .. }
         | Storage::Tuple(_)
         | Storage::Struct(_)
         | Storage::Wide { .. }
@@ -2442,6 +2450,9 @@ fn is_flat_native_value(
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
 ) -> bool {
+    if matches!(ty, Type::Unit | Type::Never) {
+        return true;
+    }
     if ensure_scalar_type(ty, enums).is_ok() || is_wide_integer(ty) {
         return true;
     }
@@ -3227,7 +3238,9 @@ impl FunctionContext {
                 name, ty, value, ..
             } => {
                 let ty = resolve_type(ty, &self.aliases)?;
-                if matches!(&ty, Type::Named(type_name)
+                if matches!(ty, Type::Unit | Type::Never) {
+                    self.expression(value)?;
+                } else if matches!(&ty, Type::Named(type_name)
                 if self.structs.contains_key(type_name)
                     || self.enums.get(type_name).is_some_and(|variants| {
                         variants.iter().any(|variant| !variant.fields.is_empty())
@@ -3292,6 +3305,13 @@ impl FunctionContext {
             }
             Statement::Assign { name, value } => {
                 let expected = self.local_types.get(name).cloned();
+                if expected
+                    .as_ref()
+                    .is_some_and(|ty| matches!(ty, Type::Unit | Type::Never))
+                {
+                    self.expression(value)?;
+                    return Ok(());
+                }
                 if let Some(ty) = expected.as_ref() {
                     match ty {
                         Type::Named(type_name)
@@ -3378,6 +3398,13 @@ impl FunctionContext {
                 self.output.push_str(&format!(
                     "    cmp rax, {length}\n    jae {bounds_failure}\n"
                 ));
+                if element_words == 0 {
+                    self.expression(value)?;
+                    self.output.push_str(&format!(
+                        "    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n"
+                    ));
+                    return Ok(());
+                }
                 self.push_rax();
                 if element_words > 1 {
                     self.push_value_words(value, &element_type, false)?;
@@ -4776,6 +4803,13 @@ impl FunctionContext {
                 }
             }
             Expr::Symbol(name) => {
+                if self
+                    .local_types
+                    .get(name)
+                    .is_some_and(|ty| matches!(ty, Type::Unit | Type::Never))
+                {
+                    return Ok(());
+                }
                 if self.locals.contains_key(name) {
                     if let Some(Storage::Wide { low, high }) = self.locals.get(name) {
                         self.output.push_str(&format!(
@@ -7630,6 +7664,10 @@ impl FunctionContext {
     }
 
     fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
+        if matches!(ty, Type::Unit | Type::Never) {
+            self.expression(value)?;
+            return Ok(());
+        }
         if self.is_aggregate_type(ty)
             && (matches!(value, Expr::Block(_) | Expr::Loop(_))
                 || matches!(

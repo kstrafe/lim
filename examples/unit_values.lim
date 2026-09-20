@@ -1,0 +1,10 @@
+(#struct Tagged ((marker ()) (value u64)))
+
+(#fn consume ((marker ())) u64
+  (#return 41))
+
+(#fn main () u64
+  (#let unit-value () ())
+  (#let pair (#tuple () u64) (#tuple (#tuple () u64) unit-value 40))
+  (#let tagged Tagged (Tagged unit-value 1))
+  (#return (#u64.+.wrap (consume unit-value) (#u64.+.wrap (#get pair 1) (#get tagged value)))))

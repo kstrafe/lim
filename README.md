@@ -165,6 +165,8 @@ The backend exposes representation sizes as a typed `usize` expression:
 ```
 
 The unit type `()` and never type `!` are zero-sized and have alignment one.
+Zero-sized values can be used in locals, function parameters, tuples, structs,
+and fixed arrays without consuming native ABI words.
 
 `align-of` reports the corresponding native alignment:
 
