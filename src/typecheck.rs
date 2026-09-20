@@ -734,6 +734,9 @@ fn check_destructure_pattern(
     };
     let fields = match ty {
         Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+        Type::Array(element, length) if constructor == "array" => {
+            vec![*element.clone(); *length]
+        }
         Type::Named(name) if name == constructor => structs
             .get(name)
             .ok_or_else(|| format!("unknown struct '{name}'"))?

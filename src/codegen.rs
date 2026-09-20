@@ -1388,6 +1388,9 @@ fn destructure_bindings(
     };
     let fields = match ty {
         Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+        Type::Array(element, length) if constructor == "array" => {
+            vec![*element.clone(); *length]
+        }
         Type::Named(name) if name == constructor => structs
             .get(name)
             .ok_or_else(|| format!("unknown struct '{name}'"))?
@@ -2599,6 +2602,7 @@ impl FunctionContext {
     fn emit_destructure(&mut self, pattern: &Expr, ty: &Type, value: &Expr) -> Result<(), String> {
         let fields = match ty {
             Type::Tuple(fields) => fields.clone(),
+            Type::Array(element, length) => vec![*element.clone(); *length],
             Type::Named(name) => self
                 .structs
                 .get(name)
@@ -2624,6 +2628,16 @@ impl FunctionContext {
                     if parse_type(items.get(1))
                         .ok()
                         .is_some_and(|declared| matches!(declared, Type::Tuple(_)))
+                    {
+                        2
+                    } else {
+                        1
+                    }
+                }
+                Type::Array(_, _) if matches!(items.first(), Some(Expr::Symbol(name)) if name == "array") => {
+                    if parse_type(items.get(1))
+                        .ok()
+                        .is_some_and(|declared| matches!(declared, Type::Array(_, _)))
                     {
                         2
                     } else {

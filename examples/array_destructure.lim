@@ -1,0 +1,4 @@
+(#fn main () u64
+  (#let (#array first second third) (#array u64 3)
+    (#array (#array u64 3) 10 20 12))
+  (#return (#u64.+.wrap first (#u64.+.wrap second third))))

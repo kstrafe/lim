@@ -298,6 +298,13 @@ explicitly. Prefix the pattern with `mut` to make all bindings mutable:
 (#let mut (#tuple first second) (#tuple u64 u64) value)
 ```
 
+Fixed arrays support the same explicit form:
+
+```lisp
+(#let (#array first second third) (#array u64 3)
+      (#array (#array u64 3) 10 20 12))
+```
+
 Payload-free enums use integer discriminants and support exhaustive `match`:
 
 ```lisp

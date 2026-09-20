@@ -3276,6 +3276,19 @@ mod tests {
     }
 
     #[test]
+    fn lowers_array_let_destructuring() {
+        let program = parse_program(
+            "(#fn main () u64 \
+              (#let (#array first second third) (#array u64 3) \
+                (#array (#array u64 3) 10 20 12)) \
+              (#return (#u64.+.wrap first (#u64.+.wrap second third))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
