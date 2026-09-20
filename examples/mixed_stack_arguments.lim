@@ -1,0 +1,9 @@
+(#fn mixed
+  ((first u64) (second u64) (third u64) (fourth u64)
+   (fifth u64) (sixth u64) (scale f64) (seventh u64) (eighth u64))
+  u64
+  (#return eighth))
+
+(#fn main () u64
+  (#return
+    (mixed 1u64 2u64 3u64 4u64 5u64 6u64 1.5f64 7u64 8u64)))
