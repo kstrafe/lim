@@ -1552,6 +1552,30 @@ fn constant_value(
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("global initializer is not constant".into()),
             };
+            if operator == "as" {
+                let value = constant_value(&items[1], enums, constants, initializers, evaluating)?;
+                let target = parse_type(items.get(2))?;
+                if !matches!(
+                    target,
+                    Type::I8
+                        | Type::I16
+                        | Type::I32
+                        | Type::I64
+                        | Type::I128
+                        | Type::Isize
+                        | Type::U8
+                        | Type::U16
+                        | Type::U32
+                        | Type::U64
+                        | Type::U128
+                        | Type::Usize
+                        | Type::Bool
+                        | Type::Char
+                ) {
+                    return Err("global initializer cast is not an integer constant".into());
+                }
+                return Ok(normalize_global_integer(value, &target));
+            }
             let left = constant_value(&items[1], enums, constants, initializers, evaluating)?;
             let right = constant_value(&items[2], enums, constants, initializers, evaluating)?;
             match operator {

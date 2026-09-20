@@ -2450,6 +2450,18 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_integer_casts_in_global_constants() {
+        let program = parse_program(
+            "(const Wrapped u8 (as (+ 255 1) u8)) (fn main () u64 (if (== Wrapped 0) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap()
+            .contains("Wrapped:\n    .quad 0"));
+    }
+
+    #[test]
     fn evaluates_forward_global_constant_references() {
         let program = parse_program(
             "(const Answer u64 (+ Base 2)) (const Base u64 40) (fn main () u64 Answer)",

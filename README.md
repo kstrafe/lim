@@ -409,6 +409,7 @@ floating-point constants are emitted in read-only data and can be referenced
 by functions. Integer constant expressions may reference earlier constants and
 use the supported integer, comparison, and boolean operators. They are
 normalized to their declared width before emission.
+Explicit integer casts are also folded in constant initializers.
 Constant references may also point to a later top-level declaration; cycles
 are rejected during constant evaluation.
 
