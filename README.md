@@ -115,6 +115,11 @@ operand type:
       (#let total u32 (#u32.+.wrap left right))
       (#return total))
 
+The dot is not a namespace or member-access operator. It is simply part of an
+identifier, so a function may be named `math.add.one`; builtin arithmetic names
+such as `#u64.+.wrap` are recognized as special forms only because they match a
+known builtin spelling.
+
 Integer arithmetic must also specify overflow behavior: use `.wrap` for
 modular arithmetic or `.saturate` for clamping arithmetic. Plain integer
 arithmetic identifiers such as `#u64.+` are rejected.
