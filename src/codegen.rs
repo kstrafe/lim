@@ -544,6 +544,15 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     let mut globals = HashMap::new();
     let mut global_types = HashMap::new();
     let mut constants = HashMap::new();
+    let constant_initializers = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Let { name, value, .. } => Some((name.clone(), value.clone())),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+    let mut evaluating_constants = HashSet::new();
     for item in &program.items {
         let (name, ty, value, mutable) = match item {
             Item::Let {
@@ -567,7 +576,13 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                 Type::I128 | Type::U128 => {
                     let value = match value {
                         Expr::UnsignedInteger(value) => *value,
-                        _ => constant_value(value, &enums, &constants)? as u128,
+                        _ => constant_value(
+                            value,
+                            &enums,
+                            &constants,
+                            &constant_initializers,
+                            &mut evaluating_constants,
+                        )? as u128,
                     };
                     if matches!(item, Item::Let { .. }) {
                         if let Ok(value) = i128::try_from(value) {
@@ -602,8 +617,16 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                     )
                 }
                 _ => {
-                    let normalized =
-                        normalize_global_integer(constant_value(value, &enums, &constants)?, &ty);
+                    let normalized = normalize_global_integer(
+                        constant_value(
+                            value,
+                            &enums,
+                            &constants,
+                            &constant_initializers,
+                            &mut evaluating_constants,
+                        )?,
+                        &ty,
+                    );
                     if matches!(item, Item::Let { .. }) {
                         constants.insert(name.clone(), normalized);
                     }
@@ -1468,6 +1491,8 @@ fn constant_value(
     expression: &Expr,
     enums: &HashMap<String, Vec<EnumVariant>>,
     constants: &HashMap<String, i128>,
+    initializers: &HashMap<String, Expr>,
+    evaluating: &mut HashSet<String>,
 ) -> Result<i128, String> {
     match expression {
         Expr::Integer(value) => Ok(*value),
@@ -1479,6 +1504,20 @@ fn constant_value(
         Expr::Symbol(name) if name == "true" => Ok(1),
         Expr::Symbol(name) if name == "false" => Ok(0),
         Expr::Symbol(name) if constants.contains_key(name) => Ok(constants[name]),
+        Expr::Symbol(name) if initializers.contains_key(name) => {
+            if !evaluating.insert(name.clone()) {
+                return Err(format!("constant '{name}' is recursive"));
+            }
+            let result = constant_value(
+                &initializers[name],
+                enums,
+                constants,
+                initializers,
+                evaluating,
+            );
+            evaluating.remove(name);
+            result
+        }
         Expr::Symbol(name) => enums
             .values()
             .find_map(|variants| {
@@ -1493,7 +1532,7 @@ fn constant_value(
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("global initializer is not constant".into()),
             };
-            let value = constant_value(&items[1], enums, constants)?;
+            let value = constant_value(&items[1], enums, constants, initializers, evaluating)?;
             match operator {
                 "-" => value
                     .checked_neg()
@@ -1507,8 +1546,8 @@ fn constant_value(
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("global initializer is not constant".into()),
             };
-            let left = constant_value(&items[1], enums, constants)?;
-            let right = constant_value(&items[2], enums, constants)?;
+            let left = constant_value(&items[1], enums, constants, initializers, evaluating)?;
+            let right = constant_value(&items[2], enums, constants, initializers, evaluating)?;
             match operator {
                 "+" => left
                     .checked_add(right)

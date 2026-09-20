@@ -2371,6 +2371,24 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_forward_global_constant_references() {
+        let program = parse_program(
+            "(const Answer u64 (+ Base 2)) (const Base u64 40) (fn main () u64 Answer)",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap()
+            .contains("Answer:\n    .quad 42"));
+        let recursive = parse_program(
+            "(const First u64 (+ Second 1)) (const Second u64 (+ First 1)) (fn main () u64 First)",
+        )
+        .unwrap();
+        let error = generate_assembly(&recursive).unwrap_err();
+        assert!(error.contains("recursive"), "{error}");
+    }
+
+    #[test]
     fn lowers_wide_integer_globals() {
         let program =
             parse_program("(let VALUE u128 42) (fn main () u64 (if (== VALUE 42) 42 0))").unwrap();
