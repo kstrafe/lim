@@ -3922,6 +3922,51 @@ mod tests {
     }
 
     #[test]
+    fn returns_aggregate_if_values() {
+        let program = parse_program(
+            "(#fn choose ((condition bool)) (#tuple u64 u64) \
+               (#return (#if condition \
+                 (#tuple (#tuple u64 u64) 10 20) \
+                 (#tuple (#tuple u64 u64) 30 12)))) \
+             (#fn main () u64 \
+               (#return (#get (choose true) 1)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn returns_aggregate_match_values() {
+        let program = parse_program(
+            "(#enum Maybe ((Some u64) None)) \
+             (#fn choose ((value Maybe)) (#tuple u64 u64) \
+               (#return (#match value \
+                 ((Some payload) (#tuple (#tuple u64 u64) payload 20)) \
+                 (None (#tuple (#tuple u64 u64) 30 12))))) \
+             (#fn main () u64 \
+               (#return (#get (choose (Some 10)) 1)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn selects_fields_from_aggregate_if_values() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#return (#get \
+                 (#if true \
+                   (#tuple (#tuple u64 u64) 10 20) \
+                   (#tuple (#tuple u64 u64) 30 12)) 1)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

@@ -314,6 +314,8 @@ aggregate array element replacement use the same flattened representation;
 aggregate arrays can also be passed through function calls using that same
 flattened representation, including repeated aggregate values and aggregate
 array returns.
+Aggregate-valued `#if` and `#match` expressions also preserve all flattened
+value words across their branches.
 Enum payloads can be updated explicitly by naming the active variant and
 payload field index:
 

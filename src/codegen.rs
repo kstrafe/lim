@@ -3541,6 +3541,25 @@ impl FunctionContext {
     fn expression_as_expected(&mut self, value: &Expr, ty: &Type) -> Result<(), String> {
         if is_float_type(ty) {
             self.expression_as_float(value, ty)
+        } else if self.is_aggregate_type(ty) {
+            if let Expr::List(items) = value {
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
+                    return self.if_expression_as_aggregate(items, ty);
+                }
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                    return self.match_expression(items, None, Some(ty));
+                }
+            }
+            let words = value_word_count(ty, &self.structs, &self.enums)?;
+            if words > VALUE_REGISTERS.len() {
+                return Err("native aggregate value has too many value words".into());
+            }
+            self.push_value_words(value, ty, false)?;
+            for register in VALUE_REGISTERS[..words].iter().rev() {
+                self.output.push_str(&format!("    pop {register}\n"));
+                self.stack_depth -= 1;
+            }
+            Ok(())
         } else {
             self.expression(value)
         }
@@ -3663,6 +3682,18 @@ impl FunctionContext {
                         .ok()
                         .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
                 }
+                Some(Expr::Symbol(operator)) if operator == "if" => {
+                    if items.len() == 4 {
+                        self.expression_type(&items[2])
+                            .or_else(|| self.expression_type(&items[3]))
+                    } else {
+                        Some(Type::Unit)
+                    }
+                }
+                Some(Expr::Symbol(operator)) if operator == "match" => items[2..]
+                    .iter()
+                    .find_map(|arm| match_arm_parts(arm).ok())
+                    .and_then(|(_, _, body)| self.expression_type(body)),
                 Some(Expr::Symbol(operator))
                     if matches!(
                         operator_base(operator.as_str()),
@@ -3763,6 +3794,16 @@ impl FunctionContext {
     fn return_value(&mut self, value: &Expr) -> Result<(), String> {
         if matches!(self.return_type, Type::Unit) {
             return Ok(());
+        }
+        if self.is_aggregate_type(&self.return_type)
+            && matches!(
+                value,
+                Expr::List(items)
+                    if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if" || operator == "match")
+            )
+        {
+            let return_type = self.return_type.clone();
+            return self.expression_as_expected(value, &return_type);
         }
         if is_float_type(&self.return_type) {
             let ty = self.return_type.clone();
@@ -4592,7 +4633,7 @@ impl FunctionContext {
             }
             "size-of" => self.layout_size_expression("size-of", items),
             "align-of" => self.layout_size_expression("align-of", items),
-            "match" => self.match_expression(items, None),
+            "match" => self.match_expression(items, None, None),
             "index" => self.index_expression(items),
             "get" => self.field_expression(items),
             "!" => self.boolean_not(items),
@@ -4754,7 +4795,7 @@ impl FunctionContext {
                 return Err("native computed indexing supports at most six value words".into());
             }
             let bounds_failure = self.label("bounds_failure");
-            self.expression(&items[1])?;
+            self.expression_as_expected(&items[1], &Type::Array(element.clone(), length))?;
             for register in VALUE_REGISTERS[..words].iter().rev() {
                 self.output.push_str(&format!("    push {register}\n"));
                 self.stack_depth += 1;
@@ -4881,6 +4922,7 @@ impl FunctionContext {
         &mut self,
         items: &[Expr],
         float_type: Option<&Type>,
+        result_type: Option<&Type>,
     ) -> Result<(), String> {
         if items.len() < 3 {
             return Err("match requires a value and an arm".into());
@@ -4892,6 +4934,7 @@ impl FunctionContext {
                 &fields,
                 Type::Tuple(fields.clone()),
                 float_type,
+                result_type,
             );
         }
         if let Some(Type::Array(element, length)) = self.expression_type(&items[1]) {
@@ -4903,6 +4946,7 @@ impl FunctionContext {
                 &fields,
                 Type::Array(Box::new(element_type), length),
                 float_type,
+                result_type,
             );
         }
         if let Some(Type::Named(name)) = self.expression_type(&items[1]) {
@@ -4914,6 +4958,7 @@ impl FunctionContext {
                     &field_types,
                     Type::Named(name.clone()),
                     float_type,
+                    result_type,
                 );
             }
         }
@@ -5155,13 +5200,13 @@ impl FunctionContext {
             }
             if let Some(ty) = float_type {
                 self.expression_as_float(body, ty)?;
+            } else if let Some(ty) = result_type {
+                self.expression_as_expected(body, ty)?;
             } else {
                 self.expression(body)?;
             }
-            self.output.push_str(&format!(
-                "    mov rdx, rax\n    add rsp, {}\n    mov rax, rdx\n",
-                staged_words * 8
-            ));
+            self.output
+                .push_str(&format!("    add rsp, {}\n", staged_words * 8));
             self.stack_depth -= staged_words;
             self.output.push_str(&format!("    jmp {end}\n{next}:\n"));
             self.stack_depth = base_depth + staged_words;
@@ -5178,6 +5223,7 @@ impl FunctionContext {
         fields: &[Type],
         ty: Type,
         float_type: Option<&Type>,
+        result_type: Option<&Type>,
     ) -> Result<(), String> {
         let words = value_word_count(&ty, &self.structs, &self.enums)?;
         let base_depth = self.stack_depth;
@@ -5281,9 +5327,13 @@ impl FunctionContext {
                     words * 8
                 ));
             } else {
-                self.expression(body)?;
+                if let Some(ty) = result_type {
+                    self.expression_as_expected(body, ty)?;
+                } else {
+                    self.expression(body)?;
+                }
                 self.output.push_str(&format!(
-                    "    mov rdx, rax\n    add rsp, {}\n    mov rax, rdx\n    jmp {end}\n{next}:\n",
+                    "    add rsp, {}\n    jmp {end}\n{next}:\n",
                     words * 8
                 ));
             }
@@ -5790,7 +5840,6 @@ impl FunctionContext {
                         .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8)),
                 }
             } else {
-                self.expression(&items[1])?;
                 let register_index = fields[..index]
                     .iter()
                     .map(|field| value_word_count(field, &self.structs, &self.enums))
@@ -5798,8 +5847,8 @@ impl FunctionContext {
                     .into_iter()
                     .sum::<usize>();
                 let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                self.expression_as_expected(&items[1], &Type::Tuple(fields.clone()))?;
                 if field_words > 1 {
-                    self.expression(&items[1])?;
                     for word in 0..field_words {
                         let source = VALUE_REGISTERS
                             .get(register_index + word)
@@ -5976,7 +6025,7 @@ impl FunctionContext {
                     .iter()
                     .position(|field| field.name == *field_name)
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;
-                self.expression(&items[1])?;
+                self.expression_as_expected(&items[1], &Type::Named(struct_name.clone()))?;
                 let field_type = fields[index].ty.clone();
                 let register_index = fields[..index]
                     .iter()
@@ -6934,7 +6983,7 @@ impl FunctionContext {
                 return self.if_expression_as_float(items, ty);
             }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
-                return self.match_expression(items, Some(ty));
+                return self.match_expression(items, Some(ty), None);
             }
         }
         match expression {
@@ -6995,6 +7044,25 @@ impl FunctionContext {
         self.output
             .push_str(&format!("    jmp {end_label}\n{else_label}:\n"));
         self.expression_as_float(&items[3], ty)?;
+        self.output.push_str(&format!("{end_label}:\n"));
+        Ok(())
+    }
+
+    fn if_expression_as_aggregate(&mut self, items: &[Expr], ty: &Type) -> Result<(), String> {
+        if items.len() != 4 {
+            return Err(
+                "aggregate if requires a condition, then expression, and else expression".into(),
+            );
+        }
+        let else_label = self.label("aggregate_else");
+        let end_label = self.label("aggregate_endif");
+        self.expression(&items[1])?;
+        self.output
+            .push_str(&format!("    test rax, rax\n    jz {else_label}\n"));
+        self.expression_as_expected(&items[2], ty)?;
+        self.output
+            .push_str(&format!("    jmp {end_label}\n{else_label}:\n"));
+        self.expression_as_expected(&items[3], ty)?;
         self.output.push_str(&format!("{end_label}:\n"));
         Ok(())
     }
@@ -7358,10 +7426,11 @@ impl FunctionContext {
                 }
             }
             self.expression(value)?;
+            let words = value_word_count(ty, &self.structs, &self.enums)?;
             let registers: Box<dyn Iterator<Item = &str>> = if reverse {
-                Box::new(VALUE_REGISTERS[..*length].iter().rev().copied())
+                Box::new(VALUE_REGISTERS[..words].iter().rev().copied())
             } else {
-                Box::new(VALUE_REGISTERS[..*length].iter().copied())
+                Box::new(VALUE_REGISTERS[..words].iter().copied())
             };
             for register in registers {
                 self.output.push_str(&format!("    push {register}\n"));
@@ -7432,16 +7501,21 @@ impl FunctionContext {
                         Box::new(0..fields.len())
                     };
                     for index in indices {
-                        self.push_value_words(&items[index + value_start], &fields[index], false)?;
+                        self.push_value_words(
+                            &items[index + value_start],
+                            &fields[index],
+                            reverse,
+                        )?;
                     }
                     return Ok(());
                 }
             }
             self.expression(value)?;
+            let words = value_word_count(ty, &self.structs, &self.enums)?;
             let registers: Box<dyn Iterator<Item = &str>> = if reverse {
-                Box::new(VALUE_REGISTERS[..fields.len()].iter().rev().copied())
+                Box::new(VALUE_REGISTERS[..words].iter().rev().copied())
             } else {
-                Box::new(VALUE_REGISTERS[..fields.len()].iter().copied())
+                Box::new(VALUE_REGISTERS[..words].iter().copied())
             };
             for register in registers {
                 self.output.push_str(&format!("    push {register}\n"));
@@ -7503,13 +7577,19 @@ impl FunctionContext {
                             Box::new(0..fields.len())
                         };
                         for index in indices {
-                            self.push_value_words(&items[index + 1], &fields[index].ty, false)?;
+                            self.push_value_words(&items[index + 1], &fields[index].ty, reverse)?;
                         }
                         return Ok(());
                     }
                 }
                 self.expression(value)?;
-                for register in VALUE_REGISTERS[..fields.len()].iter() {
+                let words = value_word_count(ty, &self.structs, &self.enums)?;
+                let registers: Box<dyn Iterator<Item = &str>> = if reverse {
+                    Box::new(VALUE_REGISTERS[..words].iter().rev().copied())
+                } else {
+                    Box::new(VALUE_REGISTERS[..words].iter().copied())
+                };
+                for register in registers {
                     self.output.push_str(&format!("    push {register}\n"));
                     self.stack_depth += 1;
                 }

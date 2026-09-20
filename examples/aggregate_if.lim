@@ -1,0 +1,7 @@
+(#fn choose ((condition bool)) (#tuple u64 u64)
+  (#return (#if condition
+    (#tuple (#tuple u64 u64) 10 20)
+    (#tuple (#tuple u64 u64) 30 12))))
+
+(#fn main () u64
+  (#return (#get (choose true) 1)))
