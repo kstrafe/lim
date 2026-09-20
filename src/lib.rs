@@ -2329,6 +2329,21 @@ mod tests {
     }
 
     #[test]
+    fn lowers_aggregate_statics_for_index_and_field_reads() {
+        let program = parse_program(
+            "(#struct Point ((x u64) (y u64))) \
+             (#static Values (#array u64 3) (#array (#array u64 3) 10 20 30)) \
+             (#static Origin Point (Point 7 9)) \
+             (#static Pair (#tuple u64 f64) (#tuple (#tuple u64 f64) 4 2.5)) \
+             (#fn main () u64 \
+               (#return (#u64.+.wrap (#index Values 1) (#get Pair 0))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn rejects_malformed_let_and_functions() {
         assert!(parse_program("(let value u32)")
             .unwrap_err()

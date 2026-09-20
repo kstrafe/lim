@@ -458,6 +458,18 @@ floating-point constants are emitted in read-only data and can be referenced
 by functions. Integer constant expressions may reference earlier constants and
 use the supported integer, comparison, and boolean operators. They are
 normalized to their declared width before emission.
+
+Immutable static values may also be fixed arrays, tuples, or scalar-field
+structs. Their elements and fields remain value data in read-only storage and
+can be read with index and get:
+
+```lisp
+(#static Values (#array u64 3)
+  (#array (#array u64 3) 10 20 30))
+(#fn main () u64
+  (#return (#index Values 1)))
+```
+
 Explicit integer casts are also folded in constant initializers.
 Constant references may also point to a later top-level declaration; cycles
 are rejected during constant evaluation.

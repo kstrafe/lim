@@ -1,0 +1,12 @@
+(#struct Point ((x u64) (y u64)))
+(#static Values (#array u64 3)
+  (#array (#array u64 3) 10 20 30))
+(#static Origin Point (Point 7 9))
+(#static Pair (#tuple u64 f64)
+  (#tuple (#tuple u64 f64) 4 2.5))
+
+(#fn main () u64
+  (#return
+    (#u64.+.wrap
+      (#index Values 1)
+      (#u64.+.wrap (#get Origin y) (#get Pair 0)))))

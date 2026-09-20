@@ -119,6 +119,7 @@ enum GlobalValue {
     Wide { low: u64, high: u64 },
     F32(u32),
     F64(u64),
+    Aggregate(Vec<u64>),
 }
 
 #[derive(Clone)]
@@ -639,9 +640,6 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                 return Err(format!("top-level binding '{name}' cannot be mutable"));
             }
             let ty = resolve_type(ty, &aliases)?;
-            if !is_wide_integer(&ty) {
-                ensure_scalar_type(&ty, &enums)?;
-            }
             let global = match &ty {
                 Type::I128 | Type::U128 => {
                     let value = match value {
@@ -690,7 +688,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                     }
                     GlobalValue::F64(value.to_bits())
                 }
-                _ => {
+                _ if ensure_scalar_type(&ty, &enums).is_ok() => {
                     let normalized = normalize_global_integer(
                         constant_value(
                             value,
@@ -706,6 +704,17 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                     }
                     GlobalValue::Integer(normalized)
                 }
+                _ => GlobalValue::Aggregate(constant_aggregate_words(
+                    value,
+                    &ty,
+                    &structs,
+                    &enums,
+                    &constants,
+                    &float_constants,
+                    &constant_initializers,
+                    &mut evaluating_constants,
+                    &mut evaluating_float_constants,
+                )?),
             };
             global_types.insert(name.clone(), ty);
             globals.insert(name.clone(), global);
@@ -730,6 +739,12 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                 }
                 GlobalValue::F64(value) => {
                     output.push_str(&format!(".align 8\n{symbol}:\n    .quad {value}\n"));
+                }
+                GlobalValue::Aggregate(words) => {
+                    output.push_str(&format!(".align 8\n{symbol}:\n"));
+                    for word in words {
+                        output.push_str(&format!("    .quad {word}\n"));
+                    }
                 }
             }
         }
@@ -1807,6 +1822,236 @@ fn constant_float_value(
             }
         }
         _ => Err("floating-point global initializer is not constant".into()),
+    }
+}
+
+fn constant_aggregate_words(
+    expression: &Expr,
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    constants: &HashMap<String, i128>,
+    float_constants: &HashMap<String, f64>,
+    initializers: &HashMap<String, Expr>,
+    evaluating_constants: &mut HashSet<String>,
+    evaluating_float_constants: &mut HashSet<String>,
+) -> Result<Vec<u64>, String> {
+    let mut scalar_word = |value: &Expr| -> Result<u64, String> {
+        if matches!(ty, Type::F32 | Type::F64) {
+            let number = constant_float_value(
+                value,
+                float_constants,
+                initializers,
+                evaluating_float_constants,
+                matches!(ty, Type::F32),
+            )?;
+            return Ok(if matches!(ty, Type::F32) {
+                (number as f32).to_bits() as u64
+            } else {
+                number.to_bits()
+            });
+        }
+        Ok(normalize_global_integer(
+            constant_value(value, enums, constants, initializers, evaluating_constants)?,
+            ty,
+        ) as u64)
+    };
+
+    match ty {
+        Type::Array(element, length) => {
+            if let Expr::String(string) = expression {
+                if !matches!(**element, Type::Char) || string.chars().count() != *length {
+                    return Err("string length or element type does not match static array".into());
+                }
+                return Ok(string.chars().map(|value| value as u64).collect());
+            }
+            let Expr::List(items) = expression else {
+                return Err("static array initializer must be an array constructor".into());
+            };
+            let (value_start, repeat) = if matches!(
+                items.first(),
+                Some(Expr::Symbol(operator)) if operator == "array-repeat"
+            ) {
+                (2, true)
+            } else if matches!(
+                items.first(),
+                Some(Expr::Symbol(operator)) if operator == "array"
+            ) {
+                (2, false)
+            } else {
+                return Err("static array initializer must use array or array-repeat".into());
+            };
+            if parse_type(items.get(1)).ok() != Some(ty.clone()) {
+                return Err("static array initializer requires its explicit array type".into());
+            }
+            if repeat {
+                if items.len() != 3 {
+                    return Err("array-repeat requires one value".into());
+                }
+                let word = constant_aggregate_words(
+                    &items[2],
+                    element,
+                    structs,
+                    enums,
+                    constants,
+                    float_constants,
+                    initializers,
+                    evaluating_constants,
+                    evaluating_float_constants,
+                )?;
+                if word.len() != 1 {
+                    return Err("static arrays only support scalar elements".into());
+                }
+                return Ok(std::iter::repeat_n(word[0], *length).collect());
+            }
+            if items.len() - value_start != *length {
+                return Err("static array initializer has the wrong length".into());
+            }
+            items[value_start..]
+                .iter()
+                .map(|value| {
+                    constant_aggregate_words(
+                        value,
+                        element,
+                        structs,
+                        enums,
+                        constants,
+                        float_constants,
+                        initializers,
+                        evaluating_constants,
+                        evaluating_float_constants,
+                    )
+                    .and_then(|words| {
+                        if words.len() == 1 {
+                            Ok(words[0])
+                        } else {
+                            Err("static arrays only support scalar elements".into())
+                        }
+                    })
+                })
+                .collect()
+        }
+        Type::Tuple(fields) => {
+            let Expr::List(items) = expression else {
+                return Err("static tuple initializer must be a tuple constructor".into());
+            };
+            if !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "tuple") {
+                return Err("static tuple initializer must use tuple".into());
+            }
+            let value_start = if parse_type(items.get(1)).ok() == Some(ty.clone()) {
+                2
+            } else {
+                1
+            };
+            if items.len() - value_start != fields.len() {
+                return Err("static tuple initializer has the wrong length".into());
+            }
+            fields
+                .iter()
+                .zip(&items[value_start..])
+                .map(|(field, value)| {
+                    constant_aggregate_words(
+                        value,
+                        field,
+                        structs,
+                        enums,
+                        constants,
+                        float_constants,
+                        initializers,
+                        evaluating_constants,
+                        evaluating_float_constants,
+                    )
+                    .and_then(|words| {
+                        if words.len() == 1 {
+                            Ok(words[0])
+                        } else {
+                            Err("static tuples only support scalar fields".into())
+                        }
+                    })
+                })
+                .collect()
+        }
+        Type::Named(name) if structs.contains_key(name) => {
+            let Expr::List(items) = expression else {
+                return Err("static struct initializer must be a constructor".into());
+            };
+            if !matches!(items.first(), Some(Expr::Symbol(constructor)) if constructor == name) {
+                return Err("static struct initializer has the wrong constructor".into());
+            }
+            let fields = &structs[name];
+            if items.len() - 1 != fields.len() {
+                return Err("static struct initializer has the wrong field count".into());
+            }
+            fields
+                .iter()
+                .zip(&items[1..])
+                .map(|(field, value)| {
+                    constant_aggregate_words(
+                        value,
+                        &field.ty,
+                        structs,
+                        enums,
+                        constants,
+                        float_constants,
+                        initializers,
+                        evaluating_constants,
+                        evaluating_float_constants,
+                    )
+                    .and_then(|words| {
+                        if words.len() == 1 {
+                            Ok(words[0])
+                        } else {
+                            Err("static structs only support scalar fields".into())
+                        }
+                    })
+                })
+                .collect()
+        }
+        Type::Named(name) if enums.contains_key(name) => {
+            let Expr::List(items) = expression else {
+                return Err("static enum initializer must be a constructor".into());
+            };
+            let Some(Expr::Symbol(variant_name)) = items.first() else {
+                return Err("static enum initializer must start with a variant".into());
+            };
+            let variants = &enums[name];
+            let Some((variant_index, variant)) = variants
+                .iter()
+                .enumerate()
+                .find(|(_, variant)| variant.name == *variant_name)
+            else {
+                return Err(format!("unknown enum variant '{variant_name}'"));
+            };
+            if items.len() - 1 != variant.fields.len() {
+                return Err("static enum initializer has the wrong payload count".into());
+            }
+            let payload_count = variants
+                .iter()
+                .map(|candidate| candidate.fields.len())
+                .max()
+                .unwrap_or(0);
+            let mut words = vec![variant_index as u64];
+            for (field, value) in variant.fields.iter().zip(&items[1..]) {
+                let field_words = constant_aggregate_words(
+                    value,
+                    field,
+                    structs,
+                    enums,
+                    constants,
+                    float_constants,
+                    initializers,
+                    evaluating_constants,
+                    evaluating_float_constants,
+                )?;
+                if field_words.len() != 1 {
+                    return Err("static enum payloads must be scalar".into());
+                }
+                words.push(field_words[0]);
+            }
+            words.resize(payload_count + 1, 0);
+            Ok(words)
+        }
+        _ => Ok(vec![scalar_word(expression)?]),
     }
 }
 
@@ -3267,6 +3512,28 @@ impl FunctionContext {
             self.stack_depth -= length;
             return Ok(());
         };
+        if let Some(Type::Array(element, length)) = self.global_types.get(name).cloned() {
+            if !matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) {
+                return Err(format!("global '{name}' is not an aggregate array"));
+            }
+            let bounds_failure = self.label("global_array_bounds_failure");
+            let done = self.label("global_array_index_done");
+            self.expression(&items[2])?;
+            self.output.push_str(&format!(
+                "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    lea rdx, [rip+{}]\n    mov rax, QWORD PTR [rdx+rcx*8]\n    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n",
+                asm_symbol(name)
+            ));
+            if matches!(*element, Type::F32) {
+                self.output.push_str("    movd xmm0, eax\n");
+            } else if matches!(*element, Type::F64) {
+                self.output.push_str("    movq xmm0, rax\n");
+            } else {
+                ensure_integer_type(&element).map_err(|_| {
+                    "native computed indexing supports scalar arrays only".to_owned()
+                })?;
+            }
+            return Ok(());
+        }
         let Storage::Array { base, .. } = self
             .locals
             .get(name)
@@ -3585,6 +3852,27 @@ impl FunctionContext {
                 }
             }
             if let Expr::Symbol(local) = &items[1] {
+                if matches!(self.global_types.get(local), Some(Type::Tuple(_))) {
+                    if !matches!(self.globals.get(local), Some(GlobalValue::Aggregate(_))) {
+                        return Err(format!("global '{local}' is not an aggregate tuple"));
+                    }
+                    let offset = index * 8;
+                    match field_type {
+                        Type::F32 => self.output.push_str(&format!(
+                            "    movss xmm0, DWORD PTR [rip+{}+{offset}]\n",
+                            asm_symbol(local)
+                        )),
+                        Type::F64 => self.output.push_str(&format!(
+                            "    movq xmm0, QWORD PTR [rip+{}+{offset}]\n",
+                            asm_symbol(local)
+                        )),
+                        _ => self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rip+{}+{offset}]\n",
+                            asm_symbol(local)
+                        )),
+                    }
+                    return Ok(());
+                }
                 let Storage::Tuple(slots) = self
                     .locals
                     .get(local)
@@ -3631,6 +3919,39 @@ impl FunctionContext {
         };
         match &items[1] {
             Expr::Symbol(local) => {
+                if let Some(Type::Named(struct_name)) = self.global_types.get(local) {
+                    let fields = self
+                        .structs
+                        .get(struct_name)
+                        .ok_or_else(|| format!("'{local}' is not a struct"))?;
+                    let (index, field_type) = fields
+                        .iter()
+                        .enumerate()
+                        .find(|(_, field)| field.name == *field_name)
+                        .map(|(index, field)| (index, field.ty.clone()))
+                        .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                    if !matches!(self.globals.get(local), Some(GlobalValue::Aggregate(_))) {
+                        return Err(format!("global '{local}' is not an aggregate struct"));
+                    }
+                    let offset = index * 8;
+                    if matches!(field_type, Type::F32) {
+                        self.output.push_str(&format!(
+                            "    movss xmm0, DWORD PTR [rip+{}+{offset}]\n",
+                            asm_symbol(local)
+                        ));
+                    } else if matches!(field_type, Type::F64) {
+                        self.output.push_str(&format!(
+                            "    movq xmm0, QWORD PTR [rip+{}+{offset}]\n",
+                            asm_symbol(local)
+                        ));
+                    } else {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rip+{}+{offset}]\n",
+                            asm_symbol(local)
+                        ));
+                    }
+                    return Ok(());
+                }
                 let Storage::Struct(fields) = self
                     .locals
                     .get(local)
