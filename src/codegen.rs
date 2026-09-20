@@ -1781,12 +1781,13 @@ fn value_word_count(
     }
     if let Type::Named(name) = ty {
         if let Some(fields) = structs.get(name) {
-            if fields.len() <= VALUE_REGISTERS.len()
-                && fields
-                    .iter()
-                    .all(|field| ensure_scalar_type(&field.ty, enums).is_ok())
-            {
-                return Ok(fields.len());
+            let words = fields
+                .iter()
+                .map(|field| value_word_count(&field.ty, structs, enums))
+                .collect::<Result<Vec<_>, _>>()?;
+            let total = words.into_iter().sum::<usize>();
+            if total <= VALUE_REGISTERS.len() {
+                return Ok(total);
             }
         }
         if let Some(variants) = enums.get(name) {
@@ -1811,17 +1812,20 @@ fn value_word_count(
         }
     }
     if let Type::Array(element, length) = ty {
-        if *length <= VALUE_REGISTERS.len() && ensure_scalar_type(element, enums).is_ok() {
-            return Ok(*length);
+        let element_words = value_word_count(element, structs, enums)?;
+        let total = element_words.saturating_mul(*length);
+        if total <= VALUE_REGISTERS.len() {
+            return Ok(total);
         }
     }
     if let Type::Tuple(fields) = ty {
-        if fields.len() <= VALUE_REGISTERS.len()
-            && fields
-                .iter()
-                .all(|field| ensure_scalar_type(field, enums).is_ok())
-        {
-            return Ok(fields.len());
+        let words = fields
+            .iter()
+            .map(|field| value_word_count(field, structs, enums))
+            .collect::<Result<Vec<_>, _>>()?;
+        let total = words.into_iter().sum::<usize>();
+        if total <= VALUE_REGISTERS.len() {
+            return Ok(total);
         }
     }
     Err(format!("native ABI does not support value type {ty:?}"))
@@ -2005,7 +2009,52 @@ fn ensure_parameter_type(
     enums: &HashMap<String, Vec<EnumVariant>>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), String> {
-    value_word_count(ty, structs, enums).map(|_| ())
+    value_word_count(ty, structs, enums)?;
+    if !is_flat_native_value(ty, structs, enums) {
+        return Err(format!(
+            "native backend only supports scalar-flattened parameter type {ty:?}"
+        ));
+    }
+    Ok(())
+}
+
+fn is_flat_native_value(
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+) -> bool {
+    if ensure_scalar_type(ty, enums).is_ok() || is_wide_integer(ty) {
+        return true;
+    }
+    match ty {
+        Type::Array(element, length) => {
+            *length <= VALUE_REGISTERS.len() && ensure_scalar_type(element, enums).is_ok()
+        }
+        Type::Tuple(fields) => {
+            fields.len() <= VALUE_REGISTERS.len()
+                && fields
+                    .iter()
+                    .all(|field| ensure_scalar_type(field, enums).is_ok())
+        }
+        Type::Named(name) => {
+            if let Some(fields) = structs.get(name) {
+                return fields.len() <= VALUE_REGISTERS.len()
+                    && fields
+                        .iter()
+                        .all(|field| ensure_scalar_type(&field.ty, enums).is_ok());
+            }
+            if let Some(variants) = enums.get(name) {
+                return variants.iter().all(|variant| {
+                    variant
+                        .fields
+                        .iter()
+                        .all(|field| ensure_scalar_type(field, enums).is_ok())
+                });
+            }
+            false
+        }
+        _ => false,
+    }
 }
 
 fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, String> {
@@ -3286,10 +3335,10 @@ impl FunctionContext {
                     return Err("native struct return has too many fields".into());
                 }
                 for (index, field) in items[1..].iter().enumerate() {
-                    self.expression_as_abi_word(field, &fields[index].ty)?;
-                    self.push_rax();
+                    self.push_value_words(field, &fields[index].ty, false)?;
                 }
-                for register in VALUE_REGISTERS[..fields.len()].iter().rev() {
+                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                for register in VALUE_REGISTERS[..words].iter().rev() {
                     self.output.push_str(&format!("    pop {register}\n"));
                     self.stack_depth -= 1;
                 }
@@ -3344,10 +3393,10 @@ impl FunctionContext {
                     return Err("tuple return has the wrong length".into());
                 }
                 for (field, ty) in items[value_start..].iter().zip(fields) {
-                    self.expression_as_abi_word(field, ty)?;
-                    self.push_rax();
+                    self.push_value_words(field, ty, false)?;
                 }
-                for register in VALUE_REGISTERS[..fields.len()].iter().rev() {
+                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                for register in VALUE_REGISTERS[..words].iter().rev() {
                     self.output.push_str(&format!("    pop {register}\n"));
                     self.stack_depth -= 1;
                 }
@@ -3451,10 +3500,10 @@ impl FunctionContext {
                     unreachable!()
                 };
                 for value in &items[value_start..] {
-                    self.expression_as_abi_word(value, &element)?;
-                    self.push_rax();
+                    self.push_value_words(value, &element, false)?;
                 }
-                for register in VALUE_REGISTERS[..length].iter().rev() {
+                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                for register in VALUE_REGISTERS[..words].iter().rev() {
                     self.output.push_str(&format!("    pop {register}\n"));
                     self.stack_depth -= 1;
                 }
@@ -4875,8 +4924,14 @@ impl FunctionContext {
                 }
             } else {
                 self.expression(&items[1])?;
+                let register_index = fields[..index]
+                    .iter()
+                    .map(|field| value_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
                 let register = VALUE_REGISTERS
-                    .get(index)
+                    .get(register_index)
                     .ok_or_else(|| "native tuple has too many fields".to_owned())?;
                 match field_type {
                     Type::F32 => self
@@ -6208,6 +6263,11 @@ impl FunctionContext {
     }
 
     fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
+        if is_float_type(ty) {
+            self.expression_as_abi_word(value, ty)?;
+            self.push_rax();
+            return Ok(());
+        }
         if is_wide_integer(ty) {
             self.expression(value)?;
             let registers = if reverse {
@@ -6328,8 +6388,7 @@ impl FunctionContext {
                         unreachable!()
                     };
                     for index in values {
-                        self.expression_as_abi_word(&items[index + value_start], element)?;
-                        self.push_rax();
+                        self.push_value_words(&items[index + value_start], element, false)?;
                     }
                     return Ok(());
                 }
@@ -6408,8 +6467,7 @@ impl FunctionContext {
                         Box::new(0..fields.len())
                     };
                     for index in indices {
-                        self.expression_as_abi_word(&items[index + value_start], &fields[index])?;
-                        self.push_rax();
+                        self.push_value_words(&items[index + value_start], &fields[index], false)?;
                     }
                     return Ok(());
                 }
@@ -6476,8 +6534,7 @@ impl FunctionContext {
                             Box::new(0..fields.len())
                         };
                         for index in indices {
-                            self.expression_as_abi_word(&items[index + 1], &fields[index].ty)?;
-                            self.push_rax();
+                            self.push_value_words(&items[index + 1], &fields[index].ty, false)?;
                         }
                         return Ok(());
                     }

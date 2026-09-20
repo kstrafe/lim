@@ -296,6 +296,11 @@ set.
 Fixed arrays of up to six scalar elements use the same flattened value ABI and
 can also be passed and returned by functions.
 
+Direct tuple, array, and struct return expressions may contain nested value
+aggregates when their flattened representation fits the six-word native ABI.
+Nested locals and parameters remain rejected until their storage and mutation
+operations have a complete flattened layout.
+
 The native backend flattens scalar struct fields into stack slots and supports
 up to six scalar ABI words for struct parameters and returns.
 
