@@ -84,8 +84,9 @@ source under a `.lim/` directory beside the input file.
 ```
 
 The typed declaration pass recognizes primitive Rust-style types (`u8` through
-`u128`, `usize`, signed integers, `f32`, `f64`, `bool`, `char`, and `()`), as
-well as named types. Local variables use explicit types:
+`u128`, `usize`, signed integers, `f32`, `f64`, `bool`, `char`, `()`, and the
+diverging `!` type), as well as named types. Local variables use explicit
+types:
 
 Later local bindings may shadow earlier bindings, including inside a block. The
 initializer is evaluated against the earlier binding, while subsequent
@@ -278,6 +279,17 @@ the native `ud2` trap and can inhabit a branch with any expected static type:
 
 ```lisp
 (#if condition value (#unreachable))
+```
+
+The Rust-like never type is written `!`. A function returning `!` must diverge
+explicitly, and calls to it can occupy a branch that otherwise produces a
+value:
+
+```lisp
+(#fn abort () !
+  (#return (#unreachable)))
+(#fn choose ((condition bool)) u64
+  (#return (#if condition 42 (abort))))
 ```
 
 Unary `!` negates booleans and performs a bitwise complement on integer

@@ -1095,7 +1095,7 @@ fn expression(
                 };
                 if has_value_break {
                     if let Some(previous) = &result_type {
-                        require_same(previous, &actual, "loop break values")?;
+                        result_type = Some(merge_types(previous, &actual, "loop break values")?);
                     } else {
                         result_type = Some(actual);
                     }
@@ -1296,10 +1296,13 @@ fn list_expression(
                 enums,
                 mutable,
                 aliases,
-                Some(&then_type),
+                if matches!(then_type, Type::Never) {
+                    expected
+                } else {
+                    Some(&then_type)
+                },
             )?;
-            require_same(&then_type, &else_type, "if branches")?;
-            Ok(then_type)
+            merge_types(&then_type, &else_type, "if branches")
         }
         "as" => {
             require_arity(operator, items, 3)?;
@@ -1611,10 +1614,13 @@ fn list_expression(
                     enums,
                     mutable,
                     aliases,
-                    result_type.as_ref().or(expected),
+                    result_type
+                        .as_ref()
+                        .filter(|ty| !matches!(ty, Type::Never))
+                        .or(expected),
                 )?;
                 if let Some(previous) = &result_type {
-                    require_same(previous, &arm_type, "match arms")?;
+                    result_type = Some(merge_types(previous, &arm_type, "match arms")?);
                 } else {
                     result_type = Some(arm_type);
                 }
@@ -1668,7 +1674,7 @@ fn list_expression(
         }
         "panic" | "unreachable" => {
             require_arity(operator, items, 1)?;
-            Ok(expected.cloned().unwrap_or(Type::Unit))
+            Ok(Type::Never)
         }
         "let" => Err("let is only valid as a statement".into()),
         "get" => {
@@ -1884,10 +1890,13 @@ fn check_scalar_match(
             enums,
             mutable,
             aliases,
-            result_type.as_ref().or(expected),
+            result_type
+                .as_ref()
+                .filter(|ty| !matches!(ty, Type::Never))
+                .or(expected),
         )?;
         if let Some(previous) = &result_type {
-            require_same(previous, &arm_type, "match arms")?;
+            result_type = Some(merge_types(previous, &arm_type, "match arms")?);
         } else {
             result_type = Some(arm_type);
         }
@@ -1986,10 +1995,13 @@ fn check_tuple_match(
             enums,
             mutable,
             aliases,
-            result_type.as_ref().or(expected),
+            result_type
+                .as_ref()
+                .filter(|ty| !matches!(ty, Type::Never))
+                .or(expected),
         )?;
         if let Some(previous) = &result_type {
-            require_same(previous, &arm_type, "match arms")?;
+            result_type = Some(merge_types(previous, &arm_type, "match arms")?);
         } else {
             result_type = Some(arm_type);
         }
@@ -2139,10 +2151,13 @@ fn check_array_match(
             enums,
             mutable,
             aliases,
-            result_type.as_ref().or(expected),
+            result_type
+                .as_ref()
+                .filter(|ty| !matches!(ty, Type::Never))
+                .or(expected),
         )?;
         if let Some(previous) = &result_type {
-            require_same(previous, &arm_type, "match arms")?;
+            result_type = Some(merge_types(previous, &arm_type, "match arms")?);
         } else {
             result_type = Some(arm_type);
         }
@@ -2270,10 +2285,13 @@ fn check_struct_match(
             enums,
             mutable,
             aliases,
-            result_type.as_ref().or(expected),
+            result_type
+                .as_ref()
+                .filter(|ty| !matches!(ty, Type::Never))
+                .or(expected),
         )?;
         if let Some(previous) = &result_type {
-            require_same(previous, &arm_type, "match arms")?;
+            result_type = Some(merge_types(previous, &arm_type, "match arms")?);
         } else {
             result_type = Some(arm_type);
         }
@@ -2471,13 +2489,24 @@ fn check_index(
 }
 
 fn require_type(actual: &Type, expected: &Type, context: &str) -> Result<(), String> {
-    if actual == expected {
+    if actual == expected || matches!(actual, Type::Never) {
         Ok(())
     } else {
         Err(format!(
             "{context} has type {actual:?}, expected {expected:?}"
         ))
     }
+}
+
+fn merge_types(left: &Type, right: &Type, context: &str) -> Result<Type, String> {
+    if matches!(left, Type::Never) {
+        return Ok(right.clone());
+    }
+    if matches!(right, Type::Never) {
+        return Ok(left.clone());
+    }
+    require_same(left, right, context)?;
+    Ok(left.clone())
 }
 
 fn require_same(left: &Type, right: &Type, context: &str) -> Result<(), String> {
@@ -2515,6 +2544,7 @@ fn is_numeric(ty: &Type) -> bool {
 fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(), String> {
     let expected = match ty {
         Type::Unit => "()",
+        Type::Never => "!",
         Type::Bool => "bool",
         Type::Char => "char",
         Type::I8 => "i8",

@@ -1,0 +1,8 @@
+(#fn abort () !
+  (#return (#unreachable)))
+
+(#fn choose ((condition bool)) u64
+  (#return (#if condition 42 (abort))))
+
+(#fn main () u64
+  (#return (choose false)))

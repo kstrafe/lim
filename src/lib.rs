@@ -390,6 +390,7 @@ pub fn parse(source: &str) -> Result<Vec<SpannedExpr>, String> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
     Unit,
+    Never,
     Bool,
     Char,
     I8,
@@ -416,6 +417,7 @@ impl Type {
     pub fn from_name(name: &str) -> Self {
         match name {
             "()" => Self::Unit,
+            "!" => Self::Never,
             "bool" => Self::Bool,
             "char" => Self::Char,
             "i8" => Self::I8,
@@ -1160,6 +1162,7 @@ pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), Str
 fn type_source(ty: &Type) -> String {
     match ty {
         Type::Unit => "()".into(),
+        Type::Never => "!".into(),
         Type::Bool => "bool".into(),
         Type::Char => "char".into(),
         Type::I8 => "i8".into(),
@@ -4327,6 +4330,25 @@ mod tests {
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn checks_and_lowers_never_returning_functions() {
+        let program = parse_program_strict(
+            "(#fn abort () ! (#return (#unreachable))) \
+             (#fn choose ((condition bool)) u64 \
+               (#return (#if condition 42 (abort)))) \
+             (#fn main () u64 (#return (choose false)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("call abort"));
+        assert!(assembly.contains("ud2"));
+        let invalid = parse_program_strict("(#fn bad () ! (#return 42))").unwrap();
+        assert!(check_types(&invalid)
+            .unwrap_err()
+            .contains("expected Never"));
     }
 
     #[test]

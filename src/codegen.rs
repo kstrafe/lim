@@ -147,6 +147,7 @@ fn generic_call_parts(operator: &str) -> Option<(&str, Vec<&str>)> {
 fn specialized_type_name(ty: &Type) -> String {
     match ty {
         Type::Unit => "unit".into(),
+        Type::Never => "never".into(),
         Type::Bool => "bool".into(),
         Type::Char => "char".into(),
         Type::I8 => "i8".into(),
@@ -2371,7 +2372,7 @@ fn ensure_return_type(
     enums: &HashMap<String, Vec<EnumVariant>>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), String> {
-    if matches!(ty, Type::Unit) {
+    if matches!(ty, Type::Unit | Type::Never) {
         return Ok(());
     }
     if ensure_scalar_type(ty, enums).is_ok() {
