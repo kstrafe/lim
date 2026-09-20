@@ -647,6 +647,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "set-payload"
             | "block"
             | "match"
+            | "when"
             | "as"
             | "array"
             | "array-repeat"
@@ -3637,6 +3638,23 @@ mod tests {
                (#return (#match value \
                  ((Pair left right) (#u64.+.wrap left right)) \
                  (Empty 0))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn checks_and_lowers_match_guards() {
+        let program = parse_program(
+            "(#enum Maybe ((Some u64) None)) \
+             (#fn main () u64 \
+               (#let value Maybe (Some 42)) \
+               (#return (#match value \
+                 ((Some payload) (#when (#u64.>.wrap payload 40)) \
+                   (#u64.+.wrap payload 8)) \
+                 ((Some _) 0) \
+                 (None 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());

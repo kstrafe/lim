@@ -1313,11 +1313,8 @@ fn list_expression(
             let mut seen = Vec::new();
             let mut result_type = None;
             for arm in &items[2..] {
-                let arm = match arm {
-                    Expr::List(arm) if arm.len() == 2 => arm,
-                    _ => return Err("match arms must have the form (pattern expression)".into()),
-                };
-                let (pattern, payload_patterns) = match &arm[0] {
+                let (pattern_expr, guard, body) = match_arm_parts(arm)?;
+                let (pattern, payload_patterns) = match pattern_expr {
                     Expr::Symbol(pattern) => (pattern.as_str(), Vec::new()),
                     Expr::List(pattern) if !pattern.is_empty() => {
                         let variant = match &pattern[0] {
@@ -1333,10 +1330,12 @@ fn list_expression(
                     if !payload_patterns.is_empty() {
                         return Err("wildcard pattern cannot have a payload".into());
                     }
-                    if wildcard {
+                    if guard.is_none() && wildcard {
                         return Err("duplicate wildcard match pattern".into());
                     }
-                    wildcard = true;
+                    if guard.is_none() {
+                        wildcard = true;
+                    }
                 } else {
                     let Some(variant) = variants.iter().find(|variant| variant.name == pattern)
                     else {
@@ -1350,10 +1349,12 @@ fn list_expression(
                             variant.fields.len()
                         ));
                     }
-                    if seen.iter().any(|seen: &&str| *seen == pattern) {
+                    if guard.is_none() && seen.iter().any(|seen: &&str| *seen == pattern) {
                         return Err(format!("duplicate enum match pattern '{pattern}'"));
                     }
-                    seen.push(pattern);
+                    if guard.is_none() {
+                        seen.push(pattern);
+                    }
                 }
                 let mut arm_variables = variables.clone();
                 if !payload_patterns.is_empty() {
@@ -1371,8 +1372,21 @@ fn list_expression(
                         )?;
                     }
                 }
+                if let Some(guard) = guard {
+                    let guard_type = expression(
+                        guard,
+                        &arm_variables,
+                        functions,
+                        structs,
+                        enums,
+                        mutable,
+                        aliases,
+                        Some(&Type::Bool),
+                    )?;
+                    require_type(&guard_type, &Type::Bool, "match guard")?;
+                }
                 let arm_type = expression(
-                    &arm[1],
+                    body,
                     &arm_variables,
                     functions,
                     structs,
@@ -1579,16 +1593,15 @@ fn check_scalar_match(
     let mut seen_chars = HashSet::new();
     let mut result_type = None;
     for arm in &items[2..] {
-        let arm = match arm {
-            Expr::List(arm) if arm.len() == 2 => arm,
-            _ => return Err("match arms must have the form (pattern expression)".into()),
-        };
-        match &arm[0] {
+        let (pattern, guard, body) = match_arm_parts(arm)?;
+        match pattern {
             Expr::Symbol(pattern) if pattern == "_" => {
-                if wildcard {
+                if guard.is_none() && wildcard {
                     return Err("duplicate wildcard match pattern".into());
                 }
-                wildcard = true;
+                if guard.is_none() {
+                    wildcard = true;
+                }
             }
             Expr::Symbol(pattern) if matches!(scrutinee, Type::Bool) => {
                 let index = match pattern.as_str() {
@@ -1628,8 +1641,21 @@ fn check_scalar_match(
             }
             _ => return Err("scalar match pattern does not match the scrutinee type".into()),
         }
+        if let Some(guard) = guard {
+            let guard_type = expression(
+                guard,
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&Type::Bool),
+            )?;
+            require_type(&guard_type, &Type::Bool, "match guard")?;
+        }
         let arm_type = expression(
-            &arm[1],
+            body,
             variables,
             functions,
             structs,
@@ -1650,6 +1676,25 @@ fn check_scalar_match(
     Ok(result_type.unwrap_or(Type::Unit))
 }
 
+fn match_arm_parts(arm: &Expr) -> Result<(&Expr, Option<&Expr>, &Expr), String> {
+    let Expr::List(arm) = arm else {
+        return Err("match arms must have the form (pattern expression)".into());
+    };
+    match arm.as_slice() {
+        [pattern, body] => Ok((pattern, None, body)),
+        [pattern, Expr::List(guard), body]
+            if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "when")
+                && guard.len() == 2 =>
+        {
+            Ok((pattern, Some(&guard[1]), body))
+        }
+        _ => Err(
+            "match arms must have the form (pattern expression) or (pattern (when guard) expression)"
+                .into(),
+        ),
+    }
+}
+
 fn check_tuple_match(
     items: &[Expr],
     scrutinee: &Type,
@@ -1667,17 +1712,16 @@ fn check_tuple_match(
     let mut wildcard = false;
     let mut result_type = None;
     for arm in &items[2..] {
-        let arm = match arm {
-            Expr::List(arm) if arm.len() == 2 => arm,
-            _ => return Err("match arms must have the form (pattern expression)".into()),
-        };
+        let (pattern, guard, body) = match_arm_parts(arm)?;
         let mut arm_variables = variables.clone();
-        match &arm[0] {
+        match pattern {
             Expr::Symbol(pattern) if pattern == "_" => {
-                if wildcard {
+                if guard.is_none() && wildcard {
                     return Err("duplicate wildcard match pattern".into());
                 }
-                wildcard = true;
+                if guard.is_none() {
+                    wildcard = true;
+                }
             }
             Expr::List(pattern) if matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "tuple") =>
             {
@@ -1699,8 +1743,21 @@ fn check_tuple_match(
             }
             _ => return Err("tuple match pattern must be _ or (tuple pattern ...)".into()),
         }
+        if let Some(guard) = guard {
+            let guard_type = expression(
+                guard,
+                &arm_variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&Type::Bool),
+            )?;
+            require_type(&guard_type, &Type::Bool, "match guard")?;
+        }
         let arm_type = expression(
-            &arm[1],
+            body,
             &arm_variables,
             functions,
             structs,
@@ -1811,17 +1868,16 @@ fn check_array_match(
     let mut wildcard = false;
     let mut result_type = None;
     for arm in &items[2..] {
-        let arm = match arm {
-            Expr::List(arm) if arm.len() == 2 => arm,
-            _ => return Err("match arms must have the form (pattern expression)".into()),
-        };
+        let (pattern, guard, body) = match_arm_parts(arm)?;
         let mut arm_variables = variables.clone();
-        match &arm[0] {
+        match pattern {
             Expr::Symbol(pattern) if pattern == "_" => {
-                if wildcard {
+                if guard.is_none() && wildcard {
                     return Err("duplicate wildcard match pattern".into());
                 }
-                wildcard = true;
+                if guard.is_none() {
+                    wildcard = true;
+                }
             }
             Expr::List(pattern) if matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "array") =>
             {
@@ -1840,8 +1896,21 @@ fn check_array_match(
             }
             _ => return Err("array match pattern must be _ or (array pattern ...)".into()),
         }
+        if let Some(guard) = guard {
+            let guard_type = expression(
+                guard,
+                &arm_variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&Type::Bool),
+            )?;
+            require_type(&guard_type, &Type::Bool, "match guard")?;
+        }
         let arm_type = expression(
-            &arm[1],
+            body,
             &arm_variables,
             functions,
             structs,
@@ -1923,17 +1992,16 @@ fn check_struct_match(
     let mut wildcard = false;
     let mut result_type = None;
     for arm in &items[2..] {
-        let arm = match arm {
-            Expr::List(arm) if arm.len() == 2 => arm,
-            _ => return Err("match arms must have the form (pattern expression)".into()),
-        };
+        let (pattern, guard, body) = match_arm_parts(arm)?;
         let mut arm_variables = variables.clone();
-        match &arm[0] {
+        match pattern {
             Expr::Symbol(pattern) if pattern == "_" => {
-                if wildcard {
+                if guard.is_none() && wildcard {
                     return Err("duplicate wildcard match pattern".into());
                 }
-                wildcard = true;
+                if guard.is_none() {
+                    wildcard = true;
+                }
             }
             Expr::List(pattern) if matches!(pattern.first(), Some(Expr::Symbol(name)) if name == struct_name) =>
             {
@@ -1959,8 +2027,21 @@ fn check_struct_match(
                 ))
             }
         }
+        if let Some(guard) = guard {
+            let guard_type = expression(
+                guard,
+                &arm_variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&Type::Bool),
+            )?;
+            require_type(&guard_type, &Type::Bool, "match guard")?;
+        }
         let arm_type = expression(
-            &arm[1],
+            body,
             &arm_variables,
             functions,
             structs,

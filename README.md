@@ -410,6 +410,20 @@ compiler stages its discriminant and payload words before selecting an arm.
 Integer matches also support unsigned literals, including full-width `u128`
 patterns.
 
+Match arms may include an explicit boolean guard after their pattern. The
+guard can use bindings introduced by that pattern:
+
+```lisp
+(#match value
+  ((Some payload) (#when (#u64.>.wrap payload 40))
+    (#u64.+.wrap payload 8))
+  ((Some _) 0)
+  (None 0))
+```
+
+Guarded patterns do not count as exhaustive until an unguarded arm covers the
+same pattern.
+
 Scalar matches use literal patterns and require a wildcard for open-ended
 integer and character domains. Boolean matches may cover both `true` and
 `false` without a wildcard:

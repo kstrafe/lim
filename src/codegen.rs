@@ -1968,6 +1968,25 @@ fn flat_slots(base: usize, words: usize) -> Vec<usize> {
     (base..base + words).collect()
 }
 
+fn match_arm_parts(arm: &Expr) -> Result<(&Expr, Option<&Expr>, &Expr), String> {
+    let Expr::List(arm) = arm else {
+        return Err("match arms must have the form (pattern expression)".into());
+    };
+    match arm.as_slice() {
+        [pattern, body] => Ok((pattern, None, body)),
+        [pattern, Expr::List(guard), body]
+            if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "when")
+                && guard.len() == 2 =>
+        {
+            Ok((pattern, Some(&guard[1]), body))
+        }
+        _ => Err(
+            "match arms must have the form (pattern expression) or (pattern (when guard) expression)"
+                .into(),
+        ),
+    }
+}
+
 fn value_word_count(
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
@@ -4681,12 +4700,9 @@ impl FunctionContext {
             self.push_rax();
         }
         for arm in &items[2..] {
-            let arm = match arm {
-                Expr::List(arm) if arm.len() == 2 => arm,
-                _ => return Err("invalid match arm".into()),
-            };
+            let (pattern, guard, body) = match_arm_parts(arm)?;
             let next = self.label("match_next");
-            let (variant_name, payload_patterns): (&str, Vec<&Expr>) = match &arm[0] {
+            let (variant_name, payload_patterns): (&str, Vec<&Expr>) = match pattern {
                 Expr::Symbol(pattern) if pattern == "_" => ("", Vec::new()),
                 Expr::Symbol(pattern) if self.enum_value(pattern).is_some() => {
                     (pattern.as_str(), Vec::new())
@@ -4746,14 +4762,14 @@ impl FunctionContext {
                 }
                 _ => return Err("invalid scalar match pattern".into()),
             };
-            if let Expr::Symbol(pattern) = &arm[0] {
+            if let Expr::Symbol(pattern) = pattern {
                 if pattern != "_" && self.enum_value(pattern).is_some() {
                     let value = self.enum_value(pattern).unwrap();
                     self.output.push_str(&format!(
                         "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
                     ));
                 }
-            } else if let Expr::List(pattern) = &arm[0] {
+            } else if let Expr::List(pattern) = pattern {
                 let value = self
                     .enum_value(match &pattern[0] {
                         Expr::Symbol(pattern) => pattern,
@@ -4834,10 +4850,15 @@ impl FunctionContext {
                     }
                 }
             }
+            if let Some(guard) = guard {
+                self.expression(guard)?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {next}\n"));
+            }
             if let Some(ty) = float_type {
-                self.expression_as_float(&arm[1], ty)?;
+                self.expression_as_float(body, ty)?;
             } else {
-                self.expression(&arm[1])?;
+                self.expression(body)?;
             }
             self.output.push_str(&format!(
                 "    mov rdx, rax\n    add rsp, {}\n    mov rax, rdx\n",
@@ -4932,13 +4953,10 @@ impl FunctionContext {
         }
         let end = self.label("tuple_match_end");
         for arm in &items[2..] {
-            let arm = match arm {
-                Expr::List(arm) if arm.len() == 2 => arm,
-                _ => return Err("invalid match arm".into()),
-            };
+            let (pattern, guard, body) = match_arm_parts(arm)?;
             let next = self.label("tuple_match_next");
             let mut bindings = Vec::new();
-            self.emit_aggregate_pattern(&arm[0], constructor, &ty, 0, &next, &mut bindings)?;
+            self.emit_aggregate_pattern(pattern, constructor, &ty, 0, &next, &mut bindings)?;
             for (name, offset, binding_type) in bindings {
                 let slots = local_slots(&self.locals, &name)?;
                 let binding_words = value_word_count(&binding_type, &self.structs, &self.enums)?;
@@ -4953,14 +4971,19 @@ impl FunctionContext {
                     ));
                 }
             }
+            if let Some(guard) = guard {
+                self.expression(guard)?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {next}\n"));
+            }
             if let Some(ty) = float_type {
-                self.expression_as_float(&arm[1], ty)?;
+                self.expression_as_float(body, ty)?;
                 self.output.push_str(&format!(
                     "    add rsp, {}\n    jmp {end}\n{next}:\n",
                     words * 8
                 ));
             } else {
-                self.expression(&arm[1])?;
+                self.expression(body)?;
                 self.output.push_str(&format!(
                     "    mov rdx, rax\n    add rsp, {}\n    mov rax, rdx\n    jmp {end}\n{next}:\n",
                     words * 8

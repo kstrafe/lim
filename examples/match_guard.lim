@@ -1,0 +1,10 @@
+(#enum Maybe ((Some u64) None))
+
+(#fn main () u64
+  (#let value Maybe (Some 42))
+  (#return
+    (#match value
+      ((Some payload) (#when (#u64.>.wrap payload 40))
+        (#u64.+.wrap payload 8))
+      ((Some _) 0)
+      (None 0))))
