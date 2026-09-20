@@ -544,6 +544,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     let mut globals = HashMap::new();
     let mut global_types = HashMap::new();
     let mut constants = HashMap::new();
+    let mut float_constants = HashMap::new();
     let constant_initializers = program
         .items
         .iter()
@@ -553,6 +554,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
         })
         .collect::<HashMap<_, _>>();
     let mut evaluating_constants = HashSet::new();
+    let mut evaluating_float_constants = HashSet::new();
     for item in &program.items {
         let (name, ty, value, mutable) = match item {
             Item::Let {
@@ -595,26 +597,30 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                     }
                 }
                 Type::F32 => {
-                    let Expr::Float(value) = value else {
-                        return Err(format!("global '{name}' requires an f32 literal"));
-                    };
-                    GlobalValue::F32(
-                        value
-                            .parse::<f32>()
-                            .map_err(|_| format!("invalid f32 global '{name}'"))?
-                            .to_bits(),
-                    )
+                    let value = constant_float_value(
+                        value,
+                        &float_constants,
+                        &constant_initializers,
+                        &mut evaluating_float_constants,
+                        true,
+                    )? as f32;
+                    if matches!(item, Item::Let { .. }) {
+                        float_constants.insert(name.clone(), value as f64);
+                    }
+                    GlobalValue::F32(value.to_bits())
                 }
                 Type::F64 => {
-                    let Expr::Float(value) = value else {
-                        return Err(format!("global '{name}' requires an f64 literal"));
-                    };
-                    GlobalValue::F64(
-                        value
-                            .parse::<f64>()
-                            .map_err(|_| format!("invalid f64 global '{name}'"))?
-                            .to_bits(),
-                    )
+                    let value = constant_float_value(
+                        value,
+                        &float_constants,
+                        &constant_initializers,
+                        &mut evaluating_float_constants,
+                        false,
+                    )?;
+                    if matches!(item, Item::Let { .. }) {
+                        float_constants.insert(name.clone(), value);
+                    }
+                    GlobalValue::F64(value.to_bits())
                 }
                 _ => {
                     let normalized = normalize_global_integer(
@@ -1595,6 +1601,94 @@ fn constant_value(
     }
 }
 
+fn constant_float_value(
+    expression: &Expr,
+    constants: &HashMap<String, f64>,
+    initializers: &HashMap<String, Expr>,
+    evaluating: &mut HashSet<String>,
+    single_precision: bool,
+) -> Result<f64, String> {
+    let normalize = |value: f64| -> Result<f64, String> {
+        let value = if single_precision {
+            value as f32 as f64
+        } else {
+            value
+        };
+        if value.is_finite() {
+            Ok(value)
+        } else {
+            Err("floating-point constant is not finite".into())
+        }
+    };
+    match expression {
+        Expr::Float(value) => normalize(
+            value
+                .parse::<f64>()
+                .map_err(|_| format!("invalid floating-point literal '{value}'"))?,
+        ),
+        Expr::Symbol(name) if constants.contains_key(name) => Ok(constants[name]),
+        Expr::Symbol(name) if initializers.contains_key(name) => {
+            if !evaluating.insert(name.clone()) {
+                return Err(format!("constant '{name}' is recursive"));
+            }
+            let result = constant_float_value(
+                &initializers[name],
+                constants,
+                initializers,
+                evaluating,
+                single_precision,
+            );
+            evaluating.remove(name);
+            result
+        }
+        Expr::List(items) if items.len() == 2 => {
+            let operator = match &items[0] {
+                Expr::Symbol(name) => name.as_str(),
+                _ => return Err("floating-point global initializer is not constant".into()),
+            };
+            let value = constant_float_value(
+                &items[1],
+                constants,
+                initializers,
+                evaluating,
+                single_precision,
+            )?;
+            match operator {
+                "-" => normalize(-value),
+                _ => Err("floating-point global initializer is not constant".into()),
+            }
+        }
+        Expr::List(items) if items.len() == 3 => {
+            let operator = match &items[0] {
+                Expr::Symbol(name) => name.as_str(),
+                _ => return Err("floating-point global initializer is not constant".into()),
+            };
+            let left = constant_float_value(
+                &items[1],
+                constants,
+                initializers,
+                evaluating,
+                single_precision,
+            )?;
+            let right = constant_float_value(
+                &items[2],
+                constants,
+                initializers,
+                evaluating,
+                single_precision,
+            )?;
+            match operator {
+                "+" => normalize(left + right),
+                "-" => normalize(left - right),
+                "*" => normalize(left * right),
+                "/" => normalize(left / right),
+                _ => Err("floating-point global initializer is not constant".into()),
+            }
+        }
+        _ => Err("floating-point global initializer is not constant".into()),
+    }
+}
+
 fn normalize_global_integer(value: i128, ty: &Type) -> i128 {
     match ty {
         Type::I8 => (value as i8) as i128,
@@ -2055,12 +2149,17 @@ impl FunctionContext {
             Expr::Char(_) => Some(Type::Char),
             Expr::Float(_) => Some(Type::F64),
             Expr::Symbol(name) if name == "true" || name == "false" => Some(Type::Bool),
-            Expr::Symbol(name) => self.local_types.get(name).cloned().or_else(|| {
-                self.enums
-                    .iter()
-                    .find(|(_, variants)| variants.iter().any(|variant| variant.name == *name))
-                    .map(|(enum_name, _)| Type::Named(enum_name.clone()))
-            }),
+            Expr::Symbol(name) => self
+                .local_types
+                .get(name)
+                .cloned()
+                .or_else(|| self.global_types.get(name).cloned())
+                .or_else(|| {
+                    self.enums
+                        .iter()
+                        .find(|(_, variants)| variants.iter().any(|variant| variant.name == *name))
+                        .map(|(enum_name, _)| Type::Named(enum_name.clone()))
+                }),
             Expr::List(items) => match items.first() {
                 Some(Expr::Symbol(operator)) if operator == "as" && items.len() == 3 => {
                     parse_type(items.get(2))
@@ -3819,7 +3918,13 @@ impl FunctionContext {
                 .local_types
                 .get(name)
                 .filter(|ty| is_float_type(ty))
-                .cloned(),
+                .cloned()
+                .or_else(|| {
+                    self.global_types
+                        .get(name)
+                        .filter(|ty| is_float_type(ty))
+                        .cloned()
+                }),
             Expr::List(items) => match items.first() {
                 Some(Expr::Symbol(operator))
                     if matches!(operator.as_str(), "+" | "-" | "*" | "/") =>

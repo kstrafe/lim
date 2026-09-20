@@ -147,6 +147,9 @@ Compile-time constants use explicit types and constant initializers:
 Constants may also be declared inside function bodies with the same explicit
 type syntax; local constants are immutable.
 
+Floating-point constants support typed arithmetic, including forward
+references, while preserving the declared `f32` or `f64` precision.
+
 Immutable named global storage can be declared with `static`:
 
 ```lisp

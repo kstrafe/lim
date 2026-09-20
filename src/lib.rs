@@ -2111,6 +2111,18 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_typed_float_constants() {
+        let program = parse_program(
+            "(const Scale f32 (* Base 2.0)) (const Base f32 1.5) (const Pi f64 (+ 3.0 0.25)) (fn main () u64 (if (&& (> Scale 2.9) (> Pi 3.2)) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("Scale:\n    .long 1077936128"));
+        assert!(assembly.contains("Pi:"));
+    }
+
+    #[test]
     fn parses_and_checks_immutable_statics() {
         let program =
             parse_program("(static BuildId u64 7) (fn main () u64 (+ BuildId 35))").unwrap();
