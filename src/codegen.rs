@@ -2664,12 +2664,13 @@ fn constant_value(
                 target,
             )?;
             let operation_type = qualifier.map(Type::from_name).or_else(|| target.cloned());
-            if operation_type
+            if let Some(ty) = operation_type
                 .as_ref()
-                .is_some_and(|ty| is_unsigned_type(ty) && !matches!(ty, Type::U128))
+                .filter(|ty| is_unsigned_type(ty) && !matches!(ty, Type::U128))
             {
-                let ty = operation_type.as_ref().expect("unsigned operation type");
-                let width = integer_bit_width(ty.clone()).expect("unsigned integer width");
+                let Some(width) = integer_bit_width(ty.clone()) else {
+                    return Err("unsigned constant has no integer width".to_owned());
+                };
                 let maximum = (1_u128 << width) - 1;
                 let left = left as u128;
                 let right = right as u128;
