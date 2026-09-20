@@ -42,7 +42,7 @@ cc /tmp/fibonacci.s -o /tmp/fibonacci
 - The generated-code sigil `@` as a first-class AST node
 
 The first built-in generated declaration is `@optional`, which expands to a
-enum and a generated `-construct` helper:
+enum and generated `-construct`, `-is-some`, and `-unwrap-or` helpers:
 
 The assembly CLI materializes each generated declaration as inspectable Lim
 source under a `.lim/` directory beside the input file.

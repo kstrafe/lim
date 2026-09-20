@@ -574,7 +574,7 @@ pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), Str
             .unwrap_or("none");
         let payload_source = type_source(payload);
         generated.push(format!(
-            "(enum {name} (({some} {payload_source}) {none}))\n(fn {name}-construct ((value {payload_source})) {name} ({some} value))\n",
+            "(enum {name} (({some} {payload_source}) {none}))\n(fn {name}-construct ((value {payload_source})) {name} ({some} value))\n(fn {name}-is-some ((value {name})) bool (match value (({some} _) true) ({none} false)))\n(fn {name}-unwrap-or ((value {name}) (fallback {payload_source})) {payload_source} (match value (({some} payload) payload) ({none} fallback)))\n",
         ));
     }
     if generated.is_empty() {
@@ -696,24 +696,95 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         .first()
         .map(|variant| variant.name.clone())
         .expect("optional expansion has a some variant");
+    let none = variants
+        .get(1)
+        .map(|variant| variant.name.clone())
+        .expect("optional expansion has a none variant");
+    let optional_type = Type::Named(name.clone());
+    let is_some_body = optional_match(
+        "value",
+        &some,
+        &none,
+        "_",
+        Expr::Symbol("true".into()),
+        Expr::Symbol("false".into()),
+    );
+    let unwrap_or_body = optional_match(
+        "value",
+        &some,
+        &none,
+        "payload",
+        Expr::Symbol("payload".into()),
+        Expr::Symbol("fallback".into()),
+    );
+    let payload_for_construct = payload.clone();
+    let payload_for_unwrap = payload.clone();
     Ok(vec![
         generated,
         Item::Function(Function {
             name: format!("{name}-construct"),
             parameters: vec![Parameter {
                 name: "value".into(),
-                ty: payload,
+                ty: payload_for_construct,
                 mutable: false,
             }],
-            return_type: Type::Named(name),
+            return_type: optional_type.clone(),
             body: vec![Statement::Expr(Expr::List(vec![
                 Expr::Symbol(some),
                 Expr::Symbol("value".into()),
             ]))],
         }),
+        Item::Function(Function {
+            name: format!("{name}-is-some"),
+            parameters: vec![Parameter {
+                name: "value".into(),
+                ty: optional_type.clone(),
+                mutable: false,
+            }],
+            return_type: Type::Bool,
+            body: vec![Statement::Expr(is_some_body)],
+        }),
+        Item::Function(Function {
+            name: format!("{name}-unwrap-or"),
+            parameters: vec![
+                Parameter {
+                    name: "value".into(),
+                    ty: optional_type,
+                    mutable: false,
+                },
+                Parameter {
+                    name: "fallback".into(),
+                    ty: payload_for_unwrap,
+                    mutable: false,
+                },
+            ],
+            return_type: payload,
+            body: vec![Statement::Expr(unwrap_or_body)],
+        }),
     ])
 }
 
+fn optional_match(
+    value: &str,
+    some: &str,
+    none: &str,
+    some_binding: &str,
+    some_result: Expr,
+    none_result: Expr,
+) -> Expr {
+    Expr::List(vec![
+        Expr::Symbol("match".into()),
+        Expr::Symbol(value.into()),
+        Expr::List(vec![
+            Expr::List(vec![
+                Expr::Symbol(some.into()),
+                Expr::Symbol(some_binding.into()),
+            ]),
+            some_result,
+        ]),
+        Expr::List(vec![Expr::Symbol(none.into()), none_result]),
+    ])
+}
 fn parse_struct_name(items: &[Expr]) -> Result<String, String> {
     if items.len() != 3 {
         return Err("struct requires a name and field list".into());
@@ -1666,13 +1737,20 @@ mod tests {
     #[test]
     fn expands_optional_generated_declarations() {
         let program = parse_program(
-            "(@optional u64 Maybe?) (fn main () u64 (let value Maybe? (Maybe?-construct 42)) (match value ((Maybe?-some payload) payload) (Maybe?-none 0)))",
+            "(@optional u64 Maybe?) (fn main () u64 (let value Maybe? (Maybe?-construct 42)) (if (Maybe?-is-some value) (Maybe?-unwrap-or value 0) 0))",
         )
         .unwrap();
         assert!(program.items.iter().any(|item| {
             matches!(item, Item::Function(function) if function.name == "Maybe?-construct")
         }));
-        assert!(check_types(&program).is_ok());
+        assert!(program.items.iter().any(|item| {
+            matches!(item, Item::Function(function) if function.name == "Maybe?-is-some")
+        }));
+        assert!(program.items.iter().any(|item| {
+            matches!(item, Item::Function(function) if function.name == "Maybe?-unwrap-or")
+        }));
+        let type_result = check_types(&program);
+        assert!(type_result.is_ok(), "{type_result:?}");
         assert!(generate_assembly(&program)
             .unwrap()
             .contains(".globl Maybe_x3f__x2d_construct"));

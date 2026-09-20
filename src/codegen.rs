@@ -3695,7 +3695,11 @@ impl FunctionContext {
     }
 
     fn label(&mut self, prefix: &str) -> String {
-        let label = format!(".L{prefix}_{}_{}", self.function_name, self.labels);
+        let label = format!(
+            ".L{prefix}_{}_{}",
+            asm_symbol(&self.function_name),
+            self.labels
+        );
         self.labels += 1;
         label
     }
