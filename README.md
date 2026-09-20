@@ -315,6 +315,9 @@ Enums can also carry one scalar payload:
 (if-let (Some payload) value payload 0)
 ```
 
+The same aggregate patterns used by `match` are also valid in `if-let` and
+`while-let`, including tuple and struct constructor patterns.
+
 `while-let` repeats while its pattern matches and breaks on the first failure:
 
 ```lisp

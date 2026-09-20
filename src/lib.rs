@@ -1942,14 +1942,11 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
                     "while-let requires a pattern, value, and at least one body statement".into(),
                 );
             }
-            let condition_pattern = match &items[1] {
-                Expr::List(pattern) if !pattern.is_empty() => Expr::List(
-                    std::iter::once(pattern[0].clone())
-                        .chain(pattern[1..].iter().map(|_| Expr::Symbol("_".into())))
-                        .collect(),
-                ),
-                pattern => pattern.clone(),
-            };
+            // Preserve the complete pattern. Enum payload bindings are harmless
+            // in the boolean guard, while aggregate patterns need their literal
+            // fields checked to avoid turning every tuple/struct guard into an
+            // unconditional loop.
+            let condition_pattern = items[1].clone();
             let mut body = vec![Expr::Symbol("block".into())];
             body.extend(items[3..].iter().cloned());
             let then_value = Expr::List(body);
@@ -3179,6 +3176,26 @@ mod tests {
         assert!(type_result.is_ok(), "{type_result:?}");
         let assembly_result = generate_assembly(&program);
         assert!(assembly_result.is_ok(), "{assembly_result:?}");
+    }
+
+    #[test]
+    fn lowers_aggregate_if_let_and_while_let() {
+        let program = parse_program(
+            "(#struct Point ((x u64) (y u64))) \
+             (#fn point_value () u64 \
+              (#let point Point (Point 40 2)) \
+              (#return (#if-let (Point 40 y) point y 0))) \
+             (#fn main () u64 \
+              (#let mut value (#tuple u64 u64) (#tuple (#tuple u64 u64) 1 2)) \
+              (#let mut total u64 0) \
+              (#while-let (#tuple 1 _) value \
+                (#set total (#u64.+.wrap total (#get value 1))) \
+                (#set-field value 0 0)) \
+              (#return (#u64.+.wrap total (point_value))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
     }
 
     #[test]
