@@ -4696,6 +4696,13 @@ impl FunctionContext {
         if matches!(self.return_type, Type::Unit) {
             return Ok(());
         }
+        if self.return_pointer_slot.is_some()
+            && self.is_aggregate_type(&self.return_type)
+            && matches!(&value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if"))
+        {
+            let return_type = self.return_type.clone();
+            return self.store_indirect_value_words(value, &return_type, 0);
+        }
         if self.is_aggregate_type(&self.return_type)
             && matches!(
                 value,
@@ -5006,6 +5013,24 @@ impl FunctionContext {
         if words == 0 {
             self.expression(value)?;
             return Ok(());
+        }
+        if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
+                if items.len() != 4 {
+                    return Err("aggregate if requires condition, then, and else values".into());
+                }
+                let else_label = self.label("indirect_aggregate_else");
+                let done_label = self.label("indirect_aggregate_done");
+                self.expression(&items[1])?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {else_label}\n"));
+                self.store_indirect_value_words(&items[2], ty, offset)?;
+                self.output
+                    .push_str(&format!("    jmp {done_label}\n{else_label}:\n"));
+                self.store_indirect_value_words(&items[3], ty, offset)?;
+                self.output.push_str(&format!("{done_label}:\n"));
+                return Ok(());
+            }
         }
         if let Expr::Symbol(name) = value {
             if let Ok(source_slots) = local_slots(&self.locals, name) {
