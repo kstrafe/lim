@@ -2815,6 +2815,18 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_floating_remainder_constants() {
+        let program = parse_program(
+            "(#const Remainder f64 (#f64.% 7.5 2.5)) \
+             (#fn main () u64 \
+               (#return (#if (#f64.== Remainder 0.0) 42 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn rejects_malformed_let_and_functions() {
         assert!(parse_program("(let value u32)")
             .unwrap_err()

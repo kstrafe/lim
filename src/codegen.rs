@@ -2876,6 +2876,7 @@ fn constant_float_value(
                 "-" => normalize(left - right),
                 "*" => normalize(left * right),
                 "/" => normalize(left / right),
+                "%" => normalize(left % right),
                 _ => Err("floating-point global initializer is not constant".into()),
             }
         }
