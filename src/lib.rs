@@ -5790,6 +5790,34 @@ mod tests {
     }
 
     #[test]
+    fn lowers_aggregate_labeled_value_breaks() {
+        let program = parse_program_strict(
+            "(#fn main () (#tuple u64 u64) \
+               (#return \
+                 (#label outer \
+                   (#loop (#break-to outer (#tuple (#tuple u64 u64) 40u64 2u64))))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("value_loop"));
+    }
+
+    #[test]
+    fn lowers_large_aggregate_labeled_value_breaks() {
+        let program = parse_program_strict(
+            "(#fn main () (#array u64 7) \
+               (#return \
+                 (#label outer \
+                   (#loop (#break-to outer \
+                     (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64))))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn keeps_loop_locals_in_lexical_scope() {
         for source in [
             "(fn main () u64 (while false (let value u64 7) (break)) value)",
