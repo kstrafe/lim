@@ -417,7 +417,8 @@ their discriminant; see `examples/large_enum_return.lim`.
 Large scalar arrays, tuples, structs, and payload enums may also be passed as
 function parameters. The compiler uses an internal storage pointer for the
 call boundary; pointers remain unavailable in Lim source. See
-`examples/large_array_parameter.lim`.
+`examples/large_array_parameter.lim` and
+`examples/large_aggregate_parameters.lim`.
 
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
