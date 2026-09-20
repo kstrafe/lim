@@ -1091,8 +1091,8 @@ fn generate_function(
         .unwrap_or(1);
 
     output.push_str(&format!(
-        ".globl {}\n.type {}, @function\n{}:\n    # lim max call depth: {}\n",
-        function_symbol, function_symbol, function_symbol, max_call_depth
+        ".globl {}\n.type {}, @function\n{}:\n    # lim frame size: {} bytes\n    # lim max call depth: {}\n",
+        function_symbol, function_symbol, function_symbol, frame_size, max_call_depth
     ));
     output.push_str("    push rbp\n    mov rbp, rsp\n");
     if frame_size != 0 {

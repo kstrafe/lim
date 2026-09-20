@@ -3311,6 +3311,7 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains(".globl main"));
         assert!(assembly.contains("add rax, rcx"));
+        assert!(assembly.contains("# lim frame size:"));
         assert!(assembly.contains("ret"));
         assert!(assembly.contains(".note.GNU-stack"));
     }
