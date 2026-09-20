@@ -1,0 +1,12 @@
+(#fn main () u64
+  (#let mut values (#array u64 7)
+    (#array (#array u64 7)
+      1u64 2u64 3u64 4u64 5u64 6u64 42u64))
+  (#let mut total u64 0u64)
+  (#while-let
+    (#array 1 second third fourth fifth sixth last)
+    values
+    (#set total last)
+    (#set values (#array (#array u64 7)
+      0u64 0u64 0u64 0u64 0u64 0u64 0u64)))
+  (#return total))
