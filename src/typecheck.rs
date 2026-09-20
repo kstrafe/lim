@@ -1890,6 +1890,9 @@ fn check_scalar_match(
     for arm in &items[2..] {
         let (pattern, guard, body) = match_arm_parts(arm)?;
         match pattern {
+            pattern if is_typed_integer_pattern(pattern) => {
+                check_scalar_pattern(pattern, scrutinee)?;
+            }
             Expr::List(parts)
                 if parts.len() >= 2
                     && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "or") =>
@@ -2007,6 +2010,9 @@ fn check_scalar_match(
 }
 
 fn check_scalar_pattern(pattern: &Expr, scrutinee: &Type) -> Result<(), String> {
+    if let Some(value) = typed_integer_pattern_value(pattern, scrutinee)? {
+        return check_scalar_pattern(value, scrutinee);
+    }
     match pattern {
         Expr::List(parts)
             if parts.len() == 3
@@ -2076,6 +2082,37 @@ fn check_scalar_range_pattern(parts: &[Expr], scrutinee: &Type) -> Result<(), St
         return Ok(());
     }
     Err("range patterns require an integer or char scrutinee".into())
+}
+
+fn is_typed_integer_pattern(pattern: &Expr) -> bool {
+    matches!(
+        pattern,
+        Expr::List(items)
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "literal")
+    )
+}
+
+fn typed_integer_pattern_value<'a>(
+    pattern: &'a Expr,
+    scrutinee: &Type,
+) -> Result<Option<&'a Expr>, String> {
+    let Expr::List(items) = pattern else {
+        return Ok(None);
+    };
+    if !is_typed_integer_pattern(pattern) {
+        return Ok(None);
+    }
+    let literal_type = parse_type(items.get(1))?;
+    if literal_type != *scrutinee || !is_integer(&literal_type) {
+        return Err(format!(
+            "typed integer pattern has type {literal_type:?}, expected {scrutinee:?}"
+        ));
+    }
+    if !matches!(items[2], Expr::Integer(_) | Expr::UnsignedInteger(_)) {
+        return Err("typed integer pattern requires an integer literal".into());
+    }
+    Ok(Some(&items[2]))
 }
 
 fn range_bound_expression<'a>(expression: &'a Expr, scrutinee: &Type) -> Result<&'a Expr, String> {
@@ -2233,6 +2270,9 @@ fn check_aggregate_pattern(
     variables: &HashMap<String, Type>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), String> {
+    if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
+        return check_aggregate_pattern(value, ty, arm_variables, variables, structs);
+    }
     match pattern {
         Expr::Symbol(name) if name == "_" => Ok(()),
         Expr::Symbol(name) if name == "true" || name == "false" => {
@@ -2416,6 +2456,9 @@ fn check_enum_payload_pattern(
     variables: &HashMap<String, Type>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), String> {
+    if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
+        return check_enum_payload_pattern(value, ty, arm_variables, variables, structs);
+    }
     match pattern {
         Expr::Symbol(name) if name == "_" => Ok(()),
         Expr::Symbol(name) if name == "true" || name == "false" => {

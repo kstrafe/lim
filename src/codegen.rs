@@ -2896,6 +2896,44 @@ fn is_unsigned_type(ty: &Type) -> bool {
     )
 }
 
+fn typed_integer_pattern_value<'a>(
+    pattern: &'a Expr,
+    expected: &Type,
+) -> Result<Option<&'a Expr>, String> {
+    let Expr::List(items) = pattern else {
+        return Ok(None);
+    };
+    if items.len() != 3 || !matches!(items.first(), Some(Expr::Symbol(name)) if name == "literal") {
+        return Ok(None);
+    }
+    let literal_type = parse_type(items.get(1))?;
+    if literal_type != *expected
+        || !matches!(
+            literal_type,
+            Type::I8
+                | Type::I16
+                | Type::I32
+                | Type::I64
+                | Type::I128
+                | Type::Isize
+                | Type::U8
+                | Type::U16
+                | Type::U32
+                | Type::U64
+                | Type::U128
+                | Type::Usize
+        )
+    {
+        return Err(format!(
+            "typed integer pattern has type {literal_type:?}, expected {expected:?}"
+        ));
+    }
+    if !matches!(items[2], Expr::Integer(_) | Expr::UnsignedInteger(_)) {
+        return Err("typed integer pattern requires an integer literal".into());
+    }
+    Ok(Some(&items[2]))
+}
+
 fn is_wide_integer(ty: &Type) -> bool {
     matches!(ty, Type::I128 | Type::U128)
 }
@@ -7305,6 +7343,20 @@ impl FunctionContext {
                 }
                 Expr::List(pattern)
                     if pattern.len() == 3
+                        && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "literal") =>
+                {
+                    let scrutinee_type = self
+                        .expression_type(&items[1])
+                        .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
+                    self.emit_scalar_pattern_test(
+                        &Expr::List(pattern.clone()),
+                        &scrutinee_type,
+                        &next,
+                    )?;
+                    ("", Vec::new())
+                }
+                Expr::List(pattern)
+                    if pattern.len() == 3
                         && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "range") =>
                 {
                     let scrutinee_type = self
@@ -7526,6 +7578,9 @@ impl FunctionContext {
         ty: &Type,
         next: &str,
     ) -> Result<(), String> {
+        if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
+            return self.emit_scalar_pattern_test(value, ty, next);
+        }
         if matches!(pattern, Expr::List(parts) if parts.len() == 3
             && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "range"))
         {
@@ -7589,6 +7644,9 @@ impl FunctionContext {
         high_operand: Option<&str>,
         next: &str,
     ) -> Result<(), String> {
+        if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
+            return self.emit_enum_scalar_pattern_test(value, ty, low_operand, high_operand, next);
+        }
         if matches!(pattern, Expr::List(parts) if parts.len() == 3
             && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "range"))
         {
@@ -8174,6 +8232,8 @@ impl FunctionContext {
                 return Err("aggregate match pattern has the wrong shape".into());
             }
             for (index, (field_pattern, field_type)) in parts[1..].iter().zip(fields).enumerate() {
+                let field_pattern = typed_integer_pattern_value(field_pattern, field_type)?
+                    .unwrap_or(field_pattern);
                 let slot = source_slots[index];
                 match field_pattern {
                     Expr::Symbol(field) if field == "_" => {}
@@ -8299,6 +8359,7 @@ impl FunctionContext {
         }
         let mut field_offset = offset;
         for (field, field_type) in pattern[1..].iter().zip(fields) {
+            let field = typed_integer_pattern_value(field, &field_type)?.unwrap_or(field);
             let field_words = storage_word_count(&field_type, &self.structs, &self.enums)?;
             let address = field_offset * 8;
             match field {
@@ -8444,6 +8505,9 @@ impl FunctionContext {
         payload_slots: Option<&Vec<usize>>,
         next: &str,
     ) -> Result<(), String> {
+        if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
+            return self.emit_enum_payload_pattern(value, ty, offset, payload_slots, next);
+        }
         let operand = |offset: usize| -> Result<String, String> {
             if let Some(payload_slots) = payload_slots {
                 let slot = payload_slots.get(offset).ok_or_else(|| {
