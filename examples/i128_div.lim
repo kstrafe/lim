@@ -1,0 +1,7 @@
+(fn main () u64
+  (let value i128 100)
+  (let divisor i128 7)
+  (if (&& (== (/ (- value) divisor) -14)
+          (== (% (- value) divisor) -2))
+      42
+      0))

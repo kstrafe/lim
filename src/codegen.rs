@@ -2162,10 +2162,7 @@ impl FunctionContext {
             let unsigned = self
                 .expression_type(&items[1])
                 .is_some_and(|ty| matches!(ty, Type::U128));
-            if !unsigned {
-                return Err("signed 128-bit division and remainder are not supported".into());
-            }
-            self.wide_unsigned_division(operator)?;
+            self.wide_division(operator, !unsigned)?;
             return Ok(());
         }
         match operator {
@@ -2179,12 +2176,18 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn wide_unsigned_division(&mut self, operator: &str) -> Result<(), String> {
+    fn wide_division(&mut self, operator: &str, signed: bool) -> Result<(), String> {
         let loop_label = self.label("wide_div_loop");
         let subtract_label = self.label("wide_div_subtract");
         let next_label = self.label("wide_div_next");
         let done_label = self.label("wide_div_done");
         let zero_label = self.label("wide_div_zero");
+        if signed {
+            self.output.push_str(
+                "    sub rsp, 16\n    mov r9, rdx\n    sar r9, 63\n    mov QWORD PTR [rsp], r9\n    mov r10, r8\n    sar r10, 63\n    xor r9, r10\n    mov QWORD PTR [rsp+8], r9\n    mov r9, QWORD PTR [rsp]\n    xor rax, r9\n    xor rdx, r9\n    sub rax, r9\n    sbb rdx, r9\n    mov r10, r8\n    sar r10, 63\n    xor rcx, r10\n    xor r8, r10\n    sub rcx, r10\n    sbb r8, r10\n",
+            );
+            self.stack_depth += 2;
+        }
         self.output.push_str("    push r12\n");
         self.stack_depth += 1;
         self.output.push_str(&format!(
@@ -2197,6 +2200,19 @@ impl FunctionContext {
         }
         self.output.push_str("    pop r12\n");
         self.stack_depth -= 1;
+        if signed {
+            if operator == "/" {
+                self.output.push_str(
+                    "    mov r9, QWORD PTR [rsp+8]\n    xor rax, r9\n    xor rdx, r9\n    sub rax, r9\n    sbb rdx, r9\n",
+                );
+            } else {
+                self.output.push_str(
+                    "    mov r9, QWORD PTR [rsp]\n    xor rdi, r9\n    xor r11, r9\n    sub rdi, r9\n    sbb r11, r9\n    mov rax, rdi\n    mov rdx, r11\n",
+                );
+            }
+            self.output.push_str("    add rsp, 16\n");
+            self.stack_depth -= 2;
+        }
         self.output.push_str(&format!(
             "    jmp {done_label}\n{zero_label}:\n    ud2\n{done_label}:\n"
         ));

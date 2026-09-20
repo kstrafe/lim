@@ -193,8 +193,8 @@ Scalar functions also support more than six arguments using the x86-64 SysV
 stack-argument convention.
 
 `i128` and `u128` values use two native words (`rax`/`rdx` for results) and
-support local storage, parameters, returns, addition, subtraction, and
-bitwise operations, comparisons, and shifts.
+support local storage, parameters, returns, arithmetic, bitwise operations,
+comparisons, shifts, and division/remainder.
 128-bit multiplication is lowered to the low 128 bits using native multiply
 and carry accumulation. Unsigned division and remainder use an emitted
 shift/subtract routine with divide-by-zero trapping.
