@@ -1802,11 +1802,11 @@ fn destructure_bindings(
     }
     let mut bindings = Vec::new();
     for (binding, field_type) in items[1..].iter().zip(fields) {
-        let Expr::Symbol(binding) = binding else {
-            return Err("destructuring fields must be binding names or '_'".into());
-        };
-        if binding != "_" {
-            bindings.push((binding.clone(), field_type));
+        match binding {
+            Expr::Symbol(binding) if binding == "_" => {}
+            Expr::Symbol(binding) => bindings.push((binding.clone(), field_type)),
+            Expr::List(_) => bindings.extend(destructure_bindings(binding, &field_type, structs)?),
+            _ => return Err("destructuring fields must be bindings or nested patterns".into()),
         }
     }
     Ok(bindings)
@@ -3095,52 +3095,57 @@ impl FunctionContext {
     }
 
     fn emit_destructure(&mut self, pattern: &Expr, ty: &Type, value: &Expr) -> Result<(), String> {
-        let fields = match ty {
-            Type::Tuple(fields) => fields.clone(),
-            Type::Array(element, length) => vec![*element.clone(); *length],
-            Type::Named(name) => self
-                .structs
-                .get(name)
-                .ok_or_else(|| format!("unknown struct '{name}'"))?
-                .iter()
-                .map(|field| field.ty.clone())
-                .collect::<Vec<_>>(),
-            _ => return Err("destructuring requires a tuple or struct type".into()),
-        };
-        let Expr::List(pattern_items) = pattern else {
-            return Err("destructuring pattern must be a constructor list".into());
-        };
-        if pattern_items.len() - 1 != fields.len() {
-            return Err("destructuring pattern has the wrong field count".into());
-        }
         let words = value_word_count(ty, &self.structs, &self.enums)?;
         self.push_value_words(value, ty, false)?;
         for register in VALUE_REGISTERS[..words].iter().rev() {
             self.output.push_str(&format!("    pop {register}\n"));
             self.stack_depth -= 1;
         }
-        let mut offset = 0;
-        for (binding, field_type) in pattern_items[1..].iter().zip(&fields) {
-            let Expr::Symbol(binding) = binding else {
-                return Err("destructuring fields must be binding names or '_'".into());
-            };
-            let field_words = value_word_count(field_type, &self.structs, &self.enums)?;
-            if binding == "_" {
-                offset += field_words;
-                continue;
+        self.emit_destructure_pattern(pattern, ty, 0)
+    }
+
+    fn emit_destructure_pattern(
+        &mut self,
+        pattern: &Expr,
+        ty: &Type,
+        offset: usize,
+    ) -> Result<(), String> {
+        let Expr::List(pattern_items) = pattern else {
+            return Err("destructuring pattern must be a constructor list".into());
+        };
+        let Some(Expr::Symbol(constructor)) = pattern_items.first() else {
+            return Err("destructuring pattern must start with a constructor".into());
+        };
+        let fields = self.aggregate_pattern_fields(ty, constructor)?;
+        if pattern_items.len() - 1 != fields.len() {
+            return Err("destructuring pattern has the wrong field count".into());
+        }
+        let mut field_offset = offset;
+        for (binding, field_type) in pattern_items[1..].iter().zip(fields) {
+            let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+            match binding {
+                Expr::Symbol(name) if name == "_" => {}
+                Expr::Symbol(name) => {
+                    let slots = local_slots(&self.locals, name)?;
+                    if slots.len() != field_words {
+                        return Err(
+                            "destructuring binding has an inconsistent flattened layout".into()
+                        );
+                    }
+                    for (index, slot) in slots.iter().enumerate() {
+                        self.output.push_str(&format!(
+                            "    mov QWORD PTR [rbp-{}], {}\n",
+                            slot * 8,
+                            VALUE_REGISTERS[field_offset + index]
+                        ));
+                    }
+                }
+                Expr::List(_) => {
+                    self.emit_destructure_pattern(binding, &field_type, field_offset)?;
+                }
+                _ => return Err("destructuring fields must be bindings or nested patterns".into()),
             }
-            let slots = local_slots(&self.locals, binding)?;
-            if slots.len() != field_words {
-                return Err("destructuring binding has an inconsistent flattened layout".into());
-            }
-            for (index, slot) in slots.iter().enumerate() {
-                self.output.push_str(&format!(
-                    "    mov QWORD PTR [rbp-{}], {}\n",
-                    slot * 8,
-                    VALUE_REGISTERS[offset + index]
-                ));
-            }
-            offset += field_words;
+            field_offset += field_words;
         }
         Ok(())
     }

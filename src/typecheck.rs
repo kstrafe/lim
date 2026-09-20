@@ -753,11 +753,13 @@ fn check_destructure_pattern(
     }
     let mut bindings = Vec::new();
     for (binding, field_type) in items[1..].iter().zip(fields) {
-        let Expr::Symbol(binding) = binding else {
-            return Err("destructuring fields must be binding names or '_'".into());
-        };
-        if binding != "_" {
-            bindings.push((binding.clone(), field_type));
+        match binding {
+            Expr::Symbol(binding) if binding == "_" => {}
+            Expr::Symbol(binding) => bindings.push((binding.clone(), field_type)),
+            Expr::List(_) => {
+                bindings.extend(check_destructure_pattern(binding, &field_type, structs)?)
+            }
+            _ => return Err("destructuring fields must be bindings or nested patterns".into()),
         }
     }
     Ok(bindings)

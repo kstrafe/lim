@@ -3572,6 +3572,21 @@ mod tests {
     }
 
     #[test]
+    fn destructures_nested_aggregate_patterns() {
+        let program = parse_program(
+            "(#struct Inner ((left u64) (right u64))) \
+             (#struct Outer ((inner Inner) (tail u64))) \
+             (#fn main () u64 \
+               (#let (Outer (Inner left right) tail) Outer \
+                 (Outer (Inner 10 20) 30)) \
+               (#return (#u64.+.wrap right tail)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

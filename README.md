@@ -320,6 +320,14 @@ explicitly. Prefix the pattern with `mut` to make all bindings mutable:
 (#let mut (#tuple first second) (#tuple u64 u64) value)
 ```
 
+Destructuring patterns may recurse through nested tuple, array, and struct
+constructors:
+
+```lisp
+(#let (Outer (Inner left right) tail) Outer
+      (Outer (Inner 10 20) 30))
+```
+
 Fixed arrays support the same explicit form:
 
 ```lisp
