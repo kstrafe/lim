@@ -69,8 +69,9 @@ Value structs can be declared and checked without pointers or traits:
   (get (Point 7 9) x))
 ```
 
-Struct layout lowering is the next native-backend stage; the current backend
-reports a clear error rather than compiling aggregate values incorrectly.
+The native backend flattens scalar struct fields into stack slots. Struct
+parameters, nested aggregate fields, and aggregate returns are reserved for a
+later ABI-lowering stage.
 
 Top-level `let` declarations use the same form. Function bodies are currently
 represented as statements, while their expressions remain generic S-expressions

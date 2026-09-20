@@ -858,9 +858,13 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
-        assert!(generate_assembly(&program)
-            .unwrap_err()
-            .contains("struct 'Point'"));
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("mov rax, 7"));
+        let local = parse_program(
+            "(struct Point ((x u64) (y u64))) (fn point_y () u64 (let p Point (Point 7 9)) (get p y))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&local).unwrap().contains("[rbp-16]"));
     }
 
     #[test]

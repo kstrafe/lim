@@ -7,21 +7,25 @@
 
 use std::collections::HashMap;
 
-use crate::{check_types, Expr, Function, Item, Program, Statement, Type};
+use crate::{check_types, Expr, Field, Function, Item, Program, Statement, Type};
 
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 
 pub fn generate_assembly(program: &Program) -> Result<String, String> {
     check_types(program)?;
+    let structs: HashMap<String, Vec<Field>> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct { name, fields } => Some((name.clone(), fields.clone())),
+            _ => None,
+        })
+        .collect();
     let mut output = String::from(".intel_syntax noprefix\n.text\n");
     for item in &program.items {
         match item {
-            Item::Function(function) => generate_function(function, &mut output)?,
-            Item::Struct { name, .. } => {
-                return Err(format!(
-                    "struct '{name}' code generation is not implemented yet"
-                ));
-            }
+            Item::Function(function) => generate_function(function, &mut output, &structs)?,
+            Item::Struct { .. } => {}
             Item::Let { name, .. } => {
                 return Err(format!(
                     "top-level let '{name}' is not supported by the native backend"
@@ -33,7 +37,11 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     Ok(output)
 }
 
-fn generate_function(function: &Function, output: &mut String) -> Result<(), String> {
+fn generate_function(
+    function: &Function,
+    output: &mut String,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Result<(), String> {
     ensure_integer_type(&function.return_type)?;
     if function.parameters.len() > ARGUMENT_REGISTERS.len() {
         return Err(format!(
@@ -48,10 +56,16 @@ fn generate_function(function: &Function, output: &mut String) -> Result<(), Str
     let mut locals = HashMap::new();
     let mut next_slot = 1usize;
     for parameter in &function.parameters {
-        add_local(&mut locals, &parameter.name, &mut next_slot)?;
+        add_local(
+            &mut locals,
+            &parameter.name,
+            &parameter.ty,
+            structs,
+            &mut next_slot,
+        )?;
     }
     for statement in &function.body {
-        collect_locals(statement, &mut locals, &mut next_slot)?;
+        collect_locals(statement, &mut locals, structs, &mut next_slot)?;
     }
     let frame_size = ((next_slot.saturating_sub(1) * 8 + 15) / 16) * 16;
 
@@ -66,7 +80,7 @@ fn generate_function(function: &Function, output: &mut String) -> Result<(), Str
     for (index, parameter) in function.parameters.iter().enumerate() {
         output.push_str(&format!(
             "    mov QWORD PTR [rbp-{}], {}\n",
-            locals[&parameter.name] * 8,
+            scalar_slot(&locals, &parameter.name) * 8,
             ARGUMENT_REGISTERS[index]
         ));
     }
@@ -74,6 +88,7 @@ fn generate_function(function: &Function, output: &mut String) -> Result<(), Str
     let return_label = format!(".Lreturn_{}", function.name);
     let mut context = FunctionContext {
         locals,
+        structs: structs.clone(),
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
@@ -94,17 +109,17 @@ fn generate_function(function: &Function, output: &mut String) -> Result<(), Str
 
 fn collect_locals(
     statement: &Statement,
-    locals: &mut HashMap<String, usize>,
+    locals: &mut HashMap<String, Storage>,
+    structs: &HashMap<String, Vec<Field>>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
     match statement {
         Statement::Let { name, ty, .. } => {
-            ensure_integer_type(ty)?;
-            add_local(locals, name, next_slot)?;
+            add_local(locals, name, ty, structs, next_slot)?;
         }
         Statement::While { body, .. } => {
             for statement in body {
-                collect_locals(statement, locals, next_slot)?;
+                collect_locals(statement, locals, structs, next_slot)?;
             }
         }
         Statement::Assign { .. }
@@ -117,15 +132,48 @@ fn collect_locals(
 }
 
 fn add_local(
-    locals: &mut HashMap<String, usize>,
+    locals: &mut HashMap<String, Storage>,
     name: &str,
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
-    if locals.insert(name.to_owned(), *next_slot).is_some() {
+    let storage = if ensure_integer_type(ty).is_ok() {
+        let slot = *next_slot;
+        *next_slot += 1;
+        Storage::Scalar(slot)
+    } else if let Type::Named(struct_name) = ty {
+        let fields = structs
+            .get(struct_name)
+            .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+        let mut slots = Vec::with_capacity(fields.len());
+        for field in fields {
+            ensure_integer_type(&field.ty)
+                .map_err(|_| format!("struct field '{}' is not scalar", field.name))?;
+            slots.push((field.name.clone(), *next_slot));
+            *next_slot += 1;
+        }
+        Storage::Struct(slots)
+    } else {
+        return Err(format!("native backend does not support local type {ty:?}"));
+    };
+    if locals.insert(name.to_owned(), storage).is_some() {
         return Err(format!("duplicate local '{name}'"));
     }
-    *next_slot += 1;
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+enum Storage {
+    Scalar(usize),
+    Struct(Vec<(String, usize)>),
+}
+
+fn scalar_slot(locals: &HashMap<String, Storage>, name: &str) -> usize {
+    match locals.get(name).expect("validated local") {
+        Storage::Scalar(slot) => *slot,
+        Storage::Struct(_) => panic!("validated scalar local is aggregate"),
+    }
 }
 
 fn ensure_integer_type(ty: &Type) -> Result<(), String> {
@@ -154,7 +202,8 @@ fn ensure_integer_type(ty: &Type) -> Result<(), String> {
 }
 
 struct FunctionContext {
-    locals: HashMap<String, usize>,
+    locals: HashMap<String, Storage>,
+    structs: HashMap<String, Vec<Field>>,
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
@@ -165,12 +214,18 @@ struct FunctionContext {
 impl FunctionContext {
     fn statement(&mut self, statement: &Statement) -> Result<(), String> {
         match statement {
-            Statement::Let { name, value, .. } => {
-                self.expression(value)?;
-                self.output.push_str(&format!(
-                    "    mov QWORD PTR [rbp-{}], rax\n",
-                    self.locals[name] * 8
-                ));
+            Statement::Let {
+                name, ty, value, ..
+            } => {
+                if let Type::Named(struct_name) = ty {
+                    self.store_struct(name, struct_name, value)?;
+                } else {
+                    self.expression(value)?;
+                    self.output.push_str(&format!(
+                        "    mov QWORD PTR [rbp-{}], rax\n",
+                        scalar_slot(&self.locals, name) * 8
+                    ));
+                }
             }
             Statement::Assign { name, value } => {
                 self.expression(value)?;
@@ -178,6 +233,9 @@ impl FunctionContext {
                     .locals
                     .get(name)
                     .ok_or_else(|| format!("unknown variable '{name}'"))?;
+                let Storage::Scalar(slot) = slot else {
+                    return Err(format!("cannot assign aggregate local '{name}'"));
+                };
                 self.output
                     .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
             }
@@ -221,16 +279,47 @@ impl FunctionContext {
         Ok(())
     }
 
+    fn store_struct(&mut self, name: &str, struct_name: &str, value: &Expr) -> Result<(), String> {
+        let Expr::List(items) = value else {
+            return Err(format!("struct local '{name}' requires a constructor"));
+        };
+        let Some(Expr::Symbol(constructor)) = items.first() else {
+            return Err("struct constructor must start with a symbol".into());
+        };
+        if constructor != struct_name {
+            return Err(format!("expected '{struct_name}' constructor"));
+        }
+        let fields = self
+            .structs
+            .get(struct_name)
+            .ok_or_else(|| format!("unknown struct '{struct_name}'"))?
+            .clone();
+        if items.len() - 1 != fields.len() {
+            return Err(format!("constructor '{struct_name}' has wrong field count"));
+        }
+        let Storage::Struct(slots) = self
+            .locals
+            .get(name)
+            .ok_or_else(|| format!("unknown local '{name}'"))?
+        else {
+            return Err(format!("'{name}' is not a struct"));
+        };
+        let slots = slots.clone();
+        for ((_, slot), value) in slots.iter().zip(&items[1..]) {
+            self.expression(value)?;
+            self.output
+                .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+        }
+        Ok(())
+    }
+
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         match expression {
             Expr::Integer(value) => self.output.push_str(&format!("    mov rax, {value}\n")),
             Expr::Symbol(name) if name == "true" => self.output.push_str("    mov eax, 1\n"),
             Expr::Symbol(name) if name == "false" => self.output.push_str("    xor eax, eax\n"),
             Expr::Symbol(name) => {
-                let slot = self
-                    .locals
-                    .get(name)
-                    .ok_or_else(|| format!("unknown variable '{name}'"))?;
+                let slot = scalar_slot(&self.locals, name);
                 self.output
                     .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
             }
@@ -254,6 +343,7 @@ impl FunctionContext {
             }
             "<" | "<=" | ">" | ">=" | "==" | "!=" => self.comparison(operator, items),
             "if" => self.if_expression(items),
+            "get" => self.field_expression(items),
             "!" => self.boolean_not(items),
             "&&" | "||" => self.boolean_logic(operator, items),
             _ => self.call(operator, &items[1..]),
@@ -264,6 +354,54 @@ impl FunctionContext {
         self.expression(&items[1])?;
         self.output.push_str("    neg rax\n");
         Ok(())
+    }
+
+    fn field_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 3 {
+            return Err("get requires a value and field".into());
+        }
+        let field_name = match &items[2] {
+            Expr::Symbol(name) => name,
+            _ => return Err("get requires a field name".into()),
+        };
+        match &items[1] {
+            Expr::Symbol(local) => {
+                let Storage::Struct(fields) = self
+                    .locals
+                    .get(local)
+                    .ok_or_else(|| format!("unknown local '{local}'"))?
+                else {
+                    return Err(format!("'{local}' is not a struct"));
+                };
+                let slot = fields
+                    .iter()
+                    .find(|(name, _)| name == field_name)
+                    .map(|(_, slot)| *slot)
+                    .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                self.output
+                    .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+                Ok(())
+            }
+            Expr::List(constructor) => {
+                let Some(Expr::Symbol(struct_name)) = constructor.first() else {
+                    return Err("get constructor must start with a struct name".into());
+                };
+                let fields = self
+                    .structs
+                    .get(struct_name)
+                    .ok_or_else(|| format!("unknown struct '{struct_name}'"))?
+                    .clone();
+                let index = fields
+                    .iter()
+                    .position(|field| field.name == *field_name)
+                    .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                let value = constructor
+                    .get(index + 1)
+                    .ok_or_else(|| "constructor has too few fields".to_owned())?;
+                self.expression(value)
+            }
+            _ => Err("get requires a struct local or constructor".into()),
+        }
     }
 
     fn boolean_not(&mut self, items: &[Expr]) -> Result<(), String> {

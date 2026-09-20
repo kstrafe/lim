@@ -1,0 +1,5 @@
+(struct Point ((x u64) (y u64)))
+
+(fn main () u64
+  (let point Point (Point 7 9))
+  (get point y))
