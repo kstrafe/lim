@@ -3040,12 +3040,12 @@ mod tests {
         assert_eq!(tokens[0].kind, TokenKind::Symbol("a.b.c".into()));
         assert_eq!(tokens[1].kind, TokenKind::Symbol("#u64.+.wrap".into()));
         let program = parse_program(
-            "(#fn util.add () u64 (#return 42)) (#fn main () u64 (#return (util.add)))",
+            "(#fn util.add-one () u64 (#return 42)) (#fn main () u64 (#return (util.add-one)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
-        assert!(assembly.contains("util_x2e_add"));
+        assert!(assembly.contains("util_x2e_add_x2d_one"));
     }
 
     #[test]
