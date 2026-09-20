@@ -347,6 +347,14 @@ type and fills all positions.
 Array reads and writes perform native unsigned bounds checks before touching
 the stack slot; an out-of-range index traps with `ud2`.
 
+Direct array constructors must carry their element type and length explicitly;
+there is no element-type inference:
+
+```lisp
+(#fn main () u64
+  (#return (#index (#array (#array u64 3) 10 20 42) 2)))
+```
+
 Integer arrays returned from functions can be indexed directly as well:
 
 ```lisp

@@ -2315,14 +2315,16 @@ impl FunctionContext {
                         _ => None,
                     }
                 }
-                Some(Expr::Symbol(operator)) if operator == "array" && items.len() >= 2 => {
-                    let element = items[1..]
-                        .iter()
-                        .map(|value| self.expression_type(value))
-                        .collect::<Option<Vec<_>>>()?
-                        .into_iter()
-                        .next()?;
-                    Some(Type::Array(Box::new(element), items.len() - 1))
+                Some(Expr::Symbol(operator)) if operator == "array" && items.len() >= 3 => {
+                    match parse_type(items.get(1))
+                        .ok()
+                        .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
+                    {
+                        Some(Type::Array(element, length)) if items.len() - 2 == length => {
+                            Some(Type::Array(element, length))
+                        }
+                        _ => None,
+                    }
                 }
                 Some(Expr::Symbol(operator)) if operator == "get" && items.len() == 3 => match self
                     .expression_type(&items[1])?
@@ -3089,14 +3091,26 @@ impl FunctionContext {
             ) {
                 return self.index_expression_without_literal(items);
             }
-            let values = &array_items[1..];
+            let Some(Type::Array(element, length)) = parse_type(array_items.get(1))
+                .ok()
+                .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
+            else {
+                return Err(
+                    "direct array constructors require an explicit (array Element Length) type"
+                        .into(),
+                );
+            };
+            let values = &array_items[2..];
+            if values.len() != length {
+                return Err("array constructor has the wrong length".into());
+            }
             if values.is_empty() {
                 return Err("cannot index an empty array constructor".into());
             }
-            let element = self
-                .expression_type(&values[0])
-                .ok_or_else(|| "cannot determine array element type".to_owned())?;
-            if matches!(element, Type::Tuple(_) | Type::Array(_, _) | Type::Named(_)) {
+            if matches!(
+                *element,
+                Type::Tuple(_) | Type::Array(_, _) | Type::Named(_)
+            ) {
                 return Err("native computed indexing supports scalar arrays only".into());
             }
             let bounds_failure = self.label("array_index_bounds_failure");

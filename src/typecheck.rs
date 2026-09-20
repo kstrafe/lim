@@ -986,27 +986,29 @@ fn list_expression(
             Ok(Type::Usize)
         }
         "array" => {
-            let (element, length) = match expected {
-                Some(Type::Array(element, length)) => (element.clone(), *length),
+            let (element, length, value_start) = match expected {
+                Some(Type::Array(element, length)) => (element.clone(), *length, 1),
                 Some(_) => {
                     return Err("array construction requires an array-typed expected value".into())
                 }
                 None => {
-                    if items.len() < 2 {
-                        return Err(
-                            "empty array constructors require an expected array type".into()
-                        );
-                    }
-                    let element = expression(
-                        &items[1], variables, functions, structs, enums, mutable, aliases, None,
+                    let declared = resolve_type(
+                        &parse_type(items.get(1)).map_err(|_| {
+                            "direct array constructors require an explicit (array Element Length) type"
+                                .to_owned()
+                        })?,
+                        aliases,
                     )?;
-                    (Box::new(element), items.len() - 1)
+                    let Type::Array(element, length) = declared else {
+                        return Err("direct array constructors require an explicit (array Element Length) type".into());
+                    };
+                    (element, length, 2)
                 }
             };
-            if items.len() - 1 != length {
+            if items.len() - value_start != length {
                 return Err(format!("array constructor expects {length} elements"));
             }
-            for value in &items[1..] {
+            for value in &items[value_start..] {
                 let actual = expression(
                     value,
                     variables,

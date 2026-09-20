@@ -1,5 +1,5 @@
 (#fn main () u64
   (#return
     (#index
-      (#array (#as 10 u64) (#as 20 u64) (#as 42 u64))
+      (#array (#array u64 3) 10 20 42)
       2)))

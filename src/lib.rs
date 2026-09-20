@@ -3276,13 +3276,17 @@ mod tests {
 
     #[test]
     fn lowers_direct_array_constructor_indexing() {
-        let program =
-            parse_program(
-                "(#fn main () u64 (#return (#index (#array (#as 10 u64) (#as 20 u64) (#as 42 u64)) 2)))",
-            )
-            .unwrap();
+        let program = parse_program(
+            "(#fn main () u64 (#return (#index (#array (#array u64 3) 10 20 42) 2)))",
+        )
+        .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
+        let inferred =
+            parse_program("(#fn main () u64 (#return (#index (#array 10 20) 0)))").unwrap();
+        assert!(check_types(&inferred)
+            .unwrap_err()
+            .contains("explicit (array Element Length) type"));
     }
 
     #[test]
