@@ -5834,7 +5834,8 @@ impl FunctionContext {
         }
         let slots = flat_slots(base, length * element_words);
         if length.saturating_mul(element_words) > VALUE_REGISTERS.len()
-            && self.store_oversized_index_to_slots(value, &array_type, &slots)?
+            && (self.store_oversized_index_to_slots(value, &array_type, &slots)?
+                || self.store_oversized_field_to_slots(value, &array_type, &slots)?)
         {
             return Ok(());
         }
@@ -9175,8 +9176,12 @@ impl FunctionContext {
         if slots.len() != words {
             return Err("aggregate temporary has an inconsistent layout".into());
         }
-        if words > VALUE_REGISTERS.len() && self.store_oversized_index_to_slots(value, ty, slots)? {
-            return Ok(());
+        if words > VALUE_REGISTERS.len() {
+            if self.store_oversized_index_to_slots(value, ty, slots)?
+                || self.store_oversized_field_to_slots(value, ty, slots)?
+            {
+                return Ok(());
+            }
         }
         if words <= VALUE_REGISTERS.len() {
             return self.store_value_words(value, ty, slots);
@@ -9456,6 +9461,119 @@ impl FunctionContext {
         self.output.push_str(&format!(
             "    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n"
         ));
+        Ok(true)
+    }
+
+    fn store_oversized_field_to_slots(
+        &mut self,
+        value: &Expr,
+        ty: &Type,
+        destination: &[usize],
+    ) -> Result<bool, String> {
+        let Expr::List(items) = value else {
+            return Ok(false);
+        };
+        if items.len() != 3
+            || !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get")
+        {
+            return Ok(false);
+        }
+        let source_type = self
+            .expression_type(&items[1])
+            .ok_or_else(|| "get source has no known type".to_owned())?;
+        let offset = match (&source_type, &items[2]) {
+            (Type::Tuple(fields), Expr::Integer(index)) if *index >= 0 => {
+                let index = usize::try_from(*index)
+                    .map_err(|_| "tuple field index is too large".to_owned())?;
+                let offset = fields
+                    .get(..index)
+                    .ok_or_else(|| "tuple field index is out of bounds".to_owned())?
+                    .iter()
+                    .map(|field| storage_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
+                offset
+            }
+            (Type::Named(name), Expr::Symbol(field_name)) => {
+                let fields = self
+                    .structs
+                    .get(name)
+                    .ok_or_else(|| format!("'{name}' is not a struct"))?;
+                let index = fields
+                    .iter()
+                    .position(|field| field.name == *field_name)
+                    .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                let offset = fields[..index]
+                    .iter()
+                    .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
+                offset
+            }
+            _ => return Ok(false),
+        };
+        let field_words = storage_word_count(ty, &self.structs, &self.enums)?;
+        if field_words != destination.len() {
+            return Ok(false);
+        }
+        enum Source {
+            Slots(Vec<usize>),
+            Global(String),
+        }
+        let source = match &items[1] {
+            Expr::Symbol(name) => {
+                if let Ok(slots) = local_slots(&self.locals, name) {
+                    Some(Source::Slots(slots))
+                } else if matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) {
+                    Some(Source::Global(name.clone()))
+                } else {
+                    None
+                }
+            }
+            Expr::List(call_items) => match call_items.first() {
+                Some(Expr::Symbol(function_name))
+                    if self
+                        .functions
+                        .get(function_name)
+                        .is_some_and(|function| function.indirect_return) =>
+                {
+                    let base = self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                    let source_words =
+                        storage_word_count(&source_type, &self.structs, &self.enums)?;
+                    Some(Source::Slots(flat_slots(base, source_words)))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(source) = source else {
+            return Ok(false);
+        };
+        match source {
+            Source::Slots(slots) => {
+                for (index, destination_slot) in destination.iter().enumerate() {
+                    let source_slot = slots
+                        .get(offset + index)
+                        .ok_or_else(|| "aggregate field exceeds source storage".to_owned())?;
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                        source_slot * 8,
+                        destination_slot * 8
+                    ));
+                }
+            }
+            Source::Global(name) => {
+                for (index, destination_slot) in destination.iter().enumerate() {
+                    self.load_global_word(&name, offset + index)?;
+                    self.output.push_str(&format!(
+                        "    mov QWORD PTR [rbp-{}], rax\n",
+                        destination_slot * 8
+                    ));
+                }
+            }
+        }
         Ok(true)
     }
 
