@@ -719,26 +719,38 @@ pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), Str
         if !matches!(forms.first(), Some(Expr::At)) {
             continue;
         }
+        let kind = expect_symbol(forms.get(1), "generated declaration name")?;
         let item = parse_generated_item(&forms)?;
         let Item::Enum { name, variants, .. } = item else {
             continue;
         };
-        let payload = variants
+        let first = variants
             .first()
             .and_then(|variant| variant.fields.first())
-            .ok_or_else(|| "optional expansion has no payload type".to_owned())?;
-        let some = variants
+            .ok_or_else(|| format!("{kind} expansion has no payload type"))?;
+        let first_name = variants
             .first()
             .map(|variant| variant.name.as_str())
-            .ok_or_else(|| "optional expansion has no payload constructor".to_owned())?;
-        let none = variants
+            .ok_or_else(|| format!("{kind} expansion has no payload constructor"))?;
+        let second_name = variants
             .get(1)
             .map(|variant| variant.name.as_str())
             .unwrap_or("none");
-        let payload_source = type_source(payload);
-        generated.push(format!(
-            "(#enum {name} (({some} {payload_source}) {none}))\n(#fn {name}-construct ((value {payload_source})) {name} (#return ({some} value)))\n(#fn {name}-is-some ((value {name})) bool (#return (#match value (({some} _) true) ({none} false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {payload_source})) {payload_source} (#return (#match value (({some} payload) payload) ({none} fallback))))\n",
-        ));
+        let first_source = type_source(first);
+        if kind == "optional" {
+            generated.push(format!(
+                "(#enum {name} (({first_name} {first_source}) {second_name}))\n(#fn {name}-construct ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-is-some ((value {name})) bool (#return (#match value (({first_name} _) true) ({second_name} false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (({first_name} payload) payload) ({second_name} fallback))))\n",
+            ));
+        } else {
+            let second = variants
+                .get(1)
+                .and_then(|variant| variant.fields.first())
+                .ok_or_else(|| "result expansion has no error payload type".to_owned())?;
+            let second_source = type_source(second);
+            generated.push(format!(
+                "(#enum {name} (({first_name} {first_source}) ({second_name} {second_source})))\n(#fn {name}-ok ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-err ((error {second_source})) {name} (#return ({second_name} error)))\n(#fn {name}-is-ok ((value {name})) bool (#return (#match value (({first_name} _) true) (({second_name} _) false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (({first_name} payload) payload) (({second_name} _) fallback))))\n",
+            ));
+        }
     }
     if generated.is_empty() {
         return Ok(());
@@ -746,7 +758,12 @@ pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), Str
     fs::create_dir_all(directory)
         .map_err(|error| format!("cannot create generated-code directory: {error}"))?;
     for (index, source) in generated.iter().enumerate() {
-        let path = directory.join(format!("optional-{index}.lim"));
+        let prefix = if source.contains("-is-some") {
+            "optional"
+        } else {
+            "result"
+        };
+        let path = directory.join(format!("{prefix}-{index}.lim"));
         fs::write(path, source)
             .map_err(|error| format!("cannot write generated source: {error}"))?;
     }
@@ -1330,33 +1347,68 @@ fn parse_item_with_mode(expression: &Expr, strict_keywords: bool) -> Result<Item
 }
 
 fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
-    if items.len() != 4
-        || !matches!(items.first(), Some(Expr::At))
-        || !matches!(items.get(1), Some(Expr::Symbol(name)) if name == "optional")
-    {
-        return Err(
-            "generated declaration must have the form (@optional Type OptionalType)".into(),
-        );
+    if !matches!(items.first(), Some(Expr::At)) {
+        return Err("generated declaration must start with '@'".into());
     }
-    let payload = parse_type(items.get(2))?;
-    let name = expect_symbol(items.get(3), "generated optional type name")?.to_owned();
-    Ok(Item::Enum {
-        name: name.clone(),
-        type_parameters: Vec::new(),
-        variants: vec![
-            EnumVariant {
-                name: format!("{name}-some"),
-                fields: vec![payload],
-            },
-            EnumVariant {
-                name: format!("{name}-none"),
-                fields: Vec::new(),
-            },
-        ],
-    })
+    let kind = expect_symbol(items.get(1), "generated declaration name")?;
+    match kind {
+        "optional" => {
+            if items.len() != 4 {
+                return Err(
+                    "generated declaration must have the form (@optional Type OptionalType)".into(),
+                );
+            }
+            let payload = parse_type(items.get(2))?;
+            let name = expect_symbol(items.get(3), "generated optional type name")?.to_owned();
+            Ok(Item::Enum {
+                name: name.clone(),
+                type_parameters: Vec::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: format!("{name}-some"),
+                        fields: vec![payload],
+                    },
+                    EnumVariant {
+                        name: format!("{name}-none"),
+                        fields: Vec::new(),
+                    },
+                ],
+            })
+        }
+        "result" => {
+            if items.len() != 5 {
+                return Err(
+                    "generated declaration must have the form (@result OkType ErrType ResultType)"
+                        .into(),
+                );
+            }
+            let ok = parse_type(items.get(2))?;
+            let error = parse_type(items.get(3))?;
+            let name = expect_symbol(items.get(4), "generated result type name")?.to_owned();
+            Ok(Item::Enum {
+                name: name.clone(),
+                type_parameters: Vec::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: format!("{name}-ok-value"),
+                        fields: vec![ok],
+                    },
+                    EnumVariant {
+                        name: format!("{name}-err-value"),
+                        fields: vec![error],
+                    },
+                ],
+            })
+        }
+        other => Err(format!("unknown generated declaration '@{other}'")),
+    }
 }
 
 fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
+    let kind = expect_symbol(items.get(1), "generated declaration name")?;
+    if kind == "result" {
+        return parse_generated_result_items(items);
+    }
     let generated = parse_generated_item(items)?;
     let Item::Enum { name, variants, .. } = &generated else {
         unreachable!("optional expansion always produces an enum")
@@ -1438,6 +1490,103 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
             ],
             return_type: payload,
             body: vec![Statement::Return(Some(unwrap_or_body))],
+        }),
+    ])
+}
+
+fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
+    let generated = parse_generated_item(items)?;
+    let (name, variants) = match &generated {
+        Item::Enum { name, variants, .. } => (name.clone(), variants.clone()),
+        _ => unreachable!("result expansion always produces an enum"),
+    };
+    let ok = variants
+        .first()
+        .and_then(|variant| variant.fields.first())
+        .cloned()
+        .ok_or_else(|| "result expansion has no success payload".to_owned())?;
+    let error = variants
+        .get(1)
+        .and_then(|variant| variant.fields.first())
+        .cloned()
+        .ok_or_else(|| "result expansion has no error payload".to_owned())?;
+    let ok_name = variants[0].name.clone();
+    let err_name = variants[1].name.clone();
+    let result_type = Type::Named(name.clone());
+    let is_ok = optional_match(
+        "value",
+        &ok_name,
+        &err_name,
+        "_",
+        Expr::Symbol("true".into()),
+        Expr::Symbol("false".into()),
+    );
+    let unwrap_or = optional_match(
+        "value",
+        &ok_name,
+        &err_name,
+        "payload",
+        Expr::Symbol("payload".into()),
+        Expr::Symbol("fallback".into()),
+    );
+    Ok(vec![
+        generated,
+        Item::Function(Function {
+            name: format!("{name}-ok"),
+            type_parameters: Vec::new(),
+            parameters: vec![Parameter {
+                name: "value".into(),
+                ty: ok.clone(),
+                mutable: false,
+            }],
+            return_type: result_type.clone(),
+            body: vec![Statement::Return(Some(Expr::List(vec![
+                Expr::Symbol(ok_name),
+                Expr::Symbol("value".into()),
+            ])))],
+        }),
+        Item::Function(Function {
+            name: format!("{name}-err"),
+            type_parameters: Vec::new(),
+            parameters: vec![Parameter {
+                name: "error".into(),
+                ty: error.clone(),
+                mutable: false,
+            }],
+            return_type: result_type.clone(),
+            body: vec![Statement::Return(Some(Expr::List(vec![
+                Expr::Symbol(err_name),
+                Expr::Symbol("error".into()),
+            ])))],
+        }),
+        Item::Function(Function {
+            name: format!("{name}-is-ok"),
+            type_parameters: Vec::new(),
+            parameters: vec![Parameter {
+                name: "value".into(),
+                ty: result_type.clone(),
+                mutable: false,
+            }],
+            return_type: Type::Bool,
+            body: vec![Statement::Return(Some(is_ok))],
+        }),
+        Item::Function(Function {
+            name: format!("{name}-unwrap-or"),
+            type_parameters: Vec::new(),
+            parameters: vec![
+                Parameter {
+                    name: "value".into(),
+                    ty: result_type,
+                    mutable: false,
+                },
+                Parameter {
+                    name: "fallback".into(),
+                    ty: ok.clone(),
+                    mutable: false,
+                },
+            ],
+            return_type: ok,
+            body: vec![Statement::Return(Some(unwrap_or))],
         }),
     ])
 }
@@ -2946,12 +3095,40 @@ mod tests {
     }
 
     #[test]
+    fn materializes_result_generated_source() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-generated-result-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        write_generated_sources("(@result u64 u32 Result)", &directory).unwrap();
+        let generated = std::fs::read_to_string(directory.join("result-0.lim")).unwrap();
+        assert!(generated.contains("Result-ok-value"));
+        assert!(generated.contains("Result-unwrap-or"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn lowers_if_let_to_native_match() {
         let program = parse_program(
             "(@optional u64 Maybe?) (fn main () u64 (let value Maybe? (Maybe?-construct 42)) (if-let (Maybe?-some payload) value payload 0))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn expands_result_generated_declarations() {
+        let program = parse_program(
+            "(@result u64 u32 Result) \
+             (#fn classify ((value Result)) u64 \
+              (#return (#match value ((Result-ok-value 42) 1) ((Result-err-value _) 0)))) \
+             (#fn main () u64 \
+              (#let value Result (Result-ok 42)) \
+              (#return (classify value)))",
+        )
+        .unwrap();
+        let type_result = check_types(&program);
+        assert!(type_result.is_ok(), "{type_result:?}");
         assert!(generate_assembly(&program).is_ok());
     }
 

@@ -50,6 +50,9 @@ nix develop --command cargo run -- --emit-asm --strict examples/fibonacci.lim /t
 The first built-in generated declaration is `@optional`, which expands to a
 enum and generated `-construct`, `-is-some`, and `-unwrap-or` helpers:
 
+`@result` generates a two-payload result enum and explicit `-ok`, `-err`,
+`-is-ok`, and `-unwrap-or` helpers:
+
 The assembly CLI materializes each generated declaration as inspectable Lim
 source under a `.lim/` directory beside the input file.
 
@@ -58,7 +61,14 @@ source under a `.lim/` directory beside the input file.
 (fn identity ((value Maybe?)) Maybe? value)
 (fn main () u64
   (let value Maybe? (identity (Maybe?-construct 42)))
-  (match value ((Maybe?-some payload) payload) (Maybe?-none 0)))
+(match value ((Maybe?-some payload) payload) (Maybe?-none 0)))
+```
+
+```lisp
+(@result u64 u32 Result)
+(#fn main () u64
+  (#let value Result (Result-ok 42))
+  (#return (Result-unwrap-or value 0)))
 ```
 
 The typed declaration pass recognizes primitive Rust-style types (`u8` through
