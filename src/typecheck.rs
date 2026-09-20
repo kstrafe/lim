@@ -172,6 +172,22 @@ fn statement_type(
             require_type(&actual, &ty, &format!("assignment to '{name}'"))?;
             Ok(Type::Unit)
         }
+        Statement::ArrayAssign { name, index, value } => {
+            let ty = variables
+                .get(name)
+                .ok_or_else(|| format!("unknown variable '{name}'"))?
+                .clone();
+            if !mutable.contains(name) {
+                return Err(format!("cannot assign to immutable variable '{name}'"));
+            }
+            let Type::Array(element, length) = ty else {
+                return Err(format!("'{name}' is not an array"));
+            };
+            check_index(index, length, variables, functions, structs, enums)?;
+            let actual = expression(value, variables, functions, structs, enums, Some(&element))?;
+            require_type(&actual, &element, &format!("array assignment to '{name}'"))?;
+            Ok(Type::Unit)
+        }
         Statement::While { condition, body } => {
             let actual = expression(
                 condition,
@@ -313,6 +329,34 @@ fn list_expression(
             )?;
             require_same(&then_type, &else_type, "if branches")?;
             Ok(then_type)
+        }
+        "array" => {
+            let Some(Type::Array(element, length)) = expected else {
+                return Err(
+                    "array construction requires an expected (array Element N) type".into(),
+                );
+            };
+            if items.len() - 1 != *length {
+                return Err(format!("array constructor expects {length} elements"));
+            }
+            for value in &items[1..] {
+                let actual =
+                    expression(value, variables, functions, structs, enums, Some(element))?;
+                require_type(&actual, element, "array element")?;
+            }
+            Ok(Type::Array(element.clone(), *length))
+        }
+        "index" => {
+            if items.len() != 3 {
+                return Err("index requires the form (index array index)".into());
+            }
+            let Type::Array(element, length) =
+                expression(&items[1], variables, functions, structs, enums, None)?
+            else {
+                return Err("index requires an array".into());
+            };
+            check_index(&items[2], length, variables, functions, structs, enums)?;
+            Ok(*element)
         }
         "match" => {
             if items.len() < 3 {
@@ -488,6 +532,28 @@ fn enum_variant_type(name: &str, enums: &HashMap<String, Vec<EnumVariant>>) -> O
             .any(|variant| variant.name == name)
             .then(|| Type::Named(enum_name.clone()))
     })
+}
+
+fn check_index(
+    index: &Expr,
+    length: usize,
+    variables: &HashMap<String, Type>,
+    functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+) -> Result<(), String> {
+    let actual = expression(index, variables, functions, structs, enums, None)?;
+    if !is_integer(&actual) {
+        return Err("array index must be an integer".into());
+    }
+    if let Expr::Integer(value) = index {
+        if *value < 0 || *value >= length as i128 {
+            return Err(format!(
+                "array index {value} is out of bounds for length {length}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn require_type(actual: &Type, expected: &Type, context: &str) -> Result<(), String> {

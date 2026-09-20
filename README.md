@@ -84,6 +84,15 @@ Payload-free enums use integer discriminants and support exhaustive `match`:
     (_ 30)))
 ```
 
+Fixed-size arrays are value types with stack storage:
+
+```lisp
+(fn main () u64
+  (let mut values (array u64 3) (array 1 2 3))
+  (set-index values 1 40)
+  (+ (index values 0) (index values 1)))
+```
+
 Top-level `let` declarations use the same form. Function bodies are currently
 represented as statements, while their expressions remain generic S-expressions
 for the type checker and later compiler stages.

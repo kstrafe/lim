@@ -277,6 +277,7 @@ pub enum Type {
     Usize,
     F32,
     F64,
+    Array(Box<Type>, usize),
     Named(String),
 }
 
@@ -321,6 +322,11 @@ pub enum Statement {
     },
     Assign {
         name: String,
+        value: Expr,
+    },
+    ArrayAssign {
+        name: String,
+        index: Expr,
         value: Expr,
     },
     While {
@@ -543,6 +549,17 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             value: items[2].clone(),
         });
     }
+    if is_form(expression, "set-index") {
+        let items = expect_list(expression, "array assignment")?;
+        if items.len() != 4 {
+            return Err("set-index requires the form (set-index array index value)".into());
+        }
+        return Ok(Statement::ArrayAssign {
+            name: expect_symbol(items.get(1), "array name")?.to_owned(),
+            index: items[2].clone(),
+            value: items[3].clone(),
+        });
+    }
     if is_form(expression, "while") {
         let items = expect_list(expression, "while statement")?;
         if items.len() < 2 {
@@ -582,6 +599,21 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
 fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
     if matches!(expression, Some(Expr::List(items)) if items.is_empty()) {
         return Ok(Type::Unit);
+    }
+    if let Some(Expr::List(items)) = expression {
+        if items.len() == 3 && matches!(&items[0], Expr::Symbol(name) if name == "array") {
+            let element = parse_type(items.get(1))?;
+            let length = match items.get(2) {
+                Some(Expr::Integer(value)) if *value >= 0 => {
+                    usize::try_from(*value).map_err(|_| "array length is too large".to_owned())?
+                }
+                _ => return Err("array length must be a non-negative integer".into()),
+            };
+            if length == 0 {
+                return Err("arrays must have a non-zero length".into());
+            }
+            return Ok(Type::Array(Box::new(element), length));
+        }
     }
     Ok(Type::from_name(expect_symbol(expression, "type")?))
 }
@@ -927,5 +959,19 @@ mod tests {
         assert!(parse_program("(enum Bad (Same Same))")
             .unwrap_err()
             .contains("duplicate enum variant"));
+    }
+
+    #[test]
+    fn checks_and_lowers_fixed_arrays() {
+        let program = parse_program("(fn main () u64 (let mut values (array u64 2) (array 3 4)) (set-index values 1 40) (+ (index values 0) (index values 1)))").unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("lea rdx"));
+        assert!(assembly.contains("rcx*8"));
+        let invalid = parse_program(
+            "(fn main () u64 (let values (array u64 2) (array 1 2)) (index values 2))",
+        )
+        .unwrap();
+        assert!(check_types(&invalid).unwrap_err().contains("out of bounds"));
     }
 }

@@ -142,6 +142,7 @@ fn collect_locals(
             }
         }
         Statement::Assign { .. }
+        | Statement::ArrayAssign { .. }
         | Statement::Break
         | Statement::Continue
         | Statement::Return(_)
@@ -162,6 +163,15 @@ fn add_local(
         let slot = *next_slot;
         *next_slot += 1;
         Storage::Scalar(slot)
+    } else if let Type::Array(element, length) = ty {
+        ensure_scalar_type(element, enums)
+            .map_err(|_| "native backend only supports arrays of scalar values".to_owned())?;
+        let base = *next_slot;
+        *next_slot += length;
+        Storage::Array {
+            base,
+            length: *length,
+        }
     } else if let Type::Named(struct_name) = ty {
         let fields = structs
             .get(struct_name)
@@ -186,13 +196,14 @@ fn add_local(
 #[derive(Clone, Debug)]
 enum Storage {
     Scalar(usize),
+    Array { base: usize, length: usize },
     Struct(Vec<(String, usize)>),
 }
 
 fn scalar_slot(locals: &HashMap<String, Storage>, name: &str) -> usize {
     match locals.get(name).expect("validated local") {
         Storage::Scalar(slot) => *slot,
-        Storage::Struct(_) => panic!("validated scalar local is aggregate"),
+        Storage::Array { .. } | Storage::Struct(_) => panic!("validated scalar local is aggregate"),
     }
 }
 
@@ -248,6 +259,8 @@ impl FunctionContext {
             } => {
                 if let Type::Named(struct_name) = ty {
                     self.store_struct(name, struct_name, value)?;
+                } else if matches!(ty, Type::Array(_, _)) {
+                    self.store_array(name, value)?;
                 } else {
                     self.expression(value)?;
                     self.output.push_str(&format!(
@@ -267,6 +280,25 @@ impl FunctionContext {
                 };
                 self.output
                     .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+            }
+            Statement::ArrayAssign { name, index, value } => {
+                let Storage::Array { base, .. } = self
+                    .locals
+                    .get(name)
+                    .ok_or_else(|| format!("unknown array '{name}'"))?
+                else {
+                    return Err(format!("'{name}' is not an array"));
+                };
+                let base = *base;
+                self.expression(index)?;
+                self.push_rax();
+                self.expression(value)?;
+                self.output.push_str("    mov rdx, rax\n    pop rcx\n");
+                self.stack_depth -= 1;
+                self.output.push_str(&format!(
+                    "    lea rax, [rbp-{}]\n    mov QWORD PTR [rax+rcx*8], rdx\n",
+                    base * 8
+                ));
             }
             Statement::While { condition, body } => {
                 let start = self.label("while");
@@ -342,6 +374,36 @@ impl FunctionContext {
         Ok(())
     }
 
+    fn store_array(&mut self, name: &str, value: &Expr) -> Result<(), String> {
+        let Expr::List(items) = value else {
+            return Err(format!(
+                "array local '{name}' requires an array constructor"
+            ));
+        };
+        if !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
+            return Err("array local requires an (array ...) constructor".into());
+        }
+        let Storage::Array { base, length } = self
+            .locals
+            .get(name)
+            .ok_or_else(|| format!("unknown array '{name}'"))?
+        else {
+            return Err(format!("'{name}' is not an array"));
+        };
+        let (base, length) = (*base, *length);
+        if items.len() - 1 != length {
+            return Err("array constructor has the wrong length".into());
+        }
+        for (index, value) in items[1..].iter().enumerate() {
+            self.expression(value)?;
+            self.output.push_str(&format!(
+                "    mov QWORD PTR [rbp-{}], rax\n",
+                (base + index) * 8
+            ));
+        }
+        Ok(())
+    }
+
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         match expression {
             Expr::Integer(value) => self.output.push_str(&format!("    mov rax, {value}\n")),
@@ -379,6 +441,7 @@ impl FunctionContext {
             "<" | "<=" | ">" | ">=" | "==" | "!=" => self.comparison(operator, items),
             "if" => self.if_expression(items),
             "match" => self.match_expression(items),
+            "index" => self.index_expression(items),
             "get" => self.field_expression(items),
             "!" => self.boolean_not(items),
             "&&" | "||" => self.boolean_logic(operator, items),
@@ -390,6 +453,31 @@ impl FunctionContext {
         self.enums
             .values()
             .find_map(|variants| variants.iter().position(|variant| variant == name))
+    }
+
+    fn index_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 3 {
+            return Err("index requires an array and index".into());
+        }
+        let name = match &items[1] {
+            Expr::Symbol(name) => name,
+            _ => return Err("index currently requires an array local".into()),
+        };
+        let Storage::Array { base, .. } = self
+            .locals
+            .get(name)
+            .ok_or_else(|| format!("unknown array '{name}'"))?
+        else {
+            return Err(format!("'{name}' is not an array"));
+        };
+        let base = *base;
+        self.expression(&items[2])?;
+        self.output.push_str("    mov rcx, rax\n");
+        self.output.push_str(&format!(
+            "    lea rdx, [rbp-{}]\n    mov rax, QWORD PTR [rdx+rcx*8]\n",
+            base * 8
+        ));
+        Ok(())
     }
 
     fn match_expression(&mut self, items: &[Expr]) -> Result<(), String> {
