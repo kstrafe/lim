@@ -107,6 +107,14 @@ Counted loops use explicit init, condition, step, and body forms:
   (set total (+ total i)))
 ```
 
+`block` expressions allow statement sequences inside expression branches:
+
+```lisp
+(if true
+    (block (let value u64 40) value)
+    (block 1))
+```
+
 Top-level `let` declarations use the same form. Function bodies are currently
 represented as statements, while their expressions remain generic S-expressions
 for the type checker and later compiler stages.

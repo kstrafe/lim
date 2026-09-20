@@ -137,28 +137,66 @@ fn collect_locals(
     match statement {
         Statement::Let { name, ty, .. } => {
             add_local(locals, name, ty, structs, enums, next_slot)?;
+            if let Statement::Let { value, .. } = statement {
+                collect_expr_locals(value, locals, structs, enums, next_slot)?;
+            }
         }
-        Statement::While { body, .. } => {
+        Statement::While { condition, body } => {
+            collect_expr_locals(condition, locals, structs, enums, next_slot)?;
             for statement in body {
                 collect_locals(statement, locals, structs, enums, next_slot)?;
             }
         }
         Statement::For {
-            init, step, body, ..
+            init,
+            condition,
+            step,
+            body,
         } => {
             collect_locals(init, locals, structs, enums, next_slot)?;
+            collect_expr_locals(condition, locals, structs, enums, next_slot)?;
             collect_locals(step, locals, structs, enums, next_slot)?;
             for statement in body {
                 collect_locals(statement, locals, structs, enums, next_slot)?;
             }
         }
-        Statement::Assign { .. }
-        | Statement::ArrayAssign { .. }
-        | Statement::FieldAssign { .. }
-        | Statement::Break
-        | Statement::Continue
-        | Statement::Return(_)
-        | Statement::Expr(_) => {}
+        Statement::Assign { value, .. } => {
+            collect_expr_locals(value, locals, structs, enums, next_slot)?
+        }
+        Statement::ArrayAssign { index, value, .. } => {
+            collect_expr_locals(index, locals, structs, enums, next_slot)?;
+            collect_expr_locals(value, locals, structs, enums, next_slot)?;
+        }
+        Statement::FieldAssign { value, .. } => {
+            collect_expr_locals(value, locals, structs, enums, next_slot)?
+        }
+        Statement::Return(Some(value)) | Statement::Expr(value) => {
+            collect_expr_locals(value, locals, structs, enums, next_slot)?
+        }
+        Statement::Break | Statement::Continue | Statement::Return(None) => {}
+    }
+    Ok(())
+}
+
+fn collect_expr_locals(
+    expression: &Expr,
+    locals: &mut HashMap<String, Storage>,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<String>>,
+    next_slot: &mut usize,
+) -> Result<(), String> {
+    match expression {
+        Expr::List(items) => {
+            for item in items {
+                collect_expr_locals(item, locals, structs, enums, next_slot)?;
+            }
+        }
+        Expr::Block(statements) => {
+            for statement in statements {
+                collect_locals(statement, locals, structs, enums, next_slot)?;
+            }
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -459,6 +497,14 @@ impl FunctionContext {
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         match expression {
             Expr::Integer(value) => self.output.push_str(&format!("    mov rax, {value}\n")),
+            Expr::Block(statements) => {
+                if statements.is_empty() {
+                    self.output.push_str("    xor eax, eax\n");
+                }
+                for statement in statements {
+                    self.statement(statement)?;
+                }
+            }
             Expr::Symbol(name) if name == "true" => self.output.push_str("    mov eax, 1\n"),
             Expr::Symbol(name) if name == "false" => self.output.push_str("    xor eax, eax\n"),
             Expr::Symbol(name) if self.enum_value(name).is_some() => {

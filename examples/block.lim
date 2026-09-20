@@ -1,0 +1,6 @@
+(fn main () u64
+  (if true
+      (block
+        (let value u64 40)
+        value)
+      (block 1)))

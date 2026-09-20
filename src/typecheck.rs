@@ -322,14 +322,14 @@ fn statement_type(
 }
 
 fn expression(
-    expression: &Expr,
+    value: &Expr,
     variables: &HashMap<String, Type>,
     functions: &HashMap<String, Signature>,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     expected: Option<&Type>,
 ) -> Result<Type, String> {
-    match expression {
+    match value {
         Expr::Integer(value) => {
             let ty = expected
                 .filter(|ty| is_integer(ty))
@@ -347,6 +347,42 @@ fn expression(
             .or_else(|| enum_variant_type(name, enums))
             .ok_or_else(|| format!("unknown variable or enum variant '{name}'")),
         Expr::String(_) => Ok(Type::Named("str".into())),
+        Expr::Block(statements) => {
+            let mut block_variables = variables.clone();
+            let mut block_mutable = HashSet::new();
+            let block_return = expected.cloned().unwrap_or(Type::Unit);
+            let mut result = Type::Unit;
+            for (index, statement) in statements.iter().enumerate() {
+                result = if index + 1 == statements.len() {
+                    if let Statement::Expr(value) = statement {
+                        expression(value, &block_variables, functions, structs, enums, expected)?
+                    } else {
+                        statement_type(
+                            statement,
+                            &mut block_variables,
+                            &mut block_mutable,
+                            functions,
+                            structs,
+                            enums,
+                            &block_return,
+                            false,
+                        )?
+                    }
+                } else {
+                    statement_type(
+                        statement,
+                        &mut block_variables,
+                        &mut block_mutable,
+                        functions,
+                        structs,
+                        enums,
+                        &block_return,
+                        false,
+                    )?
+                };
+            }
+            Ok(result)
+        }
         Expr::At | Expr::Quote(_) => {
             Err("generated and quoted expressions are not typed yet".into())
         }

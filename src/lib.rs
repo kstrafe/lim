@@ -218,6 +218,7 @@ impl<'a> Lexer<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
     List(Vec<Expr>),
+    Block(Vec<Statement>),
     Symbol(String),
     Integer(i128),
     String(String),
@@ -512,6 +513,25 @@ fn parse_function(items: &[Expr]) -> Result<Function, String> {
     })
 }
 
+fn lower_expr(expression: &Expr) -> Result<Expr, String> {
+    match expression {
+        Expr::List(items) if is_form(expression, "block") => {
+            let mut statements = Vec::with_capacity(items.len().saturating_sub(1));
+            for item in &items[1..] {
+                statements.push(parse_statement(item)?);
+            }
+            Ok(Expr::Block(statements))
+        }
+        Expr::List(items) => Ok(Expr::List(
+            items
+                .iter()
+                .map(lower_expr)
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        _ => Ok(expression.clone()),
+    }
+}
+
 struct LetBinding {
     name: String,
     ty: Type,
@@ -535,12 +555,14 @@ fn parse_let(items: &[Expr]) -> Result<LetBinding, String> {
     Ok(LetBinding {
         name: expect_symbol(items.get(name_index), "binding name")?.to_owned(),
         ty: parse_type(items.get(type_index))?,
-        value: items[value_index].clone(),
+        value: lower_expr(&items[value_index])?,
         mutable,
     })
 }
 
 fn parse_statement(expression: &Expr) -> Result<Statement, String> {
+    let lowered = lower_expr(expression)?;
+    let expression = &lowered;
     if is_form(expression, "let") {
         let binding = parse_let(expect_list(expression, "let statement")?)?;
         return Ok(Statement::Let {
@@ -1029,5 +1051,16 @@ mod tests {
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("for_step"));
+    }
+
+    #[test]
+    fn lowers_statement_blocks_in_expressions() {
+        let program =
+            parse_program("(fn main () u64 (if true (block (let value u64 40) value) (block 1)))")
+                .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap()
+            .contains("mov QWORD PTR"));
     }
 }
