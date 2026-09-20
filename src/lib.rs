@@ -723,7 +723,10 @@ fn specialize_type(
             let arguments = argument_names
                 .iter()
                 .map(|argument| {
-                    let parsed = Type::from_name(argument);
+                    let parsed = substitutions
+                        .get(argument)
+                        .cloned()
+                        .unwrap_or_else(|| Type::from_name(argument));
                     specialize_type(&parsed, substitutions, templates, names, generated)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
