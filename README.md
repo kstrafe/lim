@@ -89,6 +89,9 @@ expected `f32` or `f64` width.
 Floating comparisons explicitly handle unordered NaN results: equality and
 ordering are false, while inequality is true.
 
+Integer shifts validate their count against the operand width; statically
+known out-of-range counts are rejected and dynamic violations trap with `ud2`.
+
 Character literals have the Rust `char` type and lower to native scalar values:
 
 ```lisp

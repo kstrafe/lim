@@ -851,6 +851,17 @@ fn is_narrow_integer(ty: &Type) -> bool {
     ensure_integer_type(ty).is_ok()
 }
 
+fn integer_bit_width(ty: Type) -> Option<i128> {
+    match ty {
+        Type::I8 | Type::U8 => Some(8),
+        Type::I16 | Type::U16 => Some(16),
+        Type::I32 | Type::U32 => Some(32),
+        Type::I64 | Type::U64 | Type::Isize | Type::Usize => Some(64),
+        Type::I128 | Type::U128 => Some(128),
+        _ => None,
+    }
+}
+
 fn is_unsigned_type(ty: &Type) -> bool {
     matches!(
         ty,
@@ -2649,6 +2660,18 @@ impl FunctionContext {
         self.expression(&items[2])?;
         self.output.push_str("    mov rcx, rax\n    pop rax\n");
         self.stack_depth -= 1;
+        let shift_failure = if matches!(operator, "<<" | ">>") {
+            let width = self
+                .expression_type(&items[1])
+                .and_then(integer_bit_width)
+                .ok_or_else(|| "shift requires an integer operand".to_owned())?;
+            let label = self.label("shift_failure");
+            self.output
+                .push_str(&format!("    cmp rcx, {width}\n    jae {label}\n"));
+            Some(label)
+        } else {
+            None
+        };
         match operator {
             "+" => self.output.push_str("    add rax, rcx\n"),
             "-" => self.output.push_str("    sub rax, rcx\n"),
@@ -2687,6 +2710,11 @@ impl FunctionContext {
                 self.normalize_integer(&ty)?;
             }
         }
+        if let Some(label) = shift_failure {
+            let done = self.label("shift_done");
+            self.output
+                .push_str(&format!("    jmp {done}\n{label}:\n    ud2\n{done}:\n"));
+        }
         Ok(())
     }
 
@@ -2705,11 +2733,11 @@ impl FunctionContext {
             .push_str("    mov rcx, rax\n    mov r8, rdx\n    pop rax\n    pop rdx\n");
         self.stack_depth -= 2;
         if matches!(operator, "<<" | ">>") {
-            let zero = self.label("wide_shift_zero");
+            let failure = self.label("wide_shift_failure");
             let high = self.label("wide_shift_high");
             let done = self.label("wide_shift_done");
             self.output.push_str(&format!(
-                "    cmp rcx, 128\n    jae {zero}\n    cmp rcx, 64\n    jae {high}\n"
+                "    cmp rcx, 128\n    jae {failure}\n    cmp rcx, 64\n    jae {high}\n"
             ));
             if operator == "<<" {
                 self.output
@@ -2740,9 +2768,8 @@ impl FunctionContext {
                     self.output.push_str("    sar rax, cl\n    sar rdx, 63\n");
                 }
             }
-            self.output.push_str(&format!(
-                "    jmp {done}\n{zero}:\n    xor eax, eax\n    xor edx, edx\n{done}:\n"
-            ));
+            self.output
+                .push_str(&format!("    jmp {done}\n{failure}:\n    ud2\n{done}:\n"));
             return Ok(());
         }
         if operator == "*" {

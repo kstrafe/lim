@@ -1386,6 +1386,21 @@ mod tests {
     }
 
     #[test]
+    fn checks_shift_counts_against_integer_width() {
+        let program = parse_program("(fn main () u64 (<< 21 1))").unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("shift_failure"));
+        let invalid = parse_program("(fn main () u8 (<< (as 1 u8) 8))").unwrap();
+        assert!(check_types(&invalid)
+            .unwrap_err()
+            .contains("shift count 8 is out of range"));
+        let wide = parse_program("(fn main ((count u128)) u128 (<< (as 1 u128) count))").unwrap();
+        assert!(generate_assembly(&wide)
+            .unwrap()
+            .contains("wide_shift_failure"));
+    }
+
+    #[test]
     fn lowers_unit_functions_and_calls() {
         let program = parse_program("(fn noop () () ()) (fn main () u64 (noop) 42)").unwrap();
         assert!(check_types(&program).is_ok());

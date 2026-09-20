@@ -608,6 +608,13 @@ fn list_expression(
             if !is_numeric(&left) {
                 return Err(format!("operator '{operator}' requires numeric operands"));
             }
+            if matches!(operator.as_str(), "<<" | ">>") {
+                if let Expr::Integer(count) = &items[2] {
+                    if *count < 0 || integer_width(&left).is_some_and(|width| *count >= width) {
+                        return Err(format!("shift count {count} is out of range for {left:?}"));
+                    }
+                }
+            }
             Ok(left)
         }
         "<" | "<=" | ">" | ">=" | "==" | "!=" => {
@@ -1202,6 +1209,17 @@ fn is_numeric(ty: &Type) -> bool {
 
 fn is_matchable_scalar(ty: &Type) -> bool {
     is_integer(ty) || matches!(ty, Type::Bool | Type::Char)
+}
+
+fn integer_width(ty: &Type) -> Option<i128> {
+    match ty {
+        Type::I8 | Type::U8 => Some(8),
+        Type::I16 | Type::U16 => Some(16),
+        Type::I32 | Type::U32 => Some(32),
+        Type::I64 | Type::U64 | Type::Isize | Type::Usize => Some(64),
+        Type::I128 | Type::U128 => Some(128),
+        _ => None,
+    }
 }
 
 fn is_cast_operand(ty: &Type) -> bool {
