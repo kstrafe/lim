@@ -1,0 +1,7 @@
+(struct Point ((x u64) (y u64)))
+
+(fn make () Point
+  (Point 7 9))
+
+(fn main () u64
+  (get (make) y))

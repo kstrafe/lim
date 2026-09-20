@@ -1522,6 +1522,16 @@ mod tests {
     }
 
     #[test]
+    fn selects_fields_from_structs_returned_by_functions() {
+        let program = parse_program(
+            "(struct Point ((x u64) (y u64))) (fn make () Point (Point 7 9)) (fn main () u64 (get (make) y))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("call make"));
+    }
+
+    #[test]
     fn checks_and_lowers_fixed_arrays() {
         let program = parse_program("(fn main () u64 (let mut values (array u64 2) (array 3 4)) (set-index values 1 40) (+ (index values 0) (index values 1)))").unwrap();
         assert!(check_types(&program).is_ok());

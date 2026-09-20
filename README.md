@@ -199,6 +199,13 @@ Integer arrays returned from functions can be indexed directly as well:
 (fn main () u64 (index (values) 1))
 ```
 
+Integer fields can likewise be selected directly from returned structs:
+
+```lisp
+(fn point () Point (Point 7 9))
+(fn main () u64 (get (point) y))
+```
+
 Scalar functions also support more than six arguments using the x86-64 SysV
 stack-argument convention.
 

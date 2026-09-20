@@ -2122,7 +2122,8 @@ impl FunctionContext {
                 }
                 Ok(())
             }
-            Expr::List(constructor) => {
+            Expr::List(constructor) if matches!(constructor.first(), Some(Expr::Symbol(name)) if self.structs.contains_key(name)) =>
+            {
                 let Some(Expr::Symbol(struct_name)) = constructor.first() else {
                     return Err("get constructor must start with a struct name".into());
                 };
@@ -2141,7 +2142,35 @@ impl FunctionContext {
                 let field_type = fields[index].ty.clone();
                 self.expression_as_expected(value, &field_type)
             }
-            _ => Err("get requires a struct local or constructor".into()),
+            _ => {
+                let Type::Named(struct_name) = self
+                    .expression_type(&items[1])
+                    .ok_or_else(|| "get requires a struct value".to_owned())?
+                else {
+                    return Err("get requires a struct value".into());
+                };
+                let fields = self
+                    .structs
+                    .get(&struct_name)
+                    .ok_or_else(|| format!("unknown struct '{struct_name}'"))?
+                    .clone();
+                let index = fields
+                    .iter()
+                    .position(|field| field.name == *field_name)
+                    .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                ensure_integer_type(&fields[index].ty).map_err(|_| {
+                    "native returned-struct field access supports integer fields only".to_owned()
+                })?;
+                if index >= VALUE_REGISTERS.len() {
+                    return Err("native returned struct has too many fields".into());
+                }
+                self.expression(&items[1])?;
+                if index != 0 {
+                    self.output
+                        .push_str(&format!("    mov rax, {}\n", VALUE_REGISTERS[index]));
+                }
+                Ok(())
+            }
         }
     }
 
