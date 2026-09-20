@@ -5668,6 +5668,15 @@ mod tests {
     }
 
     #[test]
+    fn matches_direct_large_tuple_and_struct_returns() {
+        let program = parse_program_strict(
+            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn make-tuple () (#tuple u64 u64 u64 u64 u64 u64 u64) (#return (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64) 1u64 2u64 3u64 4u64 5u64 6u64 20u64))) (#fn make-struct () Large (#return (Large 1u64 2u64 3u64 4u64 5u64 6u64 22u64))) (#fn main () u64 (#return (#u64.+.wrap (#match (make-tuple) ((#tuple first second third fourth fifth sixth last) last) (_ 0u64)) (#match (make-struct) ((Large first second third fourth fifth sixth last) last) (_ 0u64)))))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn supports_large_enum_payloads_in_locals() {
         let program = parse_program_strict(
             "(#enum BigPayload ((Big u64 u64 u64 u64 u64 u64 u64) Empty)) (#fn main () u64 (#let mut value BigPayload (Big 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#set-payload value Big 6 42u64) (#return 42u64))",
