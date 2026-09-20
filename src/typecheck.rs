@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{parse_type, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
 
+const LOOP_VALUE_CONTEXT: &str = "\0lim-loop-value";
+
 #[derive(Clone)]
 struct Signature {
     type_parameters: Vec<String>,
@@ -742,7 +744,7 @@ fn statement_type(
             Ok(Type::Unit)
         }
         Statement::BreakValue(value) => {
-            if !in_loop {
+            if !in_loop && !mutable.contains(LOOP_VALUE_CONTEXT) {
                 return Err("break with a value used outside a loop".into());
             }
             expression(
@@ -935,8 +937,10 @@ fn expression(
         Expr::Loop(statements) => {
             let mut loop_variables = variables.clone();
             let mut loop_mutable = mutable.clone();
+            loop_mutable.insert(LOOP_VALUE_CONTEXT.to_owned());
             let mut result_type = None;
             for statement in statements {
+                let has_value_break = statement_has_value_break(statement);
                 let actual = if let Statement::BreakValue(value) = statement {
                     expression(
                         value,
@@ -961,7 +965,7 @@ fn expression(
                         true,
                     )?
                 };
-                if matches!(statement, Statement::BreakValue(_)) {
+                if has_value_break {
                     if let Some(previous) = &result_type {
                         require_same(previous, &actual, "loop break values")?;
                     } else {
@@ -981,6 +985,27 @@ fn expression(
         Expr::List(items) => list_expression(
             items, variables, functions, structs, enums, mutable, aliases, expected,
         ),
+    }
+}
+
+fn statement_has_value_break(statement: &Statement) -> bool {
+    match statement {
+        Statement::BreakValue(_) => true,
+        Statement::Expr(expression) => expression_has_value_break(expression),
+        Statement::While { body, .. } | Statement::Loop { body } | Statement::For { body, .. } => {
+            body.iter().any(statement_has_value_break)
+        }
+        _ => false,
+    }
+}
+
+fn expression_has_value_break(expression: &Expr) -> bool {
+    match expression {
+        Expr::Loop(_) => false,
+        Expr::Block(statements) => statements.iter().any(statement_has_value_break),
+        Expr::List(items) => items.iter().any(expression_has_value_break),
+        Expr::Quote(value) => expression_has_value_break(value),
+        _ => false,
     }
 }
 

@@ -1,0 +1,8 @@
+(#fn main () u64
+  (#let mut i u64 0)
+  (#return
+    (#loop
+      (#set i (#u64.+.wrap i 1))
+      (#if (#u64.== i 3)
+        (#block (#break i))
+        (#u64.+.wrap i 0)))))

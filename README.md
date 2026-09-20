@@ -554,6 +554,9 @@ provided explicitly by `#break` with a value:
     (#break 42)))
 ```
 
+Value breaks may occur inside conditional or block expressions; the loop
+continues when the break path is not taken.
+
 `block` expressions allow statement sequences inside expression branches:
 
 ```lisp

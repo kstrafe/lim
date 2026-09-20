@@ -3728,6 +3728,22 @@ mod tests {
     }
 
     #[test]
+    fn lowers_value_loops_with_conditional_breaks() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#let mut i u64 0) \
+               (#return (#loop \
+                 (#set i (#u64.+.wrap i 1)) \
+                 (#if (#u64.== i 3) \
+                   (#block (#break i)) \
+                   (#u64.+.wrap i 0)))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
