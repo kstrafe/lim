@@ -1,0 +1,8 @@
+(#fn classify ((value i32)) u64
+  (#return
+    (#match value
+      ((#range -10 10) 42)
+      (_ 0))))
+
+(#fn main () u64
+  (#return (classify 7)))

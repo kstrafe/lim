@@ -1097,6 +1097,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "block"
             | "match"
             | "when"
+            | "range"
             | "as"
             | "array"
             | "array-repeat"

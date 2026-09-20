@@ -673,6 +673,17 @@ integer and character domains. Boolean matches may cover both `true` and
     (_ 30)))
 ```
 
+Inclusive scalar ranges use the explicit `#range` pattern. Integer ranges are
+validated against the scrutinee width and use signed or unsigned comparisons:
+
+```lisp
+(#match value
+  ((#range 10 20) 1)
+  (_ 0))
+```
+
+128-bit range patterns are reserved for a future wide comparison lowering.
+
 Fixed-size arrays are value types with stack storage:
 
 ```lisp

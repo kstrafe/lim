@@ -1864,6 +1864,12 @@ fn check_scalar_match(
     for arm in &items[2..] {
         let (pattern, guard, body) = match_arm_parts(arm)?;
         match pattern {
+            Expr::List(parts)
+                if parts.len() == 3
+                    && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "range") =>
+            {
+                check_scalar_range_pattern(parts, scrutinee)?;
+            }
             Expr::Symbol(pattern) if pattern == "_" => {
                 if guard.is_none() && wildcard {
                     return Err("duplicate wildcard match pattern".into());
@@ -1946,6 +1952,71 @@ fn check_scalar_match(
         return Err("match is not exhaustive; add '_' arm".into());
     }
     Ok(result_type.unwrap_or(Type::Unit))
+}
+
+fn check_scalar_range_pattern(parts: &[Expr], scrutinee: &Type) -> Result<(), String> {
+    if integer_width(scrutinee) == Some(128) {
+        return Err("scalar range patterns do not yet support 128-bit integers".into());
+    }
+    if is_integer(scrutinee) {
+        let signed = matches!(
+            scrutinee,
+            Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::Isize
+        );
+        if signed {
+            let lower = signed_range_bound(&parts[1])?;
+            let upper = signed_range_bound(&parts[2])?;
+            if !fits_integer(lower, scrutinee) || !fits_integer(upper, scrutinee) {
+                return Err("integer range pattern does not fit its scrutinee type".into());
+            }
+            if lower > upper {
+                return Err("integer range pattern lower bound exceeds upper bound".into());
+            }
+        } else {
+            let lower = unsigned_range_bound(&parts[1])?;
+            let upper = unsigned_range_bound(&parts[2])?;
+            if !fits_unsigned_integer(lower, scrutinee) || !fits_unsigned_integer(upper, scrutinee)
+            {
+                return Err("unsigned range pattern does not fit its scrutinee type".into());
+            }
+            if lower > upper {
+                return Err("unsigned range pattern lower bound exceeds upper bound".into());
+            }
+        }
+        return Ok(());
+    }
+    if matches!(scrutinee, Type::Char) {
+        let Expr::Char(lower) = parts[1] else {
+            return Err("character range patterns require character bounds".into());
+        };
+        let Expr::Char(upper) = parts[2] else {
+            return Err("character range patterns require character bounds".into());
+        };
+        if lower > upper {
+            return Err("character range pattern lower bound exceeds upper bound".into());
+        }
+        return Ok(());
+    }
+    Err("range patterns require an integer or char scrutinee".into())
+}
+
+fn signed_range_bound(expression: &Expr) -> Result<i128, String> {
+    match expression {
+        Expr::Integer(value) => Ok(*value),
+        Expr::UnsignedInteger(value) => {
+            i128::try_from(*value).map_err(|_| "signed range bound is too large".to_owned())
+        }
+        _ => Err("integer range patterns require integer bounds".into()),
+    }
+}
+
+fn unsigned_range_bound(expression: &Expr) -> Result<u128, String> {
+    match expression {
+        Expr::Integer(value) if *value >= 0 => Ok(*value as u128),
+        Expr::Integer(_) => Err("unsigned range bounds cannot be negative".into()),
+        Expr::UnsignedInteger(value) => Ok(*value),
+        _ => Err("integer range patterns require integer bounds".into()),
+    }
 }
 
 fn match_arm_parts(arm: &Expr) -> Result<(&Expr, Option<&Expr>, &Expr), String> {

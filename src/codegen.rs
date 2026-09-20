@@ -156,6 +156,80 @@ struct FunctionAbi {
     max_call_depth: usize,
 }
 
+enum ScalarRange {
+    Signed(i64, i64),
+    Unsigned(u64, u64),
+    Char(u64, u64),
+}
+
+fn scalar_range_bounds(pattern: &Expr, ty: &Type) -> Result<ScalarRange, String> {
+    let Expr::List(parts) = pattern else {
+        return Err("range pattern must be a list".into());
+    };
+    if parts.len() != 3 || !matches!(parts.first(), Some(Expr::Symbol(name)) if name == "range") {
+        return Err("range pattern must have the form (#range lower upper)".into());
+    }
+    if matches!(ty, Type::I128 | Type::U128) {
+        return Err("scalar range patterns do not yet support 128-bit integers".into());
+    }
+    if matches!(
+        ty,
+        Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::Isize
+    ) {
+        let lower = signed_range_bound(&parts[1])?;
+        let upper = signed_range_bound(&parts[2])?;
+        if lower > upper {
+            return Err("integer range pattern lower bound exceeds upper bound".into());
+        }
+        return Ok(ScalarRange::Signed(lower, upper));
+    }
+    if matches!(
+        ty,
+        Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::Usize
+    ) {
+        let lower = unsigned_range_bound(&parts[1])?;
+        let upper = unsigned_range_bound(&parts[2])?;
+        if lower > upper {
+            return Err("unsigned range pattern lower bound exceeds upper bound".into());
+        }
+        return Ok(ScalarRange::Unsigned(lower, upper));
+    }
+    if matches!(ty, Type::Char) {
+        let Expr::Char(lower) = parts[1] else {
+            return Err("character range patterns require character bounds".into());
+        };
+        let Expr::Char(upper) = parts[2] else {
+            return Err("character range patterns require character bounds".into());
+        };
+        if lower > upper {
+            return Err("character range pattern lower bound exceeds upper bound".into());
+        }
+        return Ok(ScalarRange::Char(lower as u64, upper as u64));
+    }
+    Err("range patterns require an integer or char scrutinee".into())
+}
+
+fn signed_range_bound(expression: &Expr) -> Result<i64, String> {
+    match expression {
+        Expr::Integer(value) => i64::try_from(*value)
+            .map_err(|_| "signed range bound is outside the native scalar width".to_owned()),
+        Expr::UnsignedInteger(value) => i64::try_from(*value)
+            .map_err(|_| "signed range bound is outside the native scalar width".to_owned()),
+        _ => Err("integer range patterns require integer bounds".into()),
+    }
+}
+
+fn unsigned_range_bound(expression: &Expr) -> Result<u64, String> {
+    match expression {
+        Expr::Integer(value) if *value >= 0 => u64::try_from(*value)
+            .map_err(|_| "unsigned range bound is outside the native scalar width".to_owned()),
+        Expr::Integer(_) => Err("unsigned range bounds cannot be negative".into()),
+        Expr::UnsignedInteger(value) => u64::try_from(*value)
+            .map_err(|_| "unsigned range bound is outside the native scalar width".to_owned()),
+        _ => Err("integer range patterns require integer bounds".into()),
+    }
+}
+
 fn generic_call_parts(operator: &str) -> Option<(&str, Vec<&str>)> {
     let open = operator.find('<')?;
     if !operator.ends_with('>') || open == 0 {
@@ -7163,6 +7237,20 @@ impl FunctionContext {
                 Expr::Symbol(pattern) if self.enum_value(pattern).is_some() => {
                     (pattern.as_str(), Vec::new())
                 }
+                Expr::List(pattern)
+                    if pattern.len() == 3
+                        && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "range") =>
+                {
+                    let scrutinee_type = self
+                        .expression_type(&items[1])
+                        .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
+                    self.emit_scalar_range_pattern(
+                        &Expr::List(pattern.clone()),
+                        &scrutinee_type,
+                        &next,
+                    )?;
+                    ("", Vec::new())
+                }
                 Expr::List(pattern) if !pattern.is_empty() => {
                     let Expr::Symbol(pattern_name) = &pattern[0] else {
                         return Err("match variant pattern must be a symbol".into());
@@ -7226,12 +7314,9 @@ impl FunctionContext {
                         asm_u64_immediate(value)
                     ));
                 }
-            } else if let Expr::List(pattern) = pattern {
+            } else if !variant_name.is_empty() {
                 let value = self
-                    .enum_value(match &pattern[0] {
-                        Expr::Symbol(pattern) => pattern,
-                        _ => unreachable!(),
-                    })
+                    .enum_value(variant_name)
                     .ok_or_else(|| "unknown enum variant".to_owned())?;
                 self.output.push_str(&format!(
                     "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
@@ -7328,6 +7413,31 @@ impl FunctionContext {
         }
         self.output.push_str(&format!("{end}:\n"));
         self.stack_depth = base_depth;
+        Ok(())
+    }
+
+    fn emit_scalar_range_pattern(
+        &mut self,
+        pattern: &Expr,
+        ty: &Type,
+        next: &str,
+    ) -> Result<(), String> {
+        let range = scalar_range_bounds(pattern, ty)?;
+        let operand = "QWORD PTR [rsp]";
+        match range {
+            ScalarRange::Signed(lower, upper) => {
+                self.output.push_str(&format!(
+                    "    cmp {operand}, {lower}\n    jl {next}\n    cmp {operand}, {upper}\n    jg {next}\n"
+                ));
+            }
+            ScalarRange::Unsigned(lower, upper) | ScalarRange::Char(lower, upper) => {
+                self.output.push_str(&format!(
+                    "    cmp {operand}, {}\n    jb {next}\n    cmp {operand}, {}\n    ja {next}\n",
+                    asm_u64_immediate(lower),
+                    asm_u64_immediate(upper)
+                ));
+            }
+        }
         Ok(())
     }
 
