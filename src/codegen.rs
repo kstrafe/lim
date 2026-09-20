@@ -2269,6 +2269,7 @@ impl FunctionContext {
             Expr::UnsignedInteger(_) => Some(Type::U128),
             Expr::Char(_) => Some(Type::Char),
             Expr::Float(_) => Some(Type::F64),
+            Expr::String(value) => Some(Type::Array(Box::new(Type::Char), value.chars().count())),
             Expr::Symbol(name) if name == "true" || name == "false" => Some(Type::Bool),
             Expr::Symbol(name) => self
                 .local_types
@@ -2517,6 +2518,21 @@ impl FunctionContext {
             }
             return Ok(());
         }
+        if let Expr::String(string) = value {
+            let characters = string.chars().collect::<Vec<_>>();
+            if characters.len() != length {
+                return Err("string length does not match array return type".into());
+            }
+            for character in characters {
+                self.expression_as_abi_word(&Expr::Char(character), &Type::Char)?;
+                self.push_rax();
+            }
+            for register in VALUE_REGISTERS[..length].iter().rev() {
+                self.output.push_str(&format!("    pop {register}\n"));
+                self.stack_depth -= 1;
+            }
+            return Ok(());
+        }
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat") {
                 if items.len() != 2 {
@@ -2744,6 +2760,20 @@ impl FunctionContext {
             return Err(format!("'{name}' is not an array"));
         };
         let (base, length) = (*base, *length);
+        if let Expr::String(string) = value {
+            let characters = string.chars().collect::<Vec<_>>();
+            if characters.len() != length {
+                return Err("string length does not match array local".into());
+            }
+            for (index, character) in characters.into_iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {}\n",
+                    (base + index) * 8,
+                    character as u32
+                ));
+            }
+            return Ok(());
+        }
         let Expr::List(items) = value else {
             self.expression(value)?;
             for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
@@ -4512,6 +4542,23 @@ impl FunctionContext {
             return Ok(());
         }
         if let Type::Array(_, length) = ty {
+            if let Expr::String(string) = value {
+                let characters = string.chars().collect::<Vec<_>>();
+                if characters.len() != *length {
+                    return Err("string length does not match array argument".into());
+                }
+                let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                    Box::new((0..*length).rev())
+                } else {
+                    Box::new(0..*length)
+                };
+                for index in indices {
+                    self.output
+                        .push_str(&format!("    mov rax, {}\n", characters[index] as u32));
+                    self.push_rax();
+                }
+                return Ok(());
+            }
             if let Expr::Symbol(local) = value {
                 let Storage::Array {
                     base,

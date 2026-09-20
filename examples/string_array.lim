@@ -1,0 +1,4 @@
+(#fn main () u64
+  (#let chars (#array char 2) "Hi")
+  (#return
+    (#if (#char.== (#index chars 0) #\H) 42 0)))

@@ -752,7 +752,7 @@ fn expression(
             .cloned()
             .or_else(|| enum_variant_type(name, enums))
             .ok_or_else(|| format!("unknown variable or enum variant '{name}'")),
-        Expr::String(_) => Ok(Type::Named("str".into())),
+        Expr::String(value) => Ok(Type::Array(Box::new(Type::Char), value.chars().count())),
         Expr::Block(statements) => {
             let mut block_variables = variables.clone();
             let mut block_mutable = mutable.clone();

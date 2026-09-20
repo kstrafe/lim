@@ -59,6 +59,16 @@ The typed declaration pass recognizes primitive Rust-style types (`u8` through
 `u128`, `usize`, signed integers, `f32`, `f64`, `bool`, `char`, and `()`), as
 well as named types. Local variables use explicit types:
 
+String literals have a fixed compile-time length and their type is an explicit
+fixed array of `char`. They do not introduce pointers, slices, or implicit
+allocation:
+
+```lisp
+(#fn first () u64
+  (#let letters (#array char 2) "Hi")
+  (#return (#if (#char.== (#index letters 0) #\\H) 1 0)))
+```
+
 ```lisp
 (fn add ((left u32) (right u32)) u32
   (let total u32 (+ left right))
