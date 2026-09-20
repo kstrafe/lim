@@ -426,6 +426,8 @@ call boundary; pointers remain unavailable in Lim source. See
 
 Nested value aggregates use the same indirect storage boundary for parameters;
 see `examples/large_nested_parameter.lim`.
+Nested large structs can also be matched recursively while binding their full
+stack-resident payloads; see `examples/nested_large_match.lim`.
 
 Multiple inline large aggregate arguments receive independent temporary storage;
 see `examples/two_large_arguments.lim`.
