@@ -8891,6 +8891,22 @@ impl FunctionContext {
                 }
                 return Ok(());
             }
+            if let Type::Named(enum_name) = ty {
+                if let Some(variants) = self.enums.get(enum_name) {
+                    if let Some(variant) = variants.iter().find(|variant| variant.name == *name) {
+                        self.output.push_str(&format!(
+                            "    mov QWORD PTR [rbp-{}], {}\n",
+                            slots[0] * 8,
+                            variant.discriminant
+                        ));
+                        for slot in &slots[1..] {
+                            self.output
+                                .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
+                        }
+                        return Ok(());
+                    }
+                }
+            }
         }
         if let Expr::List(items) = value {
             if let Some(Expr::Symbol(function_name)) = items.first() {
@@ -9010,6 +9026,34 @@ impl FunctionContext {
                         &slots[offset..offset + field_words],
                     )?;
                     offset += field_words;
+                }
+                Ok(())
+            }
+            Type::Named(enum_name) if self.enums.contains_key(enum_name) => {
+                let variants = self.enums.get(enum_name).cloned().unwrap_or_default();
+                let variant = variants
+                    .iter()
+                    .find(|variant| variant.name == *constructor)
+                    .ok_or_else(|| format!("unknown enum variant '{constructor}'"))?;
+                if items.len() - 1 != variant.fields.len() {
+                    return Err(format!(
+                        "large enum variant '{constructor}' has the wrong payload count"
+                    ));
+                }
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {}\n",
+                    slots[0] * 8,
+                    variant.discriminant
+                ));
+                let mut offset = 1;
+                for (item, field) in items[1..].iter().zip(&variant.fields) {
+                    let field_words = storage_word_count(field, &self.structs, &self.enums)?;
+                    self.store_value_to_slots(item, field, &slots[offset..offset + field_words])?;
+                    offset += field_words;
+                }
+                for slot in &slots[offset..] {
+                    self.output
+                        .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
                 }
                 Ok(())
             }

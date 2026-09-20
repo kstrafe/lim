@@ -5695,6 +5695,15 @@ mod tests {
     }
 
     #[test]
+    fn passes_constructed_large_enum_arguments() {
+        let program = parse_program_strict(
+            "(#enum Wide ((Values u64 u64 u64 u64 u64 u64 u64) Empty)) (#fn last ((value Wide)) u64 (#return (#match value ((Values first second third fourth fifth sixth last) last) (_ 0u64)))) (#fn main () u64 (#return (last (Values 1u64 2u64 3u64 4u64 5u64 6u64 42u64))))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn checks_and_lowers_type_aliases() {
         let program = parse_program(
             "(type UserId u64) (fn add_one ((id UserId)) UserId (+ id 1)) (fn main () UserId (add_one 41))",

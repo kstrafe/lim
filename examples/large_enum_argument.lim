@@ -1,0 +1,11 @@
+(#enum Wide
+  ((Values u64 u64 u64 u64 u64 u64 u64) Empty))
+
+(#fn last ((value Wide)) u64
+  (#return
+    (#match value
+      ((Values first second third fourth fifth sixth last) last)
+      (_ 0u64))))
+
+(#fn main () u64
+  (#return (last (Values 1u64 2u64 3u64 4u64 5u64 6u64 42u64))))
