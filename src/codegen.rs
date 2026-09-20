@@ -17,6 +17,25 @@ const FLOAT_ARGUMENT_REGISTERS: [&str; 8] = [
     "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
 ];
 
+fn asm_symbol(name: &str) -> String {
+    let mut symbol = String::new();
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() || byte == b'_' {
+            symbol.push(byte as char);
+        } else {
+            symbol.push_str(&format!("_x{byte:02x}_"));
+        }
+    }
+    if symbol
+        .as_bytes()
+        .first()
+        .is_some_and(|byte| byte.is_ascii_digit())
+    {
+        symbol.insert(0, '_');
+    }
+    symbol
+}
+
 fn low_register(register: &str) -> &str {
     match register {
         "rax" => "eax",
@@ -147,15 +166,16 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     if !globals.is_empty() {
         output.push_str(".section .rodata\n");
         for (name, value) in &globals {
+            let symbol = asm_symbol(name);
             match value {
                 GlobalValue::Integer(value) => {
-                    output.push_str(&format!(".align 8\n{name}:\n    .quad {value}\n"));
+                    output.push_str(&format!(".align 8\n{symbol}:\n    .quad {value}\n"));
                 }
                 GlobalValue::F32(value) => {
-                    output.push_str(&format!(".align 8\n{name}:\n    .long {value}\n"));
+                    output.push_str(&format!(".align 8\n{symbol}:\n    .long {value}\n"));
                 }
                 GlobalValue::F64(value) => {
-                    output.push_str(&format!(".align 8\n{name}:\n    .quad {value}\n"));
+                    output.push_str(&format!(".align 8\n{symbol}:\n    .quad {value}\n"));
                 }
             }
         }
@@ -245,10 +265,11 @@ fn generate_function(
         )?;
     }
     let frame_size = ((next_slot.saturating_sub(1) * 8 + 15) / 16) * 16;
+    let function_symbol = asm_symbol(&function.name);
 
     output.push_str(&format!(
         ".globl {}\n.type {}, @function\n{}:\n",
-        function.name, function.name, function.name
+        function_symbol, function_symbol, function_symbol
     ));
     output.push_str("    push rbp\n    mov rbp, rsp\n");
     if frame_size != 0 {
@@ -359,7 +380,7 @@ fn generate_function(
         }
     }
 
-    let return_label = format!(".Lreturn_{}", function.name);
+    let return_label = format!(".Lreturn_{}", asm_symbol(&function.name));
     let mut context = FunctionContext {
         locals,
         structs: structs.clone(),
@@ -2024,15 +2045,18 @@ impl FunctionContext {
                     }
                 } else if self.globals.contains_key(name) {
                     match self.global_types.get(name) {
-                        Some(Type::F32) => self
-                            .output
-                            .push_str(&format!("    movss xmm0, DWORD PTR [rip+{name}]\n")),
-                        Some(Type::F64) => self
-                            .output
-                            .push_str(&format!("    movq xmm0, QWORD PTR [rip+{name}]\n")),
-                        _ => self
-                            .output
-                            .push_str(&format!("    mov rax, QWORD PTR [rip+{name}]\n")),
+                        Some(Type::F32) => self.output.push_str(&format!(
+                            "    movss xmm0, DWORD PTR [rip+{}]\n",
+                            asm_symbol(name)
+                        )),
+                        Some(Type::F64) => self.output.push_str(&format!(
+                            "    movq xmm0, QWORD PTR [rip+{}]\n",
+                            asm_symbol(name)
+                        )),
+                        _ => self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rip+{}]\n",
+                            asm_symbol(name)
+                        )),
                     }
                 } else {
                     return Err(format!("unknown variable '{name}'"));
@@ -3209,7 +3233,8 @@ impl FunctionContext {
             }
             self.output.push_str("    add rsp, 48\n");
             self.stack_depth -= ARGUMENT_REGISTERS.len();
-            self.output.push_str(&format!("    call {name}\n"));
+            self.output
+                .push_str(&format!("    call {}\n", asm_symbol(name)));
             self.output
                 .push_str(&format!("    add rsp, {}\n", stack_arguments * 8));
             self.stack_depth -= stack_arguments;
@@ -3230,7 +3255,8 @@ impl FunctionContext {
         if needs_padding {
             self.output.push_str("    sub rsp, 8\n");
         }
-        self.output.push_str(&format!("    call {name}\n"));
+        self.output
+            .push_str(&format!("    call {}\n", asm_symbol(name)));
         if needs_padding {
             self.output.push_str("    add rsp, 8\n");
         }
@@ -3264,7 +3290,8 @@ impl FunctionContext {
         if needs_padding {
             self.output.push_str("    sub rsp, 8\n");
         }
-        self.output.push_str(&format!("    call {name}\n"));
+        self.output
+            .push_str(&format!("    call {}\n", asm_symbol(name)));
         if needs_padding {
             self.output.push_str("    add rsp, 8\n");
         }
@@ -3352,7 +3379,8 @@ impl FunctionContext {
         if needs_padding {
             self.output.push_str("    sub rsp, 8\n");
         }
-        self.output.push_str(&format!("    call {name}\n"));
+        self.output
+            .push_str(&format!("    call {}\n", asm_symbol(name)));
         if needs_padding {
             self.output.push_str("    add rsp, 8\n");
         }

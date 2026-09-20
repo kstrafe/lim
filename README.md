@@ -42,13 +42,13 @@ cc /tmp/fibonacci.s -o /tmp/fibonacci
 - The generated-code sigil `@` as a first-class AST node
 
 The first built-in generated declaration is `@optional`, which expands to a
-scalar-payload enum:
+enum and a generated `-construct` helper:
 
 ```lisp
 (@optional u64 Maybe?)
 (fn identity ((value Maybe?)) Maybe? value)
 (fn main () u64
-  (let value Maybe? (identity (Maybe?-some 42)))
+  (let value Maybe? (identity (Maybe?-construct 42)))
   (match value ((Maybe?-some payload) payload) (Maybe?-none 0)))
 ```
 

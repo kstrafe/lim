@@ -526,6 +526,12 @@ pub fn parse_program(source: &str) -> Result<Program, String> {
     let expressions = parse(source)?;
     let mut items = Vec::with_capacity(expressions.len());
     for expression in expressions {
+        if let Expr::List(forms) = &expression.expr {
+            if matches!(forms.first(), Some(Expr::At)) {
+                items.extend(parse_generated_items(forms)?);
+                continue;
+            }
+        }
         items.push(parse_item(&expression.expr)?);
     }
     Ok(Program { items })
@@ -593,6 +599,39 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
             },
         ],
     })
+}
+
+fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
+    let generated = parse_generated_item(items)?;
+    let Item::Enum { name, variants } = &generated else {
+        unreachable!("optional expansion always produces an enum")
+    };
+    let name = name.clone();
+    let payload = variants
+        .first()
+        .and_then(|variant| variant.fields.first())
+        .cloned()
+        .expect("optional expansion has a payload variant");
+    let some = variants
+        .first()
+        .map(|variant| variant.name.clone())
+        .expect("optional expansion has a some variant");
+    Ok(vec![
+        generated,
+        Item::Function(Function {
+            name: format!("{name}-construct"),
+            parameters: vec![Parameter {
+                name: "value".into(),
+                ty: payload,
+                mutable: false,
+            }],
+            return_type: Type::Named(name),
+            body: vec![Statement::Expr(Expr::List(vec![
+                Expr::Symbol(some),
+                Expr::Symbol("value".into()),
+            ]))],
+        }),
+    ])
 }
 
 fn parse_struct_name(items: &[Expr]) -> Result<String, String> {
@@ -1519,13 +1558,16 @@ mod tests {
     #[test]
     fn expands_optional_generated_declarations() {
         let program = parse_program(
-            "(@optional u64 Maybe?) (fn main () u64 (let value Maybe? (Maybe?-some 42)) (match value ((Maybe?-some payload) payload) (Maybe?-none 0)))",
+            "(@optional u64 Maybe?) (fn main () u64 (let value Maybe? (Maybe?-construct 42)) (match value ((Maybe?-some payload) payload) (Maybe?-none 0)))",
         )
         .unwrap();
+        assert!(program.items.iter().any(|item| {
+            matches!(item, Item::Function(function) if function.name == "Maybe?-construct")
+        }));
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program)
             .unwrap()
-            .contains("mov QWORD PTR [rbp-8], 0"));
+            .contains(".globl Maybe_x3f__x2d_construct"));
     }
 
     #[test]

@@ -4,7 +4,7 @@
   value)
 
 (fn main () u64
-  (let value Maybe? (identity (Maybe?-some 42)))
+  (let value Maybe? (identity (Maybe?-construct 42)))
   (match value
     ((Maybe?-some payload) payload)
     (Maybe?-none 0)))
