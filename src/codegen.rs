@@ -123,7 +123,11 @@ fn generate_function(
     let return_type = resolve_type(&function.return_type, aliases)?;
     ensure_return_type(&return_type, enums, structs)?;
     for parameter in &function.parameters {
-        ensure_parameter_type(&resolve_type(&parameter.ty, aliases)?, enums, structs)?;
+        let parameter_type = resolve_type(&parameter.ty, aliases)?;
+        if matches!(parameter_type, Type::F32 | Type::F64) {
+            return Err("native backend does not support floating-point parameters yet".into());
+        }
+        ensure_parameter_type(&parameter_type, enums, structs)?;
     }
 
     let mut locals = HashMap::new();
@@ -575,6 +579,9 @@ fn is_unsigned_type(ty: &Type) -> bool {
 }
 
 fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
+    if matches!(ty, Type::F64) {
+        return Ok(());
+    }
     if let Type::Named(name) = ty {
         if let Some(variants) = enums.get(name) {
             if variants.iter().all(|variant| variant.fields.is_empty()) {
@@ -660,6 +667,7 @@ fn constant_value(
 ) -> Result<i128, String> {
     match expression {
         Expr::Integer(value) => Ok(*value),
+        Expr::Float(_) => Err("floating-point global initializers are not supported".into()),
         Expr::Symbol(name) if name == "true" => Ok(1),
         Expr::Symbol(name) if name == "false" => Ok(0),
         Expr::Symbol(name) => enums
@@ -724,23 +732,39 @@ impl FunctionContext {
                     self.store_array(name, value)?;
                 } else {
                     self.expression(value)?;
-                    self.output.push_str(&format!(
-                        "    mov QWORD PTR [rbp-{}], rax\n",
-                        scalar_slot(&self.locals, name) * 8
-                    ));
+                    let slot = scalar_slot(&self.locals, name) * 8;
+                    if matches!(ty, Type::F64) {
+                        self.output.push_str(&format!(
+                            "    movq rax, xmm0\n    mov QWORD PTR [rbp-{slot}], rax\n"
+                        ));
+                    } else {
+                        self.output
+                            .push_str(&format!("    mov QWORD PTR [rbp-{slot}], rax\n"));
+                    }
                 }
             }
             Statement::Assign { name, value } => {
                 self.expression(value)?;
-                let slot = self
+                let storage = self
                     .locals
                     .get(name)
                     .ok_or_else(|| format!("unknown variable '{name}'"))?;
-                let Storage::Scalar(slot) = slot else {
+                let Storage::Scalar(slot) = storage else {
                     return Err(format!("cannot assign aggregate local '{name}'"));
                 };
-                self.output
-                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+                if self
+                    .local_types
+                    .get(name)
+                    .is_some_and(|ty| matches!(ty, Type::F64))
+                {
+                    self.output.push_str(&format!(
+                        "    movq rax, xmm0\n    mov QWORD PTR [rbp-{}], rax\n",
+                        slot * 8
+                    ));
+                } else {
+                    self.output
+                        .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+                }
             }
             Statement::ArrayAssign { name, index, value } => {
                 let Storage::Array { base, length } = self
@@ -1193,6 +1217,14 @@ impl FunctionContext {
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         match expression {
             Expr::Integer(value) => self.output.push_str(&format!("    mov rax, {value}\n")),
+            Expr::Float(value) => {
+                let bits = value
+                    .parse::<f64>()
+                    .map_err(|_| format!("invalid floating-point literal '{value}'"))?
+                    .to_bits();
+                self.output
+                    .push_str(&format!("    mov rax, 0x{bits:x}\n    movq xmm0, rax\n"));
+            }
             Expr::Block(statements) => {
                 if statements.is_empty() {
                     self.output.push_str("    xor eax, eax\n");
@@ -1212,8 +1244,17 @@ impl FunctionContext {
             Expr::Symbol(name) => {
                 if self.locals.contains_key(name) {
                     let slot = scalar_slot(&self.locals, name);
-                    self.output
-                        .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+                    if self
+                        .local_types
+                        .get(name)
+                        .is_some_and(|ty| matches!(ty, Type::F64))
+                    {
+                        self.output
+                            .push_str(&format!("    movq xmm0, QWORD PTR [rbp-{}]\n", slot * 8));
+                    } else {
+                        self.output
+                            .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+                    }
                 } else if self.globals.contains_key(name) {
                     self.output
                         .push_str(&format!("    mov rax, QWORD PTR [rip+{name}]\n"));
@@ -1401,7 +1442,13 @@ impl FunctionContext {
 
     fn unary_negate(&mut self, items: &[Expr]) -> Result<(), String> {
         self.expression(&items[1])?;
-        self.output.push_str("    neg rax\n");
+        if self.expression_is_float(&items[1]) {
+            self.output.push_str(
+                "    mov rax, 0x8000000000000000\n    movq xmm1, rax\n    xorpd xmm0, xmm1\n",
+            );
+        } else {
+            self.output.push_str("    neg rax\n");
+        }
         Ok(())
     }
 
@@ -1495,6 +1542,9 @@ impl FunctionContext {
         if items.len() != 3 {
             return Err(format!("operator '{operator}' requires two operands"));
         }
+        if self.expression_is_float(&items[1]) {
+            return self.float_binary_operator(operator, items);
+        }
         self.expression(&items[1])?;
         self.push_rax();
         self.expression(&items[2])?;
@@ -1524,9 +1574,43 @@ impl FunctionContext {
         Ok(())
     }
 
+    fn float_binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+        self.expression(&items[1])?;
+        self.output
+            .push_str("    sub rsp, 8\n    movq QWORD PTR [rsp], xmm0\n");
+        self.stack_depth += 1;
+        self.expression(&items[2])?;
+        self.output
+            .push_str("    movq xmm1, QWORD PTR [rsp]\n    add rsp, 8\n");
+        self.stack_depth -= 1;
+        match operator {
+            "+" => self
+                .output
+                .push_str("    addsd xmm1, xmm0\n    movapd xmm0, xmm1\n"),
+            "-" => self
+                .output
+                .push_str("    subsd xmm1, xmm0\n    movapd xmm0, xmm1\n"),
+            "*" => self
+                .output
+                .push_str("    mulsd xmm1, xmm0\n    movapd xmm0, xmm1\n"),
+            "/" => self
+                .output
+                .push_str("    divsd xmm1, xmm0\n    movapd xmm0, xmm1\n"),
+            _ => {
+                return Err(format!(
+                    "floating-point operator '{operator}' is unsupported"
+                ))
+            }
+        }
+        Ok(())
+    }
+
     fn comparison(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
         if items.len() != 3 {
             return Err(format!("comparison '{operator}' requires two operands"));
+        }
+        if self.expression_is_float(&items[1]) {
+            return self.float_comparison(operator, items);
         }
         self.expression(&items[1])?;
         self.push_rax();
@@ -1553,6 +1637,30 @@ impl FunctionContext {
         Ok(())
     }
 
+    fn float_comparison(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+        self.expression(&items[1])?;
+        self.output
+            .push_str("    sub rsp, 8\n    movq QWORD PTR [rsp], xmm0\n");
+        self.stack_depth += 1;
+        self.expression(&items[2])?;
+        self.output
+            .push_str("    movq xmm1, QWORD PTR [rsp]\n    add rsp, 8\n");
+        self.stack_depth -= 1;
+        self.output.push_str("    ucomisd xmm1, xmm0\n");
+        let condition = match operator {
+            "<" => "b",
+            "<=" => "be",
+            ">" => "a",
+            ">=" => "ae",
+            "==" => "e",
+            "!=" => "ne",
+            _ => unreachable!(),
+        };
+        self.output
+            .push_str(&format!("    set{condition} al\n    movzx rax, al\n"));
+        Ok(())
+    }
+
     fn expression_is_unsigned(&self, expression: &Expr) -> bool {
         match expression {
             Expr::Symbol(name) => self.local_types.get(name).is_some_and(is_unsigned_type),
@@ -1569,6 +1677,28 @@ impl FunctionContext {
                 }
                 _ => false,
             },
+            _ => false,
+        }
+    }
+
+    fn expression_is_float(&self, expression: &Expr) -> bool {
+        match expression {
+            Expr::Float(_) => true,
+            Expr::Symbol(name) => self
+                .local_types
+                .get(name)
+                .is_some_and(|ty| matches!(ty, Type::F64)),
+            Expr::List(items) => items
+                .first()
+                .and_then(|operator| match operator {
+                    Expr::Symbol(operator)
+                        if matches!(operator.as_str(), "+" | "-" | "*" | "/") =>
+                    {
+                        items.get(1)
+                    }
+                    _ => None,
+                })
+                .is_some_and(|value| self.expression_is_float(value)),
             _ => false,
         }
     }

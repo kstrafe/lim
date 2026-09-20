@@ -39,6 +39,7 @@ pub enum TokenKind {
     At,
     Symbol(String),
     Integer(i128),
+    Float(String),
     String(String),
 }
 
@@ -157,9 +158,14 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
         let text = std::str::from_utf8(&self.source[start..self.offset]).unwrap();
-        let kind = match parse_integer_literal(text) {
-            Some(value) => TokenKind::Integer(value),
-            None => TokenKind::Symbol(text.to_owned()),
+        let kind = if let Some(value) = parse_integer_literal(text) {
+            TokenKind::Integer(value)
+        } else if (text.contains('.') || text.contains('e') || text.contains('E'))
+            && text.parse::<f64>().is_ok()
+        {
+            TokenKind::Float(text.to_owned())
+        } else {
+            TokenKind::Symbol(text.to_owned())
         };
         Ok(Token {
             kind,
@@ -247,6 +253,7 @@ pub enum Expr {
     Block(Vec<Statement>),
     Symbol(String),
     Integer(i128),
+    Float(String),
     String(String),
     /// The generated-code sigil in source, e.g. `(@optional T T?)`.
     At,
@@ -865,6 +872,13 @@ impl<'a> Parser<'a> {
                     span: token.span,
                 })
             }
+            TokenKind::Float(value) => {
+                self.index += 1;
+                Ok(SpannedExpr {
+                    expr: Expr::Float(value.clone()),
+                    span: token.span,
+                })
+            }
             TokenKind::String(value) => {
                 self.index += 1;
                 Ok(SpannedExpr {
@@ -1128,6 +1142,22 @@ mod tests {
         let invalid =
             parse_program("(fn increment ((value u64)) u64 (set value 1) value)").unwrap();
         assert!(check_types(&invalid).unwrap_err().contains("immutable"));
+    }
+
+    #[test]
+    fn checks_and_lowers_f64_arithmetic() {
+        let program = parse_program(
+            "(fn calculate () f64 (let left f64 1.5) (let right f64 2.25) (+ left right))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("addsd xmm1, xmm0"));
+        assert!(assembly.contains("movq xmm0"));
+        let invalid = parse_program("(fn calculate ((value f64)) f64 value)").unwrap();
+        assert!(generate_assembly(&invalid)
+            .unwrap_err()
+            .contains("floating-point parameters"));
     }
 
     #[test]

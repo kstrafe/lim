@@ -1,0 +1,4 @@
+(fn main () u64
+  (let left f64 1.5)
+  (let right f64 2.25)
+  (if (< left right) 42 0))

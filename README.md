@@ -68,6 +68,9 @@ Conversions are explicit integer casts:
   (as (as 42 u32) u64))
 ```
 
+Native `f64` locals support literals, arithmetic, and comparisons through SSE;
+floating-point function parameters are reserved for a later ABI pass.
+
 Named type aliases are explicit and resolve to their target type:
 
 ```lisp

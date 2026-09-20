@@ -453,6 +453,21 @@ fn expression(
             }
             Ok(ty)
         }
+        Expr::Float(value) => {
+            let ty = expected
+                .filter(|ty| matches!(ty, Type::F32 | Type::F64))
+                .cloned()
+                .unwrap_or(Type::F64);
+            let parsed = value
+                .parse::<f64>()
+                .map_err(|_| format!("invalid floating-point literal '{value}'"))?;
+            if matches!(ty, Type::F32) && !parsed.is_finite() {
+                return Err(format!(
+                    "floating-point literal '{value}' is not a finite f32"
+                ));
+            }
+            Ok(ty)
+        }
         Expr::Symbol(name) if name == "true" || name == "false" => Ok(Type::Bool),
         Expr::Symbol(name) => variables
             .get(name)
@@ -534,8 +549,8 @@ fn list_expression(
             let actual = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, expected,
             )?;
-            if !is_integer(&actual) {
-                return Err("unary '-' requires an integer operand".into());
+            if !is_numeric(&actual) {
+                return Err("unary '-' requires a numeric operand".into());
             }
             Ok(actual)
         }
@@ -555,8 +570,8 @@ fn list_expression(
                 Some(&left),
             )?;
             require_same(&left, &right, operator)?;
-            if !is_integer(&left) {
-                return Err(format!("operator '{operator}' requires integer operands"));
+            if !is_numeric(&left) {
+                return Err(format!("operator '{operator}' requires numeric operands"));
             }
             Ok(left)
         }
@@ -1006,6 +1021,10 @@ fn is_integer(ty: &Type) -> bool {
             | Type::U128
             | Type::Usize
     )
+}
+
+fn is_numeric(ty: &Type) -> bool {
+    is_integer(ty) || matches!(ty, Type::F32 | Type::F64)
 }
 
 fn fits_integer(value: i128, ty: &Type) -> bool {
