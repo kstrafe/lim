@@ -1,0 +1,8 @@
+(fn classify ((value u64)) u64
+  (match value
+    (0 10)
+    (1 20)
+    (_ 30)))
+
+(fn main () u64
+  (classify 1))

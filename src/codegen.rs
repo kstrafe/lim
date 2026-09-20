@@ -1993,8 +1993,12 @@ impl FunctionContext {
         } else {
             let ty = self
                 .expression_type(&items[1])
-                .ok_or_else(|| "match scrutinee is not an enum value".to_owned())?;
-            self.enum_payload_count(&ty)?
+                .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
+            if self.is_enum_type(&ty) {
+                self.enum_payload_count(&ty)?
+            } else {
+                0
+            }
         };
         let staged_words = if payload_slots.is_some() {
             1
@@ -2030,8 +2034,9 @@ impl FunctionContext {
                 _ => return Err("invalid match arm".into()),
             };
             let next = self.label("match_next");
-            let (pattern, bindings) = match &arm[0] {
-                Expr::Symbol(pattern) => (pattern.as_str(), Vec::new()),
+            let bindings = match &arm[0] {
+                Expr::Symbol(pattern) if pattern == "_" => Vec::new(),
+                Expr::Symbol(pattern) if self.enum_value(pattern).is_some() => Vec::new(),
                 Expr::List(pattern) if !pattern.is_empty() => {
                     let Expr::Symbol(pattern_name) = &pattern[0] else {
                         return Err("match variant pattern must be a symbol".into());
@@ -2043,14 +2048,47 @@ impl FunctionContext {
                             _ => Err("match payload pattern must be a symbol".to_owned()),
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    (pattern_name.as_str(), bindings)
+                    if self.enum_value(pattern_name).is_none() {
+                        return Err(format!("unknown enum variant '{pattern_name}'"));
+                    }
+                    bindings
                 }
-                _ => return Err("match pattern must be a symbol or (variant _)".into()),
+                Expr::Integer(value) => {
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
+                    ));
+                    Vec::new()
+                }
+                Expr::Char(value) => {
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
+                        *value as u32
+                    ));
+                    Vec::new()
+                }
+                Expr::Symbol(pattern) if pattern == "false" || pattern == "true" => {
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
+                        if pattern == "true" { 1 } else { 0 }
+                    ));
+                    Vec::new()
+                }
+                _ => return Err("invalid scalar match pattern".into()),
             };
-            if pattern != "_" {
+            if let Expr::Symbol(pattern) = &arm[0] {
+                if pattern != "_" && self.enum_value(pattern).is_some() {
+                    let value = self.enum_value(pattern).unwrap();
+                    self.output.push_str(&format!(
+                        "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
+                    ));
+                }
+            } else if let Expr::List(pattern) = &arm[0] {
                 let value = self
-                    .enum_value(pattern)
-                    .ok_or_else(|| format!("unknown enum variant '{pattern}'"))?;
+                    .enum_value(match &pattern[0] {
+                        Expr::Symbol(pattern) => pattern,
+                        _ => unreachable!(),
+                    })
+                    .ok_or_else(|| "unknown enum variant".to_owned())?;
                 self.output.push_str(&format!(
                     "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
                 ));
@@ -2106,6 +2144,10 @@ impl FunctionContext {
             .map(|variant| variant.fields.len())
             .max()
             .unwrap_or(0))
+    }
+
+    fn is_enum_type(&self, ty: &Type) -> bool {
+        matches!(ty, Type::Named(name) if self.enums.contains_key(name))
     }
 
     fn unary_negate(&mut self, items: &[Expr]) -> Result<(), String> {

@@ -707,8 +707,23 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             let Type::Named(enum_name) = &scrutinee else {
-                return Err("match currently requires an enum value".into());
+                if !is_matchable_scalar(&scrutinee) {
+                    return Err("match requires an enum or scalar value".into());
+                }
+                return check_scalar_match(
+                    items, &scrutinee, variables, functions, structs, enums, mutable, aliases,
+                    expected,
+                );
             };
+            if !enums.contains_key(enum_name) {
+                if !is_matchable_scalar(&scrutinee) {
+                    return Err("match requires an enum or scalar value".into());
+                }
+                return check_scalar_match(
+                    items, &scrutinee, variables, functions, structs, enums, mutable, aliases,
+                    expected,
+                );
+            }
             let variants = enums
                 .get(enum_name)
                 .ok_or_else(|| format!("unknown enum '{enum_name}'"))?;
@@ -934,6 +949,70 @@ fn list_expression(
     }
 }
 
+fn check_scalar_match(
+    items: &[Expr],
+    scrutinee: &Type,
+    variables: &HashMap<String, Type>,
+    functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    mutable: &HashSet<String>,
+    aliases: &HashMap<String, Type>,
+    expected: Option<&Type>,
+) -> Result<Type, String> {
+    let mut wildcard = false;
+    let mut seen_bool = [false, false];
+    let mut result_type = None;
+    for arm in &items[2..] {
+        let arm = match arm {
+            Expr::List(arm) if arm.len() == 2 => arm,
+            _ => return Err("match arms must have the form (pattern expression)".into()),
+        };
+        match &arm[0] {
+            Expr::Symbol(pattern) if pattern == "_" => wildcard = true,
+            Expr::Symbol(pattern) if matches!(scrutinee, Type::Bool) => {
+                let index = match pattern.as_str() {
+                    "false" => 0,
+                    "true" => 1,
+                    _ => return Err("boolean match pattern must be true, false, or _".into()),
+                };
+                if seen_bool[index] {
+                    return Err(format!("duplicate boolean match pattern '{pattern}'"));
+                }
+                seen_bool[index] = true;
+            }
+            Expr::Integer(value) if is_integer(scrutinee) => {
+                if !fits_integer(*value, scrutinee) {
+                    return Err(format!(
+                        "integer match pattern {value} does not fit in {scrutinee:?}"
+                    ));
+                }
+            }
+            Expr::Char(_) if matches!(scrutinee, Type::Char) => {}
+            _ => return Err("scalar match pattern does not match the scrutinee type".into()),
+        }
+        let arm_type = expression(
+            &arm[1],
+            variables,
+            functions,
+            structs,
+            enums,
+            mutable,
+            aliases,
+            result_type.as_ref().or(expected),
+        )?;
+        if let Some(previous) = &result_type {
+            require_same(previous, &arm_type, "match arms")?;
+        } else {
+            result_type = Some(arm_type);
+        }
+    }
+    if !wildcard && !(matches!(scrutinee, Type::Bool) && seen_bool.iter().all(|seen| *seen)) {
+        return Err("match is not exhaustive; add '_' arm".into());
+    }
+    Ok(result_type.unwrap_or(Type::Unit))
+}
+
 fn require_arity(operator: &str, items: &[Expr], expected: usize) -> Result<(), String> {
     if items.len() != expected {
         Err(format!(
@@ -1035,6 +1114,10 @@ fn is_integer(ty: &Type) -> bool {
 
 fn is_numeric(ty: &Type) -> bool {
     is_integer(ty) || matches!(ty, Type::F32 | Type::F64)
+}
+
+fn is_matchable_scalar(ty: &Type) -> bool {
+    is_integer(ty) || matches!(ty, Type::Bool | Type::Char)
 }
 
 fn is_cast_operand(ty: &Type) -> bool {

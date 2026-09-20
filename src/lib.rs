@@ -1591,6 +1591,23 @@ mod tests {
     }
 
     #[test]
+    fn matches_scalar_values() {
+        let program = parse_program(
+            "(fn classify ((value u64)) u64 (match value (0 10) (1 20) (_ 30))) (fn main () u64 (classify 1))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("cmp QWORD PTR [rsp], 1"));
+        let bools = parse_program("(fn main () u64 (match true (true 42) (false 0)))").unwrap();
+        assert!(check_types(&bools).is_ok());
+        let incomplete = parse_program("(fn main () u64 (match 1 (1 42)))").unwrap();
+        assert!(check_types(&incomplete)
+            .unwrap_err()
+            .contains("not exhaustive"));
+    }
+
+    #[test]
     fn checks_and_lowers_fixed_arrays() {
         let program = parse_program("(fn main () u64 (let mut values (array u64 2) (array 3 4)) (set-index values 1 40) (+ (index values 0) (index values 1)))").unwrap();
         assert!(check_types(&program).is_ok());

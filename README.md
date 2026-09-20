@@ -185,6 +185,18 @@ function calls, returns, and `match` bindings.
 `match` can inspect a constructor or enum-returning call directly; the
 compiler stages its discriminant and payload words before selecting an arm.
 
+Scalar matches use literal patterns and require a wildcard for open-ended
+integer and character domains. Boolean matches may cover both `true` and
+`false` without a wildcard:
+
+```lisp
+(fn classify ((value u64)) u64
+  (match value
+    (0 10)
+    (1 20)
+    (_ 30)))
+```
+
 Fixed-size arrays are value types with stack storage:
 
 ```lisp
