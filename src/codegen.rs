@@ -11,6 +11,11 @@ use crate::{check_types, EnumVariant, Expr, Field, Function, Item, Program, Stat
 
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 
+#[derive(Clone)]
+struct FunctionAbi {
+    parameters: Vec<Type>,
+}
+
 pub fn generate_assembly(program: &Program) -> Result<String, String> {
     check_types(program)?;
     let aliases: HashMap<String, Type> = program
@@ -46,6 +51,19 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             _ => None,
         })
         .collect();
+    let mut functions = HashMap::new();
+    for item in &program.items {
+        let Item::Function(function) = item else {
+            continue;
+        };
+        let parameters = function
+            .parameters
+            .iter()
+            .map(|parameter| resolve_type(&parameter.ty, &aliases))
+            .collect::<Result<Vec<_>, _>>()?;
+        let _return_type = resolve_type(&function.return_type, &aliases)?;
+        functions.insert(function.name.clone(), FunctionAbi { parameters });
+    }
     let mut globals = HashMap::new();
     for item in &program.items {
         if let Item::Let {
@@ -73,9 +91,15 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     output.push_str(".text\n");
     for item in &program.items {
         match item {
-            Item::Function(function) => {
-                generate_function(function, &mut output, &structs, &enums, &globals, &aliases)?
-            }
+            Item::Function(function) => generate_function(
+                function,
+                &mut output,
+                &structs,
+                &enums,
+                &globals,
+                &aliases,
+                &functions,
+            )?,
             Item::Struct { .. } => {}
             Item::Enum { .. } => {}
             Item::TypeAlias { .. } => {}
@@ -93,11 +117,12 @@ fn generate_function(
     enums: &HashMap<String, Vec<EnumVariant>>,
     globals: &HashMap<String, i128>,
     aliases: &HashMap<String, Type>,
+    functions: &HashMap<String, FunctionAbi>,
 ) -> Result<(), String> {
     let return_type = resolve_type(&function.return_type, aliases)?;
     ensure_return_type(&return_type, enums, structs)?;
     for parameter in &function.parameters {
-        ensure_scalar_type(&resolve_type(&parameter.ty, aliases)?, enums)?;
+        ensure_parameter_type(&resolve_type(&parameter.ty, aliases)?, enums, structs)?;
     }
 
     let mut locals = HashMap::new();
@@ -143,19 +168,26 @@ fn generate_function(
     if frame_size != 0 {
         output.push_str(&format!("    sub rsp, {frame_size}\n"));
     }
-    for (index, parameter) in function.parameters.iter().enumerate() {
-        if index < ARGUMENT_REGISTERS.len() {
-            output.push_str(&format!(
-                "    mov QWORD PTR [rbp-{}], {}\n",
-                scalar_slot(&locals, &parameter.name) * 8,
-                ARGUMENT_REGISTERS[index]
-            ));
-        } else {
-            let incoming_offset = (index - 4) * 8;
-            output.push_str(&format!(
-                "    mov rax, QWORD PTR [rbp+{incoming_offset}]\n    mov QWORD PTR [rbp-{}], rax\n",
-                scalar_slot(&locals, &parameter.name) * 8
-            ));
+    let mut incoming_word = 0usize;
+    for parameter in &function.parameters {
+        let ty = resolve_type(&parameter.ty, aliases)?;
+        let words = value_word_count(&ty, structs, enums)?;
+        let slots = local_slots(&locals, &parameter.name)?;
+        for slot in slots.into_iter().take(words) {
+            if incoming_word < ARGUMENT_REGISTERS.len() {
+                output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {}\n",
+                    slot * 8,
+                    ARGUMENT_REGISTERS[incoming_word]
+                ));
+            } else {
+                let incoming_offset = 16 + (incoming_word - ARGUMENT_REGISTERS.len()) * 8;
+                output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp+{incoming_offset}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                    slot * 8
+                ));
+            }
+            incoming_word += 1;
         }
     }
 
@@ -168,6 +200,7 @@ fn generate_function(
         aliases: aliases.clone(),
         local_types,
         return_type,
+        functions: functions.clone(),
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
@@ -444,6 +477,50 @@ fn add_local(
     Ok(())
 }
 
+fn local_slots(locals: &HashMap<String, Storage>, name: &str) -> Result<Vec<usize>, String> {
+    match locals
+        .get(name)
+        .ok_or_else(|| format!("unknown local '{name}'"))?
+    {
+        Storage::Scalar(slot) => Ok(vec![*slot]),
+        Storage::Struct(slots) => Ok(slots.iter().map(|(_, slot)| *slot).collect()),
+        Storage::Enum {
+            discriminant,
+            payload,
+        } => Ok(vec![*discriminant, *payload]),
+        Storage::Array { .. } => Err(format!(
+            "arrays are not supported in the native ABI for '{name}'"
+        )),
+    }
+}
+
+fn value_word_count(
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+) -> Result<usize, String> {
+    if ensure_scalar_type(ty, enums).is_ok() {
+        return Ok(1);
+    }
+    if let Type::Named(name) = ty {
+        if let Some(fields) = structs.get(name) {
+            if fields.len() <= 2
+                && fields
+                    .iter()
+                    .all(|field| ensure_scalar_type(&field.ty, enums).is_ok())
+            {
+                return Ok(fields.len());
+            }
+        }
+        if let Some(variants) = enums.get(name) {
+            if variants.iter().any(|variant| !variant.fields.is_empty()) {
+                return Ok(2);
+            }
+        }
+    }
+    Err(format!("native ABI does not support value type {ty:?}"))
+}
+
 #[derive(Clone, Debug)]
 enum Storage {
     Scalar(usize),
@@ -547,6 +624,14 @@ fn ensure_return_type(
     }
 }
 
+fn ensure_parameter_type(
+    ty: &Type,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Result<(), String> {
+    value_word_count(ty, structs, enums).map(|_| ())
+}
+
 fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, String> {
     match ty {
         Type::Named(name) => match aliases.get(name) {
@@ -605,6 +690,7 @@ struct FunctionContext {
     aliases: HashMap<String, Type>,
     local_types: HashMap<String, Type>,
     return_type: Type,
+    functions: HashMap<String, FunctionAbi>,
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
@@ -1381,19 +1467,32 @@ impl FunctionContext {
         if arguments.len() > 32 {
             return Err(format!("call to '{name}' has more than 32 arguments"));
         }
-        if arguments.len() > ARGUMENT_REGISTERS.len() {
-            let stack_arguments = arguments.len() - ARGUMENT_REGISTERS.len();
+        let abi = self
+            .functions
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("unknown function '{name}'"))?;
+        if arguments.len() != abi.parameters.len() {
+            return Err(format!("call to '{name}' has the wrong argument count"));
+        }
+        let word_count = abi
+            .parameters
+            .iter()
+            .map(|ty| value_word_count(ty, &self.structs, &self.enums))
+            .collect::<Result<Vec<_>, _>>()?;
+        let total_words = word_count.iter().sum::<usize>();
+        if total_words > 32 {
+            return Err(format!("call to '{name}' has more than 32 machine words"));
+        }
+        if total_words > ARGUMENT_REGISTERS.len() {
+            let stack_arguments = total_words - ARGUMENT_REGISTERS.len();
             let needs_padding = (self.stack_depth + stack_arguments) % 2 == 1;
             if needs_padding {
                 self.output.push_str("    sub rsp, 8\n");
                 self.stack_depth += 1;
             }
-            // Arguments are evaluated in reverse for the stack staging area;
-            // expressions have no side effects, so this preserves observable
-            // behavior while keeping the ABI layout simple.
-            for argument in arguments.iter().rev() {
-                self.expression(argument)?;
-                self.push_rax();
+            for (argument, ty) in arguments.iter().zip(&abi.parameters).rev() {
+                self.push_value_words(argument, ty, true)?;
             }
             for (index, register) in ARGUMENT_REGISTERS.iter().enumerate() {
                 self.output.push_str(&format!(
@@ -1413,11 +1512,10 @@ impl FunctionContext {
             }
             return Ok(());
         }
-        for argument in arguments {
-            self.expression(argument)?;
-            self.push_rax();
+        for (argument, ty) in arguments.iter().zip(&abi.parameters) {
+            self.push_value_words(argument, ty, false)?;
         }
-        for register in ARGUMENT_REGISTERS[..arguments.len()].iter().rev() {
+        for register in ARGUMENT_REGISTERS[..total_words].iter().rev() {
             self.output.push_str(&format!("    pop {register}\n"));
             self.stack_depth -= 1;
         }
@@ -1429,6 +1527,55 @@ impl FunctionContext {
         if needs_padding {
             self.output.push_str("    add rsp, 8\n");
         }
+        Ok(())
+    }
+
+    fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
+        if let Type::Named(name) = ty {
+            if let Some(fields) = self.structs.get(name).cloned() {
+                if let Expr::Symbol(local) = value {
+                    let Storage::Struct(slots) = self
+                        .locals
+                        .get(local)
+                        .ok_or_else(|| format!("unknown struct local '{local}'"))?
+                    else {
+                        return Err(format!("'{local}' is not a struct"));
+                    };
+                    let slots = slots.clone();
+                    let range: Box<dyn Iterator<Item = &(String, usize)>> = if reverse {
+                        Box::new(slots.iter().rev())
+                    } else {
+                        Box::new(slots.iter())
+                    };
+                    for (_, slot) in range {
+                        self.output
+                            .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+                        self.push_rax();
+                    }
+                    return Ok(());
+                }
+                if let Expr::List(items) = value {
+                    if matches!(items.first(), Some(Expr::Symbol(constructor)) if constructor == name)
+                    {
+                        if items.len() - 1 != fields.len() {
+                            return Err(format!("constructor '{name}' has wrong field count"));
+                        }
+                        let values: Box<dyn Iterator<Item = &Expr>> = if reverse {
+                            Box::new(items[1..].iter().rev())
+                        } else {
+                            Box::new(items[1..].iter())
+                        };
+                        for value in values {
+                            self.expression(value)?;
+                            self.push_rax();
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        self.expression(value)?;
+        self.push_rax();
         Ok(())
     }
 

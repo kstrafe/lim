@@ -1116,10 +1116,13 @@ mod tests {
             .unwrap()
             .contains("call make_point"));
         let unsupported_parameter = parse_program(
-            "(struct Point ((x u64) (y u64))) (fn identity ((point Point)) Point point)",
+            "(struct Point ((x u64) (y u64))) (fn identity ((point Point)) Point point) (fn main () u64 (let result Point (identity (Point 11 37))) (get result y))",
         )
         .unwrap();
-        assert!(generate_assembly(&unsupported_parameter).is_err());
+        assert!(check_types(&unsupported_parameter).is_ok());
+        assert!(generate_assembly(&unsupported_parameter)
+            .unwrap()
+            .contains("call identity"));
     }
 
     #[test]

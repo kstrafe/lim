@@ -1,0 +1,8 @@
+(struct Point ((x u64) (y u64)))
+
+(fn identity ((point Point)) Point
+  point)
+
+(fn main () u64
+  (let result Point (identity (Point 11 37)))
+  (get result y))
