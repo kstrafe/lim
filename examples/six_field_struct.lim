@@ -1,0 +1,15 @@
+(struct Values
+  ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64)))
+
+(fn make () Values
+  (Values 1 2 3 4 5 6))
+
+(fn sum ((value Values)) u64
+  (+ (+ (+ (+ (+ (get value a) (get value b))
+                 (get value c))
+            (get value d))
+       (get value e))
+     (get value f)))
+
+(fn main () u64
+  (sum (make)))

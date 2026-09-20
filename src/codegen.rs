@@ -17,6 +17,18 @@ const FLOAT_ARGUMENT_REGISTERS: [&str; 8] = [
     "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
 ];
 
+fn low_register(register: &str) -> &str {
+    match register {
+        "rax" => "eax",
+        "rdx" => "edx",
+        "rcx" => "ecx",
+        "r8" => "r8d",
+        "r9" => "r9d",
+        "rdi" => "edi",
+        _ => unreachable!("unknown native value register"),
+    }
+}
+
 #[derive(Clone)]
 enum GlobalValue {
     Integer(i128),
@@ -735,7 +747,7 @@ fn value_word_count(
     }
     if let Type::Named(name) = ty {
         if let Some(fields) = structs.get(name) {
-            if fields.len() <= 2
+            if fields.len() <= VALUE_REGISTERS.len()
                 && fields
                     .iter()
                     .all(|field| ensure_scalar_type(&field.ty, enums).is_ok())
@@ -879,7 +891,7 @@ fn ensure_return_type(
         ));
     };
     if let Some(fields) = structs.get(name) {
-        if fields.len() <= 2
+        if fields.len() <= VALUE_REGISTERS.len()
             && fields
                 .iter()
                 .all(|field| ensure_scalar_type(&field.ty, enums).is_ok())
@@ -1463,11 +1475,9 @@ impl FunctionContext {
             };
             let slots = slots.clone();
             for (index, (_, slot)) in slots.iter().enumerate() {
-                let register = match index {
-                    0 => "rax",
-                    1 => "rdx",
-                    _ => return Err("native struct return has too many fields".into()),
-                };
+                let register = VALUE_REGISTERS
+                    .get(index)
+                    .ok_or_else(|| "native struct return has too many fields".to_owned())?;
                 self.output.push_str(&format!(
                     "    mov {register}, QWORD PTR [rbp-{}]\n",
                     slot * 8
@@ -1480,18 +1490,16 @@ impl FunctionContext {
                 if items.len() - 1 != fields.len() {
                     return Err(format!("constructor '{struct_name}' has wrong field count"));
                 }
-                if fields.len() > 2 {
+                if fields.len() > VALUE_REGISTERS.len() {
                     return Err("native struct return has too many fields".into());
                 }
                 for (index, field) in items[1..].iter().enumerate() {
                     self.expression_as_abi_word(field, &fields[index].ty)?;
-                    if index == 0 && fields.len() == 2 {
-                        self.push_rax();
-                    } else if index == 1 {
-                        self.output.push_str("    mov rdx, rax\n");
-                        self.output.push_str("    pop rax\n");
-                        self.stack_depth -= 1;
-                    }
+                    self.push_rax();
+                }
+                for register in VALUE_REGISTERS[..fields.len()].iter().rev() {
+                    self.output.push_str(&format!("    pop {register}\n"));
+                    self.stack_depth -= 1;
                 }
                 return Ok(());
             }
@@ -2292,10 +2300,9 @@ impl FunctionContext {
                 let register = VALUE_REGISTERS[index];
                 let field_type = fields[index].ty.clone();
                 match field_type {
-                    Type::F32 => self.output.push_str(&format!(
-                        "    movd xmm0, {}\n",
-                        if register == "rax" { "eax" } else { "edx" }
-                    )),
+                    Type::F32 => self
+                        .output
+                        .push_str(&format!("    movd xmm0, {}\n", low_register(register))),
                     Type::F64 => self
                         .output
                         .push_str(&format!("    movq xmm0, {register}\n")),
@@ -3139,6 +3146,12 @@ impl FunctionContext {
                         return Ok(());
                     }
                 }
+                self.expression(value)?;
+                for register in VALUE_REGISTERS[..fields.len()].iter() {
+                    self.output.push_str(&format!("    push {register}\n"));
+                    self.stack_depth += 1;
+                }
+                return Ok(());
             }
             if self
                 .enums

@@ -1257,6 +1257,18 @@ mod tests {
     }
 
     #[test]
+    fn passes_six_field_structs_through_functions() {
+        let program = parse_program(
+            "(struct Values ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64))) (fn make () Values (Values 1 2 3 4 5 6)) (fn sum ((value Values)) u64 (+ (+ (+ (+ (+ (get value a) (get value b)) (get value c)) (get value d)) (get value e)) (get value f))) (fn main () u64 (sum (make)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("pop rdi"));
+        assert!(assembly.contains("[rbp-8], rdi"));
+    }
+
+    #[test]
     fn lowers_unit_functions_and_calls() {
         let program = parse_program("(fn noop () () ()) (fn main () u64 (noop) 42)").unwrap();
         assert!(check_types(&program).is_ok());
@@ -1358,9 +1370,7 @@ mod tests {
             parse_program("(struct Point ((x u64) (y u64))) (fn make_point () Point (Point 7 9))")
                 .unwrap();
         assert!(check_types(&returned).is_ok());
-        assert!(generate_assembly(&returned)
-            .unwrap()
-            .contains("mov rdx, rax"));
+        assert!(generate_assembly(&returned).unwrap().contains("pop rdx"));
         let consumed = parse_program(
             "(struct Point ((x u64) (y u64))) (fn make_point () Point (Point 7 9)) (fn main () u64 (let point Point (make_point)) (get point y))",
         )

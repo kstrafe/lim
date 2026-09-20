@@ -135,16 +135,15 @@ Value structs can be declared and checked without pointers or traits:
   (get (Point 7 9) x))
 ```
 
-Scalar structs with at most two fields can also cross function boundaries;
-their values use consecutive integer ABI words (`rdi`/`rsi` for parameters and
-`rax`/`rdx` for returns).
+Scalar structs with at most six fields can also cross function boundaries;
+their values use consecutive flattened ABI words in the native value-register
+set.
 
 Fixed arrays of up to six scalar elements use the same flattened value ABI and
 can also be passed and returned by functions.
 
-The native backend flattens scalar struct fields into stack slots. Struct
-parameters, nested aggregate fields, and aggregate returns are reserved for a
-later ABI-lowering stage.
+The native backend flattens scalar struct fields into stack slots and supports
+up to six scalar ABI words for struct parameters and returns.
 
 Mutable struct locals support field writes with `set-field`.
 
