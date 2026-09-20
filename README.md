@@ -390,6 +390,10 @@ Payload-free enums use integer discriminants and support exhaustive `match`:
     (_ 30)))
 ```
 
+Enum variants may specify an explicit non-negative `u64` discriminant as their
+first list value, for example `(#enum Code ((Ready 10) (Failed 42)))`.
+Unspecified variants continue from the preceding discriminant.
+
 Enums can also carry one scalar payload:
 
 ```lisp

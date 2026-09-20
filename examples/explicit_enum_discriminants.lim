@@ -1,0 +1,7 @@
+(#enum Result ((Ok 7 u64) (Err 99 u64)))
+
+(#fn main () u64
+  (#let value Result (Ok 42))
+  (#return (#match value
+    ((Ok payload) payload)
+    ((Err _) 0))))

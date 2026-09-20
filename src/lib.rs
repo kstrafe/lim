@@ -524,6 +524,7 @@ pub struct Field {
 pub struct EnumVariant {
     pub name: String,
     pub fields: Vec<Type>,
+    pub discriminant: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -992,6 +993,7 @@ fn specialize_type(
                                         )
                                     })
                                     .collect::<Result<Vec<_>, _>>()?,
+                                discriminant: variant.discriminant,
                             })
                         })
                         .collect::<Result<Vec<_>, String>>()?,
@@ -1445,10 +1447,12 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
                     EnumVariant {
                         name: format!("{name}-some"),
                         fields: vec![payload],
+                        discriminant: 0,
                     },
                     EnumVariant {
                         name: format!("{name}-none"),
                         fields: Vec::new(),
+                        discriminant: 1,
                     },
                 ],
             })
@@ -1470,10 +1474,12 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
                     EnumVariant {
                         name: format!("{name}-ok-value"),
                         fields: vec![ok],
+                        discriminant: 0,
                     },
                     EnumVariant {
                         name: format!("{name}-err-value"),
                         fields: vec![error],
+                        discriminant: 1,
                     },
                 ],
             })
@@ -1787,22 +1793,25 @@ fn parse_enum_variants_at(
         return Err("enum requires at least one variant".into());
     }
     let mut result = Vec::with_capacity(variants.len());
+    let mut next_discriminant = 0u64;
     for variant in variants {
-        let (name, fields) = match variant {
-            Expr::Symbol(name) => (name.clone(), Vec::new()),
+        let (name, fields, discriminant) = match variant {
+            Expr::Symbol(name) => (name.clone(), Vec::new(), next_discriminant),
             Expr::List(items) => {
                 if items.is_empty() {
                     return Err("enum variant cannot be empty".into());
                 }
                 let name = expect_symbol(items.first(), "enum variant name")?.to_owned();
-                let fields = items[1..]
+                let explicit = items.get(1).and_then(enum_discriminant);
+                let field_start = if explicit.is_some() { 2 } else { 1 };
+                let fields = items[field_start..]
                     .iter()
                     .map(|field| {
                         parse_type(Some(field))
                             .map(|ty| replace_generic_types(&ty, type_parameters))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                (name, fields)
+                (name, fields, explicit.unwrap_or(next_discriminant))
             }
             _ => return Err("enum variant must be a symbol or (name Type ...)".into()),
         };
@@ -1812,9 +1821,32 @@ fn parse_enum_variants_at(
         {
             return Err(format!("duplicate enum variant '{name}'"));
         }
-        result.push(EnumVariant { name, fields });
+        if result
+            .iter()
+            .any(|existing: &EnumVariant| existing.discriminant == discriminant)
+        {
+            return Err(format!(
+                "duplicate discriminant {discriminant} for enum variant '{name}'"
+            ));
+        }
+        result.push(EnumVariant {
+            name,
+            fields,
+            discriminant,
+        });
+        next_discriminant = discriminant
+            .checked_add(1)
+            .ok_or_else(|| "enum discriminant overflowed".to_owned())?;
     }
     Ok(result)
+}
+
+fn enum_discriminant(expression: &Expr) -> Option<u64> {
+    match expression {
+        Expr::Integer(value) if *value >= 0 => (*value).try_into().ok(),
+        Expr::UnsignedInteger(value) => (*value).try_into().ok(),
+        _ => None,
+    }
 }
 
 fn parse_function(items: &[Expr], strict_keywords: bool) -> Result<Function, String> {
@@ -4569,6 +4601,27 @@ mod tests {
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn checks_and_lowers_explicit_enum_discriminants() {
+        let program = parse_program_strict(
+            "(#enum Result ((Ok 7 u64) (Err 99 u64))) \
+             (#fn main () u64 \
+               (#let value Result (Ok 42)) \
+               (#return (#match value \
+                 ((Ok payload) payload) \
+                 ((Err _) 0))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn rejects_duplicate_enum_discriminants() {
+        let program = parse_program_strict("(#enum Code ((Ready 7) (AlsoReady 7)))");
+        assert!(program.unwrap_err().contains("duplicate discriminant 7"));
     }
 
     #[test]

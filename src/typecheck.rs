@@ -93,6 +93,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                             .iter()
                             .map(|field| resolve_type(field, &aliases))
                             .collect::<Result<Vec<_>, _>>()?,
+                        discriminant: variant.discriminant,
                     })
                 })
                 .collect::<Result<Vec<_>, String>>()?;

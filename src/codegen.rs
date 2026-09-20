@@ -687,6 +687,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                             .iter()
                             .map(|field| resolve_type(field, &aliases))
                             .collect::<Result<Vec<_>, _>>()?,
+                        discriminant: variant.discriminant,
                     })
                 })
                 .collect::<Result<Vec<_>, String>>()?;
@@ -2557,8 +2558,8 @@ fn constant_value(
             .find_map(|variants| {
                 variants
                     .iter()
-                    .position(|variant| variant.name == *name)
-                    .map(|value| value as i128)
+                    .find(|variant| variant.name == *name)
+                    .map(|variant| variant.discriminant as i128)
             })
             .ok_or_else(|| format!("global initializer '{name}' is not a constant")),
         Expr::List(items) if items.len() == 2 => {
@@ -3064,7 +3065,7 @@ fn constant_aggregate_words(
                 return Err("static enum initializer must start with a variant".into());
             };
             let variants = &enums[name];
-            let Some((variant_index, variant)) = variants
+            let Some((_variant_index, variant)) = variants
                 .iter()
                 .enumerate()
                 .find(|(_, variant)| variant.name == *variant_name)
@@ -3088,7 +3089,7 @@ fn constant_aggregate_words(
                 .into_iter()
                 .max()
                 .unwrap_or(0);
-            let mut words = vec![variant_index as u64];
+            let mut words = vec![variant.discriminant];
             for (field, value) in variant.fields.iter().zip(&items[1..]) {
                 words.extend(constant_aggregate_words(
                     value,
@@ -4430,7 +4431,7 @@ impl FunctionContext {
         self.output.push_str(&format!(
             "    mov QWORD PTR [rbp-{}], {}\n",
             discriminant * 8,
-            variant_index
+            variants[variant_index].discriminant
         ));
         let mut offset = 0;
         for (index, field_type) in variant.fields.iter().enumerate() {
@@ -4824,8 +4825,14 @@ impl FunctionContext {
                     VALUE_REGISTERS[index + 1]
                 ));
             }
+            let variant_discriminant = self
+                .enums
+                .get(&enum_name)
+                .and_then(|variants| variants.get(variant_index))
+                .expect("validated enum variant")
+                .discriminant;
             self.output
-                .push_str(&format!("    mov rax, {variant_index}\n"));
+                .push_str(&format!("    mov rax, {variant_discriminant}\n"));
             return Ok(());
         }
         match operator {
@@ -4861,10 +4868,13 @@ impl FunctionContext {
         }
     }
 
-    fn enum_value(&self, name: &str) -> Option<usize> {
-        self.enums
-            .values()
-            .find_map(|variants| variants.iter().position(|variant| variant.name == name))
+    fn enum_value(&self, name: &str) -> Option<u64> {
+        self.enums.values().find_map(|variants| {
+            variants
+                .iter()
+                .find(|variant| variant.name == name)
+                .map(|variant| variant.discriminant)
+        })
     }
 
     fn index_expression(&mut self, items: &[Expr]) -> Result<(), String> {
@@ -5718,7 +5728,7 @@ impl FunctionContext {
         }
         self.output.push_str(&format!(
             "    cmp QWORD PTR [rsp], {}\n    jne {failure}\n",
-            variant_index
+            variants[variant_index].discriminant
         ));
         let mut offset = 0;
         for (pattern, field_type) in payload_patterns.iter().zip(&variant_fields) {
