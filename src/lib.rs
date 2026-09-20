@@ -4077,6 +4077,11 @@ mod tests {
         assert!(assembly.contains("addss xmm1, xmm0"));
         assert!(assembly.contains("ucomiss xmm1, xmm0"));
         assert!(assembly.contains("movd xmm0"));
+        let parameter_assembly = generate_assembly(
+            &parse_program("(#fn read ((value f32)) f32 (#return value))").unwrap(),
+        )
+        .unwrap();
+        assert!(parameter_assembly.contains("movd DWORD PTR [rbp-8], xmm0"));
         let overflow_f32 = parse_program("(fn main () f32 1e100)").unwrap();
         assert!(check_types(&overflow_f32)
             .unwrap_err()

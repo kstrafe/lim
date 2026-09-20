@@ -1268,11 +1268,16 @@ fn generate_function(
             let slot = local_slots(&locals, &parameter.name)?[0];
             if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
                 output.push_str(&format!(
-                    "    {} QWORD PTR [rbp-{}], {}\n",
+                    "    {} {} PTR [rbp-{}], {}\n",
                     if matches!(ty, Type::F32) {
                         "movd"
                     } else {
                         "movq"
+                    },
+                    if matches!(ty, Type::F32) {
+                        "DWORD"
+                    } else {
+                        "QWORD"
                     },
                     slot * 8,
                     FLOAT_ARGUMENT_REGISTERS[float_index]
@@ -1298,11 +1303,16 @@ fn generate_function(
                 let slot = local_slots(&locals, &parameter.name)?[0];
                 if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
                     output.push_str(&format!(
-                        "    {} QWORD PTR [rbp-{}], {}\n",
+                        "    {} {} PTR [rbp-{}], {}\n",
                         if matches!(ty, Type::F32) {
                             "movd"
                         } else {
                             "movq"
+                        },
+                        if matches!(ty, Type::F32) {
+                            "DWORD"
+                        } else {
+                            "QWORD"
                         },
                         slot * 8,
                         FLOAT_ARGUMENT_REGISTERS[float_index]
