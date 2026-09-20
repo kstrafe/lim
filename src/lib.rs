@@ -1580,6 +1580,18 @@ mod tests {
     }
 
     #[test]
+    fn lowers_float_and_char_globals() {
+        let program = parse_program(
+            "(let scale f32 1.5) (let pi f64 3.25) (let letter char #\\a) (fn main () u64 (if (&& (> scale 1.0) (&& (> pi 3.0) (== letter #\\a))) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("movss xmm0, DWORD PTR [rip+scale]"));
+        assert!(assembly.contains("movq xmm0, QWORD PTR [rip+pi]"));
+    }
+
+    #[test]
     fn checks_and_lowers_type_aliases() {
         let program = parse_program(
             "(type UserId u64) (fn add_one ((id UserId)) UserId (+ id 1)) (fn main () UserId (add_one 41))",

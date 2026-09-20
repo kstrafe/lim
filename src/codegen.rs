@@ -18,6 +18,13 @@ const FLOAT_ARGUMENT_REGISTERS: [&str; 8] = [
 ];
 
 #[derive(Clone)]
+enum GlobalValue {
+    Integer(i128),
+    F32(u32),
+    F64(u64),
+}
+
+#[derive(Clone)]
 struct FunctionAbi {
     parameters: Vec<Type>,
     return_type: Type,
@@ -78,6 +85,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
         );
     }
     let mut globals = HashMap::new();
+    let mut global_types = HashMap::new();
     for item in &program.items {
         if let Item::Let {
             name,
@@ -89,16 +97,52 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             if *mutable {
                 return Err(format!("top-level binding '{name}' cannot be mutable"));
             }
-            ensure_scalar_type(&resolve_type(ty, &aliases)?, &enums)?;
-            let value = constant_value(value, &enums)?;
-            globals.insert(name.clone(), value);
+            let ty = resolve_type(ty, &aliases)?;
+            ensure_scalar_type(&ty, &enums)?;
+            let global = match ty {
+                Type::F32 => {
+                    let Expr::Float(value) = value else {
+                        return Err(format!("global '{name}' requires an f32 literal"));
+                    };
+                    GlobalValue::F32(
+                        value
+                            .parse::<f32>()
+                            .map_err(|_| format!("invalid f32 global '{name}'"))?
+                            .to_bits(),
+                    )
+                }
+                Type::F64 => {
+                    let Expr::Float(value) = value else {
+                        return Err(format!("global '{name}' requires an f64 literal"));
+                    };
+                    GlobalValue::F64(
+                        value
+                            .parse::<f64>()
+                            .map_err(|_| format!("invalid f64 global '{name}'"))?
+                            .to_bits(),
+                    )
+                }
+                _ => GlobalValue::Integer(constant_value(value, &enums)?),
+            };
+            global_types.insert(name.clone(), ty);
+            globals.insert(name.clone(), global);
         }
     }
     let mut output = String::from(".intel_syntax noprefix\n");
     if !globals.is_empty() {
         output.push_str(".section .rodata\n");
         for (name, value) in &globals {
-            output.push_str(&format!(".align 8\n{name}:\n    .quad {value}\n"));
+            match value {
+                GlobalValue::Integer(value) => {
+                    output.push_str(&format!(".align 8\n{name}:\n    .quad {value}\n"));
+                }
+                GlobalValue::F32(value) => {
+                    output.push_str(&format!(".align 8\n{name}:\n    .long {value}\n"));
+                }
+                GlobalValue::F64(value) => {
+                    output.push_str(&format!(".align 8\n{name}:\n    .quad {value}\n"));
+                }
+            }
         }
     }
     output.push_str(".text\n");
@@ -110,6 +154,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                 &structs,
                 &enums,
                 &globals,
+                &global_types,
                 &aliases,
                 &functions,
             )?,
@@ -128,7 +173,8 @@ fn generate_function(
     output: &mut String,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
-    globals: &HashMap<String, i128>,
+    globals: &HashMap<String, GlobalValue>,
+    global_types: &HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
     functions: &HashMap<String, FunctionAbi>,
 ) -> Result<(), String> {
@@ -314,6 +360,7 @@ fn generate_function(
         structs: structs.clone(),
         enums: enums.clone(),
         globals: globals.clone(),
+        global_types: global_types.clone(),
         aliases: aliases.clone(),
         local_types,
         return_type,
@@ -886,7 +933,8 @@ struct FunctionContext {
     locals: HashMap<String, Storage>,
     structs: HashMap<String, Vec<Field>>,
     enums: HashMap<String, Vec<EnumVariant>>,
-    globals: HashMap<String, i128>,
+    globals: HashMap<String, GlobalValue>,
+    global_types: HashMap<String, Type>,
     aliases: HashMap<String, Type>,
     local_types: HashMap<String, Type>,
     return_type: Type,
@@ -1696,8 +1744,17 @@ impl FunctionContext {
                         }
                     }
                 } else if self.globals.contains_key(name) {
-                    self.output
-                        .push_str(&format!("    mov rax, QWORD PTR [rip+{name}]\n"));
+                    match self.global_types.get(name) {
+                        Some(Type::F32) => self
+                            .output
+                            .push_str(&format!("    movss xmm0, DWORD PTR [rip+{name}]\n")),
+                        Some(Type::F64) => self
+                            .output
+                            .push_str(&format!("    movq xmm0, QWORD PTR [rip+{name}]\n")),
+                        _ => self
+                            .output
+                            .push_str(&format!("    mov rax, QWORD PTR [rip+{name}]\n")),
+                    }
                 } else {
                     return Err(format!("unknown variable '{name}'"));
                 }

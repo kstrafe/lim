@@ -236,9 +236,9 @@ can be referenced by functions:
 (fn main () u64 (+ ANSWER 2))
 ```
 
-Top-level `let` declarations use the same form. Function bodies are currently
-represented as statements, while their expressions remain generic S-expressions
-for the type checker and later compiler stages.
+Top-level `let` declarations use the same form. Integer, character, and
+floating-point constants are emitted in read-only data and can be referenced
+by functions.
 
 Every token and top-level expression has a byte span plus line and column
 information. Expansion, type checking, monomorphization, and native assembly

@@ -1,0 +1,9 @@
+(let scale f32 1.5)
+(let pi f64 3.25)
+(let letter char #\a)
+
+(fn main () u64
+  (if (&& (> scale 1.0)
+          (&& (> pi 3.0) (== letter #\a)))
+      42
+      0))
