@@ -2384,6 +2384,18 @@ mod tests {
     }
 
     #[test]
+    fn lowers_high_unsigned_wide_global_literals() {
+        let program = parse_program(
+            "(let VALUE u128 340282366920938463463374607431768211455) (fn main () u64 (if (== VALUE (as -1 u128)) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly
+            .contains("VALUE:\n    .quad 18446744073709551615\n    .quad 18446744073709551615"));
+    }
+
+    #[test]
     fn preserves_float_width_across_control_flow() {
         let program = parse_program(
             "(fn choose ((flag bool)) f32 (if flag 1.5 2.5)) (fn main () u64 (if (> (choose true) 1.0) 42 0))",

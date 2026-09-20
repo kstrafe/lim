@@ -565,9 +565,14 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             }
             let global = match &ty {
                 Type::I128 | Type::U128 => {
-                    let value = constant_value(value, &enums, &constants)? as u128;
+                    let value = match value {
+                        Expr::UnsignedInteger(value) => *value,
+                        _ => constant_value(value, &enums, &constants)? as u128,
+                    };
                     if matches!(item, Item::Let { .. }) {
-                        constants.insert(name.clone(), value as i128);
+                        if let Ok(value) = i128::try_from(value) {
+                            constants.insert(name.clone(), value);
+                        }
                     }
                     GlobalValue::Wide {
                         low: value as u64,
