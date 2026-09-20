@@ -452,6 +452,9 @@ The same path handles a large scalar aggregate returned directly by a function.
 Tuple and struct direct returns use the same matcher; see
 `examples/direct_large_aggregate_match.lim`.
 
+Large aggregate values can also be destructured with `#let-else`; see
+`examples/large_let_else.lim`.
+
 Large scalar arrays can be materialized directly from `#if` branches into a
 local stack value; see `examples/large_array_if.lim`.
 

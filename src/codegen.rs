@@ -1031,7 +1031,19 @@ fn generate_function(
         })
         .filter_map(Result::ok)
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .max(
+            function
+                .body
+                .iter()
+                .map(|statement| {
+                    max_let_else_storage_in_statement(statement, structs, enums, aliases)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .max()
+                .unwrap_or(0),
+        );
     let aggregate_temp_regions = functions
         .values()
         .map(|abi| {
@@ -1507,6 +1519,98 @@ fn collect_expr_types(
             }
         }
         _ => {}
+    }
+}
+
+fn max_let_else_storage_in_expression(
+    expression: &Expr,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    aliases: &HashMap<String, Type>,
+) -> Result<usize, String> {
+    match expression {
+        Expr::Block(statements) => {
+            let max = statements
+                .iter()
+                .map(|statement| {
+                    max_let_else_storage_in_statement(statement, structs, enums, aliases)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .max()
+                .unwrap_or(0);
+            Ok(max)
+        }
+        Expr::List(items) => {
+            let max = items
+                .iter()
+                .map(|item| max_let_else_storage_in_expression(item, structs, enums, aliases))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .max()
+                .unwrap_or(0);
+            Ok(max)
+        }
+        Expr::Quote(value) => max_let_else_storage_in_expression(value, structs, enums, aliases),
+        _ => Ok(0),
+    }
+}
+
+fn max_let_else_storage_in_statement(
+    statement: &Statement,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    aliases: &HashMap<String, Type>,
+) -> Result<usize, String> {
+    let nested = |statements: &[Statement]| {
+        statements
+            .iter()
+            .map(|statement| max_let_else_storage_in_statement(statement, structs, enums, aliases))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|values| values.into_iter().max().unwrap_or(0))
+    };
+    match statement {
+        Statement::LetElse {
+            ty,
+            value,
+            else_body,
+            ..
+        } => Ok(
+            storage_word_count(&resolve_type(ty, aliases)?, structs, enums)?
+                .max(max_let_else_storage_in_expression(
+                    value, structs, enums, aliases,
+                )?)
+                .max(nested(else_body)?),
+        ),
+        Statement::While { condition, body } => Ok(max_let_else_storage_in_expression(
+            condition, structs, enums, aliases,
+        )?
+        .max(nested(body)?)),
+        Statement::Loop { body } => nested(body),
+        Statement::For {
+            condition, body, ..
+        } => Ok(
+            max_let_else_storage_in_expression(condition, structs, enums, aliases)?
+                .max(nested(body)?),
+        ),
+        Statement::Expr(value) | Statement::Return(Some(value)) | Statement::BreakValue(value) => {
+            max_let_else_storage_in_expression(value, structs, enums, aliases)
+        }
+        Statement::Let { value, .. }
+        | Statement::Destructure { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::FieldAssign { value, .. }
+        | Statement::TupleAssign { value, .. }
+        | Statement::EnumPayloadAssign { value, .. } => {
+            max_let_else_storage_in_expression(value, structs, enums, aliases)
+        }
+        Statement::ArrayAssign { index, value, .. } => Ok(max_let_else_storage_in_expression(
+            index, structs, enums, aliases,
+        )?
+        .max(max_let_else_storage_in_expression(
+            value, structs, enums, aliases,
+        )?)),
+        Statement::Return(None) | Statement::Break | Statement::Continue => Ok(0),
     }
 }
 
@@ -3874,8 +3978,24 @@ impl FunctionContext {
                 value,
                 else_body,
             } => {
-                let words = value_word_count(ty, &self.structs, &self.enums)?;
-                self.push_value_words(value, ty, true)?;
+                let storage_words = storage_word_count(ty, &self.structs, &self.enums)?;
+                let words = if storage_words > VALUE_REGISTERS.len() {
+                    let base = self
+                        .aggregate_temp_base
+                        .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
+                    let slots = flat_slots(base, storage_words);
+                    self.store_value_to_slots(value, ty, &slots)?;
+                    for slot in slots.iter().rev() {
+                        self.output
+                            .push_str(&format!("    push QWORD PTR [rbp-{}]\n", slot * 8));
+                        self.stack_depth += 1;
+                    }
+                    storage_words
+                } else {
+                    let words = value_word_count(ty, &self.structs, &self.enums)?;
+                    self.push_value_words(value, ty, true)?;
+                    words
+                };
                 let failure = self.label("let_else_failure");
                 let done = self.label("let_else_done");
                 let mut bindings = Vec::new();
