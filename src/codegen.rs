@@ -3562,6 +3562,9 @@ impl FunctionContext {
                     return self.match_expression(items, None, Some(ty));
                 }
             }
+            if let Expr::Block(statements) = value {
+                return self.block_expression_as_expected(statements, ty);
+            }
             if let Expr::Loop(body) = value {
                 return self.loop_expression(body, Some(ty));
             }
@@ -3691,6 +3694,12 @@ impl FunctionContext {
                         .find(|(_, variants)| variants.iter().any(|variant| variant.name == *name))
                         .map(|(enum_name, _)| Type::Named(enum_name.clone()))
                 }),
+            Expr::Block(statements) => statements.last().and_then(|statement| match statement {
+                Statement::Expr(expression) | Statement::Return(Some(expression)) => {
+                    self.expression_type(expression)
+                }
+                _ => Some(Type::Unit),
+            }),
             Expr::List(items) => match items.first() {
                 Some(Expr::Symbol(operator)) if operator == "as" && items.len() == 3 => {
                     parse_type(items.get(2))
@@ -7090,6 +7099,24 @@ impl FunctionContext {
         self.expression_as_expected(&items[3], ty)?;
         self.output.push_str(&format!("{end_label}:\n"));
         Ok(())
+    }
+
+    fn block_expression_as_expected(
+        &mut self,
+        statements: &[Statement],
+        ty: &Type,
+    ) -> Result<(), String> {
+        let Some((last, preceding)) = statements.split_last() else {
+            return Err("aggregate block expression cannot be empty".into());
+        };
+        for statement in preceding {
+            self.statement(statement)?;
+        }
+        if let Statement::Expr(expression) = last {
+            self.expression_as_expected(expression, ty)
+        } else {
+            self.statement(last)
+        }
     }
 
     fn call(&mut self, name: &str, arguments: &[Expr]) -> Result<(), String> {
