@@ -821,7 +821,7 @@ fn generate_function(
         );
     }
     for statement in &function.body {
-        collect_local_types(statement, &mut local_types, aliases, enums);
+        collect_local_types(statement, &mut local_types, aliases, enums, structs);
     }
     for statement in &function.body {
         collect_locals(
@@ -989,6 +989,7 @@ fn collect_local_types(
     types: &mut HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
     enums: &HashMap<String, Vec<EnumVariant>>,
+    structs: &HashMap<String, Vec<Field>>,
 ) {
     match statement {
         Statement::Let {
@@ -997,17 +998,17 @@ fn collect_local_types(
             if let Ok(ty) = resolve_type(ty, aliases) {
                 types.insert(name.clone(), ty);
             }
-            collect_expr_types(value, types, aliases, enums);
+            collect_expr_types(value, types, aliases, enums, structs);
         }
         Statement::While { condition, body } => {
-            collect_expr_types(condition, types, aliases, enums);
+            collect_expr_types(condition, types, aliases, enums, structs);
             for statement in body {
-                collect_local_types(statement, types, aliases, enums);
+                collect_local_types(statement, types, aliases, enums, structs);
             }
         }
         Statement::Loop { body } => {
             for statement in body {
-                collect_local_types(statement, types, aliases, enums);
+                collect_local_types(statement, types, aliases, enums, structs);
             }
         }
         Statement::For {
@@ -1016,21 +1017,21 @@ fn collect_local_types(
             step,
             body,
         } => {
-            collect_local_types(init, types, aliases, enums);
-            collect_expr_types(condition, types, aliases, enums);
-            collect_local_types(step, types, aliases, enums);
+            collect_local_types(init, types, aliases, enums, structs);
+            collect_expr_types(condition, types, aliases, enums, structs);
+            collect_local_types(step, types, aliases, enums, structs);
             for statement in body {
-                collect_local_types(statement, types, aliases, enums);
+                collect_local_types(statement, types, aliases, enums, structs);
             }
         }
         Statement::Assign { value, .. }
         | Statement::FieldAssign { value, .. }
         | Statement::TupleAssign { value, .. }
         | Statement::Return(Some(value))
-        | Statement::Expr(value) => collect_expr_types(value, types, aliases, enums),
+        | Statement::Expr(value) => collect_expr_types(value, types, aliases, enums, structs),
         Statement::ArrayAssign { index, value, .. } => {
-            collect_expr_types(index, types, aliases, enums);
-            collect_expr_types(value, types, aliases, enums);
+            collect_expr_types(index, types, aliases, enums, structs);
+            collect_expr_types(value, types, aliases, enums, structs);
         }
         Statement::Break | Statement::Continue | Statement::Return(None) => {}
     }
@@ -1041,6 +1042,7 @@ fn collect_expr_types(
     types: &mut HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
     enums: &HashMap<String, Vec<EnumVariant>>,
+    structs: &HashMap<String, Vec<Field>>,
 ) {
     match expression {
         Expr::List(items) => {
@@ -1062,6 +1064,29 @@ fn collect_expr_types(
                                 if let Expr::Symbol(binding) = binding {
                                     if binding != "_" {
                                         types.entry(binding.clone()).or_insert(field_type.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(Type::Named(struct_name)) = types.get(name).cloned() {
+                        if let Some(fields) = structs.get(&struct_name) {
+                            for arm in items.iter().skip(2) {
+                                let Expr::List(arm) = arm else { continue };
+                                let Some(Expr::List(pattern)) = arm.first() else {
+                                    continue;
+                                };
+                                if !matches!(pattern.first(), Some(Expr::Symbol(pattern_name)) if pattern_name == &struct_name)
+                                {
+                                    continue;
+                                }
+                                for (binding, field) in pattern[1..].iter().zip(fields) {
+                                    if let Expr::Symbol(binding) = binding {
+                                        if binding != "_" {
+                                            types
+                                                .entry(binding.clone())
+                                                .or_insert(field.ty.clone());
+                                        }
                                     }
                                 }
                             }
@@ -1098,12 +1123,12 @@ fn collect_expr_types(
                 }
             }
             for item in items {
-                collect_expr_types(item, types, aliases, enums);
+                collect_expr_types(item, types, aliases, enums, structs);
             }
         }
         Expr::Block(statements) => {
             for statement in statements {
-                collect_local_types(statement, types, aliases, enums);
+                collect_local_types(statement, types, aliases, enums, structs);
             }
         }
         _ => {}
@@ -1206,6 +1231,36 @@ fn collect_expr_locals(
                                 add_local(
                                     locals, binding, field_type, structs, enums, aliases, next_slot,
                                 )?;
+                            }
+                        }
+                    }
+                }
+            }
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                if let Some(Expr::Symbol(name)) = items.get(1) {
+                    if let Some(Type::Named(struct_name)) = types.get(name) {
+                        if let Some(fields) = structs.get(struct_name) {
+                            for arm in items.iter().skip(2) {
+                                let Expr::List(arm) = arm else { continue };
+                                let Some(Expr::List(pattern)) = arm.first() else {
+                                    continue;
+                                };
+                                if !matches!(pattern.first(), Some(Expr::Symbol(pattern_name)) if pattern_name == struct_name)
+                                {
+                                    continue;
+                                }
+                                for (binding, field) in pattern[1..].iter().zip(fields) {
+                                    let Expr::Symbol(binding) = binding else {
+                                        continue;
+                                    };
+                                    if binding == "_" || locals.contains_key(binding) {
+                                        continue;
+                                    }
+                                    add_local(
+                                        locals, binding, &field.ty, structs, enums, aliases,
+                                        next_slot,
+                                    )?;
+                                }
                             }
                         }
                     }
@@ -3745,7 +3800,13 @@ impl FunctionContext {
             return Err("match requires a value and an arm".into());
         }
         if let Some(Type::Tuple(fields)) = self.expression_type(&items[1]) {
-            return self.tuple_match_expression(items, &fields, float_type);
+            return self.aggregate_match_expression(items, "tuple", &fields, float_type);
+        }
+        if let Some(Type::Named(name)) = self.expression_type(&items[1]) {
+            if let Some(fields) = self.structs.get(&name).cloned() {
+                let field_types = fields.into_iter().map(|field| field.ty).collect::<Vec<_>>();
+                return self.aggregate_match_expression(items, &name, &field_types, float_type);
+            }
         }
         let end = self.label("match_end");
         let base_depth = self.stack_depth;
@@ -3957,13 +4018,18 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn tuple_match_expression(
+    fn aggregate_match_expression(
         &mut self,
         items: &[Expr],
+        constructor: &str,
         fields: &[Type],
         float_type: Option<&Type>,
     ) -> Result<(), String> {
-        let ty = Type::Tuple(fields.to_vec());
+        let ty = if constructor == "tuple" {
+            Type::Tuple(fields.to_vec())
+        } else {
+            Type::Named(constructor.to_owned())
+        };
         let words = value_word_count(&ty, &self.structs, &self.enums)?;
         let base_depth = self.stack_depth;
         if let Expr::Symbol(name) = &items[1] {
@@ -3995,7 +4061,7 @@ impl FunctionContext {
             };
             let next = self.label("tuple_match_next");
             let mut bindings = Vec::new();
-            self.emit_tuple_pattern(&arm[0], fields, 0, &next, &mut bindings)?;
+            self.emit_aggregate_pattern(&arm[0], constructor, fields, 0, &next, &mut bindings)?;
             for (name, offset) in bindings {
                 let slot = scalar_slot(&self.locals, &name);
                 self.output.push_str(&format!(
@@ -4024,9 +4090,10 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn emit_tuple_pattern(
+    fn emit_aggregate_pattern(
         &mut self,
         pattern: &Expr,
+        constructor: &str,
         fields: &[Type],
         offset: usize,
         next: &str,
@@ -4036,12 +4103,12 @@ impl FunctionContext {
             return Ok(());
         }
         let Expr::List(pattern) = pattern else {
-            return Err("tuple match pattern must be (tuple pattern ...)".into());
+            return Err("aggregate match pattern must be a constructor pattern".into());
         };
-        if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "tuple")
+        if !matches!(pattern.first(), Some(Expr::Symbol(name)) if name == constructor)
             || pattern.len() - 1 != fields.len()
         {
-            return Err("tuple match pattern has the wrong shape".into());
+            return Err("aggregate match pattern has the wrong shape".into());
         }
         for (index, (field, ty)) in pattern[1..].iter().zip(fields).enumerate() {
             let address = (offset + index) * 8;
@@ -4049,7 +4116,7 @@ impl FunctionContext {
                 Expr::Symbol(name) if name == "_" => {}
                 Expr::Symbol(name) if name == "true" || name == "false" => {
                     if !matches!(ty, Type::Bool) {
-                        return Err("boolean tuple pattern has a non-boolean field".into());
+                        return Err("boolean aggregate pattern has a non-boolean field".into());
                     }
                     self.output.push_str(&format!(
                         "    cmp QWORD PTR [rsp+{address}], {}\n    jne {next}\n",
@@ -4074,7 +4141,7 @@ impl FunctionContext {
                         *value as u32
                     ));
                 }
-                _ => return Err("unsupported tuple field pattern".into()),
+                _ => return Err("unsupported aggregate field pattern".into()),
             }
         }
         Ok(())

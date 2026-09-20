@@ -3455,6 +3455,20 @@ mod tests {
     }
 
     #[test]
+    fn lowers_struct_destructuring_match() {
+        let program = parse_program(
+            "(#struct Point ((x u64) (y u64))) \
+             (#fn classify ((value Point)) u64 \
+              (#return (#match value ((Point 40 second) second) (_ 0)))) \
+             (#fn main () u64 \
+              (#return (classify (Point 40 2))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn wraps_signed_machine_width_division_overflow() {
         let program =
             parse_program("(#fn main () i64 (#return (#i64./.wrap -9223372036854775808 -1)))")

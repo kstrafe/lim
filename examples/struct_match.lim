@@ -1,0 +1,10 @@
+(#struct Point ((x u64) (y u64)))
+
+(#fn classify ((value Point)) u64
+  (#return
+    (#match value
+      ((Point 40 second) second)
+      (_ 0))))
+
+(#fn main () u64
+  (#return (classify (Point 40 2))))
