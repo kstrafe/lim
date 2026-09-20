@@ -1012,8 +1012,19 @@ fn generate_function(
     };
     let aggregate_temp_words = functions
         .values()
-        .filter(|abi| abi.indirect_return)
-        .filter_map(|abi| storage_word_count(&abi.return_type, structs, enums).ok())
+        .flat_map(|abi| {
+            let returns = abi
+                .indirect_return
+                .then(|| storage_word_count(&abi.return_type, structs, enums));
+            let parameters = abi
+                .parameters
+                .iter()
+                .zip(&abi.indirect_parameters)
+                .filter(|(_, indirect)| **indirect)
+                .map(|(ty, _)| storage_word_count(ty, structs, enums));
+            returns.into_iter().chain(parameters)
+        })
+        .filter_map(Result::ok)
         .max()
         .unwrap_or(0);
     let aggregate_temp_base = if aggregate_temp_words == 0 {
@@ -8829,6 +8840,168 @@ impl FunctionContext {
         }
     }
 
+    fn store_value_to_slots(
+        &mut self,
+        value: &Expr,
+        ty: &Type,
+        slots: &[usize],
+    ) -> Result<(), String> {
+        let words = storage_word_count(ty, &self.structs, &self.enums)?;
+        if slots.len() != words {
+            return Err("aggregate temporary has an inconsistent layout".into());
+        }
+        if words <= VALUE_REGISTERS.len() {
+            return self.store_value_words(value, ty, slots);
+        }
+        if let Expr::Symbol(name) = value {
+            if let Ok(source_slots) = local_slots(&self.locals, name) {
+                if source_slots.len() == words {
+                    for (source, destination) in source_slots.iter().zip(slots) {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                            source * 8,
+                            destination * 8
+                        ));
+                    }
+                    return Ok(());
+                }
+            }
+            if self.global_types.get(name) == Some(ty) {
+                for (index, destination) in slots.iter().enumerate() {
+                    self.load_global_word(name, index)?;
+                    self.output.push_str(&format!(
+                        "    mov QWORD PTR [rbp-{}], rax\n",
+                        destination * 8
+                    ));
+                }
+                return Ok(());
+            }
+        }
+        if let Expr::List(items) = value {
+            if let Some(Expr::Symbol(function_name)) = items.first() {
+                if self
+                    .functions
+                    .get(function_name)
+                    .is_some_and(|function| function.indirect_return)
+                {
+                    let base = *slots
+                        .first()
+                        .ok_or_else(|| "aggregate temporary has no storage".to_owned())?;
+                    self.call(function_name, &items[1..], Some(base))?;
+                    return Ok(());
+                }
+            }
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
+                if items.len() != 4 {
+                    return Err("aggregate if requires condition, then, and else values".into());
+                }
+                let else_label = self.label("aggregate_argument_else");
+                let done_label = self.label("aggregate_argument_done");
+                self.expression(&items[1])?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {else_label}\n"));
+                self.store_value_to_slots(&items[2], ty, slots)?;
+                self.output
+                    .push_str(&format!("    jmp {done_label}\n{else_label}:\n"));
+                self.store_value_to_slots(&items[3], ty, slots)?;
+                self.output.push_str(&format!("{done_label}:\n"));
+                return Ok(());
+            }
+        }
+        let Expr::List(items) = value else {
+            return Err("large aggregate argument requires a constructor or local value".into());
+        };
+        let Some(Expr::Symbol(constructor)) = items.first() else {
+            return Err("large aggregate argument constructor must start with a symbol".into());
+        };
+        match ty {
+            Type::Array(element, length) if constructor == "array" => {
+                let value_start = if parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|declared| declared == *ty)
+                {
+                    2
+                } else {
+                    1
+                };
+                if items.len() - value_start != *length {
+                    return Err("large array argument has the wrong length".into());
+                }
+                let element_words = storage_word_count(element, &self.structs, &self.enums)?;
+                for (index, item) in items[value_start..].iter().enumerate() {
+                    self.store_value_to_slots(
+                        item,
+                        element,
+                        &slots[index * element_words..(index + 1) * element_words],
+                    )?;
+                }
+                Ok(())
+            }
+            Type::Array(element, length) if constructor == "array-repeat" => {
+                let value_start = if parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|declared| declared == *ty)
+                {
+                    2
+                } else {
+                    1
+                };
+                if items.len() != value_start + 1 {
+                    return Err("large array-repeat argument requires one value".into());
+                }
+                let element_words = storage_word_count(element, &self.structs, &self.enums)?;
+                for index in 0..*length {
+                    self.store_value_to_slots(
+                        &items[value_start],
+                        element,
+                        &slots[index * element_words..(index + 1) * element_words],
+                    )?;
+                }
+                Ok(())
+            }
+            Type::Tuple(fields) if constructor == "tuple" => {
+                let value_start = if parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|declared| declared == *ty)
+                {
+                    2
+                } else {
+                    1
+                };
+                if items.len() - value_start != fields.len() {
+                    return Err("large tuple argument has the wrong length".into());
+                }
+                let mut offset = 0;
+                for (item, field) in items[value_start..].iter().zip(fields) {
+                    let field_words = storage_word_count(field, &self.structs, &self.enums)?;
+                    self.store_value_to_slots(item, field, &slots[offset..offset + field_words])?;
+                    offset += field_words;
+                }
+                Ok(())
+            }
+            Type::Named(name) if self.structs.contains_key(name) && constructor == name => {
+                let fields = self.structs.get(name).cloned().unwrap_or_default();
+                if items.len() - 1 != fields.len() {
+                    return Err(format!(
+                        "large struct argument '{name}' has the wrong field count"
+                    ));
+                }
+                let mut offset = 0;
+                for (item, field) in items[1..].iter().zip(&fields) {
+                    let field_words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
+                    self.store_value_to_slots(
+                        item,
+                        &field.ty,
+                        &slots[offset..offset + field_words],
+                    )?;
+                    offset += field_words;
+                }
+                Ok(())
+            }
+            _ => Err("large aggregate argument constructor has the wrong type".into()),
+        }
+    }
+
     fn push_call_argument(
         &mut self,
         value: &Expr,
@@ -8838,13 +9011,20 @@ impl FunctionContext {
         if !indirect {
             return self.push_value_words(value, ty, false);
         }
-        let Expr::Symbol(name) = value else {
-            return Err("large aggregate arguments currently require a local value".into());
+        let base = if let Expr::Symbol(name) = value {
+            let slots = local_slots(&self.locals, name)?;
+            *slots
+                .first()
+                .ok_or_else(|| "large aggregate argument has no storage".to_owned())?
+        } else {
+            let base = self
+                .aggregate_temp_base
+                .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
+            let words = storage_word_count(ty, &self.structs, &self.enums)?;
+            let slots = flat_slots(base, words);
+            self.store_value_to_slots(value, ty, &slots)?;
+            base
         };
-        let slots = local_slots(&self.locals, name)?;
-        let base = slots
-            .first()
-            .ok_or_else(|| "large aggregate argument has no storage".to_owned())?;
         self.output
             .push_str(&format!("    lea rax, [rbp-{}]\n", base * 8));
         self.push_rax();
