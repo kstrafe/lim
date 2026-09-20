@@ -3402,6 +3402,20 @@ mod tests {
     }
 
     #[test]
+    fn destructures_nested_struct_locals() {
+        let program = parse_program(
+            "(#struct Inner ((left u64) (right u64))) \
+             (#struct Outer ((inner Inner) (tail u64))) \
+             (#fn main () u64 \
+               (#let (Outer inner tail) Outer (Outer (Inner 10 20) 32)) \
+               (#return tail))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

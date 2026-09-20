@@ -2919,81 +2919,33 @@ impl FunctionContext {
             return Err("destructuring pattern has the wrong field count".into());
         }
         let words = value_word_count(ty, &self.structs, &self.enums)?;
-        if words != fields.len() {
-            return Err("native destructuring currently requires scalar fields".into());
+        self.push_value_words(value, ty, false)?;
+        for register in VALUE_REGISTERS[..words].iter().rev() {
+            self.output.push_str(&format!("    pop {register}\n"));
+            self.stack_depth -= 1;
         }
-        let direct_values = if let Expr::List(items) = value {
-            let value_start = match ty {
-                Type::Tuple(_) if matches!(items.first(), Some(Expr::Symbol(name)) if name == "tuple") => {
-                    if parse_type(items.get(1))
-                        .ok()
-                        .is_some_and(|declared| matches!(declared, Type::Tuple(_)))
-                    {
-                        2
-                    } else {
-                        1
-                    }
-                }
-                Type::Array(_, _) if matches!(items.first(), Some(Expr::Symbol(name)) if name == "array") => {
-                    if parse_type(items.get(1))
-                        .ok()
-                        .is_some_and(|declared| matches!(declared, Type::Array(_, _)))
-                    {
-                        2
-                    } else {
-                        1
-                    }
-                }
-                Type::Named(name) if matches!(items.first(), Some(Expr::Symbol(constructor)) if constructor == name) => {
-                    1
-                }
-                _ => usize::MAX,
-            };
-            if value_start != usize::MAX && items.len() - value_start == fields.len() {
-                Some(&items[value_start..])
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        if let Some(values) = direct_values {
-            for (field, field_type) in values.iter().zip(&fields) {
-                self.expression_as_abi_word(field, field_type)?;
-                self.push_rax();
-            }
-            for register in VALUE_REGISTERS[..fields.len()].iter().rev() {
-                self.output.push_str(&format!("    pop {register}\n"));
-                self.stack_depth -= 1;
-            }
-        } else if let Expr::Symbol(name) = value {
-            if self.locals.contains_key(name) {
-                for (index, slot) in local_slots(&self.locals, name)?.into_iter().enumerate() {
-                    self.output.push_str(&format!(
-                        "    mov {}, QWORD PTR [rbp-{}]\n",
-                        VALUE_REGISTERS[index],
-                        slot * 8
-                    ));
-                }
-            } else {
-                self.expression(value)?;
-            }
-        } else {
-            self.expression(value)?;
-        }
-        for (index, binding) in pattern_items[1..].iter().enumerate() {
+        let mut offset = 0;
+        for (binding, field_type) in pattern_items[1..].iter().zip(&fields) {
             let Expr::Symbol(binding) = binding else {
                 return Err("destructuring fields must be binding names or '_'".into());
             };
+            let field_words = value_word_count(field_type, &self.structs, &self.enums)?;
             if binding == "_" {
+                offset += field_words;
                 continue;
             }
-            let slot = scalar_slot(&self.locals, binding);
-            self.output.push_str(&format!(
-                "    mov QWORD PTR [rbp-{}], {}\n",
-                slot * 8,
-                VALUE_REGISTERS[index]
-            ));
+            let slots = local_slots(&self.locals, binding)?;
+            if slots.len() != field_words {
+                return Err("destructuring binding has an inconsistent flattened layout".into());
+            }
+            for (index, slot) in slots.iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {}\n",
+                    slot * 8,
+                    VALUE_REGISTERS[offset + index]
+                ));
+            }
+            offset += field_words;
         }
         Ok(())
     }
