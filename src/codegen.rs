@@ -4734,7 +4734,16 @@ impl FunctionContext {
                 }
             }
             Expr::List(items) => self.list_expression(items)?,
-            Expr::String(_) => return Err("strings are not supported by the native backend".into()),
+            Expr::String(value) => {
+                let characters = value.chars().collect::<Vec<_>>();
+                if characters.len() > VALUE_REGISTERS.len() {
+                    return Err("native string expression has too many value words".into());
+                }
+                for (register, character) in VALUE_REGISTERS.iter().zip(characters) {
+                    self.output
+                        .push_str(&format!("    mov {register}, {}\n", character as u32));
+                }
+            }
             Expr::At => return Err("@ is not an executable expression".into()),
             Expr::Quote(_) => return Err("quoted expressions are not executable".into()),
         }

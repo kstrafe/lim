@@ -97,6 +97,10 @@ allocation:
   (#return (#if (#char.== (#index letters 0) #\\H) 1 0)))
 ```
 
+Fixed-string expressions can also be evaluated for their value words and
+discarded as statements; they remain stack-free value data rather than hidden
+references.
+
 ```lisp
 (#fn add ((left u32) (right u32)) u32
   (#let total u32 (#u32.+.wrap left right))

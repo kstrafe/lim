@@ -4510,6 +4510,18 @@ mod tests {
     }
 
     #[test]
+    fn lowers_discarded_fixed_string_expressions() {
+        let program = parse_program_strict(
+            "(#fn main () u64 \
+               (#if true \"Hi\" \"No\") \
+               (#return 42))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn lowers_direct_array_constructor_indexing() {
         let program = parse_program(
             "(#fn main () u64 (#return (#index (#array (#array u64 3) 10 20 42) 2)))",
