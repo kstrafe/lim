@@ -862,4 +862,13 @@ mod tests {
             .unwrap_err()
             .contains("struct 'Point'"));
     }
+
+    #[test]
+    fn checks_boolean_and_unary_operators() {
+        let program = parse_program("(fn main () bool (&& (! false) (|| false true)))").unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("and_false"));
+        assert!(assembly.contains("xor eax, 1"));
+    }
 }

@@ -229,6 +229,13 @@ fn list_expression(
         return Err("expression list must start with a symbol".into());
     };
     match operator.as_str() {
+        "-" if items.len() == 2 => {
+            let actual = expression(&items[1], variables, functions, structs, expected)?;
+            if !is_integer(&actual) {
+                return Err("unary '-' requires an integer operand".into());
+            }
+            Ok(actual)
+        }
         "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
             require_arity(operator, items, 3)?;
             let left = expression(&items[1], variables, functions, structs, expected)?;
@@ -255,6 +262,20 @@ fn list_expression(
             let else_type = expression(&items[3], variables, functions, structs, Some(&then_type))?;
             require_same(&then_type, &else_type, "if branches")?;
             Ok(then_type)
+        }
+        "!" => {
+            require_arity(operator, items, 2)?;
+            let operand = expression(&items[1], variables, functions, structs, Some(&Type::Bool))?;
+            require_type(&operand, &Type::Bool, "! operand")?;
+            Ok(Type::Bool)
+        }
+        "&&" | "||" => {
+            require_arity(operator, items, 3)?;
+            for operand in &items[1..] {
+                let actual = expression(operand, variables, functions, structs, Some(&Type::Bool))?;
+                require_type(&actual, &Type::Bool, &format!("{operator} operand"))?;
+            }
+            Ok(Type::Bool)
         }
         "let" => Err("let is only valid as a statement".into()),
         "get" => {

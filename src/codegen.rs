@@ -248,13 +248,60 @@ impl FunctionContext {
             _ => return Err("expression list must start with a symbol".into()),
         };
         match operator {
+            "-" if items.len() == 2 => self.unary_negate(items),
             "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
                 self.binary_operator(operator, items)
             }
             "<" | "<=" | ">" | ">=" | "==" | "!=" => self.comparison(operator, items),
             "if" => self.if_expression(items),
+            "!" => self.boolean_not(items),
+            "&&" | "||" => self.boolean_logic(operator, items),
             _ => self.call(operator, &items[1..]),
         }
+    }
+
+    fn unary_negate(&mut self, items: &[Expr]) -> Result<(), String> {
+        self.expression(&items[1])?;
+        self.output.push_str("    neg rax\n");
+        Ok(())
+    }
+
+    fn boolean_not(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 2 {
+            return Err("! requires one operand".into());
+        }
+        self.expression(&items[1])?;
+        self.output.push_str("    xor eax, 1\n");
+        Ok(())
+    }
+
+    fn boolean_logic(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 3 {
+            return Err(format!("operator '{operator}' requires two operands"));
+        }
+        let short_label = self.label(if operator == "&&" {
+            "and_false"
+        } else {
+            "or_true"
+        });
+        let end_label = self.label("logic_end");
+        self.expression(&items[1])?;
+        self.output.push_str(&format!(
+            "    test rax, rax\n    {} {short_label}\n",
+            if operator == "&&" { "jz" } else { "jnz" }
+        ));
+        self.expression(&items[2])?;
+        self.output
+            .push_str("    test rax, rax\n    setne al\n    movzx rax, al\n");
+        self.output
+            .push_str(&format!("    jmp {end_label}\n{short_label}:\n"));
+        self.output.push_str(if operator == "&&" {
+            "    xor eax, eax\n"
+        } else {
+            "    mov eax, 1\n"
+        });
+        self.output.push_str(&format!("{end_label}:\n"));
+        Ok(())
     }
 
     fn binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
