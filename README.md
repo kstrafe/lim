@@ -414,6 +414,11 @@ Large scalar structs use it as well; see `examples/large_struct_return.lim`.
 Payload enums with large scalar payloads use the same representation, including
 their discriminant; see `examples/large_enum_return.lim`.
 
+Large scalar arrays, tuples, structs, and payload enums may also be passed as
+function parameters. The compiler uses an internal storage pointer for the
+call boundary; pointers remain unavailable in Lim source. See
+`examples/large_array_parameter.lim`.
+
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
 Nested tuple locals and fixed-array locals can also be stored and indexed using

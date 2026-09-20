@@ -150,6 +150,7 @@ enum GlobalValue {
 #[derive(Clone)]
 struct FunctionAbi {
     parameters: Vec<Type>,
+    indirect_parameters: Vec<bool>,
     return_type: Type,
     indirect_return: bool,
     max_call_depth: usize,
@@ -732,11 +733,16 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             .iter()
             .map(|parameter| resolve_type(&parameter.ty, &aliases))
             .collect::<Result<Vec<_>, _>>()?;
+        let indirect_parameters = parameters
+            .iter()
+            .map(|ty| supports_indirect_return_type(ty, &structs, &enums))
+            .collect();
         let return_type = resolve_type(&function.return_type, &aliases)?;
         functions.insert(
             function.name.clone(),
             FunctionAbi {
                 parameters,
+                indirect_parameters,
                 indirect_return: supports_indirect_return_type(&return_type, &structs, &enums),
                 return_type,
                 max_call_depth: *call_depths.get(&function.name).unwrap_or(&1),
@@ -915,6 +921,17 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     Ok(output)
 }
 
+fn emit_indirect_parameter_copy(output: &mut String, slots: &[usize], source: &str) {
+    output.push_str(&format!("    mov r10, {source}\n"));
+    for (index, slot) in slots.iter().enumerate() {
+        output.push_str(&format!(
+            "    mov rax, QWORD PTR [r10-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+            index * 8,
+            slot * 8
+        ));
+    }
+}
+
 fn generate_function(
     function: &Function,
     output: &mut String,
@@ -927,9 +944,15 @@ fn generate_function(
 ) -> Result<(), String> {
     let return_type = resolve_type(&function.return_type, aliases)?;
     ensure_return_type(&return_type, enums, structs)?;
-    for parameter in &function.parameters {
+    let indirect_parameters = functions
+        .get(&function.name)
+        .map(|abi| abi.indirect_parameters.clone())
+        .unwrap_or_else(|| vec![false; function.parameters.len()]);
+    for (parameter, indirect) in function.parameters.iter().zip(&indirect_parameters) {
         let parameter_type = resolve_type(&parameter.ty, aliases)?;
-        ensure_parameter_type(&parameter_type, enums, structs)?;
+        if !indirect {
+            ensure_parameter_type(&parameter_type, enums, structs)?;
+        }
     }
     let has_float_parameter = function.parameters.iter().any(|parameter| {
         matches!(
@@ -1039,7 +1062,7 @@ fn generate_function(
         let mut integer_index = 0usize;
         let mut float_index = 0usize;
         let mut stack_index = 0usize;
-        for parameter in &function.parameters {
+        for (parameter, indirect) in function.parameters.iter().zip(&indirect_parameters) {
             let ty = resolve_type(&parameter.ty, aliases)?;
             if matches!(ty, Type::F32 | Type::F64) {
                 let slot = local_slots(&locals, &parameter.name)?[0];
@@ -1061,6 +1084,17 @@ fn generate_function(
                         "    mov rax, QWORD PTR [rbp+{incoming_offset}]\n    mov QWORD PTR [rbp-{}], rax\n",
                         slot * 8
                     ));
+                    stack_index += 1;
+                }
+            } else if *indirect {
+                let slots = local_slots(&locals, &parameter.name)?;
+                if integer_index < ARGUMENT_REGISTERS.len() {
+                    emit_indirect_parameter_copy(output, &slots, ARGUMENT_REGISTERS[integer_index]);
+                    integer_index += 1;
+                } else {
+                    let incoming_offset = 16 + stack_index * 8;
+                    output.push_str(&format!("    mov r10, QWORD PTR [rbp+{incoming_offset}]\n"));
+                    emit_indirect_parameter_copy(output, &slots, "r10");
                     stack_index += 1;
                 }
             } else {
@@ -1089,11 +1123,23 @@ fn generate_function(
         }
     }
     let mut incoming_word = 0usize;
-    for parameter in &function.parameters {
+    for (parameter, indirect) in function.parameters.iter().zip(&indirect_parameters) {
         if mixed_parameters {
             continue;
         }
         let ty = resolve_type(&parameter.ty, aliases)?;
+        if *indirect {
+            let slots = local_slots(&locals, &parameter.name)?;
+            if incoming_word < ARGUMENT_REGISTERS.len() {
+                emit_indirect_parameter_copy(output, &slots, ARGUMENT_REGISTERS[incoming_word]);
+            } else {
+                let incoming_offset = 16 + (incoming_word - ARGUMENT_REGISTERS.len()) * 8;
+                output.push_str(&format!("    mov r10, QWORD PTR [rbp+{incoming_offset}]\n"));
+                emit_indirect_parameter_copy(output, &slots, "r10");
+            }
+            incoming_word += 1;
+            continue;
+        }
         let words = value_word_count(&ty, structs, enums)?;
         let slots = local_slots(&locals, &parameter.name)?;
         if all_float_parameters {
@@ -2584,6 +2630,9 @@ fn ensure_parameter_type(
     enums: &HashMap<String, Vec<EnumVariant>>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), String> {
+    if supports_indirect_return_type(ty, structs, enums) {
+        return Ok(());
+    }
     value_word_count(ty, structs, enums)?;
     if !is_flat_native_value(ty, structs, enums) {
         return Err(format!(
@@ -8196,6 +8245,28 @@ impl FunctionContext {
         }
     }
 
+    fn push_call_argument(
+        &mut self,
+        value: &Expr,
+        ty: &Type,
+        indirect: bool,
+    ) -> Result<(), String> {
+        if !indirect {
+            return self.push_value_words(value, ty, false);
+        }
+        let Expr::Symbol(name) = value else {
+            return Err("large aggregate arguments currently require a local value".into());
+        };
+        let slots = local_slots(&self.locals, name)?;
+        let base = slots
+            .first()
+            .ok_or_else(|| "large aggregate argument has no storage".to_owned())?;
+        self.output
+            .push_str(&format!("    lea rax, [rbp-{}]\n", base * 8));
+        self.push_rax();
+        Ok(())
+    }
+
     fn emit_indirect_return_target(&mut self, slot: Option<usize>) {
         if let Some(slot) = slot {
             self.output
@@ -8233,12 +8304,25 @@ impl FunctionContext {
             }
         }
         if abi.parameters.iter().any(is_float_type) {
-            return self.call_mixed(name, arguments, &abi.parameters, indirect_return_slot);
+            return self.call_mixed(
+                name,
+                arguments,
+                &abi.parameters,
+                &abi.indirect_parameters,
+                indirect_return_slot,
+            );
         }
         let word_count = abi
             .parameters
             .iter()
-            .map(|ty| value_word_count(ty, &self.structs, &self.enums))
+            .zip(&abi.indirect_parameters)
+            .map(|(ty, indirect)| {
+                if *indirect {
+                    Ok(1)
+                } else {
+                    value_word_count(ty, &self.structs, &self.enums)
+                }
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let total_words = word_count.iter().sum::<usize>();
         if total_words > 32 {
@@ -8251,8 +8335,17 @@ impl FunctionContext {
                 self.output.push_str("    sub rsp, 8\n");
                 self.stack_depth += 1;
             }
-            for (argument, ty) in arguments.iter().zip(&abi.parameters).rev() {
-                self.push_value_words(argument, ty, true)?;
+            for ((argument, ty), indirect) in arguments
+                .iter()
+                .zip(&abi.parameters)
+                .zip(&abi.indirect_parameters)
+                .rev()
+            {
+                if *indirect {
+                    self.push_call_argument(argument, ty, true)?;
+                } else {
+                    self.push_value_words(argument, ty, true)?;
+                }
             }
             for (index, register) in ARGUMENT_REGISTERS.iter().enumerate() {
                 self.output.push_str(&format!(
@@ -8274,8 +8367,12 @@ impl FunctionContext {
             }
             return Ok(());
         }
-        for (argument, ty) in arguments.iter().zip(&abi.parameters) {
-            self.push_value_words(argument, ty, false)?;
+        for ((argument, ty), indirect) in arguments
+            .iter()
+            .zip(&abi.parameters)
+            .zip(&abi.indirect_parameters)
+        {
+            self.push_call_argument(argument, ty, *indirect)?;
         }
         for register in ARGUMENT_REGISTERS[..total_words].iter().rev() {
             self.output.push_str(&format!("    pop {register}\n"));
@@ -8362,12 +8459,14 @@ impl FunctionContext {
         name: &str,
         arguments: &[Expr],
         parameters: &[Type],
+        indirect_parameters: &[bool],
         indirect_return_slot: Option<usize>,
     ) -> Result<(), String> {
         let word_counts = parameters
             .iter()
-            .map(|ty| {
-                if is_float_type(ty) {
+            .zip(indirect_parameters)
+            .map(|(ty, indirect)| {
+                if *indirect || is_float_type(ty) {
                     Ok(1)
                 } else {
                     value_word_count(ty, &self.structs, &self.enums)
@@ -8379,8 +8478,9 @@ impl FunctionContext {
         let mut float_index = 0usize;
         let mut overflow_offsets = Vec::new();
         let mut source_offset = 0usize;
-        for (ty, words) in parameters.iter().zip(&word_counts) {
-            if is_float_type(ty) {
+        for ((ty, indirect), words) in parameters.iter().zip(indirect_parameters).zip(&word_counts)
+        {
+            if !*indirect && is_float_type(ty) {
                 if float_index >= FLOAT_ARGUMENT_REGISTERS.len() {
                     overflow_offsets.push(source_offset);
                 }
@@ -8401,8 +8501,9 @@ impl FunctionContext {
             self.output.push_str("    sub rsp, 8\n");
             self.stack_depth += 1;
         }
-        for (argument, ty) in arguments.iter().zip(parameters) {
-            self.push_value_words(argument, ty, false)?;
+        for ((argument, ty), indirect) in arguments.iter().zip(parameters).zip(indirect_parameters)
+        {
+            self.push_call_argument(argument, ty, *indirect)?;
         }
         for (copied_words, source_offset) in overflow_offsets.iter().rev().enumerate() {
             self.output.push_str(&format!(
@@ -8414,10 +8515,11 @@ impl FunctionContext {
         let mut integer_index = 0usize;
         let mut float_index = 0usize;
         let mut source_offset = 0usize;
-        for (ty, words) in parameters.iter().zip(&word_counts) {
+        for ((ty, indirect), words) in parameters.iter().zip(indirect_parameters).zip(&word_counts)
+        {
             for word in 0..*words {
                 let offset = (overflow_words + total_words - (source_offset + word) - 1) * 8;
-                if is_float_type(ty) {
+                if !*indirect && is_float_type(ty) {
                     if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
                         self.output.push_str(&format!(
                             "    mov{} {}, {} PTR [rsp+{offset}]\n",
