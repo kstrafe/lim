@@ -431,6 +431,8 @@ stack-resident payloads; see `examples/nested_large_match.lim`.
 
 Multiple inline large aggregate arguments receive independent temporary storage;
 see `examples/two_large_arguments.lim`.
+Nested projections used as multiple large arguments keep their staging regions
+separate as well; see `examples/multiple_large_projected_arguments.lim`.
 
 Large enum variant constructors can also be passed inline through the indirect
 storage boundary; see `examples/large_enum_argument.lim`.

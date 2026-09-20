@@ -1,0 +1,16 @@
+(#struct Inner
+  ((payload (#array u64 7))))
+
+(#struct Outer
+  ((inner Inner)))
+
+(#fn consume ((left (#array u64 7)) (right (#array u64 7))) u64
+  (#return (#index right 6u64)))
+
+(#fn main () u64
+  (#let value Outer
+    (Outer
+      (Inner
+        (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64))))
+  (#return (#consume (#get (#get value inner) payload)
+                     (#get (#get value inner) payload))))
