@@ -986,6 +986,11 @@ fn generate_function(
             resolve_type(&parameter.ty, aliases)?,
         );
     }
+    for (name, abi) in functions {
+        local_types
+            .entry(name.clone())
+            .or_insert_with(|| abi.return_type.clone());
+    }
     for statement in &function.body {
         collect_local_types(statement, &mut local_types, aliases, enums, structs);
     }
@@ -2039,6 +2044,7 @@ fn collected_expression_type(
             Some(Expr::Symbol(name)) if structs.contains_key(name) => {
                 (items.len() - 1 == structs[name].len()).then(|| Type::Named(name.clone()))
             }
+            Some(Expr::Symbol(name)) => types.get(name).cloned(),
             _ => None,
         },
         _ => None,
@@ -6756,21 +6762,44 @@ impl FunctionContext {
         if storage_word_count(&ty, &self.structs, &self.enums)
             .is_ok_and(|storage_words| storage_words > VALUE_REGISTERS.len())
         {
-            if let Expr::Symbol(name) = &items[1] {
-                if self.locals.contains_key(name)
-                    && fields.iter().all(|field| {
-                        value_word_count(field, &self.structs, &self.enums)
-                            .is_ok_and(|words| words == 1)
-                    })
-                {
-                    return self.large_scalar_aggregate_match_local(
-                        items,
-                        constructor,
-                        fields,
-                        name,
-                        float_type,
-                        result_type,
-                    );
+            if fields.iter().all(|field| {
+                value_word_count(field, &self.structs, &self.enums).is_ok_and(|words| words == 1)
+            }) {
+                if let Expr::Symbol(name) = &items[1] {
+                    if self.locals.contains_key(name) {
+                        let source_slots = local_slots(&self.locals, name)?;
+                        return self.large_scalar_aggregate_match_slots(
+                            items,
+                            constructor,
+                            fields,
+                            &source_slots,
+                            float_type,
+                            result_type,
+                        );
+                    }
+                }
+                if let Expr::List(call_items) = &items[1] {
+                    if let Some(Expr::Symbol(function_name)) = call_items.first() {
+                        if self
+                            .functions
+                            .get(function_name)
+                            .is_some_and(|function| function.indirect_return)
+                        {
+                            let base =
+                                self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                            let storage_words =
+                                storage_word_count(&ty, &self.structs, &self.enums)?;
+                            let source_slots = flat_slots(base, storage_words);
+                            return self.large_scalar_aggregate_match_slots(
+                                items,
+                                constructor,
+                                fields,
+                                &source_slots,
+                                float_type,
+                                result_type,
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -6893,16 +6922,15 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn large_scalar_aggregate_match_local(
+    fn large_scalar_aggregate_match_slots(
         &mut self,
         items: &[Expr],
         constructor: &str,
         fields: &[Type],
-        name: &str,
+        source_slots: &[usize],
         float_type: Option<&Type>,
         result_type: Option<&Type>,
     ) -> Result<(), String> {
-        let source_slots = local_slots(&self.locals, name)?;
         if source_slots.len() != fields.len() {
             return Err("large aggregate match has an inconsistent local layout".into());
         }

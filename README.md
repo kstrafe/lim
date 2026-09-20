@@ -448,6 +448,8 @@ stack storage; see `examples/large_aggregate_match.lim`.
 Large scalar array locals use the same stack-slot match path; see
 `examples/large_array_match.lim`.
 
+The same path handles a large scalar aggregate returned directly by a function.
+
 Large scalar arrays can be materialized directly from `#if` branches into a
 local stack value; see `examples/large_array_if.lim`.
 
