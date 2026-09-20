@@ -4729,6 +4729,21 @@ impl FunctionContext {
                 return Ok(());
             }
         }
+        if let Expr::Symbol(source) = value {
+            if let Some(Storage::Tuple(source_slots)) = self.locals.get(source).cloned() {
+                if source_slots.len() != slots.len() {
+                    return Err("tuple assignment has an inconsistent flattened layout".into());
+                }
+                for (source_slot, destination_slot) in source_slots.iter().zip(&slots) {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                        source_slot * 8,
+                        destination_slot * 8
+                    ));
+                }
+                return Ok(());
+            }
+        }
         let ty = Type::Tuple(fields);
         self.store_value_words(value, &ty, &slots)
     }

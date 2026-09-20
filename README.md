@@ -368,6 +368,9 @@ applies when a value crosses a native function boundary:
     1u64 2u64 3u64 4u64 5u64 6u64 7u64))
 ```
 
+Large tuple locals can also be copied directly between stack slots; copying
+does not turn the value into a function-call argument.
+
 Tuple values can also be destructured in `match` patterns. Bindings are
 explicit value bindings, and an aggregate match requires a wildcard arm:
 

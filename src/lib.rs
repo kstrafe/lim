@@ -5625,7 +5625,7 @@ mod tests {
     #[test]
     fn supports_large_tuple_locals_without_abi_flattening() {
         let program = parse_program_strict(
-            "(#fn main () u64 (#let value (#tuple u64 u64 u64 u64 u64 u64 u64) (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#return (#u64.+.wrap (#get value 0) (#get value 6))))",
+            "(#fn main () u64 (#let value (#tuple u64 u64 u64 u64 u64 u64 u64) (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#let copy (#tuple u64 u64 u64 u64 u64 u64 u64) value) (#return (#u64.+.wrap (#get copy 0) (#get copy 6))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
