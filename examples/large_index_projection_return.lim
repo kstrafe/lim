@@ -1,0 +1,21 @@
+(#struct Wrapped
+  ((payload (#array (#array u64 7) 2))))
+
+(#fn project () (#array u64 7)
+  (#let values (#array (#array u64 7) 2)
+    (#array (#array (#array u64 7) 2)
+      (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)
+      (#array (#array u64 7) 10u64 20u64 30u64 40u64 50u64 60u64 42u64)))
+  (#return (#index values 1u64)))
+
+(#fn nested-project () (#array u64 7)
+  (#let value Wrapped
+    (Wrapped
+      (#array (#array (#array u64 7) 2)
+        (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)
+        (#array (#array u64 7) 10u64 20u64 30u64 40u64 50u64 60u64 42u64))))
+  (#return (#index (#get value payload) 1u64)))
+
+(#fn main () u64
+  (#let value (#array u64 7) (nested-project))
+  (#return (#index value 6u64)))

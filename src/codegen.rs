@@ -1068,7 +1068,7 @@ fn generate_function(
         })
         .max()
         .unwrap_or(1)
-        .max(1);
+        .max(2);
     let aggregate_temp_base = if aggregate_temp_words == 0 {
         None
     } else {
@@ -9700,6 +9700,23 @@ impl FunctionContext {
                 }
             }
             Expr::List(call_items) => match call_items.first() {
+                Some(Expr::Symbol(operator)) if operator == "get" => {
+                    let source_type = self
+                        .expression_type(&items[1])
+                        .ok_or_else(|| "large aggregate field has no known type".to_owned())?;
+                    let source_words =
+                        storage_word_count(&source_type, &self.structs, &self.enums)?;
+                    let temp_base = self
+                        .aggregate_temp_base
+                        .ok_or_else(|| "no aggregate temporary is available".to_owned())?
+                        + self.aggregate_temp_words;
+                    self.store_value_to_slots(
+                        &items[1],
+                        &source_type,
+                        &flat_slots(temp_base, source_words),
+                    )?;
+                    Some(Source::Local(temp_base))
+                }
                 Some(Expr::Symbol(function_name))
                     if self
                         .functions
