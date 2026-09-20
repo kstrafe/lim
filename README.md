@@ -87,6 +87,10 @@ The typed declaration pass recognizes primitive Rust-style types (`u8` through
 `u128`, `usize`, signed integers, `f32`, `f64`, `bool`, `char`, and `()`), as
 well as named types. Local variables use explicit types:
 
+Later local bindings may shadow earlier bindings, including inside a block. The
+initializer is evaluated against the earlier binding, while subsequent
+expressions use the new binding.
+
 String literals have a fixed compile-time length and their type is an explicit
 fixed array of `char`. They do not introduce pointers, slices, or implicit
 allocation:

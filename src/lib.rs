@@ -4,7 +4,11 @@
 //! `@` sigil as a first-class expression so macro/generated-code expansion can
 //! be implemented later without changing the parser's public representation.
 
-use std::{collections::HashMap, fmt, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt, fs,
+    path::Path,
+};
 
 mod codegen;
 mod typecheck;
@@ -601,9 +605,356 @@ fn parse_program_with_mode(source: &str, require_prefixed: bool) -> Result<Progr
         }
         items.push(parse_item_with_mode(&expression, strict_keywords)?);
     }
+    rename_shadowed_locals(&mut items);
     Ok(Program {
         items: specialize_generic_types(items)?,
     })
+}
+
+fn rename_shadowed_locals(items: &mut [Item]) {
+    let globals = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Let { name, .. } | Item::Static { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let variants = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Enum { variants, .. } => Some(variants),
+            _ => None,
+        })
+        .flat_map(|variants| variants.iter().map(|variant| variant.name.clone()))
+        .collect::<HashSet<_>>();
+    for item in items {
+        if let Item::Function(function) = item {
+            rename_function_locals(function, &globals, &variants);
+        }
+    }
+}
+
+fn rename_function_locals(
+    function: &mut Function,
+    globals: &HashSet<String>,
+    variants: &HashSet<String>,
+) {
+    let mut bindings = function
+        .parameters
+        .iter()
+        .map(|parameter| (parameter.name.clone(), parameter.name.clone()))
+        .collect::<HashMap<_, _>>();
+    let mut used = bindings.values().cloned().collect::<HashSet<_>>();
+    used.extend(globals.iter().cloned());
+    let mut next_id = 0usize;
+    rename_statements(
+        &mut function.body,
+        &mut bindings,
+        &mut used,
+        &mut next_id,
+        globals,
+        variants,
+    );
+}
+
+fn fresh_binding(
+    name: &str,
+    bindings: &HashMap<String, String>,
+    used: &mut HashSet<String>,
+    next_id: &mut usize,
+    globals: &HashSet<String>,
+) -> String {
+    if !bindings.contains_key(name) && !globals.contains(name) {
+        used.insert(name.to_owned());
+        return name.to_owned();
+    }
+    loop {
+        let candidate = format!("__lim_shadow_{}_{}", *next_id, name);
+        *next_id += 1;
+        if used.insert(candidate.clone()) {
+            return candidate;
+        }
+    }
+}
+
+fn rename_symbol(name: &mut String, bindings: &HashMap<String, String>) {
+    if let Some(resolved) = bindings.get(name) {
+        *name = resolved.clone();
+    }
+}
+
+fn rename_pattern_bindings(
+    pattern: &mut Expr,
+    bindings: &mut HashMap<String, String>,
+    used: &mut HashSet<String>,
+    next_id: &mut usize,
+    globals: &HashSet<String>,
+    variants: &HashSet<String>,
+    new_bindings: &mut HashSet<String>,
+) {
+    match pattern {
+        Expr::List(items) => {
+            for item in items.iter_mut().skip(1) {
+                rename_pattern_bindings(
+                    item,
+                    bindings,
+                    used,
+                    next_id,
+                    globals,
+                    variants,
+                    new_bindings,
+                );
+            }
+        }
+        Expr::Symbol(name)
+            if name != "_"
+                && name != "true"
+                && name != "false"
+                && !variants.contains(name)
+                && new_bindings.insert(name.clone()) =>
+        {
+            let original = name.clone();
+            let resolved = fresh_binding(&original, bindings, used, next_id, globals);
+            bindings.insert(original, resolved.clone());
+            *name = resolved;
+        }
+        _ => {}
+    }
+}
+
+fn rename_statements(
+    statements: &mut [Statement],
+    bindings: &mut HashMap<String, String>,
+    used: &mut HashSet<String>,
+    next_id: &mut usize,
+    globals: &HashSet<String>,
+    variants: &HashSet<String>,
+) {
+    for statement in statements {
+        rename_statement(statement, bindings, used, next_id, globals, variants);
+    }
+}
+
+fn rename_statement(
+    statement: &mut Statement,
+    bindings: &mut HashMap<String, String>,
+    used: &mut HashSet<String>,
+    next_id: &mut usize,
+    globals: &HashSet<String>,
+    variants: &HashSet<String>,
+) {
+    match statement {
+        Statement::Let { name, value, .. } => {
+            rename_expression(value, bindings, used, next_id, globals, variants);
+            let original = name.clone();
+            let resolved = fresh_binding(&original, bindings, used, next_id, globals);
+            bindings.insert(original, resolved.clone());
+            *name = resolved;
+        }
+        Statement::Destructure { pattern, value, .. } => {
+            rename_expression(value, bindings, used, next_id, globals, variants);
+            let mut new_bindings = HashSet::new();
+            rename_pattern_bindings(
+                pattern,
+                bindings,
+                used,
+                next_id,
+                globals,
+                variants,
+                &mut new_bindings,
+            );
+        }
+        Statement::LetElse {
+            pattern,
+            value,
+            else_body,
+            ..
+        } => {
+            rename_expression(value, bindings, used, next_id, globals, variants);
+            let mut else_bindings = bindings.clone();
+            rename_statements(
+                else_body,
+                &mut else_bindings,
+                used,
+                next_id,
+                globals,
+                variants,
+            );
+            let mut new_bindings = HashSet::new();
+            rename_pattern_bindings(
+                pattern,
+                bindings,
+                used,
+                next_id,
+                globals,
+                variants,
+                &mut new_bindings,
+            );
+        }
+        Statement::Assign { name, value }
+        | Statement::ArrayAssign { name, value, .. }
+        | Statement::FieldAssign { name, value, .. }
+        | Statement::TupleAssign { name, value, .. }
+        | Statement::EnumPayloadAssign { name, value, .. } => {
+            rename_symbol(name, bindings);
+            rename_expression(value, bindings, used, next_id, globals, variants);
+            if let Statement::ArrayAssign { index, .. } = statement {
+                rename_expression(index, bindings, used, next_id, globals, variants);
+            }
+        }
+        Statement::While { condition, body } => {
+            rename_expression(condition, bindings, used, next_id, globals, variants);
+            let mut body_bindings = bindings.clone();
+            rename_statements(body, &mut body_bindings, used, next_id, globals, variants);
+        }
+        Statement::Loop { body } => {
+            let mut body_bindings = bindings.clone();
+            rename_statements(body, &mut body_bindings, used, next_id, globals, variants);
+        }
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            let mut loop_bindings = bindings.clone();
+            rename_statement(init, &mut loop_bindings, used, next_id, globals, variants);
+            rename_expression(
+                condition,
+                &mut loop_bindings,
+                used,
+                next_id,
+                globals,
+                variants,
+            );
+            rename_statement(step, &mut loop_bindings, used, next_id, globals, variants);
+            rename_statements(body, &mut loop_bindings, used, next_id, globals, variants);
+        }
+        Statement::BreakValue(value) | Statement::Return(Some(value)) | Statement::Expr(value) => {
+            rename_expression(value, bindings, used, next_id, globals, variants);
+        }
+        Statement::Break | Statement::Continue | Statement::Return(None) => {}
+    }
+}
+
+fn rename_expression(
+    expression: &mut Expr,
+    bindings: &mut HashMap<String, String>,
+    used: &mut HashSet<String>,
+    next_id: &mut usize,
+    globals: &HashSet<String>,
+    variants: &HashSet<String>,
+) {
+    match expression {
+        Expr::Symbol(name) => rename_symbol(name, bindings),
+        Expr::List(items) => {
+            let Some(Expr::Symbol(operator)) = items.first() else {
+                for item in items {
+                    rename_expression(item, bindings, used, next_id, globals, variants);
+                }
+                return;
+            };
+            let operator = operator.clone();
+            match operator.as_str() {
+                "match" if items.len() >= 2 => {
+                    rename_expression(&mut items[1], bindings, used, next_id, globals, variants);
+                    for arm in items.iter_mut().skip(2) {
+                        let Expr::List(arm_items) = arm else { continue };
+                        if arm_items.is_empty() {
+                            continue;
+                        }
+                        let mut arm_bindings = bindings.clone();
+                        let mut new_bindings = HashSet::new();
+                        rename_pattern_bindings(
+                            &mut arm_items[0],
+                            &mut arm_bindings,
+                            used,
+                            next_id,
+                            globals,
+                            variants,
+                            &mut new_bindings,
+                        );
+                        for item in arm_items.iter_mut().skip(1) {
+                            rename_expression(
+                                item,
+                                &mut arm_bindings,
+                                used,
+                                next_id,
+                                globals,
+                                variants,
+                            );
+                        }
+                    }
+                }
+                "if-let" if items.len() >= 4 => {
+                    rename_expression(&mut items[2], bindings, used, next_id, globals, variants);
+                    let mut branch_bindings = bindings.clone();
+                    let mut new_bindings = HashSet::new();
+                    rename_pattern_bindings(
+                        &mut items[1],
+                        &mut branch_bindings,
+                        used,
+                        next_id,
+                        globals,
+                        variants,
+                        &mut new_bindings,
+                    );
+                    for item in items.iter_mut().skip(3) {
+                        rename_expression(
+                            item,
+                            &mut branch_bindings,
+                            used,
+                            next_id,
+                            globals,
+                            variants,
+                        );
+                    }
+                }
+                "as" | "size-of" | "align-of" => {
+                    for item in items
+                        .iter_mut()
+                        .skip(1)
+                        .take(if operator == "as" { 1 } else { 0 })
+                    {
+                        rename_expression(item, bindings, used, next_id, globals, variants);
+                    }
+                }
+                "get" => {
+                    if let Some(value) = items.get_mut(1) {
+                        rename_expression(value, bindings, used, next_id, globals, variants);
+                    }
+                }
+                "array" | "array-repeat" => {
+                    for item in items.iter_mut().skip(2) {
+                        rename_expression(item, bindings, used, next_id, globals, variants);
+                    }
+                }
+                _ => {
+                    for item in items.iter_mut().skip(1) {
+                        rename_expression(item, bindings, used, next_id, globals, variants);
+                    }
+                }
+            }
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            let mut block_bindings = bindings.clone();
+            rename_statements(
+                statements,
+                &mut block_bindings,
+                used,
+                next_id,
+                globals,
+                variants,
+            );
+        }
+        Expr::Quote(_)
+        | Expr::Integer(_)
+        | Expr::UnsignedInteger(_)
+        | Expr::Float(_)
+        | Expr::Char(_)
+        | Expr::String(_)
+        | Expr::At => {}
+    }
 }
 
 fn validate_prefixed_forms(expression: &Expr) -> Result<(), String> {
@@ -2912,6 +3263,20 @@ mod tests {
         assert!(check_types(&unknown)
             .unwrap_err()
             .contains("unknown variable"));
+    }
+
+    #[test]
+    fn supports_shadowed_local_bindings() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#let value u64 40) \
+               (#let value u64 (#u64.+.wrap value 1)) \
+               (#return (#u64.+.wrap value \
+                 (#block (#let value u64 1) (#u64.+.wrap value 1)))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
     }
 
     #[test]

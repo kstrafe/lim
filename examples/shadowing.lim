@@ -1,0 +1,8 @@
+(#fn main () u64
+  (#let value u64 40)
+  (#let value u64 (#u64.+.wrap value 1))
+  (#return
+    (#u64.+.wrap value
+      (#block
+        (#let value u64 1)
+        (#u64.+.wrap value 1)))))
