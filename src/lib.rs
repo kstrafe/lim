@@ -450,14 +450,18 @@ fn parse_enum_variants(items: &[Expr]) -> Result<Vec<EnumVariant>, String> {
     if variants.is_empty() {
         return Err("enum requires at least one variant".into());
     }
-    variants
-        .iter()
-        .map(|variant| {
-            Ok(EnumVariant {
-                name: expect_symbol(Some(variant), "enum variant")?.to_owned(),
-            })
-        })
-        .collect()
+    let mut result = Vec::with_capacity(variants.len());
+    for variant in variants {
+        let name = expect_symbol(Some(variant), "enum variant")?.to_owned();
+        if result
+            .iter()
+            .any(|existing: &EnumVariant| existing.name == name)
+        {
+            return Err(format!("duplicate enum variant '{name}'"));
+        }
+        result.push(EnumVariant { name });
+    }
+    Ok(result)
 }
 
 fn parse_function(items: &[Expr]) -> Result<Function, String> {
@@ -920,5 +924,8 @@ mod tests {
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("cmp QWORD PTR [rsp], 1"));
+        assert!(parse_program("(enum Bad (Same Same))")
+            .unwrap_err()
+            .contains("duplicate enum variant"));
     }
 }
