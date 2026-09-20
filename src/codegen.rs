@@ -94,7 +94,8 @@ fn generate_function(
     globals: &HashMap<String, i128>,
     aliases: &HashMap<String, Type>,
 ) -> Result<(), String> {
-    ensure_return_type(&resolve_type(&function.return_type, aliases)?, enums)?;
+    let return_type = resolve_type(&function.return_type, aliases)?;
+    ensure_return_type(&return_type, enums, structs)?;
     for parameter in &function.parameters {
         ensure_scalar_type(&resolve_type(&parameter.ty, aliases)?, enums)?;
     }
@@ -166,6 +167,7 @@ fn generate_function(
         globals: globals.clone(),
         aliases: aliases.clone(),
         local_types,
+        return_type,
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
@@ -503,7 +505,11 @@ fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> R
     ensure_integer_type(ty)
 }
 
-fn ensure_return_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
+fn ensure_return_type(
+    ty: &Type,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Result<(), String> {
     if ensure_scalar_type(ty, enums).is_ok() {
         return Ok(());
     }
@@ -512,6 +518,18 @@ fn ensure_return_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> R
             "native backend does not support return type {ty:?}"
         ));
     };
+    if let Some(fields) = structs.get(name) {
+        if fields.len() <= 2
+            && fields
+                .iter()
+                .all(|field| ensure_scalar_type(&field.ty, enums).is_ok())
+        {
+            return Ok(());
+        }
+        return Err(format!(
+            "native backend only supports scalar struct returns for '{name}'"
+        ));
+    }
     let Some(variants) = enums.get(name) else {
         return Err(format!("unknown return type '{name}'"));
     };
@@ -586,6 +604,7 @@ struct FunctionContext {
     globals: HashMap<String, i128>,
     aliases: HashMap<String, Type>,
     local_types: HashMap<String, Type>,
+    return_type: Type,
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
@@ -735,27 +754,121 @@ impl FunctionContext {
             }
             Statement::Return(value) => {
                 if let Some(value) = value {
-                    self.expression(value)?;
+                    self.return_value(value)?;
                 } else {
                     self.output.push_str("    xor eax, eax\n");
                 }
                 self.output
                     .push_str(&format!("    jmp {}\n", self.return_label));
             }
-            Statement::Expr(expression) => self.expression(expression)?,
+            Statement::Expr(expression) => {
+                if matches!(&self.return_type, Type::Named(name) if self.structs.contains_key(name))
+                {
+                    self.return_value(expression)?;
+                } else {
+                    self.expression(expression)?;
+                }
+            }
         }
         Ok(())
     }
 
+    fn return_value(&mut self, value: &Expr) -> Result<(), String> {
+        let Type::Named(struct_name) = &self.return_type else {
+            self.expression(value)?;
+            return Ok(());
+        };
+        let Some(fields) = self.structs.get(struct_name).cloned() else {
+            self.expression(value)?;
+            return Ok(());
+        };
+        if let Expr::Symbol(name) = value {
+            let Storage::Struct(slots) = self
+                .locals
+                .get(name)
+                .ok_or_else(|| format!("unknown struct local '{name}'"))?
+            else {
+                return Err(format!("'{name}' is not a struct"));
+            };
+            let slots = slots.clone();
+            for (index, (_, slot)) in slots.iter().enumerate() {
+                let register = match index {
+                    0 => "rax",
+                    1 => "rdx",
+                    _ => return Err("native struct return has too many fields".into()),
+                };
+                self.output.push_str(&format!(
+                    "    mov {register}, QWORD PTR [rbp-{}]\n",
+                    slot * 8
+                ));
+            }
+            return Ok(());
+        }
+        if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == struct_name) {
+                if items.len() - 1 != fields.len() {
+                    return Err(format!("constructor '{struct_name}' has wrong field count"));
+                }
+                if fields.len() > 2 {
+                    return Err("native struct return has too many fields".into());
+                }
+                for (index, field) in items[1..].iter().enumerate() {
+                    self.expression(field)?;
+                    if index == 0 && fields.len() == 2 {
+                        self.push_rax();
+                    } else if index == 1 {
+                        self.output.push_str("    mov rdx, rax\n");
+                        self.output.push_str("    pop rax\n");
+                        self.stack_depth -= 1;
+                    }
+                }
+                return Ok(());
+            }
+        }
+        self.expression(value)
+    }
+
     fn store_struct(&mut self, name: &str, struct_name: &str, value: &Expr) -> Result<(), String> {
+        let Some(Storage::Struct(slots)) = self.locals.get(name).cloned() else {
+            return Err(format!("'{name}' is not a struct"));
+        };
+        if !matches!(value, Expr::List(_)) {
+            self.expression(value)?;
+            if let Some((_, slot)) = slots.first() {
+                self.output
+                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+            }
+            if let Some((_, slot)) = slots.get(1) {
+                self.output
+                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rdx\n", slot * 8));
+            }
+            return Ok(());
+        }
         let Expr::List(items) = value else {
-            return Err(format!("struct local '{name}' requires a constructor"));
+            unreachable!()
         };
         let Some(Expr::Symbol(constructor)) = items.first() else {
             return Err("struct constructor must start with a symbol".into());
         };
         if constructor != struct_name {
-            return Err(format!("expected '{struct_name}' constructor"));
+            let Storage::Struct(slots) = self
+                .locals
+                .get(name)
+                .ok_or_else(|| format!("unknown local '{name}'"))?
+            else {
+                return Err(format!("'{name}' is not a struct"));
+            };
+            let slots = slots.clone();
+            self.expression(value)?;
+            if let Some((_, slot)) = slots.first() {
+                self.output
+                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+            }
+            if let Some((_, slot)) = slots.get(1) {
+                self.output
+                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rdx\n", slot * 8));
+            }
+            return Ok(());
         }
         let fields = self
             .structs
@@ -765,14 +878,6 @@ impl FunctionContext {
         if items.len() - 1 != fields.len() {
             return Err(format!("constructor '{struct_name}' has wrong field count"));
         }
-        let Storage::Struct(slots) = self
-            .locals
-            .get(name)
-            .ok_or_else(|| format!("unknown local '{name}'"))?
-        else {
-            return Err(format!("'{name}' is not a struct"));
-        };
-        let slots = slots.clone();
         for ((_, slot), value) in slots.iter().zip(&items[1..]) {
             self.expression(value)?;
             self.output

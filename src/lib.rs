@@ -1100,14 +1100,26 @@ mod tests {
         assert!(generate_assembly(&local).unwrap().contains("[rbp-16]"));
         let mutable = parse_program("(struct Point ((x u64) (y u64))) (fn main () u64 (let mut p Point (Point 1 2)) (set-field p y 40) (+ (get p x) (get p y)))").unwrap();
         assert!(check_types(&mutable).is_ok());
-        let unsupported_abi = parse_program(
+        let returned =
+            parse_program("(struct Point ((x u64) (y u64))) (fn make_point () Point (Point 7 9))")
+                .unwrap();
+        assert!(check_types(&returned).is_ok());
+        assert!(generate_assembly(&returned)
+            .unwrap()
+            .contains("mov rdx, rax"));
+        let consumed = parse_program(
+            "(struct Point ((x u64) (y u64))) (fn make_point () Point (Point 7 9)) (fn main () u64 (let point Point (make_point)) (get point y))",
+        )
+        .unwrap();
+        assert!(check_types(&consumed).is_ok());
+        assert!(generate_assembly(&consumed)
+            .unwrap()
+            .contains("call make_point"));
+        let unsupported_parameter = parse_program(
             "(struct Point ((x u64) (y u64))) (fn identity ((point Point)) Point point)",
         )
         .unwrap();
-        assert!(check_types(&unsupported_abi).is_ok());
-        assert!(generate_assembly(&unsupported_abi)
-            .unwrap_err()
-            .contains("return type"));
+        assert!(generate_assembly(&unsupported_parameter).is_err());
     }
 
     #[test]

@@ -93,6 +93,9 @@ Value structs can be declared and checked without pointers or traits:
   (get (Point 7 9) x))
 ```
 
+Scalar structs with at most two fields can also cross function boundaries;
+their values use `rax` and `rdx` in the native backend.
+
 The native backend flattens scalar struct fields into stack slots. Struct
 parameters, nested aggregate fields, and aggregate returns are reserved for a
 later ABI-lowering stage.
