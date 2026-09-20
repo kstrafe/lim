@@ -2836,7 +2836,7 @@ impl FunctionContext {
                     self.output.push_str(&format!(
                         "    mov rax, 0x{:016x}\n    mov rdx, 0x{:016x}\n",
                         *value as u64,
-                        if *value < 0 { u64::MAX } else { 0 },
+                        (*value as u128 >> 64) as u64,
                     ));
                 } else {
                     self.output.push_str(&format!("    mov rax, {value}\n"));
@@ -3917,8 +3917,10 @@ impl FunctionContext {
         mode: Option<&str>,
         items: &[Expr],
     ) -> Result<(), String> {
-        if mode == Some("saturate") {
-            return Err("saturating 128-bit arithmetic is not supported yet".into());
+        if mode == Some("saturate") && !matches!(operator, "+" | "-" | "*") {
+            return Err(format!(
+                "saturating 128-bit operator '{operator}' is unsupported"
+            ));
         }
         if !matches!(
             operator,
@@ -3933,6 +3935,16 @@ impl FunctionContext {
         self.output
             .push_str("    mov rcx, rax\n    mov r8, rdx\n    pop rax\n    pop rdx\n");
         self.stack_depth -= 2;
+        if mode == Some("saturate") && matches!(operator, "+" | "-") {
+            let unsigned = self
+                .expression_type(&items[1])
+                .is_some_and(|ty| matches!(ty, Type::U128));
+            self.emit_wide_saturating_add_sub(operator, unsigned);
+            return Ok(());
+        }
+        if mode == Some("saturate") {
+            return Err("saturating 128-bit multiplication is not supported yet".into());
+        }
         if matches!(operator, "<<" | ">>") {
             let failure = self.label("wide_shift_failure");
             let high = self.label("wide_shift_high");
@@ -3995,6 +4007,33 @@ impl FunctionContext {
             _ => unreachable!(),
         }
         Ok(())
+    }
+
+    fn emit_wide_saturating_add_sub(&mut self, operator: &str, unsigned: bool) {
+        let high = self.label("wide_saturate_high");
+        let low = self.label("wide_saturate_low");
+        let overflow = self.label("wide_saturate_overflow");
+        let done = self.label("wide_saturate_done");
+        if unsigned {
+            if operator == "+" {
+                self.output.push_str(&format!(
+                    "    add rax, rcx\n    adc rdx, r8\n    jc {high}\n    jmp {done}\n{high}:\n    mov rax, -1\n    mov rdx, -1\n    jmp {done}\n"
+                ));
+            } else {
+                self.output.push_str(&format!(
+                    "    sub rax, rcx\n    sbb rdx, r8\n    jc {low}\n    jmp {done}\n{low}:\n    xor eax, eax\n    xor edx, edx\n    jmp {done}\n"
+                ));
+            }
+        } else if operator == "+" {
+            self.output.push_str(&format!(
+                "    mov r9, rdx\n    add rax, rcx\n    adc rdx, r8\n    mov r10, r9\n    xor r10, r8\n    js {done}\n    mov r10, r9\n    xor r10, rdx\n    jns {done}\n    jmp {overflow}\n{overflow}:\n    test rdx, rdx\n    js {high}\n    jmp {low}\n{high}:\n    mov rax, 0xffffffffffffffff\n    mov rdx, 0x7fffffffffffffff\n    jmp {done}\n{low}:\n    xor eax, eax\n    mov rdx, 0x8000000000000000\n"
+            ));
+        } else {
+            self.output.push_str(&format!(
+                "    mov r9, rdx\n    mov r10, r8\n    sub rax, rcx\n    sbb rdx, r8\n    mov r11, r9\n    xor r11, r10\n    js {overflow}\n    jmp {done}\n{overflow}:\n    mov r11, r9\n    xor r11, rdx\n    jns {done}\n    test rdx, rdx\n    js {high}\n    jmp {low}\n{high}:\n    mov rax, 0xffffffffffffffff\n    mov rdx, 0x7fffffffffffffff\n    jmp {done}\n{low}:\n    xor eax, eax\n    mov rdx, 0x8000000000000000\n"
+            ));
+        }
+        self.output.push_str(&format!("{done}:\n"));
     }
 
     fn wide_division(&mut self, operator: &str, signed: bool) -> Result<(), String> {

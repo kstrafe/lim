@@ -386,6 +386,8 @@ be used in explicitly typed `u128` positions.
 128-bit multiplication is lowered to the low 128 bits using native multiply
 and carry accumulation. Unsigned division and remainder use an emitted
 shift/subtract routine with divide-by-zero trapping.
+Saturating `i128`/`u128` addition and subtraction clamp to their full two-word
+numeric bounds; saturating wide multiplication is still rejected explicitly.
 
 Unsigned integer comparisons and right shifts use unsigned native instructions
 when their operands have an unsigned type; unsigned division and remainder use
