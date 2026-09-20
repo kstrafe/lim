@@ -329,6 +329,22 @@ fn statement_type(
             }
             Ok(Type::Unit)
         }
+        Statement::Loop { body } => {
+            for nested in body {
+                statement_type(
+                    nested,
+                    variables,
+                    mutable,
+                    functions,
+                    structs,
+                    enums,
+                    return_type,
+                    aliases,
+                    true,
+                )?;
+            }
+            Ok(Type::Unit)
+        }
         Statement::For {
             init,
             condition,

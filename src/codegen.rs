@@ -200,6 +200,11 @@ fn collect_locals(
                 collect_locals(statement, locals, structs, enums, aliases, next_slot)?;
             }
         }
+        Statement::Loop { body } => {
+            for statement in body {
+                collect_locals(statement, locals, structs, enums, aliases, next_slot)?;
+            }
+        }
         Statement::For {
             init,
             condition,
@@ -480,6 +485,17 @@ impl FunctionContext {
                 self.expression(condition)?;
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {end}\n"));
+                self.loop_labels.push((start.clone(), end.clone()));
+                for statement in body {
+                    self.statement(statement)?;
+                }
+                self.loop_labels.pop();
+                self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
+            }
+            Statement::Loop { body } => {
+                let start = self.label("loop");
+                let end = self.label("endloop");
+                self.output.push_str(&format!("{start}:\n"));
                 self.loop_labels.push((start.clone(), end.clone()));
                 for statement in body {
                     self.statement(statement)?;

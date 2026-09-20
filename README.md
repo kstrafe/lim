@@ -114,6 +114,14 @@ Counted loops use explicit init, condition, step, and body forms:
   (set total (+ total i)))
 ```
 
+Infinite loops support `break` and `continue`:
+
+```lisp
+(loop
+  (set value (+ value 1))
+  (break))
+```
+
 `block` expressions allow statement sequences inside expression branches:
 
 ```lisp

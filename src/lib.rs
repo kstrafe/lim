@@ -339,6 +339,9 @@ pub enum Statement {
         condition: Expr,
         body: Vec<Statement>,
     },
+    Loop {
+        body: Vec<Statement>,
+    },
     For {
         init: Box<Statement>,
         condition: Expr,
@@ -630,6 +633,17 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             condition: items[1].clone(),
             body,
         });
+    }
+    if is_form(expression, "loop") {
+        let items = expect_list(expression, "loop statement")?;
+        if items.len() < 2 {
+            return Err("loop requires a body".into());
+        }
+        let mut body = Vec::with_capacity(items.len() - 1);
+        for expression in &items[1..] {
+            body.push(parse_statement(expression)?);
+        }
+        return Ok(Statement::Loop { body });
     }
     if is_form(expression, "for") {
         let items = expect_list(expression, "for statement")?;
@@ -1075,6 +1089,20 @@ mod tests {
         assert!(generate_assembly(&program)
             .unwrap()
             .contains("mov QWORD PTR"));
+    }
+
+    #[test]
+    fn checks_and_lowers_loop_statements() {
+        let program = parse_program(
+            "(fn main () u64 (let mut value u64 0) (loop (set value (+ value 1)) (break)) value)",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("loop"));
+        let invalid = parse_program("(fn main () u64 (break))").unwrap();
+        assert!(check_types(&invalid)
+            .unwrap_err()
+            .contains("outside a loop"));
     }
 
     #[test]
