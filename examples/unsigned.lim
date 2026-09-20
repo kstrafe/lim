@@ -1,0 +1,5 @@
+(fn main () u64
+  (let value u64 1)
+  (if (< value 2)
+      42
+      7))

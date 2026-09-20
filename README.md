@@ -105,6 +105,9 @@ Fixed-size arrays are value types with stack storage:
 Scalar functions also support more than six arguments using the x86-64 SysV
 stack-argument convention.
 
+Unsigned integer comparisons and right shifts use unsigned native instructions
+when their operands have an unsigned type.
+
 Counted loops use explicit init, condition, step, and body forms:
 
 ```lisp

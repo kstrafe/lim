@@ -118,6 +118,16 @@ fn generate_function(
             &mut next_slot,
         )?;
     }
+    let mut local_types = HashMap::new();
+    for parameter in &function.parameters {
+        local_types.insert(
+            parameter.name.clone(),
+            resolve_type(&parameter.ty, aliases)?,
+        );
+    }
+    for statement in &function.body {
+        collect_local_types(statement, &mut local_types, aliases);
+    }
     for statement in &function.body {
         collect_locals(
             statement,
@@ -161,6 +171,7 @@ fn generate_function(
         enums: enums.clone(),
         globals: globals.clone(),
         aliases: aliases.clone(),
+        local_types,
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
@@ -177,6 +188,76 @@ fn generate_function(
     output.push_str(&format!("{return_label}:\n"));
     output.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
     Ok(())
+}
+
+fn collect_local_types(
+    statement: &Statement,
+    types: &mut HashMap<String, Type>,
+    aliases: &HashMap<String, Type>,
+) {
+    match statement {
+        Statement::Let {
+            name, ty, value, ..
+        } => {
+            if let Ok(ty) = resolve_type(ty, aliases) {
+                types.insert(name.clone(), ty);
+            }
+            collect_expr_types(value, types, aliases);
+        }
+        Statement::While { condition, body } => {
+            collect_expr_types(condition, types, aliases);
+            for statement in body {
+                collect_local_types(statement, types, aliases);
+            }
+        }
+        Statement::Loop { body } => {
+            for statement in body {
+                collect_local_types(statement, types, aliases);
+            }
+        }
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            collect_local_types(init, types, aliases);
+            collect_expr_types(condition, types, aliases);
+            collect_local_types(step, types, aliases);
+            for statement in body {
+                collect_local_types(statement, types, aliases);
+            }
+        }
+        Statement::Assign { value, .. }
+        | Statement::FieldAssign { value, .. }
+        | Statement::Return(Some(value))
+        | Statement::Expr(value) => collect_expr_types(value, types, aliases),
+        Statement::ArrayAssign { index, value, .. } => {
+            collect_expr_types(index, types, aliases);
+            collect_expr_types(value, types, aliases);
+        }
+        Statement::Break | Statement::Continue | Statement::Return(None) => {}
+    }
+}
+
+fn collect_expr_types(
+    expression: &Expr,
+    types: &mut HashMap<String, Type>,
+    aliases: &HashMap<String, Type>,
+) {
+    match expression {
+        Expr::List(items) => {
+            for item in items {
+                collect_expr_types(item, types, aliases);
+            }
+        }
+        Expr::Block(statements) => {
+            for statement in statements {
+                collect_local_types(statement, types, aliases);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn collect_locals(
@@ -343,6 +424,13 @@ fn ensure_integer_type(ty: &Type) -> Result<(), String> {
     }
 }
 
+fn is_unsigned_type(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::U128 | Type::Usize
+    )
+}
+
 fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<String>>) -> Result<(), String> {
     if matches!(ty, Type::Named(name) if enums.contains_key(name)) {
         Ok(())
@@ -404,6 +492,7 @@ struct FunctionContext {
     enums: HashMap<String, Vec<String>>,
     globals: HashMap<String, i128>,
     aliases: HashMap<String, Type>,
+    local_types: HashMap<String, Type>,
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
@@ -857,7 +946,13 @@ impl FunctionContext {
             "|" => self.output.push_str("    or rax, rcx\n"),
             "^" => self.output.push_str("    xor rax, rcx\n"),
             "<<" => self.output.push_str("    shl rax, cl\n"),
-            ">>" => self.output.push_str("    sar rax, cl\n"),
+            ">>" => {
+                if self.expression_is_unsigned(&items[1]) {
+                    self.output.push_str("    shr rax, cl\n");
+                } else {
+                    self.output.push_str("    sar rax, cl\n");
+                }
+            }
             _ => unreachable!(),
         }
         Ok(())
@@ -873,7 +968,12 @@ impl FunctionContext {
         self.output
             .push_str("    mov rcx, rax\n    pop rax\n    cmp rax, rcx\n");
         self.stack_depth -= 1;
+        let unsigned = self.expression_is_unsigned(&items[1]);
         let condition = match operator {
+            "<" if unsigned => "b",
+            "<=" if unsigned => "be",
+            ">" if unsigned => "a",
+            ">=" if unsigned => "ae",
             "<" => "l",
             "<=" => "le",
             ">" => "g",
@@ -885,6 +985,26 @@ impl FunctionContext {
         self.output
             .push_str(&format!("    set{condition} al\n    movzx rax, al\n"));
         Ok(())
+    }
+
+    fn expression_is_unsigned(&self, expression: &Expr) -> bool {
+        match expression {
+            Expr::Symbol(name) => self.local_types.get(name).is_some_and(is_unsigned_type),
+            Expr::List(items) => match items.first() {
+                Some(Expr::Symbol(operator))
+                    if matches!(
+                        operator.as_str(),
+                        "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
+                    ) =>
+                {
+                    items
+                        .get(1)
+                        .is_some_and(|value| self.expression_is_unsigned(value))
+                }
+                _ => false,
+            },
+            _ => false,
+        }
     }
 
     fn if_expression(&mut self, items: &[Expr]) -> Result<(), String> {

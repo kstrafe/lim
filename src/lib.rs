@@ -1010,6 +1010,16 @@ mod tests {
     }
 
     #[test]
+    fn preserves_unsigned_comparisons_and_shifts() {
+        let program =
+            parse_program("(fn main () u64 (let value u64 1) (if (< value 2) (>> value 1) 0))")
+                .unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("setb al"));
+        assert!(assembly.contains("shr rax, cl"));
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
