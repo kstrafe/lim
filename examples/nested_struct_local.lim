@@ -1,0 +1,6 @@
+(#struct Inner ((left u64) (right u64)))
+(#struct Outer ((inner Inner) (tail u64)))
+
+(#fn main () u64
+  (#let value Outer (Outer (Inner 10 20) 32))
+  (#return (#get value tail)))

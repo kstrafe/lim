@@ -1693,10 +1693,10 @@ fn add_local(
         } else if let Some(fields) = structs.get(enum_name) {
             let mut slots = Vec::with_capacity(fields.len());
             for field in fields {
-                ensure_scalar_type(&field.ty, enums)
-                    .map_err(|_| format!("struct field '{}' is not scalar", field.name))?;
-                slots.push((field.name.clone(), *next_slot));
-                *next_slot += 1;
+                let words = value_word_count(&field.ty, structs, enums)?;
+                let field_slots = flat_slots(*next_slot, words);
+                *next_slot += words;
+                slots.push((field.name.clone(), field_slots));
             }
             Storage::Struct(slots)
         } else {
@@ -1731,10 +1731,10 @@ fn add_local(
             .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
         let mut slots = Vec::with_capacity(fields.len());
         for field in fields {
-            ensure_scalar_type(&field.ty, enums)
-                .map_err(|_| format!("struct field '{}' is not scalar", field.name))?;
-            slots.push((field.name.clone(), *next_slot));
-            *next_slot += 1;
+            let words = value_word_count(&field.ty, structs, enums)?;
+            let field_slots = flat_slots(*next_slot, words);
+            *next_slot += words;
+            slots.push((field.name.clone(), field_slots));
         }
         Storage::Struct(slots)
     } else {
@@ -1753,7 +1753,10 @@ fn local_slots(locals: &HashMap<String, Storage>, name: &str) -> Result<Vec<usiz
     {
         Storage::Scalar(slot) => Ok(vec![*slot]),
         Storage::Wide { low, high } => Ok(vec![*low, *high]),
-        Storage::Struct(slots) => Ok(slots.iter().map(|(_, slot)| *slot).collect()),
+        Storage::Struct(slots) => Ok(slots
+            .iter()
+            .flat_map(|(_, slots)| slots.iter().copied())
+            .collect()),
         Storage::Enum {
             discriminant,
             payload,
@@ -1845,7 +1848,7 @@ enum Storage {
         element_words: usize,
     },
     Tuple(Vec<usize>),
-    Struct(Vec<(String, usize)>),
+    Struct(Vec<(String, Vec<usize>)>),
     Wide {
         low: usize,
         high: usize,
@@ -2777,8 +2780,11 @@ impl FunctionContext {
                 let slot = fields
                     .iter()
                     .find(|(field_name, _)| field_name == field)
-                    .map(|(_, slot)| *slot)
+                    .map(|(_, slots)| slots.clone())
                     .ok_or_else(|| format!("unknown field '{field}'"))?;
+                if slot.len() != 1 {
+                    return Err("set-field currently supports scalar struct fields only".into());
+                }
                 let struct_name = match self.local_types.get(name) {
                     Some(Type::Named(name)) => name,
                     _ => return Err(format!("'{name}' is not a struct")),
@@ -2789,7 +2795,7 @@ impl FunctionContext {
                     .and_then(|fields| fields.iter().find(|field_info| field_info.name == *field))
                     .map(|field_info| field_info.ty.clone())
                     .ok_or_else(|| format!("unknown field '{field}'"))?;
-                self.store_scalar_at_slot(value, &field_type, slot)?;
+                self.store_scalar_at_slot(value, &field_type, slot[0])?;
             }
             Statement::TupleAssign { name, index, value } => {
                 let Storage::Tuple(slots) = self
@@ -3311,10 +3317,11 @@ impl FunctionContext {
         if let Expr::Symbol(name) = value {
             if matches!(self.global_types.get(name), Some(Type::Named(global_name)) if global_name == struct_name)
             {
-                if fields.len() > VALUE_REGISTERS.len() {
+                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                if words > VALUE_REGISTERS.len() {
                     return Err("native struct return has too many fields".into());
                 }
-                for (index, register) in VALUE_REGISTERS[..fields.len()].iter().enumerate() {
+                for (index, register) in VALUE_REGISTERS[..words].iter().enumerate() {
                     self.load_global_word(name, index)?;
                     self.output.push_str(&format!("    mov {register}, rax\n"));
                 }
@@ -3328,7 +3335,12 @@ impl FunctionContext {
                 return Err(format!("'{name}' is not a struct"));
             };
             let slots = slots.clone();
-            for (index, (_, slot)) in slots.iter().enumerate() {
+            let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+            let flat = slots
+                .iter()
+                .flat_map(|(_, field_slots)| field_slots.iter().copied())
+                .collect::<Vec<_>>();
+            for (index, slot) in flat.iter().take(words).enumerate() {
                 let register = VALUE_REGISTERS
                     .get(index)
                     .ok_or_else(|| "native struct return has too many fields".to_owned())?;
@@ -3547,69 +3559,31 @@ impl FunctionContext {
         let Some(Storage::Struct(slots)) = self.locals.get(name).cloned() else {
             return Err(format!("'{name}' is not a struct"));
         };
-        if let Expr::Symbol(source) = value {
-            if matches!(
-                self.global_types.get(source),
-                Some(Type::Named(global_name)) if global_name == struct_name
-            ) {
-                for (index, (_, slot)) in slots.iter().enumerate() {
-                    self.load_global_word(source, index)?;
-                    self.output
-                        .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
-                }
-                return Ok(());
-            }
-        }
-        if !matches!(value, Expr::List(_)) {
-            self.expression(value)?;
-            if let Some((_, slot)) = slots.first() {
-                self.output
-                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
-            }
-            if let Some((_, slot)) = slots.get(1) {
-                self.output
-                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rdx\n", slot * 8));
-            }
-            return Ok(());
-        }
-        let Expr::List(items) = value else {
-            unreachable!()
-        };
-        let Some(Expr::Symbol(constructor)) = items.first() else {
-            return Err("struct constructor must start with a symbol".into());
-        };
-        if constructor != struct_name {
-            let Storage::Struct(slots) = self
-                .locals
-                .get(name)
-                .ok_or_else(|| format!("unknown local '{name}'"))?
-            else {
-                return Err(format!("'{name}' is not a struct"));
-            };
-            let slots = slots.clone();
-            self.expression(value)?;
-            if let Some((_, slot)) = slots.first() {
-                self.output
-                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
-            }
-            if let Some((_, slot)) = slots.get(1) {
-                self.output
-                    .push_str(&format!("    mov QWORD PTR [rbp-{}], rdx\n", slot * 8));
-            }
-            return Ok(());
-        }
         let fields = self
             .structs
             .get(struct_name)
             .ok_or_else(|| format!("unknown struct '{struct_name}'"))?
             .clone();
-        if items.len() - 1 != fields.len() {
-            return Err(format!("constructor '{struct_name}' has wrong field count"));
+        if let Expr::List(items) = value {
+            let Some(Expr::Symbol(constructor)) = items.first() else {
+                return Err("struct constructor must start with a symbol".into());
+            };
+            if constructor == struct_name {
+                if items.len() - 1 != fields.len() {
+                    return Err(format!("constructor '{struct_name}' has wrong field count"));
+                }
+                for (index, (field, field_value)) in fields.iter().zip(&items[1..]).enumerate() {
+                    self.store_value_words(field_value, &field.ty, &slots[index].1)?;
+                }
+                return Ok(());
+            }
         }
-        for ((_, slot), (field, value)) in slots.iter().zip(fields.iter().zip(&items[1..])) {
-            self.store_scalar_at_slot(value, &field.ty, *slot)?;
-        }
-        Ok(())
+        let ty = Type::Named(struct_name.to_owned());
+        let flat = slots
+            .iter()
+            .flat_map(|(_, field_slots)| field_slots.iter().copied())
+            .collect::<Vec<_>>();
+        self.store_value_words(value, &ty, &flat)
     }
 
     fn store_enum(&mut self, name: &str, enum_name: &str, value: &Expr) -> Result<(), String> {
@@ -5025,7 +4999,13 @@ impl FunctionContext {
                     if !matches!(self.globals.get(local), Some(GlobalValue::Aggregate(_))) {
                         return Err(format!("global '{local}' is not an aggregate struct"));
                     }
-                    let offset = index * 8;
+                    let offset = fields[..index]
+                        .iter()
+                        .map(|field| value_word_count(&field.ty, &self.structs, &self.enums))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .sum::<usize>()
+                        * 8;
                     if matches!(field_type, Type::F32) {
                         self.output.push_str(&format!(
                             "    movss xmm0, DWORD PTR [rip+{}+{offset}]\n",
@@ -5054,8 +5034,12 @@ impl FunctionContext {
                 let slot = fields
                     .iter()
                     .find(|(name, _)| name == field_name)
-                    .map(|(_, slot)| *slot)
+                    .map(|(_, slots)| slots.clone())
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                if slot.len() != 1 {
+                    return Err("get currently supports scalar struct fields only".into());
+                }
+                let slot = slot[0];
                 let struct_name = match self.local_types.get(local) {
                     Some(Type::Named(name)) => name,
                     _ => return Err(format!("'{local}' is not a struct")),
@@ -6557,10 +6541,11 @@ impl FunctionContext {
                         self.global_types.get(local),
                         Some(Type::Named(global_name)) if global_name == name
                     ) {
+                        let words = value_word_count(ty, &self.structs, &self.enums)?;
                         let indices: Box<dyn Iterator<Item = usize>> = if reverse {
-                            Box::new((0..fields.len()).rev())
+                            Box::new((0..words).rev())
                         } else {
-                            Box::new(0..fields.len())
+                            Box::new(0..words)
                         };
                         for index in indices {
                             self.load_global_word(local, index)?;
@@ -6575,13 +6560,16 @@ impl FunctionContext {
                     else {
                         return Err(format!("'{local}' is not a struct"));
                     };
-                    let slots = slots.clone();
-                    let range: Box<dyn Iterator<Item = &(String, usize)>> = if reverse {
-                        Box::new(slots.iter().rev())
+                    let flat = slots
+                        .iter()
+                        .flat_map(|(_, field_slots)| field_slots.iter().copied())
+                        .collect::<Vec<_>>();
+                    let range: Box<dyn Iterator<Item = usize>> = if reverse {
+                        Box::new(flat.into_iter().rev())
                     } else {
-                        Box::new(slots.iter())
+                        Box::new(flat.into_iter())
                     };
-                    for (_, slot) in range {
+                    for slot in range {
                         self.output
                             .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
                         self.push_rax();
