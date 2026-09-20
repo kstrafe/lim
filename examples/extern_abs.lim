@@ -1,0 +1,4 @@
+(#extern-fn abs ((value i32)) i32)
+
+(#fn main () u64
+  (#return (#as (abs -42) u64)))

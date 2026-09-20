@@ -109,6 +109,12 @@ pub fn check_types(program: &Program) -> Result<(), String> {
         let Item::Function(function) = item else {
             continue;
         };
+        if function.external && !function.type_parameters.is_empty() {
+            return Err(format!(
+                "external function '{}' cannot be generic",
+                function.name
+            ));
+        }
         if functions
             .insert(
                 function.name.clone(),
@@ -130,6 +136,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     reject_recursive_calls(program, &functions)?;
     for item in &program.items {
         match item {
+            Item::Function(function) if function.external => {}
             Item::Function(function) => {
                 check_function(function, &functions, &structs, &enums, &globals, &aliases)?
             }
@@ -163,6 +170,9 @@ fn reject_recursive_calls(
         let Item::Function(function) = item else {
             continue;
         };
+        if function.external {
+            continue;
+        }
         let calls = edges.entry(function.name.clone()).or_default();
         for statement in &function.body {
             collect_statement_calls(statement, &names, calls);

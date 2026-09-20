@@ -733,17 +733,32 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             .iter()
             .map(|parameter| resolve_type(&parameter.ty, &aliases))
             .collect::<Result<Vec<_>, _>>()?;
-        let indirect_parameters = parameters
+        let indirect_parameters: Vec<bool> = parameters
             .iter()
             .map(|ty| supports_indirect_return_type(ty, &structs, &enums))
             .collect();
         let return_type = resolve_type(&function.return_type, &aliases)?;
+        let indirect_return = supports_indirect_return_type(&return_type, &structs, &enums);
+        if function.external
+            && (indirect_parameters.iter().any(|indirect| *indirect) || indirect_return)
+        {
+            return Err(format!(
+                "external function '{}' must use directly passed scalar values",
+                function.name
+            ));
+        }
+        for parameter in &parameters {
+            if !supports_indirect_return_type(parameter, &structs, &enums) {
+                ensure_parameter_type(parameter, &enums, &structs)?;
+            }
+        }
+        ensure_return_type(&return_type, &enums, &structs)?;
         functions.insert(
             function.name.clone(),
             FunctionAbi {
                 parameters,
                 indirect_parameters,
-                indirect_return: supports_indirect_return_type(&return_type, &structs, &enums),
+                indirect_return,
                 return_type,
                 max_call_depth: *call_depths.get(&function.name).unwrap_or(&1),
             },
@@ -902,8 +917,15 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     }
     output.push_str(".text\n");
     for item in &program.items {
+        if let Item::Function(function) = item {
+            if function.external {
+                output.push_str(&format!(".extern {}\n", asm_symbol(&function.name)));
+            }
+        }
+    }
+    for item in &program.items {
         match item {
-            Item::Function(function) => generate_function(
+            Item::Function(function) if !function.external => generate_function(
                 function,
                 &mut output,
                 &structs,
@@ -913,6 +935,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                 &aliases,
                 &functions,
             )?,
+            Item::Function(_) => {}
             Item::Struct { .. } => {}
             Item::Enum { .. } => {}
             Item::TypeAlias { .. } => {}

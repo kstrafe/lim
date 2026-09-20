@@ -544,6 +544,7 @@ pub enum Statement {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Function {
     pub name: String,
+    pub external: bool,
     pub type_parameters: Vec<String>,
     pub parameters: Vec<Parameter>,
     pub return_type: Type,
@@ -1028,6 +1029,7 @@ fn is_builtin_form(name: &str) -> bool {
         name,
         "type"
             | "fn"
+            | "extern-fn"
             | "struct"
             | "enum"
             | "let"
@@ -1772,7 +1774,12 @@ fn parse_item_with_mode(expression: &Expr, strict_keywords: bool) -> Result<Item
                 ),
             })
         }
-        "fn" => Ok(Item::Function(parse_function(items, strict_keywords)?)),
+        "fn" => Ok(Item::Function(parse_function(
+            items,
+            strict_keywords,
+            false,
+        )?)),
+        "extern-fn" => Ok(Item::Function(parse_function(items, false, true)?)),
         "struct" => {
             let (type_parameters, field_index) = parse_type_parameters(items, 2)?;
             Ok(Item::Struct {
@@ -1929,6 +1936,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         generated,
         Item::Function(Function {
             name: format!("{name}-construct"),
+            external: false,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "value".into(),
@@ -1943,6 +1951,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         }),
         Item::Function(Function {
             name: format!("{name}-is-some"),
+            external: false,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "value".into(),
@@ -1954,6 +1963,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         }),
         Item::Function(Function {
             name: format!("{name}-unwrap-or"),
+            external: false,
             type_parameters: Vec::new(),
             parameters: vec![
                 Parameter {
@@ -2030,6 +2040,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         generated,
         Item::Function(Function {
             name: format!("{name}-ok"),
+            external: false,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "value".into(),
@@ -2044,6 +2055,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         }),
         Item::Function(Function {
             name: format!("{name}-err"),
+            external: false,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "error".into(),
@@ -2058,6 +2070,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         }),
         Item::Function(Function {
             name: format!("{name}-is-ok"),
+            external: false,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "value".into(),
@@ -2069,6 +2082,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         }),
         Item::Function(Function {
             name: format!("{name}-unwrap-or"),
+            external: false,
             type_parameters: Vec::new(),
             parameters: vec![
                 Parameter {
@@ -2087,6 +2101,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         }),
         Item::Function(Function {
             name: format!("{name}-unwrap-err-or"),
+            external: false,
             type_parameters: Vec::new(),
             parameters: vec![
                 Parameter {
@@ -2252,7 +2267,11 @@ fn enum_discriminant(expression: &Expr) -> Option<u64> {
     }
 }
 
-fn parse_function(items: &[Expr], strict_keywords: bool) -> Result<Function, String> {
+fn parse_function(
+    items: &[Expr],
+    strict_keywords: bool,
+    external: bool,
+) -> Result<Function, String> {
     if items.len() < 4 {
         return Err("fn requires a name, parameter list, return type, and body".into());
     }
@@ -2306,13 +2325,19 @@ fn parse_function(items: &[Expr], strict_keywords: bool) -> Result<Function, Str
     let return_type =
         replace_generic_types(&parse_type(items.get(return_index))?, &type_parameters);
     let mut body = Vec::with_capacity(items.len().saturating_sub(body_index));
-    for expression in &items[body_index..] {
-        body.push(replace_generic_statement(
-            &parse_statement(expression)?,
-            &type_parameters,
-        ));
+    if external {
+        if !type_parameters.is_empty() || items.len() != body_index {
+            return Err("extern-fn requires a non-generic signature without a body".into());
+        }
+    } else {
+        for expression in &items[body_index..] {
+            body.push(replace_generic_statement(
+                &parse_statement(expression)?,
+                &type_parameters,
+            ));
+        }
     }
-    if strict_keywords && !matches!(body.last(), Some(Statement::Return(Some(_)))) {
+    if !external && strict_keywords && !matches!(body.last(), Some(Statement::Return(Some(_)))) {
         return Err(
             "prefixed functions require an explicit (#return value) as their final statement"
                 .into(),
@@ -2320,6 +2345,7 @@ fn parse_function(items: &[Expr], strict_keywords: bool) -> Result<Function, Str
     }
     Ok(Function {
         name,
+        external,
         type_parameters,
         parameters,
         return_type,
@@ -3086,6 +3112,14 @@ mod tests {
         assert!(parse_program_strict("(#fn main () bool (#return (#u64.== 40 2)))").is_ok());
         let valid = parse_program_strict("(#fn main () u64 (#return (#u64.+.wrap 40 2)))");
         assert!(valid.is_ok());
+        let external = parse_program_strict(
+            "(#extern-fn abs ((value i32)) i32) (#fn main () u64 (#return (#as (abs -42) u64)))",
+        )
+        .unwrap();
+        assert!(check_types(&external).is_ok());
+        let external_assembly = generate_assembly(&external).unwrap();
+        assert!(external_assembly.contains(".extern abs"));
+        assert!(external_assembly.contains("call abs"));
     }
 
     #[test]
