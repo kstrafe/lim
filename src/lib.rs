@@ -3280,6 +3280,18 @@ mod tests {
     }
 
     #[test]
+    fn allows_parameters_to_shadow_globals() {
+        let program = parse_program(
+            "(#let value u64 10) \
+             (#fn read ((value u64)) u64 (#return value)) \
+             (#fn main () u64 (#return (read 42)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_mutable_while_statements() {
         let program =
             parse_program("(fn count () u64 (let mut n u64 0) (while (< n 3) (set n (+ n 1))) n)")

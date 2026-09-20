@@ -357,20 +357,19 @@ fn check_function(
 ) -> Result<(), String> {
     let mut variables = globals.clone();
     let mut mutable = HashSet::new();
+    let mut parameter_names = HashSet::new();
     let return_type = resolve_type(&function.return_type, aliases)?;
     for parameter in &function.parameters {
-        if variables
-            .insert(
-                parameter.name.clone(),
-                resolve_type(&parameter.ty, aliases)?,
-            )
-            .is_some()
-        {
+        if !parameter_names.insert(parameter.name.clone()) {
             return Err(format!(
                 "duplicate parameter '{}' in function '{}'",
                 parameter.name, function.name
             ));
         }
+        variables.insert(
+            parameter.name.clone(),
+            resolve_type(&parameter.ty, aliases)?,
+        );
         if parameter.mutable {
             mutable.insert(parameter.name.clone());
         }
