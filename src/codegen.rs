@@ -2268,11 +2268,20 @@ fn supports_indirect_return_type(
         Type::Tuple(fields) => fields
             .iter()
             .all(|field| value_word_count(field, structs, enums).is_ok_and(|words| words == 1)),
-        Type::Named(name) => structs.get(name).is_some_and(|fields| {
-            fields.iter().all(|field| {
-                value_word_count(&field.ty, structs, enums).is_ok_and(|words| words == 1)
+        Type::Named(name) => {
+            if let Some(fields) = structs.get(name) {
+                return fields.iter().all(|field| {
+                    value_word_count(&field.ty, structs, enums).is_ok_and(|words| words == 1)
+                });
+            }
+            enums.get(name).is_some_and(|variants| {
+                variants.iter().all(|variant| {
+                    variant.fields.iter().all(|field| {
+                        value_word_count(field, structs, enums).is_ok_and(|words| words == 1)
+                    })
+                })
             })
-        }),
+        }
         _ => false,
     }
 }
@@ -2560,6 +2569,8 @@ fn ensure_return_type(
             .filter_map(|variant| variant.fields.first())
             .all(|field| ensure_integer_type(field).is_ok())
     {
+        Ok(())
+    } else if supports_indirect_return_type(ty, structs, enums) {
         Ok(())
     } else {
         Err(format!(
@@ -4362,6 +4373,94 @@ impl FunctionContext {
         Err("large struct return requires a struct value or local".into())
     }
 
+    fn return_indirect_enum_value(&mut self, enum_name: &str, value: &Expr) -> Result<(), String> {
+        let pointer_slot = self
+            .return_pointer_slot
+            .ok_or_else(|| "missing indirect return pointer".to_owned())?;
+        let variants = self
+            .enums
+            .get(enum_name)
+            .cloned()
+            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?;
+        let storage_words = storage_word_count(
+            &Type::Named(enum_name.to_owned()),
+            &self.structs,
+            &self.enums,
+        )?;
+        if let Expr::Symbol(name) = value {
+            if let Some(Storage::Enum {
+                discriminant,
+                payload,
+            }) = self.locals.get(name).cloned()
+            {
+                if payload.len() + 1 != storage_words {
+                    return Err("enum return has an inconsistent flattened layout".into());
+                }
+                for (index, source_slot) in std::iter::once(discriminant).chain(payload).enumerate()
+                {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                        source_slot * 8,
+                        pointer_slot * 8,
+                        index * 8
+                    ));
+                }
+                return Ok(());
+            }
+            if matches!(
+                self.global_types.get(name),
+                Some(Type::Named(global_name)) if global_name == enum_name
+            ) {
+                for index in 0..storage_words {
+                    self.load_global_word(name, index)?;
+                    self.output.push_str(&format!(
+                        "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                        pointer_slot * 8,
+                        index * 8
+                    ));
+                }
+                return Ok(());
+            }
+        }
+        let Expr::List(items) = value else {
+            return Err("large enum return requires a constructor or local".into());
+        };
+        let Some(Expr::Symbol(variant_name)) = items.first() else {
+            return Err("enum constructor must start with a variant name".into());
+        };
+        let variant_index = variants
+            .iter()
+            .position(|variant| variant.name == *variant_name)
+            .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
+        let variant = &variants[variant_index];
+        if items.len() - 1 != variant.fields.len() {
+            return Err(format!("variant '{variant_name}' has wrong payload count"));
+        }
+        self.output.push_str(&format!(
+            "    mov rax, {}\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11], rax\n",
+            variant.discriminant,
+            pointer_slot * 8
+        ));
+        let mut offset = 1usize;
+        for (field_value, field_type) in items[1..].iter().zip(&variant.fields) {
+            let words = value_word_count(field_type, &self.structs, &self.enums)?;
+            if words != 1 {
+                return Err("large enum returns currently require scalar payloads".into());
+            }
+            self.store_indirect_array_element(field_value, field_type, offset)?;
+            offset += words;
+        }
+        while offset < storage_words {
+            self.output.push_str(&format!(
+                "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], 0\n",
+                pointer_slot * 8,
+                offset * 8
+            ));
+            offset += 1;
+        }
+        Ok(())
+    }
+
     fn return_value(&mut self, value: &Expr) -> Result<(), String> {
         if matches!(self.return_type, Type::Unit) {
             return Ok(());
@@ -4398,6 +4497,10 @@ impl FunctionContext {
             return Ok(());
         };
         let Some(fields) = self.structs.get(struct_name).cloned() else {
+            if self.return_pointer_slot.is_some() && self.enums.contains_key(struct_name) {
+                let enum_name = struct_name.to_owned();
+                return self.return_indirect_enum_value(&enum_name, value);
+            }
             if self
                 .enums
                 .get(struct_name)
@@ -4980,6 +5083,18 @@ impl FunctionContext {
         else {
             return Err(format!("'{name}' is not a payload enum"));
         };
+        if let Expr::List(items) = value {
+            if let Some(Expr::Symbol(function_name)) = items.first() {
+                if self
+                    .functions
+                    .get(function_name)
+                    .is_some_and(|function| function.indirect_return)
+                {
+                    self.call(function_name, &items[1..], Some(discriminant))?;
+                    return Ok(());
+                }
+            }
+        }
         if let Expr::Symbol(source) = value {
             if matches!(
                 self.global_types.get(source),

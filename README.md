@@ -411,6 +411,9 @@ see `examples/large_tuple_return.lim`.
 
 Large scalar structs use it as well; see `examples/large_struct_return.lim`.
 
+Payload enums with large scalar payloads use the same representation, including
+their discriminant; see `examples/large_enum_return.lim`.
+
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
 Nested tuple locals and fixed-array locals can also be stored and indexed using
