@@ -1639,6 +1639,15 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("and_false"));
         assert!(assembly.contains("xor eax, 1"));
+        let bitwise = parse_program("(fn main () bool (^ (& true true) false))").unwrap();
+        assert!(check_types(&bitwise).is_ok());
+        let bitwise_assembly = generate_assembly(&bitwise).unwrap();
+        assert!(bitwise_assembly.contains("and rax, rcx"));
+        assert!(bitwise_assembly.contains("xor rax, rcx"));
+        let invalid_float = parse_program("(fn main () f64 (& 1.0 2.0))").unwrap();
+        assert!(check_types(&invalid_float)
+            .unwrap_err()
+            .contains("requires integer or boolean"));
         let unit_if = parse_program("(fn main () () (if true ()))").unwrap();
         assert!(check_types(&unit_if).is_ok());
         assert!(generate_assembly(&unit_if)

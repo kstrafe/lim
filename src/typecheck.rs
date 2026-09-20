@@ -642,8 +642,16 @@ fn list_expression(
                 Some(&left),
             )?;
             require_same(&left, &right, operator)?;
-            if !is_numeric(&left) {
-                return Err(format!("operator '{operator}' requires numeric operands"));
+            let bitwise = matches!(operator.as_str(), "&" | "|" | "^");
+            let valid = if bitwise {
+                is_integer(&left) || matches!(left, Type::Bool)
+            } else {
+                is_numeric(&left)
+            };
+            if !valid {
+                return Err(format!(
+                    "operator '{operator}' requires integer or boolean operands"
+                ));
             }
             if matches!(operator.as_str(), "<<" | ">>") {
                 if let Expr::Integer(count) = &items[2] {

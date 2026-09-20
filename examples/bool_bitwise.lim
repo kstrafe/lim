@@ -1,0 +1,2 @@
+(fn main () u64
+  (if (^ (& true true) false) 42 0))
