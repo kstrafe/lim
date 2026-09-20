@@ -276,6 +276,14 @@ fn collect_statement_calls(
                 collect_statement_calls(statement, functions, calls);
             }
         }
+        Statement::LetElse {
+            value, else_body, ..
+        } => {
+            collect_expression_calls(value, functions, calls);
+            for statement in else_body {
+                collect_statement_calls(statement, functions, calls);
+            }
+        }
         Statement::Loop { body } => {
             for statement in body {
                 collect_statement_calls(statement, functions, calls);
@@ -479,6 +487,55 @@ fn statement_type(
                 if *is_mutable {
                     mutable.insert(name);
                 }
+            }
+            Ok(Type::Unit)
+        }
+        Statement::LetElse {
+            pattern,
+            ty,
+            value,
+            else_body,
+        } => {
+            let binding_type = resolve_type(ty, aliases)?;
+            let actual = expression(
+                value,
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&binding_type),
+            )?;
+            require_type(&actual, &binding_type, "let-else value")?;
+            if !matches!(
+                else_body.last(),
+                Some(Statement::Return(_)) | Some(Statement::Break) | Some(Statement::Continue)
+            ) {
+                return Err("let-else body must diverge with return, break, or continue".into());
+            }
+            let mut else_variables = variables.clone();
+            let mut else_mutable = mutable.clone();
+            for statement in else_body {
+                statement_type(
+                    statement,
+                    &mut else_variables,
+                    &mut else_mutable,
+                    functions,
+                    structs,
+                    enums,
+                    return_type,
+                    aliases,
+                    in_loop,
+                )?;
+            }
+            for (name, field_type) in
+                check_let_else_pattern(pattern, &binding_type, variables, structs, enums)?
+            {
+                if variables.contains_key(&name) {
+                    return Err(format!("duplicate local '{name}'"));
+                }
+                variables.insert(name, field_type);
             }
             Ok(Type::Unit)
         }
@@ -832,6 +889,55 @@ fn check_destructure_pattern(
         }
     }
     Ok(bindings)
+}
+
+fn check_let_else_pattern(
+    pattern: &Expr,
+    ty: &Type,
+    variables: &HashMap<String, Type>,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+) -> Result<Vec<(String, Type)>, String> {
+    let mut bindings = variables.clone();
+    if let Type::Named(enum_name) = ty {
+        if let Some(variants) = enums.get(enum_name) {
+            let (variant_name, payload_patterns): (&str, Vec<&Expr>) = match pattern {
+                Expr::Symbol(name) => (name, Vec::new()),
+                Expr::List(items) if !items.is_empty() => {
+                    let Expr::Symbol(name) = &items[0] else {
+                        return Err("let-else enum pattern must start with a variant".into());
+                    };
+                    (name, items[1..].iter().collect())
+                }
+                _ => return Err("let-else pattern must be a variant constructor".into()),
+            };
+            if variant_name == "_" {
+                return Ok(Vec::new());
+            }
+            let variant = variants
+                .iter()
+                .find(|variant| variant.name == variant_name)
+                .ok_or_else(|| format!("'{variant_name}' is not a variant of '{enum_name}'"))?;
+            if payload_patterns.len() != variant.fields.len() {
+                return Err(format!(
+                    "variant '{variant_name}' expects {} payload patterns",
+                    variant.fields.len()
+                ));
+            }
+            for (binding, field_type) in payload_patterns.iter().zip(&variant.fields) {
+                check_enum_payload_pattern(binding, field_type, &mut bindings, variables, structs)?;
+            }
+            return Ok(bindings
+                .into_iter()
+                .filter(|(name, _)| !variables.contains_key(name))
+                .collect());
+        }
+    }
+    check_aggregate_pattern(pattern, ty, &mut bindings, variables, structs)?;
+    Ok(bindings
+        .into_iter()
+        .filter(|(name, _)| !variables.contains_key(name))
+        .collect())
 }
 
 fn expression(

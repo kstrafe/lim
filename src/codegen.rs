@@ -244,6 +244,20 @@ fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, T
             value: substitute_expr(value, substitutions),
             mutable: *mutable,
         },
+        Statement::LetElse {
+            pattern,
+            ty,
+            value,
+            else_body,
+        } => Statement::LetElse {
+            pattern: pattern.clone(),
+            ty: substitute_type(ty, substitutions),
+            value: substitute_expr(value, substitutions),
+            else_body: else_body
+                .iter()
+                .map(|statement| substitute_statement(statement, substitutions))
+                .collect(),
+        },
         Statement::Assign { name, value } => Statement::Assign {
             name: name.clone(),
             value: substitute_expr(value, substitutions),
@@ -371,6 +385,20 @@ fn rewrite_statement(
             value: rewrite_expr(value, specializations),
             mutable: *mutable,
         },
+        Statement::LetElse {
+            pattern,
+            ty,
+            value,
+            else_body,
+        } => Statement::LetElse {
+            pattern: pattern.clone(),
+            ty: ty.clone(),
+            value: rewrite_expr(value, specializations),
+            else_body: else_body
+                .iter()
+                .map(|statement| rewrite_statement(statement, specializations))
+                .collect(),
+        },
         Statement::Assign { name, value } => Statement::Assign {
             name: name.clone(),
             value: rewrite_expr(value, specializations),
@@ -480,6 +508,14 @@ fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String
         Statement::ArrayAssign { index, value, .. } => {
             collect_generic_calls_expr(index, calls);
             collect_generic_calls_expr(value, calls);
+        }
+        Statement::LetElse {
+            value, else_body, ..
+        } => {
+            collect_generic_calls_expr(value, calls);
+            for statement in else_body {
+                collect_generic_calls_statement(statement, calls);
+            }
         }
         Statement::While { condition, body } => {
             collect_generic_calls_expr(condition, calls);
@@ -1115,6 +1151,14 @@ fn collect_local_types(
             collect_expr_types(index, types, aliases, enums, structs);
             collect_expr_types(value, types, aliases, enums, structs);
         }
+        Statement::LetElse {
+            value, else_body, ..
+        } => {
+            collect_expr_types(value, types, aliases, enums, structs);
+            for statement in else_body {
+                collect_local_types(statement, types, aliases, enums, structs);
+            }
+        }
         Statement::Break | Statement::Continue | Statement::Return(None) => {}
     }
 }
@@ -1445,6 +1489,29 @@ fn collect_locals(
         Statement::ArrayAssign { index, value, .. } => {
             collect_expr_locals(index, locals, structs, enums, aliases, next_slot, types)?;
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?;
+        }
+        Statement::LetElse {
+            pattern,
+            ty,
+            value,
+            else_body,
+        } => {
+            let ty = resolve_type(ty, aliases)?;
+            for (name, field_type) in let_else_bindings(pattern, &ty, structs, enums)? {
+                add_local(
+                    locals,
+                    &name,
+                    &field_type,
+                    structs,
+                    enums,
+                    aliases,
+                    next_slot,
+                )?;
+            }
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?;
+            for statement in else_body {
+                collect_locals(statement, locals, structs, enums, aliases, next_slot, types)?;
+            }
         }
         Statement::FieldAssign { value, .. } => {
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
@@ -1873,6 +1940,90 @@ fn destructure_bindings(
         }
     }
     Ok(bindings)
+}
+
+fn let_else_bindings(
+    pattern: &Expr,
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+) -> Result<Vec<(String, Type)>, String> {
+    if matches!(pattern, Expr::Symbol(name) if name == "_") {
+        return Ok(Vec::new());
+    }
+    if let Type::Named(enum_name) = ty {
+        if let Some(variants) = enums.get(enum_name) {
+            let (variant_name, payload) = match pattern {
+                Expr::Symbol(name) => (name.as_str(), Vec::new()),
+                Expr::List(items) if !items.is_empty() => {
+                    let Expr::Symbol(name) = &items[0] else {
+                        return Err("let-else enum pattern must start with a variant".into());
+                    };
+                    (name.as_str(), items[1..].iter().collect())
+                }
+                _ => return Err("let-else pattern must be an enum constructor".into()),
+            };
+            let variant = variants
+                .iter()
+                .find(|variant| variant.name == variant_name)
+                .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
+            if payload.len() != variant.fields.len() {
+                return Err(format!(
+                    "variant '{variant_name}' has the wrong payload count"
+                ));
+            }
+            let mut bindings = Vec::new();
+            for (pattern, field_type) in payload.iter().zip(&variant.fields) {
+                collect_aggregate_binding_types(pattern, field_type, structs, &mut bindings)?;
+            }
+            return Ok(bindings);
+        }
+    }
+    let mut bindings = Vec::new();
+    collect_aggregate_binding_types(pattern, ty, structs, &mut bindings)?;
+    Ok(bindings)
+}
+
+fn collect_aggregate_binding_types(
+    pattern: &Expr,
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    bindings: &mut Vec<(String, Type)>,
+) -> Result<(), String> {
+    match pattern {
+        Expr::Symbol(name) if name == "_" || name == "true" || name == "false" => Ok(()),
+        Expr::Symbol(name) => {
+            bindings.push((name.clone(), ty.clone()));
+            Ok(())
+        }
+        Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Char(_) => Ok(()),
+        Expr::List(items) => {
+            let Some(Expr::Symbol(constructor)) = items.first() else {
+                return Err("let-else aggregate pattern must start with a constructor".into());
+            };
+            let fields = match ty {
+                Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+                Type::Array(element, length) if constructor == "array" => {
+                    vec![element.as_ref().clone(); *length]
+                }
+                Type::Named(name) if constructor == name => structs
+                    .get(name)
+                    .ok_or_else(|| format!("unknown struct '{name}'"))?
+                    .iter()
+                    .map(|field| field.ty.clone())
+                    .collect(),
+                _ => return Err("let-else pattern does not match its type".into()),
+            };
+            if items.len() - 1 != fields.len() {
+                return Err("let-else aggregate pattern has the wrong field count".into());
+            }
+            for (pattern, field_type) in items[1..].iter().zip(fields) {
+                collect_aggregate_binding_types(pattern, &field_type, structs, bindings)?;
+            }
+            Ok(())
+        }
+        _ => Err("unsupported let-else pattern".into()),
+    }
 }
 
 fn add_local(
@@ -3147,6 +3298,76 @@ impl FunctionContext {
                 } else {
                     self.store_value_words(value, &field_type, field_slots)?;
                 }
+            }
+            Statement::LetElse {
+                pattern,
+                ty,
+                value,
+                else_body,
+            } => {
+                let words = value_word_count(ty, &self.structs, &self.enums)?;
+                self.push_value_words(value, ty, true)?;
+                let failure = self.label("let_else_failure");
+                let done = self.label("let_else_done");
+                let mut bindings = Vec::new();
+                let enum_type = matches!(
+                    ty,
+                    Type::Named(name)
+                        if self.enums.get(name).is_some_and(|variants| {
+                            variants.iter().any(|variant| !variant.fields.is_empty())
+                        })
+                );
+                if enum_type {
+                    self.emit_let_else_enum_pattern(pattern, ty, &failure, &mut bindings)?;
+                } else {
+                    let constructor = match pattern {
+                        Expr::List(items) => match items.first() {
+                            Some(Expr::Symbol(name)) => name.as_str(),
+                            _ => {
+                                return Err("let-else pattern must start with a constructor".into())
+                            }
+                        },
+                        Expr::Symbol(name) if name == "_" => "",
+                        _ => return Err("let-else pattern must be a constructor".into()),
+                    };
+                    if !constructor.is_empty() {
+                        self.emit_aggregate_pattern(
+                            pattern,
+                            constructor,
+                            ty,
+                            0,
+                            &failure,
+                            &mut bindings,
+                        )?;
+                    }
+                }
+                for (name, offset, binding_type) in bindings {
+                    let slots = local_slots(&self.locals, &name)?;
+                    let binding_words =
+                        value_word_count(&binding_type, &self.structs, &self.enums)?;
+                    if slots.len() != binding_words {
+                        return Err(format!(
+                            "let-else binding '{name}' has inconsistent storage"
+                        ));
+                    }
+                    let stack_offset = if enum_type { offset + 1 } else { offset };
+                    for (index, slot) in slots.into_iter().enumerate() {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rsp+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                            (stack_offset + index) * 8,
+                            slot * 8
+                        ));
+                    }
+                }
+                self.output
+                    .push_str(&format!("    add rsp, {}\n", words * 8));
+                self.stack_depth -= words;
+                self.output
+                    .push_str(&format!("    jmp {done}\n{failure}:\n"));
+                for statement in else_body {
+                    self.statement(statement)?;
+                }
+                self.output.push_str(&format!("{done}:\n"));
             }
             Statement::While { condition, body } => {
                 let start = self.label("while");
@@ -5163,6 +5384,56 @@ impl FunctionContext {
                 _ => return Err("unsupported aggregate field pattern".into()),
             }
             field_offset += field_words;
+        }
+        Ok(())
+    }
+
+    fn emit_let_else_enum_pattern(
+        &mut self,
+        pattern: &Expr,
+        ty: &Type,
+        failure: &str,
+        bindings: &mut Vec<(String, usize, Type)>,
+    ) -> Result<(), String> {
+        if matches!(pattern, Expr::Symbol(name) if name == "_") {
+            return Ok(());
+        }
+        let Type::Named(enum_name) = ty else {
+            return Err("let-else enum pattern requires a named enum".into());
+        };
+        let (variant_name, payload_patterns): (&str, Vec<&Expr>) = match pattern {
+            Expr::Symbol(name) => (name, Vec::new()),
+            Expr::List(items) if !items.is_empty() => {
+                let Expr::Symbol(name) = &items[0] else {
+                    return Err("let-else enum pattern must start with a variant".into());
+                };
+                (name, items[1..].iter().collect())
+            }
+            _ => return Err("let-else enum pattern must be a variant".into()),
+        };
+        let variants = self
+            .enums
+            .get(enum_name)
+            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?;
+        let variant_index = variants
+            .iter()
+            .position(|variant| variant.name == variant_name)
+            .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
+        let variant_fields = variants[variant_index].fields.clone();
+        if payload_patterns.len() != variant_fields.len() {
+            return Err(format!(
+                "variant '{variant_name}' has the wrong payload count"
+            ));
+        }
+        self.output.push_str(&format!(
+            "    cmp QWORD PTR [rsp], {}\n    jne {failure}\n",
+            variant_index
+        ));
+        let mut offset = 0;
+        for (pattern, field_type) in payload_patterns.iter().zip(&variant_fields) {
+            self.emit_enum_payload_pattern(pattern, field_type, offset, None, failure)?;
+            self.collect_enum_pattern_bindings(pattern, field_type, offset, bindings)?;
+            offset += value_word_count(field_type, &self.structs, &self.enums)?;
         }
         Ok(())
     }

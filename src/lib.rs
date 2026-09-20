@@ -454,6 +454,12 @@ pub enum Statement {
         value: Expr,
         mutable: bool,
     },
+    LetElse {
+        pattern: Expr,
+        ty: Type,
+        value: Expr,
+        else_body: Vec<Statement>,
+    },
     Assign {
         name: String,
         value: Expr,
@@ -631,6 +637,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "struct"
             | "enum"
             | "let"
+            | "let-else"
             | "const"
             | "static"
             | "if"
@@ -1093,6 +1100,22 @@ fn specialize_statement(
             ty: specialize_type(ty, substitutions, templates, names, generated)?,
             value: specialize_expr(value, substitutions, templates, names, generated)?,
             mutable: *mutable,
+        },
+        Statement::LetElse {
+            pattern,
+            ty,
+            value,
+            else_body,
+        } => Statement::LetElse {
+            pattern: pattern.clone(),
+            ty: specialize_type(ty, substitutions, templates, names, generated)?,
+            value: specialize_expr(value, substitutions, templates, names, generated)?,
+            else_body: else_body
+                .iter()
+                .map(|statement| {
+                    specialize_statement(statement, substitutions, templates, names, generated)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
         },
         Statement::Assign { name, value } => Statement::Assign {
             name: name.clone(),
@@ -1912,6 +1935,20 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
             value: value.clone(),
             mutable: *mutable,
         },
+        Statement::LetElse {
+            pattern,
+            ty,
+            value,
+            else_body,
+        } => Statement::LetElse {
+            pattern: pattern.clone(),
+            ty: replace_generic_types(ty, parameters),
+            value: value.clone(),
+            else_body: else_body
+                .iter()
+                .map(|statement| replace_generic_statement(statement, parameters))
+                .collect(),
+        },
         Statement::Assign { .. }
         | Statement::ArrayAssign { .. }
         | Statement::FieldAssign { .. }
@@ -2161,6 +2198,24 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             ty: binding.ty,
             value: binding.value,
             mutable: binding.mutable,
+        });
+    }
+    if is_form(expression, "let-else") {
+        let items = expect_list(expression, "let-else statement")?;
+        if items.len() < 5 {
+            return Err(
+                "let-else requires (let-else pattern Type value else-statement ...)".into(),
+            );
+        }
+        let mut else_body = Vec::with_capacity(items.len() - 4);
+        for expression in &items[4..] {
+            else_body.push(parse_statement(expression)?);
+        }
+        return Ok(Statement::LetElse {
+            pattern: items[1].clone(),
+            ty: parse_type(items.get(2))?,
+            value: lower_expr(&items[3])?,
+            else_body,
         });
     }
     if is_form(expression, "const") {
@@ -3766,6 +3821,20 @@ mod tests {
         .unwrap();
         let error = check_types(&program).unwrap_err();
         assert!(error.contains("only valid in a loop expression"));
+    }
+
+    #[test]
+    fn checks_and_lowers_let_else() {
+        let program = parse_program(
+            "(#enum Maybe ((Some u64) None)) \
+             (#fn main () u64 \
+               (#let value Maybe (Some 42)) \
+               (#let-else (Some payload) Maybe value (#return 0)) \
+               (#return payload))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
     }
 
     #[test]

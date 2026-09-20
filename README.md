@@ -380,6 +380,15 @@ Enums can also carry one scalar payload:
 (if-let (Some payload) value payload 0)
 ```
 
+`#let-else` performs a checked destructuring match and keeps successful
+bindings in scope. Its else body must diverge explicitly:
+
+```lisp
+(#let-else (Some payload) Maybe value
+  (#return 0))
+(#return payload)
+```
+
 The same aggregate patterns used by `match` are also valid in `if-let` and
 `while-let`, including tuple and struct constructor patterns.
 
