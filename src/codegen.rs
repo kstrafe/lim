@@ -331,6 +331,10 @@ fn substitute_expr(expression: &Expr, substitutions: &HashMap<String, Type>) -> 
                 .map(|statement| substitute_statement(statement, substitutions))
                 .collect(),
         ),
+        Expr::Labeled { label, expression } => Expr::Labeled {
+            label: label.clone(),
+            expression: Box::new(substitute_expr(expression, substitutions)),
+        },
         Expr::Quote(value) => Expr::Quote(Box::new(substitute_expr(value, substitutions))),
         _ => expression.clone(),
     }
@@ -471,6 +475,10 @@ fn rewrite_expr(expression: &Expr, specializations: &HashMap<String, String>) ->
                 .map(|statement| rewrite_statement(statement, specializations))
                 .collect(),
         ),
+        Expr::Labeled { label, expression } => Expr::Labeled {
+            label: label.clone(),
+            expression: Box::new(rewrite_expr(expression, specializations)),
+        },
         Expr::Quote(value) => Expr::Quote(Box::new(rewrite_expr(value, specializations))),
         Expr::Symbol(name) => specializations
             .get(name)
@@ -619,6 +627,7 @@ fn collect_generic_calls_expr(expression: &Expr, calls: &mut Vec<String>) {
                 collect_generic_calls_statement(statement, calls);
             }
         }
+        Expr::Labeled { expression, .. } => collect_generic_calls_expr(expression, calls),
         Expr::Quote(value) => collect_generic_calls_expr(value, calls),
         _ => {}
     }
@@ -4878,6 +4887,12 @@ impl FunctionContext {
             if let Expr::Loop(body) = value {
                 return self.loop_expression(body, Some(ty));
             }
+            if let Expr::Labeled { label, expression } = value {
+                let previous = self.pending_loop_label.replace(label.clone());
+                let result = self.expression_as_expected(expression, ty);
+                self.pending_loop_label = previous;
+                return result;
+            }
             let words = value_word_count(ty, &self.structs, &self.enums)?;
             if words > VALUE_REGISTERS.len() {
                 return Err("native aggregate value has too many value words".into());
@@ -5334,15 +5349,21 @@ impl FunctionContext {
             let return_type = self.return_type.clone();
             return self.store_indirect_value_words(value, &return_type, 0);
         }
-        if self.return_pointer_slot.is_some()
-            && self.is_aggregate_type(&self.return_type)
-            && matches!(value, Expr::Loop(_))
-        {
+        if self.return_pointer_slot.is_some() && self.is_aggregate_type(&self.return_type) {
             let return_type = self.return_type.clone();
-            let Expr::Loop(body) = value else {
-                unreachable!()
-            };
-            return self.loop_expression_indirect(body, &return_type);
+            match value {
+                Expr::Loop(body) => return self.loop_expression_indirect(body, &return_type),
+                Expr::Labeled { label, expression } => {
+                    let Expr::Loop(body) = expression.as_ref() else {
+                        unreachable!()
+                    };
+                    let previous = self.pending_loop_label.replace(label.clone());
+                    let result = self.loop_expression_indirect(body, &return_type);
+                    self.pending_loop_label = previous;
+                    return result;
+                }
+                _ => {}
+            }
         }
         if self.is_aggregate_type(&self.return_type)
             && matches!(
@@ -5354,7 +5375,9 @@ impl FunctionContext {
             let return_type = self.return_type.clone();
             return self.expression_as_expected(value, &return_type);
         }
-        if self.is_aggregate_type(&self.return_type) && matches!(value, Expr::Loop(_)) {
+        if self.is_aggregate_type(&self.return_type)
+            && matches!(value, Expr::Loop(_) | Expr::Labeled { .. })
+        {
             let return_type = self.return_type.clone();
             return self.expression_as_expected(value, &return_type);
         }
@@ -6623,12 +6646,14 @@ impl FunctionContext {
         let end = self.label("end_value_loop");
         self.output.push_str(&format!("{start}:\n"));
         self.loop_labels.push((start.clone(), end.clone()));
+        self.loop_names.push(self.pending_loop_label.take());
         self.loop_result_types.push(result_type.cloned());
         self.loop_indirect_results.push(false);
         for statement in body {
             self.statement(statement)?;
         }
         self.loop_labels.pop();
+        self.loop_names.pop();
         self.loop_result_types.pop();
         self.loop_indirect_results.pop();
         self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
@@ -6644,12 +6669,14 @@ impl FunctionContext {
         let end = self.label("end_indirect_value_loop");
         self.output.push_str(&format!("{start}:\n"));
         self.loop_labels.push((start.clone(), end.clone()));
+        self.loop_names.push(self.pending_loop_label.take());
         self.loop_result_types.push(Some(result_type.clone()));
         self.loop_indirect_results.push(true);
         for statement in body {
             self.statement(statement)?;
         }
         self.loop_labels.pop();
+        self.loop_names.pop();
         self.loop_result_types.pop();
         self.loop_indirect_results.pop();
         self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
@@ -6700,6 +6727,12 @@ impl FunctionContext {
                 }
             }
             Expr::Loop(statements) => self.loop_expression(statements, None)?,
+            Expr::Labeled { label, expression } => {
+                let previous = self.pending_loop_label.replace(label.clone());
+                let result = self.expression(expression);
+                self.pending_loop_label = previous;
+                result?;
+            }
             Expr::Symbol(name) if name == "true" => self.output.push_str("    mov eax, 1\n"),
             Expr::Symbol(name) if name == "false" => self.output.push_str("    xor eax, eax\n"),
             Expr::Symbol(name) if self.enum_value(name).is_some() => {
@@ -11538,7 +11571,7 @@ impl FunctionContext {
             return Ok(());
         }
         if self.is_aggregate_type(ty)
-            && (matches!(value, Expr::Block(_) | Expr::Loop(_))
+            && (matches!(value, Expr::Block(_) | Expr::Loop(_) | Expr::Labeled { .. })
                 || matches!(
                     value,
                     Expr::List(items)

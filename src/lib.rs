@@ -424,6 +424,10 @@ pub enum Expr {
     Char(char),
     String(String),
     Loop(Vec<Statement>),
+    Labeled {
+        label: String,
+        expression: Box<Expr>,
+    },
     /// The generated-code sigil in source, e.g. `(@optional T T?)`.
     At,
     Quote(Box<Expr>),
@@ -1047,6 +1051,9 @@ fn rename_expression(
                 variants,
             );
         }
+        Expr::Labeled { expression, .. } => {
+            rename_expression(expression, bindings, used, next_id, globals, variants);
+        }
         Expr::Quote(_)
         | Expr::Integer(_)
         | Expr::UnsignedInteger(_)
@@ -1184,6 +1191,10 @@ fn normalize_keywords(expression: Expr) -> Expr {
         }
         Expr::List(items) => Expr::List(items.into_iter().map(normalize_keywords).collect()),
         Expr::Block(statements) => Expr::Block(statements),
+        Expr::Labeled { label, expression } => Expr::Labeled {
+            label,
+            expression: Box::new(normalize_keywords(*expression)),
+        },
         Expr::Quote(value) => Expr::Quote(Box::new(normalize_keywords(*value))),
         other => other,
     }
@@ -1521,6 +1532,16 @@ fn specialize_expr(
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         )),
+        Expr::Labeled { label, expression } => Ok(Expr::Labeled {
+            label: label.clone(),
+            expression: Box::new(specialize_expr(
+                expression,
+                substitutions,
+                templates,
+                names,
+                generated,
+            )?),
+        }),
         Expr::Quote(value) => Ok(Expr::Quote(Box::new(specialize_expr(
             value,
             substitutions,
@@ -2583,6 +2604,20 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
         }
     }
     match expression {
+        Expr::List(items) if is_form(expression, "label") => {
+            if items.len() != 3 {
+                return Err("label requires a name and one value loop expression".into());
+            }
+            let label = expect_symbol(items.get(1), "loop label")?.to_owned();
+            let expression = lower_expr(&items[2])?;
+            if !matches!(expression, Expr::Loop(_)) {
+                return Err("expression label must wrap a value-producing loop".into());
+            }
+            Ok(Expr::Labeled {
+                label,
+                expression: Box::new(expression),
+            })
+        }
         Expr::List(items) if is_form(expression, "loop") => {
             if items.len() < 2 {
                 return Err("loop requires a body".into());
@@ -2592,6 +2627,28 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
                 .map(parse_statement)
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Expr::Loop(body))
+        }
+        Expr::List(items) if is_form(expression, "while") => {
+            if items.len() < 2 {
+                return Err("while requires a condition and body".into());
+            }
+            let mut lowered = Vec::with_capacity(items.len());
+            lowered.push(Expr::Symbol("while".into()));
+            lowered.push(lower_expr(&items[1])?);
+            lowered.extend(items[2..].iter().cloned());
+            Ok(Expr::List(lowered))
+        }
+        Expr::List(items) if is_form(expression, "for") => {
+            if items.len() < 5 {
+                return Err("for requires init, condition, step, and body".into());
+            }
+            let mut lowered = Vec::with_capacity(items.len());
+            lowered.push(Expr::Symbol("for".into()));
+            lowered.push(items[1].clone());
+            lowered.push(lower_expr(&items[2])?);
+            lowered.push(items[3].clone());
+            lowered.extend(items[4..].iter().cloned());
+            Ok(Expr::List(lowered))
         }
         Expr::List(items) if is_form(expression, "while-let") => {
             if items.len() < 4 {
@@ -2714,6 +2771,24 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             body.push(parse_statement(expression)?);
         }
         return Ok(Statement::Loop { body });
+    }
+    if is_form(expression, "label") {
+        let items = expect_list(expression, "labeled loop")?;
+        if items.len() != 3 {
+            return Err("label requires a name and one loop statement".into());
+        }
+        let label = expect_symbol(items.get(1), "loop label")?.to_owned();
+        let statement = parse_statement(&items[2])?;
+        if !matches!(
+            statement,
+            Statement::While { .. } | Statement::Loop { .. } | Statement::For { .. }
+        ) {
+            return Err("label must wrap a while, loop, or for statement".into());
+        }
+        return Ok(Statement::Labeled {
+            label,
+            statement: Box::new(statement),
+        });
     }
     let lowered = lower_expr(expression)?;
     let expression = &lowered;
@@ -2847,24 +2922,6 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
         return Ok(Statement::While {
             condition: items[1].clone(),
             body,
-        });
-    }
-    if is_form(expression, "label") {
-        let items = expect_list(expression, "labeled loop")?;
-        if items.len() != 3 {
-            return Err("label requires a name and one loop statement".into());
-        }
-        let label = expect_symbol(items.get(1), "loop label")?.to_owned();
-        let statement = parse_statement(&items[2])?;
-        if !matches!(
-            statement,
-            Statement::While { .. } | Statement::Loop { .. } | Statement::For { .. }
-        ) {
-            return Err("label must wrap a while, loop, or for statement".into());
-        }
-        return Ok(Statement::Labeled {
-            label,
-            statement: Box::new(statement),
         });
     }
     if is_form(expression, "for") {
@@ -5686,6 +5743,30 @@ mod tests {
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("outside a loop"));
+    }
+
+    #[test]
+    fn checks_and_lowers_labeled_value_loops() {
+        let program = parse_program_strict(
+            "(#fn main () u64 \
+               (#let mut count u64 0) \
+               (#let result u64 \
+                 (#label outer \
+                   (#loop \
+                     (#set count (#u64.+.wrap count 1u64)) \
+                     (#if (#u64.< count 3u64) \
+                       (#block (#continue-to outer)) ()) \
+                     (#break 42u64)))) \
+               (#return result))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("value_loop"));
+
+        let invalid =
+            parse_program_strict("(#fn main () u64 (#return (#label nope 42u64)))").unwrap_err();
+        assert!(invalid.contains("expression label"));
     }
 
     #[test]

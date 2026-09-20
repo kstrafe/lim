@@ -884,8 +884,9 @@ namespaces:
     (#continue-to outer)))
 ```
 
-Labels currently apply to statement loops (`#while`, `#loop`, and `#for`), not
-value-producing `#loop` expressions.
+Labels apply to statement loops (`#while`, `#loop`, and `#for`) and to
+value-producing `#loop` expressions. A value loop can still use ordinary
+`#break value` for its result while `#continue-to` targets its named loop.
 
 Loops can also produce values when used as expressions. The result must be
 provided explicitly by `#break` with a value:

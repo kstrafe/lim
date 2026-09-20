@@ -355,6 +355,9 @@ fn collect_expression_calls(
                 collect_statement_calls(statement, functions, calls);
             }
         }
+        Expr::Labeled { expression, .. } => {
+            collect_expression_calls(expression, functions, calls);
+        }
         Expr::Quote(value) => collect_expression_calls(value, functions, calls),
         Expr::Symbol(_)
         | Expr::Integer(_)
@@ -1197,6 +1200,30 @@ fn expression(
             }
             Ok(result)
         }
+        Expr::Labeled {
+            label,
+            expression: loop_expression,
+        } => {
+            if !matches!(loop_expression.as_ref(), Expr::Loop(_)) {
+                return Err("expression label must wrap a value-producing loop".into());
+            }
+            let marker = format!("\0lim-label:{label}");
+            if mutable.contains(&marker) {
+                return Err(format!("duplicate loop label '{label}'"));
+            }
+            let mut labeled_mutable = mutable.clone();
+            labeled_mutable.insert(marker);
+            expression(
+                loop_expression,
+                variables,
+                functions,
+                structs,
+                enums,
+                &labeled_mutable,
+                aliases,
+                expected,
+            )
+        }
         Expr::At | Expr::Quote(_) => {
             Err("generated and quoted expressions are not typed yet".into())
         }
@@ -1217,7 +1244,7 @@ fn statement_has_value_break(statement: &Statement) -> bool {
 
 fn expression_has_value_break(expression: &Expr) -> bool {
     match expression {
-        Expr::Loop(_) => false,
+        Expr::Loop(_) | Expr::Labeled { .. } => false,
         Expr::Block(statements) => statements.iter().any(statement_has_value_break),
         Expr::List(items) => {
             if matches!(
