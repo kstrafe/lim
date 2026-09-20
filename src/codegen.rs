@@ -1058,6 +1058,13 @@ fn generate_function(
                 .max()
                 .unwrap_or(0),
         );
+    let projection_regions = function
+        .body
+        .iter()
+        .map(max_projection_depth_in_statement)
+        .max()
+        .unwrap_or(0)
+        + 1;
     let aggregate_temp_regions = functions
         .values()
         .map(|abi| {
@@ -1068,7 +1075,7 @@ fn generate_function(
         })
         .max()
         .unwrap_or(1)
-        .max(2);
+        .max(projection_regions);
     let aggregate_temp_base = if aggregate_temp_words == 0 {
         None
     } else {
@@ -1251,6 +1258,7 @@ fn generate_function(
         aggregate_temp_base,
         aggregate_temp_words,
         aggregate_argument_cursor: 0,
+        aggregate_projection_depth: 0,
         output: String::new(),
     };
     for statement in &function.body {
@@ -1636,6 +1644,73 @@ fn max_let_else_storage_in_statement(
             value, structs, enums, aliases,
         )?)),
         Statement::Return(None) | Statement::Break | Statement::Continue => Ok(0),
+    }
+}
+
+fn max_projection_depth_in_expression(expression: &Expr) -> usize {
+    match expression {
+        Expr::List(items) => {
+            let children = items
+                .iter()
+                .map(max_projection_depth_in_expression)
+                .max()
+                .unwrap_or(0);
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get" || operator == "index")
+            {
+                children.max(1 + max_projection_depth_in_expression(&items[1]))
+            } else {
+                children
+            }
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => statements
+            .iter()
+            .map(max_projection_depth_in_statement)
+            .max()
+            .unwrap_or(0),
+        Expr::Quote(value) => max_projection_depth_in_expression(value),
+        _ => 0,
+    }
+}
+
+fn max_projection_depth_in_statement(statement: &Statement) -> usize {
+    let nested = |statements: &[Statement]| {
+        statements
+            .iter()
+            .map(max_projection_depth_in_statement)
+            .max()
+            .unwrap_or(0)
+    };
+    match statement {
+        Statement::Let { value, .. }
+        | Statement::Destructure { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::FieldAssign { value, .. }
+        | Statement::TupleAssign { value, .. }
+        | Statement::EnumPayloadAssign { value, .. }
+        | Statement::BreakValue(value)
+        | Statement::Return(Some(value))
+        | Statement::Expr(value) => max_projection_depth_in_expression(value),
+        Statement::ArrayAssign { index, value, .. } => {
+            max_projection_depth_in_expression(index).max(max_projection_depth_in_expression(value))
+        }
+        Statement::LetElse {
+            value, else_body, ..
+        } => max_projection_depth_in_expression(value).max(nested(else_body)),
+        Statement::While { condition, body } => {
+            max_projection_depth_in_expression(condition).max(nested(body))
+        }
+        Statement::Loop { body } => nested(body),
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => max_projection_depth_in_statement(init)
+            .max(max_projection_depth_in_expression(condition))
+            .max(max_projection_depth_in_statement(step))
+            .max(nested(body)),
+        Statement::Break | Statement::Continue | Statement::Return(None) => 0,
     }
 }
 
@@ -3650,6 +3725,7 @@ struct FunctionContext {
     aggregate_temp_base: Option<usize>,
     aggregate_temp_words: usize,
     aggregate_argument_cursor: usize,
+    aggregate_projection_depth: usize,
     output: String,
 }
 
@@ -9709,12 +9785,14 @@ impl FunctionContext {
                     let temp_base = self
                         .aggregate_temp_base
                         .ok_or_else(|| "no aggregate temporary is available".to_owned())?
-                        + self.aggregate_temp_words;
+                        + (self.aggregate_projection_depth + 1) * self.aggregate_temp_words;
+                    self.aggregate_projection_depth += 1;
                     self.store_value_to_slots(
                         &items[1],
                         &source_type,
                         &flat_slots(temp_base, source_words),
                     )?;
+                    self.aggregate_projection_depth -= 1;
                     Some(Source::Local(temp_base))
                 }
                 Some(Expr::Symbol(function_name))
@@ -9727,7 +9805,25 @@ impl FunctionContext {
                         self.call_to_aggregate_temp(function_name, &call_items[1..])?,
                     ))
                 }
-                _ => None,
+                _ => {
+                    let source_type = self
+                        .expression_type(&items[1])
+                        .ok_or_else(|| "large aggregate projection has no known type".to_owned())?;
+                    let source_words =
+                        storage_word_count(&source_type, &self.structs, &self.enums)?;
+                    let temp_base = self
+                        .aggregate_temp_base
+                        .ok_or_else(|| "no aggregate temporary is available".to_owned())?
+                        + (self.aggregate_projection_depth + 1) * self.aggregate_temp_words;
+                    self.aggregate_projection_depth += 1;
+                    self.store_value_to_slots(
+                        &items[1],
+                        &source_type,
+                        &flat_slots(temp_base, source_words),
+                    )?;
+                    self.aggregate_projection_depth -= 1;
+                    Some(Source::Local(temp_base))
+                }
             },
             _ => None,
         };
