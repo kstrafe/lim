@@ -1100,6 +1100,12 @@ mod tests {
         assert!(generate_assembly(&binding)
             .unwrap()
             .contains("mov QWORD PTR [rbp-24], rax"));
+        let returned = parse_program(
+            "(enum Maybe ((Some u64) None)) (fn make () Maybe (Some 42)) (fn main () u64 (let value Maybe (make)) (match value ((Some payload) payload) (None 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&returned).is_ok());
+        assert!(generate_assembly(&returned).unwrap().contains("call make"));
     }
 
     #[test]

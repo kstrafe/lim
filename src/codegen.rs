@@ -94,7 +94,7 @@ fn generate_function(
     globals: &HashMap<String, i128>,
     aliases: &HashMap<String, Type>,
 ) -> Result<(), String> {
-    ensure_scalar_type(&resolve_type(&function.return_type, aliases)?, enums)?;
+    ensure_return_type(&resolve_type(&function.return_type, aliases)?, enums)?;
     for parameter in &function.parameters {
         ensure_scalar_type(&resolve_type(&parameter.ty, aliases)?, enums)?;
     }
@@ -503,6 +503,32 @@ fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> R
     ensure_integer_type(ty)
 }
 
+fn ensure_return_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
+    if ensure_scalar_type(ty, enums).is_ok() {
+        return Ok(());
+    }
+    let Type::Named(name) = ty else {
+        return Err(format!(
+            "native backend does not support return type {ty:?}"
+        ));
+    };
+    let Some(variants) = enums.get(name) else {
+        return Err(format!("unknown return type '{name}'"));
+    };
+    if variants.iter().all(|variant| variant.fields.len() <= 1)
+        && variants
+            .iter()
+            .filter_map(|variant| variant.fields.first())
+            .all(|field| ensure_integer_type(field).is_ok())
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "native backend only supports scalar payload returns for '{name}'"
+        ))
+    }
+}
+
 fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, String> {
     match ty {
         Type::Named(name) => match aliases.get(name) {
@@ -749,6 +775,22 @@ impl FunctionContext {
     }
 
     fn store_enum(&mut self, name: &str, enum_name: &str, value: &Expr) -> Result<(), String> {
+        let Some(Storage::Enum {
+            discriminant,
+            payload,
+        }) = self.locals.get(name).cloned()
+        else {
+            return Err(format!("'{name}' is not a payload enum"));
+        };
+        if !matches!(value, Expr::List(_)) {
+            self.expression(value)?;
+            self.output.push_str(&format!(
+                "    mov QWORD PTR [rbp-{}], rax\n    mov QWORD PTR [rbp-{}], rdx\n",
+                discriminant * 8,
+                payload * 8
+            ));
+            return Ok(());
+        }
         let Expr::List(items) = value else {
             return Err(format!("enum local '{name}' requires a constructor"));
         };
@@ -763,23 +805,19 @@ impl FunctionContext {
         let variant = variants
             .iter()
             .find(|variant| variant.name == *variant_name)
-            .cloned()
-            .ok_or_else(|| format!("unknown variant '{variant_name}'"))?;
+            .cloned();
+        let Some(variant) = variant else {
+            self.expression(value)?;
+            self.output.push_str(&format!(
+                "    mov QWORD PTR [rbp-{}], rax\n    mov QWORD PTR [rbp-{}], rdx\n",
+                discriminant * 8,
+                payload * 8
+            ));
+            return Ok(());
+        };
         if items.len() - 1 != variant.fields.len() {
             return Err(format!("variant '{variant_name}' has wrong payload count"));
         }
-        let Storage::Enum {
-            discriminant,
-            payload,
-        } = self
-            .locals
-            .get(name)
-            .ok_or_else(|| format!("unknown local '{name}'"))?
-        else {
-            return Err(format!("'{name}' is not a payload enum"));
-        };
-        let discriminant = *discriminant;
-        let payload = *payload;
         let variant_index = variants
             .iter()
             .position(|candidate| candidate.name == *variant_name)
@@ -871,6 +909,35 @@ impl FunctionContext {
             Some(Expr::Symbol(name)) => name.as_str(),
             _ => return Err("expression list must start with a symbol".into()),
         };
+        if let Some((enum_name, variant)) = self.enums.iter().find_map(|(enum_name, variants)| {
+            variants
+                .iter()
+                .find(|variant| variant.name == operator)
+                .map(|variant| (enum_name.as_str(), variant))
+        }) {
+            if items.len() - 1 != variant.fields.len() {
+                return Err(format!(
+                    "variant '{operator}' expects {} payloads",
+                    variant.fields.len()
+                ));
+            }
+            let variant_index = self
+                .enums
+                .get(enum_name)
+                .and_then(|variants| {
+                    variants
+                        .iter()
+                        .position(|candidate| candidate.name == operator)
+                })
+                .expect("validated enum variant");
+            if let Some(value) = items.get(1) {
+                self.expression(value)?;
+                self.output.push_str("    mov rdx, rax\n");
+            }
+            self.output
+                .push_str(&format!("    mov rax, {variant_index}\n"));
+            return Ok(());
+        }
         match operator {
             "-" if items.len() == 2 => self.unary_negate(items),
             "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
