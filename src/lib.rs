@@ -2350,12 +2350,26 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
 }
 
 fn loop_has_value_break(expression: &Expr) -> bool {
+    let Expr::List(items) = expression else {
+        return false;
+    };
+    items[1..].iter().any(loop_body_has_value_break)
+}
+
+fn loop_body_has_value_break(expression: &Expr) -> bool {
     match expression {
         Expr::List(items) => {
             if is_form(expression, "break") && items.len() == 2 {
                 return true;
             }
-            items.iter().any(loop_has_value_break)
+            if matches!(
+                items.first(),
+                Some(Expr::Symbol(name))
+                    if matches!(name.as_str(), "loop" | "while" | "while-let" | "for" | "for-range")
+            ) {
+                return false;
+            }
+            items.iter().any(loop_body_has_value_break)
         }
         Expr::Block(statements) => statements.iter().any(statement_has_value_break),
         _ => false,
@@ -2365,9 +2379,8 @@ fn loop_has_value_break(expression: &Expr) -> bool {
 fn statement_has_value_break(statement: &Statement) -> bool {
     match statement {
         Statement::BreakValue(_) => true,
-        Statement::While { body, .. } | Statement::Loop { body } | Statement::For { body, .. } => {
-            body.iter().any(statement_has_value_break)
-        }
+        Statement::Expr(expression) => loop_body_has_value_break(expression),
+        Statement::While { .. } | Statement::Loop { .. } | Statement::For { .. } => false,
         _ => false,
     }
 }
@@ -2883,6 +2896,28 @@ mod tests {
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("outside a loop"));
+    }
+
+    #[test]
+    fn scopes_loop_value_breaks_to_their_own_loop() {
+        let nested_statement = parse_program_strict(
+            "(#fn main () u64 \
+               (#loop (#loop (#break 7))) \
+               (#return 42))",
+        )
+        .unwrap();
+        assert!(check_types(&nested_statement).is_ok());
+        let Item::Function(function) = &nested_statement.items[0] else {
+            panic!("expected a function");
+        };
+        assert!(matches!(function.body[0], Statement::Loop { .. }));
+
+        let mismatched = parse_program_strict(
+            "(#fn main () u64 \
+               (#return (#loop (#loop (#break true)) (#break 42))))",
+        )
+        .unwrap();
+        assert!(check_types(&mismatched).is_ok());
     }
 
     #[test]

@@ -329,6 +329,8 @@ function calls.
 Value-producing `#loop` expressions can likewise break with aggregate values.
 Conditional loop paths may carry the aggregate break value while alternate
 paths diverge explicitly.
+Break values are scoped to their innermost loop; a nested loop’s value break
+does not turn an enclosing statement loop into a value expression.
 Aggregate control-flow expressions can also be passed directly to functions
 through the flattened value ABI.
 Aggregate values in `#block` expressions preserve the block's preceding local

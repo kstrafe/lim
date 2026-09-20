@@ -1107,9 +1107,7 @@ fn statement_has_value_break(statement: &Statement) -> bool {
     match statement {
         Statement::BreakValue(_) => true,
         Statement::Expr(expression) => expression_has_value_break(expression),
-        Statement::While { body, .. } | Statement::Loop { body } | Statement::For { body, .. } => {
-            body.iter().any(statement_has_value_break)
-        }
+        Statement::While { .. } | Statement::Loop { .. } | Statement::For { .. } => false,
         _ => false,
     }
 }
@@ -1118,7 +1116,17 @@ fn expression_has_value_break(expression: &Expr) -> bool {
     match expression {
         Expr::Loop(_) => false,
         Expr::Block(statements) => statements.iter().any(statement_has_value_break),
-        Expr::List(items) => items.iter().any(expression_has_value_break),
+        Expr::List(items) => {
+            if matches!(
+                items.first(),
+                Some(Expr::Symbol(name))
+                    if matches!(name.as_str(), "loop" | "while" | "while-let" | "for" | "for-range")
+            ) {
+                false
+            } else {
+                items.iter().any(expression_has_value_break)
+            }
+        }
         Expr::Quote(value) => expression_has_value_break(value),
         _ => false,
     }
