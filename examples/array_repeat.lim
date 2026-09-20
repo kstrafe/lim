@@ -1,0 +1,3 @@
+(fn main () u64
+  (let values (array u64 3) (array-repeat 13))
+  (index values 1))

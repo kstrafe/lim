@@ -145,6 +145,9 @@ Fixed-size arrays are value types with stack storage:
   (+ (index values 0) (index values 1)))
 ```
 
+When every element is the same, `(array-repeat value)` uses the expected array
+type and fills all positions.
+
 Array reads and writes perform native unsigned bounds checks before touching
 the stack slot; an out-of-range index traps with `ud2`.
 

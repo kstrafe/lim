@@ -642,6 +642,26 @@ fn list_expression(
             }
             Ok(Type::Array(element.clone(), *length))
         }
+        "array-repeat" => {
+            let Some(Type::Array(element, length)) = expected else {
+                return Err(
+                    "array-repeat construction requires an expected (array Element N) type".into(),
+                );
+            };
+            require_arity(operator, items, 2)?;
+            let actual = expression(
+                &items[1],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(element),
+            )?;
+            require_type(&actual, element, "array-repeat element")?;
+            Ok(Type::Array(element.clone(), *length))
+        }
         "index" => {
             if items.len() != 3 {
                 return Err("index requires the form (index array index)".into());

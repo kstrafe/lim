@@ -1245,6 +1245,14 @@ mod tests {
         assert!(generate_assembly(&passed)
             .unwrap()
             .contains("call identity"));
+        let repeated = parse_program(
+            "(fn main () u64 (let values (array u64 3) (array-repeat 13)) (index values 1))",
+        )
+        .unwrap();
+        assert!(check_types(&repeated).is_ok());
+        assert!(generate_assembly(&repeated)
+            .unwrap()
+            .contains("mov rax, 13"));
     }
 
     #[test]
@@ -1253,7 +1261,7 @@ mod tests {
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("lea rdx"));
-        assert!(assembly.contains("rcx*8"));
+        assert!(assembly.contains("shl rcx, 3"));
         assert!(assembly.contains("jae"));
         assert!(assembly.contains("ud2"));
         let invalid = parse_program(

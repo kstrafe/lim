@@ -762,7 +762,7 @@ impl FunctionContext {
                 self.output.push_str("    mov rdx, rax\n    pop rcx\n");
                 self.stack_depth -= 1;
                 self.output.push_str(&format!(
-                    "    lea rax, [rbp-{}]\n    mov QWORD PTR [rax+rcx*8], rdx\n",
+                    "    lea rax, [rbp-{}]\n    shl rcx, 3\n    sub rax, rcx\n    mov QWORD PTR [rax], rdx\n",
                     base * 8
                 ));
                 self.output
@@ -972,6 +972,20 @@ impl FunctionContext {
             return Ok(());
         }
         if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat") {
+                if items.len() != 2 {
+                    return Err("array-repeat requires one value".into());
+                }
+                for _ in 0..length {
+                    self.expression(&items[1])?;
+                    self.push_rax();
+                }
+                for register in VALUE_REGISTERS[..length].iter().rev() {
+                    self.output.push_str(&format!("    pop {register}\n"));
+                    self.stack_depth -= 1;
+                }
+                return Ok(());
+            }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
                 if items.len() - 1 != length {
                     return Err("array return has the wrong length".into());
@@ -1140,6 +1154,19 @@ impl FunctionContext {
             }
             return Ok(());
         };
+        if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat") {
+            if items.len() != 2 {
+                return Err("array-repeat requires one value".into());
+            }
+            for index in 0..length {
+                self.expression(&items[1])?;
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], rax\n",
+                    (base + index) * 8
+                ));
+            }
+            return Ok(());
+        }
         if !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
             self.expression(value)?;
             for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
@@ -1291,7 +1318,7 @@ impl FunctionContext {
             "    cmp rcx, {length}\n    jae {bounds_failure}\n"
         ));
         self.output.push_str(&format!(
-            "    lea rdx, [rbp-{}]\n    mov rax, QWORD PTR [rdx+rcx*8]\n",
+            "    lea rdx, [rbp-{}]\n    shl rcx, 3\n    sub rdx, rcx\n    mov rax, QWORD PTR [rdx]\n",
             base * 8
         ));
         self.output.push_str(&format!(
@@ -1663,6 +1690,17 @@ impl FunctionContext {
                 return Ok(());
             }
             if let Expr::List(items) = value {
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat")
+                {
+                    if items.len() != 2 {
+                        return Err("array-repeat requires one value".into());
+                    }
+                    for _ in 0..*length {
+                        self.expression(&items[1])?;
+                        self.push_rax();
+                    }
+                    return Ok(());
+                }
                 if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
                     if items.len() - 1 != *length {
                         return Err("array argument has the wrong length".into());
