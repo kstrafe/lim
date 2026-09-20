@@ -431,6 +431,10 @@ fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, T
                 .map(|s| substitute_statement(s, substitutions))
                 .collect(),
         },
+        Statement::Labeled { label, statement } => Statement::Labeled {
+            label: label.clone(),
+            statement: Box::new(substitute_statement(statement, substitutions)),
+        },
         Statement::Return(value) => Statement::Return(
             value
                 .as_ref()
@@ -440,7 +444,10 @@ fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, T
         Statement::BreakValue(value) => {
             Statement::BreakValue(substitute_expr(value, substitutions))
         }
-        Statement::Break | Statement::Continue => statement.clone(),
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_) => statement.clone(),
     }
 }
 
@@ -572,6 +579,10 @@ fn rewrite_statement(
                 .map(|s| rewrite_statement(s, specializations))
                 .collect(),
         },
+        Statement::Labeled { label, statement } => Statement::Labeled {
+            label: label.clone(),
+            statement: Box::new(rewrite_statement(statement, specializations)),
+        },
         Statement::Return(value) => Statement::Return(
             value
                 .as_ref()
@@ -579,7 +590,10 @@ fn rewrite_statement(
         ),
         Statement::Expr(value) => Statement::Expr(rewrite_expr(value, specializations)),
         Statement::BreakValue(value) => Statement::BreakValue(rewrite_expr(value, specializations)),
-        Statement::Break | Statement::Continue => statement.clone(),
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_) => statement.clone(),
     }
 }
 
@@ -657,7 +671,14 @@ fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String
                 collect_generic_calls_statement(statement, calls);
             }
         }
-        Statement::Break | Statement::Continue | Statement::Return(None) => {}
+        Statement::Labeled { statement, .. } => {
+            collect_generic_calls_statement(statement, calls);
+        }
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => {}
     }
 }
 
@@ -1369,6 +1390,8 @@ fn generate_function(
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
+        loop_names: Vec::new(),
+        pending_loop_label: None,
         loop_result_types: Vec::new(),
         loop_indirect_results: Vec::new(),
         return_label: return_label.clone(),
@@ -1473,7 +1496,14 @@ fn collect_local_types(
                 collect_local_types(statement, types, aliases, enums, structs);
             }
         }
-        Statement::Break | Statement::Continue | Statement::Return(None) => {}
+        Statement::Labeled { statement, .. } => {
+            collect_local_types(statement, types, aliases, enums, structs);
+        }
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => {}
     }
 }
 
@@ -1762,7 +1792,14 @@ fn max_let_else_storage_in_statement(
         .max(max_let_else_storage_in_expression(
             value, structs, enums, aliases,
         )?)),
-        Statement::Return(None) | Statement::Break | Statement::Continue => Ok(0),
+        Statement::Labeled { statement, .. } => {
+            max_let_else_storage_in_statement(statement, structs, enums, aliases)
+        }
+        Statement::Return(None)
+        | Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_) => Ok(0),
     }
 }
 
@@ -1829,7 +1866,12 @@ fn max_projection_depth_in_statement(statement: &Statement) -> usize {
             .max(max_projection_depth_in_expression(condition))
             .max(max_projection_depth_in_statement(step))
             .max(nested(body)),
-        Statement::Break | Statement::Continue | Statement::Return(None) => 0,
+        Statement::Labeled { statement, .. } => max_projection_depth_in_statement(statement),
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => 0,
     }
 }
 
@@ -2001,7 +2043,14 @@ fn collect_locals(
         Statement::Return(Some(value)) | Statement::Expr(value) => {
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
-        Statement::Break | Statement::Continue | Statement::Return(None) => {}
+        Statement::Labeled { statement, .. } => {
+            collect_locals(statement, locals, structs, enums, aliases, next_slot, types)?;
+        }
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => {}
     }
     Ok(())
 }
@@ -4002,6 +4051,8 @@ struct FunctionContext {
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
+    loop_names: Vec<Option<String>>,
+    pending_loop_label: Option<String>,
     loop_result_types: Vec<Option<Type>>,
     loop_indirect_results: Vec<bool>,
     return_label: String,
@@ -4496,6 +4547,12 @@ impl FunctionContext {
                 }
                 self.output.push_str(&format!("{done}:\n"));
             }
+            Statement::Labeled { label, statement } => {
+                let previous = self.pending_loop_label.replace(label.clone());
+                let result = self.statement(statement);
+                self.pending_loop_label = previous;
+                result?
+            }
             Statement::While { condition, body } => {
                 let start = self.label("while");
                 let end = self.label("endwhile");
@@ -4504,12 +4561,14 @@ impl FunctionContext {
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {end}\n"));
                 self.loop_labels.push((start.clone(), end.clone()));
+                self.loop_names.push(self.pending_loop_label.take());
                 self.loop_result_types.push(None);
                 self.loop_indirect_results.push(false);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
+                self.loop_names.pop();
                 self.loop_result_types.pop();
                 self.loop_indirect_results.pop();
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
@@ -4519,12 +4578,14 @@ impl FunctionContext {
                 let end = self.label("endloop");
                 self.output.push_str(&format!("{start}:\n"));
                 self.loop_labels.push((start.clone(), end.clone()));
+                self.loop_names.push(self.pending_loop_label.take());
                 self.loop_result_types.push(None);
                 self.loop_indirect_results.push(false);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
+                self.loop_names.pop();
                 self.loop_result_types.pop();
                 self.loop_indirect_results.pop();
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
@@ -4544,12 +4605,14 @@ impl FunctionContext {
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {end}\n"));
                 self.loop_labels.push((step_label.clone(), end.clone()));
+                self.loop_names.push(self.pending_loop_label.take());
                 self.loop_result_types.push(None);
                 self.loop_indirect_results.push(false);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
+                self.loop_names.pop();
                 self.loop_result_types.pop();
                 self.loop_indirect_results.pop();
                 self.output.push_str(&format!("{step_label}:\n"));
@@ -4560,6 +4623,17 @@ impl FunctionContext {
                 let Some((_, end)) = self.loop_labels.last() else {
                     return Err("break used outside a loop".into());
                 };
+                self.output.push_str(&format!("    jmp {end}\n"));
+            }
+            Statement::BreakTo(label) => {
+                let Some(index) = self
+                    .loop_names
+                    .iter()
+                    .rposition(|name| name.as_deref() == Some(label))
+                else {
+                    return Err(format!("unknown or inactive loop label '{label}'"));
+                };
+                let end = self.loop_labels[index].1.clone();
                 self.output.push_str(&format!("    jmp {end}\n"));
             }
             Statement::BreakValue(value) => {
@@ -4584,6 +4658,17 @@ impl FunctionContext {
                 let Some((start, _)) = self.loop_labels.last() else {
                     return Err("continue used outside a loop".into());
                 };
+                self.output.push_str(&format!("    jmp {start}\n"));
+            }
+            Statement::ContinueTo(label) => {
+                let Some(index) = self
+                    .loop_names
+                    .iter()
+                    .rposition(|name| name.as_deref() == Some(label))
+                else {
+                    return Err(format!("unknown or inactive loop label '{label}'"));
+                };
+                let start = self.loop_labels[index].0.clone();
                 self.output.push_str(&format!("    jmp {start}\n"));
             }
             Statement::Return(value) => {

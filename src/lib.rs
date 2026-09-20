@@ -578,9 +578,15 @@ pub enum Statement {
         step: Box<Statement>,
         body: Vec<Statement>,
     },
+    Labeled {
+        label: String,
+        statement: Box<Statement>,
+    },
     Break,
     BreakValue(Expr),
+    BreakTo(String),
     Continue,
+    ContinueTo(String),
     Return(Option<Expr>),
     Expr(Expr),
 }
@@ -907,10 +913,17 @@ fn rename_statement(
             rename_statement(step, &mut loop_bindings, used, next_id, globals, variants);
             rename_statements(body, &mut loop_bindings, used, next_id, globals, variants);
         }
+        Statement::Labeled { statement, .. } => {
+            rename_statement(statement, bindings, used, next_id, globals, variants);
+        }
         Statement::BreakValue(value) | Statement::Return(Some(value)) | Statement::Expr(value) => {
             rename_expression(value, bindings, used, next_id, globals, variants);
         }
-        Statement::Break | Statement::Continue | Statement::Return(None) => {}
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => {}
     }
 }
 
@@ -1087,8 +1100,11 @@ fn is_builtin_form(name: &str) -> bool {
             | "for"
             | "for-range"
             | "loop"
+            | "label"
             | "break"
+            | "break-to"
             | "continue"
+            | "continue-to"
             | "return"
             | "set"
             | "set-index"
@@ -1637,6 +1653,16 @@ fn specialize_statement(
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         },
+        Statement::Labeled { label, statement } => Statement::Labeled {
+            label: label.clone(),
+            statement: Box::new(specialize_statement(
+                statement,
+                substitutions,
+                templates,
+                names,
+                generated,
+            )?),
+        },
         Statement::Return(value) => Statement::Return(
             value
                 .as_ref()
@@ -1657,7 +1683,10 @@ fn specialize_statement(
             names,
             generated,
         )?),
-        Statement::Break | Statement::Continue => statement.clone(),
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_) => statement.clone(),
     })
 }
 
@@ -2463,7 +2492,9 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
         | Statement::EnumPayloadAssign { .. }
         | Statement::Break
         | Statement::BreakValue(_)
+        | Statement::BreakTo(_)
         | Statement::Continue
+        | Statement::ContinueTo(_)
         | Statement::Return(None)
         | Statement::Return(Some(_))
         | Statement::Expr(_) => statement.clone(),
@@ -2493,6 +2524,10 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
                 .iter()
                 .map(|statement| replace_generic_statement(statement, parameters))
                 .collect(),
+        },
+        Statement::Labeled { label, statement } => Statement::Labeled {
+            label: label.clone(),
+            statement: Box::new(replace_generic_statement(statement, parameters)),
         },
     }
 }
@@ -2814,6 +2849,24 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             body,
         });
     }
+    if is_form(expression, "label") {
+        let items = expect_list(expression, "labeled loop")?;
+        if items.len() != 3 {
+            return Err("label requires a name and one loop statement".into());
+        }
+        let label = expect_symbol(items.get(1), "loop label")?.to_owned();
+        let statement = parse_statement(&items[2])?;
+        if !matches!(
+            statement,
+            Statement::While { .. } | Statement::Loop { .. } | Statement::For { .. }
+        ) {
+            return Err("label must wrap a while, loop, or for statement".into());
+        }
+        return Ok(Statement::Labeled {
+            label,
+            statement: Box::new(statement),
+        });
+    }
     if is_form(expression, "for") {
         let items = expect_list(expression, "for statement")?;
         if items.len() < 5 {
@@ -2845,6 +2898,24 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             return Err("continue takes no arguments".into());
         }
         return Ok(Statement::Continue);
+    }
+    if is_form(expression, "break-to") {
+        let items = expect_list(expression, "labeled break statement")?;
+        if items.len() != 2 {
+            return Err("break-to requires exactly one label".into());
+        }
+        return Ok(Statement::BreakTo(
+            expect_symbol(items.get(1), "break label")?.to_owned(),
+        ));
+    }
+    if is_form(expression, "continue-to") {
+        let items = expect_list(expression, "labeled continue statement")?;
+        if items.len() != 2 {
+            return Err("continue-to requires exactly one label".into());
+        }
+        return Ok(Statement::ContinueTo(
+            expect_symbol(items.get(1), "continue label")?.to_owned(),
+        ));
     }
     if is_form(expression, "return") {
         let items = expect_list(expression, "return statement")?;
@@ -2887,6 +2958,7 @@ fn statement_has_value_break(statement: &Statement) -> bool {
     match statement {
         Statement::BreakValue(_) => true,
         Statement::Expr(expression) => loop_body_has_value_break(expression),
+        Statement::Labeled { statement, .. } => statement_has_value_break(statement),
         Statement::While { .. } | Statement::Loop { .. } | Statement::For { .. } => false,
         _ => false,
     }

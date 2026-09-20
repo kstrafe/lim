@@ -315,7 +315,14 @@ fn collect_statement_calls(
                 collect_statement_calls(statement, functions, calls);
             }
         }
-        Statement::Break | Statement::Continue | Statement::Return(None) => {}
+        Statement::Labeled { statement, .. } => {
+            collect_statement_calls(statement, functions, calls);
+        }
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => {}
     }
 }
 
@@ -472,6 +479,25 @@ fn statement_type(
                 mutable.insert(name.clone());
             }
             Ok(Type::Unit)
+        }
+        Statement::Labeled { label, statement } => {
+            let marker = format!("\0lim-label:{label}");
+            if mutable.contains(&marker) {
+                return Err(format!("duplicate loop label '{label}'"));
+            }
+            let mut labeled_mutable = mutable.clone();
+            labeled_mutable.insert(marker);
+            statement_type(
+                statement,
+                variables,
+                &mut labeled_mutable,
+                functions,
+                structs,
+                enums,
+                return_type,
+                aliases,
+                in_loop,
+            )
         }
         Statement::Destructure {
             pattern,
@@ -829,6 +855,13 @@ fn statement_type(
                 value, variables, functions, structs, enums, mutable, aliases, None,
             )
         }
+        Statement::BreakTo(label) | Statement::ContinueTo(label) => {
+            if mutable.contains(&format!("\0lim-label:{label}")) {
+                Ok(Type::Unit)
+            } else {
+                Err(format!("unknown or inactive loop label '{label}'"))
+            }
+        }
         Statement::Break | Statement::Continue => {
             if in_loop {
                 Ok(Type::Unit)
@@ -862,6 +895,7 @@ fn statement_type(
 fn statement_diverges(statement: &Statement) -> bool {
     match statement {
         Statement::Return(_) | Statement::Break | Statement::Continue => true,
+        Statement::Labeled { statement, .. } => statement_diverges(statement),
         Statement::Expr(Expr::List(items)) => matches!(
             items.first(),
             Some(Expr::Symbol(name)) if matches!(name.as_str(), "panic" | "unreachable")

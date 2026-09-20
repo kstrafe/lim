@@ -871,6 +871,22 @@ Infinite loops support `break` and `continue`:
   (break))
 ```
 
+Statement loops may be labeled explicitly. `break-to` exits the named loop and
+`continue-to` jumps to its next iteration; labels are identifiers, not
+namespaces:
+
+```lisp
+(#label outer
+  (#while condition
+    (#label inner
+      (#while another-condition
+        (#break-to inner)))
+    (#continue-to outer)))
+```
+
+Labels currently apply to statement loops (`#while`, `#loop`, and `#for`), not
+value-producing `#loop` expressions.
+
 Loops can also produce values when used as expressions. The result must be
 provided explicitly by `#break` with a value:
 

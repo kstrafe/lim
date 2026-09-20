@@ -1,0 +1,13 @@
+(#fn main () u64
+  (#let mut count u64 0)
+  (#label outer
+    (#while (#u64.< count 4u64)
+      (#set count (#u64.+.wrap count 1u64))
+      (#label inner
+        (#while true
+          (#break-to inner)))
+      (#if (#u64.== count 3u64)
+        (#block (#break-to outer))
+        ())
+      (#continue-to outer)))
+  (#return count))
