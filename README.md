@@ -323,6 +323,9 @@ flattened representation, including repeated aggregate values and aggregate
 array returns.
 Aggregate-valued `#if` and `#match` expressions also preserve all flattened
 value words across their branches.
+Aggregate expressions may be used as discarded statements; their flattened
+value words are evaluated and safely discarded without treating constructors as
+function calls.
 Value-producing `#loop` expressions can likewise break with aggregate values.
 Conditional loop paths may carry the aggregate break value while alternate
 paths diverge explicitly.

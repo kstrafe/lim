@@ -1,0 +1,6 @@
+(#struct Pair ((left u64) (right u64)))
+
+(#fn main () u64
+  (#tuple (#tuple u64 u64) 1 2)
+  (Pair 3 4)
+  (#return 42))

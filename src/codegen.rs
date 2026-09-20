@@ -3620,6 +3620,11 @@ impl FunctionContext {
             Statement::Expr(expression) => {
                 if let Some(Some(ty)) = self.loop_result_types.last().cloned() {
                     self.expression_as_expected(expression, &ty)?;
+                } else if let Some(ty) = self
+                    .expression_type(expression)
+                    .filter(|ty| self.is_aggregate_type(ty))
+                {
+                    self.expression_as_expected(expression, &ty)?;
                 } else if self.is_aggregate_type(&self.return_type) {
                     self.return_value(expression)?;
                 } else if is_float_type(&self.return_type) {

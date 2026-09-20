@@ -4522,6 +4522,20 @@ mod tests {
     }
 
     #[test]
+    fn lowers_discarded_aggregate_expressions() {
+        let program = parse_program_strict(
+            "(#struct Pair ((left u64) (right u64))) \
+             (#fn main () u64 \
+               (#tuple (#tuple u64 u64) 1 2) \
+               (Pair 3 4) \
+               (#return 42))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn lowers_direct_array_constructor_indexing() {
         let program = parse_program(
             "(#fn main () u64 (#return (#index (#array (#array u64 3) 10 20 42) 2)))",
