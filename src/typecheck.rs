@@ -986,12 +986,24 @@ fn list_expression(
             Ok(Type::Usize)
         }
         "array" => {
-            let Some(Type::Array(element, length)) = expected else {
-                return Err(
-                    "array construction requires an expected (array Element N) type".into(),
-                );
+            let (element, length) = match expected {
+                Some(Type::Array(element, length)) => (element.clone(), *length),
+                Some(_) => {
+                    return Err("array construction requires an array-typed expected value".into())
+                }
+                None => {
+                    if items.len() < 2 {
+                        return Err(
+                            "empty array constructors require an expected array type".into()
+                        );
+                    }
+                    let element = expression(
+                        &items[1], variables, functions, structs, enums, mutable, aliases, None,
+                    )?;
+                    (Box::new(element), items.len() - 1)
+                }
             };
-            if items.len() - 1 != *length {
+            if items.len() - 1 != length {
                 return Err(format!("array constructor expects {length} elements"));
             }
             for value in &items[1..] {
@@ -1003,11 +1015,11 @@ fn list_expression(
                     enums,
                     mutable,
                     aliases,
-                    Some(element),
+                    Some(element.as_ref()),
                 )?;
-                require_type(&actual, element, "array element")?;
+                require_type(&actual, element.as_ref(), "array element")?;
             }
-            Ok(Type::Array(element.clone(), *length))
+            Ok(Type::Array(element, length))
         }
         "array-repeat" => {
             let Some(Type::Array(element, length)) = expected else {

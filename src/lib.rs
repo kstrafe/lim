@@ -3275,6 +3275,17 @@ mod tests {
     }
 
     #[test]
+    fn lowers_direct_array_constructor_indexing() {
+        let program =
+            parse_program(
+                "(#fn main () u64 (#return (#index (#array (#as 10 u64) (#as 20 u64) (#as 42 u64)) 2)))",
+            )
+            .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn lowers_stack_arguments() {
         let program = parse_program("(fn sum8 ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64) (h u64)) u64 (+ (+ (+ (+ (+ (+ (+ a b) c) d) e) f) g) h)) (fn main () u64 (sum8 1 2 3 4 5 6 7 8))").unwrap();
         let assembly = generate_assembly(&program).unwrap();

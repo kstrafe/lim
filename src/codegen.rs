@@ -2315,6 +2315,15 @@ impl FunctionContext {
                         _ => None,
                     }
                 }
+                Some(Expr::Symbol(operator)) if operator == "array" && items.len() >= 2 => {
+                    let element = items[1..]
+                        .iter()
+                        .map(|value| self.expression_type(value))
+                        .collect::<Option<Vec<_>>>()?
+                        .into_iter()
+                        .next()?;
+                    Some(Type::Array(Box::new(element), items.len() - 1))
+                }
                 Some(Expr::Symbol(operator)) if operator == "get" && items.len() == 3 => match self
                     .expression_type(&items[1])?
                 {
@@ -3073,6 +3082,45 @@ impl FunctionContext {
                 .push_str(&format!("{bounds_failure}:\n    ud2\n{done}:\n"));
             return Ok(());
         }
+        if let Expr::List(array_items) = &items[1] {
+            if !matches!(
+                array_items.first(),
+                Some(Expr::Symbol(operator)) if operator == "array"
+            ) {
+                return self.index_expression_without_literal(items);
+            }
+            let values = &array_items[1..];
+            if values.is_empty() {
+                return Err("cannot index an empty array constructor".into());
+            }
+            let element = self
+                .expression_type(&values[0])
+                .ok_or_else(|| "cannot determine array element type".to_owned())?;
+            if matches!(element, Type::Tuple(_) | Type::Array(_, _) | Type::Named(_)) {
+                return Err("native computed indexing supports scalar arrays only".into());
+            }
+            let bounds_failure = self.label("array_index_bounds_failure");
+            let done = self.label("array_index_done");
+            self.expression(&items[2])?;
+            self.output.push_str(&format!(
+                "    mov rcx, rax\n    cmp rcx, {}\n    jae {bounds_failure}\n",
+                values.len()
+            ));
+            for (index, value) in values.iter().enumerate() {
+                let next = self.label("array_index_next");
+                self.output
+                    .push_str(&format!("    cmp rcx, {index}\n    jne {next}\n"));
+                self.expression_as_expected(value, &element)?;
+                self.output.push_str(&format!("    jmp {done}\n{next}:\n"));
+            }
+            self.output
+                .push_str(&format!("{bounds_failure}:\n    ud2\n{done}:\n"));
+            return Ok(());
+        }
+        self.index_expression_without_literal(items)
+    }
+
+    fn index_expression_without_literal(&mut self, items: &[Expr]) -> Result<(), String> {
         let Some(name) = (match &items[1] {
             Expr::Symbol(name) => Some(name),
             _ => None,
