@@ -420,6 +420,9 @@ call boundary; pointers remain unavailable in Lim source. See
 `examples/large_array_parameter.lim` and
 `examples/large_aggregate_parameters.lim`.
 
+Direct indexing of a large scalar array return is also supported; see
+`examples/direct_large_array_return.lim`.
+
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
 Nested tuple locals and fixed-array locals can also be stored and indexed using

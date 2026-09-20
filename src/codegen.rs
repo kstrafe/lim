@@ -1010,6 +1010,19 @@ fn generate_function(
     } else {
         None
     };
+    let aggregate_temp_words = functions
+        .values()
+        .filter(|abi| abi.indirect_return)
+        .filter_map(|abi| storage_word_count(&abi.return_type, structs, enums).ok())
+        .max()
+        .unwrap_or(0);
+    let aggregate_temp_base = if aggregate_temp_words == 0 {
+        None
+    } else {
+        let base = next_slot;
+        next_slot += aggregate_temp_words;
+        Some(base)
+    };
     let frame_size = (next_slot.saturating_sub(1) * 8).div_ceil(16) * 16;
     let function_symbol = asm_symbol(&function.name);
     let max_call_depth = functions
@@ -1181,6 +1194,7 @@ fn generate_function(
         loop_result_types: Vec::new(),
         return_label: return_label.clone(),
         return_pointer_slot,
+        aggregate_temp_base,
         output: String::new(),
     };
     for statement in &function.body {
@@ -3474,6 +3488,7 @@ struct FunctionContext {
     loop_result_types: Vec<Option<Type>>,
     return_label: String,
     return_pointer_slot: Option<usize>,
+    aggregate_temp_base: Option<usize>,
     output: String,
 }
 
@@ -5795,6 +5810,49 @@ impl FunctionContext {
             self.output
                 .push_str(&format!("{bounds_failure}:\n    ud2\n{done}:\n"));
             return Ok(());
+        }
+        if let Expr::List(call_items) = &items[1] {
+            if let Some(Expr::Symbol(function_name)) = call_items.first() {
+                if self
+                    .functions
+                    .get(function_name)
+                    .is_some_and(|function| function.indirect_return)
+                {
+                    let Type::Array(element, length) = self
+                        .expression_type(&items[1])
+                        .ok_or_else(|| "large aggregate call has no known type".to_owned())?
+                    else {
+                        return Err("indirect aggregate indexing requires an array result".into());
+                    };
+                    let element_words = value_word_count(&element, &self.structs, &self.enums)?;
+                    if element_words != 1 {
+                        return Err(
+                            "direct indexing of large arrays currently requires scalar elements"
+                                .into(),
+                        );
+                    }
+                    let base = self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                    let bounds_failure = self.label("indirect_array_index_bounds_failure");
+                    let done = self.label("indirect_array_index_done");
+                    self.expression(&items[2])?;
+                    self.output.push_str(&format!(
+                        "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    lea rdx, [rbp-{}]\n    imul rcx, {}\n    shl rcx, 3\n    sub rdx, rcx\n",
+                        base * 8,
+                        element_words
+                    ));
+                    if matches!(*element, Type::F32) {
+                        self.output.push_str("    movss xmm0, DWORD PTR [rdx]\n");
+                    } else if matches!(*element, Type::F64) {
+                        self.output.push_str("    movq xmm0, QWORD PTR [rdx]\n");
+                    } else {
+                        self.output.push_str("    mov rax, QWORD PTR [rdx]\n");
+                    }
+                    self.output.push_str(&format!(
+                        "    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n"
+                    ));
+                    return Ok(());
+                }
+            }
         }
         if let Expr::List(repeat_items) = &items[1] {
             if matches!(
@@ -8272,6 +8330,14 @@ impl FunctionContext {
             self.output
                 .push_str(&format!("    lea r10, [rbp-{}]\n", slot * 8));
         }
+    }
+
+    fn call_to_aggregate_temp(&mut self, name: &str, arguments: &[Expr]) -> Result<usize, String> {
+        let base = self
+            .aggregate_temp_base
+            .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
+        self.call(name, arguments, Some(base))?;
+        Ok(base)
     }
 
     fn call(
