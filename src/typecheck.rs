@@ -542,6 +542,9 @@ fn list_expression(
     aliases: &HashMap<String, Type>,
     expected: Option<&Type>,
 ) -> Result<Type, String> {
+    if items.is_empty() {
+        return Ok(Type::Unit);
+    }
     let Some(Expr::Symbol(operator)) = items.first() else {
         return Err("expression list must start with a symbol".into());
     };

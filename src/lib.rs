@@ -1231,6 +1231,15 @@ mod tests {
     }
 
     #[test]
+    fn lowers_unit_functions_and_calls() {
+        let program = parse_program("(fn noop () () ()) (fn main () u64 (noop) 42)").unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains(".globl noop"));
+        assert!(assembly.contains("call noop"));
+    }
+
+    #[test]
     fn checks_and_lowers_mutable_parameters() {
         let program =
             parse_program("(fn increment ((mut value u64)) u64 (set value (+ value 1)) value)")

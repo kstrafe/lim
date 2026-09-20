@@ -107,6 +107,15 @@ Function parameters can be explicitly mutable with `(mut name Type)`:
   value)
 ```
 
+Unit functions use `()` and can be called for side effects:
+
+```lisp
+(fn noop () () ())
+(fn main () u64
+  (noop)
+  42)
+```
+
 Value structs can be declared and checked without pointers or traits:
 
 ```lisp

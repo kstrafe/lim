@@ -1,0 +1,5 @@
+(fn noop () () ())
+
+(fn main () u64
+  (noop)
+  42)

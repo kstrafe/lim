@@ -716,6 +716,9 @@ fn ensure_return_type(
     enums: &HashMap<String, Vec<EnumVariant>>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), String> {
+    if matches!(ty, Type::Unit) {
+        return Ok(());
+    }
     if ensure_scalar_type(ty, enums).is_ok() {
         return Ok(());
     }
@@ -1176,6 +1179,9 @@ impl FunctionContext {
     }
 
     fn return_value(&mut self, value: &Expr) -> Result<(), String> {
+        if matches!(self.return_type, Type::Unit) {
+            return Ok(());
+        }
         if is_float_type(&self.return_type) {
             let ty = self.return_type.clone();
             return self.expression_as_float(value, &ty);
@@ -1575,6 +1581,9 @@ impl FunctionContext {
     }
 
     fn list_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.is_empty() {
+            return Ok(());
+        }
         let operator = match items.first() {
             Some(Expr::Symbol(name)) => name.as_str(),
             _ => return Err("expression list must start with a symbol".into()),
