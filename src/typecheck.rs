@@ -130,6 +130,9 @@ fn check_function(
                 parameter.name, function.name
             ));
         }
+        if parameter.mutable {
+            mutable.insert(parameter.name.clone());
+        }
     }
     let mut last_type = Type::Unit;
     for (index, statement) in function.body.iter().enumerate() {

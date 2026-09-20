@@ -311,6 +311,7 @@ impl Type {
 pub struct Parameter {
     pub name: String,
     pub ty: Type,
+    pub mutable: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -551,12 +552,19 @@ fn parse_function(items: &[Expr]) -> Result<Function, String> {
     let mut parameters = Vec::with_capacity(parameter_items.len());
     for parameter in parameter_items {
         let fields = expect_list(parameter, "function parameter")?;
-        if fields.len() != 2 {
-            return Err("function parameters must have the form (name Type)".into());
+        let mutable = matches!(fields.first(), Some(Expr::Symbol(name)) if name == "mut");
+        let expected_len = if mutable { 3 } else { 2 };
+        if fields.len() != expected_len {
+            return Err(
+                "function parameters must have the form (name Type) or (mut name Type)".into(),
+            );
         }
+        let name_index = if mutable { 1 } else { 0 };
+        let type_index = if mutable { 2 } else { 1 };
         parameters.push(Parameter {
-            name: expect_symbol(fields.first(), "parameter name")?.to_owned(),
-            ty: parse_type(fields.get(1))?,
+            name: expect_symbol(fields.get(name_index), "parameter name")?.to_owned(),
+            ty: parse_type(fields.get(type_index))?,
+            mutable,
         });
     }
 
@@ -1070,6 +1078,20 @@ mod tests {
         assert!(generate_assembly(&program).unwrap().contains("mov rax, 42"));
         let invalid = parse_program("(fn main () u64 (as true u64))").unwrap();
         assert!(check_types(&invalid).unwrap_err().contains("integer casts"));
+    }
+
+    #[test]
+    fn checks_and_lowers_mutable_parameters() {
+        let program =
+            parse_program("(fn increment ((mut value u64)) u64 (set value (+ value 1)) value)")
+                .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap()
+            .contains("add rax, rcx"));
+        let invalid =
+            parse_program("(fn increment ((value u64)) u64 (set value 1) value)").unwrap();
+        assert!(check_types(&invalid).unwrap_err().contains("immutable"));
     }
 
     #[test]

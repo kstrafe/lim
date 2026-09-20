@@ -86,6 +86,14 @@ Mutable locals, assignment, and `while` are also supported:
   total)
 ```
 
+Function parameters can be explicitly mutable with `(mut name Type)`:
+
+```lisp
+(fn increment ((mut value u64)) u64
+  (set value (+ value 1))
+  value)
+```
+
 Value structs can be declared and checked without pointers or traits:
 
 ```lisp
