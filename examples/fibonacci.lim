@@ -1,8 +1,14 @@
 (#fn fib ((n u64)) u64
-  (#return
-    (#if (#u64.<= n 1)
-        n
-        (#u64.+ (fib (#u64.- n 1)) (fib (#u64.- n 2))))))
+  (#let mut a u64 0)
+  (#let mut b u64 1)
+  (#let mut i u64 0)
+  (#let mut next u64 0)
+  (#while (#u64.< i n)
+    (#set next (#u64.+.wrap a b))
+    (#set a b)
+    (#set b next)
+    (#set i (#u64.+.wrap i 1)))
+  (#return a))
 
 (#fn main () u64
   (#return (fib 10)))

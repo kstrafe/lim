@@ -2070,12 +2070,14 @@ mod tests {
 
     #[test]
     fn lexes_prefixed_keywords_and_typed_operators() {
-        let tokens = lex("(#fn main () u32 (#u32.+ 20 22))").unwrap();
+        let tokens = lex("(#fn main () u32 (#u32.+.wrap 20 22))").unwrap();
         assert_eq!(tokens[1].kind, TokenKind::Symbol("#fn".into()));
-        assert_eq!(tokens[7].kind, TokenKind::Symbol("#u32.+".into()));
-        let program = parse_program("(#fn main () u32 (#return (#u32.+ 20 22)))").unwrap();
+        assert_eq!(tokens[7].kind, TokenKind::Symbol("#u32.+.wrap".into()));
+        let program = parse_program("(#fn main () u32 (#return (#u32.+.wrap 20 22)))").unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).unwrap().contains("add"));
+        let plain = parse_program("(#fn main () u32 (#return (#u32.+ 20 22)))").unwrap();
+        assert!(check_types(&plain).is_err());
     }
 
     #[test]
@@ -2527,6 +2529,24 @@ mod tests {
         .unwrap();
         let error = generate_assembly(&recursive).unwrap_err();
         assert!(error.contains("recursive"), "{error}");
+    }
+
+    #[test]
+    fn rejects_recursive_function_calls() {
+        let direct =
+            parse_program("(fn recurse () u64 (recurse)) (fn main () u64 (recurse))").unwrap();
+        let error = check_types(&direct).unwrap_err();
+        assert!(error.contains("recursive calls"), "{error}");
+
+        let indirect = parse_program(
+            "(fn first () u64 (second)) (fn second () u64 (first)) (fn main () u64 (first))",
+        )
+        .unwrap();
+        let error = check_types(&indirect).unwrap_err();
+        assert!(
+            error.contains("first") && error.contains("second"),
+            "{error}"
+        );
     }
 
     #[test]

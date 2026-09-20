@@ -49,7 +49,67 @@ fn low_register(register: &str) -> &str {
 }
 
 fn operator_base(operator: &str) -> &str {
-    operator.rsplit_once('.').map_or(operator, |(_, base)| base)
+    let (_, base, _) = operator_parts(operator);
+    base
+}
+
+fn operator_parts(operator: &str) -> (Option<&str>, &str, Option<&str>) {
+    let Some((qualifier, operation)) = operator.split_once('.') else {
+        return (None, operator, None);
+    };
+    if !is_builtin_operator_type(qualifier)
+        || !matches!(
+            operation.split('.').next(),
+            Some(
+                "+" | "-"
+                    | "*"
+                    | "/"
+                    | "%"
+                    | "&"
+                    | "|"
+                    | "^"
+                    | "<<"
+                    | ">>"
+                    | "<"
+                    | "<="
+                    | ">"
+                    | ">="
+                    | "=="
+                    | "!="
+                    | "!"
+                    | "&&"
+                    | "||"
+            )
+        )
+    {
+        return (None, operator, None);
+    }
+    let Some((operation, mode)) = operation.split_once('.') else {
+        return (Some(qualifier), operation, None);
+    };
+    (Some(qualifier), operation, Some(mode))
+}
+
+fn is_builtin_operator_type(name: &str) -> bool {
+    matches!(
+        name,
+        "bool"
+            | "char"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+    )
 }
 
 #[derive(Clone)]
@@ -1373,6 +1433,27 @@ fn integer_bit_width(ty: Type) -> Option<i128> {
     }
 }
 
+fn integer_bounds(ty: &Type) -> Option<(i128, i128)> {
+    let width = integer_bit_width(ty.clone())?;
+    if is_unsigned_type(ty) {
+        Some((0, (1_i128 << width) - 1))
+    } else {
+        let half = 1_i128 << (width - 1);
+        Some((-half, half - 1))
+    }
+}
+
+fn asm_integer_bound(value: i128, ty: &Type) -> String {
+    if is_unsigned_type(ty)
+        && matches!(ty, Type::U64 | Type::Usize)
+        && value == i128::from(u64::MAX)
+    {
+        "-1".into()
+    } else {
+        value.to_string()
+    }
+}
+
 fn is_unsigned_type(ty: &Type) -> bool {
     matches!(
         ty,
@@ -2204,7 +2285,10 @@ impl FunctionContext {
                         "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" | "!"
                     ) =>
                 {
-                    items.get(1).and_then(|value| self.expression_type(value))
+                    operator_parts(operator.as_str())
+                        .0
+                        .map(Type::from_name)
+                        .or_else(|| items.get(1).and_then(|value| self.expression_type(value)))
                 }
                 Some(Expr::Symbol(operator))
                     if matches!(operator_base(operator.as_str()), "assert" | "debug-assert") =>
@@ -2844,7 +2928,7 @@ impl FunctionContext {
             Some(Expr::Symbol(name)) => name.as_str(),
             _ => return Err("expression list must start with a symbol".into()),
         };
-        let operator = operator_base(operator);
+        let (qualifier, operator, mode) = operator_parts(operator);
         if let Some((enum_name, variant_fields)) =
             self.enums.iter().find_map(|(enum_name, variants)| {
                 variants
@@ -2898,7 +2982,7 @@ impl FunctionContext {
         match operator {
             "-" if items.len() == 2 => self.unary_negate(items),
             "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
-                self.binary_operator(operator, items)
+                self.binary_operator(operator, qualifier, mode, items)
             }
             "<" | "<=" | ">" | ">=" | "==" | "!=" => self.comparison(operator, items),
             "if" => self.if_expression(items),
@@ -3579,18 +3663,26 @@ impl FunctionContext {
         }
     }
 
-    fn binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+    fn binary_operator(
+        &mut self,
+        operator: &str,
+        qualifier: Option<&str>,
+        mode: Option<&str>,
+        items: &[Expr],
+    ) -> Result<(), String> {
         if items.len() != 3 {
             return Err(format!("operator '{operator}' requires two operands"));
         }
-        if self.expression_is_float(&items[1]) {
+        let operand_type = qualifier.map(Type::from_name);
+        if operand_type.as_ref().is_some_and(is_float_type) || self.expression_is_float(&items[1]) {
             return self.float_binary_operator(operator, items);
         }
-        if self
-            .expression_type(&items[1])
-            .is_some_and(|ty| is_wide_integer(&ty))
+        if operand_type.as_ref().is_some_and(is_wide_integer)
+            || self
+                .expression_type(&items[1])
+                .is_some_and(|ty| is_wide_integer(&ty))
         {
-            return self.wide_binary_operator(operator, items);
+            return self.wide_binary_operator(operator, mode, items);
         }
         self.expression(&items[1])?;
         self.push_rax();
@@ -3598,8 +3690,9 @@ impl FunctionContext {
         self.output.push_str("    mov rcx, rax\n    pop rax\n");
         self.stack_depth -= 1;
         let shift_failure = if matches!(operator, "<<" | ">>") {
-            let width = self
-                .expression_type(&items[1])
+            let width = operand_type
+                .clone()
+                .or_else(|| self.expression_type(&items[1]))
                 .and_then(integer_bit_width)
                 .ok_or_else(|| "shift requires an integer operand".to_owned())?;
             let label = self.label("shift_failure");
@@ -3612,16 +3705,29 @@ impl FunctionContext {
         match operator {
             "+" => self.output.push_str("    add rax, rcx\n"),
             "-" => self.output.push_str("    sub rax, rcx\n"),
-            "*" => self.output.push_str("    imul rax, rcx\n"),
+            "*" => {
+                if mode == Some("saturate")
+                    && (operand_type.as_ref().is_some_and(is_unsigned_type)
+                        || self.expression_is_unsigned(&items[1]))
+                {
+                    self.output.push_str("    mul rcx\n");
+                } else {
+                    self.output.push_str("    imul rax, rcx\n");
+                }
+            }
             "/" => {
-                if self.expression_is_unsigned(&items[1]) {
+                if operand_type.as_ref().is_some_and(is_unsigned_type)
+                    || self.expression_is_unsigned(&items[1])
+                {
                     self.output.push_str("    xor edx, edx\n    div rcx\n");
                 } else {
                     self.output.push_str("    cqo\n    idiv rcx\n");
                 }
             }
             "%" => {
-                if self.expression_is_unsigned(&items[1]) {
+                if operand_type.as_ref().is_some_and(is_unsigned_type)
+                    || self.expression_is_unsigned(&items[1])
+                {
                     self.output
                         .push_str("    xor edx, edx\n    div rcx\n    mov rax, rdx\n");
                 } else {
@@ -3634,7 +3740,9 @@ impl FunctionContext {
             "^" => self.output.push_str("    xor rax, rcx\n"),
             "<<" => self.output.push_str("    shl rax, cl\n"),
             ">>" => {
-                if self.expression_is_unsigned(&items[1]) {
+                if operand_type.as_ref().is_some_and(is_unsigned_type)
+                    || self.expression_is_unsigned(&items[1])
+                {
                     self.output.push_str("    shr rax, cl\n");
                 } else {
                     self.output.push_str("    sar rax, cl\n");
@@ -3642,7 +3750,10 @@ impl FunctionContext {
             }
             _ => unreachable!(),
         }
-        if let Some(ty) = self.expression_type(&items[1]) {
+        if mode == Some("saturate") {
+            self.emit_saturating_integer_result(operator, qualifier, items)?;
+        }
+        if let Some(ty) = operand_type.or_else(|| self.expression_type(&items[1])) {
             if is_narrow_integer(&ty) {
                 self.normalize_integer(&ty)?;
             }
@@ -3655,7 +3766,54 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn wide_binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+    fn emit_saturating_integer_result(
+        &mut self,
+        operator: &str,
+        qualifier: Option<&str>,
+        items: &[Expr],
+    ) -> Result<(), String> {
+        let ty = qualifier
+            .map(Type::from_name)
+            .or_else(|| self.expression_type(&items[1]))
+            .ok_or_else(|| "saturating arithmetic requires a typed operand".to_owned())?;
+        let Some((minimum, maximum)) = integer_bounds(&ty) else {
+            return Err("saturating arithmetic requires an integer operand".into());
+        };
+        let minimum = asm_integer_bound(minimum, &ty);
+        let maximum = asm_integer_bound(maximum, &ty);
+        let high = self.label("saturate_high");
+        let low = self.label("saturate_low");
+        let overflow = self.label("saturate_overflow");
+        let done = self.label("saturate_done");
+        if is_unsigned_type(&ty) {
+            if matches!(operator, "+" | "-" | "*") {
+                let overflow = if operator == "-" {
+                    low.clone()
+                } else {
+                    high.clone()
+                };
+                self.output.push_str(&format!("    jc {overflow}\n"));
+            }
+            self.output.push_str(&format!(
+                "    cmp rax, {maximum}\n    ja {high}\n    jmp {done}\n{high}:\n    mov rax, {maximum}\n    jmp {done}\n{low}:\n    xor eax, eax\n{done}:\n"
+            ));
+        } else {
+            self.output.push_str(&format!(
+                "    jo {overflow}\n    cmp rax, {maximum}\n    jg {high}\n    cmp rax, {minimum}\n    jl {low}\n    jmp {done}\n{overflow}:\n    js {high}\n    jmp {low}\n{high}:\n    mov rax, {maximum}\n    jmp {done}\n{low}:\n    mov rax, {minimum}\n{done}:\n"
+            ));
+        }
+        Ok(())
+    }
+
+    fn wide_binary_operator(
+        &mut self,
+        operator: &str,
+        mode: Option<&str>,
+        items: &[Expr],
+    ) -> Result<(), String> {
+        if mode == Some("saturate") {
+            return Err("saturating 128-bit arithmetic is not supported yet".into());
+        }
         if !matches!(
             operator,
             "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
@@ -3980,6 +4138,9 @@ impl FunctionContext {
     }
 
     fn expression_is_unsigned(&self, expression: &Expr) -> bool {
+        if let Some(ty) = self.expression_type(expression) {
+            return is_unsigned_type(&ty);
+        }
         match expression {
             Expr::Symbol(name) => self.local_types.get(name).is_some_and(is_unsigned_type),
             Expr::List(items) => match items.first() {

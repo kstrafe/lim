@@ -122,6 +122,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             return Err(format!("duplicate function '{}'", function.name));
         }
     }
+    reject_recursive_calls(program, &functions)?;
     for item in &program.items {
         match item {
             Item::Function(function) => {
@@ -145,6 +146,139 @@ pub fn check_types(program: &Program) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn reject_recursive_calls(
+    program: &Program,
+    functions: &HashMap<String, Signature>,
+) -> Result<(), String> {
+    let names = functions.keys().cloned().collect::<HashSet<_>>();
+    let mut edges = HashMap::<String, HashSet<String>>::new();
+    for item in &program.items {
+        let Item::Function(function) = item else {
+            continue;
+        };
+        let calls = edges.entry(function.name.clone()).or_default();
+        for statement in &function.body {
+            collect_statement_calls(statement, &names, calls);
+        }
+    }
+
+    let mut state = HashMap::<String, bool>::new();
+    let mut path = Vec::new();
+    for name in names {
+        visit_call_graph(&name, &edges, &mut state, &mut path)?;
+    }
+    Ok(())
+}
+
+fn visit_call_graph(
+    name: &str,
+    edges: &HashMap<String, HashSet<String>>,
+    state: &mut HashMap<String, bool>,
+    path: &mut Vec<String>,
+) -> Result<(), String> {
+    if state.get(name) == Some(&true) {
+        let start = path.iter().position(|item| item == name).unwrap_or(0);
+        let mut cycle = path[start..].to_vec();
+        cycle.push(name.to_owned());
+        return Err(format!(
+            "recursive calls are not allowed: {}",
+            cycle.join(" -> ")
+        ));
+    }
+    if state.get(name) == Some(&false) {
+        return Ok(());
+    }
+    state.insert(name.to_owned(), true);
+    path.push(name.to_owned());
+    if let Some(calls) = edges.get(name) {
+        for called in calls {
+            visit_call_graph(called, edges, state, path)?;
+        }
+    }
+    path.pop();
+    state.insert(name.to_owned(), false);
+    Ok(())
+}
+
+fn collect_statement_calls(
+    statement: &Statement,
+    functions: &HashSet<String>,
+    calls: &mut HashSet<String>,
+) {
+    match statement {
+        Statement::Let { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::FieldAssign { value, .. }
+        | Statement::TupleAssign { value, .. }
+        | Statement::Return(Some(value))
+        | Statement::Expr(value) => collect_expression_calls(value, functions, calls),
+        Statement::ArrayAssign { index, value, .. } => {
+            collect_expression_calls(index, functions, calls);
+            collect_expression_calls(value, functions, calls);
+        }
+        Statement::While { condition, body } => {
+            collect_expression_calls(condition, functions, calls);
+            for statement in body {
+                collect_statement_calls(statement, functions, calls);
+            }
+        }
+        Statement::Loop { body } => {
+            for statement in body {
+                collect_statement_calls(statement, functions, calls);
+            }
+        }
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            collect_statement_calls(init, functions, calls);
+            collect_expression_calls(condition, functions, calls);
+            collect_statement_calls(step, functions, calls);
+            for statement in body {
+                collect_statement_calls(statement, functions, calls);
+            }
+        }
+        Statement::Break | Statement::Continue | Statement::Return(None) => {}
+    }
+}
+
+fn collect_expression_calls(
+    expression: &Expr,
+    functions: &HashSet<String>,
+    calls: &mut HashSet<String>,
+) {
+    match expression {
+        Expr::List(items) => {
+            if let Some(Expr::Symbol(operator)) = items.first() {
+                let candidate = operator.split('<').next().unwrap_or(operator);
+                if functions.contains(operator) {
+                    calls.insert(operator.clone());
+                } else if functions.contains(candidate) {
+                    calls.insert(candidate.to_owned());
+                }
+            }
+            for item in items {
+                collect_expression_calls(item, functions, calls);
+            }
+        }
+        Expr::Block(statements) => {
+            for statement in statements {
+                collect_statement_calls(statement, functions, calls);
+            }
+        }
+        Expr::Quote(value) => collect_expression_calls(value, functions, calls),
+        Expr::Symbol(_)
+        | Expr::Integer(_)
+        | Expr::UnsignedInteger(_)
+        | Expr::Float(_)
+        | Expr::Char(_)
+        | Expr::String(_)
+        | Expr::At => {}
+    }
 }
 
 fn check_function(
@@ -645,11 +779,8 @@ fn list_expression(
         return Err("expression list must start with a symbol".into());
     };
     let raw_operator = operator.as_str();
-    let (qualifier, operator) = raw_operator
-        .rsplit_once('.')
-        .map_or((None, raw_operator), |(qualifier, operator)| {
-            (Some(qualifier), operator)
-        });
+    let (qualifier, operator, mode) = typed_operator_parts(raw_operator);
+    let operator_type = qualifier.map(Type::from_name);
     match operator {
         "-" if items.len() == 2 => {
             let actual = expression(
@@ -660,13 +791,21 @@ fn list_expression(
             }
             if let Some(qualifier) = qualifier {
                 require_operator_type(qualifier, &actual, raw_operator)?;
+                require_arithmetic_mode(operator, mode, raw_operator, &actual)?;
             }
             Ok(actual)
         }
         "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
             require_arity(operator, items, 3)?;
             let left = expression(
-                &items[1], variables, functions, structs, enums, mutable, aliases, expected,
+                &items[1],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                operator_type.as_ref().or(expected),
             )?;
             let right = expression(
                 &items[2],
@@ -681,6 +820,7 @@ fn list_expression(
             require_same(&left, &right, operator)?;
             if let Some(qualifier) = qualifier {
                 require_operator_type(qualifier, &left, raw_operator)?;
+                require_arithmetic_mode(operator, mode, raw_operator, &left)?;
             }
             let bitwise = matches!(operator, "&" | "|" | "^");
             let valid = if bitwise {
@@ -705,7 +845,14 @@ fn list_expression(
         "<" | "<=" | ">" | ">=" | "==" | "!=" => {
             require_arity(operator, items, 3)?;
             let left = expression(
-                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+                &items[1],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                operator_type.as_ref(),
             )?;
             let right = expression(
                 &items[2],
@@ -1524,6 +1671,108 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
             "operator '{operator}' is qualified for '{qualifier}', but its operand type is '{expected}'"
         ))
     }
+}
+
+fn typed_operator_parts(operator: &str) -> (Option<&str>, &str, Option<&str>) {
+    let Some((qualifier, operation)) = operator.split_once('.') else {
+        return (None, operator, None);
+    };
+    if !is_builtin_operator_type(qualifier)
+        || !matches!(
+            operation.split('.').next(),
+            Some(
+                "+" | "-"
+                    | "*"
+                    | "/"
+                    | "%"
+                    | "&"
+                    | "|"
+                    | "^"
+                    | "<<"
+                    | ">>"
+                    | "<"
+                    | "<="
+                    | ">"
+                    | ">="
+                    | "=="
+                    | "!="
+                    | "!"
+                    | "&&"
+                    | "||"
+            )
+        )
+    {
+        return (None, operator, None);
+    }
+    let Some((operation, mode)) = operation.split_once('.') else {
+        return (Some(qualifier), operation, None);
+    };
+    (Some(qualifier), operation, Some(mode))
+}
+
+fn is_builtin_operator_type(name: &str) -> bool {
+    matches!(
+        name,
+        "bool"
+            | "char"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+    )
+}
+
+fn require_arithmetic_mode(
+    operation: &str,
+    mode: Option<&str>,
+    operator: &str,
+    ty: &Type,
+) -> Result<(), String> {
+    if !matches!(operation, "+" | "-" | "*" | "/" | "%") {
+        if mode.is_some() {
+            return Err(format!(
+                "non-arithmetic operator '{operator}' cannot have a wrapping mode"
+            ));
+        }
+        return Ok(());
+    }
+    if matches!(ty, Type::F32 | Type::F64) {
+        if mode.is_some() {
+            return Err(format!(
+                "floating-point operator '{operator}' cannot have a wrapping mode"
+            ));
+        }
+        return Ok(());
+    }
+    if !is_numeric(ty) {
+        return Ok(());
+    }
+    let Some(mode) = mode else {
+        return Err(format!(
+            "arithmetic operator '{operator}' requires '.wrap' or '.saturate'"
+        ));
+    };
+    if !matches!(mode, "wrap" | "saturate") {
+        return Err(format!(
+            "arithmetic operator '{operator}' has unknown mode '.{mode}'"
+        ));
+    }
+    if mode == "saturate" && matches!(operation, "/" | "%") {
+        return Err(format!(
+            "saturating operator '{operator}' is only supported for addition, subtraction, and multiplication"
+        ));
+    }
+    Ok(())
 }
 
 fn is_matchable_scalar(ty: &Type) -> bool {

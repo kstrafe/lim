@@ -1,0 +1,5 @@
+(#fn main () u64
+  (#return
+    (#if (#u8.== (#u8.+.saturate 250 10) 255)
+         (#if (#i8.== (#i8.-.saturate -128 1) -128) 42 0)
+         0)))

@@ -70,8 +70,15 @@ user-defined symbols. Numeric operators are explicitly qualified by their
 operand type:
 
     (#fn add ((left u32) (right u32)) u32
-      (#let total u32 (#u32.+ left right))
+      (#let total u32 (#u32.+.wrap left right))
       total)
+
+Integer arithmetic must also specify overflow behavior: use `.wrap` for
+modular arithmetic or `.saturate` for clamping arithmetic. Plain integer
+arithmetic identifiers such as `#u64.+` are rejected.
+
+Function calls must form an acyclic call graph; recursion is rejected so the
+native backend can calculate call-stack requirements ahead of time.
 
 Generic functions declare type parameters explicitly, and calls provide explicit
 type arguments such as `(identity<u64> 42)`; type inference is not used.
