@@ -264,52 +264,60 @@ fn generate_function(
         return Err("native backend supports at most eight f64 parameters".into());
     }
     if mixed_parameters {
+        let integer_words = function
+            .parameters
+            .iter()
+            .filter_map(|parameter| resolve_type(&parameter.ty, aliases).ok())
+            .filter(|ty| !is_float_type(ty))
+            .map(|ty| value_word_count(&ty, structs, enums))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .sum::<usize>();
+        if integer_words > ARGUMENT_REGISTERS.len() {
+            return Err("native mixed calls support at most six integer ABI words".into());
+        }
+        let float_words = function
+            .parameters
+            .iter()
+            .filter(|parameter| {
+                resolve_type(&parameter.ty, aliases)
+                    .ok()
+                    .is_some_and(|ty| is_float_type(&ty))
+            })
+            .count();
+        if float_words > FLOAT_ARGUMENT_REGISTERS.len() {
+            return Err("native mixed calls support at most eight floating ABI words".into());
+        }
         let mut integer_index = 0usize;
         let mut float_index = 0usize;
-        let mut stack_word = 0usize;
         for parameter in &function.parameters {
             let ty = resolve_type(&parameter.ty, aliases)?;
-            if value_word_count(&ty, structs, enums)? != 1 {
-                return Err(
-                    "native backend does not support aggregate values in mixed ABI calls".into(),
-                );
-            }
-            let slot = local_slots(&locals, &parameter.name)?[0];
             if matches!(ty, Type::F32 | Type::F64) {
-                if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
-                    output.push_str(&format!(
-                        "    {} QWORD PTR [rbp-{}], {}\n",
-                        if matches!(ty, Type::F32) {
-                            "movd"
-                        } else {
-                            "movq"
-                        },
-                        slot * 8,
-                        FLOAT_ARGUMENT_REGISTERS[float_index]
-                    ));
-                    float_index += 1;
-                } else {
-                    let offset = 16 + stack_word * 8;
-                    output.push_str(&format!(
-                        "    mov rax, QWORD PTR [rbp+{offset}]\n    mov QWORD PTR [rbp-{}], rax\n",
-                        slot * 8
-                    ));
-                    stack_word += 1;
-                }
-            } else if integer_index < ARGUMENT_REGISTERS.len() {
+                let slot = local_slots(&locals, &parameter.name)?[0];
                 output.push_str(&format!(
-                    "    mov QWORD PTR [rbp-{}], {}\n",
+                    "    {} QWORD PTR [rbp-{}], {}\n",
+                    if matches!(ty, Type::F32) {
+                        "movd"
+                    } else {
+                        "movq"
+                    },
                     slot * 8,
-                    ARGUMENT_REGISTERS[integer_index]
+                    FLOAT_ARGUMENT_REGISTERS[float_index]
                 ));
-                integer_index += 1;
+                float_index += 1;
             } else {
-                let offset = 16 + stack_word * 8;
-                output.push_str(&format!(
-                    "    mov rax, QWORD PTR [rbp+{offset}]\n    mov QWORD PTR [rbp-{}], rax\n",
-                    slot * 8
-                ));
-                stack_word += 1;
+                let words = value_word_count(&ty, structs, enums)?;
+                for slot in local_slots(&locals, &parameter.name)?
+                    .into_iter()
+                    .take(words)
+                {
+                    output.push_str(&format!(
+                        "    mov QWORD PTR [rbp-{}], {}\n",
+                        slot * 8,
+                        ARGUMENT_REGISTERS[integer_index]
+                    ));
+                    integer_index += 1;
+                }
             }
         }
     }
@@ -2917,16 +2925,21 @@ impl FunctionContext {
         arguments: &[Expr],
         parameters: &[Type],
     ) -> Result<(), String> {
-        if arguments.len() > ARGUMENT_REGISTERS.len() {
-            return Err("native backend supports mixed calls with at most six arguments".into());
+        let integer_words = parameters
+            .iter()
+            .filter(|ty| !is_float_type(ty))
+            .map(|ty| value_word_count(ty, &self.structs, &self.enums))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .sum::<usize>();
+        if integer_words > ARGUMENT_REGISTERS.len() {
+            return Err("native mixed calls support at most six integer ABI words".into());
         }
-        for ty in parameters {
-            if value_word_count(ty, &self.structs, &self.enums)? != 1 {
-                return Err(
-                    "native backend does not support aggregate values in mixed calls".into(),
-                );
-            }
+        let float_words = parameters.iter().filter(|ty| is_float_type(ty)).count();
+        if float_words > FLOAT_ARGUMENT_REGISTERS.len() {
+            return Err("native mixed calls support at most eight floating ABI words".into());
         }
+        let mut stack_words = 0usize;
         for (argument, ty) in arguments.iter().zip(parameters) {
             if is_float_type(ty) {
                 self.expression_as_float(argument, ty)?;
@@ -2939,40 +2952,50 @@ impl FunctionContext {
                         "rax"
                     }
                 ));
+                self.stack_depth += 1;
+                stack_words += 1;
             } else {
-                self.expression(argument)?;
-                self.output.push_str("    push rax\n");
+                let words = value_word_count(ty, &self.structs, &self.enums)?;
+                self.push_value_words(argument, ty, false)?;
+                stack_words += words;
             }
-            self.stack_depth += 1;
         }
         let mut integer_index = 0usize;
         let mut float_index = 0usize;
-        let total = arguments.len();
-        for (index, ty) in parameters.iter().enumerate() {
-            let offset = (total - 1 - index) * 8;
-            if is_float_type(ty) {
-                self.output.push_str(&format!(
-                    "    mov{} xmm{}, {} PTR [rsp+{offset}]\n",
-                    if matches!(ty, Type::F32) { "d" } else { "q" },
-                    float_index,
-                    if matches!(ty, Type::F32) {
-                        "DWORD"
-                    } else {
-                        "QWORD"
-                    }
-                ));
-                float_index += 1;
+        let mut consumed_words = 0usize;
+        for ty in parameters {
+            let words = if is_float_type(ty) {
+                1
             } else {
-                self.output.push_str(&format!(
-                    "    mov {}, QWORD PTR [rsp+{offset}]\n",
-                    ARGUMENT_REGISTERS[integer_index]
-                ));
-                integer_index += 1;
+                value_word_count(ty, &self.structs, &self.enums)?
+            };
+            for word in 0..words {
+                let offset = (stack_words - consumed_words - word - 1) * 8;
+                if is_float_type(ty) {
+                    self.output.push_str(&format!(
+                        "    mov{} xmm{}, {} PTR [rsp+{offset}]\n",
+                        if matches!(ty, Type::F32) { "d" } else { "q" },
+                        float_index,
+                        if matches!(ty, Type::F32) {
+                            "DWORD"
+                        } else {
+                            "QWORD"
+                        }
+                    ));
+                    float_index += 1;
+                } else {
+                    self.output.push_str(&format!(
+                        "    mov {}, QWORD PTR [rsp+{offset}]\n",
+                        ARGUMENT_REGISTERS[integer_index]
+                    ));
+                    integer_index += 1;
+                }
             }
+            consumed_words += words;
         }
         self.output
-            .push_str(&format!("    add rsp, {}\n", total * 8));
-        self.stack_depth -= total;
+            .push_str(&format!("    add rsp, {}\n", stack_words * 8));
+        self.stack_depth -= stack_words;
         let needs_padding = self.stack_depth % 2 == 1;
         if needs_padding {
             self.output.push_str("    sub rsp, 8\n");

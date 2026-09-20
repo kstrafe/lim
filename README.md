@@ -239,6 +239,10 @@ Integer fields can likewise be selected directly from returned structs:
 Scalar floating-point struct fields also use their bit-preserving native ABI
 words when structs are returned or passed to functions.
 
+Flattened aggregate values can also be passed alongside direct floating-point
+parameters; aggregate words use integer registers while direct floats use SSE
+registers.
+
 Scalar functions also support more than six arguments using the x86-64 SysV
 stack-argument convention.
 

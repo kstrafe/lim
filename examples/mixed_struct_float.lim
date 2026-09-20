@@ -1,0 +1,9 @@
+(struct Pair ((scale f32) (value u64)))
+
+(fn consume ((pair Pair) (factor f32)) u64
+  (if (> (get pair scale) 1.0)
+      (+ (get pair value) 1)
+      0))
+
+(fn main () u64
+  (consume (Pair 1.5 41) 2.0))

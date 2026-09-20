@@ -1245,6 +1245,18 @@ mod tests {
     }
 
     #[test]
+    fn passes_aggregate_values_with_mixed_float_parameters() {
+        let program = parse_program(
+            "(struct Pair ((scale f32) (value u64))) (fn consume ((pair Pair) (factor f32)) u64 (if (> (get pair scale) 1.0) (+ (get pair value) 1) 0)) (fn main () u64 (consume (Pair 1.5 41) 2.0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("mov rdi, QWORD PTR"));
+        assert!(assembly.contains("movd xmm0"));
+    }
+
+    #[test]
     fn lowers_unit_functions_and_calls() {
         let program = parse_program("(fn noop () () ()) (fn main () u64 (noop) 42)").unwrap();
         assert!(check_types(&program).is_ok());
