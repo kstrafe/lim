@@ -289,11 +289,16 @@ fn parse_integer_literal(text: &str) -> Option<i128> {
         return None;
     }
     let digits = digits.replace('_', "");
-    let value = i128::from_str_radix(&digits, radix).ok()?;
     if negative {
-        value.checked_neg()
+        let magnitude = u128::from_str_radix(&digits, radix).ok()?;
+        let minimum_magnitude = (i128::MAX as u128) + 1;
+        if magnitude == minimum_magnitude {
+            Some(i128::MIN)
+        } else {
+            i128::try_from(magnitude).ok()?.checked_neg()
+        }
     } else {
-        Some(value)
+        i128::from_str_radix(&digits, radix).ok()
     }
 }
 
@@ -1118,6 +1123,8 @@ mod tests {
         };
         assert_eq!(items[1], Expr::String("line\n".into()));
         assert_eq!(items[2], Expr::Integer(-42));
+        let minimum = parse("(-170141183460469231731687303715884105728)").unwrap();
+        assert_eq!(minimum[0].expr, Expr::List(vec![Expr::Integer(i128::MIN)]));
         let literals = parse("(0xff 0o10 0b1010 1_000)").unwrap();
         assert_eq!(
             literals[0].expr,
@@ -1690,6 +1697,10 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("adc rdx, r8"));
         assert!(assembly.contains("call add"));
+        let minimum =
+            parse_program("(fn main () i128 -170141183460469231731687303715884105728)").unwrap();
+        assert!(check_types(&minimum).is_ok());
+        assert!(generate_assembly(&minimum).is_ok());
     }
 
     #[test]

@@ -1959,11 +1959,19 @@ impl FunctionContext {
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         match expression {
             Expr::Integer(value) => {
-                self.output.push_str(&format!("    mov rax, {value}\n"));
-                self.output.push_str(&format!(
-                    "    mov rdx, {}\n",
-                    if *value < 0 { -1 } else { 0 }
-                ));
+                if *value < i64::MIN as i128 || *value > i64::MAX as i128 {
+                    self.output.push_str(&format!(
+                        "    mov rax, 0x{:016x}\n    mov rdx, 0x{:016x}\n",
+                        *value as u64,
+                        if *value < 0 { u64::MAX } else { 0 },
+                    ));
+                } else {
+                    self.output.push_str(&format!("    mov rax, {value}\n"));
+                    self.output.push_str(&format!(
+                        "    mov rdx, {}\n",
+                        if *value < 0 { -1 } else { 0 }
+                    ));
+                }
             }
             Expr::UnsignedInteger(value) => {
                 self.output.push_str(&format!(
