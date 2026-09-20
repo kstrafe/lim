@@ -1176,6 +1176,17 @@ mod tests {
     }
 
     #[test]
+    fn lowers_unsigned_division_and_remainder() {
+        let program = parse_program(
+            "(fn main () u64 (let left u64 20) (let right u64 3) (+ (/ left right) (% left right)))",
+        )
+        .unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("div rcx"));
+        assert!(!assembly.contains("idiv rcx"));
+    }
+
+    #[test]
     fn preserves_unsigned_comparisons_and_shifts() {
         let program =
             parse_program("(fn main () u64 (let value u64 1) (if (< value 2) (>> value 1) 0))")

@@ -166,7 +166,8 @@ Scalar functions also support more than six arguments using the x86-64 SysV
 stack-argument convention.
 
 Unsigned integer comparisons and right shifts use unsigned native instructions
-when their operands have an unsigned type.
+when their operands have an unsigned type; unsigned division and remainder use
+the native `div` instruction.
 
 Counted loops use explicit init, condition, step, and body forms:
 

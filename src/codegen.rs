@@ -1721,10 +1721,22 @@ impl FunctionContext {
             "+" => self.output.push_str("    add rax, rcx\n"),
             "-" => self.output.push_str("    sub rax, rcx\n"),
             "*" => self.output.push_str("    imul rax, rcx\n"),
-            "/" => self.output.push_str("    cqo\n    idiv rcx\n"),
-            "%" => self
-                .output
-                .push_str("    cqo\n    idiv rcx\n    mov rax, rdx\n"),
+            "/" => {
+                if self.expression_is_unsigned(&items[1]) {
+                    self.output.push_str("    xor edx, edx\n    div rcx\n");
+                } else {
+                    self.output.push_str("    cqo\n    idiv rcx\n");
+                }
+            }
+            "%" => {
+                if self.expression_is_unsigned(&items[1]) {
+                    self.output
+                        .push_str("    xor edx, edx\n    div rcx\n    mov rax, rdx\n");
+                } else {
+                    self.output
+                        .push_str("    cqo\n    idiv rcx\n    mov rax, rdx\n");
+                }
+            }
             "&" => self.output.push_str("    and rax, rcx\n"),
             "|" => self.output.push_str("    or rax, rcx\n"),
             "^" => self.output.push_str("    xor rax, rcx\n"),
