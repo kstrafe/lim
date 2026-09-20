@@ -1287,20 +1287,34 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
 }
 
 fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, String> {
+    resolve_type_with_seen(ty, aliases, &mut HashSet::new())
+}
+
+fn resolve_type_with_seen(
+    ty: &Type,
+    aliases: &HashMap<String, Type>,
+    seen: &mut HashSet<String>,
+) -> Result<Type, String> {
     match ty {
-        Type::Named(name) => match aliases.get(name) {
-            Some(target) if target != ty => resolve_type(target, aliases),
-            Some(_) => Err(format!("type alias '{name}' is recursive")),
-            None => Ok(ty.clone()),
-        },
+        Type::Named(name) => {
+            let Some(target) = aliases.get(name) else {
+                return Ok(ty.clone());
+            };
+            if !seen.insert(name.clone()) {
+                return Err(format!("type alias '{name}' is recursive"));
+            }
+            let result = resolve_type_with_seen(target, aliases, seen);
+            seen.remove(name);
+            result
+        }
         Type::Array(element, length) => Ok(Type::Array(
-            Box::new(resolve_type(element, aliases)?),
+            Box::new(resolve_type_with_seen(element, aliases, seen)?),
             *length,
         )),
         Type::Tuple(fields) => Ok(Type::Tuple(
             fields
                 .iter()
-                .map(|field| resolve_type(field, aliases))
+                .map(|field| resolve_type_with_seen(field, aliases, seen))
                 .collect::<Result<Vec<_>, _>>()?,
         )),
         _ => Ok(ty.clone()),

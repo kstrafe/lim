@@ -3087,4 +3087,15 @@ mod tests {
         assert!(check_types(&generic).is_ok());
         assert!(generate_assembly(&generic).is_ok());
     }
+
+    #[test]
+    fn rejects_indirect_recursive_type_aliases() {
+        let program =
+            parse_program("(type First Second) (type Second First) (fn main () First 0)").unwrap();
+        let error = check_types(&program).unwrap_err();
+        assert!(error.contains("recursive"), "{error}");
+        assert!(generate_assembly(&program)
+            .unwrap_err()
+            .contains("recursive"));
+    }
 }
