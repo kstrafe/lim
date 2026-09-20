@@ -607,6 +607,23 @@ The terminal else statement may also be `#panic` or `#unreachable`.
 The same aggregate patterns used by `match` are also valid in `if-let` and
 `while-let`, including tuple and struct constructor patterns.
 
+`#let-else` also accepts scalar patterns and fieldless enum discriminants. The
+failure arm must still diverge, and fieldless enum alternatives can be grouped
+with `#or`:
+
+```lisp
+(#fn classify ((value u64)) u64
+  (#let-else (#or (#range 10u64 12u64) 20u64) u64 value
+    (#return 0u64))
+  (#return 42u64))
+
+(#enum Color (Red Green Blue))
+(#fn is-primary ((value Color)) u64
+  (#let-else (#or Red Blue) Color value
+    (#return 0u64))
+  (#return 1u64))
+```
+
 `while-let` repeats while its pattern matches and breaks on the first failure:
 
 ```lisp
