@@ -3065,6 +3065,12 @@ mod tests {
         assert!(check_types(&duplicate_enum)
             .unwrap_err()
             .contains("duplicate enum match pattern 'Red'"));
+        let wide = parse_program(
+            "(fn main () u64 (let value u128 340282366920938463463374607431768211455) (match value (340282366920938463463374607431768211455 42) (_ 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&wide).is_ok());
+        assert!(generate_assembly(&wide).is_ok());
     }
 
     #[test]

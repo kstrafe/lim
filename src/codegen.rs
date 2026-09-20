@@ -3003,8 +3003,14 @@ impl FunctionContext {
                 0
             }
         };
+        let wide_scrutinee = payload_slots.is_none()
+            && self
+                .expression_type(&items[1])
+                .is_some_and(|ty| is_wide_integer(&ty));
         let staged_words = if payload_slots.is_some() {
             1
+        } else if wide_scrutinee {
+            2
         } else {
             payload_count + 1
         };
@@ -3020,12 +3026,17 @@ impl FunctionContext {
             }
             _ => {
                 self.expression(&items[1])?;
-                for index in (0..payload_count).rev() {
-                    self.output
-                        .push_str(&format!("    push {}\n", VALUE_REGISTERS[index + 1]));
-                    self.stack_depth += 1;
+                if wide_scrutinee {
+                    self.output.push_str("    push rdx\n    push rax\n");
+                    self.stack_depth += 2;
+                } else {
+                    for index in (0..payload_count).rev() {
+                        self.output
+                            .push_str(&format!("    push {}\n", VALUE_REGISTERS[index + 1]));
+                        self.stack_depth += 1;
+                    }
+                    self.push_rax();
                 }
-                self.push_rax();
             }
         }
         if payload_slots.is_some() {
@@ -3057,9 +3068,33 @@ impl FunctionContext {
                     bindings
                 }
                 Expr::Integer(value) => {
-                    self.output.push_str(&format!(
-                        "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
-                    ));
+                    if wide_scrutinee {
+                        let bits = *value as u128;
+                        self.output.push_str(&format!(
+                            "    cmp QWORD PTR [rsp], {}\n    jne {next}\n    cmp QWORD PTR [rsp+8], {}\n    jne {next}\n",
+                            bits as u64,
+                            (bits >> 64) as u64
+                        ));
+                    } else {
+                        self.output.push_str(&format!(
+                            "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
+                        ));
+                    }
+                    Vec::new()
+                }
+                Expr::UnsignedInteger(value) => {
+                    if wide_scrutinee {
+                        self.output.push_str(&format!(
+                            "    cmp QWORD PTR [rsp], {}\n    jne {next}\n    cmp QWORD PTR [rsp+8], {}\n    jne {next}\n",
+                            *value as u64,
+                            (*value >> 64) as u64
+                        ));
+                    } else {
+                        self.output.push_str(&format!(
+                            "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
+                            *value as u64
+                        ));
+                    }
                     Vec::new()
                 }
                 Expr::Char(value) => {

@@ -1173,6 +1173,7 @@ fn check_scalar_match(
     let mut wildcard = false;
     let mut seen_bool = [false, false];
     let mut seen_integers = HashSet::new();
+    let mut seen_unsigned_integers = HashSet::new();
     let mut seen_chars = HashSet::new();
     let mut result_type = None;
     for arm in &items[2..] {
@@ -1205,6 +1206,16 @@ fn check_scalar_match(
                     ));
                 }
                 if !seen_integers.insert(*value) {
+                    return Err(format!("duplicate integer match pattern {value}"));
+                }
+            }
+            Expr::UnsignedInteger(value) if is_integer(scrutinee) => {
+                if !fits_unsigned_integer(*value, scrutinee) {
+                    return Err(format!(
+                        "unsigned integer match pattern {value} does not fit in {scrutinee:?}"
+                    ));
+                }
+                if !seen_unsigned_integers.insert(*value) {
                     return Err(format!("duplicate integer match pattern {value}"));
                 }
             }

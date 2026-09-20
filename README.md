@@ -288,6 +288,8 @@ function calls, returns, and `match` bindings.
 
 `match` can inspect a constructor or enum-returning call directly; the
 compiler stages its discriminant and payload words before selecting an arm.
+Integer matches also support unsigned literals, including full-width `u128`
+patterns.
 
 Scalar matches use literal patterns and require a wildcard for open-ended
 integer and character domains. Boolean matches may cover both `true` and
