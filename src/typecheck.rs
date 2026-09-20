@@ -1200,13 +1200,7 @@ fn list_expression(
                             Expr::Symbol(variant) => variant.as_str(),
                             _ => return Err("match variant pattern must be a symbol".into()),
                         };
-                        let payloads = pattern[1..]
-                            .iter()
-                            .map(|payload| match payload {
-                                Expr::Symbol(payload) => Ok(payload.as_str()),
-                                _ => Err("match payload pattern must be a symbol".to_owned()),
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
+                        let payloads = pattern[1..].iter().collect::<Vec<_>>();
                         (variant, payloads)
                     }
                     _ => return Err("match pattern must be a symbol or (variant _)".into()),
@@ -1244,15 +1238,12 @@ fn list_expression(
                         .find(|variant| variant.name == pattern)
                         .ok_or_else(|| format!("unknown variant '{pattern}'"))?;
                     for (binding, field_type) in payload_patterns.iter().zip(&variant.fields) {
-                        if *binding == "_" {
-                            continue;
-                        }
-                        if arm_variables
-                            .insert((*binding).to_owned(), field_type.clone())
-                            .is_some()
-                        {
-                            return Err(format!("duplicate match binding '{binding}'"));
-                        }
+                        check_enum_payload_pattern(
+                            binding,
+                            field_type,
+                            &mut arm_variables,
+                            variables,
+                        )?;
                     }
                 }
                 let arm_type = expression(
@@ -1638,6 +1629,48 @@ fn check_tuple_pattern(
         }
         Expr::Char(_) if matches!(ty, Type::Char) => Ok(()),
         _ => Err("tuple field pattern does not match its field type".into()),
+    }
+}
+
+fn check_enum_payload_pattern(
+    pattern: &Expr,
+    ty: &Type,
+    arm_variables: &mut HashMap<String, Type>,
+    variables: &HashMap<String, Type>,
+) -> Result<(), String> {
+    match pattern {
+        Expr::Symbol(name) if name == "_" => Ok(()),
+        Expr::Symbol(name) if name == "true" || name == "false" => {
+            if !matches!(ty, Type::Bool) {
+                return Err("boolean enum payload pattern does not match its field type".into());
+            }
+            Ok(())
+        }
+        Expr::Symbol(name) => {
+            if variables.contains_key(name) || arm_variables.contains_key(name) {
+                return Err(format!("duplicate match binding '{name}'"));
+            }
+            arm_variables.insert(name.clone(), ty.clone());
+            Ok(())
+        }
+        Expr::Integer(value) if is_integer(ty) => {
+            if !fits_integer(*value, ty) {
+                return Err(format!(
+                    "integer enum payload pattern {value} does not fit in {ty:?}"
+                ));
+            }
+            Ok(())
+        }
+        Expr::UnsignedInteger(value) if is_integer(ty) => {
+            if !fits_unsigned_integer(*value, ty) {
+                return Err(format!(
+                    "unsigned enum payload pattern {value} does not fit in {ty:?}"
+                ));
+            }
+            Ok(())
+        }
+        Expr::Char(_) if matches!(ty, Type::Char) => Ok(()),
+        _ => Err("enum payload pattern does not match its field type".into()),
     }
 }
 

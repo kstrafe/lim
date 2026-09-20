@@ -1114,7 +1114,7 @@ fn collect_expr_types(
                         let Expr::Symbol(binding) = binding else {
                             continue;
                         };
-                        if binding != "_" {
+                        if binding != "_" && binding != "true" && binding != "false" {
                             if let Ok(field_type) = resolve_type(field_type, aliases) {
                                 types.entry(binding.clone()).or_insert(field_type);
                             }
@@ -1290,7 +1290,11 @@ fn collect_expr_locals(
                         let Expr::Symbol(binding) = binding else {
                             continue;
                         };
-                        if binding == "_" || locals.contains_key(binding) {
+                        if binding == "_"
+                            || binding == "true"
+                            || binding == "false"
+                            || locals.contains_key(binding)
+                        {
                             continue;
                         }
                         add_local(
@@ -3893,24 +3897,19 @@ impl FunctionContext {
                 _ => return Err("invalid match arm".into()),
             };
             let next = self.label("match_next");
-            let bindings = match &arm[0] {
-                Expr::Symbol(pattern) if pattern == "_" => Vec::new(),
-                Expr::Symbol(pattern) if self.enum_value(pattern).is_some() => Vec::new(),
+            let (variant_name, payload_patterns): (&str, Vec<&Expr>) = match &arm[0] {
+                Expr::Symbol(pattern) if pattern == "_" => ("", Vec::new()),
+                Expr::Symbol(pattern) if self.enum_value(pattern).is_some() => {
+                    (pattern.as_str(), Vec::new())
+                }
                 Expr::List(pattern) if !pattern.is_empty() => {
                     let Expr::Symbol(pattern_name) = &pattern[0] else {
                         return Err("match variant pattern must be a symbol".into());
                     };
-                    let bindings = pattern[1..]
-                        .iter()
-                        .map(|binding| match binding {
-                            Expr::Symbol(binding) => Ok(binding.as_str()),
-                            _ => Err("match payload pattern must be a symbol".to_owned()),
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
                     if self.enum_value(pattern_name).is_none() {
                         return Err(format!("unknown enum variant '{pattern_name}'"));
                     }
-                    bindings
+                    (pattern_name.as_str(), pattern[1..].iter().collect())
                 }
                 Expr::Integer(value) => {
                     if wide_scrutinee {
@@ -3925,7 +3924,7 @@ impl FunctionContext {
                             "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
                         ));
                     }
-                    Vec::new()
+                    ("", Vec::new())
                 }
                 Expr::UnsignedInteger(value) => {
                     if wide_scrutinee {
@@ -3940,21 +3939,21 @@ impl FunctionContext {
                             *value as u64
                         ));
                     }
-                    Vec::new()
+                    ("", Vec::new())
                 }
                 Expr::Char(value) => {
                     self.output.push_str(&format!(
                         "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
                         *value as u32
                     ));
-                    Vec::new()
+                    ("", Vec::new())
                 }
                 Expr::Symbol(pattern) if pattern == "false" || pattern == "true" => {
                     self.output.push_str(&format!(
                         "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
                         if pattern == "true" { 1 } else { 0 }
                     ));
-                    Vec::new()
+                    ("", Vec::new())
                 }
                 _ => return Err("invalid scalar match pattern".into()),
             };
@@ -3976,11 +3975,54 @@ impl FunctionContext {
                     "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
                 ));
             }
-            if !bindings.is_empty() {
-                for (index, binding) in bindings.iter().enumerate() {
-                    if *binding == "_" {
-                        continue;
+            let payload_fields = if !variant_name.is_empty() {
+                let scrutinee_type = self
+                    .expression_type(&items[1])
+                    .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
+                let Type::Named(enum_name) = scrutinee_type else {
+                    return Err("enum match scrutinee has no named type".into());
+                };
+                self.enums
+                    .get(&enum_name)
+                    .and_then(|variants| {
+                        variants.iter().find(|variant| variant.name == variant_name)
+                    })
+                    .map(|variant| variant.fields.clone())
+                    .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?
+            } else {
+                Vec::new()
+            };
+            if payload_patterns.len() != payload_fields.len() && !payload_patterns.is_empty() {
+                return Err(format!(
+                    "variant '{variant_name}' expects {} payload patterns",
+                    payload_fields.len()
+                ));
+            }
+            for (index, (pattern, field_type)) in
+                payload_patterns.iter().zip(&payload_fields).enumerate()
+            {
+                self.emit_enum_payload_pattern(
+                    pattern,
+                    field_type,
+                    index,
+                    payload_slots.as_ref(),
+                    &next,
+                )?;
+            }
+            let bindings = payload_patterns
+                .iter()
+                .enumerate()
+                .filter_map(|(index, pattern)| match pattern {
+                    Expr::Symbol(binding)
+                        if binding != "_" && binding != "true" && binding != "false" =>
+                    {
+                        Some((index, binding.as_str()))
                     }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            if !bindings.is_empty() {
+                for (index, binding) in bindings {
                     let slot = scalar_slot(&self.locals, binding);
                     if let Some(payload_slots) = payload_slots.as_ref() {
                         let payload_slot = payload_slots.get(index).ok_or_else(|| {
@@ -4143,6 +4185,63 @@ impl FunctionContext {
                 }
                 _ => return Err("unsupported aggregate field pattern".into()),
             }
+        }
+        Ok(())
+    }
+
+    fn emit_enum_payload_pattern(
+        &mut self,
+        pattern: &Expr,
+        ty: &Type,
+        index: usize,
+        payload_slots: Option<&Vec<usize>>,
+        next: &str,
+    ) -> Result<(), String> {
+        let Expr::Symbol(name) = pattern else {
+            let operand = if let Some(payload_slots) = payload_slots {
+                let slot = payload_slots.get(index).ok_or_else(|| {
+                    "enum payload pattern exceeds local payload storage".to_owned()
+                })?;
+                format!("QWORD PTR [rbp-{}]", slot * 8)
+            } else {
+                format!("QWORD PTR [rsp+{}]", (index + 1) * 8)
+            };
+            let value = match pattern {
+                Expr::Integer(value) => value.to_string(),
+                Expr::UnsignedInteger(value) => (*value as u64).to_string(),
+                Expr::Char(value) => (*value as u32).to_string(),
+                _ => return Err("unsupported enum payload pattern".into()),
+            };
+            self.output
+                .push_str(&format!("    cmp {operand}, {value}\n    jne {next}\n"));
+            return Ok(());
+        };
+        if name == "_" || (name == "true" && matches!(ty, Type::Bool)) {
+            if name == "true" {
+                let operand = if let Some(payload_slots) = payload_slots {
+                    let slot = payload_slots.get(index).ok_or_else(|| {
+                        "enum payload pattern exceeds local payload storage".to_owned()
+                    })?;
+                    format!("QWORD PTR [rbp-{}]", slot * 8)
+                } else {
+                    format!("QWORD PTR [rsp+{}]", (index + 1) * 8)
+                };
+                self.output
+                    .push_str(&format!("    cmp {operand}, 1\n    jne {next}\n"));
+            }
+            return Ok(());
+        }
+        if name == "false" && matches!(ty, Type::Bool) {
+            let operand = if let Some(payload_slots) = payload_slots {
+                let slot = payload_slots.get(index).ok_or_else(|| {
+                    "enum payload pattern exceeds local payload storage".to_owned()
+                })?;
+                format!("QWORD PTR [rbp-{}]", slot * 8)
+            } else {
+                format!("QWORD PTR [rsp+{}]", (index + 1) * 8)
+            };
+            self.output
+                .push_str(&format!("    cmp {operand}, 0\n    jne {next}\n"));
         }
         Ok(())
     }

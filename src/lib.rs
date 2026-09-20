@@ -3120,6 +3120,21 @@ mod tests {
     }
 
     #[test]
+    fn matches_enum_payload_literals() {
+        let program = parse_program(
+            "(#enum Maybe ((Some u64) None)) \
+             (#fn classify ((value Maybe)) u64 \
+              (#return (#match value ((Some 42) 1) (None 0)))) \
+             (#fn main () u64 (#return (classify (Some 42))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap()
+            .contains("cmp QWORD PTR [rbp-16], 42"));
+    }
+
+    #[test]
     fn passes_multi_payload_enums_through_functions() {
         let program = parse_program(
             "(enum Pair ((Pair u64 u64) Empty)) (fn make () Pair (let value Pair (Pair 20 22)) value) (fn sum ((value Pair)) u64 (match value ((Pair left right) (+ left right)) (Empty 0))) (fn main () u64 (sum (make)))",

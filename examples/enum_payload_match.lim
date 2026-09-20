@@ -1,0 +1,10 @@
+(#enum Maybe ((Some u64) None))
+
+(#fn classify ((value Maybe)) u64
+  (#return
+    (#match value
+      ((Some 42) 1)
+      (None 0))))
+
+(#fn main () u64
+  (#return (classify (Some 42))))
