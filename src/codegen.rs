@@ -125,6 +125,7 @@ fn is_builtin_operator_type(name: &str) -> bool {
 
 #[derive(Clone)]
 enum GlobalValue {
+    Zero,
     Integer(i128),
     Wide { low: u64, high: u64 },
     F32(u32),
@@ -757,6 +758,15 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             }
             let ty = resolve_type(ty, &aliases)?;
             let global = match &ty {
+                Type::Unit => {
+                    if !matches!(value, Expr::List(items) if items.is_empty()) {
+                        return Err(format!("unit global '{name}' must be initialized with ()"));
+                    }
+                    GlobalValue::Zero
+                }
+                Type::Never => {
+                    return Err(format!("global '{name}' cannot have the never type"));
+                }
                 Type::I128 | Type::U128 => {
                     let value = match value {
                         Expr::UnsignedInteger(value) => *value,
@@ -842,6 +852,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
         for (name, value) in &globals {
             let symbol = asm_symbol(name);
             match value {
+                GlobalValue::Zero => {}
                 GlobalValue::Integer(value) => {
                     output.push_str(&format!(".align 8\n{symbol}:\n    .quad {value}\n"));
                 }
@@ -2982,6 +2993,9 @@ fn constant_aggregate_words(
     evaluating_constants: &mut HashSet<String>,
     evaluating_float_constants: &mut HashSet<String>,
 ) -> Result<Vec<u64>, String> {
+    if matches!(ty, Type::Unit | Type::Never) {
+        return Ok(Vec::new());
+    }
     let mut scalar_word = |value: &Expr| -> Result<u64, String> {
         if matches!(ty, Type::F32 | Type::F64) {
             let number = constant_float_value(
@@ -4846,6 +4860,7 @@ impl FunctionContext {
                     }
                 } else if self.globals.contains_key(name) {
                     match self.global_types.get(name) {
+                        Some(Type::Unit | Type::Never) => {}
                         Some(Type::I128 | Type::U128) => self.output.push_str(&format!(
                             "    mov rax, QWORD PTR [rip+{}]\n    mov rdx, QWORD PTR [rip+{}+8]\n",
                             asm_symbol(name),

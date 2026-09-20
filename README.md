@@ -176,6 +176,12 @@ Empty structs are unit-like zero-sized values:
   (#return (Marker)))
 ```
 
+Zero-sized globals do not emit backing storage:
+
+```lisp
+(#let UNIT () ())
+```
+
 `align-of` reports the corresponding native alignment:
 
 ```lisp

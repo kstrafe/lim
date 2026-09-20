@@ -4421,6 +4421,20 @@ mod tests {
     }
 
     #[test]
+    fn lowers_zero_sized_globals() {
+        let program = parse_program_strict(
+            "(#let UNIT () ()) \
+             (#fn consume ((value ())) u64 (#return 41)) \
+             (#fn main () u64 (#return (consume UNIT)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("call consume"));
+        assert!(!assembly.contains("UNIT:"));
+    }
+
+    #[test]
     fn rejects_value_breaks_in_statement_loops() {
         let program = parse_program(
             "(#fn main () u64 \
