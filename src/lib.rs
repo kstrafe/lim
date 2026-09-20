@@ -3116,4 +3116,18 @@ mod tests {
             .unwrap_err()
             .contains("recursive"));
     }
+
+    #[test]
+    fn rejects_ambiguous_unqualified_value_names() {
+        let duplicate_field =
+            parse_program("(struct Point ((x u64) (x u64))) (fn main () u64 0)").unwrap();
+        assert!(check_types(&duplicate_field)
+            .unwrap_err()
+            .contains("duplicate field 'x'"));
+        let duplicate_variant =
+            parse_program("(enum First (Ready)) (enum Second (Ready)) (fn main () u64 0)").unwrap();
+        assert!(check_types(&duplicate_variant)
+            .unwrap_err()
+            .contains("already defined in enum 'First'"));
+    }
 }

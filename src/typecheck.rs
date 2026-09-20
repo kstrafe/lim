@@ -42,9 +42,16 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     let mut structs = HashMap::new();
     for item in &program.items {
         if let Item::Struct { name, fields, .. } = item {
+            let mut field_names = HashSet::new();
             let fields = fields
                 .iter()
                 .map(|field| {
+                    if !field_names.insert(field.name.clone()) {
+                        return Err(format!(
+                            "duplicate field '{}' in struct '{name}'",
+                            field.name
+                        ));
+                    }
                     Ok(Field {
                         name: field.name.clone(),
                         ty: resolve_type(&field.ty, &aliases)?,
@@ -57,11 +64,26 @@ pub fn check_types(program: &Program) -> Result<(), String> {
         }
     }
     let mut enums = HashMap::new();
+    let mut variant_names = HashMap::new();
     for item in &program.items {
         if let Item::Enum { name, variants, .. } = item {
+            let mut local_variant_names = HashSet::new();
             let variants = variants
                 .iter()
                 .map(|variant| {
+                    if !local_variant_names.insert(variant.name.clone()) {
+                        return Err(format!(
+                            "duplicate variant '{}' in enum '{name}'",
+                            variant.name
+                        ));
+                    }
+                    if let Some(previous) = variant_names.insert(variant.name.clone(), name.clone())
+                    {
+                        return Err(format!(
+                            "variant '{}' is already defined in enum '{previous}'",
+                            variant.name
+                        ));
+                    }
                     Ok(EnumVariant {
                         name: variant.name.clone(),
                         fields: variant
