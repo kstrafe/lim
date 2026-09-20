@@ -6942,6 +6942,32 @@ impl FunctionContext {
                 .get(index)
                 .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?
                 .clone();
+            if let Expr::List(call_items) = &items[1] {
+                if let Some(Expr::Symbol(function_name)) = call_items.first() {
+                    if self
+                        .functions
+                        .get(function_name)
+                        .is_some_and(|function| function.indirect_return)
+                    {
+                        let field_words =
+                            value_word_count(&field_type, &self.structs, &self.enums)?;
+                        if field_words != 1 {
+                            return Err(
+                                "direct large tuple access currently requires scalar fields".into(),
+                            );
+                        }
+                        let offset = fields[..index]
+                            .iter()
+                            .map(|field| value_word_count(field, &self.structs, &self.enums))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into_iter()
+                            .sum::<usize>();
+                        let base = self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                        self.load_aggregate_temp_scalar(base, offset, &field_type)?;
+                        return Ok(());
+                    }
+                }
+            }
             if let Expr::List(constructor) = &items[1] {
                 if matches!(constructor.first(), Some(Expr::Symbol(name)) if name == "tuple") {
                     let value = constructor
@@ -7221,6 +7247,37 @@ impl FunctionContext {
                     .iter()
                     .position(|field| field.name == *field_name)
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                if let Expr::List(call_items) = &items[1] {
+                    if let Some(Expr::Symbol(function_name)) = call_items.first() {
+                        if self
+                            .functions
+                            .get(function_name)
+                            .is_some_and(|function| function.indirect_return)
+                        {
+                            let field_type = fields[index].ty.clone();
+                            let field_words =
+                                value_word_count(&field_type, &self.structs, &self.enums)?;
+                            if field_words != 1 {
+                                return Err(
+                                    "direct large struct access currently requires scalar fields"
+                                        .into(),
+                                );
+                            }
+                            let offset = fields[..index]
+                                .iter()
+                                .map(|field| {
+                                    value_word_count(&field.ty, &self.structs, &self.enums)
+                                })
+                                .collect::<Result<Vec<_>, _>>()?
+                                .into_iter()
+                                .sum::<usize>();
+                            let base =
+                                self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                            self.load_aggregate_temp_scalar(base, offset, &field_type)?;
+                            return Ok(());
+                        }
+                    }
+                }
                 self.expression_as_expected(&items[1], &Type::Named(struct_name.clone()))?;
                 let field_type = fields[index].ty.clone();
                 let register_index = fields[..index]
@@ -8338,6 +8395,26 @@ impl FunctionContext {
             .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
         self.call(name, arguments, Some(base))?;
         Ok(base)
+    }
+
+    fn load_aggregate_temp_scalar(
+        &mut self,
+        base: usize,
+        offset: usize,
+        ty: &Type,
+    ) -> Result<(), String> {
+        let slot = base + offset;
+        if matches!(ty, Type::F32) {
+            self.output
+                .push_str(&format!("    movss xmm0, DWORD PTR [rbp-{}]\n", slot * 8));
+        } else if matches!(ty, Type::F64) {
+            self.output
+                .push_str(&format!("    movq xmm0, QWORD PTR [rbp-{}]\n", slot * 8));
+        } else {
+            self.output
+                .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+        }
+        Ok(())
     }
 
     fn call(
