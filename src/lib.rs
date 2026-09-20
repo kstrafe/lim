@@ -596,9 +596,9 @@ fn validate_prefixed_forms(expression: &Expr) -> Result<(), String> {
             ));
         }
         if let Some(operator) = name.strip_prefix('#') {
-            if is_unqualified_arithmetic_operator(operator) {
+            if requires_explicit_operator_type(operator) {
                 return Err(format!(
-                    "arithmetic operator '{name}' must use an explicit type and overflow mode"
+                    "operator '{name}' must use an explicit type qualifier"
                 ));
             }
         }
@@ -671,8 +671,26 @@ fn is_operator_symbol(name: &str) -> bool {
     )
 }
 
-fn is_unqualified_arithmetic_operator(name: &str) -> bool {
-    matches!(name, "+" | "-" | "*" | "/" | "%")
+fn requires_explicit_operator_type(name: &str) -> bool {
+    matches!(
+        name,
+        "+" | "-"
+            | "*"
+            | "/"
+            | "%"
+            | "&"
+            | "|"
+            | "^"
+            | "<<"
+            | ">>"
+            | "<"
+            | "<="
+            | ">"
+            | ">="
+            | "=="
+            | "!="
+            | "!"
+    )
 }
 
 fn normalize_keywords(expression: Expr) -> Expr {
@@ -2216,7 +2234,11 @@ mod tests {
         assert!(missing_return.contains("explicit"));
         let unqualified_arithmetic =
             parse_program_strict("(#fn main () u64 (#return (#+ 40 2)))").unwrap_err();
-        assert!(unqualified_arithmetic.contains("explicit type and overflow mode"));
+        assert!(unqualified_arithmetic.contains("explicit type qualifier"));
+        let unqualified_comparison =
+            parse_program_strict("(#fn main () bool (#return (#== 40 2)))").unwrap_err();
+        assert!(unqualified_comparison.contains("explicit type qualifier"));
+        assert!(parse_program_strict("(#fn main () bool (#return (#u64.== 40 2)))").is_ok());
         let valid = parse_program_strict("(#fn main () u64 (#return (#u64.+.wrap 40 2)))");
         assert!(valid.is_ok());
     }
