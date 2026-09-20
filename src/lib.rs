@@ -545,6 +545,10 @@ pub fn parse_program(source: &str) -> Result<Program, String> {
                 items.extend(parse_generated_items(forms)?);
                 continue;
             }
+            if matches!(forms.first(), Some(Expr::Symbol(keyword)) if keyword == "impl") {
+                items.extend(parse_impl_items(forms)?);
+                continue;
+            }
         }
         items.push(parse_item(&expression.expr)?);
     }
@@ -1139,6 +1143,24 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
         }
         other => Err(format!("unknown top-level form '{other}'")),
     }
+}
+
+fn parse_impl_items(items: &[Expr]) -> Result<Vec<Item>, String> {
+    if items.len() < 3 {
+        return Err("impl requires a type name and at least one function".into());
+    }
+    let type_name = expect_symbol(items.get(1), "impl type name")?;
+    let mut functions = Vec::with_capacity(items.len() - 2);
+    for declaration in &items[2..] {
+        let declaration = expect_list(declaration, "impl function")?;
+        if !matches!(declaration.first(), Some(Expr::Symbol(keyword)) if keyword == "fn") {
+            return Err("impl members must be function declarations".into());
+        }
+        let mut function = parse_function(declaration)?;
+        function.name = format!("{type_name}::{}", function.name);
+        functions.push(Item::Function(function));
+    }
+    Ok(functions)
 }
 
 fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
@@ -2559,6 +2581,14 @@ mod tests {
         .unwrap();
         assert!(check_types(&generic_enum).is_ok());
         assert!(generate_assembly(&generic_enum).is_ok());
+        let associated = parse_program(
+            "(struct Point ((x u64) (y u64))) (impl Point (fn new ((x u64) (y u64)) Point (Point x y))) (fn main () u64 (get (Point::new 7 9) y))",
+        )
+        .unwrap();
+        assert!(check_types(&associated).is_ok());
+        assert!(generate_assembly(&associated)
+            .unwrap()
+            .contains("Point_x3a__x3a_new"));
     }
 
     #[test]

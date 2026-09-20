@@ -206,6 +206,14 @@ Value structs can be declared and checked without pointers or traits:
   (get (Point 7 9) x))
 ```
 
+Associated functions in an `impl` block lower to statically named functions:
+
+```lisp
+(impl Point
+  (fn new ((x u64) (y u64)) Point (Point x y)))
+(fn main () u64 (get (Point::new 7 9) y))
+```
+
 Tuples are value types with explicit element types and positional `get`:
 
 ```lisp
