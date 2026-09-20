@@ -1720,14 +1720,11 @@ fn add_local(
             base,
             length: *length,
         }
-    } else if let Type::Tuple(fields) = &ty {
-        for field in fields {
-            ensure_scalar_type(field, enums)
-                .map_err(|_| "native backend only supports tuples of scalar values".to_owned())?;
-        }
+    } else if matches!(&ty, Type::Tuple(_)) {
         let base = *next_slot;
-        *next_slot += fields.len();
-        Storage::Tuple((base..base + fields.len()).collect())
+        let words = value_word_count(&ty, structs, enums)?;
+        *next_slot += words;
+        Storage::Tuple((base..base + words).collect())
     } else if let Type::Named(struct_name) = &ty {
         let fields = structs
             .get(struct_name)
@@ -3368,7 +3365,8 @@ impl FunctionContext {
             else {
                 return Err(format!("'{name}' is not a tuple"));
             };
-            for (index, slot) in slots.iter().enumerate() {
+            let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+            for (index, slot) in slots.iter().take(words).enumerate() {
                 let register = VALUE_REGISTERS
                     .get(index)
                     .ok_or_else(|| "native tuple return has too many fields".to_owned())?;
@@ -3703,17 +3701,6 @@ impl FunctionContext {
             Some(Type::Tuple(fields)) => fields,
             _ => return Err(format!("'{name}' is not a tuple")),
         };
-        if let Expr::Symbol(source) = value {
-            if matches!(self.global_types.get(source), Some(Type::Tuple(global_fields)) if *global_fields == fields)
-            {
-                for (index, slot) in slots.iter().enumerate() {
-                    self.load_global_word(source, index)?;
-                    self.output
-                        .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
-                }
-                return Ok(());
-            }
-        }
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "tuple") {
                 let value_start = if parse_type(items.get(1))
@@ -3727,19 +3714,40 @@ impl FunctionContext {
                 if items.len() - value_start != fields.len() {
                     return Err("tuple constructor has the wrong length".into());
                 }
-                for ((slot, ty), field) in slots.iter().zip(&fields).zip(&items[value_start..]) {
-                    self.store_scalar_at_slot(field, ty, *slot)?;
+                let mut offset = 0;
+                for (field, ty) in items[value_start..].iter().zip(&fields) {
+                    let words = value_word_count(ty, &self.structs, &self.enums)?;
+                    self.store_value_words(field, ty, &slots[offset..offset + words])?;
+                    offset += words;
                 }
                 return Ok(());
             }
         }
-        self.expression(value)?;
-        for (index, slot) in slots.iter().enumerate() {
+        let ty = Type::Tuple(fields);
+        self.store_value_words(value, &ty, &slots)
+    }
+
+    fn store_value_words(
+        &mut self,
+        value: &Expr,
+        ty: &Type,
+        slots: &[usize],
+    ) -> Result<(), String> {
+        let words = value_word_count(ty, &self.structs, &self.enums)?;
+        if slots.len() != words {
+            return Err("aggregate local has an inconsistent flattened layout".into());
+        }
+        self.push_value_words(value, ty, false)?;
+        for (slot, register) in slots
+            .iter()
+            .rev()
+            .zip(VALUE_REGISTERS[..words].iter().rev())
+        {
             self.output.push_str(&format!(
-                "    mov QWORD PTR [rbp-{}], {}\n",
-                slot * 8,
-                VALUE_REGISTERS[index]
+                "    pop {register}\n    mov QWORD PTR [rbp-{}], {register}\n",
+                slot * 8
             ));
+            self.stack_depth -= 1;
         }
         Ok(())
     }
@@ -4884,7 +4892,13 @@ impl FunctionContext {
                     if !matches!(self.globals.get(local), Some(GlobalValue::Aggregate(_))) {
                         return Err(format!("global '{local}' is not an aggregate tuple"));
                     }
-                    let offset = index * 8;
+                    let offset = fields[..index]
+                        .iter()
+                        .map(|field| value_word_count(field, &self.structs, &self.enums))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .sum::<usize>()
+                        * 8;
                     match field_type {
                         Type::F32 => self.output.push_str(&format!(
                             "    movss xmm0, DWORD PTR [rip+{}+{offset}]\n",
@@ -4908,8 +4922,14 @@ impl FunctionContext {
                 else {
                     return Err(format!("'{local}' is not a tuple"));
                 };
+                let slot_index = fields[..index]
+                    .iter()
+                    .map(|field| value_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
                 let slot = *slots
-                    .get(index)
+                    .get(slot_index)
                     .ok_or_else(|| "native tuple has too many fields".to_owned())?;
                 match field_type {
                     Type::F32 => self
@@ -6411,10 +6431,11 @@ impl FunctionContext {
                     self.global_types.get(local),
                     Some(Type::Tuple(global_fields)) if global_fields == fields
                 ) {
+                    let words = value_word_count(ty, &self.structs, &self.enums)?;
                     let indices: Box<dyn Iterator<Item = usize>> = if reverse {
-                        Box::new((0..fields.len()).rev())
+                        Box::new((0..words).rev())
                     } else {
-                        Box::new(0..fields.len())
+                        Box::new(0..words)
                     };
                     for index in indices {
                         self.load_global_word(local, index)?;
