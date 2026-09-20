@@ -2177,6 +2177,17 @@ mod tests {
     }
 
     #[test]
+    fn treats_dotted_names_as_ordinary_identifiers() {
+        let program = parse_program(
+            "(#fn util.add () u64 (#return 42)) (#fn main () u64 (#return (util.add)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("util_x2e_add"));
+    }
+
+    #[test]
     fn parses_nested_lists_quotes_and_comments() {
         let expressions = parse("# header\n'(fn main () i32 42) ; tail\n").unwrap();
         assert!(matches!(expressions[0].expr, Expr::Quote(_)));
