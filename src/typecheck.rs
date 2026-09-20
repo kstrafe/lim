@@ -981,6 +981,21 @@ fn list_expression(
             }
             Ok(Type::Bool)
         }
+        "assert" | "debug-assert" => {
+            require_arity(operator, items, 2)?;
+            let actual = expression(
+                &items[1],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&Type::Bool),
+            )?;
+            require_type(&actual, &Type::Bool, &format!("{operator} condition"))?;
+            Ok(Type::Unit)
+        }
         "let" => Err("let is only valid as a statement".into()),
         "get" => {
             if items.len() != 3 {

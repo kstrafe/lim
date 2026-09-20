@@ -153,6 +153,13 @@ Unit functions use `()` and can be called for side effects:
 Unit-valued `if` expressions may omit their else branch; a value-producing
 if still requires both branches.
 
+Boolean assertions lower directly to a native trap on failure:
+
+```lisp
+(assert (== value expected))
+(debug-assert (>= value 0))
+```
+
 Unary `!` negates booleans and performs a bitwise complement on integer
 values:
 

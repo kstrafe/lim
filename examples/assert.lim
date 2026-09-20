@@ -1,0 +1,4 @@
+(fn main () u64
+  (assert (== (+ 20 22) 42))
+  (debug-assert (>= 42 0))
+  42)

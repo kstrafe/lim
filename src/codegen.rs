@@ -1929,6 +1929,11 @@ impl FunctionContext {
                 {
                     items.get(1).and_then(|value| self.expression_type(value))
                 }
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "assert" | "debug-assert") =>
+                {
+                    Some(Type::Unit)
+                }
                 Some(Expr::Symbol(operator)) if operator == "tuple" => Some(Type::Tuple(
                     items[1..]
                         .iter()
@@ -2597,6 +2602,7 @@ impl FunctionContext {
             "get" => self.field_expression(items),
             "!" => self.boolean_not(items),
             "&&" | "||" => self.boolean_logic(operator, items),
+            "assert" | "debug-assert" => self.assert_expression(operator, items),
             _ => self.call(operator, &items[1..]),
         }
     }
@@ -3121,6 +3127,19 @@ impl FunctionContext {
             "    mov eax, 1\n"
         });
         self.output.push_str(&format!("{end_label}:\n"));
+        Ok(())
+    }
+
+    fn assert_expression(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 2 {
+            return Err(format!("{operator} requires one boolean condition"));
+        }
+        let failure = self.label("assert_failure");
+        let done = self.label("assert_done");
+        self.expression(&items[1])?;
+        self.output.push_str(&format!(
+            "    test rax, rax\n    jz {failure}\n    jmp {done}\n{failure}:\n    ud2\n{done}:\n    xor eax, eax\n"
+        ));
         Ok(())
     }
 

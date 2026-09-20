@@ -2063,6 +2063,18 @@ mod tests {
     }
 
     #[test]
+    fn checks_and_lowers_native_assertions() {
+        let program =
+            parse_program("(fn main () u64 (assert (== 40 40)) (debug-assert (>= 42 0)) 42)")
+                .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("ud2"));
+        let invalid = parse_program("(fn main () () (assert 1))").unwrap();
+        assert!(check_types(&invalid).is_err());
+    }
+
+    #[test]
     fn checks_and_lowers_integer_bitwise_not() {
         let program = parse_program("(fn main () u32 (let value u32 (! 0)) (& value 42))").unwrap();
         assert!(check_types(&program).is_ok());
