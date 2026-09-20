@@ -8,8 +8,13 @@ use std::{
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().collect();
     if arguments.get(1).map(String::as_str) == Some("--emit-asm") {
-        let (Some(input_path), Some(output_path)) = (arguments.get(2), arguments.get(3)) else {
-            eprintln!("usage: lim --emit-asm INPUT OUTPUT");
+        let strict = arguments.get(2).map(String::as_str) == Some("--strict");
+        let input_index = if strict { 3 } else { 2 };
+        let output_index = input_index + 1;
+        let (Some(input_path), Some(output_path)) =
+            (arguments.get(input_index), arguments.get(output_index))
+        else {
+            eprintln!("usage: lim --emit-asm [--strict] INPUT OUTPUT");
             return ExitCode::FAILURE;
         };
         let input = match fs::read_to_string(input_path) {
@@ -27,7 +32,11 @@ fn main() -> ExitCode {
             eprintln!("lim: {error}");
             return ExitCode::FAILURE;
         }
-        let program = match lim::parse_program(&input) {
+        let program = match if strict {
+            lim::parse_program_strict(&input)
+        } else {
+            lim::parse_program(&input)
+        } {
             Ok(program) => program,
             Err(error) => {
                 eprintln!("lim: {error}");
@@ -48,8 +57,10 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    let strict = arguments.get(1).map(String::as_str) == Some("--strict");
+    let path_index = if strict { 2 } else { 1 };
     let mut input = String::new();
-    if let Some(path) = arguments.get(1) {
+    if let Some(path) = arguments.get(path_index) {
         input = match fs::read_to_string(path) {
             Ok(source) => source,
             Err(error) => {
@@ -62,7 +73,11 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    match lim::parse_program(&input) {
+    match if strict {
+        lim::parse_program_strict(&input)
+    } else {
+        lim::parse_program(&input)
+    } {
         Ok(program) => {
             println!("{program:#?}");
             ExitCode::SUCCESS

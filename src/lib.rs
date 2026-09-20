@@ -547,14 +547,27 @@ pub struct Program {
 /// The lower-level [`parse`] function remains available for syntax that has
 /// not acquired a language-level meaning yet, such as future macros.
 pub fn parse_program(source: &str) -> Result<Program, String> {
+    parse_program_with_mode(source, false)
+}
+
+/// Parse a program using Lim's fully explicit syntax.
+///
+/// In strict mode every builtin form and operator must use the hash prefix,
+/// and every function must end with an explicit return statement.
+pub fn parse_program_strict(source: &str) -> Result<Program, String> {
+    parse_program_with_mode(source, true)
+}
+
+fn parse_program_with_mode(source: &str, require_prefixed: bool) -> Result<Program, String> {
     let expressions = parse(source)?;
     let mut items = Vec::with_capacity(expressions.len());
     for expression in expressions {
-        let strict_keywords = matches!(
-            &expression.expr,
-            Expr::List(forms)
-                if matches!(forms.first(), Some(Expr::Symbol(name)) if name.starts_with('#'))
-        );
+        let strict_keywords = require_prefixed
+            || matches!(
+                &expression.expr,
+                Expr::List(forms)
+                    if matches!(forms.first(), Some(Expr::Symbol(name)) if name.starts_with('#'))
+            );
         if strict_keywords {
             validate_prefixed_forms(&expression.expr)?;
         }
@@ -2181,6 +2194,17 @@ mod tests {
         assert!(check_types(&unit).is_ok());
         let no_value = parse_program("(#fn main () () (#return))").unwrap_err();
         assert!(no_value.contains("exactly one expression"));
+    }
+
+    #[test]
+    fn strict_program_mode_rejects_legacy_forms() {
+        assert!(parse_program("(fn main () u64 42)").is_ok());
+        let missing_prefix = parse_program_strict("(fn main () u64 (#return 42))").unwrap_err();
+        assert!(missing_prefix.contains("must use its '#' prefix"));
+        let missing_return = parse_program_strict("(#fn main () u64 42)").unwrap_err();
+        assert!(missing_return.contains("explicit"));
+        let valid = parse_program_strict("(#fn main () u64 (#return (#u64.+.wrap 40 2)))");
+        assert!(valid.is_ok());
     }
 
     #[test]

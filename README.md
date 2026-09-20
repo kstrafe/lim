@@ -29,6 +29,12 @@ cc /tmp/fibonacci.s -o /tmp/fibonacci
 # exits with 55
 ```
 
+The compiler can require the fully explicit syntax at the command line:
+
+```sh
+nix develop --command cargo run -- --emit-asm --strict examples/fibonacci.lim /tmp/fibonacci.s
+```
+
 ## Syntax currently recognized
 
 - Lists: `(fn name ((arg i32)) i32 (body...))`
