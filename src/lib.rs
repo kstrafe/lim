@@ -1103,5 +1103,10 @@ mod tests {
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("return of function"));
+        let nested = parse_program(
+            "(type UserId u64) (fn main () UserId (block (let inner UserId 41) inner))",
+        )
+        .unwrap();
+        assert!(check_types(&nested).is_ok());
     }
 }

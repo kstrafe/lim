@@ -96,6 +96,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                     &structs,
                     &enums,
                     &HashSet::new(),
+                    &aliases,
                     Some(ty),
                 )?;
                 require_type(&actual, ty, &format!("top-level let '{name}'"))?;
@@ -141,6 +142,7 @@ fn check_function(
                     structs,
                     enums,
                     &mutable,
+                    aliases,
                     Some(&return_type),
                 )?
             } else {
@@ -206,6 +208,7 @@ fn statement_type(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&binding_type),
             )?;
             require_type(&actual, &binding_type, &format!("let '{name}'"))?;
@@ -230,6 +233,7 @@ fn statement_type(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&ty),
             )?;
             require_type(&actual, &ty, &format!("assignment to '{name}'"))?;
@@ -246,7 +250,9 @@ fn statement_type(
             let Type::Array(element, length) = ty else {
                 return Err(format!("'{name}' is not an array"));
             };
-            check_index(index, length, variables, functions, structs, enums, mutable)?;
+            check_index(
+                index, length, variables, functions, structs, enums, mutable, aliases,
+            )?;
             let actual = expression(
                 value,
                 variables,
@@ -254,6 +260,7 @@ fn statement_type(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&element),
             )?;
             require_type(&actual, &element, &format!("array assignment to '{name}'"))?;
@@ -285,6 +292,7 @@ fn statement_type(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&field_type),
             )?;
             require_type(
@@ -302,6 +310,7 @@ fn statement_type(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&Type::Bool),
             )?;
             require_type(&actual, &Type::Bool, "while condition")?;
@@ -344,6 +353,7 @@ fn statement_type(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&Type::Bool),
             )?;
             require_type(&actual, &Type::Bool, "for condition")?;
@@ -389,6 +399,7 @@ fn statement_type(
                     structs,
                     enums,
                     mutable,
+                    aliases,
                     Some(return_type),
                 )?,
                 None => Type::Unit,
@@ -396,9 +407,9 @@ fn statement_type(
             require_type(&actual, return_type, "return statement")?;
             Ok(return_type.clone())
         }
-        Statement::Expr(value) => {
-            expression(value, variables, functions, structs, enums, mutable, None)
-        }
+        Statement::Expr(value) => expression(
+            value, variables, functions, structs, enums, mutable, aliases, None,
+        ),
     }
 }
 
@@ -409,6 +420,7 @@ fn expression(
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
+    aliases: &HashMap<String, Type>,
     expected: Option<&Type>,
 ) -> Result<Type, String> {
     match value {
@@ -444,6 +456,7 @@ fn expression(
                             structs,
                             enums,
                             &block_mutable,
+                            aliases,
                             expected,
                         )?
                     } else {
@@ -455,7 +468,7 @@ fn expression(
                             structs,
                             enums,
                             &block_return,
-                            &HashMap::new(),
+                            aliases,
                             false,
                         )?
                     }
@@ -468,7 +481,7 @@ fn expression(
                         structs,
                         enums,
                         &block_return,
-                        &HashMap::new(),
+                        aliases,
                         false,
                     )?
                 };
@@ -479,7 +492,7 @@ fn expression(
             Err("generated and quoted expressions are not typed yet".into())
         }
         Expr::List(items) => list_expression(
-            items, variables, functions, structs, enums, mutable, expected,
+            items, variables, functions, structs, enums, mutable, aliases, expected,
         ),
     }
 }
@@ -491,6 +504,7 @@ fn list_expression(
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
+    aliases: &HashMap<String, Type>,
     expected: Option<&Type>,
 ) -> Result<Type, String> {
     let Some(Expr::Symbol(operator)) = items.first() else {
@@ -499,7 +513,7 @@ fn list_expression(
     match operator.as_str() {
         "-" if items.len() == 2 => {
             let actual = expression(
-                &items[1], variables, functions, structs, enums, mutable, expected,
+                &items[1], variables, functions, structs, enums, mutable, aliases, expected,
             )?;
             if !is_integer(&actual) {
                 return Err("unary '-' requires an integer operand".into());
@@ -509,7 +523,7 @@ fn list_expression(
         "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
             require_arity(operator, items, 3)?;
             let left = expression(
-                &items[1], variables, functions, structs, enums, mutable, expected,
+                &items[1], variables, functions, structs, enums, mutable, aliases, expected,
             )?;
             let right = expression(
                 &items[2],
@@ -518,6 +532,7 @@ fn list_expression(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&left),
             )?;
             require_same(&left, &right, operator)?;
@@ -529,7 +544,7 @@ fn list_expression(
         "<" | "<=" | ">" | ">=" | "==" | "!=" => {
             require_arity(operator, items, 3)?;
             let left = expression(
-                &items[1], variables, functions, structs, enums, mutable, None,
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             let right = expression(
                 &items[2],
@@ -538,6 +553,7 @@ fn list_expression(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&left),
             )?;
             require_same(&left, &right, operator)?;
@@ -552,11 +568,12 @@ fn list_expression(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&Type::Bool),
             )?;
             require_type(&condition, &Type::Bool, "if condition")?;
             let then_type = expression(
-                &items[2], variables, functions, structs, enums, mutable, expected,
+                &items[2], variables, functions, structs, enums, mutable, aliases, expected,
             )?;
             let else_type = expression(
                 &items[3],
@@ -565,6 +582,7 @@ fn list_expression(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&then_type),
             )?;
             require_same(&then_type, &else_type, "if branches")?;
@@ -587,6 +605,7 @@ fn list_expression(
                     structs,
                     enums,
                     mutable,
+                    aliases,
                     Some(element),
                 )?;
                 require_type(&actual, element, "array element")?;
@@ -598,13 +617,13 @@ fn list_expression(
                 return Err("index requires the form (index array index)".into());
             }
             let Type::Array(element, length) = expression(
-                &items[1], variables, functions, structs, enums, mutable, None,
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?
             else {
                 return Err("index requires an array".into());
             };
             check_index(
-                &items[2], length, variables, functions, structs, enums, mutable,
+                &items[2], length, variables, functions, structs, enums, mutable, aliases,
             )?;
             Ok(*element)
         }
@@ -613,7 +632,7 @@ fn list_expression(
                 return Err("match requires a value and at least one arm".into());
             }
             let scrutinee = expression(
-                &items[1], variables, functions, structs, enums, mutable, None,
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             let Type::Named(enum_name) = &scrutinee else {
                 return Err("match currently requires an enum value".into());
@@ -650,6 +669,7 @@ fn list_expression(
                     structs,
                     enums,
                     mutable,
+                    aliases,
                     result_type.as_ref().or(expected),
                 )?;
                 if let Some(previous) = &result_type {
@@ -672,6 +692,7 @@ fn list_expression(
                 structs,
                 enums,
                 mutable,
+                aliases,
                 Some(&Type::Bool),
             )?;
             require_type(&operand, &Type::Bool, "! operand")?;
@@ -687,6 +708,7 @@ fn list_expression(
                     structs,
                     enums,
                     mutable,
+                    aliases,
                     Some(&Type::Bool),
                 )?;
                 require_type(&actual, &Type::Bool, &format!("{operator} operand"))?;
@@ -699,7 +721,7 @@ fn list_expression(
                 return Err("get requires the form (get value field)".into());
             }
             let value_type = expression(
-                &items[1], variables, functions, structs, enums, mutable, None,
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             let Type::Named(struct_name) = value_type else {
                 return Err("get requires a struct value".into());
@@ -733,6 +755,7 @@ fn list_expression(
                         structs,
                         enums,
                         mutable,
+                        aliases,
                         Some(&field.ty),
                     )?;
                     require_type(
@@ -760,6 +783,7 @@ fn list_expression(
                     structs,
                     enums,
                     mutable,
+                    aliases,
                     Some(parameter_type),
                 )?;
                 require_type(
@@ -816,8 +840,11 @@ fn check_index(
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
+    aliases: &HashMap<String, Type>,
 ) -> Result<(), String> {
-    let actual = expression(index, variables, functions, structs, enums, mutable, None)?;
+    let actual = expression(
+        index, variables, functions, structs, enums, mutable, aliases, None,
+    )?;
     if !is_integer(&actual) {
         return Err("array index must be an integer".into());
     }
