@@ -1,0 +1,5 @@
+(fn choose ((flag bool)) f32
+  (if flag 1.5 2.5))
+
+(fn main () u64
+  (if (> (choose true) 1.0) 42 0))

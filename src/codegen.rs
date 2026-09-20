@@ -1947,6 +1947,26 @@ impl FunctionContext {
                     "    mov rax, {}\n",
                     self.enum_value(name).unwrap()
                 ));
+                if let Some(payload_count) = self.enums.values().find_map(|variants| {
+                    variants
+                        .iter()
+                        .find(|variant| variant.name == *name)
+                        .map(|_| {
+                            variants
+                                .iter()
+                                .map(|variant| variant.fields.len())
+                                .max()
+                                .unwrap_or(0)
+                        })
+                }) {
+                    for index in 0..payload_count {
+                        self.output.push_str(&format!(
+                            "    xor {}, {}\n",
+                            VALUE_REGISTERS[index + 1],
+                            VALUE_REGISTERS[index + 1]
+                        ));
+                    }
+                }
             }
             Expr::Symbol(name) => {
                 if self.locals.contains_key(name) {
@@ -2015,21 +2035,23 @@ impl FunctionContext {
             Some(Expr::Symbol(name)) => name.as_str(),
             _ => return Err("expression list must start with a symbol".into()),
         };
-        if let Some((enum_name, variant)) = self.enums.iter().find_map(|(enum_name, variants)| {
-            variants
-                .iter()
-                .find(|variant| variant.name == operator)
-                .map(|variant| (enum_name.as_str(), variant))
-        }) {
-            if items.len() - 1 != variant.fields.len() {
+        if let Some((enum_name, variant_fields)) =
+            self.enums.iter().find_map(|(enum_name, variants)| {
+                variants
+                    .iter()
+                    .find(|variant| variant.name == operator)
+                    .map(|variant| (enum_name.clone(), variant.fields.clone()))
+            })
+        {
+            if items.len() - 1 != variant_fields.len() {
                 return Err(format!(
                     "variant '{operator}' expects {} payloads",
-                    variant.fields.len()
+                    variant_fields.len()
                 ));
             }
             let variant_index = self
                 .enums
-                .get(enum_name)
+                .get(&enum_name)
                 .and_then(|variants| {
                     variants
                         .iter()
@@ -2040,6 +2062,24 @@ impl FunctionContext {
                 self.expression(value)?;
                 self.output
                     .push_str(&format!("    mov {}, rax\n", VALUE_REGISTERS[index + 1]));
+            }
+            let payload_count = self
+                .enums
+                .get(&enum_name)
+                .map(|variants| {
+                    variants
+                        .iter()
+                        .map(|variant| variant.fields.len())
+                        .max()
+                        .unwrap_or(0)
+                })
+                .unwrap_or(0);
+            for index in items.len() - 1..payload_count {
+                self.output.push_str(&format!(
+                    "    xor {}, {}\n",
+                    VALUE_REGISTERS[index + 1],
+                    VALUE_REGISTERS[index + 1]
+                ));
             }
             self.output
                 .push_str(&format!("    mov rax, {variant_index}\n"));
@@ -2059,7 +2099,7 @@ impl FunctionContext {
                 let target = resolve_type(&parse_type(items.get(2))?, &self.aliases)?;
                 self.cast_expression(&items[1], &target)
             }
-            "match" => self.match_expression(items),
+            "match" => self.match_expression(items, None),
             "index" => self.index_expression(items),
             "get" => self.field_expression(items),
             "!" => self.boolean_not(items),
@@ -2154,7 +2194,11 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn match_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+    fn match_expression(
+        &mut self,
+        items: &[Expr],
+        float_type: Option<&Type>,
+    ) -> Result<(), String> {
         if items.len() < 3 {
             return Err("match requires a value and an arm".into());
         }
@@ -2296,7 +2340,11 @@ impl FunctionContext {
                     }
                 }
             }
-            self.expression(&arm[1])?;
+            if let Some(ty) = float_type {
+                self.expression_as_float(&arm[1], ty)?;
+            } else {
+                self.expression(&arm[1])?;
+            }
             self.output.push_str(&format!(
                 "    mov rdx, rax\n    add rsp, {}\n    mov rax, rdx\n",
                 staged_words * 8
@@ -2988,6 +3036,16 @@ impl FunctionContext {
                         .get(1)
                         .and_then(|value| self.expression_float_type(value))
                 }
+                Some(Expr::Symbol(operator)) if operator == "if" && items.len() == 4 => self
+                    .expression_float_type(&items[2])
+                    .or_else(|| self.expression_float_type(&items[3])),
+                Some(Expr::Symbol(operator)) if operator == "match" => items[2..]
+                    .iter()
+                    .filter_map(|arm| match arm {
+                        Expr::List(arm) if arm.len() == 2 => self.expression_float_type(&arm[1]),
+                        _ => None,
+                    })
+                    .next(),
                 Some(Expr::Symbol(operator)) => self
                     .functions
                     .get(operator)
@@ -3000,6 +3058,14 @@ impl FunctionContext {
     }
 
     fn expression_as_float(&mut self, expression: &Expr, ty: &Type) -> Result<(), String> {
+        if let Expr::List(items) = expression {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
+                return self.if_expression_as_float(items, ty);
+            }
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                return self.match_expression(items, Some(ty));
+            }
+        }
         match expression {
             Expr::Float(value) => {
                 let parsed = value
@@ -3034,6 +3100,23 @@ impl FunctionContext {
         self.output
             .push_str(&format!("    jmp {end_label}\n{else_label}:\n"));
         self.expression(&items[3])?;
+        self.output.push_str(&format!("{end_label}:\n"));
+        Ok(())
+    }
+
+    fn if_expression_as_float(&mut self, items: &[Expr], ty: &Type) -> Result<(), String> {
+        if items.len() != 4 {
+            return Err("if requires a condition, then expression, and else expression".into());
+        }
+        let else_label = self.label("else");
+        let end_label = self.label("endif");
+        self.expression(&items[1])?;
+        self.output
+            .push_str(&format!("    test rax, rax\n    jz {else_label}\n"));
+        self.expression_as_float(&items[2], ty)?;
+        self.output
+            .push_str(&format!("    jmp {end_label}\n{else_label}:\n"));
+        self.expression_as_float(&items[3], ty)?;
         self.output.push_str(&format!("{end_label}:\n"));
         Ok(())
     }
@@ -3439,6 +3522,20 @@ impl FunctionContext {
                 .is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty()))
             {
                 if let Expr::Symbol(local) = value {
+                    if !self.locals.contains_key(local) {
+                        self.expression(value)?;
+                        let words = value_word_count(ty, &self.structs, &self.enums)?;
+                        let registers: Box<dyn Iterator<Item = &str>> = if reverse {
+                            Box::new(VALUE_REGISTERS[..words].iter().rev().copied())
+                        } else {
+                            Box::new(VALUE_REGISTERS[..words].iter().copied())
+                        };
+                        for register in registers {
+                            self.output.push_str(&format!("    push {register}\n"));
+                            self.stack_depth += 1;
+                        }
+                        return Ok(());
+                    }
                     let Storage::Enum {
                         discriminant,
                         payload,

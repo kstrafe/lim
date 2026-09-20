@@ -83,6 +83,9 @@ arithmetic, comparisons, and returns use SSE registers where appropriate.
 Functions may freely mix `f32` and `f64` parameters; each argument keeps its
 own SSE width.
 
+Floating-point `if` and `match` branches also preserve the expression’s
+expected `f32` or `f64` width.
+
 Character literals have the Rust `char` type and lower to native scalar values:
 
 ```lisp

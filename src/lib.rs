@@ -1359,6 +1359,25 @@ mod tests {
     }
 
     #[test]
+    fn preserves_float_width_across_control_flow() {
+        let program = parse_program(
+            "(fn choose ((flag bool)) f32 (if flag 1.5 2.5)) (fn main () u64 (if (> (choose true) 1.0) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("movd xmm0, eax"));
+        let matched = parse_program(
+            "(enum MaybeF ((SomeF f32) None)) (fn read ((value MaybeF)) f32 (match value ((SomeF payload) payload) (None 2.5))) (fn main () u64 (if (> (read None) 2.0) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&matched).is_ok());
+        assert!(generate_assembly(&matched)
+            .unwrap()
+            .contains("movd xmm0, eax"));
+    }
+
+    #[test]
     fn lowers_unit_functions_and_calls() {
         let program = parse_program("(fn noop () () ()) (fn main () u64 (noop) 42)").unwrap();
         assert!(check_types(&program).is_ok());
