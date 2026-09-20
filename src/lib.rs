@@ -909,7 +909,10 @@ fn parse_function(items: &[Expr]) -> Result<Function, String> {
         replace_generic_types(&parse_type(items.get(return_index))?, &type_parameters);
     let mut body = Vec::with_capacity(items.len().saturating_sub(body_index));
     for expression in &items[body_index..] {
-        body.push(parse_statement(expression)?);
+        body.push(replace_generic_statement(
+            &parse_statement(expression)?,
+            &type_parameters,
+        ));
     }
     Ok(Function {
         name,
@@ -936,6 +939,58 @@ fn replace_generic_types(ty: &Type, parameters: &[String]) -> Type {
                 .collect(),
         ),
         _ => ty.clone(),
+    }
+}
+
+fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> Statement {
+    match statement {
+        Statement::Let {
+            name,
+            ty,
+            value,
+            mutable,
+        } => Statement::Let {
+            name: name.clone(),
+            ty: replace_generic_types(ty, parameters),
+            value: value.clone(),
+            mutable: *mutable,
+        },
+        Statement::Assign { .. }
+        | Statement::ArrayAssign { .. }
+        | Statement::FieldAssign { .. }
+        | Statement::TupleAssign { .. }
+        | Statement::Break
+        | Statement::Continue
+        | Statement::Return(None)
+        | Statement::Return(Some(_))
+        | Statement::Expr(_) => statement.clone(),
+        Statement::While { condition, body } => Statement::While {
+            condition: condition.clone(),
+            body: body
+                .iter()
+                .map(|statement| replace_generic_statement(statement, parameters))
+                .collect(),
+        },
+        Statement::Loop { body } => Statement::Loop {
+            body: body
+                .iter()
+                .map(|statement| replace_generic_statement(statement, parameters))
+                .collect(),
+        },
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => Statement::For {
+            init: Box::new(replace_generic_statement(init, parameters)),
+            condition: condition.clone(),
+            step: Box::new(replace_generic_statement(step, parameters)),
+            body: body
+                .iter()
+                .map(|statement| replace_generic_statement(statement, parameters))
+                .collect(),
+        },
     }
 }
 
@@ -1385,6 +1440,11 @@ mod tests {
         assert!(check_types(&instantiated).is_ok());
         let assembly = generate_assembly(&instantiated).unwrap();
         assert!(assembly.contains("identity_x24_u64"));
+        let generic_local = parse_program(
+            "(fn copy (T) ((value T)) T (let result T value) result) (fn main () u64 (copy<u64> 42))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&generic_local).is_ok());
         let missing_arguments =
             parse_program("(fn identity (T) ((value T)) T value) (fn main () u64 (identity 42))")
                 .unwrap();
