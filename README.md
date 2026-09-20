@@ -545,6 +545,15 @@ Infinite loops support `break` and `continue`:
   (break))
 ```
 
+Loops can also produce values when used as expressions. The result must be
+provided explicitly by `#break` with a value:
+
+```lisp
+(#return
+  (#loop
+    (#break 42)))
+```
+
 `block` expressions allow statement sequences inside expression branches:
 
 ```lisp

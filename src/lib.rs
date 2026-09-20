@@ -345,6 +345,7 @@ pub enum Expr {
     Float(String),
     Char(char),
     String(String),
+    Loop(Vec<Statement>),
     /// The generated-code sigil in source, e.g. `(@optional T T?)`.
     At,
     Quote(Box<Expr>),
@@ -492,6 +493,7 @@ pub enum Statement {
         body: Vec<Statement>,
     },
     Break,
+    BreakValue(Expr),
     Continue,
     Return(Option<Expr>),
     Expr(Expr),
@@ -1041,6 +1043,14 @@ fn specialize_expr(
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         )),
+        Expr::Loop(statements) => Ok(Expr::Loop(
+            statements
+                .iter()
+                .map(|statement| {
+                    specialize_statement(statement, substitutions, templates, names, generated)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
         Expr::Quote(value) => Ok(Expr::Quote(Box::new(specialize_expr(
             value,
             substitutions,
@@ -1164,6 +1174,13 @@ fn specialize_statement(
                 .transpose()?,
         ),
         Statement::Expr(value) => Statement::Expr(specialize_expr(
+            value,
+            substitutions,
+            templates,
+            names,
+            generated,
+        )?),
+        Statement::BreakValue(value) => Statement::BreakValue(specialize_expr(
             value,
             substitutions,
             templates,
@@ -1899,6 +1916,7 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
         | Statement::TupleAssign { .. }
         | Statement::EnumPayloadAssign { .. }
         | Statement::Break
+        | Statement::BreakValue(_)
         | Statement::Continue
         | Statement::Return(None)
         | Statement::Return(Some(_))
@@ -1984,6 +2002,16 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
         }
     }
     match expression {
+        Expr::List(items) if is_form(expression, "loop") => {
+            if items.len() < 2 {
+                return Err("loop requires a body".into());
+            }
+            let body = items[1..]
+                .iter()
+                .map(parse_statement)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Expr::Loop(body))
+        }
         Expr::List(items) if is_form(expression, "while-let") => {
             if items.len() < 4 {
                 return Err(
@@ -2095,6 +2123,17 @@ fn parse_const(items: &[Expr]) -> Result<LetBinding, String> {
 }
 
 fn parse_statement(expression: &Expr) -> Result<Statement, String> {
+    if is_form(expression, "loop") && !loop_has_value_break(expression) {
+        let items = expect_list(expression, "loop statement")?;
+        if items.len() < 2 {
+            return Err("loop requires a body".into());
+        }
+        let mut body = Vec::with_capacity(items.len() - 1);
+        for expression in &items[1..] {
+            body.push(parse_statement(expression)?);
+        }
+        return Ok(Statement::Loop { body });
+    }
     let lowered = lower_expr(expression)?;
     let expression = &lowered;
     if is_form(expression, "let") {
@@ -2211,17 +2250,6 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             body,
         });
     }
-    if is_form(expression, "loop") {
-        let items = expect_list(expression, "loop statement")?;
-        if items.len() < 2 {
-            return Err("loop requires a body".into());
-        }
-        let mut body = Vec::with_capacity(items.len() - 1);
-        for expression in &items[1..] {
-            body.push(parse_statement(expression)?);
-        }
-        return Ok(Statement::Loop { body });
-    }
     if is_form(expression, "for") {
         let items = expect_list(expression, "for statement")?;
         if items.len() < 5 {
@@ -2239,8 +2267,12 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
         });
     }
     if is_form(expression, "break") {
-        if expect_list(expression, "break statement")?.len() != 1 {
-            return Err("break takes no arguments".into());
+        let items = expect_list(expression, "break statement")?;
+        if items.len() == 2 {
+            return Ok(Statement::BreakValue(items[1].clone()));
+        }
+        if items.len() != 1 {
+            return Err("break takes zero or one argument".into());
         }
         return Ok(Statement::Break);
     }
@@ -2258,6 +2290,29 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
         return Ok(Statement::Return(Some(items[1].clone())));
     }
     Ok(Statement::Expr(expression.clone()))
+}
+
+fn loop_has_value_break(expression: &Expr) -> bool {
+    match expression {
+        Expr::List(items) => {
+            if is_form(expression, "break") && items.len() == 2 {
+                return true;
+            }
+            items.iter().any(loop_has_value_break)
+        }
+        Expr::Block(statements) => statements.iter().any(statement_has_value_break),
+        _ => false,
+    }
+}
+
+fn statement_has_value_break(statement: &Statement) -> bool {
+    match statement {
+        Statement::BreakValue(_) => true,
+        Statement::While { body, .. } | Statement::Loop { body } | Statement::For { body, .. } => {
+            body.iter().any(statement_has_value_break)
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
@@ -3655,6 +3710,17 @@ mod tests {
                    (#u64.+.wrap payload 8)) \
                  ((Some _) 0) \
                  (None 0))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn checks_and_lowers_value_loops() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#return (#loop (#break 42))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());

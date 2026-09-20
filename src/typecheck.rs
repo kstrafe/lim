@@ -261,6 +261,7 @@ fn collect_statement_calls(
         | Statement::FieldAssign { value, .. }
         | Statement::TupleAssign { value, .. }
         | Statement::EnumPayloadAssign { value, .. }
+        | Statement::BreakValue(value)
         | Statement::Return(Some(value))
         | Statement::Expr(value) => collect_expression_calls(value, functions, calls),
         Statement::ArrayAssign { index, value, .. } => {
@@ -315,6 +316,11 @@ fn collect_expression_calls(
             }
         }
         Expr::Block(statements) => {
+            for statement in statements {
+                collect_statement_calls(statement, functions, calls);
+            }
+        }
+        Expr::Loop(statements) => {
             for statement in statements {
                 collect_statement_calls(statement, functions, calls);
             }
@@ -735,6 +741,14 @@ fn statement_type(
             )?;
             Ok(Type::Unit)
         }
+        Statement::BreakValue(value) => {
+            if !in_loop {
+                return Err("break with a value used outside a loop".into());
+            }
+            expression(
+                value, variables, functions, structs, enums, mutable, aliases, None,
+            )
+        }
         Statement::Break | Statement::Continue => {
             if in_loop {
                 Ok(Type::Unit)
@@ -915,6 +929,49 @@ fn expression(
                         false,
                     )?
                 };
+            }
+            Ok(result)
+        }
+        Expr::Loop(statements) => {
+            let mut loop_variables = variables.clone();
+            let mut loop_mutable = mutable.clone();
+            let mut result_type = None;
+            for statement in statements {
+                let actual = if let Statement::BreakValue(value) = statement {
+                    expression(
+                        value,
+                        &loop_variables,
+                        functions,
+                        structs,
+                        enums,
+                        &loop_mutable,
+                        aliases,
+                        expected,
+                    )?
+                } else {
+                    statement_type(
+                        statement,
+                        &mut loop_variables,
+                        &mut loop_mutable,
+                        functions,
+                        structs,
+                        enums,
+                        &expected.cloned().unwrap_or(Type::Unit),
+                        aliases,
+                        true,
+                    )?
+                };
+                if matches!(statement, Statement::BreakValue(_)) {
+                    if let Some(previous) = &result_type {
+                        require_same(previous, &actual, "loop break values")?;
+                    } else {
+                        result_type = Some(actual);
+                    }
+                }
+            }
+            let result = result_type.unwrap_or(Type::Unit);
+            if let Some(expected) = expected {
+                require_type(&result, expected, "loop expression")?;
             }
             Ok(result)
         }

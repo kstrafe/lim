@@ -209,6 +209,12 @@ fn substitute_expr(expression: &Expr, substitutions: &HashMap<String, Type>) -> 
                 .map(|statement| substitute_statement(statement, substitutions))
                 .collect(),
         ),
+        Expr::Loop(statements) => Expr::Loop(
+            statements
+                .iter()
+                .map(|statement| substitute_statement(statement, substitutions))
+                .collect(),
+        ),
         Expr::Quote(value) => Expr::Quote(Box::new(substitute_expr(value, substitutions))),
         _ => expression.clone(),
     }
@@ -301,6 +307,9 @@ fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, T
                 .map(|value| substitute_expr(value, substitutions)),
         ),
         Statement::Expr(value) => Statement::Expr(substitute_expr(value, substitutions)),
+        Statement::BreakValue(value) => {
+            Statement::BreakValue(substitute_expr(value, substitutions))
+        }
         Statement::Break | Statement::Continue => statement.clone(),
     }
 }
@@ -314,6 +323,12 @@ fn rewrite_expr(expression: &Expr, specializations: &HashMap<String, String>) ->
                 .collect(),
         ),
         Expr::Block(statements) => Expr::Block(
+            statements
+                .iter()
+                .map(|statement| rewrite_statement(statement, specializations))
+                .collect(),
+        ),
+        Expr::Loop(statements) => Expr::Loop(
             statements
                 .iter()
                 .map(|statement| rewrite_statement(statement, specializations))
@@ -419,6 +434,7 @@ fn rewrite_statement(
                 .map(|value| rewrite_expr(value, specializations)),
         ),
         Statement::Expr(value) => Statement::Expr(rewrite_expr(value, specializations)),
+        Statement::BreakValue(value) => Statement::BreakValue(rewrite_expr(value, specializations)),
         Statement::Break | Statement::Continue => statement.clone(),
     }
 }
@@ -440,6 +456,11 @@ fn collect_generic_calls_expr(expression: &Expr, calls: &mut Vec<String>) {
                 collect_generic_calls_statement(statement, calls);
             }
         }
+        Expr::Loop(statements) => {
+            for statement in statements {
+                collect_generic_calls_statement(statement, calls);
+            }
+        }
         Expr::Quote(value) => collect_generic_calls_expr(value, calls),
         _ => {}
     }
@@ -453,6 +474,7 @@ fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String
         | Statement::FieldAssign { value, .. }
         | Statement::TupleAssign { value, .. }
         | Statement::EnumPayloadAssign { value, .. }
+        | Statement::BreakValue(value)
         | Statement::Return(Some(value))
         | Statement::Expr(value) => collect_generic_calls_expr(value, calls),
         Statement::ArrayAssign { index, value, .. } => {
@@ -1086,6 +1108,7 @@ fn collect_local_types(
         | Statement::FieldAssign { value, .. }
         | Statement::TupleAssign { value, .. }
         | Statement::EnumPayloadAssign { value, .. }
+        | Statement::BreakValue(value)
         | Statement::Return(Some(value))
         | Statement::Expr(value) => collect_expr_types(value, types, aliases, enums, structs),
         Statement::ArrayAssign { index, value, .. } => {
@@ -1284,6 +1307,11 @@ fn collect_expr_types(
                 collect_local_types(statement, types, aliases, enums, structs);
             }
         }
+        Expr::Loop(statements) => {
+            for statement in statements {
+                collect_local_types(statement, types, aliases, enums, structs);
+            }
+        }
         _ => {}
     }
 }
@@ -1425,6 +1453,9 @@ fn collect_locals(
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
         Statement::EnumPayloadAssign { value, .. } => {
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
+        }
+        Statement::BreakValue(value) => {
             collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?
         }
         Statement::Return(Some(value)) | Statement::Expr(value) => {
@@ -1709,6 +1740,11 @@ fn collect_expr_locals(
             }
         }
         Expr::Block(statements) => {
+            for statement in statements {
+                collect_locals(statement, locals, structs, enums, aliases, next_slot, types)?;
+            }
+        }
+        Expr::Loop(statements) => {
             for statement in statements {
                 collect_locals(statement, locals, structs, enums, aliases, next_slot, types)?;
             }
@@ -3166,6 +3202,13 @@ impl FunctionContext {
                 };
                 self.output.push_str(&format!("    jmp {end}\n"));
             }
+            Statement::BreakValue(value) => {
+                let Some((_, end)) = self.loop_labels.last().cloned() else {
+                    return Err("break with a value used outside a loop".into());
+                };
+                self.expression(value)?;
+                self.output.push_str(&format!("    jmp {end}\n"));
+            }
             Statement::Continue => {
                 let Some((start, _)) = self.loop_labels.last() else {
                     return Err("continue used outside a loop".into());
@@ -4087,6 +4130,19 @@ impl FunctionContext {
         self.store_value_words(value, &array_type, &slots)
     }
 
+    fn loop_expression(&mut self, body: &[Statement]) -> Result<(), String> {
+        let start = self.label("value_loop");
+        let end = self.label("end_value_loop");
+        self.output.push_str(&format!("{start}:\n"));
+        self.loop_labels.push((start.clone(), end.clone()));
+        for statement in body {
+            self.statement(statement)?;
+        }
+        self.loop_labels.pop();
+        self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
+        Ok(())
+    }
+
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         match expression {
             Expr::Integer(value) => {
@@ -4130,6 +4186,7 @@ impl FunctionContext {
                     self.statement(statement)?;
                 }
             }
+            Expr::Loop(statements) => self.loop_expression(statements)?,
             Expr::Symbol(name) if name == "true" => self.output.push_str("    mov eax, 1\n"),
             Expr::Symbol(name) if name == "false" => self.output.push_str("    xor eax, eax\n"),
             Expr::Symbol(name) if self.enum_value(name).is_some() => {
