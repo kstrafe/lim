@@ -3416,6 +3416,20 @@ mod tests {
     }
 
     #[test]
+    fn matches_nested_direct_tuple_values() {
+        let program = parse_program(
+            "(#fn main () u64 \
+               (#return (#match \
+                 (#tuple (#tuple (#tuple u64 u64) u64) \
+                   (#tuple (#tuple u64 u64) 10 20) 32) \
+                 (_ 32))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

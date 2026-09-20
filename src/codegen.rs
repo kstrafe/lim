@@ -4582,8 +4582,7 @@ impl FunctionContext {
         };
         if let Some(values) = direct_values.as_ref() {
             for (value, field_type) in values.iter().zip(fields) {
-                self.expression_as_abi_word(value, field_type)?;
-                self.push_rax();
+                self.push_value_words(value, field_type, false)?;
             }
             for register in VALUE_REGISTERS[..words].iter().rev() {
                 self.output.push_str(&format!("    pop {register}\n"));
