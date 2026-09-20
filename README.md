@@ -713,6 +713,13 @@ read-only storage and can be read with index and get:
   (#return (#index Values 1)))
 ```
 
+Floating-point aggregate statics use the same typed value representation:
+
+```lisp
+(#static Values (#array f32 2)
+  (#array (#array f32 2) 1.5 2.5))
+```
+
 Explicit integer casts are also folded in constant initializers.
 Constant references may also point to a later top-level declaration; cycles
 are rejected during constant evaluation.

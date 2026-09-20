@@ -5522,6 +5522,17 @@ mod tests {
     }
 
     #[test]
+    fn lowers_static_float_arrays() {
+        let program = parse_program_strict(
+            "(#static VALUES (#array f32 2) (#array (#array f32 2) 1.5 2.5)) (#fn main () u64 (#return (#if (#f32.== (#index VALUES 1) 2.5) 42 0)))",
+        )
+        .unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("VALUES:"), "{assembly}");
+        assert!(assembly.contains(".quad 1075838976"), "{assembly}");
+    }
+
+    #[test]
     fn checks_and_lowers_type_aliases() {
         let program = parse_program(
             "(type UserId u64) (fn add_one ((id UserId)) UserId (+ id 1)) (fn main () UserId (add_one 41))",
