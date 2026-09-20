@@ -196,7 +196,8 @@ stack-argument convention.
 support local storage, parameters, returns, addition, subtraction, and
 bitwise operations, comparisons, and shifts.
 128-bit multiplication is lowered to the low 128 bits using native multiply
-and carry accumulation.
+and carry accumulation. Unsigned division and remainder use an emitted
+shift/subtract routine with divide-by-zero trapping.
 
 Unsigned integer comparisons and right shifts use unsigned native instructions
 when their operands have an unsigned type; unsigned division and remainder use

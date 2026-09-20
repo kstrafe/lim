@@ -2098,7 +2098,10 @@ impl FunctionContext {
     }
 
     fn wide_binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
-        if !matches!(operator, "+" | "-" | "*" | "&" | "|" | "^" | "<<" | ">>") {
+        if !matches!(
+            operator,
+            "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
+        ) {
             return Err(format!("128-bit operator '{operator}' is unsupported"));
         }
         self.expression(&items[1])?;
@@ -2155,6 +2158,16 @@ impl FunctionContext {
             );
             return Ok(());
         }
+        if matches!(operator, "/" | "%") {
+            let unsigned = self
+                .expression_type(&items[1])
+                .is_some_and(|ty| matches!(ty, Type::U128));
+            if !unsigned {
+                return Err("signed 128-bit division and remainder are not supported".into());
+            }
+            self.wide_unsigned_division(operator)?;
+            return Ok(());
+        }
         match operator {
             "+" => self.output.push_str("    add rax, rcx\n    adc rdx, r8\n"),
             "-" => self.output.push_str("    sub rax, rcx\n    sbb rdx, r8\n"),
@@ -2163,6 +2176,30 @@ impl FunctionContext {
             "^" => self.output.push_str("    xor rax, rcx\n    xor rdx, r8\n"),
             _ => unreachable!(),
         }
+        Ok(())
+    }
+
+    fn wide_unsigned_division(&mut self, operator: &str) -> Result<(), String> {
+        let loop_label = self.label("wide_div_loop");
+        let subtract_label = self.label("wide_div_subtract");
+        let next_label = self.label("wide_div_next");
+        let done_label = self.label("wide_div_done");
+        let zero_label = self.label("wide_div_zero");
+        self.output.push_str("    push r12\n");
+        self.stack_depth += 1;
+        self.output.push_str(&format!(
+            "    mov r9, r8\n    or r9, rcx\n    jz {zero_label}\n    xor r9d, r9d\n    xor r10d, r10d\n    xor r11d, r11d\n    xor edi, edi\n    mov r12, 128\n{loop_label}:\n    shl rax, 1\n    rcl rdx, 1\n    rcl rdi, 1\n    rcl r11, 1\n    shl r9, 1\n    rcl r10, 1\n    cmp r11, r8\n    ja {subtract_label}\n    jb {next_label}\n    cmp rdi, rcx\n    jae {subtract_label}\n    jmp {next_label}\n{subtract_label}:\n    sub rdi, rcx\n    sbb r11, r8\n    or r9, 1\n{next_label}:\n    dec r12\n    jnz {loop_label}\n"
+        ));
+        if operator == "/" {
+            self.output.push_str("    mov rax, r9\n    mov rdx, r10\n");
+        } else {
+            self.output.push_str("    mov rax, rdi\n    mov rdx, r11\n");
+        }
+        self.output.push_str("    pop r12\n");
+        self.stack_depth -= 1;
+        self.output.push_str(&format!(
+            "    jmp {done_label}\n{zero_label}:\n    ud2\n{done_label}:\n"
+        ));
         Ok(())
     }
 
