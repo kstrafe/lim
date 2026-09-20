@@ -6879,9 +6879,8 @@ impl FunctionContext {
         float_type: Option<&Type>,
         result_type: Option<&Type>,
     ) -> Result<(), String> {
-        if storage_word_count(&ty, &self.structs, &self.enums)
-            .is_ok_and(|storage_words| storage_words > VALUE_REGISTERS.len())
-        {
+        let storage_words = storage_word_count(&ty, &self.structs, &self.enums)?;
+        if storage_words > VALUE_REGISTERS.len() {
             if fields.iter().all(|field| {
                 value_word_count(field, &self.structs, &self.enums).is_ok_and(|words| words == 1)
             }) {
@@ -6921,6 +6920,38 @@ impl FunctionContext {
                         }
                     }
                 }
+            }
+            let source_slots = if let Expr::Symbol(name) = &items[1] {
+                self.locals
+                    .contains_key(name)
+                    .then(|| local_slots(&self.locals, name))
+                    .transpose()?
+            } else if let Expr::List(call_items) = &items[1] {
+                match call_items.first() {
+                    Some(Expr::Symbol(function_name))
+                        if self
+                            .functions
+                            .get(function_name)
+                            .is_some_and(|function| function.indirect_return) =>
+                    {
+                        let base = self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                        Some(flat_slots(base, storage_words))
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if let Some(source_slots) = source_slots {
+                return self.aggregate_match_from_slots(
+                    items,
+                    constructor,
+                    &ty,
+                    &source_slots,
+                    storage_words,
+                    float_type,
+                    result_type,
+                );
             }
         }
         let words = value_word_count(&ty, &self.structs, &self.enums)?;
@@ -7036,6 +7067,70 @@ impl FunctionContext {
                 ));
             }
             self.stack_depth = base_depth + words;
+        }
+        self.output.push_str(&format!("{end}:\n"));
+        self.stack_depth = base_depth;
+        Ok(())
+    }
+
+    fn aggregate_match_from_slots(
+        &mut self,
+        items: &[Expr],
+        constructor: &str,
+        ty: &Type,
+        source_slots: &[usize],
+        storage_words: usize,
+        float_type: Option<&Type>,
+        result_type: Option<&Type>,
+    ) -> Result<(), String> {
+        if source_slots.len() != storage_words {
+            return Err("large aggregate match has an inconsistent storage layout".into());
+        }
+        let base_depth = self.stack_depth;
+        for slot in source_slots.iter().rev() {
+            self.output
+                .push_str(&format!("    push QWORD PTR [rbp-{}]\n", slot * 8));
+            self.stack_depth += 1;
+        }
+        let end = self.label("aggregate_match_end");
+        for arm in &items[2..] {
+            let (pattern, guard, body) = match_arm_parts(arm)?;
+            let next = self.label("aggregate_match_next");
+            let mut bindings = Vec::new();
+            self.emit_aggregate_pattern(pattern, constructor, ty, 0, &next, &mut bindings)?;
+            for (name, offset, binding_type) in bindings {
+                let slots = local_slots(&self.locals, &name)?;
+                let binding_words = storage_word_count(&binding_type, &self.structs, &self.enums)?;
+                if slots.len() != binding_words {
+                    return Err(format!(
+                        "match binding '{name}' has inconsistent flattened layout"
+                    ));
+                }
+                for (index, slot) in slots.into_iter().enumerate() {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rsp+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                        (offset + index) * 8,
+                        slot * 8
+                    ));
+                }
+            }
+            if let Some(guard) = guard {
+                self.expression(guard)?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {next}\n"));
+            }
+            if let Some(ty) = float_type {
+                self.expression_as_float(body, ty)?;
+            } else if let Some(ty) = result_type {
+                self.expression_as_expected(body, ty)?;
+            } else {
+                self.expression(body)?;
+            }
+            self.output.push_str(&format!(
+                "    add rsp, {}\n    jmp {end}\n{next}:\n",
+                storage_words * 8
+            ));
+            self.stack_depth = base_depth + storage_words;
         }
         self.output.push_str(&format!("{end}:\n"));
         self.stack_depth = base_depth;
@@ -7203,7 +7298,7 @@ impl FunctionContext {
         }
         let mut field_offset = offset;
         for (field, field_type) in pattern[1..].iter().zip(fields) {
-            let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+            let field_words = storage_word_count(&field_type, &self.structs, &self.enums)?;
             let address = field_offset * 8;
             match field {
                 Expr::Symbol(name) if name == "_" => {}

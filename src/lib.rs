@@ -5668,6 +5668,15 @@ mod tests {
     }
 
     #[test]
+    fn matches_direct_large_nested_aggregate_returns() {
+        let program = parse_program_strict(
+            "(#fn make () (#array (#tuple u128 u64) 4) (#return (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64)))) (#fn main () u64 (#return (#match (make) ((#array (#tuple _ _) (#tuple _ _) (#tuple _ _) (#tuple _ last)) last) (_ 0u64))))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn matches_direct_large_tuple_and_struct_returns() {
         let program = parse_program_strict(
             "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn make-tuple () (#tuple u64 u64 u64 u64 u64 u64 u64) (#return (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64) 1u64 2u64 3u64 4u64 5u64 6u64 20u64))) (#fn make-struct () Large (#return (Large 1u64 2u64 3u64 4u64 5u64 6u64 22u64))) (#fn main () u64 (#return (#u64.+.wrap (#match (make-tuple) ((#tuple first second third fourth fifth sixth last) last) (_ 0u64)) (#match (make-struct) ((Large first second third fourth fifth sixth last) last) (_ 0u64)))))",
