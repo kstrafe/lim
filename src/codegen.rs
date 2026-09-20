@@ -5391,6 +5391,26 @@ impl FunctionContext {
             return Err("array local length metadata is inconsistent".into());
         }
         if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
+                if items.len() != 4 {
+                    return Err(
+                        "if requires a condition, then expression, and else expression".into(),
+                    );
+                }
+                let else_label = self.label("large_array_if_else");
+                let done_label = self.label("large_array_if_done");
+                self.expression(&items[1])?;
+                self.output
+                    .push_str(&format!("    test rax, rax\n    jz {else_label}\n"));
+                self.store_array(name, &items[2])?;
+                self.output
+                    .push_str(&format!("    jmp {done_label}\n{else_label}:\n"));
+                self.store_array(name, &items[3])?;
+                self.output.push_str(&format!("{done_label}:\n"));
+                return Ok(());
+            }
+        }
+        if let Expr::List(items) = value {
             if let Some(Expr::Symbol(function_name)) = items.first() {
                 if self
                     .functions

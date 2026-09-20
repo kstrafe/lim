@@ -429,6 +429,9 @@ scalar aggregate returns; see `examples/direct_large_aggregate_access.lim`.
 Large scalar enum returns can also be matched directly; see
 `examples/direct_large_enum_match.lim`.
 
+Large scalar arrays can be materialized directly from `#if` branches into a
+local stack value; see `examples/large_array_if.lim`.
+
 Direct tuple, array, and struct return expressions may contain nested value
 aggregates when their flattened representation fits the six-word native ABI.
 Nested tuple locals and fixed-array locals can also be stored and indexed using
