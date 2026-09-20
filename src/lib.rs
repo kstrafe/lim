@@ -3405,6 +3405,7 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("idiv rcx"));
         assert!(assembly.contains("xor rax, rcx"));
+        assert!(assembly.contains("division_by_zero"));
     }
 
     #[test]

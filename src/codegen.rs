@@ -6529,6 +6529,16 @@ impl FunctionContext {
         self.expression(&items[2])?;
         self.output.push_str("    mov rcx, rax\n    pop rax\n");
         self.stack_depth -= 1;
+        let division_by_zero = if matches!(operator, "/" | "%") {
+            let trap = self.label("division_by_zero");
+            let nonzero = self.label("division_nonzero");
+            self.output.push_str(&format!(
+                "    test rcx, rcx\n    jne {nonzero}\n    jmp {trap}\n{nonzero}:\n"
+            ));
+            Some((trap, nonzero))
+        } else {
+            None
+        };
         let shift_failure = if matches!(operator, "<<" | ">>") {
             let width = operand_type
                 .clone()
@@ -6641,6 +6651,12 @@ impl FunctionContext {
         }
         if let Some(done) = signed_division_overflow {
             self.output.push_str(&format!("{done}:\n"));
+        }
+        if let Some((trap, nonzero)) = division_by_zero {
+            let done = self.label("division_done");
+            self.output.push_str(&format!(
+                "    jmp {done}\n{trap}:\n    ud2\n{nonzero}_fallthrough:\n{done}:\n"
+            ));
         }
         Ok(())
     }
@@ -6773,6 +6789,12 @@ impl FunctionContext {
             return Ok(());
         }
         if matches!(operator, "/" | "%") {
+            let division_by_zero = self.label("wide_division_by_zero");
+            let division_nonzero = self.label("wide_division_nonzero");
+            let division_done = self.label("wide_division_done");
+            self.output.push_str(&format!(
+                "    test rcx, rcx\n    jne {division_nonzero}\n    test r8, r8\n    jne {division_nonzero}\n    jmp {division_by_zero}\n{division_nonzero}:\n"
+            ));
             let unsigned = self
                 .expression_type(&items[1])
                 .is_some_and(|ty| matches!(ty, Type::U128));
@@ -6800,6 +6822,9 @@ impl FunctionContext {
             if let Some(done) = done {
                 self.output.push_str(&format!("{done}:\n"));
             }
+            self.output.push_str(&format!(
+                "    jmp {division_done}\n{division_by_zero}:\n    ud2\n{division_done}:\n"
+            ));
             return Ok(());
         }
         match operator {

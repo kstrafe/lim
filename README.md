@@ -590,6 +590,8 @@ returning `i128::MAX`; the corresponding remainder is zero.
 Unsigned integer comparisons and right shifts use unsigned native instructions
 when their operands have an unsigned type; unsigned division and remainder use
 the native `div` instruction.
+Integer division and remainder explicitly trap with `ud2` when the divisor is
+zero.
 
 Counted loops use explicit init, condition, step, and body forms:
 
