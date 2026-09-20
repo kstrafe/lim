@@ -4366,7 +4366,7 @@ impl FunctionContext {
         let native_operand_type = operand_type
             .clone()
             .or_else(|| self.expression_type(&items[1]));
-        let wrapping_division = if mode == Some("wrap")
+        let signed_division_overflow = if matches!(mode, Some("wrap") | Some("saturate"))
             && matches!(operator, "/" | "%")
             && native_operand_type
                 .as_ref()
@@ -4378,8 +4378,13 @@ impl FunctionContext {
                 "    mov r8, 0x8000000000000000\n    cmp rax, r8\n    jne {normal}\n    cmp rcx, -1\n    jne {normal}\n"
             ));
             if operator == "/" {
+                let result = if mode == Some("saturate") {
+                    "0x7fffffffffffffff"
+                } else {
+                    "0x8000000000000000"
+                };
                 self.output.push_str(&format!(
-                    "    mov rax, 0x8000000000000000\n    jmp {done}\n{normal}:\n"
+                    "    mov rax, {result}\n    jmp {done}\n{normal}:\n"
                 ));
             } else {
                 self.output
@@ -4437,7 +4442,12 @@ impl FunctionContext {
             }
             _ => unreachable!(),
         }
-        if mode == Some("saturate") {
+        let skip_saturating_division = mode == Some("saturate")
+            && matches!(operator, "/" | "%")
+            && native_operand_type
+                .as_ref()
+                .is_some_and(|ty| matches!(ty, Type::I64 | Type::Isize));
+        if mode == Some("saturate") && !skip_saturating_division {
             self.emit_saturating_integer_result(operator, qualifier, items)?;
         }
         if let Some(ty) = operand_type.or_else(|| self.expression_type(&items[1])) {
@@ -4450,7 +4460,7 @@ impl FunctionContext {
             self.output
                 .push_str(&format!("    jmp {done}\n{label}:\n    ud2\n{done}:\n"));
         }
-        if let Some(done) = wrapping_division {
+        if let Some(done) = signed_division_overflow {
             self.output.push_str(&format!("{done}:\n"));
         }
         Ok(())

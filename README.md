@@ -131,7 +131,9 @@ Integer arithmetic normalizes results to the operand width, so operations on
 `u8`, `u16`, `u32`, and the signed narrow types have Rust-style low-width
 semantics.
 Wrapping signed machine-width division and remainder also handle the minimum
-value divided by `-1` without relying on a trapping native `idiv` case.
+value divided by -1 without relying on a trapping native idiv case.
+Saturating signed machine-width division maps that same overflow to the
+maximum representable value; saturating remainder remains zero.
 
 Native `f32` and `f64` locals, homogeneous parameters, mixed scalar parameters,
 arithmetic, comparisons, and returns use SSE registers where appropriate.

@@ -104,7 +104,10 @@ impl<'a> Lexer<'a> {
                     tokens.push(self.char_token()?)
                 }
                 b'#' if self.source.get(self.offset + 1).is_some_and(|next| {
-                    next.is_ascii_alphabetic() || *next == b'_' || *next == b'!'
+                    next.is_ascii_alphabetic()
+                        || *next == b'_'
+                        || matches!(next, b'!' | b'+' | b'-' | b'*' | b'/' | b'%')
+                        || matches!(next, b'&' | b'|' | b'^' | b'<' | b'>' | b'=')
                 }) =>
                 {
                     tokens.push(self.atom()?)
@@ -2164,6 +2167,10 @@ mod tests {
         assert!(bare_keyword.contains("must use its '#' prefix"));
         let bare_operator = parse_program("(#fn main () u32 (#return (+ 20 22)))").unwrap_err();
         assert!(bare_operator.contains("must use its '#' prefix"));
+        assert_eq!(
+            lex("(#&& true false)").unwrap()[1].kind,
+            TokenKind::Symbol("#&&".into())
+        );
     }
 
     #[test]
@@ -3383,6 +3390,16 @@ mod tests {
         assert!(generate_assembly(&program)
             .unwrap()
             .contains("wrapping_division_done"));
+    }
+
+    #[test]
+    fn saturates_signed_machine_width_division_overflow() {
+        let program =
+            parse_program("(#fn main () i64 (#return (#i64./.saturate -9223372036854775808 -1)))")
+                .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("0x7fffffffffffffff"));
     }
 
     #[test]
