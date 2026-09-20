@@ -3412,7 +3412,7 @@ mod tests {
     fn emits_wide_division_by_zero_traps() {
         let program = parse_program(
             "(#fn main () u128 \
-               (#return (#u128./.wrap 1 0)))",
+               (#return (#u128.%.wrap 1 0)))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();

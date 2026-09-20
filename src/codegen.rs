@@ -6535,7 +6535,7 @@ impl FunctionContext {
             self.output.push_str(&format!(
                 "    test rcx, rcx\n    jne {nonzero}\n    jmp {trap}\n{nonzero}:\n"
             ));
-            Some((trap, nonzero))
+            Some(trap)
         } else {
             None
         };
@@ -6652,11 +6652,10 @@ impl FunctionContext {
         if let Some(done) = signed_division_overflow {
             self.output.push_str(&format!("{done}:\n"));
         }
-        if let Some((trap, nonzero)) = division_by_zero {
+        if let Some(trap) = division_by_zero {
             let done = self.label("division_done");
-            self.output.push_str(&format!(
-                "    jmp {done}\n{trap}:\n    ud2\n{nonzero}_fallthrough:\n{done}:\n"
-            ));
+            self.output
+                .push_str(&format!("    jmp {done}\n{trap}:\n    ud2\n{done}:\n"));
         }
         Ok(())
     }
