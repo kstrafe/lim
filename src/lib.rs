@@ -5575,7 +5575,7 @@ mod tests {
     #[test]
     fn lowers_static_float_arrays() {
         let program = parse_program_strict(
-            "(#static VALUES (#array f32 2) (#array (#array f32 2) 1.5 2.5)) (#fn main () u64 (#return (#if (#f32.== (#index VALUES 1) 2.5) 42 0)))",
+            "(#static VALUES (#array f32 2) (#array (#array f32 2) 1.5f32 2.5f32)) (#fn main () u64 (#return (#if (#f32.== (#index VALUES 1) 2.5f32) 42 0)))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();
