@@ -1,0 +1,4 @@
+(fn main () u64
+  (let left u128 1)
+  (let right u128 2)
+  (if (&& (< left right) (== (<< left 5) 32)) 42 0))

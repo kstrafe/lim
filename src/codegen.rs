@@ -1250,7 +1250,10 @@ impl FunctionContext {
                         .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
                 }
                 Some(Expr::Symbol(operator))
-                    if matches!(operator.as_str(), "+" | "-" | "*" | "/" | "%") =>
+                    if matches!(
+                        operator.as_str(),
+                        "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
+                    ) =>
                 {
                     items.get(1).and_then(|value| self.expression_type(value))
                 }
@@ -2095,7 +2098,7 @@ impl FunctionContext {
     }
 
     fn wide_binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
-        if !matches!(operator, "+" | "-" | "&" | "|" | "^") {
+        if !matches!(operator, "+" | "-" | "&" | "|" | "^" | "<<" | ">>") {
             return Err(format!("128-bit operator '{operator}' is unsupported"));
         }
         self.expression(&items[1])?;
@@ -2105,6 +2108,47 @@ impl FunctionContext {
         self.output
             .push_str("    mov rcx, rax\n    mov r8, rdx\n    pop rax\n    pop rdx\n");
         self.stack_depth -= 2;
+        if matches!(operator, "<<" | ">>") {
+            let zero = self.label("wide_shift_zero");
+            let high = self.label("wide_shift_high");
+            let done = self.label("wide_shift_done");
+            self.output.push_str(&format!(
+                "    cmp rcx, 128\n    jae {zero}\n    cmp rcx, 64\n    jae {high}\n"
+            ));
+            if operator == "<<" {
+                self.output
+                    .push_str("    shld rdx, rax, cl\n    shl rax, cl\n");
+            } else if self
+                .expression_type(&items[1])
+                .is_some_and(|ty| matches!(ty, Type::U128))
+            {
+                self.output
+                    .push_str("    shrd rax, rdx, cl\n    shr rdx, cl\n");
+            } else {
+                self.output
+                    .push_str("    shrd rax, rdx, cl\n    sar rdx, cl\n");
+            }
+            self.output
+                .push_str(&format!("    jmp {done}\n{high}:\n    sub rcx, 64\n"));
+            if operator == "<<" {
+                self.output
+                    .push_str("    mov rdx, rax\n    shl rdx, cl\n    xor eax, eax\n");
+            } else {
+                self.output.push_str("    mov rax, rdx\n");
+                if self
+                    .expression_type(&items[1])
+                    .is_some_and(|ty| matches!(ty, Type::U128))
+                {
+                    self.output.push_str("    shr rax, cl\n    xor edx, edx\n");
+                } else {
+                    self.output.push_str("    sar rax, cl\n    sar rdx, 63\n");
+                }
+            }
+            self.output.push_str(&format!(
+                "    jmp {done}\n{zero}:\n    xor eax, eax\n    xor edx, edx\n{done}:\n"
+            ));
+            return Ok(());
+        }
         match operator {
             "+" => self.output.push_str("    add rax, rcx\n    adc rdx, r8\n"),
             "-" => self.output.push_str("    sub rax, rcx\n    sbb rdx, r8\n"),
@@ -2170,6 +2214,12 @@ impl FunctionContext {
         if self.expression_is_float(&items[1]) {
             return self.float_comparison(operator, items);
         }
+        if self
+            .expression_type(&items[1])
+            .is_some_and(|ty| is_wide_integer(&ty))
+        {
+            return self.wide_comparison(operator, items);
+        }
         self.expression(&items[1])?;
         self.push_rax();
         self.expression(&items[2])?;
@@ -2192,6 +2242,66 @@ impl FunctionContext {
         };
         self.output
             .push_str(&format!("    set{condition} al\n    movzx rax, al\n"));
+        Ok(())
+    }
+
+    fn wide_comparison(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+        self.expression(&items[1])?;
+        self.output.push_str("    push rdx\n    push rax\n");
+        self.stack_depth += 2;
+        self.expression(&items[2])?;
+        self.output
+            .push_str("    mov rcx, rax\n    mov r8, rdx\n    pop rax\n    pop rdx\n");
+        self.stack_depth -= 2;
+        let unsigned = self
+            .expression_type(&items[1])
+            .is_some_and(|ty| matches!(ty, Type::U128));
+        let true_label = self.label("wide_cmp_true");
+        let false_label = self.label("wide_cmp_false");
+        let end_label = self.label("wide_cmp_end");
+        if matches!(operator, "==" | "!=") {
+            self.output.push_str("    cmp rdx, r8\n");
+            self.output.push_str(&format!(
+                "    jne {}\n    cmp rax, rcx\n    {} {}\n",
+                if operator == "==" {
+                    false_label.as_str()
+                } else {
+                    true_label.as_str()
+                },
+                if operator == "==" { "jne" } else { "jne" },
+                if operator == "==" {
+                    false_label.as_str()
+                } else {
+                    true_label.as_str()
+                }
+            ));
+            self.output.push_str(&format!(
+                "    jmp {}\n",
+                if operator == "==" {
+                    true_label.as_str()
+                } else {
+                    false_label.as_str()
+                }
+            ));
+        } else {
+            let (high_true, high_false, low_condition) = match (operator, unsigned) {
+                ("<", true) => ("b", "a", "b"),
+                ("<=", true) => ("b", "a", "be"),
+                (">", true) => ("a", "b", "a"),
+                (">=", true) => ("a", "b", "ae"),
+                ("<", false) => ("l", "g", "b"),
+                ("<=", false) => ("l", "g", "be"),
+                (">", false) => ("g", "l", "a"),
+                (">=", false) => ("g", "l", "ae"),
+                _ => unreachable!(),
+            };
+            self.output.push_str(&format!(
+                "    cmp rdx, r8\n    j{high_true} {true_label}\n    j{high_false} {false_label}\n    cmp rax, rcx\n    j{low_condition} {true_label}\n    jmp {false_label}\n"
+            ));
+        }
+        self.output.push_str(&format!(
+            "{true_label}:\n    mov eax, 1\n    jmp {end_label}\n{false_label}:\n    xor eax, eax\n{end_label}:\n"
+        ));
         Ok(())
     }
 
