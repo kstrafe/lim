@@ -2664,6 +2664,59 @@ fn constant_value(
                 target,
             )?;
             let operation_type = qualifier.map(Type::from_name).or_else(|| target.cloned());
+            if operation_type
+                .as_ref()
+                .is_some_and(|ty| is_unsigned_type(ty) && !matches!(ty, Type::U128))
+            {
+                let ty = operation_type.as_ref().expect("unsigned operation type");
+                let width = integer_bit_width(ty.clone()).expect("unsigned integer width");
+                let maximum = (1_u128 << width) - 1;
+                let left = left as u128;
+                let right = right as u128;
+                let result = match operator {
+                    "+" if mode == Some("saturate") => {
+                        left.checked_add(right).unwrap_or(maximum).min(maximum)
+                    }
+                    "+" => left.wrapping_add(right) & maximum,
+                    "-" if mode == Some("saturate") => left.saturating_sub(right),
+                    "-" => left.wrapping_sub(right) & maximum,
+                    "*" if mode == Some("saturate") => {
+                        left.checked_mul(right).unwrap_or(maximum).min(maximum)
+                    }
+                    "*" => left.wrapping_mul(right) & maximum,
+                    "/" => left
+                        .checked_div(right)
+                        .ok_or_else(|| "constant division failed".to_owned())?,
+                    "%" => left
+                        .checked_rem(right)
+                        .ok_or_else(|| "constant remainder failed".to_owned())?,
+                    "&" => left & right,
+                    "|" => left | right,
+                    "^" => left ^ right,
+                    "<<" => {
+                        if right >= width as u128 {
+                            return Err("constant shift count is out of range".to_owned());
+                        }
+                        (left << right) & maximum
+                    }
+                    ">>" => {
+                        if right >= width as u128 {
+                            return Err("constant shift count is out of range".to_owned());
+                        }
+                        left >> right
+                    }
+                    "<" => u128::from(left < right),
+                    "<=" => u128::from(left <= right),
+                    ">" => u128::from(left > right),
+                    ">=" => u128::from(left >= right),
+                    "==" => u128::from(left == right),
+                    "!=" => u128::from(left != right),
+                    "&&" => u128::from(left != 0 && right != 0),
+                    "||" => u128::from(left != 0 || right != 0),
+                    _ => return Err("global initializer is not constant".to_owned()),
+                };
+                return Ok(result as i128);
+            }
             if matches!(operation_type, Some(Type::U128)) {
                 let left = left as u128;
                 let right = right as u128;

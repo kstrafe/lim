@@ -643,6 +643,9 @@ floating-point constants are emitted in read-only data and can be referenced
 by functions. Integer constant expressions may reference earlier constants and
 use the supported integer, comparison, and boolean operators. They are
 normalized to their declared width before emission.
+Machine-width unsigned constants are evaluated in their declared unsigned
+domain, including wrapping and saturating multiplication at the full `u64`
+range.
 
 Immutable static values may also be fixed arrays, tuples, or structs, including
 nested value aggregates. Their elements and fields remain value data in

@@ -4210,6 +4210,21 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_full_width_unsigned_machine_constants() {
+        let program = parse_program(
+            "(#const Maximum u64 18446744073709551615) \
+             (#const Wrapped u64 (#u64.*.wrap Maximum 2)) \
+             (#const Saturated u64 (#u64.*.saturate Maximum 2)) \
+             (#fn main () u64 \
+               (#return (#if (#u64.&& (#u64.== Wrapped 18446744073709551614) \
+                                      (#u64.== Saturated Maximum)) 42 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",
