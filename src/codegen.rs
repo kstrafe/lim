@@ -4180,6 +4180,33 @@ impl FunctionContext {
     }
 
     fn emit_destructure(&mut self, pattern: &Expr, ty: &Type, value: &Expr) -> Result<(), String> {
+        let storage_words = storage_word_count(ty, &self.structs, &self.enums)?;
+        if storage_words > VALUE_REGISTERS.len() {
+            let source_slots = if let Expr::Symbol(name) = value {
+                Some(local_slots(&self.locals, name)?)
+            } else if let Expr::List(items) = value {
+                match items.first() {
+                    Some(Expr::Symbol(function_name))
+                        if self
+                            .functions
+                            .get(function_name)
+                            .is_some_and(|function| function.indirect_return) =>
+                    {
+                        let base = self.call_to_aggregate_temp(function_name, &items[1..])?;
+                        Some(flat_slots(base, storage_words))
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if let Some(source_slots) = source_slots {
+                if source_slots.len() != storage_words {
+                    return Err("large destructuring source has inconsistent storage".into());
+                }
+                return self.emit_destructure_pattern_from_slots(pattern, ty, 0, &source_slots);
+            }
+        }
         let words = value_word_count(ty, &self.structs, &self.enums)?;
         self.push_value_words(value, ty, false)?;
         for register in VALUE_REGISTERS[..words].iter().rev() {
@@ -4187,6 +4214,59 @@ impl FunctionContext {
             self.stack_depth -= 1;
         }
         self.emit_destructure_pattern(pattern, ty, 0)
+    }
+
+    fn emit_destructure_pattern_from_slots(
+        &mut self,
+        pattern: &Expr,
+        ty: &Type,
+        offset: usize,
+        source_slots: &[usize],
+    ) -> Result<(), String> {
+        let Expr::List(pattern_items) = pattern else {
+            return Err("destructuring pattern must be a constructor list".into());
+        };
+        let Some(Expr::Symbol(constructor)) = pattern_items.first() else {
+            return Err("destructuring pattern must start with a constructor".into());
+        };
+        let fields = self.aggregate_pattern_fields(ty, constructor)?;
+        if pattern_items.len() - 1 != fields.len() {
+            return Err("destructuring pattern has the wrong field count".into());
+        }
+        let mut field_offset = offset;
+        for (binding, field_type) in pattern_items[1..].iter().zip(fields) {
+            let field_words = storage_word_count(&field_type, &self.structs, &self.enums)?;
+            match binding {
+                Expr::Symbol(name) if name == "_" => {}
+                Expr::Symbol(name) => {
+                    let slots = local_slots(&self.locals, name)?;
+                    if slots.len() != field_words {
+                        return Err(
+                            "destructuring binding has an inconsistent flattened layout".into()
+                        );
+                    }
+                    for (index, slot) in slots.iter().enumerate() {
+                        let source_slot = source_slots
+                            .get(field_offset + index)
+                            .ok_or_else(|| "destructuring source exceeds storage".to_owned())?;
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                            source_slot * 8,
+                            slot * 8
+                        ));
+                    }
+                }
+                Expr::List(_) => self.emit_destructure_pattern_from_slots(
+                    binding,
+                    &field_type,
+                    field_offset,
+                    source_slots,
+                )?,
+                _ => return Err("destructuring fields must be bindings or nested patterns".into()),
+            }
+            field_offset += field_words;
+        }
+        Ok(())
     }
 
     fn emit_destructure_pattern(
