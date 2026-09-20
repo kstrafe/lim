@@ -1005,6 +1005,27 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
 
 fn lower_expr(expression: &Expr) -> Result<Expr, String> {
     match expression {
+        Expr::List(items) if is_form(expression, "if-let") => {
+            if items.len() != 4 && items.len() != 5 {
+                return Err(
+                    "if-let requires a pattern, value, then expression, and optional else expression".into(),
+                );
+            }
+            let pattern = items[1].clone();
+            let value = lower_expr(&items[2])?;
+            let then_value = lower_expr(&items[3])?;
+            let fallback = if items.len() == 5 {
+                lower_expr(&items[4])?
+            } else {
+                Expr::List(Vec::new())
+            };
+            Ok(Expr::List(vec![
+                Expr::Symbol("match".into()),
+                value,
+                Expr::List(vec![pattern, then_value]),
+                Expr::List(vec![Expr::Symbol("_".into()), fallback]),
+            ]))
+        }
         Expr::List(items) if is_form(expression, "block") => {
             let mut statements = Vec::with_capacity(items.len().saturating_sub(1));
             for item in &items[1..] {
@@ -1918,6 +1939,16 @@ mod tests {
         assert!(generate_assembly(&program)
             .unwrap()
             .contains(".globl Maybe_x3f__x2d_construct"));
+    }
+
+    #[test]
+    fn lowers_if_let_to_native_match() {
+        let program = parse_program(
+            "(@optional u64 Maybe?) (fn main () u64 (let value Maybe? (Maybe?-construct 42)) (if-let (Maybe?-some payload) value payload 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
     }
 
     #[test]

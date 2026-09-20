@@ -209,7 +209,13 @@ Enums can also carry one scalar payload:
 (enum Maybe ((Some u64) None))
 (fn main () u64
   (let value Maybe (Some 42))
-  (match value ((Some payload) payload) (None 7)))
+(match value ((Some payload) payload) (None 7)))
+```
+
+`if-let` is syntactic sugar for a two-arm match:
+
+```lisp
+(if-let (Some payload) value payload 0)
 ```
 
 Payload variants may contain multiple scalar fields and bind them in order:

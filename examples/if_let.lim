@@ -1,0 +1,5 @@
+(@optional u64 Maybe?)
+
+(fn main () u64
+  (let value Maybe? (Maybe?-construct 42))
+  (if-let (Maybe?-some payload) value payload 0))
