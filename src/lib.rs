@@ -3409,6 +3409,18 @@ mod tests {
     }
 
     #[test]
+    fn emits_wide_division_by_zero_traps() {
+        let program = parse_program(
+            "(#fn main () u128 \
+               (#return (#u128./.wrap 1 0)))",
+        )
+        .unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("wide_division_by_zero"));
+        assert!(assembly.contains("ud2"));
+    }
+
+    #[test]
     fn lowers_unsigned_division_and_remainder() {
         let program = parse_program(
             "(fn main () u64 (let left u64 20) (let right u64 3) (+ (/ left right) (% left right)))",
