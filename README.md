@@ -414,6 +414,8 @@ bindings in scope. Its else body must diverge explicitly:
 (#return payload)
 ```
 
+The terminal else statement may also be `#panic` or `#unreachable`.
+
 The same aggregate patterns used by `match` are also valid in `if-let` and
 `while-let`, including tuple and struct constructor patterns.
 

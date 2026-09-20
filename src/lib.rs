@@ -3885,6 +3885,21 @@ mod tests {
     }
 
     #[test]
+    fn accepts_diverging_let_else_expressions() {
+        let program = parse_program_strict(
+            "(#enum Maybe ((Some u64) None)) \
+             (#fn main () u64 \
+               (#let value Maybe (Some 42)) \
+               (#let-else (Some payload) Maybe value \
+                 (#unreachable)) \
+               (#return payload))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn matches_wide_enum_payload_literals() {
         let program = parse_program(
             "(#enum Maybe ((Some i128) None)) \

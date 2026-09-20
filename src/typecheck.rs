@@ -508,11 +508,11 @@ fn statement_type(
                 Some(&binding_type),
             )?;
             require_type(&actual, &binding_type, "let-else value")?;
-            if !matches!(
-                else_body.last(),
-                Some(Statement::Return(_)) | Some(Statement::Break) | Some(Statement::Continue)
-            ) {
-                return Err("let-else body must diverge with return, break, or continue".into());
+            if !else_body.last().is_some_and(statement_diverges) {
+                return Err(
+                    "let-else body must diverge with return, break, continue, panic, or unreachable"
+                        .into(),
+                );
             }
             let mut else_variables = variables.clone();
             let mut else_mutable = mutable.clone();
@@ -844,6 +844,17 @@ fn statement_type(
         Statement::Expr(value) => expression(
             value, variables, functions, structs, enums, mutable, aliases, None,
         ),
+    }
+}
+
+fn statement_diverges(statement: &Statement) -> bool {
+    match statement {
+        Statement::Return(_) | Statement::Break | Statement::Continue => true,
+        Statement::Expr(Expr::List(items)) => matches!(
+            items.first(),
+            Some(Expr::Symbol(name)) if matches!(name.as_str(), "panic" | "unreachable")
+        ),
+        _ => false,
     }
 }
 
