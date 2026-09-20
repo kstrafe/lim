@@ -1934,7 +1934,11 @@ impl FunctionContext {
                 {
                     Some(Type::Unit)
                 }
-                Some(Expr::Symbol(operator)) if operator == "size-of" => Some(Type::Usize),
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "size-of" | "align-of") =>
+                {
+                    Some(Type::Usize)
+                }
                 Some(Expr::Symbol(operator)) if operator == "tuple" => Some(Type::Tuple(
                     items[1..]
                         .iter()
@@ -2598,7 +2602,8 @@ impl FunctionContext {
                 let target = resolve_type(&parse_type(items.get(2))?, &self.aliases)?;
                 self.cast_expression(&items[1], &target)
             }
-            "size-of" => self.size_of_expression(items),
+            "size-of" => self.layout_size_expression("size-of", items),
+            "align-of" => self.layout_size_expression("align-of", items),
             "match" => self.match_expression(items, None),
             "index" => self.index_expression(items),
             "get" => self.field_expression(items),
@@ -3145,14 +3150,53 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn size_of_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+    fn layout_size_expression(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
         if items.len() != 2 {
-            return Err("size-of requires one type".into());
+            return Err(format!("{operator} requires one type"));
         }
         let ty = resolve_type(&parse_type(items.get(1))?, &self.aliases)?;
-        let size = self.native_type_size(&ty)?;
-        self.output.push_str(&format!("    mov rax, {size}\n"));
+        let value = if operator == "size-of" {
+            self.native_type_size(&ty)?
+        } else {
+            self.native_type_align(&ty)?
+        };
+        self.output.push_str(&format!("    mov rax, {value}\n"));
         Ok(())
+    }
+
+    fn native_type_align(&self, ty: &Type) -> Result<usize, String> {
+        match ty {
+            Type::I128 | Type::U128 => Ok(8),
+            Type::Array(element, _) => self.native_type_align(element),
+            Type::Tuple(fields) => fields
+                .iter()
+                .map(|field| self.native_type_align(field))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .max()
+                .unwrap_or(1)
+                .try_into()
+                .map_err(|_| "alignment is too large".to_owned()),
+            Type::Named(name) => {
+                if let Some(fields) = self.structs.get(name) {
+                    return fields
+                        .iter()
+                        .map(|field| self.native_type_align(&field.ty))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .max()
+                        .unwrap_or(1)
+                        .try_into()
+                        .map_err(|_| "alignment is too large".to_owned());
+                }
+                if self.enums.contains_key(name) {
+                    return Ok(8);
+                }
+                Err(format!("unknown type '{name}' in align-of"))
+            }
+            Type::Generic(name) => Err(format!("generic type '{name}' has no concrete alignment")),
+            _ => Ok(8),
+        }
     }
 
     fn native_type_size(&self, ty: &Type) -> Result<usize, String> {

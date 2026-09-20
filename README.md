@@ -96,6 +96,12 @@ The backend exposes representation sizes as a typed `usize` expression:
   (as (size-of (tuple u64 u32)) u64))
 ```
 
+`align-of` reports the corresponding native alignment:
+
+```lisp
+(as (align-of u128) u64)
+```
+
 Integer arithmetic normalizes results to the operand width, so operations on
 `u8`, `u16`, `u32`, and the signed narrow types have Rust-style low-width
 semantics.

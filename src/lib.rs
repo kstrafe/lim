@@ -2576,6 +2576,11 @@ mod tests {
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("mov rax, 16"));
+        let alignment = parse_program("(fn main () u64 (as (align-of u128) u64))").unwrap();
+        assert!(check_types(&alignment).is_ok());
+        assert!(generate_assembly(&alignment)
+            .unwrap()
+            .contains("mov rax, 8"));
         let invalid = parse_program("(fn main () usize (size-of Unknown))").unwrap();
         assert!(check_types(&invalid).is_err());
     }

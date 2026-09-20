@@ -744,7 +744,7 @@ fn list_expression(
             }
             Ok(target)
         }
-        "size-of" => {
+        "size-of" | "align-of" => {
             require_arity(operator, items, 2)?;
             let ty = resolve_type(&parse_type(items.get(1))?, aliases)?;
             validate_layout_type(&ty, structs, enums)?;
