@@ -3032,6 +3032,27 @@ fn constant_value(
                 Some(&literal_type),
             )
         }
+        Expr::List(items)
+            if items.len() == 4
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") =>
+        {
+            let condition = constant_value(
+                &items[1],
+                enums,
+                constants,
+                initializers,
+                evaluating,
+                Some(&Type::Bool),
+            )?;
+            constant_value(
+                if condition != 0 { &items[2] } else { &items[3] },
+                enums,
+                constants,
+                initializers,
+                evaluating,
+                target,
+            )
+        }
         Expr::List(items) if items.len() == 2 => {
             let operator = match &items[0] {
                 Expr::Symbol(name) => name.as_str(),
@@ -3410,6 +3431,23 @@ fn constant_float_value(
                 _ => return Err("typed floating literal requires f32 or f64".into()),
             };
             constant_float_value(&items[2], constants, initializers, evaluating, precision)
+        }
+        Expr::List(items)
+            if items.len() == 4
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") =>
+        {
+            let condition = match &items[1] {
+                Expr::Symbol(name) if name == "true" => true,
+                Expr::Symbol(name) if name == "false" => false,
+                _ => return Err("floating-point constant condition must be true or false".into()),
+            };
+            constant_float_value(
+                if condition { &items[2] } else { &items[3] },
+                constants,
+                initializers,
+                evaluating,
+                single_precision,
+            )
         }
         Expr::List(items) if items.len() == 2 => {
             let operator = match &items[0] {

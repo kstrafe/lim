@@ -831,6 +831,8 @@ read-only storage and can be read with index and get:
 
 Compile-time `const` declarations can likewise hold fixed aggregate values;
 see `examples/const_aggregate.lim`.
+Integer and literal-boolean floating-point `#if` branches are folded during
+constant evaluation; see `examples/const_if.lim`.
 
 Floating-point aggregate statics use the same typed value representation:
 
