@@ -111,8 +111,8 @@ Counted loops use explicit init, condition, step, and body forms:
 
 ```lisp
 (if true
-    (block (let value u64 40) value)
-    (block 1))
+    (block (set value 40) value)
+    (block value))
 ```
 
 Top-level `let` declarations use the same form. Function bodies are currently

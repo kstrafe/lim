@@ -1056,7 +1056,7 @@ mod tests {
     #[test]
     fn lowers_statement_blocks_in_expressions() {
         let program =
-            parse_program("(fn main () u64 (if true (block (let value u64 40) value) (block 1)))")
+            parse_program("(fn main () u64 (let mut value u64 1) (if true (block (set value 40) value) (block value)))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program)
