@@ -3292,6 +3292,21 @@ mod tests {
     }
 
     #[test]
+    fn allows_match_bindings_to_shadow_outer_locals() {
+        let program = parse_program(
+            "(#enum Maybe ((Some u64) None)) \
+             (#fn main () u64 \
+               (#let value u64 40) \
+               (#return (#match (Some 1) \
+                 ((Some value) (#u64.+.wrap value 1)) \
+                 (None value))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_mutable_while_statements() {
         let program =
             parse_program("(fn count () u64 (let mut n u64 0) (while (< n 3) (set n (+ n 1))) n)")

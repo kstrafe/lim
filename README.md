@@ -89,7 +89,8 @@ well as named types. Local variables use explicit types:
 
 Later local bindings may shadow earlier bindings, including inside a block. The
 initializer is evaluated against the earlier binding, while subsequent
-expressions use the new binding.
+expressions use the new binding. Match payload bindings follow the same lexical
+scope rule.
 
 String literals have a fixed compile-time length and their type is an explicit
 fixed array of `char`. They do not introduce pointers, slices, or implicit
