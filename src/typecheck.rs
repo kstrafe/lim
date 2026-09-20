@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
+use crate::{parse_type, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
 
 #[derive(Clone)]
 struct Signature {
@@ -603,6 +603,17 @@ fn list_expression(
             )?;
             require_same(&then_type, &else_type, "if branches")?;
             Ok(then_type)
+        }
+        "as" => {
+            require_arity(operator, items, 3)?;
+            let source = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let target = resolve_type(&parse_type(items.get(2))?, aliases)?;
+            if !is_integer(&source) || !is_integer(&target) {
+                return Err("as currently only supports integer casts".into());
+            }
+            Ok(target)
         }
         "array" => {
             let Some(Type::Array(element, length)) = expected else {

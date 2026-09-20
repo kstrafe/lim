@@ -945,6 +945,12 @@ impl FunctionContext {
             }
             "<" | "<=" | ">" | ">=" | "==" | "!=" => self.comparison(operator, items),
             "if" => self.if_expression(items),
+            "as" => {
+                if items.len() != 3 {
+                    return Err("as requires a value and target type".into());
+                }
+                self.expression(&items[1])
+            }
             "match" => self.match_expression(items),
             "index" => self.index_expression(items),
             "get" => self.field_expression(items),

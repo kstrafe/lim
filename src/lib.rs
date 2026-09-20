@@ -698,7 +698,7 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
     Ok(Statement::Expr(expression.clone()))
 }
 
-fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
+pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
     if matches!(expression, Some(Expr::List(items)) if items.is_empty()) {
         return Ok(Type::Unit);
     }
@@ -1032,6 +1032,15 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("setb al"));
         assert!(assembly.contains("shr rax, cl"));
+    }
+
+    #[test]
+    fn checks_and_lowers_explicit_integer_casts() {
+        let program = parse_program("(fn main () u64 (as (as 42 u32) u64))").unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("mov rax, 42"));
+        let invalid = parse_program("(fn main () u64 (as true u64))").unwrap();
+        assert!(check_types(&invalid).unwrap_err().contains("integer casts"));
     }
 
     #[test]

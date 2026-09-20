@@ -49,6 +49,13 @@ well as named types. Local variables use explicit types:
   total)
 ```
 
+Conversions are explicit integer casts:
+
+```lisp
+(fn main () u64
+  (as (as 42 u32) u64))
+```
+
 Named type aliases are explicit and resolve to their target type:
 
 ```lisp
