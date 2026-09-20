@@ -2343,7 +2343,7 @@ mod tests {
         .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
-        assert!(assembly.contains("xor edx, edx"));
+        assert!(assembly.contains("sar rdx, 63"));
         let signed = parse_program("(fn main () i64 (as (as (- 1) i128) i64))").unwrap();
         assert!(check_types(&signed).is_ok());
         assert!(generate_assembly(&signed).unwrap().contains("sar rdx, 63"));

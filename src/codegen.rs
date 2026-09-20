@@ -2126,7 +2126,7 @@ impl FunctionContext {
                 return Ok(());
             }
             self.normalize_integer(&source)?;
-            if matches!(target, Type::U128) || is_unsigned_type(&source) {
+            if is_unsigned_type(&source) {
                 self.output.push_str("    xor edx, edx\n");
             } else {
                 self.output.push_str("    mov rdx, rax\n    sar rdx, 63\n");
@@ -2208,6 +2208,30 @@ impl FunctionContext {
                 {
                     Some(Type::Usize)
                 }
+                Some(Expr::Symbol(operator)) if operator == "index" && items.len() == 3 => {
+                    match self.expression_type(&items[1])? {
+                        Type::Array(element, _) => Some(*element),
+                        _ => None,
+                    }
+                }
+                Some(Expr::Symbol(operator)) if operator == "get" && items.len() == 3 => match self
+                    .expression_type(&items[1])?
+                {
+                    Type::Tuple(fields) => match &items[2] {
+                        Expr::Integer(index) if *index >= 0 => fields.get(*index as usize).cloned(),
+                        _ => None,
+                    },
+                    Type::Named(name) => match &items[2] {
+                        Expr::Symbol(field_name) => self.structs.get(&name).and_then(|fields| {
+                            fields
+                                .iter()
+                                .find(|field| field.name == *field_name)
+                                .map(|field| field.ty.clone())
+                        }),
+                        _ => None,
+                    },
+                    _ => None,
+                },
                 Some(Expr::Symbol(operator)) if operator == "tuple" => Some(Type::Tuple(
                     items[1..]
                         .iter()
@@ -2836,7 +2860,7 @@ impl FunctionContext {
                 })
                 .expect("validated enum variant");
             for (index, value) in items[1..].iter().enumerate().rev() {
-                self.expression(value)?;
+                self.expression_as_abi_word(value, &variant_fields[index])?;
                 self.output
                     .push_str(&format!("    mov {}, rax\n", VALUE_REGISTERS[index + 1]));
             }
@@ -2920,7 +2944,7 @@ impl FunctionContext {
             self.expression(&items[2])?;
             self.output.push_str(&format!(
                 "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    mov rax, QWORD PTR [rsp+rcx*8+{}]\n    add rsp, {}\n    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n",
-                8,
+                0,
                 length * 8
             ));
             if matches!(*element, Type::F32) {
@@ -3801,7 +3825,7 @@ impl FunctionContext {
             ("movq", "movq", "QWORD")
         };
         self.output.push_str(&format!(
-            "    sub rsp, 16\n    {store} {memory} PTR [rsp], xmm1\n    {store} {memory} PTR [rsp+8], xmm0\n    fld {memory} PTR [rsp]\n    fld {memory} PTR [rsp+8]\n{loop_label}:\n    fprem\n    fstsw ax\n    test ah, 4\n    jnz {loop_label}\n    fstp st(0)\n    fstp {memory} PTR [rsp]\n    {load} xmm0, {memory} PTR [rsp]\n    add rsp, 16\n"
+            "    sub rsp, 16\n    {store} {memory} PTR [rsp], xmm1\n    {store} {memory} PTR [rsp+8], xmm0\n    fld {memory} PTR [rsp+8]\n    fld {memory} PTR [rsp]\n{loop_label}:\n    fprem\n    fstsw ax\n    test ah, 4\n    jnz {loop_label}\n    fstp {memory} PTR [rsp]\n    fstp st(0)\n    {load} xmm0, {memory} PTR [rsp]\n    add rsp, 16\n"
         ));
         Ok(())
     }
@@ -3986,7 +4010,7 @@ impl FunctionContext {
                 }),
             Expr::List(items) => match items.first() {
                 Some(Expr::Symbol(operator))
-                    if matches!(operator.as_str(), "+" | "-" | "*" | "/") =>
+                    if matches!(operator.as_str(), "+" | "-" | "*" | "/" | "%") =>
                 {
                     items
                         .get(1)
@@ -4002,6 +4026,9 @@ impl FunctionContext {
                         _ => None,
                     })
                     .next(),
+                Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "index" | "get") => {
+                    self.expression_type(expression).filter(is_float_type)
+                }
                 Some(Expr::Symbol(operator)) => self
                     .functions
                     .get(operator)
