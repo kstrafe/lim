@@ -73,6 +73,17 @@ The native backend flattens scalar struct fields into stack slots. Struct
 parameters, nested aggregate fields, and aggregate returns are reserved for a
 later ABI-lowering stage.
 
+Payload-free enums use integer discriminants and support exhaustive `match`:
+
+```lisp
+(enum Color (Red Green Blue))
+(fn color-value () u64
+  (match Green
+    (Red 10)
+    (Green 20)
+    (_ 30)))
+```
+
 Top-level `let` declarations use the same form. Function bodies are currently
 represented as statements, while their expressions remain generic S-expressions
 for the type checker and later compiler stages.

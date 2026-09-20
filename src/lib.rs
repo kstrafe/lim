@@ -348,11 +348,20 @@ pub struct Field {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnumVariant {
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
     Function(Function),
     Struct {
         name: String,
         fields: Vec<Field>,
+    },
+    Enum {
+        name: String,
+        variants: Vec<EnumVariant>,
     },
     Let {
         name: String,
@@ -389,6 +398,10 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
             name: parse_struct_name(items)?,
             fields: parse_struct_fields(items)?,
         }),
+        "enum" => Ok(Item::Enum {
+            name: parse_enum_name(items)?,
+            variants: parse_enum_variants(items)?,
+        }),
         "let" => {
             let binding = parse_let(items)?;
             Ok(Item::Let {
@@ -423,6 +436,28 @@ fn parse_struct_fields(items: &[Expr]) -> Result<Vec<Field>, String> {
         });
     }
     Ok(result)
+}
+
+fn parse_enum_name(items: &[Expr]) -> Result<String, String> {
+    if items.len() != 3 {
+        return Err("enum requires a name and variant list".into());
+    }
+    Ok(expect_symbol(items.get(1), "enum name")?.to_owned())
+}
+
+fn parse_enum_variants(items: &[Expr]) -> Result<Vec<EnumVariant>, String> {
+    let variants = expect_list(items.get(2).unwrap(), "enum variants")?;
+    if variants.is_empty() {
+        return Err("enum requires at least one variant".into());
+    }
+    variants
+        .iter()
+        .map(|variant| {
+            Ok(EnumVariant {
+                name: expect_symbol(Some(variant), "enum variant")?.to_owned(),
+            })
+        })
+        .collect()
 }
 
 fn parse_function(items: &[Expr]) -> Result<Function, String> {
@@ -874,5 +909,16 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("and_false"));
         assert!(assembly.contains("xor eax, 1"));
+    }
+
+    #[test]
+    fn checks_and_lowers_payload_free_enums() {
+        let program = parse_program(
+            "(enum Color (Red Green Blue)) (fn main () u64 (match Green (Red 10) (Green 20) (_ 30)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("cmp QWORD PTR [rsp], 1"));
     }
 }

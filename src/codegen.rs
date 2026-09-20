@@ -21,11 +21,26 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             _ => None,
         })
         .collect();
+    let enums: HashMap<String, Vec<String>> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Enum { name, variants } => Some((
+                name.clone(),
+                variants
+                    .iter()
+                    .map(|variant| variant.name.clone())
+                    .collect(),
+            )),
+            _ => None,
+        })
+        .collect();
     let mut output = String::from(".intel_syntax noprefix\n.text\n");
     for item in &program.items {
         match item {
-            Item::Function(function) => generate_function(function, &mut output, &structs)?,
+            Item::Function(function) => generate_function(function, &mut output, &structs, &enums)?,
             Item::Struct { .. } => {}
+            Item::Enum { .. } => {}
             Item::Let { name, .. } => {
                 return Err(format!(
                     "top-level let '{name}' is not supported by the native backend"
@@ -41,8 +56,9 @@ fn generate_function(
     function: &Function,
     output: &mut String,
     structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<String>>,
 ) -> Result<(), String> {
-    ensure_integer_type(&function.return_type)?;
+    ensure_scalar_type(&function.return_type, enums)?;
     if function.parameters.len() > ARGUMENT_REGISTERS.len() {
         return Err(format!(
             "function '{}' has more than six parameters",
@@ -50,7 +66,7 @@ fn generate_function(
         ));
     }
     for parameter in &function.parameters {
-        ensure_integer_type(&parameter.ty)?;
+        ensure_scalar_type(&parameter.ty, enums)?;
     }
 
     let mut locals = HashMap::new();
@@ -61,11 +77,12 @@ fn generate_function(
             &parameter.name,
             &parameter.ty,
             structs,
+            enums,
             &mut next_slot,
         )?;
     }
     for statement in &function.body {
-        collect_locals(statement, &mut locals, structs, &mut next_slot)?;
+        collect_locals(statement, &mut locals, structs, enums, &mut next_slot)?;
     }
     let frame_size = ((next_slot.saturating_sub(1) * 8 + 15) / 16) * 16;
 
@@ -89,6 +106,7 @@ fn generate_function(
     let mut context = FunctionContext {
         locals,
         structs: structs.clone(),
+        enums: enums.clone(),
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
@@ -111,15 +129,16 @@ fn collect_locals(
     statement: &Statement,
     locals: &mut HashMap<String, Storage>,
     structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<String>>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
     match statement {
         Statement::Let { name, ty, .. } => {
-            add_local(locals, name, ty, structs, next_slot)?;
+            add_local(locals, name, ty, structs, enums, next_slot)?;
         }
         Statement::While { body, .. } => {
             for statement in body {
-                collect_locals(statement, locals, structs, next_slot)?;
+                collect_locals(statement, locals, structs, enums, next_slot)?;
             }
         }
         Statement::Assign { .. }
@@ -136,9 +155,10 @@ fn add_local(
     name: &str,
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<String>>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
-    let storage = if ensure_integer_type(ty).is_ok() {
+    let storage = if ensure_scalar_type(ty, enums).is_ok() {
         let slot = *next_slot;
         *next_slot += 1;
         Storage::Scalar(slot)
@@ -148,7 +168,7 @@ fn add_local(
             .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
         let mut slots = Vec::with_capacity(fields.len());
         for field in fields {
-            ensure_integer_type(&field.ty)
+            ensure_scalar_type(&field.ty, enums)
                 .map_err(|_| format!("struct field '{}' is not scalar", field.name))?;
             slots.push((field.name.clone(), *next_slot));
             *next_slot += 1;
@@ -201,9 +221,18 @@ fn ensure_integer_type(ty: &Type) -> Result<(), String> {
     }
 }
 
+fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<String>>) -> Result<(), String> {
+    if matches!(ty, Type::Named(name) if enums.contains_key(name)) {
+        Ok(())
+    } else {
+        ensure_integer_type(ty)
+    }
+}
+
 struct FunctionContext {
     locals: HashMap<String, Storage>,
     structs: HashMap<String, Vec<Field>>,
+    enums: HashMap<String, Vec<String>>,
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
@@ -318,6 +347,12 @@ impl FunctionContext {
             Expr::Integer(value) => self.output.push_str(&format!("    mov rax, {value}\n")),
             Expr::Symbol(name) if name == "true" => self.output.push_str("    mov eax, 1\n"),
             Expr::Symbol(name) if name == "false" => self.output.push_str("    xor eax, eax\n"),
+            Expr::Symbol(name) if self.enum_value(name).is_some() => {
+                self.output.push_str(&format!(
+                    "    mov rax, {}\n",
+                    self.enum_value(name).unwrap()
+                ));
+            }
             Expr::Symbol(name) => {
                 let slot = scalar_slot(&self.locals, name);
                 self.output
@@ -343,11 +378,55 @@ impl FunctionContext {
             }
             "<" | "<=" | ">" | ">=" | "==" | "!=" => self.comparison(operator, items),
             "if" => self.if_expression(items),
+            "match" => self.match_expression(items),
             "get" => self.field_expression(items),
             "!" => self.boolean_not(items),
             "&&" | "||" => self.boolean_logic(operator, items),
             _ => self.call(operator, &items[1..]),
         }
+    }
+
+    fn enum_value(&self, name: &str) -> Option<usize> {
+        self.enums
+            .values()
+            .find_map(|variants| variants.iter().position(|variant| variant == name))
+    }
+
+    fn match_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() < 3 {
+            return Err("match requires a value and an arm".into());
+        }
+        let end = self.label("match_end");
+        let base_depth = self.stack_depth;
+        self.expression(&items[1])?;
+        self.push_rax();
+        for arm in &items[2..] {
+            let arm = match arm {
+                Expr::List(arm) if arm.len() == 2 => arm,
+                _ => return Err("invalid match arm".into()),
+            };
+            let next = self.label("match_next");
+            let pattern = match &arm[0] {
+                Expr::Symbol(pattern) => pattern,
+                _ => return Err("match pattern must be a symbol".into()),
+            };
+            if pattern != "_" {
+                let value = self
+                    .enum_value(pattern)
+                    .ok_or_else(|| format!("unknown enum variant '{pattern}'"))?;
+                self.output.push_str(&format!(
+                    "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
+                ));
+            }
+            self.expression(&arm[1])?;
+            self.output
+                .push_str("    mov rdx, rax\n    pop rcx\n    mov rax, rdx\n");
+            self.output.push_str(&format!("    jmp {end}\n{next}:\n"));
+            self.stack_depth = base_depth + 1;
+        }
+        self.output.push_str(&format!("{end}:\n"));
+        self.stack_depth = base_depth;
+        Ok(())
     }
 
     fn unary_negate(&mut self, items: &[Expr]) -> Result<(), String> {
