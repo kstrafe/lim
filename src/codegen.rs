@@ -1058,14 +1058,7 @@ fn generate_function(
                 .max()
                 .unwrap_or(0),
         );
-    let projection_regions = function
-        .body
-        .iter()
-        .map(max_projection_depth_in_statement)
-        .max()
-        .unwrap_or(0)
-        + 1;
-    let aggregate_temp_regions = functions
+    let argument_temp_regions = functions
         .values()
         .map(|abi| {
             abi.indirect_parameters
@@ -1075,7 +1068,15 @@ fn generate_function(
         })
         .max()
         .unwrap_or(1)
-        .max(projection_regions);
+        .max(1);
+    let projection_regions = function
+        .body
+        .iter()
+        .map(max_projection_depth_in_statement)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let aggregate_temp_regions = argument_temp_regions + projection_regions;
     let aggregate_temp_base = if aggregate_temp_words == 0 {
         None
     } else {
@@ -1257,6 +1258,7 @@ fn generate_function(
         return_pointer_slot,
         aggregate_temp_base,
         aggregate_temp_words,
+        aggregate_argument_regions: argument_temp_regions,
         aggregate_argument_cursor: 0,
         aggregate_projection_depth: 0,
         output: String::new(),
@@ -3724,6 +3726,7 @@ struct FunctionContext {
     return_pointer_slot: Option<usize>,
     aggregate_temp_base: Option<usize>,
     aggregate_temp_words: usize,
+    aggregate_argument_regions: usize,
     aggregate_argument_cursor: usize,
     aggregate_projection_depth: usize,
     output: String,
@@ -9785,7 +9788,8 @@ impl FunctionContext {
                     let temp_base = self
                         .aggregate_temp_base
                         .ok_or_else(|| "no aggregate temporary is available".to_owned())?
-                        + (self.aggregate_projection_depth + 1) * self.aggregate_temp_words;
+                        + (self.aggregate_argument_regions + self.aggregate_projection_depth)
+                            * self.aggregate_temp_words;
                     self.aggregate_projection_depth += 1;
                     self.store_value_to_slots(
                         &items[1],
@@ -9814,7 +9818,8 @@ impl FunctionContext {
                     let temp_base = self
                         .aggregate_temp_base
                         .ok_or_else(|| "no aggregate temporary is available".to_owned())?
-                        + (self.aggregate_projection_depth + 1) * self.aggregate_temp_words;
+                        + (self.aggregate_argument_regions + self.aggregate_projection_depth)
+                            * self.aggregate_temp_words;
                     self.aggregate_projection_depth += 1;
                     self.store_value_to_slots(
                         &items[1],
@@ -9945,7 +9950,8 @@ impl FunctionContext {
                     let temp_base = self
                         .aggregate_temp_base
                         .ok_or_else(|| "no aggregate temporary is available".to_owned())?
-                        + (self.aggregate_projection_depth + 1) * self.aggregate_temp_words;
+                        + (self.aggregate_argument_regions + self.aggregate_projection_depth)
+                            * self.aggregate_temp_words;
                     let source_words =
                         storage_word_count(&source_type, &self.structs, &self.enums)?;
                     self.aggregate_projection_depth += 1;
