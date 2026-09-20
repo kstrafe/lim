@@ -256,6 +256,7 @@ fn collect_statement_calls(
 ) {
     match statement {
         Statement::Let { value, .. }
+        | Statement::Destructure { value, .. }
         | Statement::Assign { value, .. }
         | Statement::FieldAssign { value, .. }
         | Statement::TupleAssign { value, .. }
@@ -440,6 +441,35 @@ fn statement_type(
             variables.insert(name.clone(), binding_type);
             if *is_mutable {
                 mutable.insert(name.clone());
+            }
+            Ok(Type::Unit)
+        }
+        Statement::Destructure {
+            pattern,
+            ty,
+            value,
+            mutable: is_mutable,
+        } => {
+            let binding_type = resolve_type(ty, aliases)?;
+            let actual = expression(
+                value,
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&binding_type),
+            )?;
+            require_type(&actual, &binding_type, "destructuring let")?;
+            for (name, field_type) in check_destructure_pattern(pattern, &binding_type, structs)? {
+                if variables.contains_key(&name) {
+                    return Err(format!("duplicate local '{name}'"));
+                }
+                variables.insert(name.clone(), field_type);
+                if *is_mutable {
+                    mutable.insert(name);
+                }
             }
             Ok(Type::Unit)
         }
@@ -689,6 +719,45 @@ fn statement_type(
             value, variables, functions, structs, enums, mutable, aliases, None,
         ),
     }
+}
+
+fn check_destructure_pattern(
+    pattern: &Expr,
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Result<Vec<(String, Type)>, String> {
+    let Expr::List(items) = pattern else {
+        return Err("destructuring pattern must be a tuple or struct constructor".into());
+    };
+    let Some(Expr::Symbol(constructor)) = items.first() else {
+        return Err("destructuring pattern must start with a constructor".into());
+    };
+    let fields = match ty {
+        Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+        Type::Named(name) if name == constructor => structs
+            .get(name)
+            .ok_or_else(|| format!("unknown struct '{name}'"))?
+            .iter()
+            .map(|field| field.ty.clone())
+            .collect(),
+        _ => return Err("destructuring pattern does not match its declared type".into()),
+    };
+    if items.len() - 1 != fields.len() {
+        return Err(format!(
+            "destructuring pattern expects {} fields",
+            fields.len()
+        ));
+    }
+    let mut bindings = Vec::new();
+    for (binding, field_type) in items[1..].iter().zip(fields) {
+        let Expr::Symbol(binding) = binding else {
+            return Err("destructuring fields must be binding names or '_'".into());
+        };
+        if binding != "_" {
+            bindings.push((binding.clone(), field_type));
+        }
+    }
+    Ok(bindings)
 }
 
 fn expression(

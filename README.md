@@ -289,6 +289,14 @@ up to six scalar ABI words for struct parameters and returns.
 
 Mutable struct locals support field writes with `set-field`.
 
+Typed tuple and struct `let` bindings may destructure immutable value
+aggregates explicitly:
+
+```lisp
+(#let (#tuple first second) (#tuple u64 u64) value)
+(#let (Point x y) Point point)
+```
+
 Payload-free enums use integer discriminants and support exhaustive `match`:
 
 ```lisp

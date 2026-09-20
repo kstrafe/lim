@@ -447,6 +447,12 @@ pub enum Statement {
         value: Expr,
         mutable: bool,
     },
+    Destructure {
+        pattern: Expr,
+        ty: Type,
+        value: Expr,
+        mutable: bool,
+    },
     Assign {
         name: String,
         value: Expr,
@@ -1053,6 +1059,17 @@ fn specialize_statement(
             mutable,
         } => Statement::Let {
             name: name.clone(),
+            ty: specialize_type(ty, substitutions, templates, names, generated)?,
+            value: specialize_expr(value, substitutions, templates, names, generated)?,
+            mutable: *mutable,
+        },
+        Statement::Destructure {
+            pattern,
+            ty,
+            value,
+            mutable,
+        } => Statement::Destructure {
+            pattern: pattern.clone(),
             ty: specialize_type(ty, substitutions, templates, names, generated)?,
             value: specialize_expr(value, substitutions, templates, names, generated)?,
             mutable: *mutable,
@@ -1846,6 +1863,17 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
             value: value.clone(),
             mutable: *mutable,
         },
+        Statement::Destructure {
+            pattern,
+            ty,
+            value,
+            mutable,
+        } => Statement::Destructure {
+            pattern: pattern.clone(),
+            ty: replace_generic_types(ty, parameters),
+            value: value.clone(),
+            mutable: *mutable,
+        },
         Statement::Assign { .. }
         | Statement::ArrayAssign { .. }
         | Statement::FieldAssign { .. }
@@ -2050,7 +2078,26 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
     let lowered = lower_expr(expression)?;
     let expression = &lowered;
     if is_form(expression, "let") {
-        let binding = parse_let(expect_list(expression, "let statement")?)?;
+        let items = expect_list(expression, "let statement")?;
+        let mutable = matches!(items.get(1), Some(Expr::Symbol(keyword)) if keyword == "mut");
+        let name_index = if mutable { 2 } else { 1 };
+        let type_index = name_index + 1;
+        let value_index = type_index + 1;
+        if items.len() != value_index + 1 {
+            return Err("let requires the form (let name Type value)".into());
+        }
+        if !matches!(items.get(name_index), Some(Expr::Symbol(_))) {
+            if mutable {
+                return Err("destructuring let patterns cannot be mutable yet".into());
+            }
+            return Ok(Statement::Destructure {
+                pattern: items[name_index].clone(),
+                ty: parse_type(items.get(type_index))?,
+                value: lower_expr(&items[value_index])?,
+                mutable,
+            });
+        }
+        let binding = parse_let(items)?;
         return Ok(Statement::Let {
             name: binding.name,
             ty: binding.ty,
@@ -3192,6 +3239,26 @@ mod tests {
                 (#set total (#u64.+.wrap total (#get value 1))) \
                 (#set-field value 0 0)) \
               (#return (#u64.+.wrap total (point_value))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn lowers_typed_tuple_and_struct_let_destructuring() {
+        let program = parse_program(
+            "(#struct Point ((x u64) (y u64))) \
+             (#fn sum_tuple ((value (#tuple u64 u64))) u64 \
+              (#let (#tuple first second) (#tuple u64 u64) value) \
+              (#return (#u64.+.wrap first second))) \
+             (#fn sum_point ((value Point)) u64 \
+              (#let (Point x y) Point value) \
+              (#return (#u64.+.wrap x y))) \
+             (#fn main () u64 \
+              (#return (#u64.+.wrap \
+                (sum_tuple (#tuple (#tuple u64 u64) 20 10)) \
+                (sum_point (Point 7 5)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());

@@ -227,6 +227,17 @@ fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, T
             value: substitute_expr(value, substitutions),
             mutable: *mutable,
         },
+        Statement::Destructure {
+            pattern,
+            ty,
+            value,
+            mutable,
+        } => Statement::Destructure {
+            pattern: pattern.clone(),
+            ty: substitute_type(ty, substitutions),
+            value: substitute_expr(value, substitutions),
+            mutable: *mutable,
+        },
         Statement::Assign { name, value } => Statement::Assign {
             name: name.clone(),
             value: substitute_expr(value, substitutions),
@@ -323,6 +334,17 @@ fn rewrite_statement(
             value: rewrite_expr(value, specializations),
             mutable: *mutable,
         },
+        Statement::Destructure {
+            pattern,
+            ty,
+            value,
+            mutable,
+        } => Statement::Destructure {
+            pattern: pattern.clone(),
+            ty: ty.clone(),
+            value: rewrite_expr(value, specializations),
+            mutable: *mutable,
+        },
         Statement::Assign { name, value } => Statement::Assign {
             name: name.clone(),
             value: rewrite_expr(value, specializations),
@@ -404,6 +426,7 @@ fn collect_generic_calls_expr(expression: &Expr, calls: &mut Vec<String>) {
 fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String>) {
     match statement {
         Statement::Let { value, .. }
+        | Statement::Destructure { value, .. }
         | Statement::Assign { value, .. }
         | Statement::FieldAssign { value, .. }
         | Statement::TupleAssign { value, .. }
@@ -1000,6 +1023,18 @@ fn collect_local_types(
             }
             collect_expr_types(value, types, aliases, enums, structs);
         }
+        Statement::Destructure { value, .. } => {
+            if let Statement::Destructure { pattern, ty, .. } = statement {
+                if let Ok(ty) = resolve_type(ty, aliases) {
+                    if let Ok(bindings) = destructure_bindings(pattern, &ty, structs) {
+                        for (name, field_type) in bindings {
+                            types.entry(name).or_insert(field_type);
+                        }
+                    }
+                }
+            }
+            collect_expr_types(value, types, aliases, enums, structs);
+        }
         Statement::While { condition, body } => {
             collect_expr_types(condition, types, aliases, enums, structs);
             for statement in body {
@@ -1150,6 +1185,23 @@ fn collect_locals(
             if let Statement::Let { value, .. } = statement {
                 collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?;
             }
+        }
+        Statement::Destructure {
+            pattern, ty, value, ..
+        } => {
+            let ty = resolve_type(ty, aliases)?;
+            for (name, field_type) in destructure_bindings(pattern, &ty, structs)? {
+                add_local(
+                    locals,
+                    &name,
+                    &field_type,
+                    structs,
+                    enums,
+                    aliases,
+                    next_slot,
+                )?;
+            }
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot, types)?;
         }
         Statement::While { condition, body } => {
             collect_expr_locals(condition, locals, structs, enums, aliases, next_slot, types)?;
@@ -1321,6 +1373,45 @@ fn collect_expr_locals(
         _ => {}
     }
     Ok(())
+}
+
+fn destructure_bindings(
+    pattern: &Expr,
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Result<Vec<(String, Type)>, String> {
+    let Expr::List(items) = pattern else {
+        return Err("destructuring pattern must be a tuple or struct constructor".into());
+    };
+    let Some(Expr::Symbol(constructor)) = items.first() else {
+        return Err("destructuring pattern must start with a constructor".into());
+    };
+    let fields = match ty {
+        Type::Tuple(fields) if constructor == "tuple" => fields.clone(),
+        Type::Named(name) if name == constructor => structs
+            .get(name)
+            .ok_or_else(|| format!("unknown struct '{name}'"))?
+            .iter()
+            .map(|field| field.ty.clone())
+            .collect(),
+        _ => return Err("destructuring pattern does not match its declared type".into()),
+    };
+    if items.len() - 1 != fields.len() {
+        return Err(format!(
+            "destructuring pattern expects {} fields",
+            fields.len()
+        ));
+    }
+    let mut bindings = Vec::new();
+    for (binding, field_type) in items[1..].iter().zip(fields) {
+        let Expr::Symbol(binding) = binding else {
+            return Err("destructuring fields must be binding names or '_'".into());
+        };
+        if binding != "_" {
+            bindings.push((binding.clone(), field_type));
+        }
+    }
+    Ok(bindings)
 }
 
 fn add_local(
@@ -2262,6 +2353,11 @@ impl FunctionContext {
                     }
                 }
             }
+            Statement::Destructure {
+                pattern, ty, value, ..
+            } => {
+                self.emit_destructure(pattern, ty, value)?;
+            }
             Statement::Assign { name, value } => {
                 let expected = self.local_types.get(name).cloned();
                 if let Some(ty) = expected.as_ref() {
@@ -2496,6 +2592,60 @@ impl FunctionContext {
                     self.expression(expression)?;
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn emit_destructure(&mut self, pattern: &Expr, ty: &Type, value: &Expr) -> Result<(), String> {
+        let fields = match ty {
+            Type::Tuple(fields) => fields.clone(),
+            Type::Named(name) => self
+                .structs
+                .get(name)
+                .ok_or_else(|| format!("unknown struct '{name}'"))?
+                .iter()
+                .map(|field| field.ty.clone())
+                .collect::<Vec<_>>(),
+            _ => return Err("destructuring requires a tuple or struct type".into()),
+        };
+        let Expr::List(pattern_items) = pattern else {
+            return Err("destructuring pattern must be a constructor list".into());
+        };
+        if pattern_items.len() - 1 != fields.len() {
+            return Err("destructuring pattern has the wrong field count".into());
+        }
+        let words = value_word_count(ty, &self.structs, &self.enums)?;
+        if words != fields.len() {
+            return Err("native destructuring currently requires scalar fields".into());
+        }
+        if let Expr::Symbol(name) = value {
+            if self.locals.contains_key(name) {
+                for (index, slot) in local_slots(&self.locals, name)?.into_iter().enumerate() {
+                    self.output.push_str(&format!(
+                        "    mov {}, QWORD PTR [rbp-{}]\n",
+                        VALUE_REGISTERS[index],
+                        slot * 8
+                    ));
+                }
+            } else {
+                self.expression(value)?;
+            }
+        } else {
+            self.expression(value)?;
+        }
+        for (index, binding) in pattern_items[1..].iter().enumerate() {
+            let Expr::Symbol(binding) = binding else {
+                return Err("destructuring fields must be binding names or '_'".into());
+            };
+            if binding == "_" {
+                continue;
+            }
+            let slot = scalar_slot(&self.locals, binding);
+            self.output.push_str(&format!(
+                "    mov QWORD PTR [rbp-{}], {}\n",
+                slot * 8,
+                VALUE_REGISTERS[index]
+            ));
         }
         Ok(())
     }
