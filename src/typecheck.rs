@@ -20,11 +20,15 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     }
     let mut globals = HashMap::new();
     for item in &program.items {
-        if let Item::Let {
-            name, ty, mutable, ..
-        } = item
+        let (name, ty, mutable) = match item {
+            Item::Let {
+                name, ty, mutable, ..
+            } => (name, ty, *mutable),
+            Item::Static { name, ty, .. } => (name, ty, false),
+            _ => continue,
+        };
         {
-            if *mutable {
+            if mutable {
                 return Err(format!("top-level binding '{name}' cannot be mutable"));
             }
             if globals
@@ -102,7 +106,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                 check_function(function, &functions, &structs, &enums, &globals, &aliases)?
             }
             Item::TypeAlias { .. } | Item::Struct { .. } | Item::Enum { .. } => {}
-            Item::Let { name, value, .. } => {
+            Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
                 let ty = globals.get(name).expect("global type collected");
                 let actual = expression(
                     value,

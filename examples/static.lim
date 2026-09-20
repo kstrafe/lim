@@ -1,0 +1,4 @@
+(static BuildId u64 7)
+
+(fn main () u64
+  (+ BuildId 35))

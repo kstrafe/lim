@@ -144,6 +144,13 @@ Compile-time constants use explicit types and constant initializers:
 (fn main () u64 Answer)
 ```
 
+Immutable named global storage can be declared with `static`:
+
+```lisp
+(static BuildId u64 7)
+(fn main () u64 BuildId)
+```
+
 Mutable locals, assignment, and `while` are also supported:
 
 ```lisp

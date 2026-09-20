@@ -520,6 +520,11 @@ pub enum Item {
         value: Expr,
         mutable: bool,
     },
+    Static {
+        name: String,
+        ty: Type,
+        value: Expr,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1054,6 +1059,16 @@ fn specialize_generic_types(mut items: Vec<Item>) -> Result<Vec<Item>, String> {
                     &mut generated,
                 )?;
             }
+            Item::Static { ty, value, .. } => {
+                *ty = specialize_type(ty, &HashMap::new(), &templates, &mut names, &mut generated)?;
+                *value = specialize_expr(
+                    value,
+                    &HashMap::new(),
+                    &templates,
+                    &mut names,
+                    &mut generated,
+                )?;
+            }
         }
     }
     items.retain(|item| !matches!(item, Item::Struct { type_parameters, .. } | Item::Enum { type_parameters, .. } if !type_parameters.is_empty()));
@@ -1110,6 +1125,16 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
                 ty: binding.ty,
                 value: binding.value,
                 mutable: false,
+            })
+        }
+        "static" => {
+            if items.len() != 4 {
+                return Err("static requires the form (static name Type value)".into());
+            }
+            Ok(Item::Static {
+                name: expect_symbol(items.get(1), "static name")?.to_owned(),
+                ty: parse_type(items.get(2))?,
+                value: lower_expr(&items[3])?,
             })
         }
         other => Err(format!("unknown top-level form '{other}'")),
@@ -2028,6 +2053,14 @@ mod tests {
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("Answer:"));
+    }
+
+    #[test]
+    fn parses_and_checks_immutable_statics() {
+        let program =
+            parse_program("(static BuildId u64 7) (fn main () u64 (+ BuildId 35))").unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("BuildId:"));
     }
 
     #[test]

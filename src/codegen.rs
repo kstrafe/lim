@@ -543,14 +543,18 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     let mut globals = HashMap::new();
     let mut global_types = HashMap::new();
     for item in &program.items {
-        if let Item::Let {
-            name,
-            ty,
-            value,
-            mutable,
-        } = item
+        let (name, ty, value, mutable) = match item {
+            Item::Let {
+                name,
+                ty,
+                value,
+                mutable,
+            } => (name, ty, value, *mutable),
+            Item::Static { name, ty, value } => (name, ty, value, false),
+            _ => continue,
+        };
         {
-            if *mutable {
+            if mutable {
                 return Err(format!("top-level binding '{name}' cannot be mutable"));
             }
             let ty = resolve_type(ty, &aliases)?;
@@ -621,7 +625,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             Item::Struct { .. } => {}
             Item::Enum { .. } => {}
             Item::TypeAlias { .. } => {}
-            Item::Let { .. } => {}
+            Item::Let { .. } | Item::Static { .. } => {}
         }
     }
     output.push_str(".section .note.GNU-stack,\"\",@progbits\n");
