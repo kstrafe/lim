@@ -1226,6 +1226,20 @@ impl FunctionContext {
         }
     }
 
+    fn expression_as_abi_word(&mut self, value: &Expr, ty: &Type) -> Result<(), String> {
+        if matches!(ty, Type::F32 | Type::F64) {
+            self.expression_as_float(value, ty)?;
+            if matches!(ty, Type::F32) {
+                self.output.push_str("    movd eax, xmm0\n");
+            } else {
+                self.output.push_str("    movq rax, xmm0\n");
+            }
+            Ok(())
+        } else {
+            self.expression(value)
+        }
+    }
+
     fn cast_expression(&mut self, value: &Expr, target: &Type) -> Result<(), String> {
         let source = self.expression_type(value).unwrap_or(Type::I64);
         if source == *target {
@@ -1412,7 +1426,7 @@ impl FunctionContext {
                     return Err("native struct return has too many fields".into());
                 }
                 for (index, field) in items[1..].iter().enumerate() {
-                    self.expression(field)?;
+                    self.expression_as_abi_word(field, &fields[index].ty)?;
                     if index == 0 && fields.len() == 2 {
                         self.push_rax();
                     } else if index == 1 {
@@ -2158,16 +2172,28 @@ impl FunctionContext {
                     .iter()
                     .position(|field| field.name == *field_name)
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;
-                ensure_integer_type(&fields[index].ty).map_err(|_| {
-                    "native returned-struct field access supports integer fields only".to_owned()
-                })?;
                 if index >= VALUE_REGISTERS.len() {
                     return Err("native returned struct has too many fields".into());
                 }
                 self.expression(&items[1])?;
-                if index != 0 {
-                    self.output
-                        .push_str(&format!("    mov rax, {}\n", VALUE_REGISTERS[index]));
+                let register = VALUE_REGISTERS[index];
+                let field_type = fields[index].ty.clone();
+                match field_type {
+                    Type::F32 => self.output.push_str(&format!(
+                        "    movd xmm0, {}\n",
+                        if register == "rax" { "eax" } else { "edx" }
+                    )),
+                    Type::F64 => self
+                        .output
+                        .push_str(&format!("    movq xmm0, {register}\n")),
+                    _ => {
+                        ensure_integer_type(&fields[index].ty).map_err(|_| {
+                            "native returned-struct field has unsupported type".to_owned()
+                        })?;
+                        if index != 0 {
+                            self.output.push_str(&format!("    mov rax, {register}\n"));
+                        }
+                    }
                 }
                 Ok(())
             }
@@ -2960,13 +2986,13 @@ impl FunctionContext {
                         if items.len() - 1 != fields.len() {
                             return Err(format!("constructor '{name}' has wrong field count"));
                         }
-                        let values: Box<dyn Iterator<Item = &Expr>> = if reverse {
-                            Box::new(items[1..].iter().rev())
+                        let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                            Box::new((0..fields.len()).rev())
                         } else {
-                            Box::new(items[1..].iter())
+                            Box::new(0..fields.len())
                         };
-                        for value in values {
-                            self.expression(value)?;
+                        for index in indices {
+                            self.expression_as_abi_word(&items[index + 1], &fields[index].ty)?;
                             self.push_rax();
                         }
                         return Ok(());

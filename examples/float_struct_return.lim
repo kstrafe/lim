@@ -1,0 +1,10 @@
+(struct Point ((x f64) (y f32)))
+
+(fn make () Point
+  (Point 1.5 2.5))
+
+(fn main () u64
+  (if (&& (> (get (make) x) 1.0)
+          (> (get (make) y) 2.0))
+      42
+      0))

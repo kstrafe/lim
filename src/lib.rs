@@ -1532,6 +1532,18 @@ mod tests {
     }
 
     #[test]
+    fn passes_floating_struct_fields_through_functions() {
+        let program = parse_program(
+            "(struct Point ((x f64) (y f32))) (fn make () Point (Point 1.5 2.5)) (fn main () u64 (if (&& (> (get (make) x) 1.0) (> (get (make) y) 2.0)) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("movq rax, xmm0"));
+        assert!(assembly.contains("movd xmm0, eax"));
+    }
+
+    #[test]
     fn checks_and_lowers_fixed_arrays() {
         let program = parse_program("(fn main () u64 (let mut values (array u64 2) (array 3 4)) (set-index values 1 40) (+ (index values 0) (index values 1)))").unwrap();
         assert!(check_types(&program).is_ok());

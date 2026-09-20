@@ -206,6 +206,9 @@ Integer fields can likewise be selected directly from returned structs:
 (fn main () u64 (get (point) y))
 ```
 
+Scalar floating-point struct fields also use their bit-preserving native ABI
+words when structs are returned or passed to functions.
+
 Scalar functions also support more than six arguments using the x86-64 SysV
 stack-argument convention.
 
