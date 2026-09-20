@@ -629,8 +629,11 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             let target = resolve_type(&parse_type(items.get(2))?, aliases)?;
-            if !is_integer(&source) || !is_integer(&target) {
-                return Err("as currently only supports integer casts".into());
+            if !is_cast_operand(&source) || !is_cast_target(&target) {
+                return Err(
+                    "as requires numeric, char, or bool operands and a numeric or char target"
+                        .into(),
+                );
             }
             Ok(target)
         }
@@ -1026,6 +1029,14 @@ fn is_integer(ty: &Type) -> bool {
 
 fn is_numeric(ty: &Type) -> bool {
     is_integer(ty) || matches!(ty, Type::F32 | Type::F64)
+}
+
+fn is_cast_operand(ty: &Type) -> bool {
+    is_numeric(ty) || matches!(ty, Type::Bool | Type::Char)
+}
+
+fn is_cast_target(ty: &Type) -> bool {
+    is_numeric(ty) || matches!(ty, Type::Char)
 }
 
 fn fits_integer(value: i128, ty: &Type) -> bool {

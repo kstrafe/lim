@@ -62,7 +62,8 @@ well as named types. Local variables use explicit types:
   total)
 ```
 
-Conversions are explicit integer casts:
+Conversions are explicit casts between integer, character, and floating-point
+scalar types:
 
 ```lisp
 (fn main () u64

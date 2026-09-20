@@ -7,7 +7,9 @@
 
 use std::collections::HashMap;
 
-use crate::{check_types, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
+use crate::{
+    check_types, parse_type, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type,
+};
 
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 const VALUE_REGISTERS: [&str; 6] = ["rax", "rdx", "rcx", "r8", "r9", "rdi"];
@@ -1087,6 +1089,92 @@ impl FunctionContext {
         }
     }
 
+    fn cast_expression(&mut self, value: &Expr, target: &Type) -> Result<(), String> {
+        let source = self.expression_type(value).unwrap_or(Type::I64);
+        if source == *target {
+            return self.expression_as_expected(value, target);
+        }
+        if matches!(target, Type::F32 | Type::F64) {
+            if matches!(source, Type::F32 | Type::F64) {
+                self.expression_as_float(value, &source)?;
+                if matches!((&source, target), (Type::F32, Type::F64)) {
+                    self.output.push_str("    cvtss2sd xmm0, xmm0\n");
+                } else if matches!((&source, target), (Type::F64, Type::F32)) {
+                    self.output.push_str("    cvtsd2ss xmm0, xmm0\n");
+                }
+            } else {
+                self.expression(value)?;
+                if matches!(target, Type::F32) {
+                    self.output.push_str("    cvtsi2ss xmm0, rax\n");
+                } else {
+                    self.output.push_str("    cvtsi2sd xmm0, rax\n");
+                }
+            }
+            return Ok(());
+        }
+        if matches!(source, Type::F32 | Type::F64) {
+            self.expression_as_float(value, &source)?;
+            if matches!(source, Type::F32) {
+                self.output.push_str("    cvttss2si rax, xmm0\n");
+            } else {
+                self.output.push_str("    cvttsd2si rax, xmm0\n");
+            }
+            return self.normalize_integer(target);
+        }
+        self.expression(value)?;
+        self.normalize_integer(target)
+    }
+
+    fn normalize_integer(&mut self, target: &Type) -> Result<(), String> {
+        match target {
+            Type::I8 => self.output.push_str("    movsx rax, al\n"),
+            Type::I16 => self.output.push_str("    movsx rax, ax\n"),
+            Type::I32 => self.output.push_str("    movsxd rax, eax\n"),
+            Type::U8 => self.output.push_str("    movzx eax, al\n"),
+            Type::U16 => self.output.push_str("    movzx eax, ax\n"),
+            Type::U32 | Type::Char => self.output.push_str("    mov eax, eax\n"),
+            Type::I64 | Type::U64 | Type::Isize | Type::Usize => {}
+            Type::I128 | Type::U128 => {
+                return Err("native backend does not support 128-bit casts".into())
+            }
+            Type::Bool => return Err("cannot cast to bool".into()),
+            _ => {
+                return Err(format!(
+                    "native backend cannot normalize cast target {target:?}"
+                ))
+            }
+        }
+        Ok(())
+    }
+
+    fn expression_type(&self, expression: &Expr) -> Option<Type> {
+        match expression {
+            Expr::Integer(_) => Some(Type::I64),
+            Expr::Char(_) => Some(Type::Char),
+            Expr::Float(_) => Some(Type::F64),
+            Expr::Symbol(name) if name == "true" || name == "false" => Some(Type::Bool),
+            Expr::Symbol(name) => self.local_types.get(name).cloned(),
+            Expr::List(items) => match items.first() {
+                Some(Expr::Symbol(operator)) if operator == "as" && items.len() == 3 => {
+                    parse_type(items.get(2))
+                        .ok()
+                        .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
+                }
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "+" | "-" | "*" | "/" | "%") =>
+                {
+                    items.get(1).and_then(|value| self.expression_type(value))
+                }
+                Some(Expr::Symbol(operator)) => self
+                    .functions
+                    .get(operator)
+                    .map(|function| function.return_type.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     fn return_value(&mut self, value: &Expr) -> Result<(), String> {
         if is_float_type(&self.return_type) {
             let ty = self.return_type.clone();
@@ -1531,7 +1619,8 @@ impl FunctionContext {
                 if items.len() != 3 {
                     return Err("as requires a value and target type".into());
                 }
-                self.expression(&items[1])
+                let target = resolve_type(&parse_type(items.get(2))?, &self.aliases)?;
+                self.cast_expression(&items[1], &target)
             }
             "match" => self.match_expression(items),
             "index" => self.index_expression(items),

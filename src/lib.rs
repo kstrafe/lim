@@ -1213,8 +1213,21 @@ mod tests {
         let program = parse_program("(fn main () u64 (as (as 42 u32) u64))").unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).unwrap().contains("mov rax, 42"));
-        let invalid = parse_program("(fn main () u64 (as true u64))").unwrap();
-        assert!(check_types(&invalid).unwrap_err().contains("integer casts"));
+        let invalid = parse_program("(fn main () u64 (as 42 ()))").unwrap();
+        assert!(check_types(&invalid).unwrap_err().contains("numeric"));
+    }
+
+    #[test]
+    fn checks_and_lowers_numeric_casts() {
+        let program = parse_program(
+            "(fn main () u64 (let value f64 41.75) (let whole u64 (as value u64)) (let small f32 (as whole f32)) (as small u64))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("cvttsd2si rax, xmm0"));
+        assert!(assembly.contains("cvtsi2ss xmm0, rax"));
+        assert!(assembly.contains("cvttss2si rax, xmm0"));
     }
 
     #[test]
