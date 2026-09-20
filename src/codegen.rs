@@ -5832,6 +5832,12 @@ impl FunctionContext {
                 }
             }
         }
+        let slots = flat_slots(base, length * element_words);
+        if length.saturating_mul(element_words) > VALUE_REGISTERS.len()
+            && self.store_oversized_index_to_slots(value, &array_type, &slots)?
+        {
+            return Ok(());
+        }
         if let Expr::String(string) = value {
             let characters = string.chars().collect::<Vec<_>>();
             if characters.len() != length || element_words != 1 {
@@ -5862,7 +5868,7 @@ impl FunctionContext {
                 }
                 for index in 0..length {
                     let start = base + index * element_words;
-                    self.store_value_words(
+                    self.store_value_to_slots(
                         &items[value_start],
                         element_type,
                         &flat_slots(start, element_words),
@@ -5876,7 +5882,11 @@ impl FunctionContext {
                 }
                 for (index, value) in items[value_start..].iter().enumerate() {
                     let start = base + index * element_words;
-                    self.store_value_words(value, element_type, &flat_slots(start, element_words))?;
+                    self.store_value_to_slots(
+                        value,
+                        element_type,
+                        &flat_slots(start, element_words),
+                    )?;
                 }
                 return Ok(());
             }
@@ -5901,7 +5911,6 @@ impl FunctionContext {
                 return Ok(());
             }
         }
-        let slots = flat_slots(base, length * element_words);
         self.store_value_words(value, &array_type, &slots)
     }
 
@@ -9166,6 +9175,9 @@ impl FunctionContext {
         if slots.len() != words {
             return Err("aggregate temporary has an inconsistent layout".into());
         }
+        if words > VALUE_REGISTERS.len() && self.store_oversized_index_to_slots(value, ty, slots)? {
+            return Ok(());
+        }
         if words <= VALUE_REGISTERS.len() {
             return self.store_value_words(value, ty, slots);
         }
@@ -9360,6 +9372,91 @@ impl FunctionContext {
             }
             _ => Err("large aggregate argument constructor has the wrong type".into()),
         }
+    }
+
+    fn store_oversized_index_to_slots(
+        &mut self,
+        value: &Expr,
+        ty: &Type,
+        destination: &[usize],
+    ) -> Result<bool, String> {
+        let Expr::List(items) = value else {
+            return Ok(false);
+        };
+        if items.len() != 3
+            || !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "index")
+        {
+            return Ok(false);
+        }
+        let Some(Type::Array(element, length)) = self.expression_type(&items[1]) else {
+            return Ok(false);
+        };
+        let element_words = storage_word_count(&element, &self.structs, &self.enums)?;
+        let result_words = storage_word_count(ty, &self.structs, &self.enums)?;
+        if result_words != element_words || destination.len() != element_words {
+            return Ok(false);
+        }
+        enum Source {
+            Local(usize),
+            Global(String),
+        }
+        let source = match &items[1] {
+            Expr::Symbol(name) => {
+                if let Some(Storage::Array { base, .. }) = self.locals.get(name) {
+                    Some(Source::Local(*base))
+                } else if matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) {
+                    Some(Source::Global(name.clone()))
+                } else {
+                    None
+                }
+            }
+            Expr::List(call_items) => match call_items.first() {
+                Some(Expr::Symbol(function_name))
+                    if self
+                        .functions
+                        .get(function_name)
+                        .is_some_and(|function| function.indirect_return) =>
+                {
+                    Some(Source::Local(
+                        self.call_to_aggregate_temp(function_name, &call_items[1..])?,
+                    ))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(source) = source else {
+            return Ok(false);
+        };
+        let global = matches!(source, Source::Global(_));
+        let bounds_failure = self.label("oversized_index_bounds_failure");
+        let done = self.label("oversized_index_done");
+        self.expression(&items[2])?;
+        self.output.push_str(&format!(
+            "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    imul rcx, {element_words}\n    shl rcx, 3\n"
+        ));
+        match source {
+            Source::Local(base) => self.output.push_str(&format!(
+                "    lea r11, [rbp-{}]\n    sub r11, rcx\n",
+                base * 8
+            )),
+            Source::Global(name) => self.output.push_str(&format!(
+                "    lea r11, [rip+{}]\n    add r11, rcx\n",
+                asm_symbol(&name)
+            )),
+        }
+        for (index, slot) in destination.iter().enumerate() {
+            self.output.push_str(&format!(
+                "    mov rax, QWORD PTR [r11{}{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                if global { "+" } else { "-" },
+                index * 8,
+                slot * 8
+            ));
+        }
+        self.output.push_str(&format!(
+            "    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n"
+        ));
+        Ok(true)
     }
 
     fn push_call_argument(
