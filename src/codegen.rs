@@ -2938,6 +2938,26 @@ fn is_wide_integer(ty: &Type) -> bool {
     matches!(ty, Type::I128 | Type::U128)
 }
 
+fn is_scalar_pattern_type(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Bool
+            | Type::Char
+            | Type::I8
+            | Type::I16
+            | Type::I32
+            | Type::I64
+            | Type::I128
+            | Type::Isize
+            | Type::U8
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::U128
+            | Type::Usize
+    )
+}
+
 fn is_float_type(ty: &Type) -> bool {
     matches!(ty, Type::F32 | Type::F64)
 }
@@ -7755,6 +7775,44 @@ impl FunctionContext {
         }
     }
 
+    fn emit_scalar_pattern_at(
+        &mut self,
+        pattern: &Expr,
+        ty: &Type,
+        low_operand: &str,
+        high_operand: Option<&str>,
+        next: &str,
+    ) -> Result<(), String> {
+        if let Expr::List(parts) = pattern {
+            if parts.len() >= 2 && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "or")
+            {
+                let matched = self.label("nested_or_pattern_matched");
+                for (index, alternative) in parts[1..].iter().enumerate() {
+                    let last = index + 1 == parts.len() - 1;
+                    let alternative_next = if last {
+                        next.to_owned()
+                    } else {
+                        self.label("nested_or_pattern_next")
+                    };
+                    self.emit_scalar_pattern_at(
+                        alternative,
+                        ty,
+                        low_operand,
+                        high_operand,
+                        &alternative_next,
+                    )?;
+                    self.output.push_str(&format!("    jmp {matched}\n"));
+                    if !last {
+                        self.output.push_str(&format!("{alternative_next}:\n"));
+                    }
+                }
+                self.output.push_str(&format!("{matched}:\n"));
+                return Ok(());
+            }
+        }
+        self.emit_enum_scalar_pattern_test(pattern, ty, low_operand, high_operand, next)
+    }
+
     fn emit_wide_scalar_range_at(
         &mut self,
         lower: u128,
@@ -8232,6 +8290,29 @@ impl FunctionContext {
                 return Err("aggregate match pattern has the wrong shape".into());
             }
             for (index, (field_pattern, field_type)) in parts[1..].iter().zip(fields).enumerate() {
+                if is_scalar_pattern_type(field_type)
+                    && matches!(
+                        field_pattern,
+                        Expr::List(items)
+                            if matches!(items.first(), Some(Expr::Symbol(name))
+                                if matches!(name.as_str(), "or" | "range" | "literal"))
+                    )
+                {
+                    let low_operand = format!("QWORD PTR [rbp-{}]", source_slots[index] * 8);
+                    let high_operand = if is_wide_integer(field_type) {
+                        Some(format!("QWORD PTR [rbp-{}]", source_slots[index] * 8 + 8))
+                    } else {
+                        None
+                    };
+                    self.emit_scalar_pattern_at(
+                        field_pattern,
+                        field_type,
+                        &low_operand,
+                        high_operand.as_deref(),
+                        next,
+                    )?;
+                    continue;
+                }
                 let field_pattern = typed_integer_pattern_value(field_pattern, field_type)?
                     .unwrap_or(field_pattern);
                 let slot = source_slots[index];
@@ -8359,6 +8440,30 @@ impl FunctionContext {
         }
         let mut field_offset = offset;
         for (field, field_type) in pattern[1..].iter().zip(fields) {
+            if is_scalar_pattern_type(&field_type)
+                && matches!(
+                    field,
+                    Expr::List(items)
+                        if matches!(items.first(), Some(Expr::Symbol(name))
+                            if matches!(name.as_str(), "or" | "range" | "literal"))
+                )
+            {
+                let low_operand = format!("QWORD PTR [rsp+{}]", field_offset * 8);
+                let high_operand = if is_wide_integer(&field_type) {
+                    Some(format!("QWORD PTR [rsp+{}]", (field_offset + 1) * 8))
+                } else {
+                    None
+                };
+                self.emit_scalar_pattern_at(
+                    field,
+                    &field_type,
+                    &low_operand,
+                    high_operand.as_deref(),
+                    next,
+                )?;
+                field_offset += storage_word_count(&field_type, &self.structs, &self.enums)?;
+                continue;
+            }
             let field = typed_integer_pattern_value(field, &field_type)?.unwrap_or(field);
             let field_words = storage_word_count(&field_type, &self.structs, &self.enums)?;
             let address = field_offset * 8;
@@ -8519,6 +8624,23 @@ impl FunctionContext {
             }
         };
         if let Expr::List(items) = pattern {
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "range")
+            {
+                let low_operand = operand(offset)?;
+                let high_operand = if is_wide_integer(ty) {
+                    Some(operand(offset + 1)?)
+                } else {
+                    None
+                };
+                return self.emit_scalar_pattern_at(
+                    pattern,
+                    ty,
+                    &low_operand,
+                    high_operand.as_deref(),
+                    next,
+                );
+            }
             if items.len() >= 2 && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or")
             {
                 let matched = self.label("payload_or_pattern_matched");
@@ -8660,6 +8782,16 @@ impl FunctionContext {
         offset: usize,
         bindings: &mut Vec<(String, usize, Type)>,
     ) -> Result<(), String> {
+        if typed_integer_pattern_value(pattern, ty)?.is_some()
+            || matches!(
+                pattern,
+                Expr::List(items)
+                    if items.len() == 3
+                        && matches!(items.first(), Some(Expr::Symbol(name)) if name == "range")
+            )
+        {
+            return Ok(());
+        }
         if matches!(pattern, Expr::List(items) if items.len() >= 2
             && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or"))
         {

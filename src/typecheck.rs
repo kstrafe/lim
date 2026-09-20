@@ -2013,6 +2013,14 @@ fn check_scalar_pattern(pattern: &Expr, scrutinee: &Type) -> Result<(), String> 
     if let Some(value) = typed_integer_pattern_value(pattern, scrutinee)? {
         return check_scalar_pattern(value, scrutinee);
     }
+    if let Expr::List(parts) = pattern {
+        if parts.len() >= 2 && matches!(parts.first(), Some(Expr::Symbol(name)) if name == "or") {
+            for alternative in &parts[1..] {
+                check_scalar_pattern(alternative, scrutinee)?;
+            }
+            return Ok(());
+        }
+    }
     match pattern {
         Expr::List(parts)
             if parts.len() == 3
@@ -2273,6 +2281,19 @@ fn check_aggregate_pattern(
     if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
         return check_aggregate_pattern(value, ty, arm_variables, variables, structs);
     }
+    if let Expr::List(items) = pattern {
+        if items.len() == 3 && matches!(items.first(), Some(Expr::Symbol(name)) if name == "range")
+        {
+            return check_scalar_range_pattern(items, ty);
+        }
+        if items.len() >= 2 && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or") {
+            if is_integer(ty) || matches!(ty, Type::Char | Type::Bool) {
+                return check_scalar_pattern(pattern, ty);
+            }
+            check_aggregate_or_pattern(items, ty, structs)?;
+            return Ok(());
+        }
+    }
     match pattern {
         Expr::Symbol(name) if name == "_" => Ok(()),
         Expr::Symbol(name) if name == "true" || name == "false" => {
@@ -2458,6 +2479,12 @@ fn check_enum_payload_pattern(
 ) -> Result<(), String> {
     if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
         return check_enum_payload_pattern(value, ty, arm_variables, variables, structs);
+    }
+    if let Expr::List(items) = pattern {
+        if items.len() == 3 && matches!(items.first(), Some(Expr::Symbol(name)) if name == "range")
+        {
+            return check_scalar_range_pattern(items, ty);
+        }
     }
     match pattern {
         Expr::Symbol(name) if name == "_" => Ok(()),
