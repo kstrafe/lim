@@ -51,6 +51,7 @@ fn low_register(register: &str) -> &str {
 #[derive(Clone)]
 enum GlobalValue {
     Integer(i128),
+    Wide { low: u64, high: u64 },
     F32(u32),
     F64(u64),
 }
@@ -559,8 +560,20 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                 return Err(format!("top-level binding '{name}' cannot be mutable"));
             }
             let ty = resolve_type(ty, &aliases)?;
-            ensure_scalar_type(&ty, &enums)?;
+            if !is_wide_integer(&ty) {
+                ensure_scalar_type(&ty, &enums)?;
+            }
             let global = match &ty {
+                Type::I128 | Type::U128 => {
+                    let value = constant_value(value, &enums, &constants)? as u128;
+                    if matches!(item, Item::Let { .. }) {
+                        constants.insert(name.clone(), value as i128);
+                    }
+                    GlobalValue::Wide {
+                        low: value as u64,
+                        high: (value >> 64) as u64,
+                    }
+                }
                 Type::F32 => {
                     let Expr::Float(value) = value else {
                         return Err(format!("global '{name}' requires an f32 literal"));
@@ -604,6 +617,11 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             match value {
                 GlobalValue::Integer(value) => {
                     output.push_str(&format!(".align 8\n{symbol}:\n    .quad {value}\n"));
+                }
+                GlobalValue::Wide { low, high } => {
+                    output.push_str(&format!(
+                        ".align 8\n{symbol}:\n    .quad {low}\n    .quad {high}\n"
+                    ));
                 }
                 GlobalValue::F32(value) => {
                     output.push_str(&format!(".align 8\n{symbol}:\n    .long {value}\n"));
@@ -2575,6 +2593,11 @@ impl FunctionContext {
                     }
                 } else if self.globals.contains_key(name) {
                     match self.global_types.get(name) {
+                        Some(Type::I128 | Type::U128) => self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rip+{}]\n    mov rdx, QWORD PTR [rip+{}+8]\n",
+                            asm_symbol(name),
+                            asm_symbol(name)
+                        )),
                         Some(Type::F32) => self.output.push_str(&format!(
                             "    movss xmm0, DWORD PTR [rip+{}]\n",
                             asm_symbol(name)

@@ -2371,6 +2371,19 @@ mod tests {
     }
 
     #[test]
+    fn lowers_wide_integer_globals() {
+        let program =
+            parse_program("(let VALUE u128 42) (fn main () u64 (if (== VALUE 42) 42 0))").unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("VALUE:\n    .quad 42\n    .quad 0"));
+        assert!(
+            assembly.contains("mov rdx, QWORD PTR [rip+VALUE_x2b_8]")
+                || assembly.contains("mov rdx, QWORD PTR [rip+VALUE+8]")
+        );
+    }
+
+    #[test]
     fn preserves_float_width_across_control_flow() {
         let program = parse_program(
             "(fn choose ((flag bool)) f32 (if flag 1.5 2.5)) (fn main () u64 (if (> (choose true) 1.0) 42 0))",

@@ -344,6 +344,8 @@ stack-argument convention.
 `i128` and `u128` values use two native words (`rax`/`rdx` for results) and
 support local storage, parameters, returns, arithmetic, bitwise operations,
 comparisons, shifts, and division/remainder.
+Top-level `i128` and `u128` constants and immutable globals use the same
+two-word representation in read-only data and can be loaded by functions.
 Positive literals above `i128::MAX` are represented as `u128` literals and can
 be used in explicitly typed `u128` positions.
 128-bit multiplication is lowered to the low 128 bits using native multiply
