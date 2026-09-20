@@ -5641,6 +5641,15 @@ mod tests {
     }
 
     #[test]
+    fn supports_large_array_locals_without_abi_flattening() {
+        let program = parse_program_strict(
+            "(#fn main () u64 (#let values (#array u64 8) (#array (#array u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 8u64)) (#let copy (#array u64 8) values) (#return (#u64.+.wrap (#index copy 0u64) (#index copy 7u64))))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn checks_and_lowers_type_aliases() {
         let program = parse_program(
             "(type UserId u64) (fn add_one ((id UserId)) UserId (+ id 1)) (fn main () UserId (add_one 41))",

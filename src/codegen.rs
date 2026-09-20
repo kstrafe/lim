@@ -4869,6 +4869,26 @@ impl FunctionContext {
                 return Ok(());
             }
         }
+        if let Expr::Symbol(source) = value {
+            if let Some(Storage::Array {
+                base: source_base,
+                length: source_length,
+                element_words: source_element_words,
+            }) = self.locals.get(source).cloned()
+            {
+                if source_length != length || source_element_words != element_words {
+                    return Err("array assignment has an inconsistent flattened layout".into());
+                }
+                for offset in 0..length * element_words {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                        (source_base + offset) * 8,
+                        (base + offset) * 8
+                    ));
+                }
+                return Ok(());
+            }
+        }
         let slots = flat_slots(base, length * element_words);
         self.store_value_words(value, &array_type, &slots)
     }
