@@ -3967,6 +3967,20 @@ mod tests {
     }
 
     #[test]
+    fn returns_aggregate_loop_values() {
+        let program = parse_program(
+            "(#fn values () (#tuple u64 u64) \
+               (#return (#loop \
+                 (#break (#tuple (#tuple u64 u64) 30 12))))) \
+             (#fn main () u64 \
+               (#return (#get (values) 1)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

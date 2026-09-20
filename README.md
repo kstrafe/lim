@@ -316,6 +316,7 @@ flattened representation, including repeated aggregate values and aggregate
 array returns.
 Aggregate-valued `#if` and `#match` expressions also preserve all flattened
 value words across their branches.
+Value-producing `#loop` expressions can likewise break with aggregate values.
 Enum payloads can be updated explicitly by naming the active variant and
 payload field index:
 

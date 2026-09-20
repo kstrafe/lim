@@ -1073,6 +1073,7 @@ fn generate_function(
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
+        loop_result_types: Vec::new(),
         return_label: return_label.clone(),
         output: String::new(),
     };
@@ -2977,6 +2978,7 @@ struct FunctionContext {
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
+    loop_result_types: Vec<Option<Type>>,
     return_label: String,
     output: String,
 }
@@ -3377,10 +3379,12 @@ impl FunctionContext {
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {end}\n"));
                 self.loop_labels.push((start.clone(), end.clone()));
+                self.loop_result_types.push(None);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
+                self.loop_result_types.pop();
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
             }
             Statement::Loop { body } => {
@@ -3388,10 +3392,12 @@ impl FunctionContext {
                 let end = self.label("endloop");
                 self.output.push_str(&format!("{start}:\n"));
                 self.loop_labels.push((start.clone(), end.clone()));
+                self.loop_result_types.push(None);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
+                self.loop_result_types.pop();
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
             }
             Statement::For {
@@ -3409,10 +3415,12 @@ impl FunctionContext {
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {end}\n"));
                 self.loop_labels.push((step_label.clone(), end.clone()));
+                self.loop_result_types.push(None);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
+                self.loop_result_types.pop();
                 self.output.push_str(&format!("{step_label}:\n"));
                 self.statement(step)?;
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
@@ -3427,7 +3435,11 @@ impl FunctionContext {
                 let Some((_, end)) = self.loop_labels.last().cloned() else {
                     return Err("break with a value used outside a loop".into());
                 };
-                self.expression(value)?;
+                if let Some(Some(ty)) = self.loop_result_types.last().cloned() {
+                    self.expression_as_expected(value, &ty)?;
+                } else {
+                    self.expression(value)?;
+                }
                 self.output.push_str(&format!("    jmp {end}\n"));
             }
             Statement::Continue => {
@@ -3549,6 +3561,9 @@ impl FunctionContext {
                 if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
                     return self.match_expression(items, None, Some(ty));
                 }
+            }
+            if let Expr::Loop(body) = value {
+                return self.loop_expression(body, Some(ty));
             }
             let words = value_word_count(ty, &self.structs, &self.enums)?;
             if words > VALUE_REGISTERS.len() {
@@ -3802,6 +3817,10 @@ impl FunctionContext {
                     if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if" || operator == "match")
             )
         {
+            let return_type = self.return_type.clone();
+            return self.expression_as_expected(value, &return_type);
+        }
+        if self.is_aggregate_type(&self.return_type) && matches!(value, Expr::Loop(_)) {
             let return_type = self.return_type.clone();
             return self.expression_as_expected(value, &return_type);
         }
@@ -4393,15 +4412,21 @@ impl FunctionContext {
         self.store_value_words(value, &array_type, &slots)
     }
 
-    fn loop_expression(&mut self, body: &[Statement]) -> Result<(), String> {
+    fn loop_expression(
+        &mut self,
+        body: &[Statement],
+        result_type: Option<&Type>,
+    ) -> Result<(), String> {
         let start = self.label("value_loop");
         let end = self.label("end_value_loop");
         self.output.push_str(&format!("{start}:\n"));
         self.loop_labels.push((start.clone(), end.clone()));
+        self.loop_result_types.push(result_type.cloned());
         for statement in body {
             self.statement(statement)?;
         }
         self.loop_labels.pop();
+        self.loop_result_types.pop();
         self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
         Ok(())
     }
@@ -4449,7 +4474,7 @@ impl FunctionContext {
                     self.statement(statement)?;
                 }
             }
-            Expr::Loop(statements) => self.loop_expression(statements)?,
+            Expr::Loop(statements) => self.loop_expression(statements, None)?,
             Expr::Symbol(name) if name == "true" => self.output.push_str("    mov eax, 1\n"),
             Expr::Symbol(name) if name == "false" => self.output.push_str("    xor eax, eax\n"),
             Expr::Symbol(name) if self.enum_value(name).is_some() => {
@@ -7271,6 +7296,20 @@ impl FunctionContext {
     }
 
     fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
+        if self.is_aggregate_type(ty) && matches!(value, Expr::Loop(_)) {
+            self.expression_as_expected(value, ty)?;
+            let words = value_word_count(ty, &self.structs, &self.enums)?;
+            let registers: Box<dyn Iterator<Item = &str>> = if reverse {
+                Box::new(VALUE_REGISTERS[..words].iter().rev().copied())
+            } else {
+                Box::new(VALUE_REGISTERS[..words].iter().copied())
+            };
+            for register in registers {
+                self.output.push_str(&format!("    push {register}\n"));
+                self.stack_depth += 1;
+            }
+            return Ok(());
+        }
         if is_float_type(ty) {
             self.expression_as_abi_word(value, ty)?;
             self.push_rax();
