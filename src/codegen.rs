@@ -2322,22 +2322,24 @@ fn supports_indirect_return_type(
         return false;
     }
     match ty {
-        Type::Array(element, _) => {
-            value_word_count(element, structs, enums).is_ok_and(|words| words == 1)
-        }
-        Type::Tuple(fields) => fields
-            .iter()
-            .all(|field| value_word_count(field, structs, enums).is_ok_and(|words| words == 1)),
+        Type::Array(element, _) => value_word_count(element, structs, enums)
+            .is_ok_and(|words| words <= VALUE_REGISTERS.len()),
+        Type::Tuple(fields) => fields.iter().all(|field| {
+            value_word_count(field, structs, enums)
+                .is_ok_and(|words| words <= VALUE_REGISTERS.len())
+        }),
         Type::Named(name) => {
             if let Some(fields) = structs.get(name) {
                 return fields.iter().all(|field| {
-                    value_word_count(&field.ty, structs, enums).is_ok_and(|words| words == 1)
+                    value_word_count(&field.ty, structs, enums)
+                        .is_ok_and(|words| words <= VALUE_REGISTERS.len())
                 });
             }
             enums.get(name).is_some_and(|variants| {
                 variants.iter().all(|variant| {
                     variant.fields.iter().all(|field| {
-                        value_word_count(field, structs, enums).is_ok_and(|words| words == 1)
+                        value_word_count(field, structs, enums)
+                            .is_ok_and(|words| words <= VALUE_REGISTERS.len())
                     })
                 })
             })
@@ -2586,16 +2588,18 @@ fn ensure_return_type(
     }
     if let Type::Array(element, _) = ty {
         if storage_word_count(ty, structs, enums).is_ok()
-            && value_word_count(element, structs, enums).is_ok_and(|words| words == 1)
+            && value_word_count(element, structs, enums)
+                .is_ok_and(|words| words <= VALUE_REGISTERS.len())
         {
             return Ok(());
         }
     }
     if let Type::Tuple(fields) = ty {
         if storage_word_count(ty, structs, enums).is_ok()
-            && fields
-                .iter()
-                .all(|field| value_word_count(field, structs, enums).is_ok_and(|words| words == 1))
+            && fields.iter().all(|field| {
+                value_word_count(field, structs, enums)
+                    .is_ok_and(|words| words <= VALUE_REGISTERS.len())
+            })
         {
             return Ok(());
         }
@@ -3682,7 +3686,7 @@ impl FunctionContext {
                     ));
                     for (index, register) in VALUE_REGISTERS[..element_words].iter().enumerate() {
                         self.output.push_str(&format!(
-                            "    mov QWORD PTR [r11+{}], {register}\n",
+                            "    mov QWORD PTR [r11-{}], {register}\n",
                             index * 8
                         ));
                     }
@@ -4377,6 +4381,12 @@ impl FunctionContext {
         fields: &[Field],
         value: &Expr,
     ) -> Result<(), String> {
+        if fields.iter().any(|field| {
+            value_word_count(&field.ty, &self.structs, &self.enums).is_ok_and(|words| words > 1)
+        }) {
+            let ty = Type::Named(struct_name.to_owned());
+            return self.store_indirect_value_words(value, &ty, 0);
+        }
         let pointer_slot = self
             .return_pointer_slot
             .ok_or_else(|| "missing indirect return pointer".to_owned())?;
@@ -4425,10 +4435,7 @@ impl FunctionContext {
                 }
                 for (field_value, field) in items[1..].iter().zip(fields) {
                     let words = value_word_count(&field.ty, &self.structs, &self.enums)?;
-                    if words != 1 {
-                        return Err("large struct returns currently require scalar fields".into());
-                    }
-                    self.store_indirect_array_element(field_value, &field.ty, offset)?;
+                    self.store_indirect_value_words(field_value, &field.ty, offset)?;
                     offset += words;
                 }
                 return Ok(());
@@ -4438,6 +4445,16 @@ impl FunctionContext {
     }
 
     fn return_indirect_enum_value(&mut self, enum_name: &str, value: &Expr) -> Result<(), String> {
+        if self.enums.get(enum_name).is_some_and(|variants| {
+            variants.iter().any(|variant| {
+                variant.fields.iter().any(|field| {
+                    value_word_count(field, &self.structs, &self.enums).is_ok_and(|words| words > 1)
+                })
+            })
+        }) {
+            let ty = Type::Named(enum_name.to_owned());
+            return self.store_indirect_value_words(value, &ty, 0);
+        }
         let pointer_slot = self
             .return_pointer_slot
             .ok_or_else(|| "missing indirect return pointer".to_owned())?;
@@ -4508,10 +4525,7 @@ impl FunctionContext {
         let mut offset = 1usize;
         for (field_value, field_type) in items[1..].iter().zip(&variant.fields) {
             let words = value_word_count(field_type, &self.structs, &self.enums)?;
-            if words != 1 {
-                return Err("large enum returns currently require scalar payloads".into());
-            }
-            self.store_indirect_array_element(field_value, field_type, offset)?;
+            self.store_indirect_value_words(field_value, field_type, offset)?;
             offset += words;
         }
         while offset < storage_words {
@@ -4679,6 +4693,12 @@ impl FunctionContext {
     }
 
     fn return_indirect_tuple_value(&mut self, fields: &[Type], value: &Expr) -> Result<(), String> {
+        if fields.iter().any(|field| {
+            value_word_count(field, &self.structs, &self.enums).is_ok_and(|words| words > 1)
+        }) {
+            let ty = Type::Tuple(fields.to_vec());
+            return self.store_indirect_value_words(value, &ty, 0);
+        }
         let pointer_slot = self
             .return_pointer_slot
             .ok_or_else(|| "missing indirect return pointer".to_owned())?;
@@ -4738,10 +4758,7 @@ impl FunctionContext {
                 }
                 for (field_value, field) in items[value_start..].iter().zip(fields) {
                     let words = value_word_count(field, &self.structs, &self.enums)?;
-                    if words != 1 {
-                        return Err("large tuple returns currently require scalar fields".into());
-                    }
-                    self.store_indirect_array_element(field_value, field, offset)?;
+                    self.store_indirect_value_words(field_value, field, offset)?;
                     offset += words;
                 }
                 return Ok(());
@@ -4814,31 +4831,196 @@ impl FunctionContext {
         self.expression(value)
     }
 
-    fn store_indirect_array_element(
+    fn store_indirect_word(&mut self, register: &str, offset: usize) -> Result<(), String> {
+        let pointer_slot = self
+            .return_pointer_slot
+            .ok_or_else(|| "missing indirect return pointer".to_owned())?;
+        self.output.push_str(&format!(
+            "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], {register}\n",
+            pointer_slot * 8,
+            offset * 8
+        ));
+        Ok(())
+    }
+
+    fn store_indirect_value_words(
         &mut self,
         value: &Expr,
         ty: &Type,
         offset: usize,
     ) -> Result<(), String> {
-        if value_word_count(ty, &self.structs, &self.enums)? != 1 {
-            return Err("large array returns currently require scalar elements".into());
+        let words = storage_word_count(ty, &self.structs, &self.enums)?;
+        if words == 0 {
+            self.expression(value)?;
+            return Ok(());
         }
-        self.expression_as_abi_word(value, ty)?;
-        let pointer_slot = self
-            .return_pointer_slot
-            .ok_or_else(|| "missing indirect return pointer".to_owned())?;
-        self.output.push_str(&format!(
-            "    mov r11, QWORD PTR [rbp-{}]\n",
-            pointer_slot * 8
-        ));
-        if matches!(ty, Type::F32) {
-            self.output
-                .push_str(&format!("    movd DWORD PTR [r11-{}], eax\n", offset * 8));
-        } else {
-            self.output
-                .push_str(&format!("    mov QWORD PTR [r11-{}], rax\n", offset * 8));
+        if let Expr::Symbol(name) = value {
+            if let Ok(source_slots) = local_slots(&self.locals, name) {
+                if source_slots.len() == words {
+                    for (index, source_slot) in source_slots.into_iter().enumerate() {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n",
+                            source_slot * 8
+                        ));
+                        self.store_indirect_word("rax", offset + index)?;
+                    }
+                    return Ok(());
+                }
+            }
+            if self.global_types.get(name) == Some(ty) {
+                for index in 0..words {
+                    self.load_global_word(name, index)?;
+                    self.store_indirect_word("rax", offset + index)?;
+                }
+                return Ok(());
+            }
         }
-        Ok(())
+        if let (Expr::String(string), Type::Array(element, length)) = (value, ty) {
+            if matches!(element.as_ref(), Type::Char) && string.chars().count() == *length {
+                for (index, character) in string.chars().enumerate() {
+                    self.output
+                        .push_str(&format!("    mov rax, {}\n", character as u32));
+                    self.store_indirect_word("rax", offset + index)?;
+                }
+                return Ok(());
+            }
+        }
+        if let (Expr::Symbol(variant_name), Type::Named(enum_name)) = (value, ty) {
+            if let Some(variants) = self.enums.get(enum_name) {
+                if let Some(variant) = variants
+                    .iter()
+                    .find(|variant| variant.name == *variant_name)
+                {
+                    self.output
+                        .push_str(&format!("    mov rax, {}\n", variant.discriminant));
+                    self.store_indirect_word("rax", offset)?;
+                    let storage_words = storage_word_count(ty, &self.structs, &self.enums)?;
+                    for index in 1..storage_words {
+                        self.output.push_str("    xor rax, rax\n");
+                        self.store_indirect_word("rax", offset + index)?;
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        if words <= VALUE_REGISTERS.len() {
+            self.push_value_words(value, ty, false)?;
+            for (index, register) in VALUE_REGISTERS[..words].iter().rev().enumerate() {
+                self.output.push_str(&format!("    pop {register}\n"));
+                self.stack_depth -= 1;
+                self.store_indirect_word(register, offset + words - index - 1)?;
+            }
+            return Ok(());
+        }
+        let Expr::List(items) = value else {
+            return Err("large aggregate return requires a value constructor or local".into());
+        };
+        let Some(Expr::Symbol(constructor)) = items.first() else {
+            return Err("large aggregate return constructor must start with a symbol".into());
+        };
+        match ty {
+            Type::Array(element, length) if constructor == "array" => {
+                let value_start = if parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|declared| declared == *ty)
+                {
+                    2
+                } else {
+                    1
+                };
+                if items.len() - value_start != *length {
+                    return Err("large array return has the wrong length".into());
+                }
+                let element_words = storage_word_count(element, &self.structs, &self.enums)?;
+                for (index, item) in items[value_start..].iter().enumerate() {
+                    self.store_indirect_value_words(item, element, offset + index * element_words)?;
+                }
+                Ok(())
+            }
+            Type::Array(element, length) if constructor == "array-repeat" => {
+                let value_start = if parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|declared| declared == *ty)
+                {
+                    2
+                } else {
+                    1
+                };
+                if items.len() != value_start + 1 {
+                    return Err("large array-repeat return requires one value".into());
+                }
+                let element_words = storage_word_count(element, &self.structs, &self.enums)?;
+                for index in 0..*length {
+                    self.store_indirect_value_words(
+                        &items[value_start],
+                        element,
+                        offset + index * element_words,
+                    )?;
+                }
+                Ok(())
+            }
+            Type::Tuple(fields) if constructor == "tuple" => {
+                let value_start = if parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|declared| declared == *ty)
+                {
+                    2
+                } else {
+                    1
+                };
+                if items.len() - value_start != fields.len() {
+                    return Err("large tuple return has the wrong length".into());
+                }
+                let mut field_offset = offset;
+                for (item, field) in items[value_start..].iter().zip(fields) {
+                    self.store_indirect_value_words(item, field, field_offset)?;
+                    field_offset += storage_word_count(field, &self.structs, &self.enums)?;
+                }
+                Ok(())
+            }
+            Type::Named(name) if self.structs.contains_key(name) && constructor == name => {
+                let fields = self.structs.get(name).cloned().unwrap_or_default();
+                if items.len() - 1 != fields.len() {
+                    return Err(format!(
+                        "large struct return '{name}' has the wrong field count"
+                    ));
+                }
+                let mut field_offset = offset;
+                for (item, field) in items[1..].iter().zip(&fields) {
+                    self.store_indirect_value_words(item, &field.ty, field_offset)?;
+                    field_offset += storage_word_count(&field.ty, &self.structs, &self.enums)?;
+                }
+                Ok(())
+            }
+            Type::Named(enum_name) if self.enums.contains_key(enum_name) => {
+                let variants = self.enums.get(enum_name).cloned().unwrap_or_default();
+                let variant_index = variants
+                    .iter()
+                    .position(|variant| variant.name == *constructor)
+                    .ok_or_else(|| format!("unknown enum variant '{constructor}'"))?;
+                let variant = &variants[variant_index];
+                if items.len() - 1 != variant.fields.len() {
+                    return Err(format!(
+                        "enum variant '{constructor}' has the wrong payload count"
+                    ));
+                }
+                self.output
+                    .push_str(&format!("    mov rax, {}\n", variant.discriminant));
+                self.store_indirect_word("rax", offset)?;
+                let mut field_offset = offset + 1;
+                for (item, field) in items[1..].iter().zip(&variant.fields) {
+                    self.store_indirect_value_words(item, field, field_offset)?;
+                    field_offset += storage_word_count(field, &self.structs, &self.enums)?;
+                }
+                let total_words = storage_word_count(ty, &self.structs, &self.enums)?;
+                for index in field_offset..offset + total_words {
+                    self.output.push_str("    xor rax, rax\n");
+                    self.store_indirect_word("rax", index)?;
+                }
+                Ok(())
+            }
+            _ => Err("large aggregate return constructor has the wrong type".into()),
+        }
     }
 
     fn return_indirect_array_value(&mut self, length: usize, value: &Expr) -> Result<(), String> {
@@ -4846,9 +5028,6 @@ impl FunctionContext {
             return Err("indirect return target is not an array".into());
         };
         let element_words = value_word_count(&element, &self.structs, &self.enums)?;
-        if element_words != 1 {
-            return Err("large array returns currently require scalar elements".into());
-        }
         let pointer_slot = self
             .return_pointer_slot
             .ok_or_else(|| "missing indirect return pointer".to_owned())?;
@@ -4916,7 +5095,7 @@ impl FunctionContext {
                     return Err("array-repeat requires one value".into());
                 }
                 for index in 0..length {
-                    self.store_indirect_array_element(
+                    self.store_indirect_value_words(
                         &items[value_start],
                         &element,
                         index * element_words,
@@ -4929,7 +5108,7 @@ impl FunctionContext {
                     return Err("array return has the wrong length".into());
                 }
                 for (index, item) in items[value_start..].iter().enumerate() {
-                    self.store_indirect_array_element(item, &element, index * element_words)?;
+                    self.store_indirect_value_words(item, &element, index * element_words)?;
                 }
                 return Ok(());
             }
@@ -5940,16 +6119,16 @@ impl FunctionContext {
                     let done = self.label("indirect_array_index_done");
                     self.expression(&items[2])?;
                     self.output.push_str(&format!(
-                        "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    lea rdx, [rbp-{}]\n    imul rcx, {}\n    shl rcx, 3\n    sub rdx, rcx\n",
+                "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    lea r11, [rbp-{}]\n    imul rcx, {}\n    shl rcx, 3\n    sub r11, rcx\n",
                         base * 8,
                         element_words
                     ));
                     if matches!(*element, Type::F32) {
-                        self.output.push_str("    movss xmm0, DWORD PTR [rdx]\n");
+                        self.output.push_str("    movss xmm0, DWORD PTR [r11]\n");
                     } else if matches!(*element, Type::F64) {
-                        self.output.push_str("    movq xmm0, QWORD PTR [rdx]\n");
+                        self.output.push_str("    movq xmm0, QWORD PTR [r11]\n");
                     } else {
-                        self.output.push_str("    mov rax, QWORD PTR [rdx]\n");
+                        self.output.push_str("    mov rax, QWORD PTR [r11]\n");
                     }
                     self.output.push_str(&format!(
                         "    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n"
@@ -6117,15 +6296,15 @@ impl FunctionContext {
             let element_words = value_word_count(&element, &self.structs, &self.enums)?;
             self.expression(&items[2])?;
             self.output.push_str(&format!(
-                "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    imul rcx, {element_words}\n    lea rdx, [rip+{}]\n",
+                "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    imul rcx, {element_words}\n    lea r11, [rip+{}]\n",
                 asm_symbol(name)
             ));
             if element_words == 1 {
-                self.output.push_str("    mov rax, QWORD PTR [rdx+rcx*8]\n");
+                self.output.push_str("    mov rax, QWORD PTR [r11+rcx*8]\n");
             } else {
                 for (index, register) in VALUE_REGISTERS[..element_words].iter().enumerate() {
                     self.output.push_str(&format!(
-                        "    mov {register}, QWORD PTR [rdx+rcx*8+{}]\n",
+                        "    mov {register}, QWORD PTR [r11+rcx*8+{}]\n",
                         index * 8
                     ));
                 }
@@ -6172,20 +6351,20 @@ impl FunctionContext {
             "    cmp rcx, {length}\n    jae {bounds_failure}\n"
         ));
         self.output.push_str(&format!(
-            "    lea rdx, [rbp-{}]\n    imul rcx, {}\n    shl rcx, 3\n    sub rdx, rcx\n",
+            "    lea r11, [rbp-{}]\n    imul rcx, {}\n    shl rcx, 3\n    sub r11, rcx\n",
             base * 8,
             element_words
         ));
         if element_words == 1 && matches!(element_type, Type::F32) {
-            self.output.push_str("    movss xmm0, DWORD PTR [rdx]\n");
+            self.output.push_str("    movss xmm0, DWORD PTR [r11]\n");
         } else if element_words == 1 && matches!(element_type, Type::F64) {
-            self.output.push_str("    movq xmm0, QWORD PTR [rdx]\n");
+            self.output.push_str("    movq xmm0, QWORD PTR [r11]\n");
         } else if element_words == 1 {
-            self.output.push_str("    mov rax, QWORD PTR [rdx]\n");
+            self.output.push_str("    mov rax, QWORD PTR [r11]\n");
         } else {
             for (index, register) in VALUE_REGISTERS[..element_words].iter().enumerate() {
                 self.output.push_str(&format!(
-                    "    mov {register}, QWORD PTR [rdx+{}]\n",
+                    "    mov {register}, QWORD PTR [r11-{}]\n",
                     index * 8
                 ));
             }

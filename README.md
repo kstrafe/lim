@@ -411,6 +411,10 @@ see `examples/large_tuple_return.lim`.
 
 Large scalar structs use it as well; see `examples/large_struct_return.lim`.
 
+Large aggregate returns may contain nested value elements, including wide
+integers, as long as each nested element can be materialized within the native
+value-register limit; see `examples/large_nested_return.lim`.
+
 Payload enums with large scalar payloads use the same representation, including
 their discriminant; see `examples/large_enum_return.lim`.
 

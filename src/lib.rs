@@ -5225,7 +5225,7 @@ mod tests {
         let program = parse_program("(fn main () u64 (let mut values (array u64 2) (array 3 4)) (set-index values 1 40) (+ (index values 0) (index values 1)))").unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
-        assert!(assembly.contains("lea rdx"));
+        assert!(assembly.contains("lea r11"));
         assert!(assembly.contains("shl rcx, 3"));
         assert!(assembly.contains("jae"));
         assert!(assembly.contains("ud2"));
@@ -5662,6 +5662,15 @@ mod tests {
     fn supports_large_enum_payloads_in_locals() {
         let program = parse_program_strict(
             "(#enum BigPayload ((Big u64 u64 u64 u64 u64 u64 u64) Empty)) (#fn main () u64 (#let mut value BigPayload (Big 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#set-payload value Big 6 42u64) (#return 42u64))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn returns_large_arrays_with_nested_wide_elements() {
+        let program = parse_program_strict(
+            "(#fn make () (#array (#tuple u128 u64) 4) (#return (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64)))) (#fn main () u64 (#let values (#array (#tuple u128 u64) 4) (make)) (#let item (#tuple u128 u64) (#index values 3u64)) (#return (#get item 1)))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
