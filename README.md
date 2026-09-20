@@ -416,6 +416,8 @@ Saturating `i128`/`u128` addition and subtraction clamp to their full two-word
 numeric bounds. Saturating `u128` multiplication also detects overflow in its
 full 256-bit intermediate. Signed wide multiplication uses absolute magnitudes
 and clamps against the signed two-word bounds.
+Saturating wide division handles signed minimum-value divided by `-1` by
+returning `i128::MAX`; the corresponding remainder is zero.
 
 Unsigned integer comparisons and right shifts use unsigned native instructions
 when their operands have an unsigned type; unsigned division and remainder use

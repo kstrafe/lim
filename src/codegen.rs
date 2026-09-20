@@ -4511,7 +4511,7 @@ impl FunctionContext {
         mode: Option<&str>,
         items: &[Expr],
     ) -> Result<(), String> {
-        if mode == Some("saturate") && !matches!(operator, "+" | "-" | "*") {
+        if mode == Some("saturate") && !matches!(operator, "+" | "-" | "*" | "/" | "%") {
             return Err(format!(
                 "saturating 128-bit operator '{operator}' is unsupported"
             ));
@@ -4536,7 +4536,7 @@ impl FunctionContext {
             self.emit_wide_saturating_add_sub(operator, unsigned);
             return Ok(());
         }
-        if mode == Some("saturate") {
+        if mode == Some("saturate") && operator == "*" {
             let unsigned = self
                 .expression_type(&items[1])
                 .is_some_and(|ty| matches!(ty, Type::U128));
@@ -4597,7 +4597,30 @@ impl FunctionContext {
             let unsigned = self
                 .expression_type(&items[1])
                 .is_some_and(|ty| matches!(ty, Type::U128));
+            let saturating_division = mode == Some("saturate") && !unsigned;
+            let done = if saturating_division {
+                let normal = self.label("wide_saturating_division_normal");
+                let done = self.label("wide_saturating_division_done");
+                self.output.push_str(&format!(
+                    "    mov r9, 0x8000000000000000\n    cmp rdx, r9\n    jne {normal}\n    test rax, rax\n    jne {normal}\n    cmp r8, -1\n    jne {normal}\n    cmp rcx, -1\n    jne {normal}\n"
+                ));
+                if operator == "/" {
+                    self.output.push_str(&format!(
+                        "    mov rax, -1\n    mov rdx, 0x7fffffffffffffff\n    jmp {done}\n{normal}:\n"
+                    ));
+                } else {
+                    self.output.push_str(&format!(
+                        "    xor eax, eax\n    xor edx, edx\n    jmp {done}\n{normal}:\n"
+                    ));
+                }
+                Some(done)
+            } else {
+                None
+            };
             self.wide_division(operator, !unsigned)?;
+            if let Some(done) = done {
+                self.output.push_str(&format!("{done}:\n"));
+            }
             return Ok(());
         }
         match operator {

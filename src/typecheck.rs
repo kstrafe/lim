@@ -1870,12 +1870,6 @@ fn require_arithmetic_mode(
             "arithmetic operator '{operator}' has unknown mode '.{mode}'"
         ));
     }
-    if mode == "saturate" && matches!(operation, "/" | "%") && matches!(ty, Type::I128 | Type::U128)
-    {
-        return Err(format!(
-            "saturating operator '{operator}' is not supported for 128-bit division or remainder"
-        ));
-    }
     Ok(())
 }
 
