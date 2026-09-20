@@ -631,7 +631,7 @@ impl FunctionContext {
                     .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
             }
             Statement::ArrayAssign { name, index, value } => {
-                let Storage::Array { base, .. } = self
+                let Storage::Array { base, length } = self
                     .locals
                     .get(name)
                     .ok_or_else(|| format!("unknown array '{name}'"))?
@@ -639,7 +639,12 @@ impl FunctionContext {
                     return Err(format!("'{name}' is not an array"));
                 };
                 let base = *base;
+                let length = *length;
+                let bounds_failure = self.label("bounds_failure");
                 self.expression(index)?;
+                self.output.push_str(&format!(
+                    "    cmp rax, {length}\n    jae {bounds_failure}\n"
+                ));
                 self.push_rax();
                 self.expression(value)?;
                 self.output.push_str("    mov rdx, rax\n    pop rcx\n");
@@ -648,6 +653,8 @@ impl FunctionContext {
                     "    lea rax, [rbp-{}]\n    mov QWORD PTR [rax+rcx*8], rdx\n",
                     base * 8
                 ));
+                self.output
+                    .push_str(&format!("    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n"));
             }
             Statement::FieldAssign { name, field, value } => {
                 let Storage::Struct(fields) = self
@@ -982,11 +989,22 @@ impl FunctionContext {
             return Err(format!("'{name}' is not an array"));
         };
         let base = *base;
+        let Storage::Array { length, .. } = self.locals.get(name).unwrap() else {
+            unreachable!()
+        };
+        let length = *length;
+        let bounds_failure = self.label("bounds_failure");
         self.expression(&items[2])?;
         self.output.push_str("    mov rcx, rax\n");
         self.output.push_str(&format!(
+            "    cmp rcx, {length}\n    jae {bounds_failure}\n"
+        ));
+        self.output.push_str(&format!(
             "    lea rdx, [rbp-{}]\n    mov rax, QWORD PTR [rdx+rcx*8]\n",
             base * 8
+        ));
+        self.output.push_str(&format!(
+            "    jmp {bounds_failure}_done\n{bounds_failure}:\n    ud2\n{bounds_failure}_done:\n"
         ));
         Ok(())
     }

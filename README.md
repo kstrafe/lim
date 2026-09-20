@@ -128,6 +128,9 @@ Fixed-size arrays are value types with stack storage:
   (+ (index values 0) (index values 1)))
 ```
 
+Array reads and writes perform native unsigned bounds checks before touching
+the stack slot; an out-of-range index traps with `ud2`.
+
 Scalar functions also support more than six arguments using the x86-64 SysV
 stack-argument convention.
 

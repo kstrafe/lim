@@ -1165,6 +1165,8 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("lea rdx"));
         assert!(assembly.contains("rcx*8"));
+        assert!(assembly.contains("jae"));
+        assert!(assembly.contains("ud2"));
         let invalid = parse_program(
             "(fn main () u64 (let values (array u64 2) (array 1 2)) (index values 2))",
         )
