@@ -2427,6 +2427,24 @@ fn let_else_bindings(
     }
     if let Type::Named(enum_name) = ty {
         if let Some(variants) = enums.get(enum_name) {
+            if let Expr::List(items) = pattern {
+                if items.len() >= 2
+                    && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or")
+                {
+                    if variants.iter().any(|variant| !variant.fields.is_empty()) {
+                        return Err("enum let-else or-pattern requires fieldless variants".into());
+                    }
+                    for alternative in &items[1..] {
+                        let Expr::Symbol(name) = alternative else {
+                            return Err("enum let-else alternatives must be variants".into());
+                        };
+                        if !variants.iter().any(|variant| variant.name == *name) {
+                            return Err(format!("unknown enum variant '{name}'"));
+                        }
+                    }
+                    return Ok(Vec::new());
+                }
+            }
             let (variant_name, payload) = match pattern {
                 Expr::Symbol(name) => (name.as_str(), Vec::new()),
                 Expr::List(items) if !items.is_empty() => {
@@ -4386,7 +4404,17 @@ impl FunctionContext {
                             variants.iter().any(|variant| !variant.fields.is_empty())
                         })
                 );
-                if enum_type {
+                let fieldless_enum_type = matches!(
+                    ty,
+                    Type::Named(name)
+                        if self.enums.get(name).is_some_and(|variants| {
+                            !variants.is_empty()
+                                && variants.iter().all(|variant| variant.fields.is_empty())
+                        })
+                );
+                if fieldless_enum_type {
+                    self.emit_let_else_fieldless_enum_pattern(pattern, ty, &failure)?;
+                } else if enum_type {
                     self.emit_let_else_enum_pattern(pattern, ty, &failure, &mut bindings)?;
                 } else if is_scalar_pattern_type(ty) {
                     let low_operand = "QWORD PTR [rsp]";
@@ -8604,7 +8632,8 @@ impl FunctionContext {
         let variants = self
             .enums
             .get(enum_name)
-            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?;
+            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
+            .clone();
         let variant_index = variants
             .iter()
             .position(|variant| variant.name == variant_name)
@@ -8625,6 +8654,49 @@ impl FunctionContext {
             self.collect_enum_pattern_bindings(pattern, field_type, offset, bindings)?;
             offset += storage_word_count(field_type, &self.structs, &self.enums)?;
         }
+        Ok(())
+    }
+
+    fn emit_let_else_fieldless_enum_pattern(
+        &mut self,
+        pattern: &Expr,
+        ty: &Type,
+        failure: &str,
+    ) -> Result<(), String> {
+        let Type::Named(enum_name) = ty else {
+            return Err("fieldless enum let-else pattern requires a named enum".into());
+        };
+        let variants = self
+            .enums
+            .get(enum_name)
+            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
+            .clone();
+        let alternatives: Vec<&Expr> = if let Expr::List(items) = pattern {
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "or") {
+                items[1..].iter().collect()
+            } else {
+                vec![pattern]
+            }
+        } else {
+            vec![pattern]
+        };
+        let matched = self.label("fieldless_let_else_matched");
+        for alternative in alternatives {
+            let Expr::Symbol(name) = alternative else {
+                return Err("fieldless enum let-else pattern must be a variant".into());
+            };
+            let discriminant = variants
+                .iter()
+                .find(|variant| variant.name == *name)
+                .map(|variant| variant.discriminant)
+                .ok_or_else(|| format!("unknown enum variant '{name}'"))?;
+            self.output.push_str(&format!(
+                "    cmp QWORD PTR [rsp], {}\n    je {matched}\n",
+                asm_u64_immediate(discriminant)
+            ));
+        }
+        self.output
+            .push_str(&format!("    jmp {failure}\n{matched}:\n"));
         Ok(())
     }
 

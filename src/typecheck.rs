@@ -924,6 +924,24 @@ fn check_let_else_pattern(
     let mut bindings = variables.clone();
     if let Type::Named(enum_name) = ty {
         if let Some(variants) = enums.get(enum_name) {
+            if let Expr::List(items) = pattern {
+                if items.len() >= 2
+                    && matches!(items.first(), Some(Expr::Symbol(name)) if name == "or")
+                {
+                    if variants.iter().any(|variant| !variant.fields.is_empty()) {
+                        return Err("enum let-else or-pattern requires fieldless variants".into());
+                    }
+                    for alternative in &items[1..] {
+                        let Expr::Symbol(name) = alternative else {
+                            return Err("enum let-else alternatives must be variants".into());
+                        };
+                        if !variants.iter().any(|variant| variant.name == *name) {
+                            return Err(format!("unknown enum variant '{name}'"));
+                        }
+                    }
+                    return Ok(Vec::new());
+                }
+            }
             let (variant_name, payload_patterns): (&str, Vec<&Expr>) = match pattern {
                 Expr::Symbol(name) => (name, Vec::new()),
                 Expr::List(items) if !items.is_empty() => {
