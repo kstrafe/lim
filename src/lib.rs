@@ -372,6 +372,10 @@ pub struct EnumVariant {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
+    TypeAlias {
+        name: String,
+        target: Type,
+    },
     Function(Function),
     Struct {
         name: String,
@@ -411,6 +415,15 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
     let items = expect_list(expression, "top-level declaration")?;
     let keyword = expect_symbol(items.first(), "declaration keyword")?;
     match keyword {
+        "type" => {
+            if items.len() != 3 {
+                return Err("type requires a name and target type".into());
+            }
+            Ok(Item::TypeAlias {
+                name: expect_symbol(items.get(1), "type alias name")?.to_owned(),
+                target: parse_type(items.get(2))?,
+            })
+        }
         "fn" => Ok(Item::Function(parse_function(items)?)),
         "struct" => Ok(Item::Struct {
             name: parse_struct_name(items)?,
@@ -1075,5 +1088,20 @@ mod tests {
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("cannot be mutable"));
+    }
+
+    #[test]
+    fn checks_and_lowers_type_aliases() {
+        let program = parse_program(
+            "(type UserId u64) (fn add_one ((id UserId)) UserId (+ id 1)) (fn main () UserId (add_one 41))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).unwrap().contains("add_one"));
+        let invalid =
+            parse_program("(type UserId u64) (fn main () UserId (let value u32 1) value)").unwrap();
+        assert!(check_types(&invalid)
+            .unwrap_err()
+            .contains("return of function"));
     }
 }

@@ -49,6 +49,13 @@ well as named types. Local variables use explicit types:
   total)
 ```
 
+Named type aliases are explicit and resolve to their target type:
+
+```lisp
+(type UserId u64)
+(fn add_one ((id UserId)) UserId (+ id 1))
+```
+
 Mutable locals, assignment, and `while` are also supported:
 
 ```lisp

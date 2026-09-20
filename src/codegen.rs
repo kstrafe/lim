@@ -13,11 +13,28 @@ const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 
 pub fn generate_assembly(program: &Program) -> Result<String, String> {
     check_types(program)?;
+    let aliases: HashMap<String, Type> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::TypeAlias { name, target } => Some((name.clone(), target.clone())),
+            _ => None,
+        })
+        .collect();
     let structs: HashMap<String, Vec<Field>> = program
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::Struct { name, fields } => Some((name.clone(), fields.clone())),
+            Item::Struct { name, fields } => Some((
+                name.clone(),
+                fields
+                    .iter()
+                    .map(|field| Field {
+                        name: field.name.clone(),
+                        ty: resolve_type(&field.ty, &aliases).unwrap_or_else(|_| field.ty.clone()),
+                    })
+                    .collect(),
+            )),
             _ => None,
         })
         .collect();
@@ -47,7 +64,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             if *mutable {
                 return Err(format!("top-level binding '{name}' cannot be mutable"));
             }
-            ensure_scalar_type(ty, &enums)?;
+            ensure_scalar_type(&resolve_type(ty, &aliases)?, &enums)?;
             let value = constant_value(value, &enums)?;
             globals.insert(name.clone(), value);
         }
@@ -63,10 +80,11 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
     for item in &program.items {
         match item {
             Item::Function(function) => {
-                generate_function(function, &mut output, &structs, &enums, &globals)?
+                generate_function(function, &mut output, &structs, &enums, &globals, &aliases)?
             }
             Item::Struct { .. } => {}
             Item::Enum { .. } => {}
+            Item::TypeAlias { .. } => {}
             Item::Let { .. } => {}
         }
     }
@@ -80,10 +98,11 @@ fn generate_function(
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<String>>,
     globals: &HashMap<String, i128>,
+    aliases: &HashMap<String, Type>,
 ) -> Result<(), String> {
-    ensure_scalar_type(&function.return_type, enums)?;
+    ensure_scalar_type(&resolve_type(&function.return_type, aliases)?, enums)?;
     for parameter in &function.parameters {
-        ensure_scalar_type(&parameter.ty, enums)?;
+        ensure_scalar_type(&resolve_type(&parameter.ty, aliases)?, enums)?;
     }
 
     let mut locals = HashMap::new();
@@ -95,11 +114,19 @@ fn generate_function(
             &parameter.ty,
             structs,
             enums,
+            aliases,
             &mut next_slot,
         )?;
     }
     for statement in &function.body {
-        collect_locals(statement, &mut locals, structs, enums, &mut next_slot)?;
+        collect_locals(
+            statement,
+            &mut locals,
+            structs,
+            enums,
+            aliases,
+            &mut next_slot,
+        )?;
     }
     let frame_size = ((next_slot.saturating_sub(1) * 8 + 15) / 16) * 16;
 
@@ -133,6 +160,7 @@ fn generate_function(
         structs: structs.clone(),
         enums: enums.clone(),
         globals: globals.clone(),
+        aliases: aliases.clone(),
         labels: 0,
         stack_depth: 0,
         loop_labels: Vec::new(),
@@ -156,19 +184,20 @@ fn collect_locals(
     locals: &mut HashMap<String, Storage>,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<String>>,
+    aliases: &HashMap<String, Type>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
     match statement {
         Statement::Let { name, ty, .. } => {
-            add_local(locals, name, ty, structs, enums, next_slot)?;
+            add_local(locals, name, ty, structs, enums, aliases, next_slot)?;
             if let Statement::Let { value, .. } = statement {
-                collect_expr_locals(value, locals, structs, enums, next_slot)?;
+                collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?;
             }
         }
         Statement::While { condition, body } => {
-            collect_expr_locals(condition, locals, structs, enums, next_slot)?;
+            collect_expr_locals(condition, locals, structs, enums, aliases, next_slot)?;
             for statement in body {
-                collect_locals(statement, locals, structs, enums, next_slot)?;
+                collect_locals(statement, locals, structs, enums, aliases, next_slot)?;
             }
         }
         Statement::For {
@@ -177,25 +206,25 @@ fn collect_locals(
             step,
             body,
         } => {
-            collect_locals(init, locals, structs, enums, next_slot)?;
-            collect_expr_locals(condition, locals, structs, enums, next_slot)?;
-            collect_locals(step, locals, structs, enums, next_slot)?;
+            collect_locals(init, locals, structs, enums, aliases, next_slot)?;
+            collect_expr_locals(condition, locals, structs, enums, aliases, next_slot)?;
+            collect_locals(step, locals, structs, enums, aliases, next_slot)?;
             for statement in body {
-                collect_locals(statement, locals, structs, enums, next_slot)?;
+                collect_locals(statement, locals, structs, enums, aliases, next_slot)?;
             }
         }
         Statement::Assign { value, .. } => {
-            collect_expr_locals(value, locals, structs, enums, next_slot)?
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?
         }
         Statement::ArrayAssign { index, value, .. } => {
-            collect_expr_locals(index, locals, structs, enums, next_slot)?;
-            collect_expr_locals(value, locals, structs, enums, next_slot)?;
+            collect_expr_locals(index, locals, structs, enums, aliases, next_slot)?;
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?;
         }
         Statement::FieldAssign { value, .. } => {
-            collect_expr_locals(value, locals, structs, enums, next_slot)?
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?
         }
         Statement::Return(Some(value)) | Statement::Expr(value) => {
-            collect_expr_locals(value, locals, structs, enums, next_slot)?
+            collect_expr_locals(value, locals, structs, enums, aliases, next_slot)?
         }
         Statement::Break | Statement::Continue | Statement::Return(None) => {}
     }
@@ -207,17 +236,18 @@ fn collect_expr_locals(
     locals: &mut HashMap<String, Storage>,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<String>>,
+    aliases: &HashMap<String, Type>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
     match expression {
         Expr::List(items) => {
             for item in items {
-                collect_expr_locals(item, locals, structs, enums, next_slot)?;
+                collect_expr_locals(item, locals, structs, enums, aliases, next_slot)?;
             }
         }
         Expr::Block(statements) => {
             for statement in statements {
-                collect_locals(statement, locals, structs, enums, next_slot)?;
+                collect_locals(statement, locals, structs, enums, aliases, next_slot)?;
             }
         }
         _ => {}
@@ -231,13 +261,15 @@ fn add_local(
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<String>>,
+    aliases: &HashMap<String, Type>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
-    let storage = if ensure_scalar_type(ty, enums).is_ok() {
+    let ty = resolve_type(ty, aliases)?;
+    let storage = if ensure_scalar_type(&ty, enums).is_ok() {
         let slot = *next_slot;
         *next_slot += 1;
         Storage::Scalar(slot)
-    } else if let Type::Array(element, length) = ty {
+    } else if let Type::Array(element, length) = &ty {
         ensure_scalar_type(element, enums)
             .map_err(|_| "native backend only supports arrays of scalar values".to_owned())?;
         let base = *next_slot;
@@ -246,7 +278,7 @@ fn add_local(
             base,
             length: *length,
         }
-    } else if let Type::Named(struct_name) = ty {
+    } else if let Type::Named(struct_name) = &ty {
         let fields = structs
             .get(struct_name)
             .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
@@ -314,6 +346,21 @@ fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<String>>) -> Result
     }
 }
 
+fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, String> {
+    match ty {
+        Type::Named(name) => match aliases.get(name) {
+            Some(target) if target != ty => resolve_type(target, aliases),
+            Some(_) => Err(format!("recursive type alias '{name}'")),
+            None => Ok(ty.clone()),
+        },
+        Type::Array(element, length) => Ok(Type::Array(
+            Box::new(resolve_type(element, aliases)?),
+            *length,
+        )),
+        _ => Ok(ty.clone()),
+    }
+}
+
 fn constant_value(expression: &Expr, enums: &HashMap<String, Vec<String>>) -> Result<i128, String> {
     match expression {
         Expr::Integer(value) => Ok(*value),
@@ -351,6 +398,7 @@ struct FunctionContext {
     structs: HashMap<String, Vec<Field>>,
     enums: HashMap<String, Vec<String>>,
     globals: HashMap<String, i128>,
+    aliases: HashMap<String, Type>,
     labels: usize,
     stack_depth: usize,
     loop_labels: Vec<(String, String)>,
@@ -364,7 +412,8 @@ impl FunctionContext {
             Statement::Let {
                 name, ty, value, ..
             } => {
-                if let Type::Named(struct_name) = ty {
+                let ty = resolve_type(ty, &self.aliases)?;
+                if let Type::Named(struct_name) = &ty {
                     self.store_struct(name, struct_name, value)?;
                 } else if matches!(ty, Type::Array(_, _)) {
                     self.store_array(name, value)?;

@@ -1,0 +1,7 @@
+(type UserId u64)
+
+(fn add_one ((id UserId)) UserId
+  (+ id 1))
+
+(fn main () UserId
+  (add_one 41))

@@ -9,6 +9,14 @@ struct Signature {
 }
 
 pub fn check_types(program: &Program) -> Result<(), String> {
+    let mut aliases = HashMap::new();
+    for item in &program.items {
+        if let Item::TypeAlias { name, target } = item {
+            if aliases.insert(name.clone(), target.clone()).is_some() {
+                return Err(format!("duplicate type alias '{name}'"));
+            }
+        }
+    }
     let mut globals = HashMap::new();
     for item in &program.items {
         if let Item::Let {
@@ -18,7 +26,10 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             if *mutable {
                 return Err(format!("top-level binding '{name}' cannot be mutable"));
             }
-            if globals.insert(name.clone(), ty.clone()).is_some() {
+            if globals
+                .insert(name.clone(), resolve_type(ty, &aliases)?)
+                .is_some()
+            {
                 return Err(format!("duplicate global '{name}'"));
             }
         }
@@ -26,7 +37,16 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     let mut structs = HashMap::new();
     for item in &program.items {
         if let Item::Struct { name, fields } = item {
-            if structs.insert(name.clone(), fields.clone()).is_some() {
+            let fields = fields
+                .iter()
+                .map(|field| {
+                    Ok(Field {
+                        name: field.name.clone(),
+                        ty: resolve_type(&field.ty, &aliases)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            if structs.insert(name.clone(), fields).is_some() {
                 return Err(format!("duplicate struct '{name}'"));
             }
         }
@@ -51,9 +71,9 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                     parameters: function
                         .parameters
                         .iter()
-                        .map(|parameter| parameter.ty.clone())
-                        .collect(),
-                    return_type: function.return_type.clone(),
+                        .map(|parameter| resolve_type(&parameter.ty, &aliases))
+                        .collect::<Result<Vec<_>, String>>()?,
+                    return_type: resolve_type(&function.return_type, &aliases)?,
                 },
             )
             .is_some()
@@ -64,12 +84,11 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     for item in &program.items {
         match item {
             Item::Function(function) => {
-                check_function(function, &functions, &structs, &enums, &globals)?
+                check_function(function, &functions, &structs, &enums, &globals, &aliases)?
             }
-            Item::Struct { .. } | Item::Enum { .. } => {}
-            Item::Let {
-                name, ty, value, ..
-            } => {
+            Item::TypeAlias { .. } | Item::Struct { .. } | Item::Enum { .. } => {}
+            Item::Let { name, value, .. } => {
+                let ty = globals.get(name).expect("global type collected");
                 let actual = expression(
                     value,
                     &globals,
@@ -92,12 +111,17 @@ fn check_function(
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     globals: &HashMap<String, Type>,
+    aliases: &HashMap<String, Type>,
 ) -> Result<(), String> {
     let mut variables = globals.clone();
     let mut mutable = HashSet::new();
+    let return_type = resolve_type(&function.return_type, aliases)?;
     for parameter in &function.parameters {
         if variables
-            .insert(parameter.name.clone(), parameter.ty.clone())
+            .insert(
+                parameter.name.clone(),
+                resolve_type(&parameter.ty, aliases)?,
+            )
             .is_some()
         {
             return Err(format!(
@@ -117,7 +141,7 @@ fn check_function(
                     structs,
                     enums,
                     &mutable,
-                    Some(&function.return_type),
+                    Some(&return_type),
                 )?
             } else {
                 statement_type(
@@ -127,7 +151,8 @@ fn check_function(
                     functions,
                     structs,
                     enums,
-                    &function.return_type,
+                    &return_type,
+                    aliases,
                     false,
                 )?
             }
@@ -139,14 +164,15 @@ fn check_function(
                 functions,
                 structs,
                 enums,
-                &function.return_type,
+                &return_type,
+                aliases,
                 false,
             )?
         };
     }
     require_type(
         &last_type,
-        &function.return_type,
+        &return_type,
         &format!("return of function '{}'", function.name),
     )
 }
@@ -159,6 +185,7 @@ fn statement_type(
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     return_type: &Type,
+    aliases: &HashMap<String, Type>,
     in_loop: bool,
 ) -> Result<Type, String> {
     match statement {
@@ -171,6 +198,7 @@ fn statement_type(
             if variables.contains_key(name) {
                 return Err(format!("duplicate local '{name}'"));
             }
+            let binding_type = resolve_type(ty, aliases)?;
             let actual = expression(
                 value,
                 variables,
@@ -178,10 +206,10 @@ fn statement_type(
                 structs,
                 enums,
                 mutable,
-                Some(ty),
+                Some(&binding_type),
             )?;
-            require_type(&actual, ty, &format!("let '{name}'"))?;
-            variables.insert(name.clone(), ty.clone());
+            require_type(&actual, &binding_type, &format!("let '{name}'"))?;
+            variables.insert(name.clone(), binding_type);
             if *is_mutable {
                 mutable.insert(name.clone());
             }
@@ -286,6 +314,7 @@ fn statement_type(
                     structs,
                     enums,
                     return_type,
+                    aliases,
                     true,
                 )?;
             }
@@ -305,6 +334,7 @@ fn statement_type(
                 structs,
                 enums,
                 return_type,
+                aliases,
                 false,
             )?;
             let actual = expression(
@@ -326,6 +356,7 @@ fn statement_type(
                     structs,
                     enums,
                     return_type,
+                    aliases,
                     true,
                 )?;
             }
@@ -337,6 +368,7 @@ fn statement_type(
                 structs,
                 enums,
                 return_type,
+                aliases,
                 true,
             )?;
             Ok(Type::Unit)
@@ -423,6 +455,7 @@ fn expression(
                             structs,
                             enums,
                             &block_return,
+                            &HashMap::new(),
                             false,
                         )?
                     }
@@ -435,6 +468,7 @@ fn expression(
                         structs,
                         enums,
                         &block_return,
+                        &HashMap::new(),
                         false,
                     )?
                 };
@@ -747,6 +781,21 @@ fn require_arity(operator: &str, items: &[Expr], expected: usize) -> Result<(), 
         ))
     } else {
         Ok(())
+    }
+}
+
+fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, String> {
+    match ty {
+        Type::Named(name) => match aliases.get(name) {
+            Some(target) if target != ty => resolve_type(target, aliases),
+            Some(_) => Err(format!("type alias '{name}' is recursive")),
+            None => Ok(ty.clone()),
+        },
+        Type::Array(element, length) => Ok(Type::Array(
+            Box::new(resolve_type(element, aliases)?),
+            *length,
+        )),
+        _ => Ok(ty.clone()),
     }
 }
 
