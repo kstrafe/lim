@@ -54,7 +54,20 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     let mut enums = HashMap::new();
     for item in &program.items {
         if let Item::Enum { name, variants } = item {
-            if enums.insert(name.clone(), variants.clone()).is_some() {
+            let variants = variants
+                .iter()
+                .map(|variant| {
+                    Ok(EnumVariant {
+                        name: variant.name.clone(),
+                        fields: variant
+                            .fields
+                            .iter()
+                            .map(|field| resolve_type(field, &aliases))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            if enums.insert(name.clone(), variants).is_some() {
                 return Err(format!("duplicate enum '{name}'"));
             }
         }

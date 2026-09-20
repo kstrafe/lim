@@ -88,14 +88,25 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             _ => None,
         })
         .collect();
-    let enums: HashMap<String, Vec<EnumVariant>> = program
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Enum { name, variants } => Some((name.clone(), variants.clone())),
-            _ => None,
-        })
-        .collect();
+    let mut enums = HashMap::new();
+    for item in &program.items {
+        if let Item::Enum { name, variants } = item {
+            let variants = variants
+                .iter()
+                .map(|variant| {
+                    Ok(EnumVariant {
+                        name: variant.name.clone(),
+                        fields: variant
+                            .fields
+                            .iter()
+                            .map(|field| resolve_type(field, &aliases))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            enums.insert(name.clone(), variants);
+        }
+    }
     let mut functions = HashMap::new();
     for item in &program.items {
         let Item::Function(function) = item else {

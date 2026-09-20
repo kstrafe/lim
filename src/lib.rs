@@ -1986,5 +1986,11 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&nested).is_ok());
+        let enum_payload = parse_program(
+            "(type Value u64) (enum Box ((Some Value) None)) (fn main () u64 (match (Some 42) ((Some value) value) (None 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&enum_payload).is_ok());
+        assert!(generate_assembly(&enum_payload).is_ok());
     }
 }
