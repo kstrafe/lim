@@ -44,8 +44,9 @@ scalar-payload enum:
 
 ```lisp
 (@optional u64 Maybe?)
+(fn identity ((value Maybe?)) Maybe? value)
 (fn main () u64
-  (let value Maybe? (Maybe?-some 42))
+  (let value Maybe? (identity (Maybe?-some 42)))
   (match value ((Maybe?-some payload) payload) (Maybe?-none 0)))
 ```
 

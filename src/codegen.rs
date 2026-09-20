@@ -848,8 +848,7 @@ impl FunctionContext {
                     .push_str(&format!("    jmp {}\n", self.return_label));
             }
             Statement::Expr(expression) => {
-                if matches!(&self.return_type, Type::Named(name) if self.structs.contains_key(name))
-                {
+                if self.is_aggregate_type(&self.return_type) {
                     self.return_value(expression)?;
                 } else {
                     self.expression(expression)?;
@@ -865,6 +864,30 @@ impl FunctionContext {
             return Ok(());
         };
         let Some(fields) = self.structs.get(struct_name).cloned() else {
+            if self
+                .enums
+                .get(struct_name)
+                .is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty()))
+            {
+                if let Expr::Symbol(name) = value {
+                    let Storage::Enum {
+                        discriminant,
+                        payload,
+                    } = self
+                        .locals
+                        .get(name)
+                        .ok_or_else(|| format!("unknown enum local '{name}'"))?
+                    else {
+                        return Err(format!("'{name}' is not a payload enum"));
+                    };
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
+                        discriminant * 8,
+                        payload * 8
+                    ));
+                    return Ok(());
+                }
+            }
             self.expression(value)?;
             return Ok(());
         };
@@ -912,6 +935,15 @@ impl FunctionContext {
             }
         }
         self.expression(value)
+    }
+
+    fn is_aggregate_type(&self, ty: &Type) -> bool {
+        let Type::Named(name) = ty else { return false };
+        self.structs.contains_key(name)
+            || self
+                .enums
+                .get(name)
+                .is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty()))
     }
 
     fn store_struct(&mut self, name: &str, struct_name: &str, value: &Expr) -> Result<(), String> {
@@ -1573,6 +1605,49 @@ impl FunctionContext {
                     }
                 }
             }
+            if self
+                .enums
+                .get(name)
+                .is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty()))
+            {
+                if let Expr::Symbol(local) = value {
+                    let Storage::Enum {
+                        discriminant,
+                        payload,
+                    } = self
+                        .locals
+                        .get(local)
+                        .ok_or_else(|| format!("unknown enum local '{local}'"))?
+                    else {
+                        return Err(format!("'{local}' is not a payload enum"));
+                    };
+                    let slots = if reverse {
+                        [*payload, *discriminant]
+                    } else {
+                        [*discriminant, *payload]
+                    };
+                    for slot in slots {
+                        self.output
+                            .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+                        self.push_rax();
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        if matches!(ty, Type::Named(name) if self.enums.get(name).is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty())))
+        {
+            self.expression(value)?;
+            if reverse {
+                self.output.push_str("    push rdx\n");
+                self.stack_depth += 1;
+                self.push_rax();
+            } else {
+                self.push_rax();
+                self.output.push_str("    push rdx\n");
+                self.stack_depth += 1;
+            }
+            return Ok(());
         }
         self.expression(value)?;
         self.push_rax();

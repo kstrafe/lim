@@ -1179,6 +1179,14 @@ mod tests {
         .unwrap();
         assert!(check_types(&returned).is_ok());
         assert!(generate_assembly(&returned).unwrap().contains("call make"));
+        let passed = parse_program(
+            "(enum Maybe ((Some u64) None)) (fn identity ((value Maybe)) Maybe value) (fn main () u64 (let result Maybe (identity (Some 42))) (match result ((Some payload) payload) (None 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&passed).is_ok());
+        assert!(generate_assembly(&passed)
+            .unwrap()
+            .contains("call identity"));
     }
 
     #[test]
