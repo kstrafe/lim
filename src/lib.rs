@@ -1608,6 +1608,16 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("addsd xmm1, xmm0"));
         assert!(assembly.contains("movq xmm0"));
+        let remainder = parse_program("(fn main () u64 (if (== (% 5.5 2.0) 1.5) 42 0))").unwrap();
+        assert!(check_types(&remainder).is_ok());
+        assert!(generate_assembly(&remainder).unwrap().contains("fprem"));
+        let narrow_remainder = parse_program(
+            "(fn main () u64 (let left f32 5.5) (let right f32 2.0) (if (== (% left right) 1.5) 42 0))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&narrow_remainder)
+            .unwrap()
+            .contains("fprem"));
         let parameter = parse_program("(fn calculate ((value f64)) f64 value)").unwrap();
         assert!(generate_assembly(&parameter)
             .unwrap()

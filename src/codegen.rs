@@ -2910,6 +2910,9 @@ impl FunctionContext {
                 .push_str("    movq xmm1, QWORD PTR [rsp]\n    add rsp, 8\n");
         }
         self.stack_depth -= 1;
+        if operator == "%" {
+            return self.float_remainder(&ty);
+        }
         let (add, sub, mul, div, copy) = if matches!(ty, Type::F32) {
             ("addss", "subss", "mulss", "divss", "movaps")
         } else {
@@ -2937,6 +2940,18 @@ impl FunctionContext {
         Ok(())
     }
 
+    fn float_remainder(&mut self, ty: &Type) -> Result<(), String> {
+        let loop_label = self.label("float_remainder");
+        let (store, load, memory) = if matches!(ty, Type::F32) {
+            ("movss", "movss", "DWORD")
+        } else {
+            ("movq", "movq", "QWORD")
+        };
+        self.output.push_str(&format!(
+            "    sub rsp, 16\n    {store} {memory} PTR [rsp], xmm1\n    {store} {memory} PTR [rsp+8], xmm0\n    fld {memory} PTR [rsp]\n    fld {memory} PTR [rsp+8]\n{loop_label}:\n    fprem\n    fstsw ax\n    test ah, 4\n    jnz {loop_label}\n    fstp st(0)\n    fstp {memory} PTR [rsp]\n    {load} xmm0, {memory} PTR [rsp]\n    add rsp, 16\n"
+        ));
+        Ok(())
+    }
     fn comparison(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
         if items.len() != 3 {
             return Err(format!("comparison '{operator}' requires two operands"));

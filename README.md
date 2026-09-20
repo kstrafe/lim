@@ -82,6 +82,8 @@ semantics.
 
 Native `f32` and `f64` locals, homogeneous parameters, mixed scalar parameters,
 arithmetic, comparisons, and returns use SSE registers where appropriate.
+Floating-point remainder uses the native x87 `fprem` instruction and is supported
+for both widths.
 
 Functions may freely mix `f32` and `f64` parameters; each argument keeps its
 own SSE width.
