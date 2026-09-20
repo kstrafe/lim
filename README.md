@@ -542,6 +542,9 @@ Top-level `i128` and `u128` constants and immutable globals use the same
 two-word representation in read-only data and can be loaded by functions.
 This includes unsigned literals above `i128::MAX` when the declared type is
 `u128`.
+Compile-time `u128` arithmetic evaluates in the unsigned two-word domain, so
+wrapping and saturating constant expressions preserve the same semantics as
+native `u128` operations.
 Positive literals above `i128::MAX` are represented as `u128` literals and can
 be used in explicitly typed `u128` positions.
 128-bit multiplication is lowered to the low 128 bits using native multiply

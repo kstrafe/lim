@@ -758,9 +758,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                         )? as u128,
                     };
                     if matches!(item, Item::Let { .. }) {
-                        if let Ok(value) = i128::try_from(value) {
-                            constants.insert(name.clone(), value);
-                        }
+                        constants.insert(name.clone(), value as i128);
                     }
                     GlobalValue::Wide {
                         low: value as u64,
@@ -2518,9 +2516,15 @@ fn constant_value(
 ) -> Result<i128, String> {
     match expression {
         Expr::Integer(value) => Ok(*value),
-        Expr::UnsignedInteger(value) => (*value)
-            .try_into()
-            .map_err(|_| "unsigned constant is too large for the native global evaluator".into()),
+        Expr::UnsignedInteger(value) => {
+            if matches!(target, Some(Type::U128)) {
+                Ok(*value as i128)
+            } else {
+                (*value).try_into().map_err(|_| {
+                    "unsigned constant is too large for the native global evaluator".into()
+                })
+            }
+        }
         Expr::Char(value) => Ok(*value as i128),
         Expr::Float(_) => Err("floating-point global initializers are not supported".into()),
         Expr::Symbol(name) if name == "true" => Ok(1),
@@ -2555,7 +2559,7 @@ fn constant_value(
                 Expr::Symbol(name) => name.as_str(),
                 _ => return Err("global initializer is not constant".into()),
             };
-            let operator = operator_base(operator);
+            let (qualifier, operator, _) = operator_parts(operator);
             let value = constant_value(
                 &items[1],
                 enums,
@@ -2564,6 +2568,12 @@ fn constant_value(
                 evaluating,
                 target,
             )?;
+            if operator == "-"
+                && (matches!(qualifier.map(Type::from_name), Some(Type::U128))
+                    || matches!(target, Some(Type::U128)))
+            {
+                return Ok((0u128.wrapping_sub(value as u128)) as i128);
+            }
             match operator {
                 "-" => value
                     .checked_neg()
@@ -2626,6 +2636,49 @@ fn constant_value(
                 target,
             )?;
             let operation_type = qualifier.map(Type::from_name).or_else(|| target.cloned());
+            if matches!(operation_type, Some(Type::U128)) {
+                let left = left as u128;
+                let right = right as u128;
+                let result = match operator {
+                    "+" if mode == Some("saturate") => left.checked_add(right).unwrap_or(u128::MAX),
+                    "+" => left.wrapping_add(right),
+                    "-" if mode == Some("saturate") => left.saturating_sub(right),
+                    "-" => left.wrapping_sub(right),
+                    "*" if mode == Some("saturate") => left.checked_mul(right).unwrap_or(u128::MAX),
+                    "*" => left.wrapping_mul(right),
+                    "/" => left
+                        .checked_div(right)
+                        .ok_or_else(|| "constant division failed".to_owned())?,
+                    "%" => left
+                        .checked_rem(right)
+                        .ok_or_else(|| "constant remainder failed".to_owned())?,
+                    "&" => left & right,
+                    "|" => left | right,
+                    "^" => left ^ right,
+                    "<<" => {
+                        if right >= 128 {
+                            return Err("constant shift count is out of range".to_owned());
+                        }
+                        left << right
+                    }
+                    ">>" => {
+                        if right >= 128 {
+                            return Err("constant shift count is out of range".to_owned());
+                        }
+                        left >> right
+                    }
+                    "<" => u128::from(left < right),
+                    "<=" => u128::from(left <= right),
+                    ">" => u128::from(left > right),
+                    ">=" => u128::from(left >= right),
+                    "==" => u128::from(left == right),
+                    "!=" => u128::from(left != right),
+                    "&&" => u128::from(left != 0 && right != 0),
+                    "||" => u128::from(left != 0 || right != 0),
+                    _ => return Err("global initializer is not constant".to_owned()),
+                };
+                return Ok(result as i128);
+            }
             let result: i128 = match operator {
                 "+" => left
                     .checked_add(right)

@@ -1,0 +1,5 @@
+(#const Maximum u128 0xffffffffffffffffffffffffffffffff)
+(#const Saturated u128 (#u128.+.saturate Maximum 1))
+
+(#fn main () u64
+  (#return (#if (#u128.== Saturated Maximum) 42 0)))
