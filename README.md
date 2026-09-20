@@ -39,6 +39,16 @@ cc /tmp/fibonacci.s -o /tmp/fibonacci
 - `#` and `;` line comments
 - The generated-code sigil `@` as a first-class AST node
 
+The first built-in generated declaration is `@optional`, which expands to a
+scalar-payload enum:
+
+```lisp
+(@optional u64 Maybe?)
+(fn main () u64
+  (let value Maybe? (Maybe?-some 42))
+  (match value ((Maybe?-some payload) payload) (Maybe?-none 0)))
+```
+
 The typed declaration pass recognizes primitive Rust-style types (`u8` through
 `u128`, `usize`, signed integers, `f32`, `f64`, `bool`, `char`, and `()`), as
 well as named types. Local variables use explicit types:

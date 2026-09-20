@@ -417,6 +417,9 @@ pub fn parse_program(source: &str) -> Result<Program, String> {
 
 fn parse_item(expression: &Expr) -> Result<Item, String> {
     let items = expect_list(expression, "top-level declaration")?;
+    if matches!(items.first(), Some(Expr::At)) {
+        return parse_generated_item(items);
+    }
     let keyword = expect_symbol(items.first(), "declaration keyword")?;
     match keyword {
         "type" => {
@@ -448,6 +451,32 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
         }
         other => Err(format!("unknown top-level form '{other}'")),
     }
+}
+
+fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
+    if items.len() != 4
+        || !matches!(items.first(), Some(Expr::At))
+        || !matches!(items.get(1), Some(Expr::Symbol(name)) if name == "optional")
+    {
+        return Err(
+            "generated declaration must have the form (@optional Type OptionalType)".into(),
+        );
+    }
+    let payload = parse_type(items.get(2))?;
+    let name = expect_symbol(items.get(3), "generated optional type name")?.to_owned();
+    Ok(Item::Enum {
+        name: name.clone(),
+        variants: vec![
+            EnumVariant {
+                name: format!("{name}-some"),
+                fields: vec![payload],
+            },
+            EnumVariant {
+                name: format!("{name}-none"),
+                fields: Vec::new(),
+            },
+        ],
+    })
 }
 
 fn parse_struct_name(items: &[Expr]) -> Result<String, String> {
@@ -1041,6 +1070,18 @@ mod tests {
         assert!(generate_assembly(&program).unwrap().contains("mov rax, 42"));
         let invalid = parse_program("(fn main () u64 (as true u64))").unwrap();
         assert!(check_types(&invalid).unwrap_err().contains("integer casts"));
+    }
+
+    #[test]
+    fn expands_optional_generated_declarations() {
+        let program = parse_program(
+            "(@optional u64 Maybe?) (fn main () u64 (let value Maybe? (Maybe?-some 42)) (match value ((Maybe?-some payload) payload) (Maybe?-none 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program)
+            .unwrap()
+            .contains("mov QWORD PTR [rbp-8], 0"));
     }
 
     #[test]
