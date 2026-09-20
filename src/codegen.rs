@@ -7325,7 +7325,14 @@ impl FunctionContext {
     }
 
     fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
-        if self.is_aggregate_type(ty) && matches!(value, Expr::Loop(_)) {
+        if self.is_aggregate_type(ty)
+            && (matches!(value, Expr::Block(_) | Expr::Loop(_))
+                || matches!(
+                    value,
+                    Expr::List(items)
+                        if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if" || operator == "match")
+                ))
+        {
             self.expression_as_expected(value, ty)?;
             let words = value_word_count(ty, &self.structs, &self.enums)?;
             let registers: Box<dyn Iterator<Item = &str>> = if reverse {

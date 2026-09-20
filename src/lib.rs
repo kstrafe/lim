@@ -4011,6 +4011,22 @@ mod tests {
     }
 
     #[test]
+    fn passes_aggregate_control_values_to_functions() {
+        let program = parse_program(
+            "(#fn consume ((value (#tuple u64 u64))) u64 \
+               (#return (#get value 1))) \
+             (#fn main () u64 \
+               (#return (consume \
+                 (#if true \
+                   (#tuple (#tuple u64 u64) 10 20) \
+                   (#tuple (#tuple u64 u64) 30 12)))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
             "(struct Point ((x u64) (y u64))) (fn point_x () u64 (get (Point 7 9) x))",

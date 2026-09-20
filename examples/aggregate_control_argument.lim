@@ -1,0 +1,8 @@
+(#fn consume ((value (#tuple u64 u64))) u64
+  (#return (#get value 1)))
+
+(#fn main () u64
+  (#return (consume
+    (#if true
+      (#tuple (#tuple u64 u64) 10 20)
+      (#tuple (#tuple u64 u64) 30 12)))))
