@@ -2087,9 +2087,6 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             return Err("let requires the form (let name Type value)".into());
         }
         if !matches!(items.get(name_index), Some(Expr::Symbol(_))) {
-            if mutable {
-                return Err("destructuring let patterns cannot be mutable yet".into());
-            }
             return Ok(Statement::Destructure {
                 pattern: items[name_index].clone(),
                 ty: parse_type(items.get(type_index))?,
@@ -3259,6 +3256,19 @@ mod tests {
               (#return (#u64.+.wrap \
                 (sum_tuple (#tuple (#tuple u64 u64) 20 10)) \
                 (sum_point (Point 7 5)))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn lowers_mutable_aggregate_let_destructuring() {
+        let program = parse_program(
+            "(#fn main () u64 \
+              (#let mut (#tuple first second) (#tuple u64 u64) (#tuple (#tuple u64 u64) 20 22)) \
+              (#set first 40) \
+              (#return (#u64.+.wrap first second)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());

@@ -2618,7 +2618,41 @@ impl FunctionContext {
         if words != fields.len() {
             return Err("native destructuring currently requires scalar fields".into());
         }
-        if let Expr::Symbol(name) = value {
+        let direct_values = if let Expr::List(items) = value {
+            let value_start = match ty {
+                Type::Tuple(_) if matches!(items.first(), Some(Expr::Symbol(name)) if name == "tuple") => {
+                    if parse_type(items.get(1))
+                        .ok()
+                        .is_some_and(|declared| matches!(declared, Type::Tuple(_)))
+                    {
+                        2
+                    } else {
+                        1
+                    }
+                }
+                Type::Named(name) if matches!(items.first(), Some(Expr::Symbol(constructor)) if constructor == name) => {
+                    1
+                }
+                _ => usize::MAX,
+            };
+            if value_start != usize::MAX && items.len() - value_start == fields.len() {
+                Some(&items[value_start..])
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(values) = direct_values {
+            for (field, field_type) in values.iter().zip(&fields) {
+                self.expression_as_abi_word(field, field_type)?;
+                self.push_rax();
+            }
+            for register in VALUE_REGISTERS[..fields.len()].iter().rev() {
+                self.output.push_str(&format!("    pop {register}\n"));
+                self.stack_depth -= 1;
+            }
+        } else if let Expr::Symbol(name) = value {
             if self.locals.contains_key(name) {
                 for (index, slot) in local_slots(&self.locals, name)?.into_iter().enumerate() {
                     self.output.push_str(&format!(
