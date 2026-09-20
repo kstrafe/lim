@@ -1027,11 +1027,22 @@ fn generate_function(
         .filter_map(Result::ok)
         .max()
         .unwrap_or(0);
+    let aggregate_temp_regions = functions
+        .values()
+        .map(|abi| {
+            abi.indirect_parameters
+                .iter()
+                .filter(|indirect| **indirect)
+                .count()
+        })
+        .max()
+        .unwrap_or(1)
+        .max(1);
     let aggregate_temp_base = if aggregate_temp_words == 0 {
         None
     } else {
         let base = next_slot;
-        next_slot += aggregate_temp_words;
+        next_slot += aggregate_temp_words * aggregate_temp_regions;
         Some(base)
     };
     let frame_size = (next_slot.saturating_sub(1) * 8).div_ceil(16) * 16;
@@ -1206,6 +1217,8 @@ fn generate_function(
         return_label: return_label.clone(),
         return_pointer_slot,
         aggregate_temp_base,
+        aggregate_temp_words,
+        aggregate_argument_cursor: 0,
         output: String::new(),
     };
     for statement in &function.body {
@@ -3504,6 +3517,8 @@ struct FunctionContext {
     return_label: String,
     return_pointer_slot: Option<usize>,
     aggregate_temp_base: Option<usize>,
+    aggregate_temp_words: usize,
+    aggregate_argument_cursor: usize,
     output: String,
 }
 
@@ -9020,6 +9035,9 @@ impl FunctionContext {
             let base = self
                 .aggregate_temp_base
                 .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
+            let region = self.aggregate_argument_cursor;
+            self.aggregate_argument_cursor += 1;
+            let base = base + region * self.aggregate_temp_words;
             let words = storage_word_count(ty, &self.structs, &self.enums)?;
             let slots = flat_slots(base, words);
             self.store_value_to_slots(value, ty, &slots)?;
@@ -9089,6 +9107,19 @@ impl FunctionContext {
     }
 
     fn call(
+        &mut self,
+        name: &str,
+        arguments: &[Expr],
+        indirect_return_slot: Option<usize>,
+    ) -> Result<(), String> {
+        let saved_cursor = self.aggregate_argument_cursor;
+        self.aggregate_argument_cursor = 0;
+        let result = self.call_inner(name, arguments, indirect_return_slot);
+        self.aggregate_argument_cursor = saved_cursor;
+        result
+    }
+
+    fn call_inner(
         &mut self,
         name: &str,
         arguments: &[Expr],

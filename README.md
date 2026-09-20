@@ -427,6 +427,9 @@ call boundary; pointers remain unavailable in Lim source. See
 Nested value aggregates use the same indirect storage boundary for parameters;
 see `examples/large_nested_parameter.lim`.
 
+Multiple inline large aggregate arguments receive independent temporary storage;
+see `examples/two_large_arguments.lim`.
+
 Direct indexing of a large scalar array return is also supported; see
 `examples/direct_large_array_return.lim`.
 

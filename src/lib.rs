@@ -5686,6 +5686,15 @@ mod tests {
     }
 
     #[test]
+    fn passes_two_constructed_large_arguments_without_aliasing() {
+        let program = parse_program_strict(
+            "(#fn add-last ((left (#array (#tuple u128 u64) 4)) (right (#array (#tuple u128 u64) 4))) u64 (#let left-item (#tuple u128 u64) (#index left 3u64)) (#let right-item (#tuple u128 u64) (#index right 3u64)) (#return (#u64.+.wrap (#get left-item 1) (#get right-item 1)))) (#fn main () u64 (#return (add-last (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 2u64) (#tuple 20u128 3u64) (#tuple 30u128 4u64) (#tuple 40u128 20u64)) (#array (#array (#tuple u128 u64) 4) (#tuple 50u128 5u64) (#tuple 60u128 6u64) (#tuple 70u128 7u64) (#tuple 80u128 22u64)))))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn checks_and_lowers_type_aliases() {
         let program = parse_program(
             "(type UserId u64) (fn add_one ((id UserId)) UserId (+ id 1)) (fn main () UserId (add_one 41))",
