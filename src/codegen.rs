@@ -243,7 +243,9 @@ impl FunctionContext {
             _ => return Err("expression list must start with a symbol".into()),
         };
         match operator {
-            "+" | "-" | "*" => self.binary_operator(operator, items),
+            "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
+                self.binary_operator(operator, items)
+            }
             "<" | "<=" | ">" | ">=" | "==" | "!=" => self.comparison(operator, items),
             "if" => self.if_expression(items),
             _ => self.call(operator, &items[1..]),
@@ -263,6 +265,15 @@ impl FunctionContext {
             "+" => self.output.push_str("    add rax, rcx\n"),
             "-" => self.output.push_str("    sub rax, rcx\n"),
             "*" => self.output.push_str("    imul rax, rcx\n"),
+            "/" => self.output.push_str("    cqo\n    idiv rcx\n"),
+            "%" => self
+                .output
+                .push_str("    cqo\n    idiv rcx\n    mov rax, rdx\n"),
+            "&" => self.output.push_str("    and rax, rcx\n"),
+            "|" => self.output.push_str("    or rax, rcx\n"),
+            "^" => self.output.push_str("    xor rax, rcx\n"),
+            "<<" => self.output.push_str("    shl rax, cl\n"),
+            ">>" => self.output.push_str("    sar rax, cl\n"),
             _ => unreachable!(),
         }
         Ok(())

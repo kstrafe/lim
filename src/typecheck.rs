@@ -200,7 +200,7 @@ fn list_expression(
         return Err("expression list must start with a symbol".into());
     };
     match operator.as_str() {
-        "+" | "-" | "*" => {
+        "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
             require_arity(operator, items, 3)?;
             let left = expression(&items[1], variables, functions, expected)?;
             let right = expression(&items[2], variables, functions, Some(&left))?;

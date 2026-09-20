@@ -805,4 +805,12 @@ mod tests {
         assert!(assembly.contains("mov rax, 42"));
         assert!(assembly.contains("jmp .Lreturn_main"));
     }
+
+    #[test]
+    fn generates_integer_operator_family() {
+        let program = parse_program("(fn main () i64 (% (/ (^ 20 1) 2) 3))").unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("idiv rcx"));
+        assert!(assembly.contains("xor rax, rcx"));
+    }
 }
