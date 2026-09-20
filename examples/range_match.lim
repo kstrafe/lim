@@ -4,5 +4,11 @@
       ((#range -10 10) 42)
       (_ 0))))
 
+(#fn wide-classify ((value i128)) u64
+  (#return
+    (#match value
+      ((#range -2 2) 42)
+      (_ 0))))
+
 (#fn main () u64
-  (#return (classify 7)))
+  (#return (#u64.+.wrap (classify 7) (wide-classify 1))))

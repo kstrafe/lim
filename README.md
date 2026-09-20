@@ -682,7 +682,7 @@ validated against the scrutinee width and use signed or unsigned comparisons:
   (_ 0))
 ```
 
-128-bit range patterns are reserved for a future wide comparison lowering.
+128-bit integer ranges use the same two-word native comparison lowering.
 
 Fixed-size arrays are value types with stack storage:
 

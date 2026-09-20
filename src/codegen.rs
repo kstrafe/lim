@@ -157,8 +157,8 @@ struct FunctionAbi {
 }
 
 enum ScalarRange {
-    Signed(i64, i64),
-    Unsigned(u64, u64),
+    Signed(i128, i128),
+    Unsigned(u128, u128),
     Char(u64, u64),
 }
 
@@ -169,12 +169,9 @@ fn scalar_range_bounds(pattern: &Expr, ty: &Type) -> Result<ScalarRange, String>
     if parts.len() != 3 || !matches!(parts.first(), Some(Expr::Symbol(name)) if name == "range") {
         return Err("range pattern must have the form (#range lower upper)".into());
     }
-    if matches!(ty, Type::I128 | Type::U128) {
-        return Err("scalar range patterns do not yet support 128-bit integers".into());
-    }
     if matches!(
         ty,
-        Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::Isize
+        Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::I128 | Type::Isize
     ) {
         let lower = signed_range_bound(&parts[1])?;
         let upper = signed_range_bound(&parts[2])?;
@@ -185,7 +182,7 @@ fn scalar_range_bounds(pattern: &Expr, ty: &Type) -> Result<ScalarRange, String>
     }
     if matches!(
         ty,
-        Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::Usize
+        Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::U128 | Type::Usize
     ) {
         let lower = unsigned_range_bound(&parts[1])?;
         let upper = unsigned_range_bound(&parts[2])?;
@@ -209,23 +206,20 @@ fn scalar_range_bounds(pattern: &Expr, ty: &Type) -> Result<ScalarRange, String>
     Err("range patterns require an integer or char scrutinee".into())
 }
 
-fn signed_range_bound(expression: &Expr) -> Result<i64, String> {
+fn signed_range_bound(expression: &Expr) -> Result<i128, String> {
     match expression {
-        Expr::Integer(value) => i64::try_from(*value)
-            .map_err(|_| "signed range bound is outside the native scalar width".to_owned()),
-        Expr::UnsignedInteger(value) => i64::try_from(*value)
-            .map_err(|_| "signed range bound is outside the native scalar width".to_owned()),
+        Expr::Integer(value) => Ok(*value),
+        Expr::UnsignedInteger(value) => i128::try_from(*value)
+            .map_err(|_| "signed range bound is outside the signed scalar width".to_owned()),
         _ => Err("integer range patterns require integer bounds".into()),
     }
 }
 
-fn unsigned_range_bound(expression: &Expr) -> Result<u64, String> {
+fn unsigned_range_bound(expression: &Expr) -> Result<u128, String> {
     match expression {
-        Expr::Integer(value) if *value >= 0 => u64::try_from(*value)
-            .map_err(|_| "unsigned range bound is outside the native scalar width".to_owned()),
+        Expr::Integer(value) if *value >= 0 => Ok(*value as u128),
         Expr::Integer(_) => Err("unsigned range bounds cannot be negative".into()),
-        Expr::UnsignedInteger(value) => u64::try_from(*value)
-            .map_err(|_| "unsigned range bound is outside the native scalar width".to_owned()),
+        Expr::UnsignedInteger(value) => Ok(*value),
         _ => Err("integer range patterns require integer bounds".into()),
     }
 }
@@ -7426,11 +7420,24 @@ impl FunctionContext {
         let operand = "QWORD PTR [rsp]";
         match range {
             ScalarRange::Signed(lower, upper) => {
+                if matches!(ty, Type::I128) {
+                    return self.emit_wide_scalar_range(lower as u128, upper as u128, true, next);
+                }
                 self.output.push_str(&format!(
                     "    cmp {operand}, {lower}\n    jl {next}\n    cmp {operand}, {upper}\n    jg {next}\n"
                 ));
             }
-            ScalarRange::Unsigned(lower, upper) | ScalarRange::Char(lower, upper) => {
+            ScalarRange::Unsigned(lower, upper) => {
+                if matches!(ty, Type::U128) {
+                    return self.emit_wide_scalar_range(lower, upper, false, next);
+                }
+                self.output.push_str(&format!(
+                    "    cmp {operand}, {}\n    jb {next}\n    cmp {operand}, {}\n    ja {next}\n",
+                    asm_u64_immediate(lower as u64),
+                    asm_u64_immediate(upper as u64)
+                ));
+            }
+            ScalarRange::Char(lower, upper) => {
                 self.output.push_str(&format!(
                     "    cmp {operand}, {}\n    jb {next}\n    cmp {operand}, {}\n    ja {next}\n",
                     asm_u64_immediate(lower),
@@ -7438,6 +7445,27 @@ impl FunctionContext {
                 ));
             }
         }
+        Ok(())
+    }
+
+    fn emit_wide_scalar_range(
+        &mut self,
+        lower: u128,
+        upper: u128,
+        signed: bool,
+        next: &str,
+    ) -> Result<(), String> {
+        let lower_ok = self.label("range_lower_ok");
+        let upper_ok = self.label("range_upper_ok");
+        let low_jump = if signed { "jl" } else { "jb" };
+        let high_jump = if signed { "jg" } else { "ja" };
+        self.output.push_str(&format!(
+            "    cmp QWORD PTR [rsp+8], {}\n    {low_jump} {next}\n    {high_jump} {lower_ok}\n    cmp QWORD PTR [rsp], {}\n    jb {next}\n{lower_ok}:\n    cmp QWORD PTR [rsp+8], {}\n    {high_jump} {next}\n    {low_jump} {upper_ok}\n    cmp QWORD PTR [rsp], {}\n    ja {next}\n{upper_ok}:\n",
+            asm_u64_immediate((lower >> 64) as u64),
+            asm_u64_immediate(lower as u64),
+            asm_u64_immediate((upper >> 64) as u64),
+            asm_u64_immediate(upper as u64),
+        ));
         Ok(())
     }
 

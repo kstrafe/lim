@@ -1955,13 +1955,10 @@ fn check_scalar_match(
 }
 
 fn check_scalar_range_pattern(parts: &[Expr], scrutinee: &Type) -> Result<(), String> {
-    if integer_width(scrutinee) == Some(128) {
-        return Err("scalar range patterns do not yet support 128-bit integers".into());
-    }
     if is_integer(scrutinee) {
         let signed = matches!(
             scrutinee,
-            Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::Isize
+            Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::I128 | Type::Isize
         );
         if signed {
             let lower = signed_range_bound(&parts[1])?;
