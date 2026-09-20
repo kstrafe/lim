@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use crate::{check_types, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
 
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+const VALUE_REGISTERS: [&str; 6] = ["rax", "rdx", "rcx", "r8", "r9", "rdi"];
 
 #[derive(Clone)]
 struct FunctionAbi {
@@ -488,9 +489,7 @@ fn local_slots(locals: &HashMap<String, Storage>, name: &str) -> Result<Vec<usiz
             discriminant,
             payload,
         } => Ok(vec![*discriminant, *payload]),
-        Storage::Array { .. } => Err(format!(
-            "arrays are not supported in the native ABI for '{name}'"
-        )),
+        Storage::Array { base, length } => Ok((*base..*base + *length).collect()),
     }
 }
 
@@ -516,6 +515,11 @@ fn value_word_count(
             if variants.iter().any(|variant| !variant.fields.is_empty()) {
                 return Ok(2);
             }
+        }
+    }
+    if let Type::Array(element, length) = ty {
+        if *length <= VALUE_REGISTERS.len() && ensure_scalar_type(element, enums).is_ok() {
+            return Ok(*length);
         }
     }
     Err(format!("native ABI does not support value type {ty:?}"))
@@ -588,6 +592,9 @@ fn ensure_return_type(
     structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), String> {
     if ensure_scalar_type(ty, enums).is_ok() {
+        return Ok(());
+    }
+    if value_word_count(ty, structs, enums).is_ok() {
         return Ok(());
     }
     let Type::Named(name) = ty else {
@@ -859,6 +866,9 @@ impl FunctionContext {
     }
 
     fn return_value(&mut self, value: &Expr) -> Result<(), String> {
+        if let Type::Array(_, length) = &self.return_type {
+            return self.return_array_value(*length, value);
+        }
         let Type::Named(struct_name) = &self.return_type else {
             self.expression(value)?;
             return Ok(());
@@ -937,7 +947,53 @@ impl FunctionContext {
         self.expression(value)
     }
 
+    fn return_array_value(&mut self, length: usize, value: &Expr) -> Result<(), String> {
+        if let Expr::Symbol(name) = value {
+            let Storage::Array {
+                base,
+                length: local_length,
+            } = self
+                .locals
+                .get(name)
+                .ok_or_else(|| format!("unknown array local '{name}'"))?
+            else {
+                return Err(format!("'{name}' is not an array"));
+            };
+            if *local_length != length {
+                return Err("array return length mismatch".into());
+            }
+            let base = *base;
+            for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov {register}, QWORD PTR [rbp-{}]\n",
+                    (base + index) * 8
+                ));
+            }
+            return Ok(());
+        }
+        if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
+                if items.len() - 1 != length {
+                    return Err("array return has the wrong length".into());
+                }
+                for value in &items[1..] {
+                    self.expression(value)?;
+                    self.push_rax();
+                }
+                for register in VALUE_REGISTERS[..length].iter().rev() {
+                    self.output.push_str(&format!("    pop {register}\n"));
+                    self.stack_depth -= 1;
+                }
+                return Ok(());
+            }
+        }
+        self.expression(value)
+    }
+
     fn is_aggregate_type(&self, ty: &Type) -> bool {
+        if matches!(ty, Type::Array(_, _)) {
+            return true;
+        }
         let Type::Named(name) = ty else { return false };
         self.structs.contains_key(name)
             || self
@@ -1066,14 +1122,6 @@ impl FunctionContext {
     }
 
     fn store_array(&mut self, name: &str, value: &Expr) -> Result<(), String> {
-        let Expr::List(items) = value else {
-            return Err(format!(
-                "array local '{name}' requires an array constructor"
-            ));
-        };
-        if !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
-            return Err("array local requires an (array ...) constructor".into());
-        }
         let Storage::Array { base, length } = self
             .locals
             .get(name)
@@ -1082,6 +1130,26 @@ impl FunctionContext {
             return Err(format!("'{name}' is not an array"));
         };
         let (base, length) = (*base, *length);
+        let Expr::List(items) = value else {
+            self.expression(value)?;
+            for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {register}\n",
+                    (base + index) * 8
+                ));
+            }
+            return Ok(());
+        };
+        if !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
+            self.expression(value)?;
+            for (index, register) in VALUE_REGISTERS[..length].iter().enumerate() {
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {register}\n",
+                    (base + index) * 8
+                ));
+            }
+            return Ok(());
+        }
         if items.len() - 1 != length {
             return Err("array constructor has the wrong length".into());
         }
@@ -1563,6 +1631,66 @@ impl FunctionContext {
     }
 
     fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
+        if let Type::Array(_, length) = ty {
+            if let Expr::Symbol(local) = value {
+                let Storage::Array {
+                    base,
+                    length: local_length,
+                } = self
+                    .locals
+                    .get(local)
+                    .ok_or_else(|| format!("unknown array local '{local}'"))?
+                else {
+                    return Err(format!("'{local}' is not an array"));
+                };
+                if local_length != length {
+                    return Err("array argument length mismatch".into());
+                }
+                let base = *base;
+                let length = *length;
+                let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                    Box::new((0..length).rev())
+                } else {
+                    Box::new(0..length)
+                };
+                for index in indices {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n",
+                        (base + index) * 8
+                    ));
+                    self.push_rax();
+                }
+                return Ok(());
+            }
+            if let Expr::List(items) = value {
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
+                    if items.len() - 1 != *length {
+                        return Err("array argument has the wrong length".into());
+                    }
+                    let values: Box<dyn Iterator<Item = &Expr>> = if reverse {
+                        Box::new(items[1..].iter().rev())
+                    } else {
+                        Box::new(items[1..].iter())
+                    };
+                    for value in values {
+                        self.expression(value)?;
+                        self.push_rax();
+                    }
+                    return Ok(());
+                }
+            }
+            self.expression(value)?;
+            let registers: Box<dyn Iterator<Item = &str>> = if reverse {
+                Box::new(VALUE_REGISTERS[..*length].iter().rev().copied())
+            } else {
+                Box::new(VALUE_REGISTERS[..*length].iter().copied())
+            };
+            for register in registers {
+                self.output.push_str(&format!("    push {register}\n"));
+                self.stack_depth += 1;
+            }
+            return Ok(());
+        }
         if let Type::Named(name) = ty {
             if let Some(fields) = self.structs.get(name).cloned() {
                 if let Expr::Symbol(local) = value {

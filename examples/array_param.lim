@@ -1,0 +1,6 @@
+(fn identity ((values (array u64 3))) (array u64 3)
+  values)
+
+(fn main () u64
+  (let values (array u64 3) (identity (array 10 20 37)))
+  (index values 2))

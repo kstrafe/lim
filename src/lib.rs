@@ -1203,6 +1203,14 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&invalid).unwrap_err().contains("out of bounds"));
+        let passed = parse_program(
+            "(fn identity ((values (array u64 3))) (array u64 3) values) (fn main () u64 (let values (array u64 3) (identity (array 10 20 37))) (index values 2))",
+        )
+        .unwrap();
+        assert!(check_types(&passed).is_ok());
+        assert!(generate_assembly(&passed)
+            .unwrap()
+            .contains("call identity"));
     }
 
     #[test]
