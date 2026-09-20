@@ -358,6 +358,9 @@ there is no element-type inference:
 Repeated direct arrays use the same explicit descriptor:
 `(#array-repeat (#array u64 3) 42)`.
 
+Direct tuple constructors likewise require an explicit tuple type:
+`(#tuple (#tuple u64 u64) 40 2)`.
+
 Integer arrays returned from functions can be indexed directly as well:
 
 ```lisp

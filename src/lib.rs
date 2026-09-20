@@ -3300,6 +3300,17 @@ mod tests {
     }
 
     #[test]
+    fn lowers_explicit_direct_tuple_constructor() {
+        let program =
+            parse_program("(#fn main () u64 (#return (#get (#tuple (#tuple u64 u64) 40 2) 0)))")
+                .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+        let inferred = parse_program("(#fn main () u64 (#return (#get (#tuple 40 2) 0)))").unwrap();
+        assert!(check_types(&inferred).is_err());
+    }
+
+    #[test]
     fn lowers_saturating_wide_addition_and_subtraction() {
         let program = parse_program(
             "(#fn main () u128 (#return (#u128.+.saturate 340282366920938463463374607431768211455 1)))",

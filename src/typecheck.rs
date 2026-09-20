@@ -1062,27 +1062,32 @@ fn list_expression(
             Ok(Type::Array(element, length))
         }
         "tuple" => {
-            let fields = match expected {
-                Some(Type::Tuple(fields)) => fields.clone(),
+            let (fields, value_start) = match expected {
+                Some(Type::Tuple(fields)) => (fields.clone(), 1),
                 Some(_) => {
                     return Err("tuple construction requires an expected (tuple ...) type".into())
                 }
-                None => items[1..]
-                    .iter()
-                    .map(|value| {
-                        expression(
-                            value, variables, functions, structs, enums, mutable, aliases, None,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
+                None => {
+                    let declared = parse_type(items.get(1)).map_err(|_| {
+                        "direct tuple constructors require an explicit (tuple Type ...) type"
+                            .to_owned()
+                    })?;
+                    let Type::Tuple(fields) = declared else {
+                        return Err(
+                            "direct tuple constructors require an explicit (tuple Type ...) type"
+                                .into(),
+                        );
+                    };
+                    (fields, 2)
+                }
             };
-            if items.len() - 1 != fields.len() {
+            if items.len() - value_start != fields.len() {
                 return Err(format!(
                     "tuple constructor expects {} elements",
                     fields.len()
                 ));
             }
-            for (value, field) in items[1..].iter().zip(fields.iter()) {
+            for (value, field) in items[value_start..].iter().zip(fields.iter()) {
                 let actual = expression(
                     value,
                     variables,

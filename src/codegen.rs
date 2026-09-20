@@ -2353,12 +2353,14 @@ impl FunctionContext {
                     },
                     _ => None,
                 },
-                Some(Expr::Symbol(operator)) if operator == "tuple" => Some(Type::Tuple(
-                    items[1..]
-                        .iter()
-                        .map(|value| self.expression_type(value))
-                        .collect::<Option<Vec<_>>>()?,
-                )),
+                Some(Expr::Symbol(operator)) if operator == "tuple" && items.len() >= 3 => {
+                    match parse_type(items.get(1)).ok() {
+                        Some(Type::Tuple(fields)) if items.len() - 2 == fields.len() => {
+                            Some(Type::Tuple(fields))
+                        }
+                        _ => None,
+                    }
+                }
                 Some(Expr::Symbol(operator)) => self
                     .enums
                     .iter()
@@ -2497,10 +2499,18 @@ impl FunctionContext {
         }
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(name)) if name == "tuple") {
-                if items.len() - 1 != fields.len() {
+                let value_start = if parse_type(items.get(1))
+                    .ok()
+                    .is_some_and(|ty| matches!(ty, Type::Tuple(_)))
+                {
+                    2
+                } else {
+                    1
+                };
+                if items.len() - value_start != fields.len() {
                     return Err("tuple return has the wrong length".into());
                 }
-                for (field, ty) in items[1..].iter().zip(fields) {
+                for (field, ty) in items[value_start..].iter().zip(fields) {
                     self.expression_as_abi_word(field, ty)?;
                     self.push_rax();
                 }
@@ -3529,7 +3539,7 @@ impl FunctionContext {
             if let Expr::List(constructor) = &items[1] {
                 if matches!(constructor.first(), Some(Expr::Symbol(name)) if name == "tuple") {
                     let value = constructor
-                        .get(index + 1)
+                        .get(index + 2)
                         .ok_or_else(|| "tuple constructor has too few fields".to_owned())?;
                     return self.expression_as_expected(value, &field_type);
                 }
@@ -4933,7 +4943,15 @@ impl FunctionContext {
             }
             if let Expr::List(items) = value {
                 if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "tuple") {
-                    if items.len() - 1 != fields.len() {
+                    let value_start = if parse_type(items.get(1))
+                        .ok()
+                        .is_some_and(|ty| matches!(ty, Type::Tuple(_)))
+                    {
+                        2
+                    } else {
+                        1
+                    };
+                    if items.len() - value_start != fields.len() {
                         return Err("tuple argument has the wrong length".into());
                     }
                     let indices: Box<dyn Iterator<Item = usize>> = if reverse {
@@ -4942,7 +4960,7 @@ impl FunctionContext {
                         Box::new(0..fields.len())
                     };
                     for index in indices {
-                        self.expression_as_abi_word(&items[index + 1], &fields[index])?;
+                        self.expression_as_abi_word(&items[index + value_start], &fields[index])?;
                         self.push_rax();
                     }
                     return Ok(());
