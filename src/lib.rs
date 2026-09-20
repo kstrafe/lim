@@ -552,6 +552,9 @@ pub fn parse_program(source: &str) -> Result<Program, String> {
             Expr::List(forms)
                 if matches!(forms.first(), Some(Expr::Symbol(name)) if name.starts_with('#'))
         );
+        if strict_keywords {
+            validate_prefixed_forms(&expression.expr)?;
+        }
         let expression = normalize_keywords(expression.expr);
         if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
@@ -564,6 +567,85 @@ pub fn parse_program(source: &str) -> Result<Program, String> {
     Ok(Program {
         items: specialize_generic_types(items)?,
     })
+}
+
+fn validate_prefixed_forms(expression: &Expr) -> Result<(), String> {
+    let Expr::List(items) = expression else {
+        return Ok(());
+    };
+    if let Some(Expr::Symbol(name)) = items.first() {
+        if !name.starts_with('#') && (is_builtin_form(name) || is_operator_symbol(name)) {
+            return Err(format!(
+                "builtin '{name}' must use its '#' prefix in prefixed syntax"
+            ));
+        }
+    }
+    for item in items {
+        validate_prefixed_forms(item)?;
+    }
+    Ok(())
+}
+
+fn is_builtin_form(name: &str) -> bool {
+    matches!(
+        name,
+        "type"
+            | "fn"
+            | "struct"
+            | "enum"
+            | "let"
+            | "const"
+            | "static"
+            | "if"
+            | "if-let"
+            | "while"
+            | "while-let"
+            | "for"
+            | "for-range"
+            | "loop"
+            | "break"
+            | "continue"
+            | "return"
+            | "set"
+            | "set-index"
+            | "set-field"
+            | "block"
+            | "match"
+            | "as"
+            | "array"
+            | "array-repeat"
+            | "tuple"
+            | "index"
+            | "get"
+            | "size-of"
+            | "align-of"
+            | "assert"
+            | "debug-assert"
+    )
+}
+
+fn is_operator_symbol(name: &str) -> bool {
+    matches!(
+        name,
+        "+" | "-"
+            | "*"
+            | "/"
+            | "%"
+            | "&"
+            | "|"
+            | "^"
+            | "<<"
+            | ">>"
+            | "<"
+            | "<="
+            | ">"
+            | ">="
+            | "=="
+            | "!="
+            | "!"
+            | "&&"
+            | "||"
+    )
 }
 
 fn normalize_keywords(expression: Expr) -> Expr {
@@ -2078,6 +2160,10 @@ mod tests {
         assert!(generate_assembly(&program).unwrap().contains("add"));
         let plain = parse_program("(#fn main () u32 (#return (#u32.+ 20 22)))").unwrap();
         assert!(check_types(&plain).is_err());
+        let bare_keyword = parse_program("(#fn main () u32 (if true 42 0))").unwrap_err();
+        assert!(bare_keyword.contains("must use its '#' prefix"));
+        let bare_operator = parse_program("(#fn main () u32 (#return (+ 20 22)))").unwrap_err();
+        assert!(bare_operator.contains("must use its '#' prefix"));
     }
 
     #[test]
