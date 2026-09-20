@@ -167,6 +167,8 @@ typed integer constants.
 This includes the signed minimum-value divided by `-1` saturation case.
 Wrapping signed machine-width division and remainder also handle the minimum
 value divided by -1 without relying on a trapping native idiv case.
+Compile-time wrapping `i128` constants use the same result for that edge case:
+the quotient is `i128::MIN` and the remainder is zero.
 Saturating signed machine-width division maps that same overflow to the
 maximum representable value; saturating remainder remains zero.
 

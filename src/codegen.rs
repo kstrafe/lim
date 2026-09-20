@@ -2749,9 +2749,21 @@ fn constant_value(
                         .expect("checked saturating constant bounds")
                         .1)
                 }
+                "/" if matches!(operation_type, Some(Type::I128))
+                    && left == i128::MIN
+                    && right == -1 =>
+                {
+                    Ok(i128::MIN)
+                }
                 "/" => left
                     .checked_div(right)
                     .ok_or_else(|| "constant division failed".to_owned()),
+                "%" if matches!(operation_type, Some(Type::I128))
+                    && left == i128::MIN
+                    && right == -1 =>
+                {
+                    Ok(0)
+                }
                 "%" => left
                     .checked_rem(right)
                     .ok_or_else(|| "constant remainder failed".to_owned()),
