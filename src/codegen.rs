@@ -39,6 +39,14 @@ fn asm_symbol(name: &str) -> String {
     symbol
 }
 
+fn asm_u64_immediate(value: u64) -> String {
+    if value <= i64::MAX as u64 {
+        value.to_string()
+    } else {
+        format!("0x{value:016x}")
+    }
+}
+
 fn low_register(register: &str) -> &str {
     match register {
         "rax" => "eax",
@@ -4744,7 +4752,7 @@ impl FunctionContext {
             Expr::Symbol(name) if self.enum_value(name).is_some() => {
                 self.output.push_str(&format!(
                     "    mov rax, {}\n",
-                    self.enum_value(name).unwrap()
+                    asm_u64_immediate(self.enum_value(name).unwrap())
                 ));
                 if let Some(payload_count) = self.enums.values().find_map(|variants| {
                     variants
@@ -4917,8 +4925,10 @@ impl FunctionContext {
                 .and_then(|variants| variants.get(variant_index))
                 .expect("validated enum variant")
                 .discriminant;
-            self.output
-                .push_str(&format!("    mov rax, {variant_discriminant}\n"));
+            self.output.push_str(&format!(
+                "    mov rax, {}\n",
+                asm_u64_immediate(variant_discriminant)
+            ));
             return Ok(());
         }
         match operator {
@@ -5416,7 +5426,8 @@ impl FunctionContext {
                 if pattern != "_" && self.enum_value(pattern).is_some() {
                     let value = self.enum_value(pattern).unwrap();
                     self.output.push_str(&format!(
-                        "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
+                        "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
+                        asm_u64_immediate(value)
                     ));
                 }
             } else if let Expr::List(pattern) = pattern {
@@ -5427,7 +5438,8 @@ impl FunctionContext {
                     })
                     .ok_or_else(|| "unknown enum variant".to_owned())?;
                 self.output.push_str(&format!(
-                    "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
+                    "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
+                    asm_u64_immediate(value)
                 ));
             }
             let payload_fields = if !variant_name.is_empty() {

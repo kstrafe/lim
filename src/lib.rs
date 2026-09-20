@@ -5185,7 +5185,8 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
-        assert!(generate_assembly(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("0xffffffffffffffff"));
     }
 
     #[test]
