@@ -3565,7 +3565,7 @@ fn constant_aggregate_words(
                     candidate
                         .fields
                         .iter()
-                        .map(|field| value_word_count(field, structs, enums))
+                        .map(|field| storage_word_count(field, structs, enums))
                         .collect::<Result<Vec<_>, _>>()
                         .map(|words| words.into_iter().sum::<usize>())
                 })
@@ -6828,17 +6828,24 @@ impl FunctionContext {
                     && matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) =>
             {
                 let words = 1 + payload_count;
-                for index in (0..words).rev() {
-                    let register = VALUE_REGISTERS[index];
-                    self.load_global_word(name, index)?;
-                    self.output.push_str(&format!("    mov {register}, rax\n"));
+                if words > VALUE_REGISTERS.len() {
+                    for index in (0..words).rev() {
+                        self.load_global_word(name, index)?;
+                        self.push_rax();
+                    }
+                } else {
+                    for index in (0..words).rev() {
+                        let register = VALUE_REGISTERS[index];
+                        self.load_global_word(name, index)?;
+                        self.output.push_str(&format!("    mov {register}, rax\n"));
+                    }
+                    for index in (0..payload_count).rev() {
+                        self.output
+                            .push_str(&format!("    push {}\n", VALUE_REGISTERS[index + 1]));
+                        self.stack_depth += 1;
+                    }
+                    self.push_rax();
                 }
-                for index in (0..payload_count).rev() {
-                    self.output
-                        .push_str(&format!("    push {}\n", VALUE_REGISTERS[index + 1]));
-                    self.stack_depth += 1;
-                }
-                self.push_rax();
             }
             _ => {
                 self.expression(&items[1])?;
