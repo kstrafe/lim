@@ -387,7 +387,9 @@ be used in explicitly typed `u128` positions.
 and carry accumulation. Unsigned division and remainder use an emitted
 shift/subtract routine with divide-by-zero trapping.
 Saturating `i128`/`u128` addition and subtraction clamp to their full two-word
-numeric bounds; saturating wide multiplication is still rejected explicitly.
+numeric bounds. Saturating `u128` multiplication also detects overflow in its
+full 256-bit intermediate; saturating signed wide multiplication is still
+rejected explicitly.
 
 Unsigned integer comparisons and right shifts use unsigned native instructions
 when their operands have an unsigned type; unsigned division and remainder use

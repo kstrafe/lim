@@ -3943,7 +3943,14 @@ impl FunctionContext {
             return Ok(());
         }
         if mode == Some("saturate") {
-            return Err("saturating 128-bit multiplication is not supported yet".into());
+            let unsigned = self
+                .expression_type(&items[1])
+                .is_some_and(|ty| matches!(ty, Type::U128));
+            if !unsigned {
+                return Err("saturating signed 128-bit multiplication is not supported yet".into());
+            }
+            self.emit_wide_saturating_unsigned_multiply();
+            return Ok(());
         }
         if matches!(operator, "<<" | ">>") {
             let failure = self.label("wide_shift_failure");
@@ -4034,6 +4041,14 @@ impl FunctionContext {
             ));
         }
         self.output.push_str(&format!("{done}:\n"));
+    }
+
+    fn emit_wide_saturating_unsigned_multiply(&mut self) {
+        let overflow = self.label("wide_saturate_mul_overflow");
+        let done = self.label("wide_saturate_mul_done");
+        self.output.push_str(&format!(
+            "    sub rsp, 16\n    mov QWORD PTR [rsp], rax\n    mov QWORD PTR [rsp+8], rdx\n    mul rcx\n    mov r9, rax\n    mov r10, rdx\n    mov rax, QWORD PTR [rsp+8]\n    mul rcx\n    test rdx, rdx\n    jnz {overflow}\n    add r10, rax\n    jc {overflow}\n    mov rax, QWORD PTR [rsp]\n    mul r8\n    test rdx, rdx\n    jnz {overflow}\n    add r10, rax\n    jc {overflow}\n    mov rax, QWORD PTR [rsp+8]\n    mul r8\n    or rax, rdx\n    jnz {overflow}\n    mov rax, r9\n    mov rdx, r10\n    add rsp, 16\n    jmp {done}\n{overflow}:\n    add rsp, 16\n    mov rax, -1\n    mov rdx, -1\n{done}:\n"
+        ));
     }
 
     fn wide_division(&mut self, operator: &str, signed: bool) -> Result<(), String> {

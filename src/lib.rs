@@ -3300,6 +3300,12 @@ mod tests {
         .unwrap();
         assert!(check_types(&signed).is_ok());
         assert!(generate_assembly(&signed).is_ok());
+        let multiplication = parse_program(
+            "(#fn main () u128 (#return (#u128.*.saturate 340282366920938463463374607431768211455 2)))",
+        )
+        .unwrap();
+        assert!(check_types(&multiplication).is_ok());
+        assert!(generate_assembly(&multiplication).is_ok());
     }
 
     #[test]
