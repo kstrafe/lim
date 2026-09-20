@@ -1879,8 +1879,6 @@ impl FunctionContext {
             else {
                 return Err("index requires an array value".into());
             };
-            ensure_integer_type(&element)
-                .map_err(|_| "native computed indexing supports integer arrays only".to_owned())?;
             if length > VALUE_REGISTERS.len() {
                 return Err("native computed indexing supports at most six elements".into());
             }
@@ -1896,6 +1894,15 @@ impl FunctionContext {
                 8,
                 length * 8
             ));
+            if matches!(*element, Type::F32) {
+                self.output.push_str("    movd xmm0, eax\n");
+            } else if matches!(*element, Type::F64) {
+                self.output.push_str("    movq xmm0, rax\n");
+            } else {
+                ensure_integer_type(&element).map_err(|_| {
+                    "native computed indexing supports scalar arrays only".to_owned()
+                })?;
+            }
             self.stack_depth -= length;
             return Ok(());
         };

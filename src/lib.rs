@@ -1567,6 +1567,18 @@ mod tests {
     }
 
     #[test]
+    fn indexes_floating_arrays_returned_by_functions() {
+        let program = parse_program(
+            "(fn make () (array f32 2) (array 1.5 2.5)) (fn main () u64 (if (> (index (make) 1) 2.0) 42 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("call make"));
+        assert!(assembly.contains("movd xmm0, eax"));
+    }
+
+    #[test]
     fn checks_and_lowers_fixed_arrays() {
         let program = parse_program("(fn main () u64 (let mut values (array u64 2) (array 3 4)) (set-index values 1 40) (+ (index values 0) (index values 1)))").unwrap();
         assert!(check_types(&program).is_ok());

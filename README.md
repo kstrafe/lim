@@ -208,6 +208,9 @@ Integer arrays returned from functions can be indexed directly as well:
 (fn main () u64 (index (values) 1))
 ```
 
+Floating-point arrays returned from functions can be indexed directly too;
+the selected element is restored to the appropriate SSE register.
+
 Integer fields can likewise be selected directly from returned structs:
 
 ```lisp
