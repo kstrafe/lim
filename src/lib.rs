@@ -2335,13 +2335,22 @@ mod tests {
              (#static Values (#array u64 3) (#array (#array u64 3) 10 20 30)) \
              (#static Origin Point (Point 7 9)) \
              (#static Pair (#tuple u64 f64) (#tuple (#tuple u64 f64) 4 2.5)) \
+             (#enum Maybe ((Some u64) None)) \
+             (#static Choice Maybe (Some 12)) \
              (#fn take ((values (#array u64 3)) (point Point)) u64 \
                (#return (#u64.+.wrap (#index values 1) (#get point y)))) \
              (#fn return-values () (#array u64 3) (#return Values)) \
+             (#fn read-choice ((choice Maybe)) u64 \
+               (#return (#match choice ((Some value) value) (None 0)))) \
+             (#fn return-choice () Maybe (#return Choice)) \
              (#fn main () u64 \
                (#let copied (#array u64 3) Values) \
+               (#let copied-choice Maybe Choice) \
                (#return (#u64.+.wrap (#index copied 0) \
-                 (#u64.+.wrap (#index (return-values) 2) (take Values Origin)))))",
+                 (#u64.+.wrap (#index (return-values) 2) \
+                   (#u64.+.wrap (take Values Origin) \
+                     (#u64.+.wrap (read-choice copied-choice) \
+                       (read-choice (return-choice))))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());

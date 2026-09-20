@@ -2650,6 +2650,18 @@ impl FunctionContext {
                 .is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty()))
             {
                 if let Expr::Symbol(name) = value {
+                    if matches!(
+                        self.global_types.get(name),
+                        Some(Type::Named(global_name)) if global_name == struct_name
+                    ) {
+                        let words =
+                            value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                        for (index, register) in VALUE_REGISTERS[..words].iter().enumerate() {
+                            self.load_global_word(name, index)?;
+                            self.output.push_str(&format!("    mov {register}, rax\n"));
+                        }
+                        return Ok(());
+                    }
                     let Storage::Enum {
                         discriminant,
                         payload,
@@ -2987,6 +2999,26 @@ impl FunctionContext {
         else {
             return Err(format!("'{name}' is not a payload enum"));
         };
+        if let Expr::Symbol(source) = value {
+            if matches!(
+                self.global_types.get(source),
+                Some(Type::Named(global_name)) if global_name == enum_name
+            ) {
+                let words = 1 + payload.len();
+                for (index, slot) in std::iter::once(discriminant)
+                    .chain(payload.iter().copied())
+                    .enumerate()
+                {
+                    if index >= words {
+                        break;
+                    }
+                    self.load_global_word(source, index)?;
+                    self.output
+                        .push_str(&format!("    mov QWORD PTR [rbp-{}], rax\n", slot * 8));
+                }
+                return Ok(());
+            }
+        }
         if !matches!(value, Expr::List(_)) {
             self.expression(value)?;
             self.output.push_str(&format!(
@@ -3696,6 +3728,25 @@ impl FunctionContext {
                     "    mov rax, QWORD PTR [rbp-{}]\n",
                     discriminant * 8
                 ));
+            }
+            Expr::Symbol(name)
+                if self
+                    .global_types
+                    .get(name)
+                    .is_some_and(|ty| self.is_enum_type(ty))
+                    && matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) =>
+            {
+                let words = 1 + payload_count;
+                for (index, register) in VALUE_REGISTERS[..words].iter().enumerate() {
+                    self.load_global_word(name, index)?;
+                    self.output.push_str(&format!("    mov {register}, rax\n"));
+                }
+                for index in (0..payload_count).rev() {
+                    self.output
+                        .push_str(&format!("    push {}\n", VALUE_REGISTERS[index + 1]));
+                    self.stack_depth += 1;
+                }
+                self.push_rax();
             }
             _ => {
                 self.expression(&items[1])?;
@@ -5557,6 +5608,22 @@ impl FunctionContext {
                 .is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty()))
             {
                 if let Expr::Symbol(local) = value {
+                    if matches!(
+                        self.global_types.get(local),
+                        Some(Type::Named(global_name)) if global_name == name
+                    ) {
+                        let words = value_word_count(ty, &self.structs, &self.enums)?;
+                        let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                            Box::new((0..words).rev())
+                        } else {
+                            Box::new(0..words)
+                        };
+                        for index in indices {
+                            self.load_global_word(local, index)?;
+                            self.push_rax();
+                        }
+                        return Ok(());
+                    }
                     if !self.locals.contains_key(local) {
                         self.expression(value)?;
                         let words = value_word_count(ty, &self.structs, &self.enums)?;
