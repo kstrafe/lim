@@ -3,12 +3,11 @@
 Lim is an experimental, compiled Lisp intended to make generated code
 explicit for LLM-written programs. It has a dependency-free parser, a
 strict static type checker, generic monomorphization, and a native x86-64
-assembly backend. The value representation deliberately excludes references,
-pointers, slices, traits, and other indirection mechanisms.
+assembly backend. The language deliberately excludes slices, traits, methods,
+and other indirection mechanisms that have not been designed yet.
 
-The compiler currently supports inferred lexical borrow scopes with
-`#borrow` and `#borrow-mut`; these are checked statically and lower to their
-body until reference values are added to the language.
+The compiler supports inferred lexical borrows and returnable scalar
+references with `(#ref T)` and `(#ref-mut T)`.
 
 ## Development
 

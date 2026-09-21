@@ -1482,6 +1482,25 @@ fn list_expression(
             Ok(ty)
         }
         "borrow" | "borrow-mut" => {
+            if items.len() == 2 {
+                let owner = match &items[1] {
+                    Expr::Symbol(name) => name,
+                    _ => return Err(format!("{operator} requires a variable name")),
+                };
+                let owner_type = variables
+                    .get(owner)
+                    .ok_or_else(|| format!("{operator} refers to unknown variable '{owner}'"))?;
+                if matches!(owner_type, Type::Reference { .. }) {
+                    return Err(format!("{operator} cannot borrow a reference variable"));
+                }
+                if !is_reference_target(owner_type) {
+                    return Err(format!("{operator} currently supports scalar values only"));
+                }
+                return Ok(Type::Reference {
+                    mutable: operator == "borrow-mut",
+                    target: Box::new(owner_type.clone()),
+                });
+            }
             require_arity(operator, items, 3)?;
             let owner = match &items[1] {
                 Expr::Symbol(name) => name,
@@ -1490,9 +1509,24 @@ fn list_expression(
             if !variables.contains_key(owner) {
                 return Err(format!("{operator} refers to unknown variable '{owner}'"));
             }
+            if operator == "borrow-mut" && !mutable.contains(owner) {
+                return Err(format!(
+                    "cannot mutably borrow immutable variable '{owner}'"
+                ));
+            }
             expression(
                 &items[2], variables, functions, structs, enums, mutable, aliases, expected,
             )
+        }
+        "deref" => {
+            require_arity(operator, items, 2)?;
+            let actual = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            match actual {
+                Type::Reference { target, .. } => Ok(*target),
+                _ => Err("deref requires a reference".into()),
+            }
         }
         "size-of" | "align-of" => {
             require_arity(operator, items, 2)?;
@@ -2889,6 +2923,10 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
                 .map(|field| substitute_type(field, substitutions))
                 .collect(),
         ),
+        Type::Reference { mutable, target } => Type::Reference {
+            mutable: *mutable,
+            target: Box::new(substitute_type(target, substitutions)),
+        },
         _ => ty.clone(),
     }
 }
@@ -2924,6 +2962,10 @@ fn resolve_type_with_seen(
                 .map(|field| resolve_type_with_seen(field, aliases, seen))
                 .collect::<Result<Vec<_>, _>>()?,
         )),
+        Type::Reference { mutable, target } => Ok(Type::Reference {
+            mutable: *mutable,
+            target: Box::new(resolve_type_with_seen(target, aliases, seen)?),
+        }),
         _ => Ok(ty.clone()),
     }
 }
@@ -3043,6 +3085,10 @@ fn is_numeric(ty: &Type) -> bool {
     is_integer(ty) || matches!(ty, Type::F32 | Type::F64)
 }
 
+fn is_reference_target(ty: &Type) -> bool {
+    is_numeric(ty) || matches!(ty, Type::Bool | Type::Char | Type::Reference { .. })
+}
+
 fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(), String> {
     let expected = match ty {
         Type::Unit => "()",
@@ -3063,6 +3109,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::Usize => "usize",
         Type::F32 => "f32",
         Type::F64 => "f64",
+        Type::Reference { .. } => "reference",
         Type::Generic(name) | Type::Named(name) => name,
         Type::Array(_, _) | Type::Tuple(_) => {
             return Err(format!(

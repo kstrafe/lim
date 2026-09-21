@@ -482,6 +482,7 @@ pub enum Type {
     Usize,
     F32,
     F64,
+    Reference { mutable: bool, target: Box<Type> },
     Generic(String),
     Tuple(Vec<Type>),
     Array(Box<Type>, usize),
@@ -1123,6 +1124,9 @@ fn is_builtin_form(name: &str) -> bool {
             | "literal"
             | "borrow"
             | "borrow-mut"
+            | "ref"
+            | "ref-mut"
+            | "deref"
     )
 }
 
@@ -1273,6 +1277,11 @@ fn type_source(ty: &Type) -> String {
         Type::Usize => "usize".into(),
         Type::F32 => "f32".into(),
         Type::F64 => "f64".into(),
+        Type::Reference { mutable, target } => format!(
+            "(#{} {})",
+            if *mutable { "ref-mut" } else { "ref" },
+            type_source(target)
+        ),
         Type::Generic(name) => name.clone(),
         Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
@@ -3035,6 +3044,18 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
             };
             return Ok(Type::Array(Box::new(element), length));
         }
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "ref") {
+            return Ok(Type::Reference {
+                mutable: false,
+                target: Box::new(parse_type(items.get(1))?),
+            });
+        }
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "ref-mut") {
+            return Ok(Type::Reference {
+                mutable: true,
+                target: Box::new(parse_type(items.get(1))?),
+            });
+        }
     }
     Ok(Type::from_name(expect_symbol(expression, "type")?))
 }
@@ -3298,7 +3319,7 @@ mod tests {
         assert!(check_types(&nested_shared).is_ok());
 
         let shared_then_mutable = parse_program(
-            "(#fn main () u64 (#let value u64 40) (#return (#borrow value (#borrow-mut value value))))",
+            "(#fn main () u64 (#let mut value u64 40) (#return (#borrow value (#borrow-mut value value))))",
         )
         .unwrap();
         assert!(check_types(&shared_then_mutable)
@@ -3306,7 +3327,7 @@ mod tests {
             .contains("borrow 'value' mutably"));
 
         let overlapping_mutable = parse_program(
-            "(#fn main () u64 (#let value u64 40) (#return (#borrow-mut value (#borrow value value))))",
+            "(#fn main () u64 (#let mut value u64 40) (#return (#borrow-mut value (#borrow value value))))",
         )
         .unwrap();
         assert!(check_types(&overlapping_mutable)
@@ -3320,6 +3341,28 @@ mod tests {
         assert!(check_types(&shared_write)
             .unwrap_err()
             .contains("immutably borrowed"));
+    }
+
+    #[test]
+    fn returns_and_dereferences_references() {
+        let program = parse_program(
+            "(#let answer u64 42) (#fn identity ((value (#ref u64))) (#ref u64) (#return value)) (#fn get-answer () (#ref u64) (#return (#borrow answer))) (#fn main () u64 (#return (#deref (identity (get-answer)))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+
+        let local_escape =
+            parse_program("(#fn bad () (#ref u64) (#let value u64 42) (#return (#borrow value)))")
+                .unwrap();
+        assert!(check_types(&local_escape)
+            .unwrap_err()
+            .contains("reference to local variable 'value'"));
+
+        let bad_deref = parse_program("(#fn main () u64 (#return (#deref 42)))").unwrap();
+        assert!(check_types(&bad_deref)
+            .unwrap_err()
+            .contains("deref requires a reference"));
     }
 
     #[test]

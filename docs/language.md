@@ -22,8 +22,9 @@ Lim currently provides:
 - source-level generated declarations such as `@optional` and `@result`;
 - no recursion, allowing the compiler to calculate a finite call depth.
 
-References, pointers, slices, traits, methods, closures, and other source
-level indirection mechanisms are not part of the current language.  Large
+Slices, traits, methods, closures, and other source-level indirection
+mechanisms are not part of the current language. References are currently
+limited to scalar values. Large
 aggregate values may use hidden storage pointers at an ABI boundary, but
 those pointers cannot be written in Lim source.
 
@@ -42,13 +43,19 @@ and a mutable borrow as:
 (#borrow-mut value (#block (#set value 42) value))
 ```
 
-The owner is borrowed for the duration of the body. Multiple shared borrows
-may overlap, but a mutable borrow cannot overlap any other borrow, and a
-shared borrow cannot overlap a mutation. Borrow expressions currently lower
-to their body because Lim has no reference values or source-level indirection
-yet. Returning or storing references will require a later reference-type
-design; these lexical scopes provide the borrow-checking foundation without
-introducing lifetime annotations prematurely.
+The three-expression form borrows the owner for the duration of the body.
+The two-expression form produces a reference:
+
+```lisp
+(#fn first ((value (#ref u64))) (#ref u64)
+  (#return value))
+```
+
+Multiple shared borrows may overlap, but a mutable borrow cannot overlap any
+other borrow, and a shared borrow cannot overlap a mutation. References to
+locals cannot escape their function; references returned from parameters and
+globals are supported. `#deref` reads through a reference. Mutable reference
+writes are reserved for the next reference-operation extension.
 
 ## Building and running
 

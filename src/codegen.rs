@@ -277,6 +277,11 @@ fn specialized_type_name(ty: &Type) -> String {
         Type::Usize => "usize".into(),
         Type::F32 => "f32".into(),
         Type::F64 => "f64".into(),
+        Type::Reference { mutable, target } => format!(
+            "ref{}{}",
+            if *mutable { "mut_" } else { "_" },
+            specialized_type_name(target)
+        ),
         Type::Generic(name) | Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
             "tuple{}",
@@ -3099,6 +3104,9 @@ fn is_float_type(ty: &Type) -> bool {
 }
 
 fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
+    if matches!(ty, Type::Reference { .. }) {
+        return Ok(());
+    }
     if matches!(ty, Type::F32 | Type::F64) {
         return Ok(());
     }
@@ -5106,6 +5114,28 @@ impl FunctionContext {
                         .ok()
                         .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
                 }
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "borrow" | "borrow-mut") && items.len() == 2 =>
+                {
+                    let owner = match items.get(1) {
+                        Some(Expr::Symbol(name)) => name,
+                        _ => return None,
+                    };
+                    self.local_types
+                        .get(owner)
+                        .cloned()
+                        .or_else(|| self.global_types.get(owner).cloned())
+                        .map(|target| Type::Reference {
+                            mutable: operator == "borrow-mut",
+                            target: Box::new(target),
+                        })
+                }
+                Some(Expr::Symbol(operator)) if operator == "deref" && items.len() == 2 => {
+                    match self.expression_type(&items[1])? {
+                        Type::Reference { target, .. } => Some(*target),
+                        _ => None,
+                    }
+                }
                 Some(Expr::Symbol(operator)) if operator == "if" => {
                     if items.len() == 4 {
                         self.expression_type(&items[2])
@@ -6908,6 +6938,28 @@ impl FunctionContext {
         Ok(())
     }
 
+    fn borrow_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        let owner = match items.get(1) {
+            Some(Expr::Symbol(name)) => name,
+            _ => return Err("borrow requires a variable name".into()),
+        };
+        if self.locals.contains_key(owner) {
+            let slot = local_slots(&self.locals, owner)?
+                .first()
+                .copied()
+                .ok_or_else(|| format!("cannot borrow zero-sized variable '{owner}'"))?;
+            self.output
+                .push_str(&format!("    lea rax, [rbp-{}]\n", slot * 8));
+            return Ok(());
+        }
+        if self.globals.contains_key(owner) {
+            self.output
+                .push_str(&format!("    lea rax, [rip+{}]\n", asm_symbol(owner)));
+            return Ok(());
+        }
+        Err(format!("unknown variable '{owner}'"))
+    }
+
     fn list_expression(&mut self, items: &[Expr]) -> Result<(), String> {
         if items.is_empty() {
             return Ok(());
@@ -6996,10 +7048,35 @@ impl FunctionContext {
             "<" | "<=" | ">" | ">=" | "==" | "!=" => self.comparison(operator, items),
             "if" => self.if_expression(items),
             "borrow" | "borrow-mut" => {
-                if items.len() != 3 {
-                    return Err(format!("{operator} requires an owner and body"));
+                if items.len() == 3 {
+                    return self.expression(&items[2]);
                 }
-                self.expression(&items[2])
+                if items.len() != 2 {
+                    return Err(format!("{operator} requires an owner and optional body"));
+                }
+                self.borrow_expression(items)
+            }
+            "deref" => {
+                if items.len() != 2 {
+                    return Err("deref requires a reference".into());
+                }
+                let target = self
+                    .expression_type(&items[1])
+                    .and_then(|ty| match ty {
+                        Type::Reference { target, .. } => Some(*target),
+                        _ => None,
+                    })
+                    .ok_or_else(|| "deref requires a reference".to_owned())?;
+                self.expression(&items[1])?;
+                match target {
+                    Type::F32 => self.output.push_str("    movss xmm0, DWORD PTR [rax]\n"),
+                    Type::F64 => self.output.push_str("    movq xmm0, QWORD PTR [rax]\n"),
+                    Type::I128 | Type::U128 => self
+                        .output
+                        .push_str("    mov rdx, QWORD PTR [rax+8]\n    mov rax, QWORD PTR [rax]\n"),
+                    _ => self.output.push_str("    mov rax, QWORD PTR [rax]\n"),
+                }
+                Ok(())
             }
             "as" => {
                 if items.len() != 3 {
