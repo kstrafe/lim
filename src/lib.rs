@@ -6,6 +6,7 @@ use std::{
     path::Path,
 };
 
+mod borrowcheck;
 mod codegen;
 mod typecheck;
 
@@ -1120,6 +1121,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "panic"
             | "unreachable"
             | "literal"
+            | "borrow"
+            | "borrow-mut"
     )
 }
 
@@ -3271,6 +3274,52 @@ mod tests {
         assert!(check_types(&unit).is_ok());
         let no_value = parse_program("(#fn main () () (#return))").unwrap_err();
         assert!(no_value.contains("exactly one expression"));
+    }
+
+    #[test]
+    fn checks_inferred_lexical_borrows() {
+        let shared = parse_program(
+            "(#fn main () u64 (#let value u64 40) (#return (#borrow value (#u64.+.wrap value 2))))",
+        )
+        .unwrap();
+        assert!(check_types(&shared).is_ok());
+        assert!(generate_assembly(&shared).is_ok());
+
+        let mutable = parse_program(
+            "(#fn main () u64 (#let mut value u64 40) (#return (#borrow-mut value (#block (#set value 42) value))))",
+        )
+        .unwrap();
+        assert!(check_types(&mutable).is_ok());
+
+        let nested_shared = parse_program(
+            "(#fn main () u64 (#let value u64 40) (#return (#borrow value (#borrow value value))))",
+        )
+        .unwrap();
+        assert!(check_types(&nested_shared).is_ok());
+
+        let shared_then_mutable = parse_program(
+            "(#fn main () u64 (#let value u64 40) (#return (#borrow value (#borrow-mut value value))))",
+        )
+        .unwrap();
+        assert!(check_types(&shared_then_mutable)
+            .unwrap_err()
+            .contains("borrow 'value' mutably"));
+
+        let overlapping_mutable = parse_program(
+            "(#fn main () u64 (#let value u64 40) (#return (#borrow-mut value (#borrow value value))))",
+        )
+        .unwrap();
+        assert!(check_types(&overlapping_mutable)
+            .unwrap_err()
+            .contains("already borrowed mutably"));
+
+        let shared_write = parse_program(
+            "(#fn main () u64 (#let mut value u64 40) (#return (#borrow value (#block (#set value 42) value))))",
+        )
+        .unwrap();
+        assert!(check_types(&shared_write)
+            .unwrap_err()
+            .contains("immutably borrowed"));
     }
 
     #[test]

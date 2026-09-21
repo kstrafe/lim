@@ -27,6 +27,29 @@ level indirection mechanisms are not part of the current language.  Large
 aggregate values may use hidden storage pointers at an ABI boundary, but
 those pointers cannot be written in Lim source.
 
+## Inferred lexical borrows
+
+Lim's initial borrow model checks lexical borrow scopes without lifetime
+annotations. A shared borrow is written as:
+
+```lisp
+(#borrow value (#u64.+.wrap value 2))
+```
+
+and a mutable borrow as:
+
+```lisp
+(#borrow-mut value (#block (#set value 42) value))
+```
+
+The owner is borrowed for the duration of the body. Multiple shared borrows
+may overlap, but a mutable borrow cannot overlap any other borrow, and a
+shared borrow cannot overlap a mutation. Borrow expressions currently lower
+to their body because Lim has no reference values or source-level indirection
+yet. Returning or storing references will require a later reference-type
+design; these lexical scopes provide the borrow-checking foundation without
+introducing lifetime annotations prematurely.
+
 ## Building and running
 
 The repository contains a Nix flake with the Rust toolchain:

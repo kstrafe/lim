@@ -157,6 +157,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             }
         }
     }
+    crate::borrowcheck::check_program(program)?;
     Ok(())
 }
 
@@ -1479,6 +1480,19 @@ fn list_expression(
             )?;
             require_type(&actual, &ty, "typed literal")?;
             Ok(ty)
+        }
+        "borrow" | "borrow-mut" => {
+            require_arity(operator, items, 3)?;
+            let owner = match &items[1] {
+                Expr::Symbol(name) => name,
+                _ => return Err(format!("{operator} requires a variable name")),
+            };
+            if !variables.contains_key(owner) {
+                return Err(format!("{operator} refers to unknown variable '{owner}'"));
+            }
+            expression(
+                &items[2], variables, functions, structs, enums, mutable, aliases, expected,
+            )
         }
         "size-of" | "align-of" => {
             require_arity(operator, items, 2)?;

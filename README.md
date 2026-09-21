@@ -6,6 +6,10 @@ strict static type checker, generic monomorphization, and a native x86-64
 assembly backend. The value representation deliberately excludes references,
 pointers, slices, traits, and other indirection mechanisms.
 
+The compiler currently supports inferred lexical borrow scopes with
+`#borrow` and `#borrow-mut`; these are checked statically and lower to their
+body until reference values are added to the language.
+
 ## Development
 
 The repository uses the Rust toolchain from the copied Liftoff Nix flake:

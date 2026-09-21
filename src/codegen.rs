@@ -6995,6 +6995,12 @@ impl FunctionContext {
             }
             "<" | "<=" | ">" | ">=" | "==" | "!=" => self.comparison(operator, items),
             "if" => self.if_expression(items),
+            "borrow" | "borrow-mut" => {
+                if items.len() != 3 {
+                    return Err(format!("{operator} requires an owner and body"));
+                }
+                self.expression(&items[2])
+            }
             "as" => {
                 if items.len() != 3 {
                     return Err("as requires a value and target type".into());
