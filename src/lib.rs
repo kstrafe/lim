@@ -9,6 +9,7 @@ use std::{
 mod borrowcheck;
 mod codegen;
 mod typecheck;
+mod unsafecheck;
 
 pub use codegen::generate_assembly;
 pub use typecheck::check_types;
@@ -483,6 +484,7 @@ pub enum Type {
     F32,
     F64,
     Reference { mutable: bool, target: Box<Type> },
+    RawPointer { mutable: bool, target: Box<Type> },
     Generic(String),
     Tuple(Vec<Type>),
     Array(Box<Type>, usize),
@@ -1127,6 +1129,14 @@ fn is_builtin_form(name: &str) -> bool {
             | "ref"
             | "ref-mut"
             | "deref"
+            | "mut"
+            | "unsafe"
+            | "addr-of"
+            | "addr-of-mut"
+            | "ptr-read"
+            | "ptr-write"
+            | "ptr"
+            | "ptr-mut"
     )
 }
 
@@ -1280,6 +1290,11 @@ fn type_source(ty: &Type) -> String {
         Type::Reference { mutable, target } => format!(
             "(#{} {})",
             if *mutable { "ref-mut" } else { "ref" },
+            type_source(target)
+        ),
+        Type::RawPointer { mutable, target } => format!(
+            "(#{} {})",
+            if *mutable { "ptr-mut" } else { "ptr" },
             type_source(target)
         ),
         Type::Generic(name) => name.clone(),
@@ -1889,7 +1904,7 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
                 variants: parse_enum_variants_at(items, variant_index, &type_parameters)?,
             })
         }
-        "let" => {
+        "let" | "let-mut" => {
             let binding = parse_let(items)?;
             Ok(Item::Let {
                 name: binding.name,
@@ -2398,7 +2413,7 @@ fn parse_function(items: &[Expr], external: bool) -> Result<Function, String> {
         let expected_len = if mutable { 3 } else { 2 };
         if fields.len() != expected_len {
             return Err(
-                "function parameters must have the form (name Type) or (mut name Type)".into(),
+                "function parameters must have the form (name Type) or (#mut name Type)".into(),
             );
         }
         let name_index = if mutable { 1 } else { 0 };
@@ -2571,8 +2586,7 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
             let mut lowered = vec![
                 Expr::Symbol("for".into()),
                 Expr::List(vec![
-                    Expr::Symbol("let".into()),
-                    Expr::Symbol("mut".into()),
+                    Expr::Symbol("let-mut".into()),
                     Expr::Symbol(name.clone()),
                     ty,
                     start,
@@ -2719,17 +2733,22 @@ struct LetBinding {
 }
 
 fn parse_let(items: &[Expr]) -> Result<LetBinding, String> {
-    if !matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "let")
-        || !(items.len() == 4 || items.len() == 5)
-    {
-        return Err("let requires the form (#let name Type value)".into());
+    let keyword = match items.first() {
+        Some(Expr::Symbol(keyword)) => keyword.as_str(),
+        _ => "",
+    };
+    if !matches!(keyword, "let" | "let-mut") || items.len() != 4 {
+        return Err("let requires the form (#let or #let-mut name Type value)".into());
     }
-    let mutable = matches!(items.get(1), Some(Expr::Symbol(keyword)) if keyword == "mut");
-    let name_index = if mutable { 2 } else { 1 };
+    let mutable = keyword == "let-mut";
+    if !mutable && matches!(items.get(1), Some(Expr::Symbol(keyword)) if keyword == "mut") {
+        return Err("mutable bindings must use #let-mut".into());
+    }
+    let name_index = 1;
     let type_index = name_index + 1;
     let value_index = type_index + 1;
-    if mutable && items.len() != 5 {
-        return Err("mutable let requires the form (#let mut name Type value)".into());
+    if mutable && items.len() != 4 {
+        return Err("mutable let requires the form (#let-mut name Type value)".into());
     }
     Ok(LetBinding {
         name: expect_symbol(items.get(name_index), "binding name")?.to_owned(),
@@ -2785,14 +2804,17 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
     }
     let lowered = lower_expr(expression)?;
     let expression = &lowered;
-    if is_form(expression, "let") {
+    if is_form(expression, "let") || is_form(expression, "let-mut") {
         let items = expect_list(expression, "let statement")?;
-        let mutable = matches!(items.get(1), Some(Expr::Symbol(keyword)) if keyword == "mut");
-        let name_index = if mutable { 2 } else { 1 };
+        let mutable = is_form(expression, "let-mut");
+        let name_index = 1;
         let type_index = name_index + 1;
         let value_index = type_index + 1;
         if items.len() != value_index + 1 {
-            return Err("let requires the form (#let name Type value)".into());
+            return Err("let requires the form (#let or #let-mut name Type value)".into());
+        }
+        if !mutable && matches!(items.get(1), Some(Expr::Symbol(keyword)) if keyword == "mut") {
+            return Err("mutable bindings must use #let-mut".into());
         }
         if !matches!(items.get(name_index), Some(Expr::Symbol(_))) {
             return Ok(Statement::Destructure {
@@ -3056,6 +3078,18 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
                 target: Box::new(parse_type(items.get(1))?),
             });
         }
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "ptr") {
+            return Ok(Type::RawPointer {
+                mutable: false,
+                target: Box::new(parse_type(items.get(1))?),
+            });
+        }
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "ptr-mut") {
+            return Ok(Type::RawPointer {
+                mutable: true,
+                target: Box::new(parse_type(items.get(1))?),
+            });
+        }
     }
     Ok(Type::from_name(expect_symbol(expression, "type")?))
 }
@@ -3295,6 +3329,9 @@ mod tests {
         assert!(check_types(&unit).is_ok());
         let no_value = parse_program("(#fn main () () (#return))").unwrap_err();
         assert!(no_value.contains("exactly one expression"));
+        let old_mut =
+            parse_program("(#fn main () u64 (#let mut value u64 1) (#return value))").unwrap_err();
+        assert!(old_mut.contains("#let-mut"));
     }
 
     #[test]
@@ -3307,7 +3344,7 @@ mod tests {
         assert!(generate_assembly(&shared).is_ok());
 
         let mutable = parse_program(
-            "(#fn main () u64 (#let mut value u64 40) (#return (#borrow-mut value (#block (#set value 42) value))))",
+            "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow-mut value (#block (#set value 42) value))))",
         )
         .unwrap();
         assert!(check_types(&mutable).is_ok());
@@ -3319,7 +3356,7 @@ mod tests {
         assert!(check_types(&nested_shared).is_ok());
 
         let shared_then_mutable = parse_program(
-            "(#fn main () u64 (#let mut value u64 40) (#return (#borrow value (#borrow-mut value value))))",
+            "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow value (#borrow-mut value value))))",
         )
         .unwrap();
         assert!(check_types(&shared_then_mutable)
@@ -3327,7 +3364,7 @@ mod tests {
             .contains("borrow 'value' mutably"));
 
         let overlapping_mutable = parse_program(
-            "(#fn main () u64 (#let mut value u64 40) (#return (#borrow-mut value (#borrow value value))))",
+            "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow-mut value (#borrow value value))))",
         )
         .unwrap();
         assert!(check_types(&overlapping_mutable)
@@ -3335,7 +3372,7 @@ mod tests {
             .contains("already borrowed mutably"));
 
         let shared_write = parse_program(
-            "(#fn main () u64 (#let mut value u64 40) (#return (#borrow value (#block (#set value 42) value))))",
+            "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow value (#block (#set value 42) value))))",
         )
         .unwrap();
         assert!(check_types(&shared_write)
@@ -3363,6 +3400,32 @@ mod tests {
         assert!(check_types(&bad_deref)
             .unwrap_err()
             .contains("deref requires a reference"));
+    }
+
+    #[test]
+    fn checks_raw_pointers_and_unsafe_blocks() {
+        let pointer_program = parse_program(
+            "(#fn main () u64 (#let-mut value u64 40) (#return (#unsafe (#block (#let p (#ptr-mut u64) (#addr-of-mut value)) (#ptr-write p 42) (#ptr-read p)))))",
+        )
+        .unwrap();
+        assert!(check_types(&pointer_program).is_ok());
+        assert!(generate_assembly(&pointer_program).is_ok());
+
+        let safe_pointer_use = parse_program(
+            "(#fn bad () u64 (#let value u64 42) (#return (#ptr-read (#addr-of value))))",
+        )
+        .unwrap();
+        assert!(check_types(&safe_pointer_use)
+            .unwrap_err()
+            .contains("requires an enclosing (#unsafe ...) block"));
+
+        let immutable_pointer_write = parse_program(
+            "(#fn bad () u64 (#let value u64 42) (#let p (#ptr u64) (#unsafe (#addr-of value))) (#unsafe (#ptr-write p 1)) (#return value))",
+        )
+        .unwrap();
+        assert!(check_types(&immutable_pointer_write)
+            .unwrap_err()
+            .contains("mutable raw pointer"));
     }
 
     #[test]
@@ -3671,7 +3734,7 @@ mod tests {
     #[test]
     fn parses_mutable_while_statements() {
         let program =
-            parse_program("(#fn count () u64 (#let mut n u64 0) (#while (#u64.<  n 3) (#set n (#u64.+.wrap  n 1))) (#return n))")
+            parse_program("(#fn count () u64 (#let-mut n u64 0) (#while (#u64.<  n 3) (#set n (#u64.+.wrap  n 1))) (#return n))")
                 .unwrap();
         let Item::Function(function) = &program.items[0] else {
             panic!()
@@ -3697,7 +3760,7 @@ mod tests {
     #[test]
     fn checks_break_and_continue_scope() {
         let valid = parse_program(
-            "(#fn main () u64 (#let mut n u64 0) (#while (#u64.<  n 3) (#set n (#u64.+.wrap  n 1)) (#continue)) (#return n))",
+            "(#fn main () u64 (#let-mut n u64 0) (#while (#u64.<  n 3) (#set n (#u64.+.wrap  n 1)) (#continue)) (#return n))",
         )
         .unwrap();
         assert!(check_types(&valid).is_ok());
@@ -3873,7 +3936,7 @@ mod tests {
     #[test]
     fn mutates_tuple_fields() {
         let program = parse_program(
-            "(#fn main () u64 (#let mut value (#tuple u64 f32) (#tuple 1 2.5)) (#set-field value 0 40) (#return (#u64.+.wrap (#get value 0) 2)))",
+            "(#fn main () u64 (#let-mut value (#tuple u64 f32) (#tuple 1 2.5)) (#set-field value 0 40) (#return (#u64.+.wrap (#get value 0) 2)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -4071,7 +4134,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_mutable_parameters() {
         let program =
-            parse_program("(#fn increment ((mut value u64)) u64 (#set value (#u64.+.wrap  value 1)) (#return value))")
+            parse_program("(#fn increment ((#mut value u64)) u64 (#set value (#u64.+.wrap  value 1)) (#return value))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program)
@@ -4230,7 +4293,7 @@ mod tests {
     #[test]
     fn lowers_while_let_with_match_guard() {
         let program = parse_program(
-            "(@optional u64 Maybe?) (#fn main () u64 (#let mut value Maybe? (Maybe?-construct 42)) (#let mut total u64 0) (#while-let (Maybe?-some payload) value (#set total (#u64.+.wrap  total payload)) (#set value Maybe?-none)) (#return total))",
+            "(@optional u64 Maybe?) (#fn main () u64 (#let-mut value Maybe? (Maybe?-construct 42)) (#let-mut total u64 0) (#while-let (Maybe?-some payload) value (#set total (#u64.+.wrap  total payload)) (#set value Maybe?-none)) (#return total))",
         )
         .unwrap();
         let type_result = check_types(&program);
@@ -4242,7 +4305,7 @@ mod tests {
     #[test]
     fn lowers_aggregate_if_let_and_while_let() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn point_value () u64 (#let point Point (Point 40 2)) (#return (#if-let (Point 40 y) point y 0))) (#fn main () u64 (#let mut value (#tuple u64 u64) (#tuple (#tuple u64 u64) 1 2)) (#let mut total u64 0) (#while-let (#tuple 1 _) value (#set total (#u64.+.wrap total (#get value 1))) (#set-field value 0 0)) (#return (#u64.+.wrap total (point_value))))",
+            "(#struct Point ((x u64) (y u64))) (#fn point_value () u64 (#let point Point (Point 40 2)) (#return (#if-let (Point 40 y) point y 0))) (#fn main () u64 (#let-mut value (#tuple u64 u64) (#tuple (#tuple u64 u64) 1 2)) (#let-mut total u64 0) (#while-let (#tuple 1 _) value (#set total (#u64.+.wrap total (#get value 1))) (#set-field value 0 0)) (#return (#u64.+.wrap total (point_value))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -4262,7 +4325,7 @@ mod tests {
     #[test]
     fn lowers_mutable_aggregate_let_destructuring() {
         let program = parse_program(
-            "(#fn main () u64 (#let mut (#tuple first second) (#tuple u64 u64) (#tuple (#tuple u64 u64) 20 22)) (#set first 40) (#return (#u64.+.wrap first second)))",
+            "(#fn main () u64 (#let-mut (#tuple first second) (#tuple u64 u64) (#tuple (#tuple u64 u64) 20 22)) (#set first 40) (#return (#u64.+.wrap first second)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -4423,7 +4486,7 @@ mod tests {
     #[test]
     fn mutates_nested_array_elements() {
         let program = parse_program(
-            "(#fn main () u64 (#let mut values (#array (#array u64 2) 2) (#array (#array (#array u64 2) 2) (#array (#array u64 2) 10 20) (#array (#array u64 2) 30 40))) (#set-index values 1 (#array (#array u64 2) 50 60)) (#return (#index (#index values 1) 0)))",
+            "(#fn main () u64 (#let-mut values (#array (#array u64 2) 2) (#array (#array (#array u64 2) 2) (#array (#array u64 2) 10 20) (#array (#array u64 2) 30 40))) (#set-index values 1 (#array (#array u64 2) 50 60)) (#return (#index (#index values 1) 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -4433,7 +4496,7 @@ mod tests {
     #[test]
     fn mutates_nested_tuple_fields() {
         let program = parse_program(
-            "(#fn main () u64 (#let mut value (#tuple (#tuple u64 u64) u64) (#tuple (#tuple (#tuple u64 u64) u64) (#tuple (#tuple u64 u64) 10 20) 30)) (#set-field value 0 (#tuple (#tuple u64 u64) 50 60)) (#return (#get (#get value 0) 1)))",
+            "(#fn main () u64 (#let-mut value (#tuple (#tuple u64 u64) u64) (#tuple (#tuple (#tuple u64 u64) u64) (#tuple (#tuple u64 u64) 10 20) 30)) (#set-field value 0 (#tuple (#tuple u64 u64) 50 60)) (#return (#get (#get value 0) 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -4443,7 +4506,7 @@ mod tests {
     #[test]
     fn mutates_nested_struct_fields() {
         let program = parse_program(
-            "(#struct Inner ((left u64) (right u64))) (#struct Outer ((inner Inner) (tail u64))) (#fn main () u64 (#let mut value Outer (Outer (Inner 10 20) 30)) (#set-field value inner (Inner 50 60)) (#return (#get (#get value inner) right)))",
+            "(#struct Inner ((left u64) (right u64))) (#struct Outer ((inner Inner) (tail u64))) (#fn main () u64 (#let-mut value Outer (Outer (Inner 10 20) 30)) (#set-field value inner (Inner 50 60)) (#return (#get (#get value inner) right)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -4493,7 +4556,7 @@ mod tests {
     #[test]
     fn mutates_enum_payload_fields() {
         let program = parse_program(
-            "(#enum Pair ((Pair u64 u64) Empty)) (#fn main () u64 (#let mut value Pair (Pair 20 22)) (#set-payload value Pair 1 30) (#return (#match value ((Pair left right) (#u64.+.wrap left right)) (Empty 0))))",
+            "(#enum Pair ((Pair u64 u64) Empty)) (#fn main () u64 (#let-mut value Pair (Pair 20 22)) (#set-payload value Pair 1 30) (#return (#match value ((Pair left right) (#u64.+.wrap left right)) (Empty 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -4520,7 +4583,7 @@ mod tests {
     #[test]
     fn lowers_value_loops_with_conditional_breaks() {
         let program = parse_program(
-            "(#fn main () u64 (#let mut i u64 0) (#return (#loop (#set i (#u64.+.wrap i 1)) (#if (#u64.== i 3) (#block (#break i)) (#u64.+.wrap i 0)))))",
+            "(#fn main () u64 (#let-mut i u64 0) (#return (#loop (#set i (#u64.+.wrap i 1)) (#if (#u64.== i 3) (#block (#break i)) (#u64.+.wrap i 0)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -4862,7 +4925,7 @@ mod tests {
         )
         .unwrap();
         assert!(generate_assembly(&local).unwrap().contains("[rbp-16]"));
-        let mutable = parse_program("(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let mut p Point (Point 1 2)) (#set-field p y 40) (#return (#u64.+.wrap  (#get p x) (#get p y))))").unwrap();
+        let mutable = parse_program("(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut p Point (Point 1 2)) (#set-field p y 40) (#return (#u64.+.wrap  (#get p x) (#get p y))))").unwrap();
         assert!(check_types(&mutable).is_ok());
         let returned = parse_program(
             "(#struct Point ((x u64) (y u64))) (#fn make_point () Point (#return (Point 7 9)))",
@@ -5261,7 +5324,7 @@ mod tests {
 
     #[test]
     fn checks_and_lowers_fixed_arrays() {
-        let program = parse_program("(#fn main () u64 (#let mut values (#array u64 2) (#array 3 4)) (#set-index values 1 40) (#return (#u64.+.wrap  (#index values 0) (#index values 1))))").unwrap();
+        let program = parse_program("(#fn main () u64 (#let-mut values (#array u64 2) (#array 3 4)) (#set-index values 1 40) (#return (#u64.+.wrap  (#index values 0) (#index values 1))))").unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("lea r11"));
@@ -5495,7 +5558,7 @@ mod tests {
 
     #[test]
     fn lowers_for_loop_with_continue_step() {
-        let program = parse_program("(#fn main () u64 (#let mut total u64 0) (#for (#let mut i u64 0) (#u64.<  i 3) (#set i (#u64.+.wrap  i 1)) (#continue)) (#return total))").unwrap();
+        let program = parse_program("(#fn main () u64 (#let-mut total u64 0) (#for (#let-mut i u64 0) (#u64.<  i 3) (#set i (#u64.+.wrap  i 1)) (#continue)) (#return total))").unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("for_step"));
@@ -5504,7 +5567,7 @@ mod tests {
     #[test]
     fn lowers_explicit_range_loops() {
         let program = parse_program(
-            "(#fn main () u64 (#let mut total u64 0) (#for-range (i u64) 0 10 (#set total (#u64.+.wrap  total i))) (#return total))",
+            "(#fn main () u64 (#let-mut total u64 0) (#for-range (i u64) 0 10 (#set total (#u64.+.wrap  total i))) (#return total))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -5514,7 +5577,7 @@ mod tests {
     #[test]
     fn lowers_statement_blocks_in_expressions() {
         let program =
-            parse_program("(#fn main () u64 (#let mut value u64 1) (#return (#if true (#block (#set value 40) value) (#block value))))")
+            parse_program("(#fn main () u64 (#let-mut value u64 1) (#return (#if true (#block (#set value 40) value) (#block value))))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program)
@@ -5525,7 +5588,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_loop_statements() {
         let program = parse_program(
-            "(#fn main () u64 (#let mut value u64 0) (#loop (#set value (#u64.+.wrap  value 1)) (#break)) (#return value))",
+            "(#fn main () u64 (#let-mut value u64 0) (#loop (#set value (#u64.+.wrap  value 1)) (#break)) (#return value))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -5539,7 +5602,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_labeled_value_loops() {
         let program = parse_program(
-            "(#fn main () u64 (#let mut count u64 0) (#let result u64 (#label outer (#loop (#set count (#u64.+.wrap count 1u64)) (#if (#u64.< count 3u64) (#block (#continue-to outer)) ()) (#break-to outer 42u64)))) (#return result))",
+            "(#fn main () u64 (#let-mut count u64 0) (#let result u64 (#label outer (#loop (#set count (#u64.+.wrap count 1u64)) (#if (#u64.< count 3u64) (#block (#continue-to outer)) ()) (#break-to outer 42u64)))) (#return result))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -5576,7 +5639,7 @@ mod tests {
         for source in [
             "(#fn main () u64 (#while false (#let value u64 7) (#break)) (#return value))",
             "(#fn main () u64 (#loop (#let value u64 7) (#break)) (#return value))",
-            "(#fn main () u64 (#for (#let mut i u64 0) false (#set i 1) (#let value u64 7)) (#return value))",
+            "(#fn main () u64 (#for (#let-mut i u64 0) false (#set i 1) (#let value u64 7)) (#return value))",
         ] {
             let program = parse_program(source).unwrap();
             let error = check_types(&program).unwrap_err();
@@ -5599,7 +5662,7 @@ mod tests {
             .unwrap()
             .contains("[rip+ANSWER]"));
         let invalid =
-            parse_program("(#let mut ANSWER u64 40) (#fn main () u64 (#return ANSWER))").unwrap();
+            parse_program("(#let-mut ANSWER u64 40) (#fn main () u64 (#return ANSWER))").unwrap();
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("cannot be mutable"));
@@ -5752,7 +5815,7 @@ mod tests {
     #[test]
     fn supports_large_enum_payloads_in_locals() {
         let program = parse_program(
-            "(#enum BigPayload ((Big u64 u64 u64 u64 u64 u64 u64) Empty)) (#fn main () u64 (#let mut value BigPayload (Big 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#set-payload value Big 6 42u64) (#return 42u64))",
+            "(#enum BigPayload ((Big u64 u64 u64 u64 u64 u64 u64) Empty)) (#fn main () u64 (#let-mut value BigPayload (Big 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#set-payload value Big 6 42u64) (#return 42u64))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());

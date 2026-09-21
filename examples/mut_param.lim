@@ -2,7 +2,7 @@
   #fn
   increment
   (
-    (mut value u64)
+    (#mut value u64)
   )
   u64
   (

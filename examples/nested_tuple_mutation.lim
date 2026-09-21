@@ -1,5 +1,5 @@
 (#fn main () u64
-  (#let mut value (#tuple (#tuple u64 u64) u64)
+  (#let-mut value (#tuple (#tuple u64 u64) u64)
     (#tuple (#tuple (#tuple u64 u64) u64)
       (#tuple (#tuple u64 u64) 10 20)
       30))

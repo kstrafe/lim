@@ -6,13 +6,12 @@
   ()
   u64
   (
-    #let
-    mut
+    #let-mut
     value
     Maybe?
     (Maybe?-construct 42)
   )
-  (#let mut total u64 0)
+  (#let-mut total u64 0)
   (
     #while-let
     (Maybe?-some payload)

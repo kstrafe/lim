@@ -9,6 +9,6 @@
   (#return (#u64.+.wrap x y)))
 
 (#fn main () u64
-  (#let mut (#tuple first second) (#tuple u64 u64) (#tuple (#tuple u64 u64) 20 22))
+  (#let-mut (#tuple first second) (#tuple u64 u64) (#tuple (#tuple u64 u64) 20 22))
   (#set first 40)
   (#return (#u64.+.wrap first second)))

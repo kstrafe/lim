@@ -158,6 +158,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
         }
     }
     crate::borrowcheck::check_program(program)?;
+    crate::unsafecheck::check_program(program)?;
     Ok(())
 }
 
@@ -1527,6 +1528,69 @@ fn list_expression(
                 Type::Reference { target, .. } => Ok(*target),
                 _ => Err("deref requires a reference".into()),
             }
+        }
+        "unsafe" => {
+            require_arity(operator, items, 2)?;
+            expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, expected,
+            )
+        }
+        "addr-of" | "addr-of-mut" => {
+            require_arity(operator, items, 2)?;
+            let owner = match &items[1] {
+                Expr::Symbol(name) => name,
+                _ => return Err(format!("{operator} requires a variable name")),
+            };
+            let owner_type = variables
+                .get(owner)
+                .ok_or_else(|| format!("{operator} refers to unknown variable '{owner}'"))?;
+            if !is_reference_target(owner_type) {
+                return Err(format!("{operator} currently supports scalar values only"));
+            }
+            if operator == "addr-of-mut" && !mutable.contains(owner) {
+                return Err(format!(
+                    "cannot take a mutable pointer to immutable variable '{owner}'"
+                ));
+            }
+            Ok(Type::RawPointer {
+                mutable: operator == "addr-of-mut",
+                target: Box::new(owner_type.clone()),
+            })
+        }
+        "ptr-read" => {
+            require_arity(operator, items, 2)?;
+            let actual = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            match actual {
+                Type::RawPointer { target, .. } => Ok(*target),
+                _ => Err("ptr-read requires a raw pointer".into()),
+            }
+        }
+        "ptr-write" => {
+            require_arity(operator, items, 3)?;
+            let pointer = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let Type::RawPointer {
+                mutable: true,
+                target,
+            } = pointer
+            else {
+                return Err("ptr-write requires a mutable raw pointer".into());
+            };
+            let actual = expression(
+                &items[2],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&target),
+            )?;
+            require_type(&actual, &target, "ptr-write value")?;
+            Ok(Type::Unit)
         }
         "size-of" | "align-of" => {
             require_arity(operator, items, 2)?;
@@ -2927,6 +2991,10 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
             mutable: *mutable,
             target: Box::new(substitute_type(target, substitutions)),
         },
+        Type::RawPointer { mutable, target } => Type::RawPointer {
+            mutable: *mutable,
+            target: Box::new(substitute_type(target, substitutions)),
+        },
         _ => ty.clone(),
     }
 }
@@ -2963,6 +3031,10 @@ fn resolve_type_with_seen(
                 .collect::<Result<Vec<_>, _>>()?,
         )),
         Type::Reference { mutable, target } => Ok(Type::Reference {
+            mutable: *mutable,
+            target: Box::new(resolve_type_with_seen(target, aliases, seen)?),
+        }),
+        Type::RawPointer { mutable, target } => Ok(Type::RawPointer {
             mutable: *mutable,
             target: Box::new(resolve_type_with_seen(target, aliases, seen)?),
         }),
@@ -3086,7 +3158,11 @@ fn is_numeric(ty: &Type) -> bool {
 }
 
 fn is_reference_target(ty: &Type) -> bool {
-    is_numeric(ty) || matches!(ty, Type::Bool | Type::Char | Type::Reference { .. })
+    is_numeric(ty)
+        || matches!(
+            ty,
+            Type::Bool | Type::Char | Type::Reference { .. } | Type::RawPointer { .. }
+        )
 }
 
 fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(), String> {
@@ -3110,6 +3186,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::F32 => "f32",
         Type::F64 => "f64",
         Type::Reference { .. } => "reference",
+        Type::RawPointer { .. } => "raw pointer",
         Type::Generic(name) | Type::Named(name) => name,
         Type::Array(_, _) | Type::Tuple(_) => {
             return Err(format!(

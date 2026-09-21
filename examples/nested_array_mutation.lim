@@ -1,5 +1,5 @@
 (#fn main () u64
-  (#let mut values (#array (#array u64 2) 2)
+  (#let-mut values (#array (#array u64 2) 2)
     (#array (#array (#array u64 2) 2)
       (#array (#array u64 2) 10 20)
       (#array (#array u64 2) 30 40)))

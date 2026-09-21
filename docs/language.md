@@ -23,8 +23,8 @@ Lim currently provides:
 - no recursion, allowing the compiler to calculate a finite call depth.
 
 Slices, traits, methods, closures, and other source-level indirection
-mechanisms are not part of the current language. References are currently
-limited to scalar values. Large
+mechanisms are not part of the current language. References and raw pointers
+are currently limited to scalar values. Large
 aggregate values may use hidden storage pointers at an ABI boundary, but
 those pointers cannot be written in Lim source.
 
@@ -56,6 +56,28 @@ other borrow, and a shared borrow cannot overlap a mutation. References to
 locals cannot escape their function; references returned from parameters and
 globals are supported. `#deref` reads through a reference. Mutable reference
 writes are reserved for the next reference-operation extension.
+
+## Raw pointers and unsafe blocks
+
+Raw pointers are explicit and distinct from references. `(#ptr T)` is an
+immutable raw pointer and `(#ptr-mut T)` is a mutable raw pointer. Taking an
+address and reading or writing through a raw pointer must occur inside an
+`#unsafe` block:
+
+```lisp
+(#fn main () u64
+  (#let-mut value u64 40)
+  (#return
+    (#unsafe
+      (#block
+        (#let pointer (#ptr-mut u64) (#addr-of-mut value))
+        (#ptr-write pointer 42)
+        (#ptr-read pointer)))))
+```
+
+The operations are `#addr-of`, `#addr-of-mut`, `#ptr-read`, and `#ptr-write`.
+Writing requires `(#ptr-mut T)`. Raw pointer operations are unchecked beyond
+their static pointee type and are rejected outside `#unsafe`.
 
 ## Building and running
 
@@ -172,7 +194,7 @@ The parameter list is a list of `(name Type)` pairs.  Parameters may be
 marked mutable:
 
 ```lisp
-(#fn increment ((mut value u64)) u64
+(#fn increment ((#mut value u64)) u64
   (#set value (#u64.+.wrap value 1u64))
   (#return value))
 ```
@@ -265,10 +287,10 @@ Local bindings always state their type:
 
 ```lisp
 (#let count u32 0u32)
-(#let mut total u64 0u64)
+(#let-mut total u64 0u64)
 ```
 
-`#let` creates an immutable binding unless `#mut` is present.  Later bindings
+`#let` creates an immutable binding; use `#let-mut` for a mutable binding. Later bindings
 may shadow earlier bindings lexically.  `#set` assigns a mutable scalar or
 aggregate local:
 
@@ -407,7 +429,7 @@ A loop expression has a value only when a reachable break supplies one:
 The explicit `#for` form is:
 
 ```lisp
-(#for (#let mut i u64 0u64)
+(#for (#let-mut i u64 0u64)
       (#u64.< i 10u64)
       (#set i (#u64.+.wrap i 1u64))
   (#set total (#u64.+.wrap total i)))

@@ -4,8 +4,7 @@
   ()
   u64
   (
-    #let
-    mut
+    #let-mut
     values
     (#array u64 3)
     (#array 1 2 3)

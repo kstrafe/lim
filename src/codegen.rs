@@ -282,6 +282,11 @@ fn specialized_type_name(ty: &Type) -> String {
             if *mutable { "mut_" } else { "_" },
             specialized_type_name(target)
         ),
+        Type::RawPointer { mutable, target } => format!(
+            "ptr{}{}",
+            if *mutable { "mut_" } else { "_" },
+            specialized_type_name(target)
+        ),
         Type::Generic(name) | Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
             "tuple{}",
@@ -3104,7 +3109,7 @@ fn is_float_type(ty: &Type) -> bool {
 }
 
 fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
-    if matches!(ty, Type::Reference { .. }) {
+    if matches!(ty, Type::Reference { .. } | Type::RawPointer { .. }) {
         return Ok(());
     }
     if matches!(ty, Type::F32 | Type::F64) {
@@ -5136,6 +5141,33 @@ impl FunctionContext {
                         _ => None,
                     }
                 }
+                Some(Expr::Symbol(operator)) if operator == "unsafe" && items.len() == 2 => {
+                    self.expression_type(&items[1])
+                }
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "addr-of" | "addr-of-mut")
+                        && items.len() == 2 =>
+                {
+                    let owner = match items.get(1) {
+                        Some(Expr::Symbol(name)) => name,
+                        _ => return None,
+                    };
+                    self.local_types
+                        .get(owner)
+                        .cloned()
+                        .or_else(|| self.global_types.get(owner).cloned())
+                        .map(|target| Type::RawPointer {
+                            mutable: operator == "addr-of-mut",
+                            target: Box::new(target),
+                        })
+                }
+                Some(Expr::Symbol(operator)) if operator == "ptr-read" && items.len() == 2 => {
+                    match self.expression_type(&items[1])? {
+                        Type::RawPointer { target, .. } => Some(*target),
+                        _ => None,
+                    }
+                }
+                Some(Expr::Symbol(operator)) if operator == "ptr-write" => Some(Type::Unit),
                 Some(Expr::Symbol(operator)) if operator == "if" => {
                     if items.len() == 4 {
                         self.expression_type(&items[2])
@@ -7075,6 +7107,65 @@ impl FunctionContext {
                         .output
                         .push_str("    mov rdx, QWORD PTR [rax+8]\n    mov rax, QWORD PTR [rax]\n"),
                     _ => self.output.push_str("    mov rax, QWORD PTR [rax]\n"),
+                }
+                Ok(())
+            }
+            "unsafe" => {
+                if items.len() != 2 {
+                    return Err("unsafe requires one body expression".into());
+                }
+                self.expression(&items[1])
+            }
+            "addr-of" | "addr-of-mut" => self.borrow_expression(items),
+            "ptr-read" => {
+                if items.len() != 2 {
+                    return Err("ptr-read requires a raw pointer".into());
+                }
+                let target = self
+                    .expression_type(&items[1])
+                    .and_then(|ty| match ty {
+                        Type::RawPointer { target, .. } => Some(*target),
+                        _ => None,
+                    })
+                    .ok_or_else(|| "ptr-read requires a raw pointer".to_owned())?;
+                self.expression(&items[1])?;
+                match target {
+                    Type::F32 => self.output.push_str("    movss xmm0, DWORD PTR [rax]\n"),
+                    Type::F64 => self.output.push_str("    movq xmm0, QWORD PTR [rax]\n"),
+                    Type::I128 | Type::U128 => self
+                        .output
+                        .push_str("    mov rdx, QWORD PTR [rax+8]\n    mov rax, QWORD PTR [rax]\n"),
+                    _ => self.output.push_str("    mov rax, QWORD PTR [rax]\n"),
+                }
+                Ok(())
+            }
+            "ptr-write" => {
+                if items.len() != 3 {
+                    return Err("ptr-write requires a pointer and value".into());
+                }
+                let target = self
+                    .expression_type(&items[1])
+                    .and_then(|ty| match ty {
+                        Type::RawPointer {
+                            mutable: true,
+                            target,
+                        } => Some(*target),
+                        _ => None,
+                    })
+                    .ok_or_else(|| "ptr-write requires a mutable raw pointer".to_owned())?;
+                self.expression(&items[1])?;
+                self.output.push_str("    push rax\n");
+                self.stack_depth += 1;
+                self.expression(&items[2])?;
+                self.output.push_str("    pop rcx\n");
+                self.stack_depth -= 1;
+                match target {
+                    Type::F32 => self.output.push_str("    movd DWORD PTR [rcx], xmm0\n"),
+                    Type::F64 => self.output.push_str("    movq QWORD PTR [rcx], xmm0\n"),
+                    Type::I128 | Type::U128 => self
+                        .output
+                        .push_str("    mov QWORD PTR [rcx], rax\n    mov QWORD PTR [rcx+8], rdx\n"),
+                    _ => self.output.push_str("    mov QWORD PTR [rcx], rax\n"),
                 }
                 Ok(())
             }

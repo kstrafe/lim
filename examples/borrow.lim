@@ -1,5 +1,5 @@
 (#fn main () u64
-  (#let mut value u64 40)
+  (#let-mut value u64 40)
   (#return
     (#borrow-mut value
       (#block

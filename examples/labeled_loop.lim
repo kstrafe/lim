@@ -1,5 +1,5 @@
 (#fn main () u64
-  (#let mut count u64 0)
+  (#let-mut count u64 0)
   (#label outer
     (#while (#u64.< count 4u64)
       (#set count (#u64.+.wrap count 1u64))

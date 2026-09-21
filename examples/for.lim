@@ -3,10 +3,10 @@
   main
   ()
   u64
-  (#let mut total u64 0)
+  (#let-mut total u64 0)
   (
     #for
-    (#let mut i u64 0)
+    (#let-mut i u64 0)
     (#u64.<  i 10)
     (
       #set

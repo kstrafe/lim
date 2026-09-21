@@ -1,6 +1,6 @@
 (#fn sum ((n u64)) u64
-  (#let mut i u64 0)
-  (#let mut total u64 0)
+  (#let-mut i u64 0)
+  (#let-mut total u64 0)
   (#while (#u64.< i n)
     (#set total (#u64.+.wrap total i))
     (#set i (#u64.+.wrap i 1)))

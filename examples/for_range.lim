@@ -3,7 +3,7 @@
   main
   ()
   u64
-  (#let mut total u64 0)
+  (#let-mut total u64 0)
   (
     #for-range
     (i u64)

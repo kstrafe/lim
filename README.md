@@ -7,7 +7,8 @@ assembly backend. The language deliberately excludes slices, traits, methods,
 and other indirection mechanisms that have not been designed yet.
 
 The compiler supports inferred lexical borrows and returnable scalar
-references with `(#ref T)` and `(#ref-mut T)`.
+references with `(#ref T)` and `(#ref-mut T)`, plus explicit raw pointers
+`(#ptr T)` and `(#ptr-mut T)` inside `#unsafe` blocks.
 
 ## Development
 
@@ -299,18 +300,18 @@ Mutable locals, assignment, and `while` are also supported:
 
 ```lisp
 (fn sum ((n u64)) u64
-  (let mut i u64 0)
-  (let mut total u64 0)
+  (let-mut i u64 0)
+  (let-mut total u64 0)
   (while (< i n)
     (set total (+ total i))
     (set i (+ i 1)))
   total)
 ```
 
-Function parameters can be explicitly mutable with `(mut name Type)`:
+Function parameters can be explicitly mutable with `(#mut name Type)`:
 
 ```lisp
-(fn increment ((mut value u64)) u64
+(fn increment ((#mut value u64)) u64
   (set value (+ value 1))
   value)
 ```
@@ -521,7 +522,7 @@ Enum payloads can be updated explicitly by naming the active variant and
 payload field index:
 
 ```lisp
-(#let mut value Pair (Pair 20 22))
+(#let-mut value Pair (Pair 20 22))
 (#set-payload value Pair 1 30)
 ```
 
@@ -538,7 +539,7 @@ explicitly. Prefix the pattern with `mut` to make all bindings mutable:
 ```lisp
 (#let (#tuple first second) (#tuple u64 u64) value)
 (#let (Point x y) Point point)
-(#let mut (#tuple first second) (#tuple u64 u64) value)
+(#let-mut (#tuple first second) (#tuple u64 u64) value)
 ```
 
 Destructuring patterns may recurse through nested tuple, array, and struct
@@ -760,7 +761,7 @@ Fixed-size arrays are value types with stack storage:
 
 ```lisp
 (fn main () u64
-  (let mut values (array u64 3) (array 1 2 3))
+  (let-mut values (array u64 3) (array 1 2 3))
   (set-index values 1 40)
   (+ (index values 0) (index values 1)))
 ```
@@ -854,7 +855,7 @@ zero.
 Counted loops use explicit init, condition, step, and body forms:
 
 ```lisp
-(for (let mut i u64 0)
+(for (let-mut i u64 0)
      (< i 10)
      (set i (+ i 1))
   (set total (+ total i)))

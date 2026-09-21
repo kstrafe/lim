@@ -1,5 +1,5 @@
 (#fn main () u64
-  (#let mut i u64 0)
+  (#let-mut i u64 0)
   (#return
     (#loop
       (#set i (#u64.+.wrap i 1))

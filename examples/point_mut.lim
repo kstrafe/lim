@@ -13,8 +13,7 @@
   ()
   u64
   (
-    #let
-    mut
+    #let-mut
     point
     Point
     (Point 1 2)

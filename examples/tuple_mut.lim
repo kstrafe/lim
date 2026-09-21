@@ -4,8 +4,7 @@
   ()
   u64
   (
-    #let
-    mut
+    #let-mut
     value
     (#tuple u64 f32)
     (#tuple 1 2.5)
