@@ -25,9 +25,38 @@ Lim currently provides:
 
 Slices, traits, methods, closures, and other source-level indirection
 mechanisms are not part of the current language. References and raw pointers
-are currently limited to scalar values. Large
-aggregate values may use hidden storage pointers at an ABI boundary, but
-those pointers cannot be written in Lim source.
+may point to aggregate values; `#get` projects fields through a reference.
+Direct `#deref` and raw pointer operations are currently limited to scalar
+values. Large aggregate values may use hidden storage pointers at an ABI
+boundary, but those pointers cannot be written in Lim source.
+
+## Shared allocator state and cells
+
+`(#cell T)` is a single-threaded interior-mutable storage cell for supported
+scalar values (`T` must be numeric, `bool`, `char`, a raw pointer, or a
+fieldless enum). `(#cell T value)` constructs one, `#cell-get` reads its
+current value, and `#cell-set` replaces that value. A cell never returns a
+reference to its contents, so allocator state may be shared immutably while a
+cursor changes through the cell:
+
+```lisp
+(#struct Arena ((cursor (#cell u64))))
+(#struct VecU64Arena ((allocator (#ref Arena)) (length u64)))
+
+(#fn VecU64Arena-reserve ((vector (#ref VecU64Arena)) (count u64)) u64
+  (#cell-set
+    (#get (#get vector allocator) cursor)
+    (#u64.+.wrap (#cell-get (#get (#get vector allocator) cursor)) count))
+  (#return (#cell-get (#get (#get vector allocator) cursor))))
+```
+
+An aggregate that stores a shared reference retains a borrow of its owner for
+the rest of the containing function. It cannot be returned if that borrow
+points to a local, and reference-bearing fields cannot be replaced. Mutable
+references are not permitted inside value structs or enum payloads. This
+conservative rule keeps a vector-like value from outliving or being silently
+retargeted away from its allocator. `#cell` is not thread-safe and provides no
+synchronization.
 
 ## Inferred lexical borrows
 

@@ -287,6 +287,7 @@ fn specialized_type_name(ty: &Type) -> String {
             if *mutable { "mut_" } else { "_" },
             specialized_type_name(target)
         ),
+        Type::Cell(target) => format!("cell_{}", specialized_type_name(target)),
         Type::Generic(name) | Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
             "tuple{}",
@@ -3109,6 +3110,9 @@ fn is_float_type(ty: &Type) -> bool {
 }
 
 fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
+    if let Type::Cell(target) = ty {
+        return ensure_scalar_type(target, enums);
+    }
     if matches!(ty, Type::Reference { .. } | Type::RawPointer { .. }) {
         return Ok(());
     }
@@ -5109,6 +5113,35 @@ impl FunctionContext {
                 _ => Some(Type::Unit),
             }),
             Expr::List(items) => match items.first() {
+                Some(Expr::Symbol(operator)) if operator == "cell" && items.len() == 2 => self
+                    .expression_type(&items[1])
+                    .map(|inner| Type::Cell(Box::new(inner))),
+                Some(Expr::Symbol(operator)) if operator == "cell-get" && items.len() == 2 => {
+                    match self.expression_type(&items[1])? {
+                        Type::Cell(inner) => Some(*inner),
+                        _ => None,
+                    }
+                }
+                Some(Expr::Symbol(operator)) if operator == "cell-set" => Some(Type::Unit),
+                Some(Expr::Symbol(operator)) if operator == "get" && items.len() == 3 => {
+                    let base = self.expression_type(&items[1])?;
+                    let base = match base {
+                        Type::Reference { target, .. } => *target,
+                        other => other,
+                    };
+                    match (base, &items[2]) {
+                        (Type::Tuple(fields), Expr::Integer(index)) if *index >= 0 => {
+                            fields.get(usize::try_from(*index).ok()?).cloned()
+                        }
+                        (Type::Named(name), Expr::Symbol(field)) => self
+                            .structs
+                            .get(&name)?
+                            .iter()
+                            .find(|candidate| candidate.name == *field)
+                            .map(|candidate| candidate.ty.clone()),
+                        _ => None,
+                    }
+                }
                 Some(Expr::Symbol(operator)) if operator == "as" && items.len() == 3 => {
                     parse_type(items.get(2))
                         .ok()
@@ -7073,6 +7106,14 @@ impl FunctionContext {
             return Ok(());
         }
         match operator {
+            "cell" => {
+                if items.len() != 2 {
+                    return Err("cell requires one initial value".into());
+                }
+                self.expression(&items[1])
+            }
+            "cell-get" => self.cell_get_expression(items),
+            "cell-set" => self.cell_set_expression(items),
             "-" if items.len() == 2 => self.unary_negate(items, qualifier, mode),
             "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
                 self.binary_operator(operator, qualifier, mode, items)
@@ -9684,6 +9725,50 @@ impl FunctionContext {
             Expr::Symbol(name) => name,
             _ => return Err("get requires a field name".into()),
         };
+        if let Some(Type::Reference { target, .. }) = self.expression_type(&items[1]) {
+            let Type::Named(struct_name) = *target else {
+                return Err("named field access through a reference requires a struct".into());
+            };
+            let fields = self
+                .structs
+                .get(&struct_name)
+                .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+            let index = fields
+                .iter()
+                .position(|field| field.name == *field_name)
+                .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))?;
+            let field_type = fields[index].ty.clone();
+            let offset_words = fields[..index]
+                .iter()
+                .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .sum::<usize>();
+            let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+            if field_words > VALUE_REGISTERS.len() {
+                return Err("large fields projected through references are unsupported".into());
+            }
+            self.expression(&items[1])?;
+            if offset_words != 0 {
+                self.output
+                    .push_str(&format!("    add rax, {}\n", offset_words * 8));
+            }
+            if field_words > 1 {
+                for (word, register) in VALUE_REGISTERS.iter().enumerate().take(field_words) {
+                    self.output.push_str(&format!(
+                        "    mov {register}, QWORD PTR [rax+{}]\n",
+                        word * 8
+                    ));
+                }
+            } else {
+                match field_type {
+                    Type::F32 => self.output.push_str("    movss xmm0, DWORD PTR [rax]\n"),
+                    Type::F64 => self.output.push_str("    movq xmm0, QWORD PTR [rax]\n"),
+                    _ => self.output.push_str("    mov rax, QWORD PTR [rax]\n"),
+                }
+            }
+            return Ok(());
+        }
         match &items[1] {
             Expr::Symbol(local) => {
                 if let Some(Type::Named(struct_name)) = self.global_types.get(local) {
@@ -9902,6 +9987,118 @@ impl FunctionContext {
                 Ok(())
             }
         }
+    }
+
+    fn cell_place_address(&mut self, place: &Expr) -> Result<Type, String> {
+        let ty = self
+            .expression_type(place)
+            .ok_or_else(|| "cell operation requires a cell place".to_owned())?;
+        let Type::Cell(inner) = ty else {
+            return Err("cell operation requires a cell place".into());
+        };
+        match place {
+            Expr::Symbol(name) => {
+                let slots = local_slots(&self.locals, name)?;
+                let slot = slots
+                    .first()
+                    .ok_or_else(|| format!("cell '{name}' has no storage"))?;
+                self.output
+                    .push_str(&format!("    lea rax, [rbp-{}]\n", slot * 8));
+            }
+            Expr::List(items)
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get")
+                    && items.len() == 3 =>
+            {
+                let Expr::Symbol(field_name) = &items[2] else {
+                    return Err("cell field projection requires a named field".into());
+                };
+                let base_type = self
+                    .expression_type(&items[1])
+                    .ok_or_else(|| "cell field base has no known type".to_owned())?;
+                let (struct_name, is_reference) = match base_type {
+                    Type::Reference { target, .. } => match *target {
+                        Type::Named(name) => (name, true),
+                        _ => return Err("cell field reference must target a struct".into()),
+                    },
+                    Type::Named(name) => (name, false),
+                    _ => return Err("cell field base must be a struct".into()),
+                };
+                let fields = self
+                    .structs
+                    .get(&struct_name)
+                    .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+                let index = fields
+                    .iter()
+                    .position(|field| field.name == *field_name)
+                    .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))?;
+                let offset_words = fields[..index]
+                    .iter()
+                    .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
+                if is_reference {
+                    self.expression(&items[1])?;
+                    if offset_words != 0 {
+                        self.output
+                            .push_str(&format!("    add rax, {}\n", offset_words * 8));
+                    }
+                } else if let Expr::Symbol(local) = &items[1] {
+                    if let Some(Storage::Struct(slots)) = self.locals.get(local) {
+                        let slot = slots
+                            .get(index)
+                            .and_then(|(_, slots)| slots.first())
+                            .ok_or_else(|| "cell field has no storage".to_owned())?;
+                        self.output
+                            .push_str(&format!("    lea rax, [rbp-{}]\n", slot * 8));
+                    } else if self.globals.contains_key(local) {
+                        self.output.push_str(&format!(
+                            "    lea rax, [rip+{}+{}]\n",
+                            asm_symbol(local),
+                            offset_words * 8
+                        ));
+                    } else {
+                        return Err(format!("unknown cell field base '{local}'"));
+                    }
+                } else {
+                    return Err("cell field base must be a struct variable".into());
+                }
+            }
+            _ => return Err("cell operations require a cell local or struct field".into()),
+        }
+        Ok(*inner)
+    }
+
+    fn cell_get_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 2 {
+            return Err("cell-get requires one cell place".into());
+        }
+        let inner = self.cell_place_address(&items[1])?;
+        match inner {
+            Type::F32 => self.output.push_str("    movss xmm0, DWORD PTR [rax]\n"),
+            Type::F64 => self.output.push_str("    movq xmm0, QWORD PTR [rax]\n"),
+            _ => self.output.push_str("    mov rax, QWORD PTR [rax]\n"),
+        }
+        Ok(())
+    }
+
+    fn cell_set_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 3 {
+            return Err("cell-set requires a cell place and value".into());
+        }
+        let inner = self.cell_place_address(&items[1])?;
+        self.output.push_str("    push rax\n");
+        self.stack_depth += 1;
+        self.expression_as_expected(&items[2], &inner)?;
+        self.output.push_str("    pop r11\n");
+        self.stack_depth -= 1;
+        match inner {
+            Type::F32 => self.output.push_str("    movss DWORD PTR [r11], xmm0\n"),
+            Type::F64 => self.output.push_str("    movq QWORD PTR [r11], xmm0\n"),
+            _ => self.output.push_str("    mov QWORD PTR [r11], rax\n"),
+        }
+        self.output.push_str("    xor eax, eax\n");
+        Ok(())
     }
 
     fn boolean_not(&mut self, items: &[Expr]) -> Result<(), String> {

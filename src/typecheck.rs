@@ -115,6 +115,26 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             }
         }
     }
+    for (name, fields) in &structs {
+        if fields.iter().any(|field| {
+            contains_mutable_reference(&field.ty, &structs, &enums, &mut HashSet::new())
+        }) {
+            return Err(format!(
+                "struct '{name}' cannot store mutable references in value fields"
+            ));
+        }
+    }
+    for (name, variants) in &enums {
+        if variants
+            .iter()
+            .flat_map(|variant| &variant.fields)
+            .any(|ty| contains_mutable_reference(ty, &structs, &enums, &mut HashSet::new()))
+        {
+            return Err(format!(
+                "enum '{name}' cannot store mutable references in payloads"
+            ));
+        }
+    }
     let mut functions = HashMap::new();
     for item in &program.items {
         let Item::Function(function) = item else {
@@ -602,6 +622,11 @@ fn statement_type(
             if !mutable.contains(name) {
                 return Err(format!("cannot assign to immutable variable '{name}'"));
             }
+            if contains_reference_type(&ty, structs, enums, &mut HashSet::new()) {
+                return Err(format!(
+                    "cannot replace '{name}' because its type retains references"
+                ));
+            }
             let actual = expression(
                 value,
                 variables,
@@ -626,6 +651,11 @@ fn statement_type(
             let Type::Array(element, length) = ty else {
                 return Err(format!("'{name}' is not an array"));
             };
+            if contains_reference_type(&element, structs, enums, &mut HashSet::new()) {
+                return Err(format!(
+                    "cannot replace reference-containing elements of '{name}'"
+                ));
+            }
             check_index(
                 index, length, variables, functions, structs, enums, mutable, aliases,
             )?;
@@ -661,6 +691,11 @@ fn statement_type(
                 .find(|field_info| field_info.name == *field)
                 .map(|field_info| field_info.ty.clone())
                 .ok_or_else(|| format!("struct '{struct_name}' has no field '{field}'"))?;
+            if contains_reference_type(&field_type, structs, enums, &mut HashSet::new()) {
+                return Err(format!(
+                    "reference field '{field}' in '{struct_name}' cannot be replaced"
+                ));
+            }
             let actual = expression(
                 value,
                 variables,
@@ -704,6 +739,11 @@ fn statement_type(
             let field_type = enum_variant.fields.get(*index).ok_or_else(|| {
                 format!("variant '{variant}' has no payload field at index {index}")
             })?;
+            if contains_reference_type(field_type, structs, enums, &mut HashSet::new()) {
+                return Err(format!(
+                    "reference payload '{variant}[{index}]' cannot be replaced"
+                ));
+            }
             let actual = expression(
                 value,
                 variables,
@@ -735,6 +775,11 @@ fn statement_type(
             let field_type = fields
                 .get(*index)
                 .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?;
+            if contains_reference_type(field_type, structs, enums, &mut HashSet::new()) {
+                return Err(format!(
+                    "cannot replace reference-containing tuple field {index}"
+                ));
+            }
             let actual = expression(
                 value,
                 variables,
@@ -1309,6 +1354,57 @@ fn list_expression(
     let (qualifier, operator, mode) = typed_operator_parts(raw_operator);
     let operator_type = qualifier.map(Type::from_name);
     match operator {
+        "cell" => {
+            require_arity(operator, items, 2)?;
+            let expected_inner = match expected {
+                Some(Type::Cell(inner)) => Some(inner.as_ref()),
+                _ => None,
+            };
+            let inner = expression(
+                &items[1],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                expected_inner,
+            )?;
+            if !is_cell_value_type(&inner, enums) {
+                return Err(format!("cell does not support values of type {inner:?}"));
+            }
+            Ok(Type::Cell(Box::new(inner)))
+        }
+        "cell-get" => {
+            require_arity(operator, items, 2)?;
+            match expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )? {
+                Type::Cell(inner) => Ok(*inner),
+                _ => Err("cell-get requires a cell place".into()),
+            }
+        }
+        "cell-set" => {
+            require_arity(operator, items, 3)?;
+            let Type::Cell(inner) = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?
+            else {
+                return Err("cell-set requires a cell place".into());
+            };
+            let actual = expression(
+                &items[2],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&inner),
+            )?;
+            require_type(&actual, &inner, "cell-set value")?;
+            Ok(Type::Unit)
+        }
         "-" if items.len() == 2 => {
             let actual = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, expected,
@@ -1536,7 +1632,12 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             match actual {
-                Type::Reference { target, .. } => Ok(*target),
+                Type::Reference { target, .. } if is_scalar_reference_target(&target, enums) => {
+                    Ok(*target)
+                }
+                Type::Reference { .. } => Err(
+                    "deref currently supports scalar references; use get to project aggregate fields".into(),
+                ),
                 _ => Err("deref requires a reference".into()),
             }
         }
@@ -1555,7 +1656,7 @@ fn list_expression(
             let owner_type = variables
                 .get(owner)
                 .ok_or_else(|| format!("{operator} refers to unknown variable '{owner}'"))?;
-            if !is_reference_target(owner_type) {
+            if !is_scalar_reference_target(owner_type, enums) {
                 return Err(format!("{operator} currently supports scalar values only"));
             }
             if operator == "addr-of-mut" && !mutable.contains(owner) {
@@ -2029,6 +2130,10 @@ fn list_expression(
             let value_type = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
+            let value_type = match value_type {
+                Type::Reference { target, .. } => *target,
+                other => other,
+            };
             if let Type::Tuple(fields) = value_type {
                 let index = match &items[2] {
                     Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
@@ -3006,6 +3111,7 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
             mutable: *mutable,
             target: Box::new(substitute_type(target, substitutions)),
         },
+        Type::Cell(target) => Type::Cell(Box::new(substitute_type(target, substitutions))),
         _ => ty.clone(),
     }
 }
@@ -3049,6 +3155,9 @@ fn resolve_type_with_seen(
             mutable: *mutable,
             target: Box::new(resolve_type_with_seen(target, aliases, seen)?),
         }),
+        Type::Cell(target) => Ok(Type::Cell(Box::new(resolve_type_with_seen(
+            target, aliases, seen,
+        )?))),
         _ => Ok(ty.clone()),
     }
 }
@@ -3169,11 +3278,91 @@ fn is_numeric(ty: &Type) -> bool {
 }
 
 fn is_reference_target(ty: &Type) -> bool {
-    is_numeric(ty)
-        || matches!(
-            ty,
-            Type::Bool | Type::Char | Type::Reference { .. } | Type::RawPointer { .. }
-        )
+    !matches!(ty, Type::Unit | Type::Never)
+}
+
+fn is_scalar_reference_target(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> bool {
+    (is_numeric(ty) && !matches!(ty, Type::I128 | Type::U128))
+        || matches!(ty, Type::Bool | Type::Char | Type::RawPointer { .. })
+        || matches!(ty, Type::Named(name) if enums
+            .get(name)
+            .is_some_and(|variants| variants.iter().all(|variant| variant.fields.is_empty())))
+}
+
+fn is_cell_value_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> bool {
+    if matches!(ty, Type::Cell(_)) {
+        return false;
+    }
+    (is_numeric(ty) && !matches!(ty, Type::I128 | Type::U128))
+        || matches!(ty, Type::Bool | Type::Char | Type::RawPointer { .. })
+        || matches!(ty, Type::Named(name) if enums
+            .get(name)
+            .is_some_and(|variants| variants.iter().all(|variant| variant.fields.is_empty())))
+}
+
+fn contains_reference_type(
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    seen: &mut HashSet<String>,
+) -> bool {
+    match ty {
+        Type::Reference { .. } => true,
+        Type::Array(element, _) | Type::Cell(element) => {
+            contains_reference_type(element, structs, enums, seen)
+        }
+        Type::Tuple(fields) => fields
+            .iter()
+            .any(|field| contains_reference_type(field, structs, enums, seen)),
+        Type::Named(name) if seen.insert(name.clone()) => {
+            let result = structs.get(name).is_some_and(|fields| {
+                fields
+                    .iter()
+                    .any(|field| contains_reference_type(&field.ty, structs, enums, seen))
+            }) || enums.get(name).is_some_and(|variants| {
+                variants
+                    .iter()
+                    .flat_map(|variant| &variant.fields)
+                    .any(|field| contains_reference_type(field, structs, enums, seen))
+            });
+            seen.remove(name);
+            result
+        }
+        _ => false,
+    }
+}
+
+fn contains_mutable_reference(
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    seen: &mut HashSet<String>,
+) -> bool {
+    match ty {
+        Type::Reference { mutable: true, .. } => true,
+        Type::Reference { mutable: false, .. } | Type::RawPointer { .. } => false,
+        Type::Array(element, _) | Type::Cell(element) => {
+            contains_mutable_reference(element, structs, enums, seen)
+        }
+        Type::Tuple(fields) => fields
+            .iter()
+            .any(|field| contains_mutable_reference(field, structs, enums, seen)),
+        Type::Named(name) if seen.insert(name.clone()) => {
+            let result = structs.get(name).is_some_and(|fields| {
+                fields
+                    .iter()
+                    .any(|field| contains_mutable_reference(&field.ty, structs, enums, seen))
+            }) || enums.get(name).is_some_and(|variants| {
+                variants
+                    .iter()
+                    .flat_map(|variant| &variant.fields)
+                    .any(|field| contains_mutable_reference(field, structs, enums, seen))
+            });
+            seen.remove(name);
+            result
+        }
+        _ => false,
+    }
 }
 
 fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(), String> {
@@ -3198,6 +3387,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::F64 => "f64",
         Type::Reference { .. } => "reference",
         Type::RawPointer { .. } => "raw pointer",
+        Type::Cell(_) => "interior mutable cell",
         Type::Generic(name) | Type::Named(name) => name,
         Type::Array(_, _) | Type::Tuple(_) => {
             return Err(format!(

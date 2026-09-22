@@ -1,0 +1,14 @@
+(#struct Arena ((cursor (#cell u64))))
+(#struct VecU64Arena ((allocator (#ref Arena)) (length u64)))
+
+(#fn VecU64Arena-reserve ((vector (#ref VecU64Arena)) (count u64)) u64
+  (#cell-set
+    (#get (#get vector allocator) cursor)
+    (#u64.+.wrap (#cell-get (#get (#get vector allocator) cursor)) count))
+  (#return (#cell-get (#get (#get vector allocator) cursor))))
+
+(#fn main () u64
+  (#let-mut arena Arena (Arena (#cell 0)))
+  (#let-mut vector VecU64Arena (VecU64Arena (#borrow arena) 0))
+  (#let reserved u64 (VecU64Arena-reserve (#borrow vector) 42))
+  (#return reserved))

@@ -484,8 +484,16 @@ pub enum Type {
     Usize,
     F32,
     F64,
-    Reference { mutable: bool, target: Box<Type> },
-    RawPointer { mutable: bool, target: Box<Type> },
+    Reference {
+        mutable: bool,
+        target: Box<Type>,
+    },
+    RawPointer {
+        mutable: bool,
+        target: Box<Type>,
+    },
+    /// Inline single-threaded interior-mutable scalar storage.
+    Cell(Box<Type>),
     Generic(String),
     Tuple(Vec<Type>),
     Array(Box<Type>, usize),
@@ -1149,6 +1157,9 @@ fn is_builtin_form(name: &str) -> bool {
             | "addr-of-mut"
             | "ptr-read"
             | "ptr-write"
+            | "cell"
+            | "cell-get"
+            | "cell-set"
             | "ptr"
             | "ptr-mut"
             | "generator"
@@ -1589,6 +1600,7 @@ fn type_source(ty: &Type) -> String {
             if *mutable { "ptr-mut" } else { "ptr" },
             type_source(target)
         ),
+        Type::Cell(target) => format!("(#cell {})", type_source(target)),
         Type::Generic(name) => name.clone(),
         Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
@@ -3370,6 +3382,9 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
                 target: Box::new(parse_type(items.get(1))?),
             });
         }
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "cell") {
+            return Ok(Type::Cell(Box::new(parse_type(items.get(1))?)));
+        }
         if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "ptr") {
             return Ok(Type::RawPointer {
                 mutable: false,
@@ -3590,7 +3605,7 @@ mod tests {
             .iter()
             .any(|token| token.kind == TokenKind::Symbol("#u32.+.wrap".into())));
         let program = parse_program("(#fn main () u32 (#return (#u32.+.wrap 20 22)))").unwrap();
-        assert!(check_types(&program).is_ok());
+        assert!(check_types(&program).is_ok(), "{:?}", check_types(&program));
         assert!(generate_assembly(&program).unwrap().contains("add"));
         let plain = parse_program("(#fn main () u32 (#return (#u32.+ 20 22)))").unwrap();
         assert!(check_types(&plain).is_err());
@@ -3761,6 +3776,89 @@ mod tests {
         assert!(check_types(&shared_write)
             .unwrap_err()
             .contains("immutably borrowed"));
+    }
+
+    #[test]
+    fn supports_single_threaded_interior_mutable_cells() {
+        let program = parse_program(
+            "(#fn main () u64 (#let counter (#cell u64) (#cell 40)) (#cell-set counter (#u64.+.wrap (#cell-get counter) 2)) (#return (#cell-get counter)))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok(), "{:?}", check_types(&program));
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("lea rax, [rbp-"));
+        assert!(assembly.contains("mov QWORD PTR [r11], rax"));
+        assert!(assembly.contains("mov rax, QWORD PTR [rax]"));
+
+        let invalid = parse_program(
+            "(#fn main () u64 (#let counter (#cell u64) (#cell 40)) (#cell-set counter true) (#return 0))",
+        )
+        .unwrap();
+        assert!(check_types(&invalid)
+            .unwrap_err()
+            .contains("cell-set value"));
+    }
+
+    #[test]
+    fn supports_shared_references_to_aggregate_allocator_state() {
+        let program = parse_program(
+            "(#struct ArenaState ((cursor (#cell u64)))) (#fn ArenaState-advance ((arena (#ref ArenaState))) u64 (#cell-set (#get arena cursor) (#u64.+.wrap (#cell-get (#get arena cursor)) 1)) (#return (#cell-get (#get arena cursor)))) (#fn main () u64 (#return 0))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok(), "{:?}", check_types(&program));
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("mov rax, QWORD PTR [rbp-"));
+        assert!(assembly.contains("mov QWORD PTR [r11], rax"));
+
+        let runnable = parse_program(
+            "(#struct ArenaState ((cursor (#cell u64)))) (#fn main () u64 (#let-mut arena ArenaState (ArenaState (#cell 40))) (#let allocator (#ref ArenaState) (#borrow arena)) (#cell-set (#get allocator cursor) (#u64.+.wrap (#cell-get (#get allocator cursor)) 2)) (#return (#cell-get (#get allocator cursor))))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&runnable).is_ok(),
+            "{:?}",
+            check_types(&runnable)
+        );
+        assert!(generate_assembly(&runnable).is_ok());
+
+        let reference_to_global = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#static Origin Point (Point 20 22)) (#fn origin () (#ref Point) (#return (#borrow Origin))) (#fn main () u64 (#return (#get (#origin) x)))",
+        )
+        .unwrap();
+        assert!(check_types(&reference_to_global).is_ok());
+        assert!(generate_assembly(&reference_to_global).is_ok());
+
+        let aggregate_deref = parse_program(
+            "(#struct Point ((x u64))) (#fn main () u64 (#let-mut point Point (Point 42)) (#return (#get (#deref (#borrow point)) x)))",
+        )
+        .unwrap();
+        assert!(check_types(&aggregate_deref)
+            .unwrap_err()
+            .contains("use get to project aggregate fields"));
+
+        let stored = parse_program(
+            "(#struct Allocator ((cursor u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)) (length u64))) (#fn main () u64 (#let-mut allocator Allocator (Allocator 0)) (#let-mut vector VecWithAllocator (VecWithAllocator (#borrow allocator) 0)) (#set-field allocator cursor 1) (#return 0))",
+        )
+        .unwrap();
+        assert!(check_types(&stored)
+            .unwrap_err()
+            .contains("immutably borrowed"));
+
+        let escaping = parse_program(
+            "(#struct Allocator ((cursor u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)) (length u64))) (#fn make () VecWithAllocator (#let-mut allocator Allocator (Allocator 0)) (#let vector VecWithAllocator (VecWithAllocator (#borrow allocator) 0)) (#return vector))",
+        )
+        .unwrap();
+        assert!(check_types(&escaping)
+            .unwrap_err()
+            .contains("cannot return a value retaining a reference to local 'allocator'"));
+
+        let immutable_reference_field = parse_program(
+            "(#struct Allocator ((cursor u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)))) (#fn replace ((#mut vector VecWithAllocator) (allocator (#ref Allocator))) () (#set-field vector allocator allocator) (#return ()))",
+        )
+        .unwrap();
+        assert!(check_types(&immutable_reference_field)
+            .unwrap_err()
+            .contains("reference field 'allocator'"));
     }
 
     #[test]

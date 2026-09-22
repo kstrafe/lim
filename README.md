@@ -10,6 +10,12 @@ The compiler supports inferred lexical borrows and returnable scalar
 references with `(#ref T)` and `(#ref-mut T)`, plus explicit raw pointers
 `(#ptr T)` and `(#ptr-mut T)` inside `#unsafe` blocks.
 
+References can also target aggregate state, with fields projected using
+`#get`. `(#cell T)`, `#cell-get`, and `#cell-set` provide single-threaded
+interior mutability for scalar allocator state. Aggregates retaining shared
+references hold their borrow through the containing function and cannot be
+retargeted by field assignment; see `examples/allocator_state.lim`.
+
 ## Development
 
 The repository uses the Rust toolchain from the copied Liftoff Nix flake:
