@@ -5,6 +5,6 @@
 
 (#fn main () u64
   (#let unit-value () ())
-  (#let pair (#tuple () u64) (#tuple (#tuple () u64) unit-value 40))
-  (#let tagged Tagged (Tagged unit-value 1))
+  (#let pair (#tuple () u64) (#tuple (#tuple () u64) (#clone unit-value) 40))
+  (#let tagged Tagged (Tagged (#clone unit-value) 1))
   (#return (#u64.+.wrap (consume unit-value) (#u64.+.wrap (#get pair 1) (#get tagged value)))))

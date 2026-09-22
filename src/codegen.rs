@@ -4744,12 +4744,42 @@ struct FunctionContext {
 }
 
 impl FunctionContext {
+    fn clone_operand(&self, expression: &Expr) -> Expr {
+        let Expr::List(items) = expression else {
+            return expression.clone();
+        };
+        if !matches!(items.first(), Some(Expr::Symbol(name)) if name == "clone") || items.len() != 2
+        {
+            return expression.clone();
+        }
+        let custom = self
+            .expression_type(&items[1])
+            .and_then(|ty| match ty {
+                Type::Named(name) => Some(format!("{name}-clone")),
+                _ => None,
+            })
+            .filter(|name| self.functions.contains_key(name));
+        if let Some(function) = custom {
+            Expr::List(vec![Expr::Symbol(function), items[1].clone()])
+        } else {
+            items[1].clone()
+        }
+    }
+
     fn statement(&mut self, statement: &Statement) -> Result<(), String> {
         match statement {
             Statement::Let {
                 name, ty, value, ..
             } => {
                 let ty = resolve_type(ty, &self.aliases)?;
+                let clone_value;
+                let value = if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "clone"))
+                {
+                    clone_value = self.clone_operand(value);
+                    &clone_value
+                } else {
+                    value
+                };
                 if matches!(ty, Type::Unit | Type::Never) {
                     self.expression(value)?;
                 } else if matches!(&ty, Type::Named(type_name)
@@ -5736,6 +5766,9 @@ impl FunctionContext {
                 _ => Some(Type::Unit),
             }),
             Expr::List(items) => match items.first() {
+                Some(Expr::Symbol(operator)) if operator == "clone" && items.len() == 2 => {
+                    self.expression_type(&items[1])
+                }
                 Some(Expr::Symbol(operator)) if operator == "cell" && items.len() == 2 => self
                     .expression_type(&items[1])
                     .map(|inner| Type::Cell(Box::new(inner))),
@@ -7808,6 +7841,38 @@ impl FunctionContext {
             return Ok(());
         }
         match operator {
+            "clone" => {
+                if items.len() != 2 {
+                    return Err("clone requires one value".into());
+                }
+                let clone_function = self.expression_type(&items[1]).and_then(|ty| match ty {
+                    Type::Named(name) => Some(format!("{name}-clone")),
+                    _ => None,
+                });
+                if let Some(function) =
+                    clone_function.filter(|name| self.functions.contains_key(name))
+                {
+                    self.list_expression(&[Expr::Symbol(function), items[1].clone()])
+                } else {
+                    self.expression(&items[1])
+                }
+            }
+            "drop" => {
+                if items.len() != 2 {
+                    return Err("drop requires one value".into());
+                }
+                let ty = self.expression_type(&items[1]).unwrap_or(Type::Unit);
+                let before = self.stack_depth;
+                self.push_value_words(&items[1], &ty, false)?;
+                let words = self.stack_depth - before;
+                if words > 0 {
+                    self.output
+                        .push_str(&format!("    add rsp, {}\n", words * 8));
+                    self.stack_depth -= words;
+                }
+                self.output.push_str("    xor eax, eax\n");
+                Ok(())
+            }
             "cell" => {
                 if items.len() != 2 {
                     return Err("cell requires one initial value".into());
@@ -8365,6 +8430,15 @@ impl FunctionContext {
     ) -> Result<(), String> {
         if items.len() < 3 {
             return Err("match requires a value and an arm".into());
+        }
+        if let Expr::List(clone) = &items[1] {
+            if matches!(clone.first(), Some(Expr::Symbol(head)) if head == "clone")
+                && clone.len() == 2
+            {
+                let mut unwrapped = items.to_vec();
+                unwrapped[1] = clone[1].clone();
+                return self.match_expression(&unwrapped, float_type, result_type);
+            }
         }
         if let Some(Type::Tuple(fields)) = self.expression_type(&items[1]) {
             return self.aggregate_match_expression(
@@ -12726,6 +12800,14 @@ impl FunctionContext {
     }
 
     fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
+        if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "clone")
+                && items.len() == 2
+            {
+                let normalized = self.clone_operand(value);
+                return self.push_value_words(&normalized, ty, reverse);
+            }
+        }
         if matches!(ty, Type::Unit | Type::Never) {
             self.expression(value)?;
             return Ok(());

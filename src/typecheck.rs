@@ -339,6 +339,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
         }
     }
     check_thread_task_ownership(program, &aliases)?;
+    crate::linearcheck::check_program(program)?;
     crate::borrowcheck::check_program(program)?;
     crate::unsafecheck::check_program(program)?;
     Ok(())
@@ -2168,6 +2169,35 @@ fn list_expression(
     let (qualifier, operator, mode) = typed_operator_parts(raw_operator);
     let operator_type = qualifier.map(Type::from_name);
     match operator {
+        "clone" => {
+            require_arity(operator, items, 2)?;
+            let cloned = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, expected,
+            )?;
+            if matches!(cloned, Type::Reference { mutable: true, .. }) {
+                return Err("a mutable reference cannot be cloned".into());
+            }
+            if let Type::Named(name) = &cloned {
+                if functions.contains_key(&format!("{name}-join")) {
+                    return Err(format!("thread task '{name}' cannot be cloned"));
+                }
+                if let Some(signature) = functions.get(&format!("{name}-clone")) {
+                    if signature.parameters != [cloned.clone()] || signature.return_type != cloned {
+                        return Err(format!(
+                            "'{name}-clone' must take and return exactly one '{name}' value"
+                        ));
+                    }
+                }
+            }
+            Ok(cloned)
+        }
+        "drop" => {
+            require_arity(operator, items, 2)?;
+            expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            Ok(Type::Unit)
+        }
         "cell" => {
             require_arity(operator, items, 2)?;
             let expected_inner = match expected {

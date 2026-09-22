@@ -12,5 +12,9 @@
     (Outer
       (Inner
         (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64))))
+  (#let duplicate Outer
+    (Outer
+      (Inner
+        (#array (#array u64 7) 8u64 9u64 10u64 11u64 12u64 13u64 42u64))))
   (#return (#consume (#get (#get value inner) payload)
-                     (#get (#get value inner) payload))))
+                     (#get (#get duplicate inner) payload))))

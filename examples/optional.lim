@@ -28,7 +28,7 @@
     #return
     (
       #if
-      (Maybe?-is-some value)
+      (Maybe?-is-some (#clone value))
       (Maybe?-unwrap-or value 0)
       0
     )

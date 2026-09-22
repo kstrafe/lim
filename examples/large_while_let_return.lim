@@ -6,9 +6,9 @@
   (#let-mut value (#array u64 7) (values))
   (#let-mut total u64 0u64)
   (#while-let
-    (#array 1 second third fourth fifth sixth last)
+    (#array _ _ _ _ _ _ _)
     value
-    (#set total last)
+    (#set total (#index value 6u64))
     (#set value (#array (#array u64 7)
       0u64 0u64 0u64 0u64 0u64 0u64 0u64)))
   (#return total))

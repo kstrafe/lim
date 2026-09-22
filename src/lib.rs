@@ -9,6 +9,7 @@ use std::{
 mod borrowcheck;
 mod codegen;
 mod generator;
+mod linearcheck;
 mod typecheck;
 mod unsafecheck;
 
@@ -1250,6 +1251,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "cell"
             | "cell-get"
             | "cell-set"
+            | "clone"
+            | "drop"
             | "ptr"
             | "ptr-mut"
             | "generator"
@@ -3405,31 +3408,44 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
             }
             let name = expect_symbol(binding.first(), "for-range binding name")?.to_owned();
             let ty = binding.get(1).cloned().unwrap();
+            let counter = format!("__lim_range_counter_{name}");
             let start = lower_expr(&items[2])?;
             let end = lower_expr(&items[3])?;
             let mut lowered = vec![
                 Expr::Symbol("for".into()),
                 Expr::List(vec![
                     Expr::Symbol("let-mut".into()),
-                    Expr::Symbol(name.clone()),
-                    ty,
+                    Expr::Symbol(counter.clone()),
+                    ty.clone(),
                     start,
                 ]),
                 Expr::List(vec![
                     Expr::Symbol("<".into()),
-                    Expr::Symbol(name.clone()),
+                    Expr::List(vec![
+                        Expr::Symbol("clone".into()),
+                        Expr::Symbol(counter.clone()),
+                    ]),
                     end,
                 ]),
                 Expr::List(vec![
                     Expr::Symbol("set".into()),
-                    Expr::Symbol(name.clone()),
+                    Expr::Symbol(counter.clone()),
                     Expr::List(vec![
                         Expr::Symbol("+".into()),
-                        Expr::Symbol(name),
+                        Expr::List(vec![
+                            Expr::Symbol("clone".into()),
+                            Expr::Symbol(counter.clone()),
+                        ]),
                         Expr::Integer(1),
                     ]),
                 ]),
             ];
+            lowered.push(Expr::List(vec![
+                Expr::Symbol("let".into()),
+                Expr::Symbol(name),
+                ty,
+                Expr::List(vec![Expr::Symbol("clone".into()), Expr::Symbol(counter)]),
+            ]));
             lowered.extend(items[4..].iter().cloned());
             return lower_expr(&Expr::List(lowered));
         }
@@ -3492,6 +3508,7 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
             // fields checked to avoid turning every tuple/struct guard into an
             // unconditional loop.
             let condition_pattern = items[1].clone();
+            let repeated_value = Expr::List(vec![Expr::Symbol("clone".into()), items[2].clone()]);
             let mut body = vec![Expr::Symbol("block".into())];
             body.extend(items[3..].iter().cloned());
             let then_value = Expr::List(body);
@@ -3499,14 +3516,14 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
                 Expr::Symbol("while".into()),
                 Expr::List(vec![
                     Expr::Symbol("match".into()),
-                    items[2].clone(),
+                    repeated_value.clone(),
                     Expr::List(vec![condition_pattern, Expr::Symbol("true".into())]),
                     Expr::List(vec![Expr::Symbol("_".into()), Expr::Symbol("false".into())]),
                 ]),
                 Expr::List(vec![
                     Expr::Symbol("if-let".into()),
                     items[1].clone(),
-                    items[2].clone(),
+                    repeated_value,
                     then_value,
                 ]),
             ]))
@@ -4722,7 +4739,8 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
-        assert!(generate_assembly(&program).is_ok());
+        let assembly = generate_assembly(&program);
+        assert!(assembly.is_ok(), "{assembly:?}");
 
         let local_escape =
             parse_program("(#fn bad () (#ref u64) (#let value u64 42) (#return (#borrow value)))")
@@ -5154,7 +5172,7 @@ mod tests {
     #[test]
     fn parses_mutable_while_statements() {
         let program =
-            parse_program("(#fn count () u64 (#let-mut n u64 0) (#while (#u64.<  n 3) (#set n (#u64.+.wrap  n 1))) (#return n))")
+            parse_program("(#fn count () u64 (#let-mut n u64 0) (#while (#u64.<  (#clone n) 3) (#set n (#u64.+.wrap  n 1))) (#return n))")
                 .unwrap();
         let Item::Function(function) = &program.items[0] else {
             panic!()
@@ -5180,7 +5198,7 @@ mod tests {
     #[test]
     fn checks_break_and_continue_scope() {
         let valid = parse_program(
-            "(#fn main () u64 (#let-mut n u64 0) (#while (#u64.<  n 3) (#set n (#u64.+.wrap  n 1)) (#continue)) (#return n))",
+            "(#fn main () u64 (#let-mut n u64 0) (#while (#u64.<  (#clone n) 3) (#set n (#u64.+.wrap  n 1)) (#continue)) (#return n))",
         )
         .unwrap();
         assert!(check_types(&valid).is_ok());
@@ -5238,7 +5256,7 @@ mod tests {
     #[test]
     fn lowers_unsigned_division_and_remainder() {
         let program = parse_program(
-            "(#fn main () u64 (#let left u64 20) (#let right u64 3) (#return (#u64.+.wrap  (#u64./.wrap  left right) (#u64.%.wrap  left right))))",
+            "(#fn main () u64 (#let left u64 20) (#let right u64 3) (#return (#u64.+.wrap  (#u64./.wrap  (#clone left) (#clone right)) (#u64.%.wrap  left right))))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -5261,10 +5279,10 @@ mod tests {
     #[test]
     fn preserves_unsigned_comparisons_and_shifts() {
         let program =
-            parse_program("(#fn main () u64 (#let value u64 1) (#return (#if (#u64.<  value 2) (#u64.>>  value 1) 0)))")
+            parse_program("(#fn main () u64 (#let value u64 1) (#return (#if (#u64.<  (#clone value) 2) (#u64.>>  value 1) 0)))")
                 .unwrap();
         let assembly = generate_assembly(&program).unwrap();
-        assert!(assembly.contains("setb al"));
+        assert!(assembly.contains("setb al"), "{assembly}");
         assert!(assembly.contains("shr rax, cl"));
     }
 
@@ -5642,7 +5660,7 @@ mod tests {
     #[test]
     fn expands_optional_generated_declarations() {
         let program = parse_program(
-            "(@optional u64 Maybe?) (#fn main () u64 (#let value Maybe? (Maybe?-construct 42)) (#return (#if (Maybe?-is-some value) (Maybe?-unwrap-or value 0) 0)))",
+            "(@optional u64 Maybe?) (#fn main () u64 (#let value Maybe? (Maybe?-construct 42)) (#return (#if (Maybe?-is-some (#clone value)) (Maybe?-unwrap-or value 0) 0)))",
         )
         .unwrap();
         assert!(program.items.iter().any(|item| {
@@ -6003,7 +6021,7 @@ mod tests {
     #[test]
     fn lowers_value_loops_with_conditional_breaks() {
         let program = parse_program(
-            "(#fn main () u64 (#let-mut i u64 0) (#return (#loop (#set i (#u64.+.wrap i 1)) (#if (#u64.== i 3) (#block (#break i)) (#u64.+.wrap i 0)))))",
+            "(#fn main () u64 (#let-mut i u64 0) (#return (#loop (#set i (#u64.+.wrap (#clone i) 1)) (#if (#u64.== (#clone i) 3) (#block (#break (#clone i))) (#u64.+.wrap (#clone i) 0)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -6062,7 +6080,7 @@ mod tests {
     #[test]
     fn lowers_zero_word_unit_values() {
         let program = parse_program(
-            "(#struct Tagged ((marker ()) (value u64))) (#fn consume ((marker ())) u64 (#return 41)) (#fn main () u64 (#let unit-value () ()) (#let pair (#tuple () u64) (#tuple (#tuple () u64) unit-value 40)) (#let tagged Tagged (Tagged unit-value 1)) (#return (#u64.+.wrap (consume unit-value) (#u64.+.wrap (#get pair 1) (#get tagged value)))))",
+            "(#struct Tagged ((marker ()) (value u64))) (#fn consume ((marker ())) u64 (#return 41)) (#fn main () u64 (#let unit-value () ()) (#let pair (#tuple () u64) (#tuple (#tuple () u64) (#clone unit-value) 40)) (#let tagged Tagged (Tagged (#clone unit-value) 1)) (#return (#u64.+.wrap (consume unit-value) (#u64.+.wrap (#get pair 1) (#get tagged value)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -6538,7 +6556,7 @@ mod tests {
     #[test]
     fn lowers_128_bit_comparisons_and_shifts() {
         let program = parse_program(
-            "(#fn main () u64 (#let left u128 1) (#let right u128 2) (#return (#if (#u128.&&  (#u128.<  left right) (#u128.==  (#u128.<<  left 5) 32)) 42 0)))",
+            "(#fn main () u64 (#let left u128 1) (#let right u128 2) (#return (#if (#u128.&&  (#u128.<  (#clone left) (#clone right)) (#u128.==  (#u128.<<  left 5) 32)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -6560,7 +6578,7 @@ mod tests {
     #[test]
     fn lowers_unsigned_128_bit_division_and_remainder() {
         let program = parse_program(
-            "(#fn main () u64 (#let value u128 100) (#let divisor u128 7) (#return (#if (#u128.&&  (#u128.==  (#u128./.wrap  value divisor) 14) (#u128.==  (#u128.%.wrap  value divisor) 2)) 42 0)))",
+            "(#fn main () u64 (#let value u128 100) (#let divisor u128 7) (#return (#if (#u128.&&  (#u128.==  (#u128./.wrap  (#clone value) (#clone divisor)) 14) (#u128.==  (#u128.%.wrap  value divisor) 2)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -6572,7 +6590,7 @@ mod tests {
     #[test]
     fn lowers_signed_128_bit_division_and_remainder() {
         let program = parse_program(
-            "(#fn main () u64 (#let value i128 100) (#let divisor i128 7) (#return (#if (#i128.&&  (#i128.==  (#i128./.wrap  (#i128.-.wrap  value) divisor) -14) (#i128.==  (#i128.%.wrap  (#i128.-.wrap  value) divisor) -2)) 42 0)))",
+            "(#fn main () u64 (#let value i128 100) (#let divisor i128 7) (#return (#if (#i128.&&  (#i128.==  (#i128./.wrap  (#i128.-.wrap  (#clone value)) (#clone divisor)) -14) (#i128.==  (#i128.%.wrap  (#i128.-.wrap  value) divisor) -2)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -6978,7 +6996,7 @@ mod tests {
 
     #[test]
     fn lowers_for_loop_with_continue_step() {
-        let program = parse_program("(#fn main () u64 (#let-mut total u64 0) (#for (#let-mut i u64 0) (#u64.<  i 3) (#set i (#u64.+.wrap  i 1)) (#continue)) (#return total))").unwrap();
+        let program = parse_program("(#fn main () u64 (#let-mut total u64 0) (#for (#let-mut i u64 0) (#u64.<  (#clone i) 3) (#set i (#u64.+.wrap  i 1)) (#continue)) (#return total))").unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("for_step"));
@@ -7184,7 +7202,8 @@ mod tests {
             "(#fn main () u64 (#let values (#array u64 8) (#array (#array u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 8u64)) (#let copy (#array u64 8) values) (#return (#u64.+.wrap (#index copy 0u64) (#index copy 7u64))))",
         )
         .unwrap();
-        assert!(generate_assembly(&program).is_ok());
+        let assembly = generate_assembly(&program);
+        assert!(assembly.is_ok(), "{assembly:?}");
     }
 
     #[test]

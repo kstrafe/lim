@@ -10,7 +10,7 @@
     (
       #if
       (#bool.&&
-        (#u128.<  left right)
+        (#u128.<  (#clone left) (#clone right))
         (#u128.==
           (#u128.<<  left 5)
           32

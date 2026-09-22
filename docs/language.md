@@ -519,6 +519,35 @@ Local destructuring and `#let-else` support tuples, arrays, structs, and enum
 patterns.  The `else` body must diverge, for example with `#return`,
 `#break`, or `#panic`.
 
+### Linear values and explicit cloning
+
+Local values and function parameters are affine: reading a binding as a value
+moves it, and a moved value cannot be read or cloned again. This applies to
+scalars as well as aggregates; mutability does not make a binding implicitly
+copyable. Use `#clone` at the point where a second value is intended:
+
+```lisp
+(#let count u64 40u64)
+(#let total u64 (#u64.+.wrap (#clone count) count))
+```
+
+Assignments reinitialize mutable bindings, so a common update pattern consumes
+the old value and then installs the replacement:
+
+```lisp
+(#let-mut count u64 0u64)
+(#set count (#u64.+.wrap count 1u64))
+```
+
+Loop conditions run repeatedly; any outer value they inspect must be explicitly
+cloned so it remains available on the next iteration. Both sides of a branch
+are checked, and a value moved on either path is unavailable after the join.
+`#clone` cannot duplicate mutable references or thread-task handles. If a
+function named `<Type>-clone` exists with signature `(<Type>) -> <Type>`,
+`#clone` dispatches to it; use that function to define deep-copy behavior for
+resource-owning types. Otherwise the backend clones the value representation.
+`#drop` explicitly consumes a value when its result is intentionally discarded.
+
 ## Operators
 
 Numeric operators are never unqualified in canonical syntax.  The operand
