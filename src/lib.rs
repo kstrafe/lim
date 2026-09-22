@@ -3616,7 +3616,7 @@ mod tests {
     #[test]
     fn expands_pure_user_generators_over_literal_syntax() {
         let program = parse_program(
-            "(#generator aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte u8) (Word u16))) (#fn main () u64 (#return 42))",
+            "(#generator aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte u8) (Word u16))) (@aliases ((Byte u8) (Word u16))) (#fn main () u64 (#return 42))",
         )
         .unwrap();
         assert!(program
@@ -3627,6 +3627,15 @@ mod tests {
             .items
             .iter()
             .any(|item| matches!(item, Item::TypeAlias { name, .. } if name == "Word")));
+        assert_eq!(
+            program
+                .items
+                .iter()
+                .filter(|item| matches!(item, Item::TypeAlias { name, .. } if name == "Byte"))
+                .count(),
+            1,
+            "identical generator invocations should emit declarations once"
+        );
         assert!(check_types(&program).is_ok());
     }
 
@@ -3639,6 +3648,11 @@ mod tests {
         let recursive =
             parse_program("(#generator repeat () (#gn-list (@repeat))) (@repeat)").unwrap_err();
         assert!(recursive.contains("recursive generator expansion is not allowed"));
+
+        let unknown = parse_program("(#generator typo () (#gn-unknown 1))\n(@typo)").unwrap_err();
+        assert!(unknown.contains("unknown generator builtin '#gn-unknown'"));
+        assert!(unknown.contains("defined at 1:1"));
+        assert!(unknown.contains("2:1: generator expansion"));
     }
 
     #[test]

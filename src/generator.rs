@@ -1,16 +1,21 @@
 //! Pure, immutable syntax generators used by `@name` declarations.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::{Expr, SpannedExpr};
+use crate::{Expr, Span, SpannedExpr};
+
+const MAX_EVALUATION_STEPS: usize = 200_000;
+const MAX_GENERATED_NODES: usize = 1_000_000;
+const MAX_EXPANSION_DEPTH: usize = 128;
 
 #[derive(Clone)]
 struct Generator {
     parameters: Vec<String>,
     body: Expr,
+    span: Span,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Value {
     Syntax(Expr),
     Boolean(bool),
@@ -30,7 +35,8 @@ pub(crate) fn expand_with_generated(
     for expression in expressions {
         if let Expr::List(items) = &expression.expr {
             if is_operator(items.first(), "#generator") {
-                let generator = parse_generator(items)?;
+                let generator = parse_generator(items, expression.span)
+                    .map_err(|error| at_span(error, expression.span, "generator declaration"))?;
                 let name = symbol(items.get(1), "generator name")?.to_owned();
                 if generators.insert(name.clone(), generator).is_some() {
                     return Err(format!("duplicate generator declaration '{name}'"));
@@ -43,6 +49,11 @@ pub(crate) fn expand_with_generated(
 
     let mut output = Vec::new();
     let mut generated = Vec::new();
+    let mut seen_invocations = HashSet::new();
+    let mut budget = Budget {
+        evaluation_steps: MAX_EVALUATION_STEPS,
+        generated_nodes: 0,
+    };
     for expression in remaining {
         let is_user_invocation = match &expression.expr {
             Expr::List(items) if matches!(items.first(), Some(Expr::At)) => items
@@ -55,8 +66,29 @@ pub(crate) fn expand_with_generated(
             _ => false,
         };
         let mut active = Vec::new();
-        let expanded = expand_top(expression.expr, &generators, &mut active)?;
+        let expanded = expand_top(
+            expression.expr,
+            &generators,
+            &mut active,
+            &mut seen_invocations,
+            &mut budget,
+        )
+        .map_err(|error| at_span(error, expression.span, "generator expansion"))?;
         if is_user_invocation {
+            for form in &expanded {
+                budget.generated_nodes = budget
+                    .generated_nodes
+                    .saturating_add(expression_nodes(form));
+            }
+            if budget.generated_nodes > MAX_GENERATED_NODES {
+                return Err(at_span(
+                    format!(
+                        "generator output exceeds maximum of {MAX_GENERATED_NODES} syntax nodes"
+                    ),
+                    expression.span,
+                    "generator expansion",
+                ));
+            }
             generated.extend(expanded.iter().cloned());
         }
         output.extend(expanded.into_iter().map(|expr| SpannedExpr {
@@ -67,7 +99,7 @@ pub(crate) fn expand_with_generated(
     Ok((output, generated))
 }
 
-fn parse_generator(items: &[Expr]) -> Result<Generator, String> {
+fn parse_generator(items: &[Expr], span: Span) -> Result<Generator, String> {
     if items.len() != 4 {
         return Err("#generator requires a name, parameter list, and body".into());
     }
@@ -90,13 +122,21 @@ fn parse_generator(items: &[Expr]) -> Result<Generator, String> {
     Ok(Generator {
         parameters: names,
         body: items[3].clone(),
+        span,
     })
+}
+
+struct Budget {
+    evaluation_steps: usize,
+    generated_nodes: usize,
 }
 
 fn expand_top(
     expression: Expr,
     generators: &HashMap<String, Generator>,
     active: &mut Vec<String>,
+    seen_invocations: &mut HashSet<String>,
+    budget: &mut Budget,
 ) -> Result<Vec<Expr>, String> {
     let Expr::List(items) = &expression else {
         return Ok(vec![expression]);
@@ -128,6 +168,15 @@ fn expand_top(
             items.len() - 2
         ));
     }
+    if active.len() >= MAX_EXPANSION_DEPTH {
+        return Err(format!(
+            "generator expansion exceeds maximum depth of {MAX_EXPANSION_DEPTH}"
+        ));
+    }
+    let invocation_key = format!("{name}:{:?}", &items[2..]);
+    if !seen_invocations.insert(invocation_key) {
+        return Ok(Vec::new());
+    }
     let environment = generator
         .parameters
         .iter()
@@ -135,11 +184,14 @@ fn expand_top(
         .zip(items[2..].iter().cloned())
         .collect();
     active.push(name.clone());
-    let result = match evaluate(&generator.body, &environment) {
+    let result = match evaluate(&generator.body, &environment, budget) {
         Ok(result) => result,
         Err(error) => {
             active.pop();
-            return Err(error);
+            return Err(format!(
+                "@{name} defined at {}:{}: {error}",
+                generator.span.line, generator.span.column
+            ));
         }
     };
     let Value::Syntax(Expr::List(forms)) = result else {
@@ -148,7 +200,7 @@ fn expand_top(
     };
     let mut expanded = Vec::new();
     for form in forms {
-        match expand_top(form, generators, active) {
+        match expand_top(form, generators, active, seen_invocations, budget) {
             Ok(forms) => expanded.extend(forms),
             Err(error) => {
                 active.pop();
@@ -160,7 +212,17 @@ fn expand_top(
     Ok(expanded)
 }
 
-fn evaluate(expression: &Expr, environment: &Environment) -> Result<Value, String> {
+fn evaluate(
+    expression: &Expr,
+    environment: &Environment,
+    budget: &mut Budget,
+) -> Result<Value, String> {
+    if budget.evaluation_steps == 0 {
+        return Err(format!(
+            "generator evaluation exceeds maximum of {MAX_EVALUATION_STEPS} steps"
+        ));
+    }
+    budget.evaluation_steps -= 1;
     if let Expr::Symbol(name) = expression {
         return Ok(Value::Syntax(
             environment
@@ -179,21 +241,21 @@ fn evaluate(expression: &Expr, environment: &Environment) -> Result<Value, Strin
     match operator {
         "#gn-if" => {
             arity(operator, items, 4)?;
-            match evaluate(&items[1], environment)? {
-                Value::Boolean(true) => evaluate(&items[2], environment),
-                Value::Boolean(false) => evaluate(&items[3], environment),
+            match evaluate(&items[1], environment, budget)? {
+                Value::Boolean(true) => evaluate(&items[2], environment, budget),
+                Value::Boolean(false) => evaluate(&items[3], environment, budget),
                 Value::Syntax(_) => Err("#gn-if condition must be a #gn predicate".into()),
             }
         }
         "#gn-equal" => {
             arity(operator, items, 3)?;
-            let left = syntax(evaluate(&items[1], environment)?, operator)?;
-            let right = syntax(evaluate(&items[2], environment)?, operator)?;
+            let left = syntax(evaluate(&items[1], environment, budget)?, operator)?;
+            let right = syntax(evaluate(&items[2], environment, budget)?, operator)?;
             Ok(Value::Boolean(left == right))
         }
         "#gn-symbol?" | "#gn-list?" => {
             arity(operator, items, 2)?;
-            let value = syntax(evaluate(&items[1], environment)?, operator)?;
+            let value = syntax(evaluate(&items[1], environment, budget)?, operator)?;
             Ok(Value::Boolean(if operator == "#gn-symbol?" {
                 matches!(value, Expr::Symbol(_))
             } else {
@@ -202,7 +264,7 @@ fn evaluate(expression: &Expr, environment: &Environment) -> Result<Value, Strin
         }
         "#gn-symbol" => {
             arity(operator, items, 2)?;
-            let value = syntax(evaluate(&items[1], environment)?, operator)?;
+            let value = syntax(evaluate(&items[1], environment, budget)?, operator)?;
             let Expr::String(value) = value else {
                 return Err("#gn-symbol requires a string literal".into());
             };
@@ -211,13 +273,13 @@ fn evaluate(expression: &Expr, environment: &Environment) -> Result<Value, Strin
         "#gn-list" => {
             let mut values = Vec::with_capacity(items.len().saturating_sub(1));
             for item in &items[1..] {
-                values.push(syntax(evaluate(item, environment)?, operator)?);
+                values.push(syntax(evaluate(item, environment, budget)?, operator)?);
             }
             Ok(Value::Syntax(Expr::List(values)))
         }
         "#gn-first" | "#gn-rest" => {
             arity(operator, items, 2)?;
-            let value = syntax(evaluate(&items[1], environment)?, operator)?;
+            let value = syntax(evaluate(&items[1], environment, budget)?, operator)?;
             let Expr::List(values) = value else {
                 return Err(format!("{operator} requires list syntax"));
             };
@@ -236,7 +298,7 @@ fn evaluate(expression: &Expr, environment: &Environment) -> Result<Value, Strin
         "#gn-for-each" => {
             arity(operator, items, 4)?;
             let variable = symbol(items.get(1), "#gn-for-each binding")?.to_owned();
-            let list = syntax(evaluate(&items[2], environment)?, operator)?;
+            let list = syntax(evaluate(&items[2], environment, budget)?, operator)?;
             let Expr::List(values) = list else {
                 return Err("#gn-for-each requires a list of syntax values".into());
             };
@@ -244,7 +306,7 @@ fn evaluate(expression: &Expr, environment: &Environment) -> Result<Value, Strin
             for value in values {
                 let mut nested = environment.clone();
                 nested.insert(variable.clone(), value);
-                match evaluate(&items[3], &nested)? {
+                match evaluate(&items[3], &nested, budget)? {
                     Value::Syntax(syntax) => result.push(syntax),
                     Value::Boolean(_) => return Err("#gn-for-each body must produce syntax".into()),
                 }
@@ -253,12 +315,13 @@ fn evaluate(expression: &Expr, environment: &Environment) -> Result<Value, Strin
         }
         "#gn-error" => {
             arity(operator, items, 2)?;
-            let message = syntax(evaluate(&items[1], environment)?, operator)?;
+            let message = syntax(evaluate(&items[1], environment, budget)?, operator)?;
             match message {
                 Expr::String(message) => Err(format!("generator error: {message}")),
                 _ => Err("#gn-error requires a string literal message".into()),
             }
         }
+        _ if operator.starts_with("#gn-") => Err(format!("unknown generator builtin '{operator}'")),
         _ => Ok(Value::Syntax(expression.clone())),
     }
 }
@@ -287,4 +350,41 @@ fn symbol<'a>(expression: Option<&'a Expr>, context: &str) -> Result<&'a str, St
 
 fn is_operator(expression: Option<&Expr>, expected: &str) -> bool {
     matches!(expression, Some(Expr::Symbol(name)) if name == expected)
+}
+
+fn at_span(message: String, span: Span, context: &str) -> String {
+    format!("{}:{}: {context}: {message}", span.line, span.column)
+}
+
+fn expression_nodes(expression: &Expr) -> usize {
+    match expression {
+        Expr::List(items) => 1usize.saturating_add(items.iter().map(expression_nodes).sum()),
+        Expr::Quote(value) => 1usize.saturating_add(expression_nodes(value)),
+        Expr::Labeled { expression, .. } => 1usize.saturating_add(expression_nodes(expression)),
+        _ => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generator_evaluation_has_a_finite_step_budget() {
+        let expression = Expr::List(
+            std::iter::once(Expr::Symbol("#gn-list".into()))
+                .chain((0..=MAX_EVALUATION_STEPS).map(|_| Expr::Integer(0)))
+                .collect(),
+        );
+        let error = evaluate(
+            &expression,
+            &Environment::new(),
+            &mut Budget {
+                evaluation_steps: MAX_EVALUATION_STEPS,
+                generated_nodes: 0,
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("exceeds maximum"));
+    }
 }

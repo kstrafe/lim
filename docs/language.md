@@ -127,8 +127,19 @@ The initial generator builtins are `#gn-if`, `#gn-equal`, `#gn-symbol?`,
 `#gn-for-each`, and `#gn-error`. `#gn-for-each` is the only iteration
 construct; there are no general loops or mutable generator values. `#gn-error`
 fails expansion with the supplied message. Generators cannot perform IO or
-call runtime functions. Recursive expansion is rejected. Generated forms
-then go through normal parsing and type checking.
+call runtime functions. Recursive expansion is rejected. Repeating an
+invocation with the same generator name and structurally identical literal
+syntax arguments emits its output only once. Each compilation allows at most
+200,000 generator evaluation steps, 128 nested expansions, and 1,000,000
+generated syntax nodes; exceeding a limit is a compile-time error. Unknown
+`#gn-*` operations are reported as generator errors with invocation and
+definition locations.
+
+Generated identifiers are ordinary identifiers, not hygienic or gensym'd
+names. Pass intended declaration names as literal arguments; generated output
+then goes through the usual duplicate-name, parsing, type, and borrow checks.
+Generators should use distinct explicit names when different invocations are
+intended to declare distinct items.
 
 ## Imports
 
