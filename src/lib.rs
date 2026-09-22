@@ -1,7 +1,7 @@
 #![doc = include_str!("../docs/language.md")]
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     env, fmt, fs,
     path::{Path, PathBuf},
 };
@@ -1495,6 +1495,147 @@ fn load_imports_inner(
         result.extend(imported);
     }
     Ok(result)
+}
+
+/// Collect every cfg key referenced by a source file and all of its imports.
+/// Imports and cfg branches are scanned regardless of which branch is active.
+pub fn collect_cfg_keys_from_path(source_path: &Path) -> Result<Vec<String>, String> {
+    fn scan_file(
+        path: &Path,
+        visited: &mut HashSet<PathBuf>,
+        keys: &mut BTreeSet<String>,
+    ) -> Result<(), String> {
+        let path = fs::canonicalize(path)
+            .map_err(|error| format!("cannot resolve source '{}': {error}", path.display()))?;
+        if !visited.insert(path.clone()) {
+            return Ok(());
+        }
+        let source = fs::read_to_string(&path)
+            .map_err(|error| format!("cannot read source '{}': {error}", path.display()))?;
+        let expressions = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+        for expression in expressions {
+            scan_expr(&expression.expr, &path, visited, keys)?;
+        }
+        Ok(())
+    }
+
+    fn scan_expr(
+        expression: &Expr,
+        source_path: &Path,
+        visited: &mut HashSet<PathBuf>,
+        keys: &mut BTreeSet<String>,
+    ) -> Result<(), String> {
+        let Expr::List(items) = expression else {
+            match expression {
+                Expr::Block(statements) | Expr::Loop(statements) => {
+                    for statement in statements {
+                        scan_statement(statement, source_path, visited, keys)?;
+                    }
+                }
+                Expr::Labeled { expression, .. } | Expr::Quote(expression) => {
+                    scan_expr(expression, source_path, visited, keys)?;
+                }
+                _ => {}
+            }
+            return Ok(());
+        };
+        if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#cfg-is") {
+            if items.len() != 3 {
+                return Err(format!(
+                    "{}: #cfg-is requires a key and a value",
+                    source_path.display()
+                ));
+            }
+            let Some(Expr::Symbol(key)) = items.get(1) else {
+                return Err(format!(
+                    "{}: #cfg-is key must be a keyword such as #platform",
+                    source_path.display()
+                ));
+            };
+            keys.insert(format!("#{}", key.strip_prefix('#').unwrap_or(key)));
+        }
+        if let Some(specification) = import_form(expression)? {
+            let imported = source_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(specification.path);
+            scan_file(&imported, visited, keys)?;
+        }
+        for item in items {
+            scan_expr(item, source_path, visited, keys)?;
+        }
+        Ok(())
+    }
+
+    fn scan_statement(
+        statement: &Statement,
+        source_path: &Path,
+        visited: &mut HashSet<PathBuf>,
+        keys: &mut BTreeSet<String>,
+    ) -> Result<(), String> {
+        match statement {
+            Statement::Let { value, .. }
+            | Statement::Destructure { value, .. }
+            | Statement::Assign { value, .. }
+            | Statement::FieldAssign { value, .. }
+            | Statement::TupleAssign { value, .. }
+            | Statement::EnumPayloadAssign { value, .. }
+            | Statement::BreakValue(value)
+            | Statement::BreakToValue { value, .. }
+            | Statement::Return(Some(value))
+            | Statement::Expr(value) => scan_expr(value, source_path, visited, keys)?,
+            Statement::ArrayAssign { index, value, .. } => {
+                scan_expr(index, source_path, visited, keys)?;
+                scan_expr(value, source_path, visited, keys)?;
+            }
+            Statement::While { condition, body } => {
+                scan_expr(condition, source_path, visited, keys)?;
+                for statement in body {
+                    scan_statement(statement, source_path, visited, keys)?;
+                }
+            }
+            Statement::Loop { body } => {
+                for statement in body {
+                    scan_statement(statement, source_path, visited, keys)?;
+                }
+            }
+            Statement::For {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                scan_statement(init, source_path, visited, keys)?;
+                scan_expr(condition, source_path, visited, keys)?;
+                scan_statement(step, source_path, visited, keys)?;
+                for statement in body {
+                    scan_statement(statement, source_path, visited, keys)?;
+                }
+            }
+            Statement::Labeled { statement, .. } => {
+                scan_statement(statement, source_path, visited, keys)?
+            }
+            Statement::LetElse {
+                value, else_body, ..
+            } => {
+                scan_expr(value, source_path, visited, keys)?;
+                for statement in else_body {
+                    scan_statement(statement, source_path, visited, keys)?;
+                }
+            }
+            Statement::Break
+            | Statement::BreakTo(_)
+            | Statement::Continue
+            | Statement::ContinueTo(_)
+            | Statement::Return(None) => {}
+        }
+        Ok(())
+    }
+
+    let mut visited = HashSet::new();
+    let mut keys = BTreeSet::new();
+    scan_file(source_path, &mut visited, &mut keys)?;
+    Ok(keys.into_iter().collect())
 }
 
 struct ImportSpec<'a> {
@@ -3982,6 +4123,35 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains(".globl read_x2d_value"));
         assert!(assembly.contains(".globl ext_x2d_read_x2d_value"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn collects_cfg_keys_from_all_imports_and_inactive_branches() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-cfg-collect-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            directory.join("linux.lim"),
+            "(#cfg-if (#cfg-is #backend asm) (#fn from-linux () () (#return ())))",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.join("other.lim"),
+            "(#cfg-if (#cfg-is #feature fast) (#fn from-other () () (#return ())))",
+        )
+        .unwrap();
+        let root_path = directory.join("root.lim");
+        std::fs::write(
+            &root_path,
+            "(#cfg-if (#cfg-is #platform linux) (#import \"linux.lim\") (#cfg-else (#import \"other.lim\"))) (#cfg-if (#cfg-not (#cfg-is #debug enabled)) (#fn root () () (#return ())))",
+        )
+        .unwrap();
+
+        assert_eq!(
+            collect_cfg_keys_from_path(&root_path).unwrap(),
+            vec!["#backend", "#debug", "#feature", "#platform"]
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 

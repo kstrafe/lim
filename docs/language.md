@@ -215,6 +215,15 @@ name checks, and type checking are processed.
 Pass `--cfg` repeatedly to set several keys. It works in both binary and
 assembly-output modes; a key supplied more than once uses its last value.
 
+Use `--collect-cfgs INPUT` to print the sorted, unique cfg keys referenced by
+the source and its imports. Collection scans every cfg branch, including
+inactive branches, and follows imports found inside those branches:
+
+```sh
+nix develop --command cargo run -- --collect-cfgs examples/cfg_platform.lim
+# prints: #platform
+```
+
 ## User-defined generators
 
 Generators are compile-time syntax functions. Their parameters receive the

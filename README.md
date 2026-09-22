@@ -54,6 +54,7 @@ Choose an output path explicitly or emit assembly for inspection with:
 nix develop --command cargo run -- examples/fibonacci.lim -o /tmp/fibonacci
 nix develop --command cargo run -- --emit-asm examples/fibonacci.lim /tmp/fibonacci.s
 nix develop --command cargo run -- examples/cfg_platform.lim --cfg platform=linux
+nix develop --command cargo run -- --collect-cfgs examples/cfg_platform.lim
 ```
 
 Run the complete native example sweep inside the development shell:

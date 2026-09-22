@@ -7,8 +7,26 @@ use std::{
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--cfg KEY=VALUE]...\n       lim --emit-asm INPUT OUTPUT [--cfg KEY=VALUE]...\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--cfg KEY=VALUE]...\n       lim --emit-asm INPUT OUTPUT [--cfg KEY=VALUE]...\n       lim --collect-cfgs INPUT\n\nCompiles Lim source to a native binary by default.");
         return ExitCode::SUCCESS;
+    }
+    if arguments.first().map(String::as_str) == Some("--collect-cfgs") {
+        if arguments.len() != 2 {
+            eprintln!("usage: lim --collect-cfgs INPUT");
+            return ExitCode::FAILURE;
+        }
+        return match lim::collect_cfg_keys_from_path(Path::new(&arguments[1])) {
+            Ok(keys) => {
+                for key in keys {
+                    println!("{key}");
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("lim: {error}");
+                ExitCode::FAILURE
+            }
+        };
     }
     if arguments.first().map(String::as_str) == Some("--emit-asm") {
         let (Some(input_path), Some(output_path)) = (arguments.get(1), arguments.get(2)) else {
@@ -43,6 +61,7 @@ fn main() -> ExitCode {
             eprintln!("usage: lim INPUT [-o OUTPUT]  (default output: INPUT without extension)");
             eprintln!("       lim INPUT --cfg KEY=VALUE ...");
             eprintln!("       lim --emit-asm INPUT OUTPUT [--cfg KEY=VALUE ...]");
+            eprintln!("       lim --collect-cfgs INPUT");
             return ExitCode::FAILURE;
         }
     };
