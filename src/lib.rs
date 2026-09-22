@@ -681,6 +681,29 @@ pub struct Program {
     pub items: Vec<Item>,
 }
 
+/// Compile-time key/value settings used by `#cfg-*` forms.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompileConfig {
+    values: HashMap<String, String>,
+}
+
+impl Default for CompileConfig {
+    fn default() -> Self {
+        let platform = env::consts::OS;
+        Self {
+            values: HashMap::from([("platform".into(), platform.into())]),
+        }
+    }
+}
+
+impl CompileConfig {
+    /// Set or override a configuration key, such as `feature=sorting` or
+    /// `platform=linux`.
+    pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        self.values.insert(key.into(), value.into());
+    }
+}
+
 /// Parse a Lim program into the typed declaration AST.
 ///
 /// Lim has one program syntax: builtin forms and operators use their `#`
@@ -690,18 +713,39 @@ pub struct Program {
 pub fn parse_program(source: &str) -> Result<Program, String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
-    parse_program_in_directory(source, &base)
+    parse_program_in_directory(source, &base, &CompileConfig::default())
+}
+
+/// Parse a Lim program using explicit compile-time configuration values.
+pub fn parse_program_with_config(source: &str, config: &CompileConfig) -> Result<Program, String> {
+    let base =
+        env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
+    parse_program_in_directory(source, &base, config)
 }
 
 /// Parse a Lim program while resolving file imports relative to `source_path`.
 pub fn parse_program_from_path(source: &str, source_path: &Path) -> Result<Program, String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    parse_program_in_directory(source, base)
+    parse_program_in_directory(source, base, &CompileConfig::default())
 }
 
-fn parse_program_in_directory(source: &str, base: &Path) -> Result<Program, String> {
-    let loaded = load_imports(source, base)?;
-    let expressions = generator::expand(loaded)?;
+/// Parse a Lim program while resolving imports and evaluating cfg forms using `config`.
+pub fn parse_program_from_path_with_config(
+    source: &str,
+    source_path: &Path,
+    config: &CompileConfig,
+) -> Result<Program, String> {
+    let base = source_path.parent().unwrap_or_else(|| Path::new("."));
+    parse_program_in_directory(source, base, config)
+}
+
+fn parse_program_in_directory(
+    source: &str,
+    base: &Path,
+    config: &CompileConfig,
+) -> Result<Program, String> {
+    let loaded = load_imports(source, base, config)?;
+    let expressions = expand_cfg_forms(generator::expand(loaded)?, config)?;
     let mut items = Vec::with_capacity(expressions.len());
     for expression in expressions {
         validate_prefixed_forms(&expression.expr)?;
@@ -1181,6 +1225,12 @@ fn is_builtin_form(name: &str) -> bool {
             | "generator"
             | "import"
             | "import-external"
+            | "cfg-if"
+            | "cfg-else"
+            | "cfg-and"
+            | "cfg-or"
+            | "cfg-is"
+            | "cfg-not"
             | "gn-if"
             | "gn-equal"
             | "gn-symbol?"
@@ -1256,10 +1306,114 @@ fn normalize_keywords(expression: Expr) -> Expr {
     }
 }
 
-fn load_imports(source: &str, base: &Path) -> Result<Vec<SpannedExpr>, String> {
+fn load_imports(
+    source: &str,
+    base: &Path,
+    config: &CompileConfig,
+) -> Result<Vec<SpannedExpr>, String> {
     let mut active = Vec::new();
     let mut loaded = HashSet::new();
-    load_imports_inner(source, base, &mut active, &mut loaded)
+    load_imports_inner(source, base, &mut active, &mut loaded, config)
+}
+
+fn cfg_value(expression: &Expr) -> Result<String, String> {
+    match expression {
+        Expr::Symbol(value) => Ok(value.strip_prefix('#').unwrap_or(value).to_owned()),
+        Expr::String(value) => Ok(value.clone()),
+        Expr::Integer(value) => Ok(value.to_string()),
+        Expr::UnsignedInteger(value) => Ok(value.to_string()),
+        _ => Err("cfg values must be symbols, strings, or integer literals".into()),
+    }
+}
+
+fn eval_cfg(expression: &Expr, config: &CompileConfig) -> Result<bool, String> {
+    let Expr::List(items) = expression else {
+        return Err("cfg condition must be a (#cfg-...) form".into());
+    };
+    let Some(Expr::Symbol(operator)) = items.first() else {
+        return Err("cfg condition must start with a #cfg-* operator".into());
+    };
+    match operator.as_str() {
+        "#cfg-is" if items.len() == 3 => {
+            let Expr::Symbol(key) = &items[1] else {
+                return Err("#cfg-is key must be a keyword such as #platform".into());
+            };
+            let key = key.strip_prefix('#').unwrap_or(key);
+            let actual = config
+                .values
+                .get(key)
+                .ok_or_else(|| format!("unknown cfg key '#{key}'"))?;
+            Ok(actual == &cfg_value(&items[2])?)
+        }
+        "#cfg-and" if items.len() >= 2 => items[1..]
+            .iter()
+            .try_fold(true, |result, item| Ok(result && eval_cfg(item, config)?)),
+        "#cfg-or" if items.len() >= 2 => items[1..]
+            .iter()
+            .try_fold(false, |result, item| Ok(result || eval_cfg(item, config)?)),
+        "#cfg-not" if items.len() == 2 => Ok(!eval_cfg(&items[1], config)?),
+        "#cfg-is" => Err("#cfg-is requires a key and a value".into()),
+        "#cfg-and" | "#cfg-or" => Err(format!("{operator} requires at least one condition")),
+        "#cfg-not" => Err("#cfg-not requires exactly one condition".into()),
+        _ => Err(format!("unsupported cfg condition '{operator}'")),
+    }
+}
+
+fn expand_cfg_forms(
+    forms: Vec<SpannedExpr>,
+    config: &CompileConfig,
+) -> Result<Vec<SpannedExpr>, String> {
+    let mut expanded = Vec::new();
+    for form in forms {
+        let Expr::List(items) = &form.expr else {
+            expanded.push(form);
+            continue;
+        };
+        if !matches!(items.first(), Some(Expr::Symbol(name)) if name == "#cfg-if") {
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#cfg-else") {
+                return Err("#cfg-else is only valid as the final branch of #cfg-if".into());
+            }
+            expanded.push(form);
+            continue;
+        }
+        if items.len() < 3 {
+            return Err("#cfg-if requires a condition and at least one form".into());
+        }
+        let condition = eval_cfg(&items[1], config)?;
+        let mut else_forms = None;
+        let mut then_forms = Vec::new();
+        for branch in &items[2..] {
+            if let Expr::List(branch_items) = branch {
+                if matches!(branch_items.first(), Some(Expr::Symbol(name)) if name == "#cfg-else") {
+                    if else_forms.is_some() || branch_items.len() < 2 {
+                        return Err(
+                            "#cfg-else must occur once and contain at least one form".into()
+                        );
+                    }
+                    else_forms = Some(branch_items[1..].to_vec());
+                    continue;
+                }
+            }
+            if else_forms.is_some() {
+                return Err("#cfg-else must be the final #cfg-if branch".into());
+            }
+            then_forms.push(branch.clone());
+        }
+        let selected = if condition {
+            then_forms
+        } else {
+            else_forms.unwrap_or_default()
+        };
+        let selected = selected
+            .into_iter()
+            .map(|expr| SpannedExpr {
+                expr,
+                span: form.span,
+            })
+            .collect();
+        expanded.extend(expand_cfg_forms(selected, config)?);
+    }
+    Ok(expanded)
 }
 
 fn load_imports_inner(
@@ -1267,8 +1421,10 @@ fn load_imports_inner(
     base: &Path,
     active: &mut Vec<PathBuf>,
     loaded: &mut HashSet<String>,
+    config: &CompileConfig,
 ) -> Result<Vec<SpannedExpr>, String> {
     let expressions = parse(source).map_err(|error| format!("{}: {error}", base.display()))?;
+    let expressions = expand_cfg_forms(expressions, config)?;
     let mut result = Vec::new();
     for expression in expressions {
         let Some(specification) = import_form(&expression.expr)? else {
@@ -1314,6 +1470,7 @@ fn load_imports_inner(
             path.parent().unwrap_or_else(|| Path::new(".")),
             active,
             loaded,
+            config,
         )?;
         active.pop();
         if let Some(prefix) = specification.prefix {
@@ -1474,7 +1631,7 @@ fn is_unprefixed_builtin_name(name: &str) -> bool {
 pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
-    write_generated_sources_in_directory(source, &base, directory)
+    write_generated_sources_in_directory(source, &base, directory, &CompileConfig::default())
 }
 
 /// Materialize generated source while resolving imports relative to `source_path`.
@@ -1484,16 +1641,29 @@ pub fn write_generated_sources_from_path(
     directory: &Path,
 ) -> Result<(), String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    write_generated_sources_in_directory(source, base, directory)
+    write_generated_sources_in_directory(source, base, directory, &CompileConfig::default())
+}
+
+/// Materialize generated source using the same cfg values as compilation.
+pub fn write_generated_sources_from_path_with_config(
+    source: &str,
+    source_path: &Path,
+    directory: &Path,
+    config: &CompileConfig,
+) -> Result<(), String> {
+    let base = source_path.parent().unwrap_or_else(|| Path::new("."));
+    write_generated_sources_in_directory(source, base, directory, config)
 }
 
 fn write_generated_sources_in_directory(
     source: &str,
     base: &Path,
     directory: &Path,
+    config: &CompileConfig,
 ) -> Result<(), String> {
-    let expressions = load_imports(source, base)?;
+    let expressions = load_imports(source, base, config)?;
     let (expanded, user_generated) = generator::expand_with_generated(expressions.clone())?;
+    let expanded = expand_cfg_forms(expanded, config)?;
     let mut generated = Vec::new();
     for expression in expanded {
         let Expr::List(forms) = expression.expr else {
@@ -3718,6 +3888,32 @@ mod tests {
             lex("(#&& true false)").unwrap()[1].kind,
             TokenKind::Symbol("#&&".into())
         );
+    }
+
+    #[test]
+    fn compile_time_cfg_selects_only_the_active_forms() {
+        let source = "(#cfg-if (#cfg-and (#cfg-is #platform test-os) (#cfg-not (#cfg-is #feature slow))) (#fn main () u64 (#return 42u64)) (#cfg-else (#fn main () u64 (#return missing-name))))";
+        let mut config = CompileConfig::default();
+        config.set("platform", "test-os");
+        config.set("feature", "fast");
+        let program = parse_program_with_config(source, &config).unwrap();
+        assert_eq!(program.items.len(), 1);
+        assert!(check_types(&program).is_ok());
+
+        config.set("feature", "slow");
+        let program = parse_program_with_config(source, &config).unwrap();
+        assert!(check_types(&program).is_err());
+    }
+
+    #[test]
+    fn compile_time_cfg_reports_unknown_keys_and_malformed_predicates() {
+        let unknown =
+            parse_program("(#cfg-if (#cfg-is #missing yes) (#fn main () () (#return ())))")
+                .unwrap_err();
+        assert!(unknown.contains("unknown cfg key '#missing'"));
+        let malformed =
+            parse_program("(#cfg-if (#cfg-not true) (#fn main () () (#return ())))").unwrap_err();
+        assert!(malformed.contains("cfg condition must be a (#cfg-...) form"));
     }
 
     #[test]

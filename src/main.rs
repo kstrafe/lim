@@ -7,7 +7,7 @@ use std::{
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT]\n       lim --emit-asm INPUT OUTPUT\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--cfg KEY=VALUE]...\n       lim --emit-asm INPUT OUTPUT [--cfg KEY=VALUE]...\n\nCompiles Lim source to a native binary by default.");
         return ExitCode::SUCCESS;
     }
     if arguments.first().map(String::as_str) == Some("--emit-asm") {
@@ -15,28 +15,55 @@ fn main() -> ExitCode {
             eprintln!("usage: lim --emit-asm INPUT OUTPUT");
             return ExitCode::FAILURE;
         };
-        if arguments.len() != 3 {
-            eprintln!("usage: lim --emit-asm INPUT OUTPUT");
-            return ExitCode::FAILURE;
+        let mut config = lim::CompileConfig::default();
+        let mut index = 3;
+        while index < arguments.len() {
+            if arguments[index] != "--cfg" {
+                eprintln!("lim: expected --cfg KEY=VALUE after assembly output path");
+                return ExitCode::FAILURE;
+            }
+            index += 1;
+            let Some(value) = arguments.get(index) else {
+                eprintln!("lim: --cfg requires KEY=VALUE");
+                return ExitCode::FAILURE;
+            };
+            if let Err(error) = apply_cfg_argument(&mut config, value) {
+                eprintln!("lim: {error}");
+                return ExitCode::FAILURE;
+            }
+            index += 1;
         }
-        return compile(input_path, Path::new(output_path), true);
+        return compile(input_path, Path::new(output_path), true, &config);
     }
 
-    let (input_path, output_path) = match binary_arguments(&arguments) {
+    let (input_path, output_path, config) = match binary_arguments(&arguments) {
         Ok(arguments) => arguments,
         Err(error) => {
             eprintln!("lim: {error}");
             eprintln!("usage: lim INPUT [-o OUTPUT]  (default output: INPUT without extension)");
-            eprintln!("       lim --emit-asm INPUT OUTPUT");
+            eprintln!("       lim INPUT --cfg KEY=VALUE ...");
+            eprintln!("       lim --emit-asm INPUT OUTPUT [--cfg KEY=VALUE ...]");
             return ExitCode::FAILURE;
         }
     };
-    compile(&input_path, &output_path, false)
+    compile(&input_path, &output_path, false, &config)
 }
 
-fn binary_arguments(arguments: &[String]) -> Result<(String, PathBuf), String> {
+fn apply_cfg_argument(config: &mut lim::CompileConfig, value: &str) -> Result<(), String> {
+    let (key, value) = value
+        .split_once('=')
+        .ok_or_else(|| "cfg values must have the form KEY=VALUE".to_owned())?;
+    if key.is_empty() || value.is_empty() {
+        return Err("cfg keys and values must not be empty".into());
+    }
+    config.set(key, value);
+    Ok(())
+}
+
+fn binary_arguments(arguments: &[String]) -> Result<(String, PathBuf, lim::CompileConfig), String> {
     let mut input = None;
     let mut output = None;
+    let mut config = lim::CompileConfig::default();
     let mut index = 0;
     while index < arguments.len() {
         match arguments[index].as_str() {
@@ -46,6 +73,13 @@ fn binary_arguments(arguments: &[String]) -> Result<(String, PathBuf), String> {
                     .get(index)
                     .ok_or_else(|| "-o requires an output path".to_owned())?;
                 output = Some(PathBuf::from(path));
+            }
+            "--cfg" => {
+                index += 1;
+                let value = arguments
+                    .get(index)
+                    .ok_or_else(|| "--cfg requires KEY=VALUE".to_owned())?;
+                apply_cfg_argument(&mut config, value)?;
             }
             "-h" | "--help" => return Err("help must be requested as the first argument".into()),
             value if value.starts_with('-') => {
@@ -71,10 +105,15 @@ fn binary_arguments(arguments: &[String]) -> Result<(String, PathBuf), String> {
         result.push(stem);
         result
     });
-    Ok((input, output))
+    Ok((input, output, config))
 }
 
-fn compile(input_path: &str, output_path: &Path, emit_assembly: bool) -> ExitCode {
+fn compile(
+    input_path: &str,
+    output_path: &Path,
+    emit_assembly: bool,
+    config: &lim::CompileConfig,
+) -> ExitCode {
     let input = match fs::read_to_string(input_path) {
         Ok(source) => source,
         Err(error) => {
@@ -87,13 +126,16 @@ fn compile(input_path: &str, output_path: &Path, emit_assembly: bool) -> ExitCod
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join(".lim");
-    if let Err(error) =
-        lim::write_generated_sources_from_path(&input, input_file, &generated_directory)
-    {
+    if let Err(error) = lim::write_generated_sources_from_path_with_config(
+        &input,
+        input_file,
+        &generated_directory,
+        config,
+    ) {
         eprintln!("lim: {error}");
         return ExitCode::FAILURE;
     }
-    let program = match lim::parse_program_from_path(&input, input_file) {
+    let program = match lim::parse_program_from_path_with_config(&input, input_file, config) {
         Ok(program) => program,
         Err(error) => {
             eprintln!("lim: {error}");

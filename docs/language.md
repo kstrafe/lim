@@ -191,6 +191,30 @@ echo $? # 55 for the Fibonacci example
 Generated `@` declarations are materialized under `.lim/` beside the input
 source in either mode.
 
+## Compile-time configuration
+
+`#cfg-if` includes only the selected top-level forms. Its condition is built
+from `#cfg-is`, `#cfg-not`, `#cfg-and`, and `#cfg-or`; branches contain forms
+directly, with an optional final `#cfg-else` branch:
+
+```lisp
+(#cfg-if (#cfg-and (#cfg-is #platform linux) (#cfg-is #feature fast))
+  (#fn selected () u64 (#return 1u64))
+  (#cfg-else
+    (#fn selected () u64 (#return 0u64))))
+```
+
+`#platform` is populated automatically from the compiler host OS (`linux`,
+`macos`, or `windows`, where applicable). Other keys must be passed with
+`--cfg KEY=VALUE`; for example, `--cfg feature=fast`. Command-line settings
+override automatic values, so `--cfg platform=...` can select another
+platform-specific declaration set. Configured values are literal symbols or
+strings in `#cfg-is`. Excluded forms are removed before imports, generators,
+name checks, and type checking are processed.
+
+Pass `--cfg` repeatedly to set several keys. It works in both binary and
+assembly-output modes; a key supplied more than once uses its last value.
+
 ## User-defined generators
 
 Generators are compile-time syntax functions. Their parameters receive the
