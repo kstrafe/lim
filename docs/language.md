@@ -20,6 +20,7 @@ Lim currently provides:
 - native x86-64 code generation using the System V ABI;
 - compile-time constants and read-only statics;
 - source-level generated declarations such as `@optional` and `@result`;
+- pure user-defined syntax generators with a restricted `#gn-*` operation set;
 - no recursion, allowing the compiler to calculate a finite call depth.
 
 Slices, traits, methods, closures, and other source-level indirection
@@ -102,6 +103,32 @@ echo $? # 55 for the Fibonacci example
 
 `--emit-asm` takes `INPUT OUTPUT`. Generated `@` declarations are
 materialized under `.lim/` beside the input source.
+
+## User-defined generators
+
+Generators are compile-time syntax functions. Their parameters receive the
+invocation arguments literally; generator values are immutable syntax nodes:
+symbols, literals, or lists. A generator returns a list of top-level forms,
+which are expanded before ordinary Lim parsing and type checking.
+
+```lisp
+(#generator aliases (pairs)
+  (#gn-for-each pair pairs
+    (#gn-list
+      (#gn-symbol "#type")
+      (#gn-first pair)
+      (#gn-first (#gn-rest pair)))))
+
+(@aliases ((Byte u8) (Word u16)))
+```
+
+The initial generator builtins are `#gn-if`, `#gn-equal`, `#gn-symbol?`,
+`#gn-list?`, `#gn-symbol`, `#gn-list`, `#gn-first`, `#gn-rest`,
+`#gn-for-each`, and `#gn-error`. `#gn-for-each` is the only iteration
+construct; there are no general loops or mutable generator values. `#gn-error`
+fails expansion with the supplied message. Generators cannot perform IO or
+call runtime functions. Recursive expansion is rejected. Generated forms
+then go through normal parsing and type checking.
 
 ## Lexical syntax
 

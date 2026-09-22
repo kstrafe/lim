@@ -8,6 +8,7 @@ use std::{
 
 mod borrowcheck;
 mod codegen;
+mod generator;
 mod typecheck;
 mod unsafecheck;
 
@@ -665,7 +666,7 @@ pub struct Program {
 /// The lower-level [`parse`] function remains available for raw S-expressions
 /// that have not acquired a language-level meaning yet.
 pub fn parse_program(source: &str) -> Result<Program, String> {
-    let expressions = parse(source)?;
+    let expressions = generator::expand(parse(source)?)?;
     let mut items = Vec::with_capacity(expressions.len());
     for expression in expressions {
         validate_prefixed_forms(&expression.expr)?;
@@ -1137,6 +1138,17 @@ fn is_builtin_form(name: &str) -> bool {
             | "ptr-write"
             | "ptr"
             | "ptr-mut"
+            | "generator"
+            | "gn-if"
+            | "gn-equal"
+            | "gn-symbol?"
+            | "gn-list?"
+            | "gn-list"
+            | "gn-symbol"
+            | "gn-first"
+            | "gn-rest"
+            | "gn-for-each"
+            | "gn-error"
     )
 }
 
@@ -1208,6 +1220,7 @@ fn normalize_keywords(expression: Expr) -> Expr {
 /// builds an inspectable cache of generated Lim source under .lim/.
 pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), String> {
     let expressions = parse(source)?;
+    let (_, user_generated) = generator::expand_with_generated(expressions.clone())?;
     let mut generated = Vec::new();
     for expression in expressions {
         let Expr::List(forms) = expression.expr else {
@@ -1217,6 +1230,9 @@ pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), Str
             continue;
         }
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
+        if !matches!(kind, "optional" | "result") {
+            continue;
+        }
         let item = parse_generated_item(&forms)?;
         let Item::Enum { name, variants, .. } = item else {
             continue;
@@ -1249,7 +1265,7 @@ pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), Str
             ));
         }
     }
-    if generated.is_empty() {
+    if generated.is_empty() && user_generated.is_empty() {
         return Ok(());
     }
     fs::create_dir_all(directory)
@@ -1264,7 +1280,37 @@ pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), Str
         fs::write(path, source)
             .map_err(|error| format!("cannot write generated source: {error}"))?;
     }
+    for (index, expression) in user_generated.iter().enumerate() {
+        let source = expression_source(expression)?;
+        let path = directory.join(format!("generator-{index}.lim"));
+        fs::write(path, format!("{source}\n"))
+            .map_err(|error| format!("cannot write generated source: {error}"))?;
+    }
     Ok(())
+}
+
+fn expression_source(expression: &Expr) -> Result<String, String> {
+    match expression {
+        Expr::List(items) => Ok(format!(
+            "({})",
+            items
+                .iter()
+                .map(expression_source)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(" ")
+        )),
+        Expr::Symbol(name) => Ok(name.clone()),
+        Expr::Integer(value) => Ok(value.to_string()),
+        Expr::UnsignedInteger(value) => Ok(value.to_string()),
+        Expr::Float(value) => Ok(value.clone()),
+        Expr::Char(value) => Ok(format!("#\\{value}")),
+        Expr::String(value) => Ok(format!("{value:?}")),
+        Expr::At => Ok("@".into()),
+        Expr::Quote(value) => Ok(format!("'{}", expression_source(value)?)),
+        Expr::Block(_) | Expr::Loop(_) | Expr::Labeled { .. } => {
+            Err("cannot serialize this generated syntax form yet".into())
+        }
+    }
 }
 
 fn type_source(ty: &Type) -> String {
@@ -3319,6 +3365,34 @@ mod tests {
             lex("(#&& true false)").unwrap()[1].kind,
             TokenKind::Symbol("#&&".into())
         );
+    }
+
+    #[test]
+    fn expands_pure_user_generators_over_literal_syntax() {
+        let program = parse_program(
+            "(#generator aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte u8) (Word u16))) (#fn main () u64 (#return 42))",
+        )
+        .unwrap();
+        assert!(program
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::TypeAlias { name, .. } if name == "Byte")));
+        assert!(program
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::TypeAlias { name, .. } if name == "Word")));
+        assert!(check_types(&program).is_ok());
+    }
+
+    #[test]
+    fn generator_errors_and_recursion_are_reported() {
+        let error = parse_program("(#generator fail () (#gn-error \"unsupported input\")) (@fail)")
+            .unwrap_err();
+        assert!(error.contains("generator error: unsupported input"));
+
+        let recursive =
+            parse_program("(#generator repeat () (#gn-list (@repeat))) (@repeat)").unwrap_err();
+        assert!(recursive.contains("recursive generator expansion is not allowed"));
     }
 
     #[test]

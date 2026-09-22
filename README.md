@@ -73,6 +73,14 @@ enum and generated `-construct`, `-is-some`, and `-unwrap-or` helpers:
 The assembly CLI materializes each generated declaration as inspectable Lim
 source under a `.lim/` directory beside the input file.
 
+User generators are declared with `#generator`. Their arguments are literal
+syntax (symbols, literals, or lists), and their immutable `#gn-*` operations
+inspect/build syntax. For example, `#gn-for-each` maps over a syntax list;
+`#gn-error` reports an expansion error. Generator expansion is pure, has no
+general loops, and rejects recursive expansion. See
+`examples/custom_generator.lim` and the generator section in the language
+reference for the supported operations.
+
 ```lisp
 (@optional u64 Maybe?)
 (#fn identity ((value Maybe?)) Maybe?

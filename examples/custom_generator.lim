@@ -1,0 +1,12 @@
+(#generator aliases (pairs)
+  (#gn-for-each pair pairs
+    (#gn-list
+      (#gn-symbol "#type")
+      (#gn-first pair)
+      (#gn-first (#gn-rest pair)))))
+
+(@aliases ((Byte u8) (Word u16)))
+
+(#fn main () u64
+  (#let byte Byte 40)
+  (#return (#u64.+.wrap (#as byte u64) 2)))
