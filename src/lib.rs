@@ -1166,6 +1166,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "ref"
             | "ref-mut"
             | "deref"
+            | "deref-set"
             | "mut"
             | "unsafe"
             | "addr-of"
@@ -4175,6 +4176,86 @@ mod tests {
         assert!(check_types(&bad_deref)
             .unwrap_err()
             .contains("deref requires a reference"));
+    }
+
+    #[test]
+    fn writes_through_mutable_references_and_borrows_struct_fields() {
+        let write_through_reference = parse_program(
+            "(#fn main () u64 (#let-mut value u64 40) (#let reference (#ref-mut u64) (#borrow-mut value)) (#deref-set reference 42) (#return (#deref reference)))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&write_through_reference).is_ok(),
+            "{:?}",
+            check_types(&write_through_reference)
+        );
+        assert!(generate_assembly(&write_through_reference).is_ok());
+
+        let immutable_write = parse_program(
+            "(#fn main () () (#let value u64 40) (#let reference (#ref u64) (#borrow value)) (#deref-set reference 42) (#return ()))",
+        )
+        .unwrap();
+        assert!(check_types(&immutable_write)
+            .unwrap_err()
+            .contains("deref-set requires a mutable reference"));
+
+        let owner_write_while_mutably_borrowed = parse_program(
+            "(#fn main () () (#let-mut value u64 40) (#let reference (#ref-mut u64) (#borrow-mut value)) (#set value 42) (#return ()))",
+        )
+        .unwrap();
+        assert!(check_types(&owner_write_while_mutably_borrowed)
+            .unwrap_err()
+            .contains("while it is mutably borrowed"));
+
+        let derived_field = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#deref-set x-ref 42) (#return (#deref x-ref)))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&derived_field).is_ok(),
+            "{:?}",
+            check_types(&derived_field)
+        );
+        assert!(generate_assembly(&derived_field).is_ok());
+
+        let suspended_parent = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#return (#get point-ref y)))",
+        )
+        .unwrap();
+        assert!(check_types(&suspended_parent)
+            .unwrap_err()
+            .contains("derived field reference is active"));
+
+        let original_owner_suspended = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#return (#get point y)))",
+        )
+        .unwrap();
+        assert!(check_types(&original_owner_suspended)
+            .unwrap_err()
+            .contains("while it is mutably borrowed"));
+
+        let immutable_derived_field = parse_program(
+            "(#struct Point ((x u64))) (#fn main () () (#let point Point (Point 1)) (#let point-ref (#ref Point) (#borrow point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#return ()))",
+        )
+        .unwrap();
+        assert!(check_types(&immutable_derived_field)
+            .unwrap_err()
+            .contains("cannot mutably borrow through an immutable reference"));
+
+        let returned_field_reference = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn point-x ((point (#ref Point))) (#ref u64) (#return (#borrow (#get point x)))) (#fn main () u64 (#let-mut point Point (Point 40 2)) (#return (#deref (point-x (#borrow point)))))",
+        )
+        .unwrap();
+        assert!(check_types(&returned_field_reference).is_ok());
+        assert!(generate_assembly(&returned_field_reference).is_ok());
+
+        let escaping_field_reference = parse_program(
+            "(#struct Point ((x u64))) (#fn bad () (#ref u64) (#let-mut point Point (Point 42)) (#let point-ref (#ref Point) (#borrow point)) (#return (#borrow (#get point-ref x))))",
+        )
+        .unwrap();
+        assert!(check_types(&escaping_field_reference)
+            .unwrap_err()
+            .contains("cannot return a reference to local variable 'point'"));
     }
 
     #[test]

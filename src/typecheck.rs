@@ -2387,36 +2387,91 @@ fn list_expression(
         }
         "borrow" | "borrow-mut" => {
             if items.len() == 2 {
-                let owner = match &items[1] {
-                    Expr::Symbol(name) => name,
-                    _ => return Err(format!("{operator} requires a variable name")),
+                let (target, base_mutable) = match &items[1] {
+                    Expr::Symbol(name) => {
+                        let owner_type = variables.get(name).ok_or_else(|| {
+                            format!("{operator} refers to unknown variable '{name}'")
+                        })?;
+                        if matches!(owner_type, Type::Reference { .. }) {
+                            return Err(format!(
+                                "{operator} cannot borrow a reference variable directly; borrow one of its fields"
+                            ));
+                        }
+                        (owner_type.clone(), mutable.contains(name))
+                    }
+                    Expr::List(place)
+                        if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get")
+                            && place.len() == 3 =>
+                    {
+                        if !matches!(place.get(1), Some(Expr::Symbol(_))) {
+                            return Err(format!(
+                                "{operator} field borrowing requires a named reference"
+                            ));
+                        }
+                        let base_type = expression(
+                            &place[1], variables, functions, structs, enums, mutable, aliases, None,
+                        )?;
+                        let Type::Reference {
+                            mutable: reference_mutable,
+                            target,
+                        } = base_type
+                        else {
+                            return Err(format!(
+                                "{operator} field borrowing requires a reference to a struct"
+                            ));
+                        };
+                        if !matches!(*target, Type::Named(ref name) if structs.contains_key(name)) {
+                            return Err(format!(
+                                "{operator} field borrowing requires a reference to a struct"
+                            ));
+                        }
+                        let field_type = expression(
+                            &items[1], variables, functions, structs, enums, mutable, aliases, None,
+                        )?;
+                        (field_type, reference_mutable)
+                    }
+                    _ => {
+                        return Err(format!(
+                            "{operator} requires a variable or a struct field through a reference"
+                        ))
+                    }
                 };
-                let owner_type = variables
-                    .get(owner)
-                    .ok_or_else(|| format!("{operator} refers to unknown variable '{owner}'"))?;
-                if matches!(owner_type, Type::Reference { .. }) {
-                    return Err(format!("{operator} cannot borrow a reference variable"));
+                if operator == "borrow-mut" && !base_mutable {
+                    return Err("cannot mutably borrow through an immutable reference".into());
                 }
-                if !is_reference_target(owner_type) {
-                    return Err(format!("{operator} currently supports scalar values only"));
+                if !is_reference_target(&target) {
+                    return Err(format!("{operator} cannot borrow a unit or never value"));
                 }
                 return Ok(Type::Reference {
                     mutable: operator == "borrow-mut",
-                    target: Box::new(owner_type.clone()),
+                    target: Box::new(target),
                 });
             }
             require_arity(operator, items, 3)?;
-            let owner = match &items[1] {
-                Expr::Symbol(name) => name,
-                _ => return Err(format!("{operator} requires a variable name")),
-            };
-            if !variables.contains_key(owner) {
-                return Err(format!("{operator} refers to unknown variable '{owner}'"));
-            }
-            if operator == "borrow-mut" && !mutable.contains(owner) {
-                return Err(format!(
-                    "cannot mutably borrow immutable variable '{owner}'"
-                ));
+            match &items[1] {
+                Expr::Symbol(owner) => {
+                    if !variables.contains_key(owner) {
+                        return Err(format!("{operator} refers to unknown variable '{owner}'"));
+                    }
+                    if operator == "borrow-mut" && !mutable.contains(owner) {
+                        return Err(format!(
+                            "cannot mutably borrow immutable variable '{owner}'"
+                        ));
+                    }
+                }
+                Expr::List(place)
+                    if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get")
+                        && place.len() == 3 =>
+                {
+                    return Err(format!(
+                        "{operator} field borrowing must produce a named reference using its two-argument form"
+                    ));
+                }
+                _ => {
+                    return Err(format!(
+                        "{operator} requires a variable or a struct field through a reference"
+                    ))
+                }
             }
             expression(
                 &items[2], variables, functions, structs, enums, mutable, aliases, expected,
@@ -2436,6 +2491,34 @@ fn list_expression(
                 ),
                 _ => Err("deref requires a reference".into()),
             }
+        }
+        "deref-set" => {
+            require_arity(operator, items, 3)?;
+            let reference_type = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let Type::Reference {
+                mutable: true,
+                target,
+            } = reference_type
+            else {
+                return Err("deref-set requires a mutable reference".into());
+            };
+            if !is_scalar_reference_target(&target, enums) {
+                return Err("deref-set currently supports scalar reference targets".into());
+            }
+            let actual = expression(
+                &items[2],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&target),
+            )?;
+            require_type(&actual, &target, "deref-set value")?;
+            Ok(Type::Unit)
         }
         "unsafe" => {
             require_arity(operator, items, 2)?;

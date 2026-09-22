@@ -1,0 +1,27 @@
+(#struct Point ((x u64) (y u64)))
+(#struct CellState ((prefix u64) (counter (#cell u64))))
+(#static Origin Point (Point 19 23))
+
+(#fn origin-y () u64
+  (#let origin-ref (#ref Point) (#borrow Origin))
+  (#let y-ref (#ref u64) (#borrow (#get origin-ref y)))
+  (#return (#deref y-ref)))
+
+(#fn point-y ((point (#ref Point))) u64
+  (#return (#get point y)))
+
+(#fn mutate-cell-through-reference () u64
+  (#let-mut state CellState (CellState 5 (#cell 1)))
+  (#let state-ref (#ref CellState) (#borrow state))
+  (#cell-set (#get state-ref counter) 42)
+  (#return (#cell-get (#get state-ref counter))))
+
+(#fn main () u64
+  (#let-mut point Point (Point 1 2))
+  (#let original-y u64 (point-y (#borrow point)))
+  (#let point-ref (#ref-mut Point) (#borrow-mut point))
+  (#let y-ref (#ref-mut u64) (#borrow-mut (#get point-ref y)))
+  (#deref-set y-ref 42)
+  (#return (#u64.+.wrap
+    (#u64.+.wrap (#u64.+.wrap (#deref y-ref) original-y) (origin-y))
+    (mutate-cell-through-reference))))

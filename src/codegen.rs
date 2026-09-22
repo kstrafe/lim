@@ -5582,6 +5582,7 @@ impl FunctionContext {
                     }
                 }
                 Some(Expr::Symbol(operator)) if operator == "cell-set" => Some(Type::Unit),
+                Some(Expr::Symbol(operator)) if operator == "deref-set" => Some(Type::Unit),
                 Some(Expr::Symbol(operator)) if operator == "get" && items.len() == 3 => {
                     let base = self.expression_type(&items[1])?;
                     let base = match base {
@@ -5614,18 +5615,21 @@ impl FunctionContext {
                 Some(Expr::Symbol(operator))
                     if matches!(operator.as_str(), "borrow" | "borrow-mut") && items.len() == 2 =>
                 {
-                    let owner = match items.get(1) {
-                        Some(Expr::Symbol(name)) => name,
+                    let target = match items.get(1)? {
+                        Expr::Symbol(name) => self
+                            .local_types
+                            .get(name)
+                            .cloned()
+                            .or_else(|| self.global_types.get(name).cloned())?,
+                        Expr::List(place) if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get") => {
+                            self.expression_type(&items[1])?
+                        }
                         _ => return None,
                     };
-                    self.local_types
-                        .get(owner)
-                        .cloned()
-                        .or_else(|| self.global_types.get(owner).cloned())
-                        .map(|target| Type::Reference {
-                            mutable: operator == "borrow-mut",
-                            target: Box::new(target),
-                        })
+                    Some(Type::Reference {
+                        mutable: operator == "borrow-mut",
+                        target: Box::new(target),
+                    })
                 }
                 Some(Expr::Symbol(operator)) if operator == "deref" && items.len() == 2 => {
                     match self.expression_type(&items[1])? {
@@ -7463,9 +7467,44 @@ impl FunctionContext {
     }
 
     fn borrow_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if let Some(Expr::List(place)) = items.get(1) {
+            if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get")
+                && place.len() == 3
+            {
+                let base_type = self
+                    .expression_type(&place[1])
+                    .ok_or_else(|| "cannot determine reference type for field borrow".to_owned())?;
+                let Type::Reference { target, .. } = base_type else {
+                    return Err("field borrow requires a reference to a struct".into());
+                };
+                let Type::Named(struct_name) = *target else {
+                    return Err("field borrow requires a reference to a struct".into());
+                };
+                let field_name = match &place[2] {
+                    Expr::Symbol(name) => name,
+                    _ => return Err("field borrow requires a named struct field".into()),
+                };
+                let fields = self
+                    .structs
+                    .get(&struct_name)
+                    .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+                let index = fields
+                    .iter()
+                    .position(|field| field.name == *field_name)
+                    .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))?;
+                let offset_words = fields[..index]
+                    .iter()
+                    .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
+                self.emit_reference_field_address(&place[1], offset_words, true)?;
+                return Ok(());
+            }
+        }
         let owner = match items.get(1) {
             Some(Expr::Symbol(name)) => name,
-            _ => return Err("borrow requires a variable name".into()),
+            _ => return Err("borrow requires a variable or struct field place".into()),
         };
         if self.locals.contains_key(owner) {
             let slot = local_slots(&self.locals, owner)?
@@ -7474,6 +7513,13 @@ impl FunctionContext {
                 .ok_or_else(|| format!("cannot borrow zero-sized variable '{owner}'"))?;
             self.output
                 .push_str(&format!("    lea rax, [rbp-{}]\n", slot * 8));
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut"))
+                && self.local_types.get(owner).is_some_and(
+                    |ty| matches!(ty, Type::Named(name) if self.structs.contains_key(name)),
+                )
+            {
+                self.output.push_str("    or rax, 1\n");
+            }
             return Ok(());
         }
         if self.globals.contains_key(owner) {
@@ -7482,6 +7528,37 @@ impl FunctionContext {
             return Ok(());
         }
         Err(format!("unknown variable '{owner}'"))
+    }
+
+    fn emit_reference_field_address(
+        &mut self,
+        reference: &Expr,
+        offset_words: usize,
+        preserve_layout_tag: bool,
+    ) -> Result<(), String> {
+        // Stack aggregates are laid out toward lower addresses; statics are laid
+        // out toward higher addresses. Struct references use the aligned pointer's
+        // low bit to carry that distinction across calls and reference storage.
+        self.expression(reference)?;
+        let offset = offset_words * 8;
+        if offset == 0 {
+            if !preserve_layout_tag {
+                self.output.push_str("    and rax, -2\n");
+            }
+            return Ok(());
+        }
+        let global_layout = self.label("reference_global_layout");
+        let done = self.label("reference_field_address_done");
+        self.output.push_str(&format!(
+            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n    sub rax, {offset}\n"
+        ));
+        if preserve_layout_tag {
+            self.output.push_str("    or rax, 1\n");
+        }
+        self.output.push_str(&format!(
+            "    jmp {done}\n{global_layout}:\n    add rax, {offset}\n{done}:\n"
+        ));
+        Ok(())
     }
 
     fn list_expression(&mut self, items: &[Expr]) -> Result<(), String> {
@@ -7601,12 +7678,50 @@ impl FunctionContext {
                     .ok_or_else(|| "deref requires a reference".to_owned())?;
                 self.expression(&items[1])?;
                 match target {
-                    Type::F32 => self.output.push_str("    movss xmm0, DWORD PTR [rax]\n"),
-                    Type::F64 => self.output.push_str("    movq xmm0, QWORD PTR [rax]\n"),
+                    Type::F32 => self.output.push_str(
+                        "    and rax, -2\n    movss xmm0, DWORD PTR [rax]\n",
+                    ),
+                    Type::F64 => self
+                        .output
+                        .push_str("    and rax, -2\n    movq xmm0, QWORD PTR [rax]\n"),
                     Type::I128 | Type::U128 => self
                         .output
-                        .push_str("    mov rdx, QWORD PTR [rax+8]\n    mov rax, QWORD PTR [rax]\n"),
-                    _ => self.output.push_str("    mov rax, QWORD PTR [rax]\n"),
+                        .push_str("    and rax, -2\n    mov rdx, QWORD PTR [rax+8]\n    mov rax, QWORD PTR [rax]\n"),
+                    _ => self
+                        .output
+                        .push_str("    and rax, -2\n    mov rax, QWORD PTR [rax]\n"),
+                }
+                Ok(())
+            }
+            "deref-set" => {
+                if items.len() != 3 {
+                    return Err("deref-set requires a mutable reference and value".into());
+                }
+                let target = self
+                    .expression_type(&items[1])
+                    .and_then(|ty| match ty {
+                        Type::Reference {
+                            mutable: true,
+                            target,
+                        } => Some(*target),
+                        _ => None,
+                    })
+                    .ok_or_else(|| "deref-set requires a mutable reference".to_owned())?;
+                self.expression(&items[1])?;
+                self.output.push_str("    and rax, -2\n");
+                self.output.push_str("    push rax\n");
+                self.stack_depth += 1;
+                if is_float_type(&target) {
+                    self.expression_as_float(&items[2], &target)?;
+                } else {
+                    self.expression(&items[2])?;
+                }
+                self.output.push_str("    pop rcx\n");
+                self.stack_depth -= 1;
+                match target {
+                    Type::F32 => self.output.push_str("    movd DWORD PTR [rcx], xmm0\n"),
+                    Type::F64 => self.output.push_str("    movq QWORD PTR [rcx], xmm0\n"),
+                    _ => self.output.push_str("    mov QWORD PTR [rcx], rax\n"),
                 }
                 Ok(())
             }
@@ -10207,11 +10322,7 @@ impl FunctionContext {
             if field_words > VALUE_REGISTERS.len() {
                 return Err("large fields projected through references are unsupported".into());
             }
-            self.expression(&items[1])?;
-            if offset_words != 0 {
-                self.output
-                    .push_str(&format!("    add rax, {}\n", offset_words * 8));
-            }
+            self.emit_reference_field_address(&items[1], offset_words, false)?;
             if field_words > 1 {
                 for (word, register) in VALUE_REGISTERS.iter().enumerate().take(field_words) {
                     self.output.push_str(&format!(
@@ -10497,11 +10608,7 @@ impl FunctionContext {
                     .into_iter()
                     .sum::<usize>();
                 if is_reference {
-                    self.expression(&items[1])?;
-                    if offset_words != 0 {
-                        self.output
-                            .push_str(&format!("    add rax, {}\n", offset_words * 8));
-                    }
+                    self.emit_reference_field_address(&items[1], offset_words, false)?;
                 } else if let Expr::Symbol(local) = &items[1] {
                     if let Some(Storage::Struct(slots)) = self.locals.get(local) {
                         let slot = slots

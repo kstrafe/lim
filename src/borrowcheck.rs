@@ -25,6 +25,10 @@ struct Context {
     loans: Loans,
     returnable: HashSet<String>,
     mutable: HashSet<String>,
+    mutable_references: HashSet<String>,
+    reference_bindings: HashSet<String>,
+    suspended_references: HashSet<String>,
+    scoped_mutable_owners: HashSet<String>,
     reference_origins: HashMap<String, HashSet<String>>,
     allow_local_reference: bool,
     reference_types: HashSet<String>,
@@ -68,12 +72,28 @@ impl Loans {
         }
     }
 
-    fn write(&self, owner: &str) -> Result<(), String> {
+    fn downgrade_mutable_to_shared(&mut self, owner: &str) -> Result<(), String> {
         match self.active.get(owner) {
+            Some(LoanKind::Mutable) => {
+                self.active.insert(owner.to_owned(), LoanKind::Shared(1));
+                Ok(())
+            }
+            Some(LoanKind::Shared(_)) => Ok(()),
+            None => self.borrow(owner, LoanKind::Shared(1)),
+        }
+    }
+
+    fn upgrade_shared_to_mutable(&mut self, owner: &str) -> Result<(), String> {
+        match self.active.get(owner) {
+            Some(LoanKind::Shared(1)) => {
+                self.active.insert(owner.to_owned(), LoanKind::Mutable);
+                Ok(())
+            }
+            Some(LoanKind::Mutable) => Ok(()),
             Some(LoanKind::Shared(_)) => Err(format!(
-                "cannot mutate '{owner}' while it is immutably borrowed"
+                "cannot reborrow '{owner}' mutably while it has other shared borrows"
             )),
-            Some(LoanKind::Mutable) | None => Ok(()),
+            None => self.borrow(owner, LoanKind::Mutable),
         }
     }
 }
@@ -85,7 +105,15 @@ impl Context {
                 "cannot mutate '{owner}' while it is mutably borrowed by a running thread"
             ));
         }
-        self.loans.write(owner)
+        match self.loans.active.get(owner) {
+            Some(LoanKind::Shared(_)) => Err(format!(
+                "cannot mutate '{owner}' while it is immutably borrowed"
+            )),
+            Some(LoanKind::Mutable) if !self.scoped_mutable_owners.contains(owner) => Err(format!(
+                "cannot mutate '{owner}' while it is mutably borrowed"
+            )),
+            Some(LoanKind::Mutable) | None => Ok(()),
+        }
     }
 }
 
@@ -195,6 +223,8 @@ fn check_function(
 ) -> Result<(), String> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
+    let mut mutable_references = HashSet::new();
+    let mut reference_bindings = HashSet::new();
     let mut reference_origins = HashMap::new();
     for parameter in &function.parameters {
         returnable.insert(parameter.name.clone());
@@ -203,6 +233,12 @@ fn check_function(
                 parameter.name.clone(),
                 HashSet::from([parameter.name.clone()]),
             );
+            if matches!(parameter.ty, crate::Type::Reference { .. }) {
+                reference_bindings.insert(parameter.name.clone());
+            }
+            if contains_mutable_reference(&parameter.ty, reference_types) {
+                mutable_references.insert(parameter.name.clone());
+            }
         }
         if parameter.mutable {
             mutable.insert(parameter.name.clone());
@@ -212,6 +248,10 @@ fn check_function(
         loans: Loans::default(),
         returnable,
         mutable,
+        mutable_references,
+        reference_bindings,
+        suspended_references: HashSet::new(),
+        scoped_mutable_owners: HashSet::new(),
         reference_origins,
         allow_local_reference: false,
         reference_types: reference_types.clone(),
@@ -223,6 +263,16 @@ fn check_function(
         thread_exclusive_owners: HashMap::new(),
         return_contains_references: contains_reference_type(&function.return_type, reference_types),
     };
+    for parameter in &function.parameters {
+        if contains_reference_type(&parameter.ty, reference_types) {
+            let kind = if contains_mutable_reference(&parameter.ty, reference_types) {
+                LoanKind::Mutable
+            } else {
+                LoanKind::Shared(1)
+            };
+            context.loans.borrow(&parameter.name, kind)?;
+        }
+    }
     for statement in &function.body {
         check_statement(statement, &mut context)?;
     }
@@ -239,6 +289,10 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
         } => {
             let contains_references = contains_reference_type(ty, &context.reference_types);
             let origins = reference_origins(value, context, contains_references);
+            let derived_parent = borrowed_field_parent(value);
+            let contains_mutable_references =
+                contains_mutable_reference(ty, &context.reference_types);
+            let is_reference_binding = matches!(ty, crate::Type::Reference { .. });
             let task_loans = thread_spawn_origins(value, context);
             context.allow_local_reference = true;
             let checked = check_expression(value, context);
@@ -260,8 +314,36 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
                 );
                 context.thread_task_loans.insert(name.clone(), task_loans);
             } else {
+                if let Some(parent) = derived_parent.as_ref() {
+                    if context.mutable_references.contains(parent) {
+                        context.suspended_references.insert(parent.clone());
+                    }
+                }
                 for owner in &origins {
-                    context.loans.borrow(owner, LoanKind::Shared(1))?;
+                    if derived_parent
+                        .as_ref()
+                        .is_some_and(|parent| context.mutable_references.contains(parent))
+                    {
+                        if contains_mutable_references {
+                            if !matches!(context.loans.active.get(owner), Some(LoanKind::Mutable)) {
+                                context.loans.borrow(owner, LoanKind::Mutable)?;
+                            }
+                        } else if matches!(context.loans.active.get(owner), Some(LoanKind::Mutable))
+                        {
+                            context.loans.downgrade_mutable_to_shared(owner)?;
+                        } else {
+                            context.loans.borrow(owner, LoanKind::Shared(1))?;
+                        }
+                    } else {
+                        context.loans.borrow(
+                            owner,
+                            if contains_mutable_references {
+                                LoanKind::Mutable
+                            } else {
+                                LoanKind::Shared(1)
+                            },
+                        )?;
+                    }
                 }
                 if origins.is_empty() || !contains_references {
                     context.reference_origins.remove(name);
@@ -271,6 +353,12 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
             }
             if *mutable {
                 context.mutable.insert(name.clone());
+            }
+            if contains_mutable_references {
+                context.mutable_references.insert(name.clone());
+            }
+            if is_reference_binding {
+                context.reference_bindings.insert(name.clone());
             }
         }
         Statement::Destructure { value, .. } | Statement::LetElse { value, .. } => {
@@ -354,39 +442,80 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                 if matches!(operator.as_str(), "borrow" | "borrow-mut") {
                     if items.len() != 3 {
                         if items.len() == 2 {
-                            let owner = match &items[1] {
-                                Expr::Symbol(name) => name,
-                                _ => return Err(format!("{operator} requires a variable name")),
-                            };
-                            if !context.returnable.contains(owner) && !context.allow_local_reference
-                            {
-                                return Err(format!(
-                                    "cannot return a reference to local variable '{owner}'"
-                                ));
+                            let origins = borrow_place_origins(&items[1], context);
+                            if origins.is_empty() {
+                                return Err(format!("{operator} place has no tracked owner"));
                             }
-                            if operator == "borrow-mut" && !context.mutable.contains(owner) {
-                                return Err(format!(
-                                    "cannot mutably borrow immutable variable '{owner}'"
-                                ));
+                            if !context.allow_local_reference {
+                                if let Some(owner) = origins
+                                    .iter()
+                                    .find(|owner| !context.returnable.contains(*owner))
+                                {
+                                    return Err(format!(
+                                        "cannot return a reference to local variable '{owner}'"
+                                    ));
+                                }
+                            }
+                            if let Some(base) = borrowed_field_base(&items[1]) {
+                                check_expression(base, context)?;
                             }
                             return Ok(());
                         }
                         return Err(format!(
-                            "{operator} requires the form (#{operator} owner body)"
+                            "{operator} requires a place, with an optional body"
                         ));
                     }
-                    let owner = match &items[1] {
-                        Expr::Symbol(name) => name,
-                        _ => return Err(format!("{operator} requires a variable name")),
-                    };
+                    let origins = borrow_place_origins(&items[1], context);
+                    if origins.is_empty() {
+                        return Err(format!("{operator} place has no tracked owner"));
+                    }
                     let kind = if operator == "borrow" {
                         LoanKind::Shared(1)
                     } else {
                         LoanKind::Mutable
                     };
-                    context.loans.borrow(owner, kind)?;
+                    let parent = borrowed_field_parent(&items[1]);
+                    if let Some(base) = borrowed_field_base(&items[1]) {
+                        check_expression(base, context)?;
+                    }
+                    let reborrow_mutable_parent = parent
+                        .as_ref()
+                        .is_some_and(|parent| context.mutable_references.contains(parent));
+                    for owner in &origins {
+                        if reborrow_mutable_parent
+                            && matches!(context.loans.active.get(owner), Some(LoanKind::Mutable))
+                        {
+                            if kind == LoanKind::Shared(1) {
+                                context.loans.downgrade_mutable_to_shared(owner)?;
+                            }
+                        } else {
+                            context.loans.borrow(owner, kind)?;
+                        }
+                        if operator == "borrow-mut" {
+                            context.scoped_mutable_owners.insert(owner.clone());
+                        }
+                    }
+                    if let Some(parent) = &parent {
+                        if reborrow_mutable_parent {
+                            context.suspended_references.insert(parent.clone());
+                        }
+                    }
                     let result = check_expression(&items[2], context);
-                    context.loans.end(owner);
+                    for owner in &origins {
+                        if operator == "borrow-mut" {
+                            context.scoped_mutable_owners.remove(owner);
+                        }
+                        if reborrow_mutable_parent {
+                            if kind == LoanKind::Shared(1) {
+                                context.loans.upgrade_shared_to_mutable(owner)?;
+                            }
+                        } else {
+                            context.loans.end(owner);
+                        }
+                    }
+                    if let Some(parent) = &parent {
+                        context.suspended_references.remove(parent);
+                    }
                     result?
                 } else if context.function_names.contains(operator) {
                     let previous = context.allow_local_reference;
@@ -441,6 +570,19 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
         Expr::Labeled { expression, .. } => check_expression(expression, context)?,
         Expr::Quote(value) => check_expression(value, context)?,
         Expr::Symbol(name) => {
+            if context.suspended_references.contains(name) {
+                return Err(format!(
+                    "cannot use reference '{name}' while a derived field reference is active"
+                ));
+            }
+            if matches!(context.loans.active.get(name), Some(LoanKind::Mutable))
+                && !context.scoped_mutable_owners.contains(name)
+                && !context.reference_bindings.contains(name)
+            {
+                return Err(format!(
+                    "cannot access '{name}' while it is mutably borrowed"
+                ));
+            }
             if context.thread_exclusive_owners.contains_key(name) {
                 return Err(format!(
                     "cannot access '{name}' while it is mutably borrowed by a running thread"
@@ -498,6 +640,44 @@ fn contains_mutable_reference(ty: &crate::Type, reference_types: &HashSet<String
     }
 }
 
+fn borrowed_field_base(place: &Expr) -> Option<&Expr> {
+    let Expr::List(items) = place else {
+        return None;
+    };
+    if !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get")
+        || items.len() != 3
+    {
+        return None;
+    }
+    matches!(items.get(1), Some(Expr::Symbol(_))).then(|| &items[1])
+}
+
+fn borrowed_field_parent(expression: &Expr) -> Option<String> {
+    let Expr::List(items) = expression else {
+        return None;
+    };
+    if !matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut"))
+        || items.len() != 2
+    {
+        return None;
+    }
+    let base = borrowed_field_base(&items[1])?;
+    let Expr::Symbol(name) = base else {
+        return None;
+    };
+    Some(name.clone())
+}
+
+fn borrow_place_origins(place: &Expr, context: &Context) -> HashSet<String> {
+    match place {
+        Expr::Symbol(owner) => HashSet::from([owner.clone()]),
+        Expr::List(items) if borrowed_field_base(place).is_some() => {
+            reference_origins(&items[1], context, true)
+        }
+        _ => HashSet::new(),
+    }
+}
+
 fn reference_origins(
     expression: &Expr,
     context: &Context,
@@ -517,9 +697,7 @@ fn reference_origins(
                 return HashSet::new();
             };
             if matches!(operator.as_str(), "borrow" | "borrow-mut") && items.len() == 2 {
-                if let Some(Expr::Symbol(owner)) = items.get(1) {
-                    return HashSet::from([owner.clone()]);
-                }
+                return borrow_place_origins(&items[1], context);
             }
             if operator == "get" && items.len() == 3 {
                 return reference_origins(&items[1], context, true);

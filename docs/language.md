@@ -126,8 +126,23 @@ The two-expression form produces a reference:
 Multiple shared borrows may overlap, but a mutable borrow cannot overlap any
 other borrow, and a shared borrow cannot overlap a mutation. References to
 locals cannot escape their function; references returned from parameters and
-globals are supported. `#deref` reads through a reference. Mutable reference
-writes are reserved for the next reference-operation extension.
+globals are supported. `#deref` reads through a scalar reference, and
+`#deref-set` writes through a mutable scalar reference. A field reference can
+be derived from a named reference to a struct with `(#borrow (#get reference
+field))` or `#borrow-mut` for an exclusive field reference. The derived
+reference retains the original referent's borrow: it cannot escape when that
+referent is local, and a mutable parent reference is suspended while its
+derived field reference remains live.
+
+```lisp
+(#struct Point ((x u64) (y u64)))
+(#fn main () u64
+  (#let-mut point Point (Point 1 2))
+  (#let point-ref (#ref-mut Point) (#borrow-mut point))
+  (#let y-ref (#ref-mut u64) (#borrow-mut (#get point-ref y)))
+  (#deref-set y-ref 42)
+  (#return (#deref y-ref)))
+```
 
 ## Raw pointers and unsafe blocks
 
