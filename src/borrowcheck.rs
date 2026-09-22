@@ -31,6 +31,8 @@ struct Context {
     suspended_references: HashSet<String>,
     scoped_mutable_owners: HashSet<String>,
     reference_origins: HashMap<String, HashSet<String>>,
+    reference_loans: HashMap<String, Vec<(String, String)>>,
+    reference_parents: HashMap<String, String>,
     allow_local_reference: bool,
     reference_types: HashSet<String>,
     reference_functions: HashSet<String>,
@@ -40,81 +42,120 @@ struct Context {
     thread_task_loans: HashMap<String, Vec<(String, LoanKind)>>,
     thread_exclusive_owners: HashMap<String, usize>,
     return_contains_references: bool,
+    mutable_reference_types: HashSet<String>,
 }
 
 impl Loans {
-    fn borrow(&mut self, owner: &str, kind: LoanKind) -> Result<(), String> {
-        match (self.active.get(owner).copied(), kind) {
-            (None, _) => {
-                self.active.insert(owner.to_owned(), kind);
+    fn borrow(&mut self, place: &str, kind: LoanKind) -> Result<(), String> {
+        if let Some(active) = self
+            .active
+            .keys()
+            .find(|active| **active != place && places_conflict(active, place))
+            .cloned()
+        {
+            return Err(format!(
+                "cannot borrow '{place}' because '{active}' is already borrowed"
+            ));
+        }
+        match (self.active.get(place).copied(), kind) {
+            (None, kind) => {
+                self.active.insert(place.to_owned(), kind);
                 Ok(())
             }
             (Some(LoanKind::Shared(count)), LoanKind::Shared(_)) => {
                 self.active
-                    .insert(owner.to_owned(), LoanKind::Shared(count + 1));
+                    .insert(place.to_owned(), LoanKind::Shared(count + 1));
                 Ok(())
             }
             (Some(LoanKind::Shared(_)), LoanKind::Mutable) => Err(format!(
-                "cannot borrow '{owner}' mutably because it is already borrowed"
+                "cannot borrow '{place}' mutably because it is already borrowed"
             )),
-            (Some(LoanKind::Mutable), _) => Err(format!(
-                "cannot borrow '{owner}' because it is already borrowed mutably"
+            (Some(LoanKind::Mutable), LoanKind::Shared(_)) => Err(format!(
+                "cannot borrow '{place}' because it is already borrowed mutably"
+            )),
+            (Some(LoanKind::Mutable), LoanKind::Mutable) => Err(format!(
+                "cannot borrow '{place}' mutably because it is already borrowed mutably"
             )),
         }
     }
 
-    fn end(&mut self, owner: &str) {
-        match self.active.get_mut(owner) {
+    fn end(&mut self, place: &str) {
+        match self.active.get_mut(place) {
             Some(LoanKind::Shared(count)) if *count > 1 => *count -= 1,
             Some(_) => {
-                self.active.remove(owner);
+                self.active.remove(place);
             }
             None => {}
         }
     }
+}
 
-    fn downgrade_mutable_to_shared(&mut self, owner: &str) -> Result<(), String> {
-        match self.active.get(owner) {
-            Some(LoanKind::Mutable) => {
-                self.active.insert(owner.to_owned(), LoanKind::Shared(1));
-                Ok(())
-            }
-            Some(LoanKind::Shared(_)) => Ok(()),
-            None => self.borrow(owner, LoanKind::Shared(1)),
-        }
-    }
-
-    fn upgrade_shared_to_mutable(&mut self, owner: &str) -> Result<(), String> {
-        match self.active.get(owner) {
-            Some(LoanKind::Shared(1)) => {
-                self.active.insert(owner.to_owned(), LoanKind::Mutable);
-                Ok(())
-            }
-            Some(LoanKind::Mutable) => Ok(()),
-            Some(LoanKind::Shared(_)) => Err(format!(
-                "cannot reborrow '{owner}' mutably while it has other shared borrows"
-            )),
-            None => self.borrow(owner, LoanKind::Mutable),
-        }
-    }
+fn places_conflict(left: &str, right: &str) -> bool {
+    left == right
+        || left
+            .strip_prefix(right)
+            .is_some_and(|suffix| suffix.starts_with('.'))
+        || right
+            .strip_prefix(left)
+            .is_some_and(|suffix| suffix.starts_with('.'))
 }
 
 impl Context {
     fn write(&self, owner: &str) -> Result<(), String> {
+        self.write_place(owner, None)
+    }
+
+    fn write_place(&self, owner: &str, field: Option<&str>) -> Result<(), String> {
         if self.thread_exclusive_owners.contains_key(owner) {
             return Err(format!(
                 "cannot mutate '{owner}' while it is mutably borrowed by a running thread"
             ));
         }
-        match self.loans.active.get(owner) {
-            Some(LoanKind::Shared(_)) => Err(format!(
-                "cannot mutate '{owner}' while it is immutably borrowed"
-            )),
-            Some(LoanKind::Mutable) if !self.scoped_mutable_owners.contains(owner) => Err(format!(
-                "cannot mutate '{owner}' while it is mutably borrowed"
-            )),
-            Some(LoanKind::Mutable) | None => Ok(()),
+        let place = field.map_or_else(|| owner.to_owned(), |field| format!("{owner}.{field}"));
+        for (loan, kind) in &self.loans.active {
+            if !places_conflict(loan, &place) {
+                continue;
+            }
+            if matches!(kind, LoanKind::Shared(_)) {
+                return Err(format!(
+                    "cannot mutate '{}' while it is immutably borrowed",
+                    if loan == owner { owner } else { &place }
+                ));
+            }
+            if !self.scoped_mutable_owners.contains(owner) {
+                return Err(format!(
+                    "cannot mutate '{}' while it is mutably borrowed",
+                    if loan == owner { owner } else { &place }
+                ));
+            }
         }
+        Ok(())
+    }
+
+    fn read_place(
+        &self,
+        owner: &str,
+        field: Option<&str>,
+        through_mutable_reference: bool,
+    ) -> Result<(), String> {
+        if self.thread_exclusive_owners.contains_key(owner) {
+            return Err(format!(
+                "cannot access '{owner}' while it is mutably borrowed by a running thread"
+            ));
+        }
+        let place = field.map_or_else(|| owner.to_owned(), |field| format!("{owner}.{field}"));
+        for (loan, kind) in &self.loans.active {
+            if places_conflict(loan, &place)
+                && *kind == LoanKind::Mutable
+                && (!through_mutable_reference || loan != owner)
+                && !self.scoped_mutable_owners.contains(owner)
+            {
+                return Err(format!(
+                    "cannot access '{place}' while it is mutably borrowed"
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -143,6 +184,22 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                     .iter()
                     .flat_map(|variant| &variant.fields)
                     .any(|ty| type_contains_reference(ty, program, &mut HashSet::new())) =>
+            {
+                Some(name.clone())
+            }
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let mutable_reference_types = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct { name, .. } | Item::Enum { name, .. }
+                if type_contains_mutable_reference(
+                    &crate::Type::Named(name.clone()),
+                    program,
+                    &mut HashSet::new(),
+                ) =>
             {
                 Some(name.clone())
             }
@@ -202,6 +259,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                     function,
                     &globals,
                     &reference_types,
+                    &mutable_reference_types,
                     &reference_functions,
                     &function_names,
                     &thread_spawn_functions,
@@ -217,6 +275,7 @@ fn check_function(
     function: &Function,
     globals: &std::collections::HashSet<String>,
     reference_types: &HashSet<String>,
+    mutable_reference_types: &HashSet<String>,
     reference_functions: &HashSet<String>,
     function_names: &HashSet<String>,
     thread_spawn_functions: &HashMap<String, Vec<crate::Type>>,
@@ -237,7 +296,7 @@ fn check_function(
             if matches!(parameter.ty, crate::Type::Reference { .. }) {
                 reference_bindings.insert(parameter.name.clone());
             }
-            if contains_mutable_reference(&parameter.ty, reference_types) {
+            if contains_mutable_reference(&parameter.ty, reference_types, mutable_reference_types) {
                 mutable_references.insert(parameter.name.clone());
             }
         }
@@ -254,8 +313,11 @@ fn check_function(
         suspended_references: HashSet::new(),
         scoped_mutable_owners: HashSet::new(),
         reference_origins,
+        reference_loans: HashMap::new(),
+        reference_parents: HashMap::new(),
         allow_local_reference: false,
         reference_types: reference_types.clone(),
+        mutable_reference_types: mutable_reference_types.clone(),
         reference_functions: reference_functions.clone(),
         function_names: function_names.clone(),
         thread_spawn_functions: thread_spawn_functions.clone(),
@@ -266,7 +328,11 @@ fn check_function(
     };
     for parameter in &function.parameters {
         if contains_reference_type(&parameter.ty, reference_types) {
-            let kind = if contains_mutable_reference(&parameter.ty, reference_types) {
+            let kind = if contains_mutable_reference(
+                &parameter.ty,
+                reference_types,
+                mutable_reference_types,
+            ) {
                 LoanKind::Mutable
             } else {
                 LoanKind::Shared(1)
@@ -291,8 +357,11 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
             let contains_references = contains_reference_type(ty, &context.reference_types);
             let origins = reference_origins(value, context, contains_references);
             let derived_parent = borrowed_field_parent(value);
-            let contains_mutable_references =
-                contains_mutable_reference(ty, &context.reference_types);
+            let contains_mutable_references = contains_mutable_reference(
+                ty,
+                &context.reference_types,
+                &context.mutable_reference_types,
+            );
             let is_reference_binding = matches!(ty, crate::Type::Reference { .. });
             let task_loans = thread_spawn_origins(value, context);
             context.allow_local_reference = true;
@@ -320,24 +389,36 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
                         context.suspended_references.insert(parent.clone());
                     }
                 }
-                for owner in &origins {
+                let mut loans = if contains_references {
+                    borrow_place_loans(value, context)
+                } else {
+                    Vec::new()
+                };
+                if loans.is_empty() {
+                    loans = origins
+                        .iter()
+                        .cloned()
+                        .map(|owner| (owner.clone(), owner))
+                        .collect();
+                }
+                for (owner, loan) in &loans {
                     if derived_parent
                         .as_ref()
                         .is_some_and(|parent| context.mutable_references.contains(parent))
                     {
-                        if contains_mutable_references {
-                            if !matches!(context.loans.active.get(owner), Some(LoanKind::Mutable)) {
-                                context.loans.borrow(owner, LoanKind::Mutable)?;
-                            }
-                        } else if matches!(context.loans.active.get(owner), Some(LoanKind::Mutable))
+                        if loan != owner
+                            && matches!(context.loans.active.get(owner), Some(LoanKind::Mutable))
                         {
-                            context.loans.downgrade_mutable_to_shared(owner)?;
+                            context.loans.active.remove(owner);
+                        }
+                        if contains_mutable_references {
+                            context.loans.borrow(loan, LoanKind::Mutable)?;
                         } else {
-                            context.loans.borrow(owner, LoanKind::Shared(1))?;
+                            context.loans.borrow(loan, LoanKind::Shared(1))?;
                         }
                     } else {
                         context.loans.borrow(
-                            owner,
+                            loan,
                             if contains_mutable_references {
                                 LoanKind::Mutable
                             } else {
@@ -350,6 +431,12 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
                     context.reference_origins.remove(name);
                 } else {
                     context.reference_origins.insert(name.clone(), origins);
+                }
+                if !loans.is_empty() {
+                    context.reference_loans.insert(name.clone(), loans);
+                }
+                if let Some(parent) = derived_parent {
+                    context.reference_parents.insert(name.clone(), parent);
                 }
             }
             if *mutable {
@@ -368,10 +455,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
             }
             check_expression(value, context)?;
         }
-        Statement::Assign { name, value }
-        | Statement::FieldAssign { name, value, .. }
-        | Statement::TupleAssign { name, value, .. }
-        | Statement::EnumPayloadAssign { name, value, .. } => {
+        Statement::Assign { name, value } => {
             if matches!(statement, Statement::Assign { .. })
                 && context.reference_origins.contains_key(name)
             {
@@ -382,6 +466,23 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
             check_expression(value, context)?;
             context.write(name)?;
         }
+        Statement::FieldAssign { name, field, value } => {
+            check_expression(value, context)?;
+            context.write_place(name, Some(field))?;
+        }
+        Statement::TupleAssign { name, index, value } => {
+            check_expression(value, context)?;
+            context.write_place(name, Some(&index.to_string()))?;
+        }
+        Statement::EnumPayloadAssign {
+            name,
+            variant,
+            index,
+            value,
+        } => {
+            check_expression(value, context)?;
+            context.write_place(name, Some(&format!("{variant}.{index}")))?;
+        }
         Statement::ArrayAssign { name, index, value } => {
             check_expression(index, context)?;
             check_expression(value, context)?;
@@ -389,9 +490,9 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
         }
         Statement::While { condition, body } => {
             check_expression(condition, context)?;
-            check_statements(body, context)?;
+            check_loop_iteration(body, context)?;
         }
-        Statement::Loop { body } => check_statements(body, context)?,
+        Statement::Loop { body } => check_loop_iteration(body, context)?,
         Statement::For {
             init,
             condition,
@@ -400,8 +501,10 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
         } => {
             check_statement(init, context)?;
             check_expression(condition, context)?;
-            check_statements(body, context)?;
-            check_statement(step, context)?;
+            let mut iteration = context.clone();
+            check_statements(body, &mut iteration)?;
+            check_statement(step, &mut iteration)?;
+            ensure_loop_thread_state(context, &iteration)?;
         }
         Statement::Labeled { statement, .. } => check_statement(statement, context)?,
         Statement::Return(Some(value)) => {
@@ -445,11 +548,31 @@ fn check_statements(statements: &[Statement], context: &mut Context) -> Result<(
     Ok(())
 }
 
+fn check_loop_iteration(statements: &[Statement], context: &Context) -> Result<(), String> {
+    let mut iteration = context.clone();
+    check_statements(statements, &mut iteration)?;
+    ensure_loop_thread_state(context, &iteration)
+}
+
+fn ensure_loop_thread_state(before: &Context, after: &Context) -> Result<(), String> {
+    if before.thread_task_loans != after.thread_task_loans
+        || before.thread_exclusive_owners != after.thread_exclusive_owners
+    {
+        return Err(
+            "thread task borrows must be spawned and joined within the same loop iteration".into(),
+        );
+    }
+    Ok(())
+}
+
 fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), String> {
     match expression {
         Expr::List(items) => {
             if let Some(Expr::Symbol(operator)) = items.first() {
-                if operator == "if" && items.len() == 4 {
+                if operator == "drop" && items.len() == 2 {
+                    check_expression(&items[1], context)?;
+                    release_dropped_value(&items[1], context);
+                } else if operator == "if" && items.len() == 4 {
                     check_expression(&items[1], context)?;
                     let base = context.clone();
                     let mut then_context = base.clone();
@@ -495,6 +618,8 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                             }
                             if let Some(base) = borrowed_field_base(&items[1]) {
                                 check_expression(base, context)?;
+                            } else {
+                                check_expression(&items[1], context)?;
                             }
                             return Ok(());
                         }
@@ -506,6 +631,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                     if origins.is_empty() {
                         return Err(format!("{operator} place has no tracked owner"));
                     }
+                    let loans = borrow_place_loans(&items[1], context);
                     let kind = if operator == "borrow" {
                         LoanKind::Shared(1)
                     } else {
@@ -518,15 +644,18 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                     let reborrow_mutable_parent = parent
                         .as_ref()
                         .is_some_and(|parent| context.mutable_references.contains(parent));
-                    for owner in &origins {
-                        if reborrow_mutable_parent
-                            && matches!(context.loans.active.get(owner), Some(LoanKind::Mutable))
-                        {
-                            if kind == LoanKind::Shared(1) {
-                                context.loans.downgrade_mutable_to_shared(owner)?;
+                    for (owner, loan) in &loans {
+                        if reborrow_mutable_parent {
+                            // A field reborrow temporarily suspends the parent
+                            // loan.  Keeping the whole-owner loan active would
+                            // make an access to a disjoint field appear to
+                            // overlap the reborrowed field.
+                            if matches!(context.loans.active.get(owner), Some(LoanKind::Mutable)) {
+                                context.loans.active.remove(owner);
                             }
+                            context.loans.active.insert(loan.clone(), kind);
                         } else {
-                            context.loans.borrow(owner, kind)?;
+                            context.loans.borrow(loan, kind)?;
                         }
                         if operator == "borrow-mut" {
                             context.scoped_mutable_owners.insert(owner.clone());
@@ -538,16 +667,18 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                         }
                     }
                     let result = check_expression(&items[2], context);
-                    for owner in &origins {
+                    for (owner, loan) in &loans {
                         if operator == "borrow-mut" {
                             context.scoped_mutable_owners.remove(owner);
                         }
                         if reborrow_mutable_parent {
-                            if kind == LoanKind::Shared(1) {
-                                context.loans.upgrade_shared_to_mutable(owner)?;
-                            }
+                            context.loans.end(loan);
+                            context
+                                .loans
+                                .active
+                                .insert(owner.clone(), LoanKind::Mutable);
                         } else {
-                            context.loans.end(owner);
+                            context.loans.end(loan);
                         }
                     }
                     if let Some(parent) = &parent {
@@ -586,6 +717,27 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                                 }
                             }
                         }
+                    }
+                } else if operator == "get" && items.len() == 3 {
+                    let Some(Expr::Symbol(owner)) = items.get(1) else {
+                        check_expression(&items[1], context)?;
+                        return Ok(());
+                    };
+                    let field = match &items[2] {
+                        Expr::Symbol(field) => field.clone(),
+                        Expr::Integer(index) => index.to_string(),
+                        Expr::UnsignedInteger(index) => index.to_string(),
+                        _ => {
+                            check_expression(&items[1], context)?;
+                            return Ok(());
+                        }
+                    };
+                    if context.reference_bindings.contains(owner) {
+                        for source in reference_origins(&items[1], context, true) {
+                            context.read_place(&source, Some(&field), true)?;
+                        }
+                    } else {
+                        context.read_place(owner, Some(&field), false)?;
                     }
                 } else {
                     let arguments = if operator == "get" && items.len() >= 3 {
@@ -674,6 +826,22 @@ fn merge_branch_context(context: &mut Context, branches: &[Context]) {
                     .extend(origins.iter().cloned());
             }
         }
+        for (name, loans) in &branch.reference_loans {
+            if base.reference_loans.contains_key(name) {
+                merged
+                    .reference_loans
+                    .entry(name.clone())
+                    .or_insert_with(|| loans.clone());
+            }
+        }
+        for (name, parent) in &branch.reference_parents {
+            if base.reference_parents.contains_key(name) {
+                merged
+                    .reference_parents
+                    .entry(name.clone())
+                    .or_insert_with(|| parent.clone());
+            }
+        }
         for (name, loans) in &branch.thread_task_loans {
             merged
                 .thread_task_loans
@@ -691,6 +859,54 @@ fn merge_branch_context(context: &mut Context, branches: &[Context]) {
     *context = merged;
 }
 
+fn release_dropped_value(expression: &Expr, context: &mut Context) {
+    let Expr::Symbol(name) = expression else {
+        return;
+    };
+    let name = name.clone();
+    if let Some(parent) = context.reference_parents.remove(&name) {
+        context.suspended_references.remove(&parent);
+    }
+    let origins = context.reference_origins.remove(&name).unwrap_or_default();
+    if let Some(loans) = context.reference_loans.remove(&name) {
+        for (owner, loan) in loans {
+            context.loans.end(&loan);
+            if loan != owner
+                && !context
+                    .loans
+                    .active
+                    .keys()
+                    .any(|active| active != &owner && active.starts_with(&format!("{owner}.")))
+            {
+                context.loans.active.insert(owner, LoanKind::Mutable);
+            }
+        }
+    } else {
+        for owner in origins {
+            context.loans.end(&owner);
+        }
+    }
+    if let Some(loans) = context.thread_task_loans.remove(&name) {
+        for (owner, kind) in loans {
+            context.loans.end(&owner);
+            if kind == LoanKind::Mutable {
+                let remove_owner =
+                    if let Some(count) = context.thread_exclusive_owners.get_mut(&owner) {
+                        *count -= 1;
+                        *count == 0
+                    } else {
+                        false
+                    };
+                if remove_owner {
+                    context.thread_exclusive_owners.remove(&owner);
+                }
+            }
+        }
+    }
+    context.mutable_references.remove(&name);
+    context.reference_bindings.remove(&name);
+}
+
 fn thread_spawn_origins(expression: &Expr, context: &Context) -> Option<Vec<(String, LoanKind)>> {
     let Expr::List(items) = expression else {
         return None;
@@ -704,7 +920,11 @@ fn thread_spawn_origins(expression: &Expr, context: &Context) -> Option<Vec<(Str
         if !contains_reference_type(parameter, &context.reference_types) {
             continue;
         }
-        let kind = if contains_mutable_reference(parameter, &context.reference_types) {
+        let kind = if contains_mutable_reference(
+            parameter,
+            &context.reference_types,
+            &context.mutable_reference_types,
+        ) {
             LoanKind::Mutable
         } else {
             LoanKind::Shared(1)
@@ -718,16 +938,22 @@ fn thread_spawn_origins(expression: &Expr, context: &Context) -> Option<Vec<(Str
     Some(loans)
 }
 
-fn contains_mutable_reference(ty: &crate::Type, reference_types: &HashSet<String>) -> bool {
+fn contains_mutable_reference(
+    ty: &crate::Type,
+    reference_types: &HashSet<String>,
+    mutable_reference_types: &HashSet<String>,
+) -> bool {
     match ty {
         crate::Type::Reference { mutable, .. } => *mutable,
         crate::Type::Array(element, _) | crate::Type::Cell(element) => {
-            contains_mutable_reference(element, reference_types)
+            contains_mutable_reference(element, reference_types, mutable_reference_types)
         }
-        crate::Type::Tuple(fields) => fields
-            .iter()
-            .any(|field| contains_mutable_reference(field, reference_types)),
-        crate::Type::Named(name) => reference_types.contains(name) && false,
+        crate::Type::Tuple(fields) => fields.iter().any(|field| {
+            contains_mutable_reference(field, reference_types, mutable_reference_types)
+        }),
+        crate::Type::Named(name) => {
+            reference_types.contains(name) && mutable_reference_types.contains(name)
+        }
         _ => false,
     }
 }
@@ -773,6 +999,38 @@ fn borrow_place_origins(place: &Expr, context: &Context) -> HashSet<String> {
             reference_origins(&items[1], context, true)
         }
         _ => HashSet::new(),
+    }
+}
+
+fn borrow_place_loans(place: &Expr, context: &Context) -> Vec<(String, String)> {
+    if let Expr::List(items) = place {
+        if items.len() == 2
+            && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "borrow" | "borrow-mut"))
+        {
+            return borrow_place_loans(&items[1], context);
+        }
+    }
+    if let Some(base) = borrowed_field_base(place) {
+        let Expr::List(items) = place else {
+            return Vec::new();
+        };
+        let field = match items.get(2) {
+            Some(Expr::Symbol(field)) => field.clone(),
+            Some(Expr::Integer(index)) => index.to_string(),
+            Some(Expr::UnsignedInteger(index)) => index.to_string(),
+            _ => return Vec::new(),
+        };
+        return reference_origins(base, context, true)
+            .into_iter()
+            .map(|owner| {
+                let loan = format!("{owner}.{field}");
+                (owner, loan)
+            })
+            .collect();
+    }
+    match place {
+        Expr::Symbol(owner) => vec![(owner.clone(), owner.clone())],
+        _ => Vec::new(),
     }
 }
 
@@ -822,6 +1080,9 @@ fn reference_origins(
             if operator == "as" && items.len() == 3 {
                 return reference_origins(&items[1], context, true);
             }
+            if operator == "index" && items.len() == 3 {
+                return reference_origins(&items[1], context, true);
+            }
             if operator == "deref" && items.len() == 2 {
                 return reference_origins(&items[1], context, true);
             }
@@ -853,13 +1114,19 @@ fn reference_origins(
             }
             HashSet::new()
         }
-        Expr::Block(statements) | Expr::Loop(statements) => {
-            let Some(Statement::Expr(value) | Statement::Return(Some(value))) = statements.last()
-            else {
-                return HashSet::new();
-            };
-            reference_origins(value, context, true)
-        }
+        Expr::Block(statements) | Expr::Loop(statements) => statements
+            .iter()
+            .rev()
+            .find_map(|statement| match statement {
+                Statement::Expr(value)
+                | Statement::Return(Some(value))
+                | Statement::BreakValue(value)
+                | Statement::BreakToValue { value, .. } => {
+                    Some(reference_origins(value, context, true))
+                }
+                _ => None,
+            })
+            .unwrap_or_default(),
         Expr::Labeled { expression, .. }
         | Expr::Quote(expression)
         | Expr::QuasiQuote(expression)
@@ -899,6 +1166,46 @@ fn type_contains_reference(
                     .iter()
                     .flat_map(|variant| &variant.fields)
                     .any(|field| type_contains_reference(field, program, seen)),
+                _ => false,
+            });
+            seen.remove(name);
+            result
+        }
+        _ => false,
+    }
+}
+
+fn type_contains_mutable_reference(
+    ty: &crate::Type,
+    program: &Program,
+    seen: &mut HashSet<String>,
+) -> bool {
+    match ty {
+        crate::Type::Reference { mutable: true, .. } => true,
+        crate::Type::Reference { mutable: false, .. } | crate::Type::RawPointer { .. } => false,
+        crate::Type::Array(element, _) | crate::Type::Cell(element) => {
+            type_contains_mutable_reference(element, program, seen)
+        }
+        crate::Type::Tuple(fields) => fields
+            .iter()
+            .any(|field| type_contains_mutable_reference(field, program, seen)),
+        crate::Type::Named(name) if seen.insert(name.clone()) => {
+            let result = program.items.iter().any(|item| match item {
+                Item::Struct {
+                    name: struct_name,
+                    fields,
+                    ..
+                } if struct_name == name => fields
+                    .iter()
+                    .any(|field| type_contains_mutable_reference(&field.ty, program, seen)),
+                Item::Enum {
+                    name: enum_name,
+                    variants,
+                    ..
+                } if enum_name == name => variants
+                    .iter()
+                    .flat_map(|variant| &variant.fields)
+                    .any(|field| type_contains_mutable_reference(field, program, seen)),
                 _ => false,
             });
             seen.remove(name);

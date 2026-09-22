@@ -50,13 +50,18 @@ cursor changes through the cell:
   (#return (#cell-get (#get (#get vector allocator) cursor))))
 ```
 
-An aggregate that stores a shared reference retains a borrow of its owner for
-the rest of the containing function. It cannot be returned if that borrow
-points to a local, and reference-bearing fields cannot be replaced. Mutable
-references are not permitted inside value structs or enum payloads. This
-conservative rule keeps a vector-like value from outliving or being silently
-retargeted away from its allocator. `#cell` is not thread-safe and provides no
-synchronization.
+An aggregate that stores a reference retains a borrow of its owner for the
+rest of the containing function. It cannot be returned if that borrow points
+to a local, and reference-bearing fields cannot be replaced. Mutable
+references may be stored in structs and enum payloads; they retain an
+exclusive borrow of their source and cannot be cloned. `#cell` is not
+thread-safe and provides no synchronization.
+
+Borrows of struct fields are tracked as places. While `point.x` is borrowed,
+an access to `point.y` is allowed, but an access to `point.x` or to the whole
+`point` is rejected. A field reference derived through a mutable reference
+temporarily suspends that parent reference; `#drop` releases the derived loan
+and restores the parent borrow.
 
 ## Send and Sync properties
 

@@ -4971,9 +4971,29 @@ mod tests {
             "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#return (#get point-ref y)))",
         )
         .unwrap();
-        assert!(check_types(&suspended_parent)
+        assert!(
+            check_types(&suspended_parent).is_ok(),
+            "{:?}",
+            check_types(&suspended_parent)
+        );
+
+        let overlapping_field = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#return (#get point-ref x)))",
+        )
+        .unwrap();
+        assert!(check_types(&overlapping_field)
             .unwrap_err()
-            .contains("derived field reference is active"));
+            .contains("cannot access 'point.x' while it is mutably borrowed"));
+
+        let dropped_field_reference = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#drop x-ref) (#let y-ref (#ref-mut u64) (#borrow-mut (#get point-ref y))) (#return (#deref y-ref)))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&dropped_field_reference).is_ok(),
+            "{:?}",
+            check_types(&dropped_field_reference)
+        );
 
         let original_owner_suspended = parse_program(
             "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#return (#get point y)))",
@@ -5027,6 +5047,45 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&block_scoped_reference).is_ok());
+
+        let loop_scoped_reference = parse_program(
+            "(#fn main () u64 (#let-mut value u64 1) (#while false (#let reference (#ref u64) (#borrow value))) (#set value 3) (#return value))",
+        )
+        .unwrap();
+        assert!(check_types(&loop_scoped_reference).is_ok());
+
+        let dropped_reference = parse_program(
+            "(#fn main () u64 (#let-mut value u64 1) (#let reference (#ref-mut u64) (#borrow-mut value)) (#drop reference) (#set value 3) (#return value))",
+        )
+        .unwrap();
+        assert!(check_types(&dropped_reference).is_ok());
+
+        let mutable_reference_struct = parse_program(
+            "(#struct MutView ((data (#ref-mut u64)))) (#fn make ((data (#ref-mut u64))) MutView (#return (MutView data))) (#fn main () u64 (#let-mut value u64 40) (#let view MutView (make (#borrow-mut value))) (#deref-set (#get view data) 42) (#return (#deref (#get view data))))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&mutable_reference_struct).is_ok(),
+            "{:?}",
+            check_types(&mutable_reference_struct)
+        );
+        assert!(generate_assembly(&mutable_reference_struct).is_ok());
+
+        let mutable_reference_struct_escape = parse_program(
+            "(#struct MutView ((data (#ref-mut u64)))) (#fn make ((data (#ref-mut u64))) MutView (#return (MutView data))) (#fn bad () MutView (#let-mut value u64 40) (#return (make (#borrow-mut value))))",
+        )
+        .unwrap();
+        assert!(check_types(&mutable_reference_struct_escape)
+            .unwrap_err()
+            .contains("cannot return a value retaining a reference to local 'value'"));
+
+        let mutable_reference_struct_clone = parse_program(
+            "(#struct MutView ((data (#ref-mut u64)))) (#fn main () () (#let-mut value u64 40) (#let view MutView (MutView (#borrow-mut value))) (#let duplicate MutView (#clone view)) (#return ()))",
+        )
+        .unwrap();
+        assert!(check_types(&mutable_reference_struct_clone)
+            .unwrap_err()
+            .contains("a mutable reference cannot be cloned"));
     }
 
     #[test]

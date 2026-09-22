@@ -183,26 +183,6 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             }
         }
     }
-    for (name, fields) in &structs {
-        if fields.iter().any(|field| {
-            contains_mutable_reference(&field.ty, &structs, &enums, &mut HashSet::new())
-        }) {
-            return Err(format!(
-                "struct '{name}' cannot store mutable references in value fields"
-            ));
-        }
-    }
-    for (name, variants) in &enums {
-        if variants
-            .iter()
-            .flat_map(|variant| &variant.fields)
-            .any(|ty| contains_mutable_reference(ty, &structs, &enums, &mut HashSet::new()))
-        {
-            return Err(format!(
-                "enum '{name}' cannot store mutable references in payloads"
-            ));
-        }
-    }
     let mut functions = HashMap::new();
     for item in &program.items {
         let Item::Function(function) = item else {
@@ -2174,7 +2154,7 @@ fn list_expression(
             let cloned = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, expected,
             )?;
-            if matches!(cloned, Type::Reference { mutable: true, .. }) {
+            if type_contains_mutable_reference(&cloned, structs, enums, &mut HashSet::new()) {
                 return Err("a mutable reference cannot be cloned".into());
             }
             if let Type::Named(name) = &cloned {
@@ -4259,7 +4239,7 @@ fn contains_reference_type(
     }
 }
 
-fn contains_mutable_reference(
+fn type_contains_mutable_reference(
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
@@ -4269,21 +4249,21 @@ fn contains_mutable_reference(
         Type::Reference { mutable: true, .. } => true,
         Type::Reference { mutable: false, .. } | Type::RawPointer { .. } => false,
         Type::Array(element, _) | Type::Cell(element) => {
-            contains_mutable_reference(element, structs, enums, seen)
+            type_contains_mutable_reference(element, structs, enums, seen)
         }
         Type::Tuple(fields) => fields
             .iter()
-            .any(|field| contains_mutable_reference(field, structs, enums, seen)),
+            .any(|field| type_contains_mutable_reference(field, structs, enums, seen)),
         Type::Named(name) if seen.insert(name.clone()) => {
             let result = structs.get(name).is_some_and(|fields| {
                 fields
                     .iter()
-                    .any(|field| contains_mutable_reference(&field.ty, structs, enums, seen))
+                    .any(|field| type_contains_mutable_reference(&field.ty, structs, enums, seen))
             }) || enums.get(name).is_some_and(|variants| {
                 variants
                     .iter()
                     .flat_map(|variant| &variant.fields)
-                    .any(|field| contains_mutable_reference(field, structs, enums, seen))
+                    .any(|field| type_contains_mutable_reference(field, structs, enums, seen))
             });
             seen.remove(name);
             result
