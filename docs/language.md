@@ -719,12 +719,13 @@ free-standing helpers:
 Expansion is part of program parsing. The command-line compiler writes
 readable generated Lim source files into `.lim/` beside the input, and stores
 content-addressed user-generator expansion entries under `.lim/cache/`. A hit
-requires identical literal arguments, generator definitions, and generator
-interpreter implementation. The cache fingerprints the loaded generator
-registry conservatively, so changing any generator definition can invalidate
-entries even if that generator was unrelated to the particular call. Invalid
-or stale cache files are ignored and recomputed. The `.lim/` directory is
-build output; deleting it only causes generators to run again.
+requires identical literal arguments, the invoked generator, its transitive
+`#gn-fn` dependencies, and generator interpreter implementation. Unrelated
+generator and helper changes do not invalidate that entry. Each entry caches
+the generator's raw emitted forms; nested `@` invocations are then expanded
+independently and can hit their own entries. Invalid or stale cache files are
+ignored and recomputed. The `.lim/` directory is build output; deleting it
+only causes generators to run again.
 Generated declarations are not methods and do not introduce namespaces.
 Nested generated expressions are reserved for future generated forms.
 

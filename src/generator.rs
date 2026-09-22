@@ -21,6 +21,13 @@ struct Generator {
 
 type GeneratorFunction = Generator;
 
+#[derive(Clone)]
+struct GeneratorFingerprint {
+    hash: u128,
+    material: String,
+    dependencies: Vec<String>,
+}
+
 #[derive(Clone, Debug)]
 enum Value {
     Syntax(Expr),
@@ -85,10 +92,13 @@ fn expand_with_generated_cached_and_hits(
         remaining.push(expression);
     }
 
-    let dependency_context = generator_dependency_context(&generators, &functions);
+    let interpreter_hash = stable_hash(include_bytes!("generator.rs"));
+    let function_hashes = generator_function_hashes(&functions, interpreter_hash)?;
+    let generator_hashes = generator_hashes(&generators, &function_hashes, interpreter_hash);
     let mut context = ExpansionContext {
         generators: &generators,
         functions: &functions,
+        generator_fingerprints: generator_hashes,
         active_functions: Vec::new(),
         active: Vec::new(),
         seen_invocations: HashSet::new(),
@@ -96,9 +106,7 @@ fn expand_with_generated_cached_and_hits(
             evaluation_steps: MAX_EVALUATION_STEPS,
             generated_nodes: 0,
         },
-        invocation_traces: Vec::new(),
         cache_hits: 0,
-        dependency_context,
         cache_dir,
     };
     let mut output = Vec::new();
@@ -185,21 +193,15 @@ struct Budget {
     generated_nodes: usize,
 }
 
-struct CachedExpansion {
-    expressions: Vec<Expr>,
-    invocations: Vec<String>,
-}
-
 struct ExpansionContext<'a> {
     generators: &'a HashMap<String, Generator>,
     functions: &'a HashMap<String, GeneratorFunction>,
+    generator_fingerprints: HashMap<String, GeneratorFingerprint>,
     active_functions: Vec<String>,
     active: Vec<String>,
     seen_invocations: HashSet<String>,
     budget: Budget,
-    invocation_traces: Vec<HashSet<String>>,
     cache_hits: usize,
-    dependency_context: String,
     cache_dir: Option<&'a Path>,
 }
 
@@ -240,54 +242,51 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         ));
     }
     let invocation_key = format!("{name}:{:?}", &items[2..]);
-    for trace in context.invocation_traces.iter_mut() {
-        trace.insert(invocation_key.clone());
-    }
     if !context.seen_invocations.insert(invocation_key) {
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v2\ncompiler={}\ndependencies={}\ngenerator={name}\narguments={:?}",
+        "lim-generator-cache-v3\ncompiler={}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
-        context.dependency_context,
-        &items[2..]
+        context.generator_fingerprints[name].hash,
+        context.generator_fingerprints[name].material,
+        &items[2..],
     );
-    if let Some(cached) = context
+    let cached = context
         .cache_dir
-        .and_then(|directory| read_cached_expansion(directory, &cache_key))
-    {
+        .and_then(|directory| read_cached_expansion(directory, &cache_key));
+    if cached.is_some() {
         context.cache_hits = context.cache_hits.saturating_add(1);
-        for invocation in &cached.invocations {
-            context.seen_invocations.insert(invocation.clone());
-            for trace in context.invocation_traces.iter_mut() {
-                trace.insert(invocation.clone());
-            }
-        }
-        return Ok(cached.expressions);
     }
-    context
-        .invocation_traces
-        .push(HashSet::from([format!("{name}:{:?}", &items[2..])]));
-    let environment = generator
-        .parameters
-        .iter()
-        .cloned()
-        .zip(items[2..].iter().cloned())
-        .collect();
     context.active.push(name.clone());
-    let result = match evaluate(&generator.body, &environment, context) {
-        Ok(result) => result,
-        Err(error) => {
-            context.active.pop();
-            return Err(format!(
-                "@{name} defined at {}:{}: {error}",
-                generator.span.line, generator.span.column
-            ));
+    let forms = match cached {
+        Some(forms) => forms,
+        None => {
+            let environment = generator
+                .parameters
+                .iter()
+                .cloned()
+                .zip(items[2..].iter().cloned())
+                .collect();
+            let result = match evaluate(&generator.body, &environment, context) {
+                Ok(result) => result,
+                Err(error) => {
+                    context.active.pop();
+                    return Err(format!(
+                        "@{name} defined at {}:{}: {error}",
+                        generator.span.line, generator.span.column
+                    ));
+                }
+            };
+            let Value::Syntax(Expr::List(forms)) = result else {
+                context.active.pop();
+                return Err(format!("@{name} must return a list of generated forms"));
+            };
+            if let Some(directory) = context.cache_dir {
+                write_cached_expansion(directory, &cache_key, &forms);
+            }
+            forms
         }
-    };
-    let Value::Syntax(Expr::List(forms)) = result else {
-        context.active.pop();
-        return Err(format!("@{name} must return a list of generated forms"));
     };
     let mut expanded = Vec::new();
     for form in forms {
@@ -300,40 +299,200 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         }
     }
     context.active.pop();
-    let trace = context.invocation_traces.pop().unwrap_or_default();
-    if let Some(directory) = context.cache_dir {
-        write_cached_expansion(directory, &cache_key, &expanded, &trace);
-    }
     Ok(expanded)
 }
 
-fn generator_dependency_context(
-    generators: &HashMap<String, Generator>,
+fn generator_function_hashes(
     functions: &HashMap<String, GeneratorFunction>,
-) -> String {
-    let mut definitions = generators.iter().collect::<Vec<_>>();
-    definitions.sort_by(|left, right| left.0.cmp(right.0));
-    let definitions = definitions
-        .into_iter()
-        .map(|(name, generator)| format!("{name}:{:?}:{:?}", generator.parameters, generator.body))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut function_definitions = functions.iter().collect::<Vec<_>>();
-    function_definitions.sort_by(|left, right| left.0.cmp(right.0));
-    let function_definitions = function_definitions
-        .into_iter()
-        .map(|(name, function)| {
-            format!(
-                "#gn-fn {name}:{:?}:{:?}",
-                function.parameters, function.body
+    interpreter_hash: u128,
+) -> Result<HashMap<String, GeneratorFingerprint>, String> {
+    let mut hashes = HashMap::new();
+    let mut active = Vec::new();
+    let mut names = functions.keys().collect::<Vec<_>>();
+    names.sort();
+    for name in names {
+        hash_generator_function(name, functions, interpreter_hash, &mut hashes, &mut active)?;
+    }
+    Ok(hashes)
+}
+
+fn hash_generator_function(
+    name: &str,
+    functions: &HashMap<String, GeneratorFunction>,
+    interpreter_hash: u128,
+    hashes: &mut HashMap<String, GeneratorFingerprint>,
+    active: &mut Vec<String>,
+) -> Result<GeneratorFingerprint, String> {
+    if let Some(hash) = hashes.get(name) {
+        return Ok(hash.clone());
+    }
+    if active.iter().any(|entry| entry == name) {
+        let mut chain = active.join(" -> ");
+        if !chain.is_empty() {
+            chain.push_str(" -> ");
+        }
+        chain.push_str(name);
+        return Err(format!(
+            "recursive generator function calls are not allowed: {chain}"
+        ));
+    }
+    let function = functions
+        .get(name)
+        .ok_or_else(|| format!("unknown generator function '{name}'"))?;
+    active.push(name.to_owned());
+    let mut calls = Vec::new();
+    collect_generator_function_calls(&function.body, &mut calls);
+    calls.sort();
+    calls.dedup();
+    let definition = format!(
+        "lim-generator-function-v1\ninterpreter={interpreter_hash:032x}\nname={name}\nparameters={:?}\nbody={:?}",
+        function.parameters, function.body
+    );
+    let mut hash_material = definition.clone();
+    for called in &calls {
+        match functions.get(called) {
+            Some(_) => {
+                let fingerprint =
+                    hash_generator_function(called, functions, interpreter_hash, hashes, active)?;
+                hash_material.push_str(&format!("\ncall={called}:{:032x}", fingerprint.hash));
+            }
+            None => hash_material.push_str(&format!("\nmissing-call={called}")),
+        }
+    }
+    active.pop();
+    let fingerprint = GeneratorFingerprint {
+        hash: stable_hash(hash_material.as_bytes()),
+        material: definition,
+        dependencies: calls,
+    };
+    hashes.insert(name.to_owned(), fingerprint.clone());
+    Ok(fingerprint)
+}
+
+fn generator_hashes(
+    generators: &HashMap<String, Generator>,
+    function_hashes: &HashMap<String, GeneratorFingerprint>,
+    interpreter_hash: u128,
+) -> HashMap<String, GeneratorFingerprint> {
+    generators
+        .iter()
+        .map(|(name, generator)| {
+            let mut calls = Vec::new();
+            collect_generator_function_calls(&generator.body, &mut calls);
+            calls.sort();
+            calls.dedup();
+            let definition = format!(
+                "lim-generator-v1\ninterpreter={interpreter_hash:032x}\nname={name}\nparameters={:?}\nbody={:?}",
+                generator.parameters, generator.body
+            );
+            let mut closure = HashSet::new();
+            let mut pending = calls.clone();
+            while let Some(called) = pending.pop() {
+                if !closure.insert(called.clone()) {
+                    continue;
+                }
+                if let Some(fingerprint) = function_hashes.get(&called) {
+                    pending.extend(fingerprint.dependencies.iter().cloned());
+                }
+            }
+            let mut closure = closure.into_iter().collect::<Vec<_>>();
+            closure.sort();
+            let mut material = definition.clone();
+            let mut hash_material = definition;
+            for called in closure {
+                match function_hashes.get(&called) {
+                    Some(fingerprint) => {
+                        material.push_str(&format!(
+                            "\nhelper={called}:{}:{}",
+                            fingerprint.material.len(),
+                            fingerprint.material
+                        ));
+                    }
+                    None => material.push_str(&format!("\nmissing-helper={called}")),
+                }
+            }
+            for called in &calls {
+                match function_hashes.get(called) {
+                    Some(fingerprint) => {
+                        hash_material.push_str(&format!("\ncall={called}:{:032x}", fingerprint.hash));
+                    }
+                    None => hash_material.push_str(&format!("\nmissing-call={called}")),
+                }
+            }
+            (
+                name.clone(),
+                GeneratorFingerprint {
+                    hash: stable_hash(hash_material.as_bytes()),
+                    material,
+                    dependencies: calls,
+                },
             )
         })
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!(
-        "runtime={:032x}\n{definitions}",
-        stable_hash(include_bytes!("generator.rs"))
-    ) + &function_definitions
+        .collect()
+}
+
+fn collect_generator_function_calls(expression: &Expr, calls: &mut Vec<String>) {
+    match expression {
+        Expr::List(items) => {
+            let Some(Expr::Symbol(operator)) = items.first() else {
+                return;
+            };
+            match operator.as_str() {
+                "#gn-call" => {
+                    if let Some(Expr::Symbol(name)) = items.get(1) {
+                        calls.push(name.clone());
+                    }
+                    for argument in items.iter().skip(2) {
+                        collect_generator_function_calls(argument, calls);
+                    }
+                }
+                "#gn-if" | "#gn-equal" | "#gn-symbol?" | "#gn-list?" | "#gn-symbol"
+                | "#gn-list" | "#gn-first" | "#gn-rest" | "#gn-for-each" | "#gn-error" => {
+                    for argument in items.iter().skip(1) {
+                        collect_generator_function_calls(argument, calls);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Expr::QuasiQuote(template) => collect_template_function_calls(template, 1, calls),
+        Expr::Unquote(inner) | Expr::UnquoteSplicing(inner) => {
+            collect_generator_function_calls(inner, calls)
+        }
+        Expr::Quote(_) | Expr::Labeled { .. } | Expr::Block(_) | Expr::Loop(_) => {}
+        Expr::Symbol(_)
+        | Expr::Integer(_)
+        | Expr::UnsignedInteger(_)
+        | Expr::Float(_)
+        | Expr::Char(_)
+        | Expr::String(_)
+        | Expr::At => {}
+    }
+}
+
+fn collect_template_function_calls(expression: &Expr, depth: usize, calls: &mut Vec<String>) {
+    match expression {
+        Expr::QuasiQuote(inner) => collect_template_function_calls(inner, depth + 1, calls),
+        Expr::Unquote(inner) | Expr::UnquoteSplicing(inner) if depth == 1 => {
+            collect_generator_function_calls(inner, calls)
+        }
+        Expr::Unquote(inner) | Expr::UnquoteSplicing(inner) => {
+            collect_template_function_calls(inner, depth - 1, calls)
+        }
+        Expr::List(items) => {
+            for item in items {
+                collect_template_function_calls(item, depth, calls);
+            }
+        }
+        Expr::Block(_) | Expr::Loop(_) | Expr::Quote(_) | Expr::Labeled { .. } => {}
+        Expr::Symbol(_)
+        | Expr::Integer(_)
+        | Expr::UnsignedInteger(_)
+        | Expr::Float(_)
+        | Expr::Char(_)
+        | Expr::String(_)
+        | Expr::At => {}
+    }
 }
 
 fn cache_path(directory: &Path, key: &str) -> PathBuf {
@@ -354,7 +513,7 @@ fn stable_hash(bytes: &[u8]) -> u128 {
     hash
 }
 
-fn read_cached_expansion(directory: &Path, key: &str) -> Option<CachedExpansion> {
+fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<Expr>> {
     let bytes = fs::read(cache_path(directory, key)).ok()?;
     let mut cursor = 0;
     let key_length = read_cache_length(&bytes, &mut cursor)?;
@@ -363,31 +522,14 @@ fn read_cached_expansion(directory: &Path, key: &str) -> Option<CachedExpansion>
         return None;
     }
     cursor = key_end;
-    let count = read_cache_length(&bytes, &mut cursor)?;
-    if count > bytes.len().saturating_sub(cursor) / 8 {
-        return None;
-    }
-    let mut invocations = Vec::with_capacity(count);
-    for _ in 0..count {
-        let length = read_cache_length(&bytes, &mut cursor)?;
-        let end = cursor.checked_add(length)?;
-        invocations.push(
-            std::str::from_utf8(bytes.get(cursor..end)?)
-                .ok()?
-                .to_owned(),
-        );
-        cursor = end;
-    }
     let source = std::str::from_utf8(bytes.get(cursor..)?).ok()?;
-    let expressions = crate::parse(source)
-        .ok()?
-        .into_iter()
-        .map(|expression| expression.expr)
-        .collect();
-    Some(CachedExpansion {
-        expressions,
-        invocations,
-    })
+    Some(
+        crate::parse(source)
+            .ok()?
+            .into_iter()
+            .map(|expression| expression.expr)
+            .collect(),
+    )
 }
 
 fn read_cache_length(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
@@ -397,12 +539,7 @@ fn read_cache_length(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
     usize::try_from(length).ok()
 }
 
-fn write_cached_expansion(
-    directory: &Path,
-    key: &str,
-    expressions: &[Expr],
-    invocations: &HashSet<String>,
-) {
+fn write_cached_expansion(directory: &Path, key: &str, expressions: &[Expr]) {
     let source = expressions
         .iter()
         .map(crate::expression_source)
@@ -434,13 +571,6 @@ fn write_cached_expansion(
     let mut contents = Vec::with_capacity(16 + key.len() + source.len());
     contents.extend_from_slice(&(key.len() as u64).to_le_bytes());
     contents.extend_from_slice(key.as_bytes());
-    let mut invocations = invocations.iter().collect::<Vec<_>>();
-    invocations.sort();
-    contents.extend_from_slice(&(invocations.len() as u64).to_le_bytes());
-    for invocation in invocations {
-        contents.extend_from_slice(&(invocation.len() as u64).to_le_bytes());
-        contents.extend_from_slice(invocation.as_bytes());
-    }
     contents.extend_from_slice(source.as_bytes());
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
     if fs::write(&temporary, contents).is_ok() {
@@ -744,6 +874,7 @@ mod tests {
             &mut ExpansionContext {
                 generators: &HashMap::new(),
                 functions: &HashMap::new(),
+                generator_fingerprints: HashMap::new(),
                 active_functions: Vec::new(),
                 active: Vec::new(),
                 seen_invocations: HashSet::new(),
@@ -751,9 +882,7 @@ mod tests {
                     evaluation_steps: MAX_EVALUATION_STEPS,
                     generated_nodes: 0,
                 },
-                invocation_traces: Vec::new(),
                 cache_hits: 0,
-                dependency_context: String::new(),
                 cache_dir: None,
             },
         )
@@ -765,7 +894,7 @@ mod tests {
     fn generated_syntax_cache_hits_and_invalidates_for_generator_dependencies() {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-cache-{}", std::process::id()));
-        let source = "(#gn-fn make-alias (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (#generator alias (name) (#gn-call make-alias name)) (#generator forward (call) (#gn-list call)) (@forward (@alias CachedType)) (@alias CachedType)";
+        let source = "(#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (#gn-fn make-alias (name) `,(#gn-call make-type name)) (#gn-fn unused (name) (#gn-list name)) (#generator alias (name) (#gn-call make-alias name)) (#generator forward (call) (#gn-list call)) (#generator spare (name) (#gn-list name)) (@forward (@alias CachedType)) (@alias CachedType)";
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) =
@@ -779,12 +908,28 @@ mod tests {
             second_hits >= 1,
             "an identical generator call should hit disk cache"
         );
-        assert_eq!(second, first);
+        let syntax = |forms: &[SpannedExpr]| {
+            forms
+                .iter()
+                .map(|form| form.expr.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(syntax(&second), syntax(&first));
         assert_eq!(
             second.len(),
             1,
-            "cached dependency traces preserve deduplication"
+            "cached raw forms still expand and deduplicate nested invocations"
         );
+
+        let unrelated_change = source.replace("(#gn-list name)", "(#gn-list name name)");
+        let ((unrelated, _), unrelated_hits) =
+            expand_with_generated_cached_and_hits(parse_forms(&unrelated_change), Some(&directory))
+                .unwrap();
+        assert!(
+            unrelated_hits >= 2,
+            "changing an unrelated helper should preserve both cache hits"
+        );
+        assert_eq!(syntax(&unrelated), syntax(&second));
 
         let changed_dependency = source.replace("name u64", "name u32");
         let ((changed, _), changed_hits) = expand_with_generated_cached_and_hits(
@@ -792,10 +937,7 @@ mod tests {
             Some(&directory),
         )
         .unwrap();
-        assert_eq!(
-            changed_hits, 0,
-            "changing a generator dependency invalidates cache entries"
-        );
+        assert_eq!(changed_hits, 1, "only the dependent invocation should miss");
         assert_ne!(changed, second);
         let _ = std::fs::remove_dir_all(directory);
     }
