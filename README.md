@@ -37,22 +37,22 @@ identifiers in the imported source:
 Repeated imports with the same canonical path and mode/prefix are loaded once.
 See `examples/imports.lim` for a complete example.
 
-The command-line parser reads a file passed as its first argument, or reads
-standard input, and prints the parsed AST. Lim has one canonical syntax, with
-all builtin forms and operators prefixed by `#`:
+Compile a Lim source file directly to a native binary. By default the binary
+uses the input file's name without its `.lim` extension; pass `-o` to choose
+another path. Run inside the Nix dev shell so `clang` is available:
 
 ```sh
-printf '%s\n' '(@optional MyType MyType?)' | nix develop --command cargo run
-printf '%s\n' '(#fn main () u64 (#return 42))' | nix develop --command cargo run
+nix develop --command cargo run -- examples/fibonacci.lim
+./examples/fibonacci
+# exits with 55
 ```
 
-Emit x86-64 assembly with the native backend:
+Lim's canonical syntax prefixes all builtin forms and operators with `#`.
+Choose an output path explicitly or emit assembly for inspection with:
 
 ```sh
+nix develop --command cargo run -- examples/fibonacci.lim -o /tmp/fibonacci
 nix develop --command cargo run -- --emit-asm examples/fibonacci.lim /tmp/fibonacci.s
-cc /tmp/fibonacci.s -o /tmp/fibonacci
-/tmp/fibonacci
-# exits with 55
 ```
 
 Run the complete native example sweep inside the development shell:

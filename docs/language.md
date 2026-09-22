@@ -176,19 +176,20 @@ nix develop --command cargo test --all-targets
 nix develop --command cargo doc --no-deps --open
 ```
 
-To compile Lim source to a native executable, first emit assembly and then
-assemble/link it with the compiler toolchain in the dev shell:
+Compile Lim source directly to a native executable with Clang from the Nix
+development shell. By default, the output is placed beside the input and uses
+the input filename without its extension. `-o` selects a different path:
 
 ```sh
-nix develop --command cargo run -- \
-  --emit-asm examples/fibonacci.lim /tmp/fibonacci.s
-nix develop --command clang /tmp/fibonacci.s -o /tmp/fibonacci
+nix develop --command cargo run -- examples/fibonacci.lim
+nix develop --command cargo run -- examples/fibonacci.lim -o /tmp/fibonacci
 /tmp/fibonacci
 echo $? # 55 for the Fibonacci example
 ```
 
-`--emit-asm` takes `INPUT OUTPUT`. Generated `@` declarations are
-materialized under `.lim/` beside the input source.
+`--emit-asm INPUT OUTPUT` remains available to inspect backend output.
+Generated `@` declarations are materialized under `.lim/` beside the input
+source in either mode.
 
 ## User-defined generators
 
