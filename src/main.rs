@@ -27,11 +27,15 @@ fn main() -> ExitCode {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(".lim");
-        if let Err(error) = lim::write_generated_sources(&input, &generated_directory) {
+        if let Err(error) = lim::write_generated_sources_from_path(
+            &input,
+            Path::new(input_path),
+            &generated_directory,
+        ) {
             eprintln!("lim: {error}");
             return ExitCode::FAILURE;
         }
-        let program = match lim::parse_program(&input) {
+        let program = match lim::parse_program_from_path(&input, Path::new(input_path)) {
             Ok(program) => program,
             Err(error) => {
                 eprintln!("lim: {error}");

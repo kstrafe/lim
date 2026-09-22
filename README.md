@@ -19,6 +19,18 @@ nix develop
 cargo test --all-targets
 ```
 
+Source files can import another Lim file relative to their own path. `#import`
+keeps imported identifiers unchanged; `#import-external` prefixes all
+identifiers in the imported source:
+
+```lisp
+(#import "shared.lim")
+(#import-external "compat.lim" compat-)
+```
+
+Repeated imports with the same canonical path and mode/prefix are loaded once.
+See `examples/imports.lim` for a complete example.
+
 The command-line parser reads a file passed as its first argument, or reads
 standard input, and prints the parsed AST. Lim has one canonical syntax, with
 all builtin forms and operators prefixed by `#`:

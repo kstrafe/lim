@@ -14,6 +14,17 @@ struct Signature {
 }
 
 pub fn check_types(program: &Program) -> Result<(), String> {
+    let mut declared_types = HashSet::new();
+    for item in &program.items {
+        match item {
+            Item::TypeAlias { name, .. } | Item::Struct { name, .. } | Item::Enum { name, .. }
+                if !declared_types.insert(name) =>
+            {
+                return Err(format!("duplicate type name '{name}'"));
+            }
+            _ => {}
+        }
+    }
     let mut aliases = HashMap::new();
     for item in &program.items {
         if let Item::TypeAlias { name, target, .. } = item {

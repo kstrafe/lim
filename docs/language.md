@@ -130,6 +130,25 @@ fails expansion with the supplied message. Generators cannot perform IO or
 call runtime functions. Recursive expansion is rejected. Generated forms
 then go through normal parsing and type checking.
 
+## Imports
+
+Imports load Lim source relative to the importing file. Internal imports keep
+identifiers unchanged. External imports prefix user identifiers from the
+imported source (including types, functions, fields, variants, and local
+bindings); builtin forms and primitive types are unchanged:
+
+```lisp
+(#import "shared.lim")
+(#import-external "compat.lim" compat-)
+```
+
+The external prefix is a symbol prefix, conventionally ending in `-`. Imports
+are expanded before generator expansion and ordinary type checking. Repeated
+imports of the same canonical path with the same mode and prefix are
+deduplicated; cycles are rejected. Imported declarations participate in the
+same compilation and duplicate-name checks as declarations in the root file.
+See `examples/imports.lim`.
+
 ## Lexical syntax
 
 Whitespace separates tokens.  `;` starts a line comment.  A line beginning

@@ -2,8 +2,8 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt, fs,
-    path::Path,
+    env, fmt, fs,
+    path::{Path, PathBuf},
 };
 
 mod borrowcheck;
@@ -666,7 +666,20 @@ pub struct Program {
 /// The lower-level [`parse`] function remains available for raw S-expressions
 /// that have not acquired a language-level meaning yet.
 pub fn parse_program(source: &str) -> Result<Program, String> {
-    let expressions = generator::expand(parse(source)?)?;
+    let base =
+        env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
+    parse_program_in_directory(source, &base)
+}
+
+/// Parse a Lim program while resolving file imports relative to `source_path`.
+pub fn parse_program_from_path(source: &str, source_path: &Path) -> Result<Program, String> {
+    let base = source_path.parent().unwrap_or_else(|| Path::new("."));
+    parse_program_in_directory(source, base)
+}
+
+fn parse_program_in_directory(source: &str, base: &Path) -> Result<Program, String> {
+    let loaded = load_imports(source, base)?;
+    let expressions = generator::expand(loaded)?;
     let mut items = Vec::with_capacity(expressions.len());
     for expression in expressions {
         validate_prefixed_forms(&expression.expr)?;
@@ -1139,6 +1152,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "ptr"
             | "ptr-mut"
             | "generator"
+            | "import"
+            | "import-external"
             | "gn-if"
             | "gn-equal"
             | "gn-symbol?"
@@ -1214,15 +1229,246 @@ fn normalize_keywords(expression: Expr) -> Expr {
     }
 }
 
+fn load_imports(source: &str, base: &Path) -> Result<Vec<SpannedExpr>, String> {
+    let mut active = Vec::new();
+    let mut loaded = HashSet::new();
+    load_imports_inner(source, base, &mut active, &mut loaded)
+}
+
+fn load_imports_inner(
+    source: &str,
+    base: &Path,
+    active: &mut Vec<PathBuf>,
+    loaded: &mut HashSet<String>,
+) -> Result<Vec<SpannedExpr>, String> {
+    let expressions = parse(source).map_err(|error| format!("{}: {error}", base.display()))?;
+    let mut result = Vec::new();
+    for expression in expressions {
+        let Some(specification) = import_form(&expression.expr)? else {
+            result.push(expression);
+            continue;
+        };
+        let unresolved_path = base.join(specification.path);
+        let path = fs::canonicalize(&unresolved_path).map_err(|error| {
+            format!(
+                "{}:{}:{}: cannot resolve import '{}': {error}",
+                base.display(),
+                expression.span.line,
+                expression.span.column,
+                unresolved_path.display()
+            )
+        })?;
+        if active.contains(&path) {
+            let mut cycle = active
+                .iter()
+                .map(|entry| entry.display().to_string())
+                .collect::<Vec<_>>();
+            cycle.push(path.display().to_string());
+            return Err(format!("import cycle: {}", cycle.join(" -> ")));
+        }
+        let key = format!(
+            "{}:{}:{}",
+            path.display(),
+            if specification.external {
+                "external"
+            } else {
+                "internal"
+            },
+            specification.prefix.unwrap_or("")
+        );
+        if !loaded.insert(key) {
+            continue;
+        }
+        let imported_source = fs::read_to_string(&path)
+            .map_err(|error| format!("cannot read import '{}': {error}", path.display()))?;
+        active.push(path.clone());
+        let mut imported = load_imports_inner(
+            &imported_source,
+            path.parent().unwrap_or_else(|| Path::new(".")),
+            active,
+            loaded,
+        )?;
+        active.pop();
+        if let Some(prefix) = specification.prefix {
+            let generator_names = imported
+                .iter()
+                .filter_map(|form| match &form.expr {
+                    Expr::List(items)
+                        if matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "#generator") =>
+                    {
+                        items.get(1).and_then(|name| match name {
+                            Expr::Symbol(name) => Some(name.clone()),
+                            _ => None,
+                        })
+                    }
+                    _ => None,
+                })
+                .collect::<HashSet<_>>();
+            for form in &mut imported {
+                prefix_expression(&mut form.expr, prefix, &generator_names);
+            }
+        }
+        result.extend(imported);
+    }
+    Ok(result)
+}
+
+struct ImportSpec<'a> {
+    external: bool,
+    path: &'a str,
+    prefix: Option<&'a str>,
+}
+
+fn import_form(expression: &Expr) -> Result<Option<ImportSpec<'_>>, String> {
+    let Expr::List(items) = expression else {
+        return Ok(None);
+    };
+    let Some(Expr::Symbol(operator)) = items.first() else {
+        return Ok(None);
+    };
+    match operator.as_str() {
+        "#import" => {
+            if items.len() != 2 {
+                return Err("#import requires one string path".into());
+            }
+            match items.get(1) {
+                Some(Expr::String(path)) => Ok(Some(ImportSpec {
+                    external: false,
+                    path,
+                    prefix: None,
+                })),
+                _ => Err("#import path must be a string literal".into()),
+            }
+        }
+        "#import-external" => {
+            if items.len() != 3 {
+                return Err("#import-external requires a string path and symbol prefix".into());
+            }
+            let path = match items.get(1) {
+                Some(Expr::String(path)) => path,
+                _ => return Err("#import-external path must be a string literal".into()),
+            };
+            let prefix = match items.get(2) {
+                Some(Expr::Symbol(prefix)) if !prefix.is_empty() && !prefix.starts_with('#') => {
+                    prefix.as_str()
+                }
+                _ => return Err("#import-external prefix must be an identifier prefix".into()),
+            };
+            Ok(Some(ImportSpec {
+                external: true,
+                path,
+                prefix: Some(prefix),
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn prefix_expression(expression: &mut Expr, prefix: &str, generator_names: &HashSet<String>) {
+    match expression {
+        Expr::Symbol(name) => {
+            if !name.starts_with('#') && !is_unprefixed_builtin_name(name) {
+                *name = format!("{prefix}{name}");
+            }
+        }
+        Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "#gn-symbol") {
+                for item in items.iter_mut().skip(1) {
+                    match item {
+                        Expr::String(name)
+                            if !name.starts_with('#') && !is_unprefixed_builtin_name(name) =>
+                        {
+                            *name = format!("{prefix}{name}");
+                        }
+                        other => prefix_expression(other, prefix, generator_names),
+                    }
+                }
+                return;
+            }
+            let is_generated_call = matches!(items.first(), Some(Expr::At));
+            for (index, item) in items.iter_mut().enumerate() {
+                if is_generated_call && index == 1 {
+                    if let Expr::Symbol(name) = item {
+                        if generator_names.contains(name) {
+                            *name = format!("{prefix}{name}");
+                        }
+                    }
+                } else {
+                    prefix_expression(item, prefix, generator_names);
+                }
+            }
+        }
+        Expr::Quote(value) => prefix_expression(value, prefix, generator_names),
+        Expr::Block(_)
+        | Expr::Loop(_)
+        | Expr::Labeled { .. }
+        | Expr::Integer(_)
+        | Expr::UnsignedInteger(_)
+        | Expr::Float(_)
+        | Expr::Char(_)
+        | Expr::String(_)
+        | Expr::At => {}
+    }
+}
+
+fn is_unprefixed_builtin_name(name: &str) -> bool {
+    is_builtin_form(name)
+        || is_operator_symbol(name)
+        || matches!(
+            name,
+            "true"
+                | "false"
+                | "_"
+                | "()"
+                | "!"
+                | "bool"
+                | "char"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "i128"
+                | "isize"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "u128"
+                | "usize"
+                | "f32"
+                | "f64"
+        )
+}
+
 /// Materialize built-in generated declarations as source files.
 ///
 /// Expansion remains part of parse_program; this helper gives command-line
 /// builds an inspectable cache of generated Lim source under .lim/.
 pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), String> {
-    let expressions = parse(source)?;
-    let (_, user_generated) = generator::expand_with_generated(expressions.clone())?;
+    let base =
+        env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
+    write_generated_sources_in_directory(source, &base, directory)
+}
+
+/// Materialize generated source while resolving imports relative to `source_path`.
+pub fn write_generated_sources_from_path(
+    source: &str,
+    source_path: &Path,
+    directory: &Path,
+) -> Result<(), String> {
+    let base = source_path.parent().unwrap_or_else(|| Path::new("."));
+    write_generated_sources_in_directory(source, base, directory)
+}
+
+fn write_generated_sources_in_directory(
+    source: &str,
+    base: &Path,
+    directory: &Path,
+) -> Result<(), String> {
+    let expressions = load_imports(source, base)?;
+    let (expanded, user_generated) = generator::expand_with_generated(expressions.clone())?;
     let mut generated = Vec::new();
-    for expression in expressions {
+    for expression in expanded {
         let Expr::List(forms) = expression.expr else {
             continue;
         };
@@ -3393,6 +3639,55 @@ mod tests {
         let recursive =
             parse_program("(#generator repeat () (#gn-list (@repeat))) (@repeat)").unwrap_err();
         assert!(recursive.contains("recursive generator expansion is not allowed"));
+    }
+
+    #[test]
+    fn loads_internal_and_prefixes_external_imports() {
+        let directory = std::env::temp_dir().join(format!("lim-imports-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let module_path = directory.join("definitions.lim");
+        std::fs::write(
+            &module_path,
+            "(#struct Thing ((value u64))) (#fn read-value ((thing Thing)) u64 (#return (#get thing value))) (#generator make-alias (alias target) (#gn-list (#gn-list (#gn-symbol \"#type\") alias target))) (@make-alias GeneratedAlias u64)",
+        )
+        .unwrap();
+        let root_path = directory.join("root.lim");
+        let program_source = "(#import \"definitions.lim\") (#import-external \"definitions.lim\" ext-) (#import-external \"definitions.lim\" ext-) (#fn main () u64 (#return (#u64.+.wrap (read-value (Thing 20)) (ext-read-value (ext-Thing 22)))))";
+        let program = parse_program_from_path(program_source, &root_path).unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(program
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::TypeAlias { name, .. } if name == "GeneratedAlias")));
+        assert!(program.items.iter().any(
+            |item| matches!(item, Item::TypeAlias { name, .. } if name == "ext-GeneratedAlias")
+        ));
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains(".globl read_x2d_value"));
+        assert!(assembly.contains(".globl ext_x2d_read_x2d_value"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn rejects_import_cycles_and_malformed_imports() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-import-cycle-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("a.lim"), "(#import \"b.lim\")").unwrap();
+        std::fs::write(directory.join("b.lim"), "(#import \"a.lim\")").unwrap();
+        let error =
+            parse_program_from_path("(#import \"b.lim\")", &directory.join("a.lim")).unwrap_err();
+        assert!(error.contains("import cycle"));
+        assert!(parse_program("(#import-external \"module.lim\")").is_err());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn enforces_one_compilation_wide_type_name_space() {
+        let program = parse_program("(#type Shared u64) (#struct Shared ())").unwrap();
+        assert!(check_types(&program)
+            .unwrap_err()
+            .contains("duplicate type name 'Shared'"));
     }
 
     #[test]
