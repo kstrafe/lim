@@ -145,16 +145,23 @@ fn compile(
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join(".lim");
-    if let Err(error) = lim::write_generated_sources_from_path_with_config(
+    let generator_cache_directory = generated_directory.join("cache");
+    if let Err(error) = lim::write_generated_sources_from_path_with_config_and_cache(
         &input,
         input_file,
         &generated_directory,
         config,
+        &generator_cache_directory,
     ) {
         eprintln!("lim: {error}");
         return ExitCode::FAILURE;
     }
-    let program = match lim::parse_program_from_path_with_config(&input, input_file, config) {
+    let program = match lim::parse_program_from_path_with_config_and_cache(
+        &input,
+        input_file,
+        config,
+        &generator_cache_directory,
+    ) {
         Ok(program) => program,
         Err(error) => {
             eprintln!("lim: {error}");

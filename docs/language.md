@@ -189,7 +189,9 @@ echo $? # 55 for the Fibonacci example
 
 `--emit-asm INPUT OUTPUT` remains available to inspect backend output.
 Generated `@` declarations are materialized under `.lim/` beside the input
-source in either mode.
+source in either mode. User-generator expansions are persistently cached under
+`.lim/cache/`; matching calls reuse their expanded syntax without rerunning the
+generator interpreter.
 
 ## Compile-time configuration
 
@@ -691,8 +693,15 @@ free-standing helpers:
 - `Name-is-ok`;
 - `Name-unwrap-or` and `Name-unwrap-err-or`.
 
-Expansion is part of program parsing.  The command-line assembly path also
-writes readable generated Lim source files into `.lim/` beside the input.
+Expansion is part of program parsing. The command-line compiler writes
+readable generated Lim source files into `.lim/` beside the input, and stores
+content-addressed user-generator expansion entries under `.lim/cache/`. A hit
+requires identical literal arguments, generator definitions, and generator
+interpreter implementation. The cache fingerprints the loaded generator
+registry conservatively, so changing any generator definition can invalidate
+entries even if that generator was unrelated to the particular call. Invalid
+or stale cache files are ignored and recomputed. The `.lim/` directory is
+build output; deleting it only causes generators to run again.
 Generated declarations are not methods and do not introduce namespaces.
 Nested generated expressions are reserved for future generated forms.
 

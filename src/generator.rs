@@ -1,6 +1,10 @@
 //! Pure, immutable syntax generators used by `@name` declarations.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::{Expr, Span, SpannedExpr};
 
@@ -22,14 +26,20 @@ enum Value {
 }
 
 type Environment = HashMap<String, Expr>;
+type ExpandedForms = (Vec<SpannedExpr>, Vec<Expr>);
+type ExpandedFormsWithHits = (ExpandedForms, usize);
 
-pub(crate) fn expand(expressions: Vec<SpannedExpr>) -> Result<Vec<SpannedExpr>, String> {
-    expand_with_generated(expressions).map(|(expressions, _)| expressions)
+pub(crate) fn expand_with_generated_cached(
+    expressions: Vec<SpannedExpr>,
+    cache_dir: Option<&Path>,
+) -> Result<(Vec<SpannedExpr>, Vec<Expr>), String> {
+    expand_with_generated_cached_and_hits(expressions, cache_dir).map(|(result, _)| result)
 }
 
-pub(crate) fn expand_with_generated(
+fn expand_with_generated_cached_and_hits(
     expressions: Vec<SpannedExpr>,
-) -> Result<(Vec<SpannedExpr>, Vec<Expr>), String> {
+    cache_dir: Option<&Path>,
+) -> Result<ExpandedFormsWithHits, String> {
     let mut generators = HashMap::new();
     let mut remaining = Vec::new();
     for expression in expressions {
@@ -47,13 +57,22 @@ pub(crate) fn expand_with_generated(
         remaining.push(expression);
     }
 
+    let dependency_context = generator_dependency_context(&generators);
+    let mut context = ExpansionContext {
+        generators: &generators,
+        active: Vec::new(),
+        seen_invocations: HashSet::new(),
+        budget: Budget {
+            evaluation_steps: MAX_EVALUATION_STEPS,
+            generated_nodes: 0,
+        },
+        invocation_traces: Vec::new(),
+        cache_hits: 0,
+        dependency_context,
+        cache_dir,
+    };
     let mut output = Vec::new();
     let mut generated = Vec::new();
-    let mut seen_invocations = HashSet::new();
-    let mut budget = Budget {
-        evaluation_steps: MAX_EVALUATION_STEPS,
-        generated_nodes: 0,
-    };
     for expression in remaining {
         let is_user_invocation = match &expression.expr {
             Expr::List(items) if matches!(items.first(), Some(Expr::At)) => items
@@ -65,22 +84,16 @@ pub(crate) fn expand_with_generated(
                 .unwrap_or(false),
             _ => false,
         };
-        let mut active = Vec::new();
-        let expanded = expand_top(
-            expression.expr,
-            &generators,
-            &mut active,
-            &mut seen_invocations,
-            &mut budget,
-        )
-        .map_err(|error| at_span(error, expression.span, "generator expansion"))?;
+        let expanded = expand_top(expression.expr, &mut context)
+            .map_err(|error| at_span(error, expression.span, "generator expansion"))?;
         if is_user_invocation {
             for form in &expanded {
-                budget.generated_nodes = budget
+                context.budget.generated_nodes = context
+                    .budget
                     .generated_nodes
                     .saturating_add(expression_nodes(form));
             }
-            if budget.generated_nodes > MAX_GENERATED_NODES {
+            if context.budget.generated_nodes > MAX_GENERATED_NODES {
                 return Err(at_span(
                     format!(
                         "generator output exceeds maximum of {MAX_GENERATED_NODES} syntax nodes"
@@ -96,7 +109,7 @@ pub(crate) fn expand_with_generated(
             span: expression.span,
         }));
     }
-    Ok((output, generated))
+    Ok(((output, generated), context.cache_hits))
 }
 
 fn parse_generator(items: &[Expr], span: Span) -> Result<Generator, String> {
@@ -131,13 +144,23 @@ struct Budget {
     generated_nodes: usize,
 }
 
-fn expand_top(
-    expression: Expr,
-    generators: &HashMap<String, Generator>,
-    active: &mut Vec<String>,
-    seen_invocations: &mut HashSet<String>,
-    budget: &mut Budget,
-) -> Result<Vec<Expr>, String> {
+struct CachedExpansion {
+    expressions: Vec<Expr>,
+    invocations: Vec<String>,
+}
+
+struct ExpansionContext<'a> {
+    generators: &'a HashMap<String, Generator>,
+    active: Vec<String>,
+    seen_invocations: HashSet<String>,
+    budget: Budget,
+    invocation_traces: Vec<HashSet<String>>,
+    cache_hits: usize,
+    dependency_context: String,
+    cache_dir: Option<&'a Path>,
+}
+
+fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Vec<Expr>, String> {
     let Expr::List(items) = &expression else {
         return Ok(vec![expression]);
     };
@@ -147,12 +170,12 @@ fn expand_top(
     let Some(Expr::Symbol(name)) = items.get(1) else {
         return Err("generator invocation requires a name after '@'".into());
     };
-    let Some(generator) = generators.get(name) else {
+    let Some(generator) = context.generators.get(name) else {
         // Built-in declarations such as @optional are handled by the Lim parser.
         return Ok(vec![expression]);
     };
-    if active.iter().any(|entry| entry == name) {
-        let mut chain = active.join(" -> ");
+    if context.active.iter().any(|entry| entry == name) {
+        let mut chain = context.active.join(" -> ");
         if !chain.is_empty() {
             chain.push_str(" -> ");
         }
@@ -168,26 +191,51 @@ fn expand_top(
             items.len() - 2
         ));
     }
-    if active.len() >= MAX_EXPANSION_DEPTH {
+    if context.active.len() >= MAX_EXPANSION_DEPTH {
         return Err(format!(
             "generator expansion exceeds maximum depth of {MAX_EXPANSION_DEPTH}"
         ));
     }
     let invocation_key = format!("{name}:{:?}", &items[2..]);
-    if !seen_invocations.insert(invocation_key) {
+    for trace in context.invocation_traces.iter_mut() {
+        trace.insert(invocation_key.clone());
+    }
+    if !context.seen_invocations.insert(invocation_key) {
         return Ok(Vec::new());
     }
+    let cache_key = format!(
+        "lim-generator-cache-v2\ncompiler={}\ndependencies={}\ngenerator={name}\narguments={:?}",
+        env!("CARGO_PKG_VERSION"),
+        context.dependency_context,
+        &items[2..]
+    );
+    if let Some(cached) = context
+        .cache_dir
+        .and_then(|directory| read_cached_expansion(directory, &cache_key))
+    {
+        context.cache_hits = context.cache_hits.saturating_add(1);
+        for invocation in &cached.invocations {
+            context.seen_invocations.insert(invocation.clone());
+            for trace in context.invocation_traces.iter_mut() {
+                trace.insert(invocation.clone());
+            }
+        }
+        return Ok(cached.expressions);
+    }
+    context
+        .invocation_traces
+        .push(HashSet::from([format!("{name}:{:?}", &items[2..])]));
     let environment = generator
         .parameters
         .iter()
         .cloned()
         .zip(items[2..].iter().cloned())
         .collect();
-    active.push(name.clone());
-    let result = match evaluate(&generator.body, &environment, budget) {
+    context.active.push(name.clone());
+    let result = match evaluate(&generator.body, &environment, &mut context.budget) {
         Ok(result) => result,
         Err(error) => {
-            active.pop();
+            context.active.pop();
             return Err(format!(
                 "@{name} defined at {}:{}: {error}",
                 generator.span.line, generator.span.column
@@ -195,21 +243,151 @@ fn expand_top(
         }
     };
     let Value::Syntax(Expr::List(forms)) = result else {
-        active.pop();
+        context.active.pop();
         return Err(format!("@{name} must return a list of generated forms"));
     };
     let mut expanded = Vec::new();
     for form in forms {
-        match expand_top(form, generators, active, seen_invocations, budget) {
+        match expand_top(form, context) {
             Ok(forms) => expanded.extend(forms),
             Err(error) => {
-                active.pop();
+                context.active.pop();
                 return Err(error);
             }
         }
     }
-    active.pop();
+    context.active.pop();
+    let trace = context.invocation_traces.pop().unwrap_or_default();
+    if let Some(directory) = context.cache_dir {
+        write_cached_expansion(directory, &cache_key, &expanded, &trace);
+    }
     Ok(expanded)
+}
+
+fn generator_dependency_context(generators: &HashMap<String, Generator>) -> String {
+    let mut definitions = generators.iter().collect::<Vec<_>>();
+    definitions.sort_by(|left, right| left.0.cmp(right.0));
+    let definitions = definitions
+        .into_iter()
+        .map(|(name, generator)| format!("{name}:{:?}:{:?}", generator.parameters, generator.body))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "runtime={:032x}\n{definitions}",
+        stable_hash(include_bytes!("generator.rs"))
+    )
+}
+
+fn cache_path(directory: &Path, key: &str) -> PathBuf {
+    // Stable FNV-1a 128-bit naming; the complete key is stored and compared
+    // inside each file, so a digest collision can never produce a false hit.
+    directory.join(format!(
+        "generator-{:032x}.cache",
+        stable_hash(key.as_bytes())
+    ))
+}
+
+fn stable_hash(bytes: &[u8]) -> u128 {
+    let mut hash = 0x6c62272e07bb014262b821756295c58du128;
+    for byte in bytes {
+        hash ^= u128::from(*byte);
+        hash = hash.wrapping_mul(0x0000000001000000000000000000013bu128);
+    }
+    hash
+}
+
+fn read_cached_expansion(directory: &Path, key: &str) -> Option<CachedExpansion> {
+    let bytes = fs::read(cache_path(directory, key)).ok()?;
+    let mut cursor = 0;
+    let key_length = read_cache_length(&bytes, &mut cursor)?;
+    let key_end = cursor.checked_add(key_length)?;
+    if bytes.get(cursor..key_end)? != key.as_bytes() {
+        return None;
+    }
+    cursor = key_end;
+    let count = read_cache_length(&bytes, &mut cursor)?;
+    if count > bytes.len().saturating_sub(cursor) / 8 {
+        return None;
+    }
+    let mut invocations = Vec::with_capacity(count);
+    for _ in 0..count {
+        let length = read_cache_length(&bytes, &mut cursor)?;
+        let end = cursor.checked_add(length)?;
+        invocations.push(
+            std::str::from_utf8(bytes.get(cursor..end)?)
+                .ok()?
+                .to_owned(),
+        );
+        cursor = end;
+    }
+    let source = std::str::from_utf8(bytes.get(cursor..)?).ok()?;
+    let expressions = crate::parse(source)
+        .ok()?
+        .into_iter()
+        .map(|expression| expression.expr)
+        .collect();
+    Some(CachedExpansion {
+        expressions,
+        invocations,
+    })
+}
+
+fn read_cache_length(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
+    let end = cursor.checked_add(8)?;
+    let length = u64::from_le_bytes(bytes.get(*cursor..end)?.try_into().ok()?);
+    *cursor = end;
+    usize::try_from(length).ok()
+}
+
+fn write_cached_expansion(
+    directory: &Path,
+    key: &str,
+    expressions: &[Expr],
+    invocations: &HashSet<String>,
+) {
+    let source = expressions
+        .iter()
+        .map(crate::expression_source)
+        .collect::<Result<Vec<_>, _>>();
+    let Ok(source) = source else {
+        return;
+    };
+    let source = source.join("\n");
+    let path = cache_path(directory, key);
+    if fs::create_dir_all(directory).is_err() {
+        return;
+    }
+    if let Ok(existing) = fs::read(&path) {
+        let mut cursor = 0;
+        if let Some(existing_length) = read_cache_length(&existing, &mut cursor) {
+            if let Some(existing_end) = cursor.checked_add(existing_length) {
+                if let Some(existing_key) = existing.get(cursor..existing_end) {
+                    if existing_key != key.as_bytes()
+                        && std::str::from_utf8(existing_key)
+                            .is_ok_and(|value| cache_path(directory, value) == path)
+                    {
+                        // A genuine digest collision must not overwrite the other entry.
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    let mut contents = Vec::with_capacity(16 + key.len() + source.len());
+    contents.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    contents.extend_from_slice(key.as_bytes());
+    let mut invocations = invocations.iter().collect::<Vec<_>>();
+    invocations.sort();
+    contents.extend_from_slice(&(invocations.len() as u64).to_le_bytes());
+    for invocation in invocations {
+        contents.extend_from_slice(&(invocation.len() as u64).to_le_bytes());
+        contents.extend_from_slice(invocation.as_bytes());
+    }
+    contents.extend_from_slice(source.as_bytes());
+    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+    if fs::write(&temporary, contents).is_ok() {
+        let _ = fs::rename(temporary, path);
+    }
 }
 
 fn evaluate(
@@ -386,5 +564,44 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("exceeds maximum"));
+    }
+
+    #[test]
+    fn generated_syntax_cache_hits_and_invalidates_for_generator_dependencies() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-generator-cache-{}", std::process::id()));
+        let source = "(#generator alias (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (#generator forward (call) (#gn-list call)) (@forward (@alias CachedType)) (@alias CachedType)";
+        let parse_forms = |source: &str| crate::parse(source).unwrap();
+
+        let ((first, _), first_hits) =
+            expand_with_generated_cached_and_hits(parse_forms(source), Some(&directory)).unwrap();
+        assert_eq!(first_hits, 0);
+        assert_eq!(first.len(), 1, "nested duplicate invocations deduplicate");
+
+        let ((second, _), second_hits) =
+            expand_with_generated_cached_and_hits(parse_forms(source), Some(&directory)).unwrap();
+        assert!(
+            second_hits >= 1,
+            "an identical generator call should hit disk cache"
+        );
+        assert_eq!(second, first);
+        assert_eq!(
+            second.len(),
+            1,
+            "cached dependency traces preserve deduplication"
+        );
+
+        let changed_dependency = source.replace("name u64", "name u32");
+        let ((changed, _), changed_hits) = expand_with_generated_cached_and_hits(
+            parse_forms(&changed_dependency),
+            Some(&directory),
+        )
+        .unwrap();
+        assert_eq!(
+            changed_hits, 0,
+            "changing a generator dependency invalidates cache entries"
+        );
+        assert_ne!(changed, second);
+        let _ = std::fs::remove_dir_all(directory);
     }
 }

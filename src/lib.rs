@@ -713,20 +713,20 @@ impl CompileConfig {
 pub fn parse_program(source: &str) -> Result<Program, String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
-    parse_program_in_directory(source, &base, &CompileConfig::default())
+    parse_program_in_directory(source, &base, &CompileConfig::default(), None)
 }
 
 /// Parse a Lim program using explicit compile-time configuration values.
 pub fn parse_program_with_config(source: &str, config: &CompileConfig) -> Result<Program, String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
-    parse_program_in_directory(source, &base, config)
+    parse_program_in_directory(source, &base, config, None)
 }
 
 /// Parse a Lim program while resolving file imports relative to `source_path`.
 pub fn parse_program_from_path(source: &str, source_path: &Path) -> Result<Program, String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    parse_program_in_directory(source, base, &CompileConfig::default())
+    parse_program_in_directory(source, base, &CompileConfig::default(), None)
 }
 
 /// Parse a Lim program while resolving imports and evaluating cfg forms using `config`.
@@ -736,16 +736,31 @@ pub fn parse_program_from_path_with_config(
     config: &CompileConfig,
 ) -> Result<Program, String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    parse_program_in_directory(source, base, config)
+    parse_program_in_directory(source, base, config, None)
+}
+
+/// Parse a source file using cfg settings and a persistent generator cache.
+pub fn parse_program_from_path_with_config_and_cache(
+    source: &str,
+    source_path: &Path,
+    config: &CompileConfig,
+    cache_directory: &Path,
+) -> Result<Program, String> {
+    let base = source_path.parent().unwrap_or_else(|| Path::new("."));
+    parse_program_in_directory(source, base, config, Some(cache_directory))
 }
 
 fn parse_program_in_directory(
     source: &str,
     base: &Path,
     config: &CompileConfig,
+    cache_directory: Option<&Path>,
 ) -> Result<Program, String> {
     let loaded = load_imports(source, base, config)?;
-    let expressions = expand_cfg_forms(generator::expand(loaded)?, config)?;
+    let expressions = expand_cfg_forms(
+        generator::expand_with_generated_cached(loaded, cache_directory)?.0,
+        config,
+    )?;
     let mut items = Vec::with_capacity(expressions.len());
     for expression in expressions {
         validate_prefixed_forms(&expression.expr)?;
@@ -1772,7 +1787,7 @@ fn is_unprefixed_builtin_name(name: &str) -> bool {
 pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
-    write_generated_sources_in_directory(source, &base, directory, &CompileConfig::default())
+    write_generated_sources_in_directory(source, &base, directory, &CompileConfig::default(), None)
 }
 
 /// Materialize generated source while resolving imports relative to `source_path`.
@@ -1782,7 +1797,7 @@ pub fn write_generated_sources_from_path(
     directory: &Path,
 ) -> Result<(), String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    write_generated_sources_in_directory(source, base, directory, &CompileConfig::default())
+    write_generated_sources_in_directory(source, base, directory, &CompileConfig::default(), None)
 }
 
 /// Materialize generated source using the same cfg values as compilation.
@@ -1793,7 +1808,19 @@ pub fn write_generated_sources_from_path_with_config(
     config: &CompileConfig,
 ) -> Result<(), String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    write_generated_sources_in_directory(source, base, directory, config)
+    write_generated_sources_in_directory(source, base, directory, config, None)
+}
+
+/// Materialize generated source using cfg values and a persistent generator cache.
+pub fn write_generated_sources_from_path_with_config_and_cache(
+    source: &str,
+    source_path: &Path,
+    directory: &Path,
+    config: &CompileConfig,
+    cache_directory: &Path,
+) -> Result<(), String> {
+    let base = source_path.parent().unwrap_or_else(|| Path::new("."));
+    write_generated_sources_in_directory(source, base, directory, config, Some(cache_directory))
 }
 
 fn write_generated_sources_in_directory(
@@ -1801,9 +1828,11 @@ fn write_generated_sources_in_directory(
     base: &Path,
     directory: &Path,
     config: &CompileConfig,
+    cache_directory: Option<&Path>,
 ) -> Result<(), String> {
     let expressions = load_imports(source, base, config)?;
-    let (expanded, user_generated) = generator::expand_with_generated(expressions.clone())?;
+    let (expanded, user_generated) =
+        generator::expand_with_generated_cached(expressions.clone(), cache_directory)?;
     let expanded = expand_cfg_forms(expanded, config)?;
     let mut generated = Vec::new();
     for expression in expanded {
@@ -1861,19 +1890,26 @@ fn write_generated_sources_in_directory(
             "result"
         };
         let path = directory.join(format!("{prefix}-{index}.lim"));
-        fs::write(path, source)
+        write_if_changed(&path, source)
             .map_err(|error| format!("cannot write generated source: {error}"))?;
     }
     for (index, expression) in user_generated.iter().enumerate() {
         let source = expression_source(expression)?;
         let path = directory.join(format!("generator-{index}.lim"));
-        fs::write(path, format!("{source}\n"))
+        write_if_changed(&path, &format!("{source}\n"))
             .map_err(|error| format!("cannot write generated source: {error}"))?;
     }
     Ok(())
 }
 
-fn expression_source(expression: &Expr) -> Result<String, String> {
+fn write_if_changed(path: &Path, contents: &str) -> std::io::Result<()> {
+    if fs::read_to_string(path).is_ok_and(|existing| existing == contents) {
+        return Ok(());
+    }
+    fs::write(path, contents)
+}
+
+pub(crate) fn expression_source(expression: &Expr) -> Result<String, String> {
     match expression {
         Expr::List(items) => Ok(format!(
             "({})",
@@ -1887,8 +1923,38 @@ fn expression_source(expression: &Expr) -> Result<String, String> {
         Expr::Integer(value) => Ok(value.to_string()),
         Expr::UnsignedInteger(value) => Ok(value.to_string()),
         Expr::Float(value) => Ok(value.clone()),
-        Expr::Char(value) => Ok(format!("#\\{value}")),
-        Expr::String(value) => Ok(format!("{value:?}")),
+        Expr::Char(value) => Ok(match value {
+            ' ' => "#\\space".into(),
+            '\n' => "#\\newline".into(),
+            '\t' => "#\\tab".into(),
+            '\r' => "#\\return".into(),
+            '\0' => "#\\null".into(),
+            value
+                if value.is_whitespace()
+                    || matches!(value, '(' | ')' | '\'' | '"' | '@' | '#' | ';') =>
+            {
+                format!("#\\u{{{:x}}}", u32::from(*value))
+            }
+            value => format!("#\\{value}"),
+        }),
+        Expr::String(value) => {
+            let mut source = String::from("\"");
+            for character in value.chars() {
+                match character {
+                    '\n' => source.push_str("\\n"),
+                    '\r' => source.push_str("\\r"),
+                    '\t' => source.push_str("\\t"),
+                    '\\' => source.push_str("\\\\"),
+                    '"' => source.push_str("\\\""),
+                    value if value.is_control() => {
+                        source.push_str(&format!("\\u{{{:x}}}", u32::from(value)));
+                    }
+                    value => source.push(value),
+                }
+            }
+            source.push('"');
+            Ok(source)
+        }
         Expr::At => Ok("@".into()),
         Expr::Quote(value) => Ok(format!("'{}", expression_source(value)?)),
         Expr::Block(_) | Expr::Loop(_) | Expr::Labeled { .. } => {
