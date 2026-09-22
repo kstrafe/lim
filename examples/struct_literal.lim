@@ -1,0 +1,12 @@
+(#struct Point
+  ((x u64)
+   (y u64)))
+
+(#fn main () u64
+  (#let point Point
+    (#struct-literal Point
+      ((y 22u64)
+       (x 20u64))))
+  (#return (#u64.+.wrap
+    (#get point x)
+    (#get point y))))

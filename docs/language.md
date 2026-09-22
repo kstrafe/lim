@@ -505,6 +505,21 @@ aggregate local:
 (#set total (#u64.+.wrap total 1u64))
 ```
 
+Structs can be created with keyed fields using `#struct-literal`. Every field
+must be supplied exactly once; fields may appear in any order, and omitted
+fields are not defaulted:
+
+```lisp
+(#struct Point ((x u64) (y u64)))
+(#let point Point
+  (#struct-literal Point
+    ((y 22u64) (x 20u64))))
+```
+
+The compiler lowers this form to the ordinary positional constructor, so it
+has the same ownership and code-generation behavior as `(Point 20u64 22u64)`.
+Unknown, duplicate, or missing fields are compile-time errors.
+
 Aggregate projections can be updated with `#set-index`, `#set-field`, and
 `#set-payload`:
 

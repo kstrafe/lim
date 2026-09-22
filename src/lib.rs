@@ -787,9 +787,181 @@ fn parse_program_in_directory(
         items.push(parse_item(&expression)?);
     }
     rename_shadowed_locals(&mut items);
-    Ok(Program {
-        items: specialize_generic_types(items)?,
-    })
+    let mut items = specialize_generic_types(items)?;
+    normalize_struct_literals(&mut items)?;
+    Ok(Program { items })
+}
+
+/// Turn keyed struct construction into the ordinary positional constructor
+/// representation used by the type checker and backends.  Keeping this as a
+/// source-level normalization means every later compiler phase gets exactly
+/// the same semantics as `(Type value1 value2 ...)`.
+fn normalize_struct_literals(items: &mut [Item]) -> Result<(), String> {
+    let structs = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct { name, fields, .. } => Some((name.clone(), fields.clone())),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+
+    for item in items {
+        match item {
+            Item::Function(function) => {
+                for statement in &mut function.body {
+                    normalize_struct_statement(statement, &structs)?;
+                }
+            }
+            Item::Let { value, .. } | Item::Static { value, .. } => {
+                normalize_struct_expr(value, &structs)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn normalize_struct_statement(
+    statement: &mut Statement,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Result<(), String> {
+    match statement {
+        Statement::Let { value, .. }
+        | Statement::Destructure { value, .. }
+        | Statement::LetElse { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::FieldAssign { value, .. }
+        | Statement::TupleAssign { value, .. }
+        | Statement::EnumPayloadAssign { value, .. }
+        | Statement::BreakValue(value)
+        | Statement::BreakToValue { value, .. }
+        | Statement::Return(Some(value))
+        | Statement::Expr(value) => normalize_struct_expr(value, structs)?,
+        Statement::ArrayAssign { index, value, .. } => {
+            normalize_struct_expr(index, structs)?;
+            normalize_struct_expr(value, structs)?;
+        }
+        Statement::While { condition, body } => {
+            normalize_struct_expr(condition, structs)?;
+            for statement in body {
+                normalize_struct_statement(statement, structs)?;
+            }
+        }
+        Statement::Loop { body } => {
+            for statement in body {
+                normalize_struct_statement(statement, structs)?;
+            }
+        }
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            normalize_struct_statement(init, structs)?;
+            normalize_struct_expr(condition, structs)?;
+            normalize_struct_statement(step, structs)?;
+            for statement in body {
+                normalize_struct_statement(statement, structs)?;
+            }
+        }
+        Statement::Labeled { statement, .. } => normalize_struct_statement(statement, structs)?,
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => {}
+    }
+    if let Statement::LetElse { else_body, .. } = statement {
+        for statement in else_body {
+            normalize_struct_statement(statement, structs)?;
+        }
+    }
+    Ok(())
+}
+
+fn normalize_struct_expr(
+    expression: &mut Expr,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Result<(), String> {
+    if let Expr::List(items) = expression {
+        if matches!(items.first(), Some(Expr::Symbol(name)) if name == "struct-literal") {
+            if items.len() != 3 {
+                return Err(
+                    "struct-literal requires (#struct-literal Type ((field value) ...))".into(),
+                );
+            }
+            let Expr::Symbol(struct_name) = &items[1] else {
+                return Err("struct-literal requires a struct type name".into());
+            };
+            let struct_name = struct_name.clone();
+            let fields = structs
+                .get(&struct_name)
+                .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+            let Expr::List(entries) = &mut items[2] else {
+                return Err("struct-literal fields must be a list of (name value) pairs".into());
+            };
+            let mut values = HashMap::new();
+            for entry in entries.iter_mut() {
+                let Expr::List(pair) = entry else {
+                    return Err("struct-literal fields must have the form (name value)".into());
+                };
+                if pair.len() != 2 {
+                    return Err("struct-literal fields must have the form (name value)".into());
+                }
+                let Expr::Symbol(field_name) = &pair[0] else {
+                    return Err("struct-literal field names must be symbols".into());
+                };
+                let field_name = field_name.clone();
+                normalize_struct_expr(&mut pair[1], structs)?;
+                if values.insert(field_name.clone(), pair[1].clone()).is_some() {
+                    return Err(format!(
+                        "struct-literal '{struct_name}' contains duplicate field '{field_name}'"
+                    ));
+                }
+            }
+            for field in fields {
+                if !values.contains_key(&field.name) {
+                    return Err(format!(
+                        "struct-literal '{struct_name}' is missing field '{}'",
+                        field.name
+                    ));
+                }
+            }
+            if let Some(field_name) = values
+                .keys()
+                .find(|name| !fields.iter().any(|field| &field.name == *name))
+            {
+                return Err(format!(
+                    "struct-literal '{struct_name}' has unknown field '{field_name}'"
+                ));
+            }
+            let mut lowered = Vec::with_capacity(fields.len() + 1);
+            lowered.push(Expr::Symbol(struct_name.clone()));
+            lowered.extend(
+                fields
+                    .iter()
+                    .map(|field| values.remove(&field.name).expect("checked struct field")),
+            );
+            *expression = Expr::List(lowered);
+            return Ok(());
+        }
+        for item in items {
+            normalize_struct_expr(item, structs)?;
+        }
+    } else {
+        match expression {
+            Expr::Block(statements) | Expr::Loop(statements) => {
+                for statement in statements {
+                    normalize_struct_statement(statement, structs)?;
+                }
+            }
+            Expr::Labeled { expression, .. } => normalize_struct_expr(expression, structs)?,
+            Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::Unquote(_) | Expr::UnquoteSplicing(_) => {}
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 fn rename_shadowed_locals(items: &mut [Item]) {
@@ -4833,6 +5005,28 @@ mod tests {
         assert!(check_types(&escaping_field_reference)
             .unwrap_err()
             .contains("cannot return a reference to local variable 'point'"));
+
+        let cloned_local_reference = parse_program(
+            "(#fn bad () (#ref u64) (#let value u64 42) (#let reference (#ref u64) (#borrow value)) (#return (#clone reference)))",
+        )
+        .unwrap();
+        assert!(check_types(&cloned_local_reference)
+            .unwrap_err()
+            .contains("cannot return a value retaining a reference to local 'value'"));
+
+        let matched_local_reference = parse_program(
+            "(#fn bad () (#ref u64) (#let value u64 42) (#let reference (#ref u64) (#borrow value)) (#return (#match true (true (#clone reference)) (_ (#clone reference)))))",
+        )
+        .unwrap();
+        assert!(check_types(&matched_local_reference)
+            .unwrap_err()
+            .contains("cannot return a value retaining a reference to local 'value'"));
+
+        let block_scoped_reference = parse_program(
+            "(#fn main () u64 (#let-mut value u64 1) (#block (#let reference (#ref u64) (#borrow value)) 2) (#set value 3) (#return value))",
+        )
+        .unwrap();
+        assert!(check_types(&block_scoped_reference).is_ok());
     }
 
     #[test]
@@ -6837,6 +7031,26 @@ mod tests {
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn lowers_keyed_struct_literals() {
+        let program = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let point Point (#struct-literal Point ((y 22u64) (x 20u64)))) (#return (#u64.+.wrap (#get point x) (#get point y))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_ok());
+        assert!(generate_assembly(&program).is_ok());
+
+        let missing = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#return (#struct-literal Point ((x 20u64)))))",
+        );
+        assert!(missing.unwrap_err().contains("missing field 'y'"));
+
+        let duplicate = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#return (#struct-literal Point ((x 20u64) (x 21u64) (y 22u64)))))",
+        );
+        assert!(duplicate.unwrap_err().contains("duplicate field 'x'"));
     }
 
     #[test]

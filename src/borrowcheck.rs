@@ -16,11 +16,12 @@ enum LoanKind {
     Mutable,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Loans {
     active: HashMap<String, LoanKind>,
 }
 
+#[derive(Clone)]
 struct Context {
     loans: Loans,
     returnable: HashSet<String>,
@@ -413,9 +414,18 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
                 }
             }
         }
-        Statement::BreakValue(value)
-        | Statement::BreakToValue { value, .. }
-        | Statement::Expr(value) => check_expression(value, context)?,
+        Statement::BreakValue(value) | Statement::BreakToValue { value, .. } => {
+            check_expression(value, context)?
+        }
+        Statement::Expr(value) => {
+            if thread_spawn_origins(value, context).is_some() {
+                return Err(
+                    "thread spawn results must be stored in a task binding and joined before the binding is discarded"
+                        .into(),
+                );
+            }
+            check_expression(value, context)?
+        }
         Statement::Return(None)
         | Statement::Break
         | Statement::BreakTo(_)
@@ -439,7 +449,34 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
     match expression {
         Expr::List(items) => {
             if let Some(Expr::Symbol(operator)) = items.first() {
-                if matches!(operator.as_str(), "borrow" | "borrow-mut") {
+                if operator == "if" && items.len() == 4 {
+                    check_expression(&items[1], context)?;
+                    let base = context.clone();
+                    let mut then_context = base.clone();
+                    let mut else_context = base.clone();
+                    check_expression(&items[2], &mut then_context)?;
+                    check_expression(&items[3], &mut else_context)?;
+                    merge_branch_context(context, &[then_context, else_context]);
+                } else if operator == "match" && items.len() >= 3 {
+                    check_expression(&items[1], context)?;
+                    let base = context.clone();
+                    let mut branches = Vec::with_capacity(items.len() - 2);
+                    for arm in &items[2..] {
+                        let Expr::List(parts) = arm else {
+                            return Err("match arms must be lists".into());
+                        };
+                        if parts.len() != 2 && parts.len() != 3 {
+                            return Err("match arms must contain a pattern and body".into());
+                        }
+                        let mut branch = base.clone();
+                        if parts.len() == 3 {
+                            check_expression(&parts[1], &mut branch)?;
+                        }
+                        check_expression(parts.last().expect("validated match arm"), &mut branch)?;
+                        branches.push(branch);
+                    }
+                    merge_branch_context(context, &branches);
+                } else if matches!(operator.as_str(), "borrow" | "borrow-mut") {
                     if items.len() != 3 {
                         if items.len() == 2 {
                             let origins = borrow_place_origins(&items[1], context);
@@ -566,7 +603,14 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                 }
             }
         }
-        Expr::Block(statements) | Expr::Loop(statements) => check_statements(statements, context)?,
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            // Locals and loans created by a block cannot escape its lexical
+            // scope. The enclosing let separately records the provenance of a
+            // reference-valued block result, so the temporary context can be
+            // discarded after checking the block.
+            let mut scoped = context.clone();
+            check_statements(statements, &mut scoped)?;
+        }
         Expr::Labeled { expression, .. } => check_expression(expression, context)?,
         Expr::Quote(value) => check_expression(value, context)?,
         Expr::QuasiQuote(value) | Expr::Unquote(value) | Expr::UnquoteSplicing(value) => {
@@ -600,6 +644,51 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
         | Expr::At => {}
     }
     Ok(())
+}
+
+/// Join the dynamic borrow state after control-flow branches. A loan that is
+/// active on any branch must be considered active after the join; otherwise a
+/// later write could be accepted even though one runtime path still holds the
+/// borrow. Shared-loan counts use the maximum branch count because branches
+/// are mutually exclusive.
+fn merge_branch_context(context: &mut Context, branches: &[Context]) {
+    let base = context.clone();
+    let mut merged = base.clone();
+    for branch in branches {
+        for (owner, kind) in &branch.loans.active {
+            let next = match (merged.loans.active.get(owner).copied(), *kind) {
+                (Some(LoanKind::Mutable), _) | (_, LoanKind::Mutable) => LoanKind::Mutable,
+                (Some(LoanKind::Shared(existing)), LoanKind::Shared(count)) => {
+                    LoanKind::Shared(existing.max(count))
+                }
+                (None, LoanKind::Shared(count)) => LoanKind::Shared(count),
+            };
+            merged.loans.active.insert(owner.clone(), next);
+        }
+        for (name, origins) in &branch.reference_origins {
+            if base.reference_origins.contains_key(name) {
+                merged
+                    .reference_origins
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(origins.iter().cloned());
+            }
+        }
+        for (name, loans) in &branch.thread_task_loans {
+            merged
+                .thread_task_loans
+                .entry(name.clone())
+                .or_insert_with(|| loans.clone());
+        }
+        for (owner, count) in &branch.thread_exclusive_owners {
+            let entry = merged
+                .thread_exclusive_owners
+                .entry(owner.clone())
+                .or_default();
+            *entry = (*entry).max(*count);
+        }
+    }
+    *context = merged;
 }
 
 fn thread_spawn_origins(expression: &Expr, context: &Context) -> Option<Vec<(String, LoanKind)>> {
@@ -715,6 +804,22 @@ fn reference_origins(
                 return borrow_place_origins(&items[1], context);
             }
             if operator == "get" && items.len() == 3 {
+                return reference_origins(&items[1], context, true);
+            }
+            if operator == "clone" && items.len() == 2 {
+                return reference_origins(&items[1], context, true);
+            }
+            if operator == "match" && items.len() >= 3 {
+                return items[2..]
+                    .iter()
+                    .filter_map(|arm| match arm {
+                        Expr::List(parts) if parts.len() >= 2 => parts.last(),
+                        _ => None,
+                    })
+                    .flat_map(|value| reference_origins(value, context, true))
+                    .collect();
+            }
+            if operator == "as" && items.len() == 3 {
                 return reference_origins(&items[1], context, true);
             }
             if operator == "deref" && items.len() == 2 {
