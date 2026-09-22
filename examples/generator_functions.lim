@@ -1,9 +1,11 @@
 (#gn-fn make-alias (name target)
-  (#gn-list (#gn-symbol "#type") name target))
+  `(#type ,name ,target))
 
 (#gn-fn make-aliases (pairs)
-  (#gn-for-each pair pairs
-    (#gn-call make-alias (#gn-first pair) (#gn-first (#gn-rest pair)))))
+  `(,@(#gn-for-each pair pairs
+       (#gn-call make-alias
+         (#gn-first pair)
+         (#gn-first (#gn-rest pair))))))
 
 (#generator aliases (pairs)
   (#gn-call make-aliases pairs))

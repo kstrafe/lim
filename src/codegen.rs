@@ -347,6 +347,13 @@ fn substitute_expr(expression: &Expr, substitutions: &HashMap<String, Type>) -> 
             expression: Box::new(substitute_expr(expression, substitutions)),
         },
         Expr::Quote(value) => Expr::Quote(Box::new(substitute_expr(value, substitutions))),
+        Expr::QuasiQuote(value) => {
+            Expr::QuasiQuote(Box::new(substitute_expr(value, substitutions)))
+        }
+        Expr::Unquote(value) => Expr::Unquote(Box::new(substitute_expr(value, substitutions))),
+        Expr::UnquoteSplicing(value) => {
+            Expr::UnquoteSplicing(Box::new(substitute_expr(value, substitutions)))
+        }
         _ => expression.clone(),
     }
 }
@@ -495,6 +502,11 @@ fn rewrite_expr(expression: &Expr, specializations: &HashMap<String, String>) ->
             expression: Box::new(rewrite_expr(expression, specializations)),
         },
         Expr::Quote(value) => Expr::Quote(Box::new(rewrite_expr(value, specializations))),
+        Expr::QuasiQuote(value) => Expr::QuasiQuote(Box::new(rewrite_expr(value, specializations))),
+        Expr::Unquote(value) => Expr::Unquote(Box::new(rewrite_expr(value, specializations))),
+        Expr::UnquoteSplicing(value) => {
+            Expr::UnquoteSplicing(Box::new(rewrite_expr(value, specializations)))
+        }
         Expr::Symbol(name) => specializations
             .get(name)
             .cloned()
@@ -647,7 +659,10 @@ fn collect_generic_calls_expr(expression: &Expr, calls: &mut Vec<String>) {
             }
         }
         Expr::Labeled { expression, .. } => collect_generic_calls_expr(expression, calls),
-        Expr::Quote(value) => collect_generic_calls_expr(value, calls),
+        Expr::Quote(value)
+        | Expr::QuasiQuote(value)
+        | Expr::Unquote(value)
+        | Expr::UnquoteSplicing(value) => collect_generic_calls_expr(value, calls),
         _ => {}
     }
 }
@@ -833,6 +848,9 @@ fn erase_unsafe_blocks(program: &Program) -> Program {
                 expression: Box::new(expr(inner)),
             },
             Expr::Quote(inner) => Expr::Quote(Box::new(expr(inner))),
+            Expr::QuasiQuote(inner) => Expr::QuasiQuote(Box::new(expr(inner))),
+            Expr::Unquote(inner) => Expr::Unquote(Box::new(expr(inner))),
+            Expr::UnquoteSplicing(inner) => Expr::UnquoteSplicing(Box::new(expr(inner))),
             _ => value.clone(),
         }
     }
@@ -2372,7 +2390,12 @@ fn max_let_else_storage_in_expression(
                 .unwrap_or(0);
             Ok(max)
         }
-        Expr::Quote(value) => max_let_else_storage_in_expression(value, structs, enums, aliases),
+        Expr::Quote(value)
+        | Expr::QuasiQuote(value)
+        | Expr::Unquote(value)
+        | Expr::UnquoteSplicing(value) => {
+            max_let_else_storage_in_expression(value, structs, enums, aliases)
+        }
         _ => Ok(0),
     }
 }
@@ -2466,7 +2489,10 @@ fn max_projection_depth_in_expression(expression: &Expr) -> usize {
             .map(max_projection_depth_in_statement)
             .max()
             .unwrap_or(0),
-        Expr::Quote(value) => max_projection_depth_in_expression(value),
+        Expr::Quote(value)
+        | Expr::QuasiQuote(value)
+        | Expr::Unquote(value)
+        | Expr::UnquoteSplicing(value) => max_projection_depth_in_expression(value),
         _ => 0,
     }
 }
@@ -7599,7 +7625,9 @@ impl FunctionContext {
                 }
             }
             Expr::At => return Err("@ is not an executable expression".into()),
-            Expr::Quote(_) => return Err("quoted expressions are not executable".into()),
+            Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::Unquote(_) | Expr::UnquoteSplicing(_) => {
+                return Err("quoted expressions are not executable".into())
+            }
         }
         Ok(())
     }

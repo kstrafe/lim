@@ -39,6 +39,9 @@ pub enum TokenKind {
     LParen,
     RParen,
     Quote,
+    QuasiQuote,
+    Unquote,
+    UnquoteSplicing,
     At,
     Symbol(String),
     Integer(i128),
@@ -121,6 +124,12 @@ impl<'a> Lexer<'a> {
                 b'(' => tokens.push(self.one(TokenKind::LParen)),
                 b')' => tokens.push(self.one(TokenKind::RParen)),
                 b'\'' => tokens.push(self.one(TokenKind::Quote)),
+                b'`' => tokens.push(self.one(TokenKind::QuasiQuote)),
+                b',' if self.source.get(self.offset + 1) == Some(&b'@') => {
+                    self.advance();
+                    tokens.push(self.one(TokenKind::UnquoteSplicing));
+                }
+                b',' => tokens.push(self.one(TokenKind::Unquote)),
                 b'@' => tokens.push(self.one(TokenKind::At)),
                 b'"' => tokens.push(self.string_token()?),
                 _ => tokens.push(self.atom()?),
@@ -171,7 +180,7 @@ impl<'a> Lexer<'a> {
         let column = self.column;
         while let Some(byte) = self.peek() {
             if byte.is_ascii_whitespace()
-                || matches!(byte, b'(' | b')' | b'\'' | b'"' | b'@' | b';')
+                || matches!(byte, b'(' | b')' | b'\'' | b'`' | b',' | b'"' | b'@' | b';')
             {
                 break;
             }
@@ -430,6 +439,9 @@ pub enum Expr {
     /// The generated-code sigil in source, e.g. `(@optional T T?)`.
     At,
     Quote(Box<Expr>),
+    QuasiQuote(Box<Expr>),
+    Unquote(Box<Expr>),
+    UnquoteSplicing(Box<Expr>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1139,6 +1151,9 @@ fn rename_expression(
             rename_expression(expression, bindings, used, next_id, globals, variants);
         }
         Expr::Quote(_)
+        | Expr::QuasiQuote(_)
+        | Expr::Unquote(_)
+        | Expr::UnquoteSplicing(_)
         | Expr::Integer(_)
         | Expr::UnsignedInteger(_)
         | Expr::Float(_)
@@ -1319,6 +1334,9 @@ fn normalize_keywords(expression: Expr) -> Expr {
             expression: Box::new(normalize_keywords(*expression)),
         },
         Expr::Quote(value) => Expr::Quote(Box::new(normalize_keywords(*value))),
+        Expr::QuasiQuote(value) => Expr::QuasiQuote(Box::new(normalize_keywords(*value))),
+        Expr::Unquote(value) => Expr::Unquote(Box::new(normalize_keywords(*value))),
+        Expr::UnquoteSplicing(value) => Expr::UnquoteSplicing(Box::new(normalize_keywords(*value))),
         other => other,
     }
 }
@@ -1549,7 +1567,11 @@ pub fn collect_cfg_keys_from_path(source_path: &Path) -> Result<Vec<String>, Str
                         scan_statement(statement, source_path, visited, keys)?;
                     }
                 }
-                Expr::Labeled { expression, .. } | Expr::Quote(expression) => {
+                Expr::Labeled { expression, .. }
+                | Expr::Quote(expression)
+                | Expr::QuasiQuote(expression)
+                | Expr::Unquote(expression)
+                | Expr::UnquoteSplicing(expression) => {
                     scan_expr(expression, source_path, visited, keys)?;
                 }
                 _ => {}
@@ -1740,7 +1762,10 @@ fn prefix_expression(expression: &mut Expr, prefix: &str, generator_names: &Hash
                 }
             }
         }
-        Expr::Quote(value) => prefix_expression(value, prefix, generator_names),
+        Expr::Quote(value)
+        | Expr::QuasiQuote(value)
+        | Expr::Unquote(value)
+        | Expr::UnquoteSplicing(value) => prefix_expression(value, prefix, generator_names),
         Expr::Block(_)
         | Expr::Loop(_)
         | Expr::Labeled { .. }
@@ -1933,7 +1958,7 @@ pub(crate) fn expression_source(expression: &Expr) -> Result<String, String> {
             '\0' => "#\\null".into(),
             value
                 if value.is_whitespace()
-                    || matches!(value, '(' | ')' | '\'' | '"' | '@' | '#' | ';') =>
+                    || matches!(value, '(' | ')' | '\'' | '`' | ',' | '"' | '@' | '#' | ';') =>
             {
                 format!("#\\u{{{:x}}}", u32::from(*value))
             }
@@ -1959,6 +1984,9 @@ pub(crate) fn expression_source(expression: &Expr) -> Result<String, String> {
         }
         Expr::At => Ok("@".into()),
         Expr::Quote(value) => Ok(format!("'{}", expression_source(value)?)),
+        Expr::QuasiQuote(value) => Ok(format!("`{}", expression_source(value)?)),
+        Expr::Unquote(value) => Ok(format!(",{}", expression_source(value)?)),
+        Expr::UnquoteSplicing(value) => Ok(format!(",@{}", expression_source(value)?)),
         Expr::Block(_) | Expr::Loop(_) | Expr::Labeled { .. } => {
             Err("cannot serialize this generated syntax form yet".into())
         }
@@ -2254,6 +2282,27 @@ fn specialize_expr(
             )?),
         }),
         Expr::Quote(value) => Ok(Expr::Quote(Box::new(specialize_expr(
+            value,
+            substitutions,
+            templates,
+            names,
+            generated,
+        )?))),
+        Expr::QuasiQuote(value) => Ok(Expr::QuasiQuote(Box::new(specialize_expr(
+            value,
+            substitutions,
+            templates,
+            names,
+            generated,
+        )?))),
+        Expr::Unquote(value) => Ok(Expr::Unquote(Box::new(specialize_expr(
+            value,
+            substitutions,
+            templates,
+            names,
+            generated,
+        )?))),
+        Expr::UnquoteSplicing(value) => Ok(Expr::UnquoteSplicing(Box::new(specialize_expr(
             value,
             substitutions,
             templates,
@@ -3933,6 +3982,30 @@ impl<'a> Parser<'a> {
                     ),
                 })
             }
+            TokenKind::QuasiQuote | TokenKind::Unquote | TokenKind::UnquoteSplicing => {
+                self.index += 1;
+                let nested = self.expression().map_err(|_| {
+                    self.error(
+                        "expected expression after syntax template marker",
+                        token.span,
+                    )
+                })?;
+                let expr = match token.kind {
+                    TokenKind::QuasiQuote => Expr::QuasiQuote(Box::new(nested.expr)),
+                    TokenKind::Unquote => Expr::Unquote(Box::new(nested.expr)),
+                    TokenKind::UnquoteSplicing => Expr::UnquoteSplicing(Box::new(nested.expr)),
+                    _ => unreachable!(),
+                };
+                Ok(SpannedExpr {
+                    expr,
+                    span: Span::new(
+                        token.span.start,
+                        nested.span.end,
+                        token.span.line,
+                        token.span.column,
+                    ),
+                })
+            }
             TokenKind::At => {
                 self.index += 1;
                 Ok(SpannedExpr {
@@ -4100,6 +4173,15 @@ mod tests {
     }
 
     #[test]
+    fn lexes_quasiquote_unquote_and_splicing() {
+        let tokens = lex("`(item ,name ,@items)").unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::QuasiQuote);
+        assert_eq!(tokens[2].kind, TokenKind::Symbol("item".into()));
+        assert_eq!(tokens[3].kind, TokenKind::Unquote);
+        assert_eq!(tokens[5].kind, TokenKind::UnquoteSplicing);
+    }
+
+    #[test]
     fn compile_time_cfg_selects_only_the_active_forms() {
         let source = "(#cfg-if (#cfg-and (#cfg-is #platform test-os) (#cfg-not (#cfg-is #feature slow))) (#fn main () u64 (#return 42u64)) (#cfg-else (#fn main () u64 (#return missing-name))))";
         let mut config = CompileConfig::default();
@@ -4171,6 +4253,27 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("must return a syntax value"));
+    }
+
+    #[test]
+    fn generator_quasiquote_unquotes_and_splices_syntax() {
+        let source = "(#gn-fn emit-alias (name) `(#type ,name u64)) (#generator aliases (names) `(,@(#gn-for-each name names (#gn-call emit-alias name)))) (@aliases (First Second)) (#fn main () u64 (#return 42))";
+        let program = parse_program(source).unwrap();
+        let aliases = program
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::TypeAlias { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(aliases, ["First", "Second"]);
+
+        let non_list =
+            parse_program("(#generator bad () `((#type X u64) ,@not-a-list)) (@bad)").unwrap_err();
+        assert!(non_list.contains("unquote-splicing requires list syntax"));
+        let outside_template = parse_program("(#generator bad (x) ,x) (@bad value)").unwrap_err();
+        assert!(outside_template.contains("only valid inside a backtick syntax template"));
     }
 
     #[test]

@@ -27,6 +27,11 @@ enum Value {
     Boolean(bool),
 }
 
+enum TemplateValue {
+    Syntax(Expr),
+    Splice(Vec<Expr>),
+}
+
 type Environment = HashMap<String, Expr>;
 type ExpandedForms = (Vec<SpannedExpr>, Vec<Expr>);
 type ExpandedFormsWithHits = (ExpandedForms, usize);
@@ -462,6 +467,17 @@ fn evaluate(
                 .unwrap_or_else(|| expression.clone()),
         ));
     }
+    if let Expr::QuasiQuote(template) = expression {
+        return match evaluate_template(template, environment, context, 1, false)? {
+            TemplateValue::Syntax(syntax) => Ok(Value::Syntax(syntax)),
+            TemplateValue::Splice(_) => {
+                Err("unquote-splicing is only valid inside a syntax list".into())
+            }
+        };
+    }
+    if matches!(expression, Expr::Unquote(_) | Expr::UnquoteSplicing(_)) {
+        return Err("unquote forms are only valid inside a backtick syntax template".into());
+    }
     let Expr::List(items) = expression else {
         return Ok(Value::Syntax(expression.clone()));
     };
@@ -599,6 +615,74 @@ fn evaluate(
     }
 }
 
+fn evaluate_template(
+    expression: &Expr,
+    environment: &Environment,
+    context: &mut ExpansionContext<'_>,
+    depth: usize,
+    splice_allowed: bool,
+) -> Result<TemplateValue, String> {
+    if context.budget.evaluation_steps == 0 {
+        return Err(format!(
+            "generator evaluation exceeds maximum of {MAX_EVALUATION_STEPS} steps"
+        ));
+    }
+    context.budget.evaluation_steps -= 1;
+    match expression {
+        Expr::QuasiQuote(inner) => {
+            match evaluate_template(inner, environment, context, depth + 1, false)? {
+                TemplateValue::Syntax(inner) => {
+                    Ok(TemplateValue::Syntax(Expr::QuasiQuote(Box::new(inner))))
+                }
+                TemplateValue::Splice(_) => unreachable!("nested quasiquote root cannot splice"),
+            }
+        }
+        Expr::Unquote(inner) if depth == 1 => Ok(TemplateValue::Syntax(syntax(
+            evaluate(inner, environment, context)?,
+            "unquote",
+        )?)),
+        Expr::Unquote(inner) => {
+            match evaluate_template(inner, environment, context, depth - 1, false)? {
+                TemplateValue::Syntax(inner) => {
+                    Ok(TemplateValue::Syntax(Expr::Unquote(Box::new(inner))))
+                }
+                TemplateValue::Splice(_) => unreachable!("unquote root cannot splice"),
+            }
+        }
+        Expr::UnquoteSplicing(inner) if depth == 1 => {
+            if !splice_allowed {
+                return Err("unquote-splicing is only valid inside a syntax list".into());
+            }
+            let value = syntax(evaluate(inner, environment, context)?, "unquote-splicing")?;
+            match value {
+                Expr::List(values) => Ok(TemplateValue::Splice(values)),
+                _ => Err("unquote-splicing requires list syntax".into()),
+            }
+        }
+        Expr::UnquoteSplicing(inner) => {
+            match evaluate_template(inner, environment, context, depth - 1, false)? {
+                TemplateValue::Syntax(inner) => Ok(TemplateValue::Syntax(Expr::UnquoteSplicing(
+                    Box::new(inner),
+                ))),
+                TemplateValue::Splice(_) => {
+                    unreachable!("nested unquote-splicing root cannot splice")
+                }
+            }
+        }
+        Expr::List(items) => {
+            let mut result = Vec::new();
+            for item in items {
+                match evaluate_template(item, environment, context, depth, true)? {
+                    TemplateValue::Syntax(value) => result.push(value),
+                    TemplateValue::Splice(values) => result.extend(values),
+                }
+            }
+            Ok(TemplateValue::Syntax(Expr::List(result)))
+        }
+        other => Ok(TemplateValue::Syntax(other.clone())),
+    }
+}
+
 fn syntax(value: Value, operation: &str) -> Result<Expr, String> {
     match value {
         Value::Syntax(value) => Ok(value),
@@ -632,8 +716,13 @@ fn at_span(message: String, span: Span, context: &str) -> String {
 fn expression_nodes(expression: &Expr) -> usize {
     match expression {
         Expr::List(items) => 1usize.saturating_add(items.iter().map(expression_nodes).sum()),
-        Expr::Quote(value) => 1usize.saturating_add(expression_nodes(value)),
-        Expr::Labeled { expression, .. } => 1usize.saturating_add(expression_nodes(expression)),
+        Expr::Quote(value)
+        | Expr::QuasiQuote(value)
+        | Expr::Unquote(value)
+        | Expr::UnquoteSplicing(value)
+        | Expr::Labeled {
+            expression: value, ..
+        } => 1usize.saturating_add(expression_nodes(value)),
         _ => 1,
     }
 }

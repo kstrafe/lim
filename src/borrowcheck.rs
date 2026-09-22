@@ -569,6 +569,9 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
         Expr::Block(statements) | Expr::Loop(statements) => check_statements(statements, context)?,
         Expr::Labeled { expression, .. } => check_expression(expression, context)?,
         Expr::Quote(value) => check_expression(value, context)?,
+        Expr::QuasiQuote(value) | Expr::Unquote(value) | Expr::UnquoteSplicing(value) => {
+            check_expression(value, context)?
+        }
         Expr::Symbol(name) => {
             if context.suspended_references.contains(name) {
                 return Err(format!(
@@ -752,9 +755,11 @@ fn reference_origins(
             };
             reference_origins(value, context, true)
         }
-        Expr::Labeled { expression, .. } | Expr::Quote(expression) => {
-            reference_origins(expression, context, true)
-        }
+        Expr::Labeled { expression, .. }
+        | Expr::Quote(expression)
+        | Expr::QuasiQuote(expression)
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => reference_origins(expression, context, true),
         _ => HashSet::new(),
     }
 }

@@ -583,9 +583,11 @@ fn expression_has_control_flow(expression: &Expr) -> bool {
                 || items.iter().any(expression_has_control_flow)
         }
         Expr::Block(_) | Expr::Loop(_) => true,
-        Expr::Labeled { expression, .. } | Expr::Quote(expression) => {
-            expression_has_control_flow(expression)
-        }
+        Expr::Labeled { expression, .. }
+        | Expr::Quote(expression)
+        | Expr::QuasiQuote(expression)
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => expression_has_control_flow(expression),
         _ => false,
     }
 }
@@ -654,9 +656,11 @@ fn contains_thread_operation(expression: &Expr, tasks: &HashMap<String, String>)
         Expr::Block(statements) | Expr::Loop(statements) => statements
             .iter()
             .any(|statement| statement_contains_thread_operation(statement, tasks)),
-        Expr::Labeled { expression, .. } | Expr::Quote(expression) => {
-            contains_thread_operation(expression, tasks)
-        }
+        Expr::Labeled { expression, .. }
+        | Expr::Quote(expression)
+        | Expr::QuasiQuote(expression)
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => contains_thread_operation(expression, tasks),
         _ => false,
     }
 }
@@ -699,7 +703,11 @@ fn check_task_expression_children(
                     check_task_statement(statement, handles, tasks)?;
                 }
             }
-            Expr::Labeled { expression, .. } | Expr::Quote(expression) => {
+            Expr::Labeled { expression, .. }
+            | Expr::Quote(expression)
+            | Expr::QuasiQuote(expression)
+            | Expr::Unquote(expression)
+            | Expr::UnquoteSplicing(expression) => {
                 check_task_expression_children(std::slice::from_ref(expression), handles, tasks)?;
             }
             _ => {}
@@ -1188,7 +1196,10 @@ fn collect_expression_calls(
         Expr::Labeled { expression, .. } => {
             collect_expression_calls(expression, functions, calls);
         }
-        Expr::Quote(value) => collect_expression_calls(value, functions, calls),
+        Expr::Quote(value)
+        | Expr::QuasiQuote(value)
+        | Expr::Unquote(value)
+        | Expr::UnquoteSplicing(value) => collect_expression_calls(value, functions, calls),
         Expr::Symbol(_)
         | Expr::Integer(_)
         | Expr::UnsignedInteger(_)
@@ -2092,7 +2103,11 @@ fn expression(
                 expected,
             )
         }
-        Expr::At | Expr::Quote(_) => {
+        Expr::At
+        | Expr::Quote(_)
+        | Expr::QuasiQuote(_)
+        | Expr::Unquote(_)
+        | Expr::UnquoteSplicing(_) => {
             Err("generated and quoted expressions are not typed yet".into())
         }
         Expr::List(items) => list_expression(
@@ -2125,7 +2140,10 @@ fn expression_has_value_break(expression: &Expr) -> bool {
                 items.iter().any(expression_has_value_break)
             }
         }
-        Expr::Quote(value) => expression_has_value_break(value),
+        Expr::Quote(value)
+        | Expr::QuasiQuote(value)
+        | Expr::Unquote(value)
+        | Expr::UnquoteSplicing(value) => expression_has_value_break(value),
         _ => false,
     }
 }

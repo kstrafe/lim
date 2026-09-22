@@ -251,12 +251,21 @@ helpers, but direct or indirect recursive calls are rejected. For example:
 
 ```lisp
 (#gn-fn make-alias (name target)
-  (#gn-list (#gn-symbol "#type") name target))
+  `(#type ,name ,target))
 
 (#generator aliases (pairs)
-  (#gn-for-each pair pairs
-    (#gn-call make-alias (#gn-first pair) (#gn-first (#gn-rest pair)))))
+  `(,@(#gn-for-each pair pairs
+       (#gn-call make-alias
+         (#gn-first pair)
+         (#gn-first (#gn-rest pair))))))
 ```
+
+Backtick starts a syntax template, comma evaluates one generator expression
+inside it, and comma-at splices a list of syntax values into a template list.
+Unquote and splice are valid only within a backtick template, and splicing a
+non-list is an error. Nested templates preserve nested unquotes. These reader
+forms are generator-only; they do not evaluate Lim code or add runtime values.
+The lower-level `#gn-list` and `#gn-symbol` operations remain available.
 
 The initial generator builtins are `#gn-if`, `#gn-equal`, `#gn-symbol?`,
 `#gn-list?`, `#gn-symbol`, `#gn-list`, `#gn-first`, `#gn-rest`,

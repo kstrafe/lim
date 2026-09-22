@@ -130,6 +130,9 @@ fn check_expression(
         }
         Expr::Labeled { expression, .. } => check_expression(expression, unsafe_context, statics)?,
         Expr::Quote(value) => check_expression(value, unsafe_context, statics)?,
+        Expr::QuasiQuote(value) | Expr::Unquote(value) | Expr::UnquoteSplicing(value) => {
+            check_expression(value, unsafe_context, statics)?
+        }
         Expr::Symbol(_)
         | Expr::Integer(_)
         | Expr::UnsignedInteger(_)
