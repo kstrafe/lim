@@ -19,6 +19,8 @@ struct Generator {
     span: Span,
 }
 
+type GeneratorFunction = Generator;
+
 #[derive(Clone, Debug)]
 enum Value {
     Syntax(Expr),
@@ -41,6 +43,7 @@ fn expand_with_generated_cached_and_hits(
     cache_dir: Option<&Path>,
 ) -> Result<ExpandedFormsWithHits, String> {
     let mut generators = HashMap::new();
+    let mut functions = HashMap::new();
     let mut remaining = Vec::new();
     for expression in expressions {
         if let Expr::List(items) = &expression.expr {
@@ -48,8 +51,28 @@ fn expand_with_generated_cached_and_hits(
                 let generator = parse_generator(items, expression.span)
                     .map_err(|error| at_span(error, expression.span, "generator declaration"))?;
                 let name = symbol(items.get(1), "generator name")?.to_owned();
+                if functions.contains_key(&name) {
+                    return Err(format!(
+                        "duplicate generator or generator function declaration '{name}'"
+                    ));
+                }
                 if generators.insert(name.clone(), generator).is_some() {
                     return Err(format!("duplicate generator declaration '{name}'"));
+                }
+                continue;
+            }
+            if is_operator(items.first(), "#gn-fn") {
+                let function =
+                    parse_generator_function(items, expression.span).map_err(|error| {
+                        at_span(error, expression.span, "generator function declaration")
+                    })?;
+                let name = symbol(items.get(1), "generator function name")?.to_owned();
+                if generators.contains_key(&name)
+                    || functions.insert(name.clone(), function).is_some()
+                {
+                    return Err(format!(
+                        "duplicate generator or generator function declaration '{name}'"
+                    ));
                 }
                 continue;
             }
@@ -57,9 +80,11 @@ fn expand_with_generated_cached_and_hits(
         remaining.push(expression);
     }
 
-    let dependency_context = generator_dependency_context(&generators);
+    let dependency_context = generator_dependency_context(&generators, &functions);
     let mut context = ExpansionContext {
         generators: &generators,
+        functions: &functions,
+        active_functions: Vec::new(),
         active: Vec::new(),
         seen_invocations: HashSet::new(),
         budget: Budget {
@@ -112,6 +137,17 @@ fn expand_with_generated_cached_and_hits(
     Ok(((output, generated), context.cache_hits))
 }
 
+fn parse_generator_function(items: &[Expr], span: Span) -> Result<GeneratorFunction, String> {
+    if items.len() != 4 {
+        return Err("#gn-fn requires a name, parameter list, and body".into());
+    }
+    parse_generator(items, span).map_err(|error| {
+        error
+            .replace("#generator", "#gn-fn")
+            .replace("generator '", "generator function '")
+    })
+}
+
 fn parse_generator(items: &[Expr], span: Span) -> Result<Generator, String> {
     if items.len() != 4 {
         return Err("#generator requires a name, parameter list, and body".into());
@@ -151,6 +187,8 @@ struct CachedExpansion {
 
 struct ExpansionContext<'a> {
     generators: &'a HashMap<String, Generator>,
+    functions: &'a HashMap<String, GeneratorFunction>,
+    active_functions: Vec<String>,
     active: Vec<String>,
     seen_invocations: HashSet<String>,
     budget: Budget,
@@ -170,7 +208,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     let Some(Expr::Symbol(name)) = items.get(1) else {
         return Err("generator invocation requires a name after '@'".into());
     };
-    let Some(generator) = context.generators.get(name) else {
+    let Some(generator) = context.generators.get(name).cloned() else {
         // Built-in declarations such as @optional are handled by the Lim parser.
         return Ok(vec![expression]);
     };
@@ -232,7 +270,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         .zip(items[2..].iter().cloned())
         .collect();
     context.active.push(name.clone());
-    let result = match evaluate(&generator.body, &environment, &mut context.budget) {
+    let result = match evaluate(&generator.body, &environment, context) {
         Ok(result) => result,
         Err(error) => {
             context.active.pop();
@@ -264,7 +302,10 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     Ok(expanded)
 }
 
-fn generator_dependency_context(generators: &HashMap<String, Generator>) -> String {
+fn generator_dependency_context(
+    generators: &HashMap<String, Generator>,
+    functions: &HashMap<String, GeneratorFunction>,
+) -> String {
     let mut definitions = generators.iter().collect::<Vec<_>>();
     definitions.sort_by(|left, right| left.0.cmp(right.0));
     let definitions = definitions
@@ -272,10 +313,22 @@ fn generator_dependency_context(generators: &HashMap<String, Generator>) -> Stri
         .map(|(name, generator)| format!("{name}:{:?}:{:?}", generator.parameters, generator.body))
         .collect::<Vec<_>>()
         .join("\n");
+    let mut function_definitions = functions.iter().collect::<Vec<_>>();
+    function_definitions.sort_by(|left, right| left.0.cmp(right.0));
+    let function_definitions = function_definitions
+        .into_iter()
+        .map(|(name, function)| {
+            format!(
+                "#gn-fn {name}:{:?}:{:?}",
+                function.parameters, function.body
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
         "runtime={:032x}\n{definitions}",
         stable_hash(include_bytes!("generator.rs"))
-    )
+    ) + &function_definitions
 }
 
 fn cache_path(directory: &Path, key: &str) -> PathBuf {
@@ -393,14 +446,14 @@ fn write_cached_expansion(
 fn evaluate(
     expression: &Expr,
     environment: &Environment,
-    budget: &mut Budget,
+    context: &mut ExpansionContext<'_>,
 ) -> Result<Value, String> {
-    if budget.evaluation_steps == 0 {
+    if context.budget.evaluation_steps == 0 {
         return Err(format!(
             "generator evaluation exceeds maximum of {MAX_EVALUATION_STEPS} steps"
         ));
     }
-    budget.evaluation_steps -= 1;
+    context.budget.evaluation_steps -= 1;
     if let Expr::Symbol(name) = expression {
         return Ok(Value::Syntax(
             environment
@@ -419,21 +472,21 @@ fn evaluate(
     match operator {
         "#gn-if" => {
             arity(operator, items, 4)?;
-            match evaluate(&items[1], environment, budget)? {
-                Value::Boolean(true) => evaluate(&items[2], environment, budget),
-                Value::Boolean(false) => evaluate(&items[3], environment, budget),
+            match evaluate(&items[1], environment, context)? {
+                Value::Boolean(true) => evaluate(&items[2], environment, context),
+                Value::Boolean(false) => evaluate(&items[3], environment, context),
                 Value::Syntax(_) => Err("#gn-if condition must be a #gn predicate".into()),
             }
         }
         "#gn-equal" => {
             arity(operator, items, 3)?;
-            let left = syntax(evaluate(&items[1], environment, budget)?, operator)?;
-            let right = syntax(evaluate(&items[2], environment, budget)?, operator)?;
+            let left = syntax(evaluate(&items[1], environment, context)?, operator)?;
+            let right = syntax(evaluate(&items[2], environment, context)?, operator)?;
             Ok(Value::Boolean(left == right))
         }
         "#gn-symbol?" | "#gn-list?" => {
             arity(operator, items, 2)?;
-            let value = syntax(evaluate(&items[1], environment, budget)?, operator)?;
+            let value = syntax(evaluate(&items[1], environment, context)?, operator)?;
             Ok(Value::Boolean(if operator == "#gn-symbol?" {
                 matches!(value, Expr::Symbol(_))
             } else {
@@ -442,7 +495,7 @@ fn evaluate(
         }
         "#gn-symbol" => {
             arity(operator, items, 2)?;
-            let value = syntax(evaluate(&items[1], environment, budget)?, operator)?;
+            let value = syntax(evaluate(&items[1], environment, context)?, operator)?;
             let Expr::String(value) = value else {
                 return Err("#gn-symbol requires a string literal".into());
             };
@@ -451,13 +504,13 @@ fn evaluate(
         "#gn-list" => {
             let mut values = Vec::with_capacity(items.len().saturating_sub(1));
             for item in &items[1..] {
-                values.push(syntax(evaluate(item, environment, budget)?, operator)?);
+                values.push(syntax(evaluate(item, environment, context)?, operator)?);
             }
             Ok(Value::Syntax(Expr::List(values)))
         }
         "#gn-first" | "#gn-rest" => {
             arity(operator, items, 2)?;
-            let value = syntax(evaluate(&items[1], environment, budget)?, operator)?;
+            let value = syntax(evaluate(&items[1], environment, context)?, operator)?;
             let Expr::List(values) = value else {
                 return Err(format!("{operator} requires list syntax"));
             };
@@ -476,7 +529,7 @@ fn evaluate(
         "#gn-for-each" => {
             arity(operator, items, 4)?;
             let variable = symbol(items.get(1), "#gn-for-each binding")?.to_owned();
-            let list = syntax(evaluate(&items[2], environment, budget)?, operator)?;
+            let list = syntax(evaluate(&items[2], environment, context)?, operator)?;
             let Expr::List(values) = list else {
                 return Err("#gn-for-each requires a list of syntax values".into());
             };
@@ -484,16 +537,58 @@ fn evaluate(
             for value in values {
                 let mut nested = environment.clone();
                 nested.insert(variable.clone(), value);
-                match evaluate(&items[3], &nested, budget)? {
+                match evaluate(&items[3], &nested, context)? {
                     Value::Syntax(syntax) => result.push(syntax),
                     Value::Boolean(_) => return Err("#gn-for-each body must produce syntax".into()),
                 }
             }
             Ok(Value::Syntax(Expr::List(result)))
         }
+        "#gn-call" => {
+            if items.len() < 2 {
+                return Err("#gn-call requires a function name".into());
+            }
+            let name = symbol(items.get(1), "#gn-call function name")?;
+            let Some(function) = context.functions.get(name).cloned() else {
+                return Err(format!("unknown generator function '{name}'"));
+            };
+            if items.len() - 2 != function.parameters.len() {
+                return Err(format!(
+                    "#gn-call {name} expects {} syntax argument(s), received {}",
+                    function.parameters.len(),
+                    items.len() - 2
+                ));
+            }
+            if context.active_functions.iter().any(|active| active == name) {
+                let mut chain = context.active_functions.join(" -> ");
+                if !chain.is_empty() {
+                    chain.push_str(" -> ");
+                }
+                chain.push_str(name);
+                return Err(format!(
+                    "recursive generator function calls are not allowed: {chain}"
+                ));
+            }
+            let mut nested = Environment::new();
+            for (parameter, argument) in function.parameters.iter().zip(&items[2..]) {
+                nested.insert(
+                    parameter.clone(),
+                    syntax(evaluate(argument, environment, context)?, "#gn-call")?,
+                );
+            }
+            context.active_functions.push(name.to_owned());
+            let result = evaluate(&function.body, &nested, context);
+            context.active_functions.pop();
+            match result? {
+                value @ Value::Syntax(_) => Ok(value),
+                Value::Boolean(_) => Err(format!(
+                    "#gn-fn {name} must return a syntax value (symbol, literal, or list)"
+                )),
+            }
+        }
         "#gn-error" => {
             arity(operator, items, 2)?;
-            let message = syntax(evaluate(&items[1], environment, budget)?, operator)?;
+            let message = syntax(evaluate(&items[1], environment, context)?, operator)?;
             match message {
                 Expr::String(message) => Err(format!("generator error: {message}")),
                 _ => Err("#gn-error requires a string literal message".into()),
@@ -557,9 +652,20 @@ mod tests {
         let error = evaluate(
             &expression,
             &Environment::new(),
-            &mut Budget {
-                evaluation_steps: MAX_EVALUATION_STEPS,
-                generated_nodes: 0,
+            &mut ExpansionContext {
+                generators: &HashMap::new(),
+                functions: &HashMap::new(),
+                active_functions: Vec::new(),
+                active: Vec::new(),
+                seen_invocations: HashSet::new(),
+                budget: Budget {
+                    evaluation_steps: MAX_EVALUATION_STEPS,
+                    generated_nodes: 0,
+                },
+                invocation_traces: Vec::new(),
+                cache_hits: 0,
+                dependency_context: String::new(),
+                cache_dir: None,
             },
         )
         .unwrap_err();
@@ -570,7 +676,7 @@ mod tests {
     fn generated_syntax_cache_hits_and_invalidates_for_generator_dependencies() {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-cache-{}", std::process::id()));
-        let source = "(#generator alias (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (#generator forward (call) (#gn-list call)) (@forward (@alias CachedType)) (@alias CachedType)";
+        let source = "(#gn-fn make-alias (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (#generator alias (name) (#gn-call make-alias name)) (#generator forward (call) (#gn-list call)) (@forward (@alias CachedType)) (@alias CachedType)";
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) =

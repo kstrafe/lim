@@ -1247,6 +1247,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "cfg-is"
             | "cfg-not"
             | "gn-if"
+            | "gn-fn"
+            | "gn-call"
             | "gn-equal"
             | "gn-symbol?"
             | "gn-list?"
@@ -1493,7 +1495,7 @@ fn load_imports_inner(
                 .iter()
                 .filter_map(|form| match &form.expr {
                     Expr::List(items)
-                        if matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "#generator") =>
+                        if matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "#generator" || keyword == "#gn-fn") =>
                     {
                         items.get(1).and_then(|name| match name {
                             Expr::Symbol(name) => Some(name.clone()),
@@ -4147,6 +4149,28 @@ mod tests {
             "identical generator invocations should emit declarations once"
         );
         assert!(check_types(&program).is_ok());
+    }
+
+    #[test]
+    fn generator_functions_compose_and_reject_recursion() {
+        let source = "(#gn-fn make-type-form (name target) (#gn-list (#gn-symbol \"#type\") name target)) (#gn-fn make-alias (name target) (#gn-call make-type-form name target)) (#generator aliases (pairs) (#gn-for-each pair pairs (#gn-call make-alias (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte u8) (Word u16))) (#fn main () u64 (#return 42))";
+        let program = parse_program(source).unwrap();
+        assert_eq!(program.items.len(), 3);
+
+        let recursive = parse_program(
+            "(#gn-fn first (x) (#gn-call second x)) (#gn-fn second (x) (#gn-call first x)) (#generator make (x) (#gn-call first x)) (@make value)",
+        )
+        .unwrap_err();
+        assert!(recursive.contains("recursive generator function calls are not allowed"));
+    }
+
+    #[test]
+    fn generator_functions_return_syntax_not_predicate_values() {
+        let error = parse_program(
+            "(#gn-fn invalid (value) (#gn-symbol? value)) (#generator make () (#gn-call invalid name)) (@make)",
+        )
+        .unwrap_err();
+        assert!(error.contains("must return a syntax value"));
     }
 
     #[test]

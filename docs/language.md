@@ -244,9 +244,23 @@ which are expanded before ordinary Lim parsing and type checking.
 (@aliases ((Byte u8) (Word u16)))
 ```
 
+Generator helpers can be declared with `#gn-fn` and called with `#gn-call`.
+They take and return only syntax values (symbols, literals, or lists), so
+predicate booleans remain internal to conditionals. Helpers may call other
+helpers, but direct or indirect recursive calls are rejected. For example:
+
+```lisp
+(#gn-fn make-alias (name target)
+  (#gn-list (#gn-symbol "#type") name target))
+
+(#generator aliases (pairs)
+  (#gn-for-each pair pairs
+    (#gn-call make-alias (#gn-first pair) (#gn-first (#gn-rest pair)))))
+```
+
 The initial generator builtins are `#gn-if`, `#gn-equal`, `#gn-symbol?`,
 `#gn-list?`, `#gn-symbol`, `#gn-list`, `#gn-first`, `#gn-rest`,
-`#gn-for-each`, and `#gn-error`. `#gn-for-each` is the only iteration
+`#gn-for-each`, `#gn-call`, and `#gn-error`. `#gn-for-each` is the only iteration
 construct; there are no general loops or mutable generator values. `#gn-error`
 fails expansion with the supplied message. Generators cannot perform IO or
 call runtime functions. Recursive expansion is rejected. Repeating an
