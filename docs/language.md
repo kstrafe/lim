@@ -23,9 +23,9 @@ Lim currently provides:
 - pure user-defined syntax generators with a restricted `#gn-*` operation set;
 - no recursion, allowing the compiler to calculate a finite call depth.
 
-Slices, traits, methods, closures, and other source-level indirection
-mechanisms are not part of the current language. References and raw pointers
-may point to aggregate values; `#get` projects fields through a reference.
+Slices, user-defined traits, methods, closures, and other source-level
+indirection mechanisms are not part of the current language. Built-in `Send`
+and `Sync` properties are structural. References and raw pointers may point to aggregate values; `#get` projects fields through a reference.
 Direct `#deref` and raw pointer operations are currently limited to scalar
 values. Large aggregate values may use hidden storage pointers at an ABI
 boundary, but those pointers cannot be written in Lim source.
@@ -57,6 +57,48 @@ references are not permitted inside value structs or enum payloads. This
 conservative rule keeps a vector-like value from outliving or being silently
 retargeted away from its allocator. `#cell` is not thread-safe and provides no
 synchronization.
+
+## Send and Sync properties
+
+`Send` means a value may be transferred to another thread; `Sync` means a
+shared reference to the value may be used from another thread. The compiler
+derives both properties recursively for structs, enums, tuples, and arrays:
+
+- Scalar types are `Send + Sync`.
+- Raw pointers are neither `Send` nor `Sync`.
+- `(#cell T)` is `Send` when `T` is `Send`, but is never `Sync`.
+- `(#ref T)` is `Send` when `T` is `Sync`, and is `Sync` when `T` is `Sync`.
+- `(#ref-mut T)` is `Send` when `T` is `Send`, and `Sync` when `T` is `Sync`.
+- An aggregate has a property only when all of its stored fields/payloads
+  have that property.
+
+Unsafe native or opaque types may opt in explicitly:
+
+```lisp
+(#struct NativeResource ((handle (#ptr u8))))
+(#unsafe-impl #send NativeResource)
+(#unsafe-impl #sync NativeResource)
+```
+
+These declarations are promises by the author and override the structural
+result for that property. They must only be used when the type's invariants
+make cross-thread transfer or shared access sound. Generic-type overrides are
+currently rejected; duplicate or undeclared targets are errors. The
+`@thread-spawn TaskType worker-function` declaration validates a monomorphic
+worker's parameter and return types against `Send`. It generates
+`TaskType-spawn` and `TaskType-join` functions and a private native thread entry
+point; user code never passes a function pointer. Spawn arguments are copied
+into a private task packet before the worker starts. Scalar and aggregate
+arguments/results use the compiler's native calling convention. Thread
+creation/join failures currently abort the process.
+
+Task handles are affine in this first version: bind the result of `-spawn` to a
+local and join it exactly once. They cannot be copied, returned, stored in
+aggregates, or left unjoined. References captured by a worker remain borrowed
+until its handle is joined; shared captures require `Sync`, mutable captures
+exclude parent access until join. These restrictions are checked statically.
+Unsafe `#send`/`#sync` overrides are promises, not synchronization: the author
+must ensure the underlying resource remains sound under concurrent access.
 
 ## Inferred lexical borrows
 

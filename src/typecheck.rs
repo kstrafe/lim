@@ -2,7 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{parse_type, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
+use crate::{
+    parse_type, AutoTrait, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type,
+};
 
 const LOOP_VALUE_CONTEXT: &str = "\0lim-loop-value";
 
@@ -17,12 +19,61 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     let mut declared_types = HashSet::new();
     for item in &program.items {
         match item {
-            Item::TypeAlias { name, .. } | Item::Struct { name, .. } | Item::Enum { name, .. }
+            Item::TypeAlias { name, .. }
+            | Item::Struct { name, .. }
+            | Item::Enum { name, .. }
+            | Item::ThreadTask { name, .. }
                 if !declared_types.insert(name) =>
             {
                 return Err(format!("duplicate type name '{name}'"));
             }
             _ => {}
+        }
+    }
+    let mut unsafe_auto_traits = HashSet::new();
+    for item in &program.items {
+        let Item::UnsafeAutoTraitImpl {
+            trait_kind,
+            type_name,
+        } = item
+        else {
+            continue;
+        };
+        if !declared_types.contains(type_name) {
+            return Err(format!(
+                "unsafe {:?} implementation refers to undeclared type '{type_name}'",
+                trait_kind
+            ));
+        }
+        let generic = program.items.iter().any(|declaration| match declaration {
+            Item::Struct {
+                name,
+                type_parameters,
+                ..
+            }
+            | Item::Enum {
+                name,
+                type_parameters,
+                ..
+            }
+            | Item::TypeAlias {
+                name,
+                type_parameters,
+                ..
+            } if name == type_name => !type_parameters.is_empty(),
+            _ => false,
+        });
+        if generic {
+            return Err(format!(
+                "unsafe {:?} implementation for generic type '{type_name}' is not supported",
+                trait_kind
+            ));
+        }
+        if !unsafe_auto_traits.insert((type_name.clone(), *trait_kind)) {
+            return Err(format!(
+                "duplicate unsafe {:?} implementation for '{type_name}'",
+                trait_kind
+            ));
         }
     }
     let mut aliases = HashMap::new();
@@ -75,6 +126,23 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                 .collect::<Result<Vec<_>, String>>()?;
             if structs.insert(name.clone(), fields).is_some() {
                 return Err(format!("duplicate struct '{name}'"));
+            }
+        }
+        if let Item::ThreadTask { name, .. } = item {
+            if structs
+                .insert(
+                    name.clone(),
+                    vec![Field {
+                        name: "__lim_thread_context".into(),
+                        ty: Type::RawPointer {
+                            mutable: true,
+                            target: Box::new(Type::Unit),
+                        },
+                    }],
+                )
+                .is_some()
+            {
+                return Err(format!("duplicate thread task type '{name}'"));
             }
         }
     }
@@ -164,6 +232,84 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             return Err(format!("duplicate function '{}'", function.name));
         }
     }
+    for item in &program.items {
+        let Item::ThreadTask { name, worker } = item else {
+            continue;
+        };
+        let worker_item = program.items.iter().find_map(|item| match item {
+            Item::Function(function) if function.name == *worker => Some(function),
+            _ => None,
+        });
+        let Some(worker_item) = worker_item else {
+            return Err(format!(
+                "thread task '{name}' refers to unknown worker function '{worker}'"
+            ));
+        };
+        if !worker_item.type_parameters.is_empty() {
+            return Err(format!(
+                "thread worker '{worker}' must be monomorphic; specialize it before spawning"
+            ));
+        }
+        let worker_signature = functions
+            .get(worker)
+            .expect("worker signature collected")
+            .clone();
+        for (parameter, ty) in worker_item
+            .parameters
+            .iter()
+            .zip(&worker_signature.parameters)
+        {
+            if !type_has_auto_trait(program, ty, AutoTrait::Send)? {
+                return Err(format!(
+                    "thread worker '{worker}' parameter '{}' does not implement Send",
+                    parameter.name
+                ));
+            }
+        }
+        if !type_has_auto_trait(program, &worker_signature.return_type, AutoTrait::Send)? {
+            return Err(format!(
+                "thread worker '{worker}' return type does not implement Send"
+            ));
+        }
+        if contains_reference_type(
+            &worker_signature.return_type,
+            &structs,
+            &enums,
+            &mut HashSet::new(),
+        ) {
+            return Err(format!(
+                "thread worker '{worker}' cannot return reference-containing values"
+            ));
+        }
+        let task_type = Type::Named(name.clone());
+        for (generated_name, signature) in [
+            (
+                format!("{name}-spawn"),
+                Signature {
+                    type_parameters: Vec::new(),
+                    parameters: worker_signature.parameters.clone(),
+                    return_type: task_type.clone(),
+                },
+            ),
+            (
+                format!("{name}-join"),
+                Signature {
+                    type_parameters: Vec::new(),
+                    parameters: vec![task_type],
+                    return_type: worker_signature.return_type,
+                },
+            ),
+        ] {
+            if functions
+                .insert(generated_name.clone(), signature)
+                .is_some()
+            {
+                return Err(format!(
+                    "generated thread function '{generated_name}' conflicts with an existing function"
+                ));
+            }
+        }
+    }
     reject_recursive_calls(program, &functions)?;
     for item in &program.items {
         match item {
@@ -171,7 +317,11 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             Item::Function(function) => {
                 check_function(function, &functions, &structs, &enums, &globals, &aliases)?
             }
-            Item::TypeAlias { .. } | Item::Struct { .. } | Item::Enum { .. } => {}
+            Item::TypeAlias { .. }
+            | Item::Struct { .. }
+            | Item::Enum { .. }
+            | Item::UnsafeAutoTraitImpl { .. }
+            | Item::ThreadTask { .. } => {}
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
                 let ty = globals.get(name).expect("global type collected");
                 let actual = expression(
@@ -188,9 +338,655 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             }
         }
     }
+    check_thread_task_ownership(program, &aliases)?;
     crate::borrowcheck::check_program(program)?;
     crate::unsafecheck::check_program(program)?;
     Ok(())
+}
+
+fn check_thread_task_ownership(
+    program: &Program,
+    aliases: &HashMap<String, Type>,
+) -> Result<(), String> {
+    let tasks = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::ThreadTask { name, worker } => Some((name.clone(), worker.clone())),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+    if tasks.is_empty() {
+        return Ok(());
+    }
+
+    for item in &program.items {
+        match item {
+            Item::Struct { name, fields, .. } => {
+                for field in fields {
+                    if type_mentions_task(&resolve_type(&field.ty, aliases)?, &tasks) {
+                        return Err(format!(
+                            "thread task handles cannot be stored in struct '{name}'"
+                        ));
+                    }
+                }
+            }
+            Item::Enum { name, variants, .. } => {
+                if variants
+                    .iter()
+                    .flat_map(|variant| &variant.fields)
+                    .any(|ty| {
+                        resolve_type(ty, aliases).is_ok_and(|ty| type_mentions_task(&ty, &tasks))
+                    })
+                {
+                    return Err(format!(
+                        "thread task handles cannot be stored in enum '{name}'"
+                    ));
+                }
+            }
+            Item::TypeAlias { name, target, .. } => {
+                if type_mentions_task(&resolve_type(target, aliases)?, &tasks) {
+                    return Err(format!(
+                        "type alias '{name}' cannot contain a thread task handle"
+                    ));
+                }
+            }
+            Item::Let { name, ty, .. } | Item::Static { name, ty, .. } => {
+                if type_mentions_task(&resolve_type(ty, aliases)?, &tasks) {
+                    return Err(format!(
+                        "global '{name}' cannot contain a thread task handle"
+                    ));
+                }
+            }
+            Item::Function(function) => {
+                if function.parameters.iter().any(|parameter| {
+                    resolve_type(&parameter.ty, aliases)
+                        .is_ok_and(|ty| type_mentions_task(&ty, &tasks))
+                }) || type_mentions_task(&resolve_type(&function.return_type, aliases)?, &tasks)
+                {
+                    return Err(format!(
+                        "function '{}' cannot accept, return, or retain a thread task handle",
+                        function.name
+                    ));
+                }
+                check_function_task_uses(function, &tasks)?;
+            }
+            Item::UnsafeAutoTraitImpl { .. } | Item::ThreadTask { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn type_mentions_task(ty: &Type, tasks: &HashMap<String, String>) -> bool {
+    match ty {
+        Type::Named(name) => tasks.contains_key(name),
+        Type::Reference { target, .. }
+        | Type::RawPointer { target, .. }
+        | Type::Cell(target)
+        | Type::Array(target, _) => type_mentions_task(target, tasks),
+        Type::Tuple(fields) => fields.iter().any(|field| type_mentions_task(field, tasks)),
+        _ => false,
+    }
+}
+
+fn check_function_task_uses(
+    function: &Function,
+    tasks: &HashMap<String, String>,
+) -> Result<(), String> {
+    let mut handles = HashMap::<String, String>::new();
+    let mut pending = HashSet::<String>::new();
+    let mut consumed = HashSet::<String>::new();
+    for statement in &function.body {
+        match statement {
+            Statement::Let {
+                name,
+                ty: Type::Named(task_type),
+                value,
+                mutable,
+            } if tasks.contains_key(task_type) => {
+                if *mutable {
+                    return Err(format!(
+                        "thread task handle '{name}' must be immutable and consumed by join"
+                    ));
+                }
+                let expected_spawn = format!("{task_type}-spawn");
+                if !is_direct_thread_call(value, &expected_spawn) {
+                    return Err(format!(
+                        "thread task '{name}' must be initialized directly by '{expected_spawn}'"
+                    ));
+                }
+                let Expr::List(items) = value else {
+                    unreachable!()
+                };
+                check_task_expression_children(&items[1..], &handles, tasks)?;
+                if handles.insert(name.clone(), task_type.clone()).is_some() {
+                    return Err(format!("duplicate thread task binding '{name}'"));
+                }
+                pending.insert(name.clone());
+            }
+            Statement::Let { name, value, .. } => {
+                if let Some((task_type, handle)) = direct_task_join(value, tasks) {
+                    consume_thread_handle(
+                        &task_type,
+                        &handle,
+                        &handles,
+                        &mut pending,
+                        &mut consumed,
+                    )?;
+                } else {
+                    check_task_statement_expr(value, &handles, tasks)?;
+                    reject_thread_control_flow_while_pending(value, &pending)?;
+                }
+                let _ = name;
+            }
+            Statement::Expr(value) => {
+                if let Some((task_type, handle)) = direct_task_join(value, tasks) {
+                    consume_thread_handle(
+                        &task_type,
+                        &handle,
+                        &handles,
+                        &mut pending,
+                        &mut consumed,
+                    )?;
+                } else {
+                    check_task_statement_expr(value, &handles, tasks)?;
+                    reject_thread_control_flow_while_pending(value, &pending)?;
+                }
+            }
+            Statement::Return(Some(value)) => {
+                if let Some((task_type, handle)) = direct_task_join(value, tasks) {
+                    consume_thread_handle(
+                        &task_type,
+                        &handle,
+                        &handles,
+                        &mut pending,
+                        &mut consumed,
+                    )?;
+                } else {
+                    check_task_statement_expr(value, &handles, tasks)?;
+                    if !pending.is_empty() {
+                        return Err(format!(
+                            "function '{}' may return while thread task '{}' is still running",
+                            function.name,
+                            pending.iter().next().unwrap()
+                        ));
+                    }
+                }
+            }
+            Statement::Return(None) => {
+                if !pending.is_empty() {
+                    return Err(format!(
+                        "function '{}' may return while thread task '{}' is still running",
+                        function.name,
+                        pending.iter().next().unwrap()
+                    ));
+                }
+            }
+            _ => {
+                check_task_statement(statement, &handles, tasks)?;
+                if !pending.is_empty() && is_control_statement(statement) {
+                    return Err(format!(
+                        "thread task handles cannot cross control flow; join '{}' before this statement",
+                        pending.iter().next().unwrap()
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(handle) = pending.iter().next() {
+        return Err(format!(
+            "thread task handle '{handle}' is not joined exactly once"
+        ));
+    }
+    if let Some(handle) = handles.keys().find(|handle| !consumed.contains(*handle)) {
+        return Err(format!(
+            "thread task handle '{handle}' is not joined exactly once"
+        ));
+    }
+    Ok(())
+}
+
+fn reject_thread_control_flow_while_pending(
+    expression: &Expr,
+    pending: &HashSet<String>,
+) -> Result<(), String> {
+    if !pending.is_empty() && expression_has_control_flow(expression) {
+        return Err(format!(
+            "thread task handles cannot cross control flow; join '{}' first",
+            pending.iter().next().unwrap()
+        ));
+    }
+    Ok(())
+}
+
+fn is_control_statement(statement: &Statement) -> bool {
+    matches!(
+        statement,
+        Statement::While { .. }
+            | Statement::Loop { .. }
+            | Statement::For { .. }
+            | Statement::Labeled { .. }
+            | Statement::Break
+            | Statement::BreakValue(_)
+            | Statement::BreakTo(_)
+            | Statement::BreakToValue { .. }
+            | Statement::Continue
+            | Statement::ContinueTo(_)
+            | Statement::LetElse { .. }
+    )
+}
+
+fn expression_has_control_flow(expression: &Expr) -> bool {
+    match expression {
+        Expr::List(items) => {
+            matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "if" | "if-let" | "match" | "while" | "loop" | "for"))
+                || items.iter().any(expression_has_control_flow)
+        }
+        Expr::Block(_) | Expr::Loop(_) => true,
+        Expr::Labeled { expression, .. } | Expr::Quote(expression) => {
+            expression_has_control_flow(expression)
+        }
+        _ => false,
+    }
+}
+
+fn direct_task_join(
+    expression: &Expr,
+    tasks: &HashMap<String, String>,
+) -> Option<(String, String)> {
+    let Expr::List(items) = expression else {
+        return None;
+    };
+    let Expr::Symbol(operator) = items.first()? else {
+        return None;
+    };
+    for task_type in tasks.keys() {
+        if operator == &format!("{task_type}-join") && items.len() == 2 {
+            let Expr::Symbol(handle) = &items[1] else {
+                return None;
+            };
+            return Some((task_type.clone(), handle.clone()));
+        }
+    }
+    None
+}
+
+fn is_direct_thread_call(expression: &Expr, expected: &str) -> bool {
+    matches!(expression, Expr::List(items)
+        if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == expected))
+}
+
+fn consume_thread_handle(
+    task_type: &str,
+    handle: &str,
+    handles: &HashMap<String, String>,
+    pending: &mut HashSet<String>,
+    consumed: &mut HashSet<String>,
+) -> Result<(), String> {
+    match handles.get(handle) {
+        Some(actual) if actual == task_type && pending.remove(handle) => {
+            consumed.insert(handle.to_owned());
+            Ok(())
+        }
+        Some(_) if consumed.contains(handle) => Err(format!(
+            "thread task handle '{handle}' was joined more than once"
+        )),
+        Some(_) => Err(format!("thread task handle '{handle}' is not active")),
+        None => Err(format!("'{handle}' is not a thread task handle")),
+    }
+}
+
+fn contains_thread_operation(expression: &Expr, tasks: &HashMap<String, String>) -> bool {
+    match expression {
+        Expr::List(items) => {
+            let head = items.first().and_then(|item| match item {
+                Expr::Symbol(name) => Some(name),
+                _ => None,
+            });
+            head.is_some_and(|head| {
+                tasks
+                    .keys()
+                    .any(|task| head == &format!("{task}-spawn") || head == &format!("{task}-join"))
+            }) || items
+                .iter()
+                .any(|item| contains_thread_operation(item, tasks))
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => statements
+            .iter()
+            .any(|statement| statement_contains_thread_operation(statement, tasks)),
+        Expr::Labeled { expression, .. } | Expr::Quote(expression) => {
+            contains_thread_operation(expression, tasks)
+        }
+        _ => false,
+    }
+}
+
+fn check_task_statement_expr(
+    expression: &Expr,
+    handles: &HashMap<String, String>,
+    tasks: &HashMap<String, String>,
+) -> Result<(), String> {
+    if contains_thread_operation(expression, tasks) {
+        return Err("thread spawn and join must be direct top-level statements".into());
+    }
+    check_task_expression_children(std::slice::from_ref(expression), handles, tasks)
+}
+
+fn check_task_expression_children(
+    expressions: &[Expr],
+    handles: &HashMap<String, String>,
+    tasks: &HashMap<String, String>,
+) -> Result<(), String> {
+    for expression in expressions {
+        match expression {
+            Expr::Symbol(name) if handles.contains_key(name) => {
+                return Err(format!(
+                    "thread task handle '{name}' may only be used once as the direct argument to join"
+                ));
+            }
+            Expr::List(items) => {
+                if let Some(Expr::Symbol(name)) = items.first() {
+                    if tasks.contains_key(name) && items.len() > 1 {
+                        return Err(format!(
+                            "thread task type '{name}' is opaque and cannot be constructed directly"
+                        ));
+                    }
+                }
+                check_task_expression_children(items, handles, tasks)?;
+            }
+            Expr::Block(statements) | Expr::Loop(statements) => {
+                for statement in statements {
+                    check_task_statement(statement, handles, tasks)?;
+                }
+            }
+            Expr::Labeled { expression, .. } | Expr::Quote(expression) => {
+                check_task_expression_children(std::slice::from_ref(expression), handles, tasks)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn statement_contains_thread_operation(
+    statement: &Statement,
+    tasks: &HashMap<String, String>,
+) -> bool {
+    match statement {
+        Statement::Let { value, .. }
+        | Statement::Destructure { value, .. }
+        | Statement::LetElse { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::FieldAssign { value, .. }
+        | Statement::TupleAssign { value, .. }
+        | Statement::EnumPayloadAssign { value, .. }
+        | Statement::BreakValue(value)
+        | Statement::BreakToValue { value, .. }
+        | Statement::Return(Some(value))
+        | Statement::Expr(value) => contains_thread_operation(value, tasks),
+        Statement::ArrayAssign { index, value, .. } => {
+            contains_thread_operation(index, tasks) || contains_thread_operation(value, tasks)
+        }
+        Statement::While { condition, body } => {
+            contains_thread_operation(condition, tasks)
+                || body
+                    .iter()
+                    .any(|statement| statement_contains_thread_operation(statement, tasks))
+        }
+        Statement::Loop { body } => body
+            .iter()
+            .any(|statement| statement_contains_thread_operation(statement, tasks)),
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            statement_contains_thread_operation(init, tasks)
+                || contains_thread_operation(condition, tasks)
+                || statement_contains_thread_operation(step, tasks)
+                || body
+                    .iter()
+                    .any(|statement| statement_contains_thread_operation(statement, tasks))
+        }
+        Statement::Labeled { statement, .. } => {
+            statement_contains_thread_operation(statement, tasks)
+        }
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => false,
+    }
+}
+
+fn check_task_statement(
+    statement: &Statement,
+    handles: &HashMap<String, String>,
+    tasks: &HashMap<String, String>,
+) -> Result<(), String> {
+    match statement {
+        Statement::Let { value, .. }
+        | Statement::Destructure { value, .. }
+        | Statement::LetElse { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::FieldAssign { value, .. }
+        | Statement::TupleAssign { value, .. }
+        | Statement::EnumPayloadAssign { value, .. }
+        | Statement::BreakValue(value)
+        | Statement::BreakToValue { value, .. }
+        | Statement::Return(Some(value))
+        | Statement::Expr(value) => check_task_statement_expr(value, handles, tasks),
+        Statement::ArrayAssign { index, value, .. } => {
+            check_task_statement_expr(index, handles, tasks)?;
+            check_task_statement_expr(value, handles, tasks)
+        }
+        Statement::While { condition, body } => {
+            check_task_statement_expr(condition, handles, tasks)?;
+            for statement in body {
+                check_task_statement(statement, handles, tasks)?;
+            }
+            Ok(())
+        }
+        Statement::Loop { body } => {
+            for statement in body {
+                check_task_statement(statement, handles, tasks)?;
+            }
+            Ok(())
+        }
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            check_task_statement(init, handles, tasks)?;
+            check_task_statement_expr(condition, handles, tasks)?;
+            check_task_statement(step, handles, tasks)?;
+            for statement in body {
+                check_task_statement(statement, handles, tasks)?;
+            }
+            Ok(())
+        }
+        Statement::Labeled { statement, .. } => check_task_statement(statement, handles, tasks),
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => Ok(()),
+    }
+}
+
+/// Determine whether a concrete type satisfies Lim's built-in Send or Sync
+/// auto trait. Explicit `#unsafe-impl` declarations override structural rules.
+pub fn type_has_auto_trait(
+    program: &Program,
+    ty: &Type,
+    trait_kind: AutoTrait,
+) -> Result<bool, String> {
+    let aliases = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::TypeAlias { name, target, .. } => Some((name.clone(), target.clone())),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+    let structs = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct { name, fields, .. } => Some((
+                name.clone(),
+                fields
+                    .iter()
+                    .map(|field| Ok((field.name.clone(), resolve_type(&field.ty, &aliases)?)))
+                    .collect::<Result<Vec<_>, String>>(),
+            )),
+            Item::ThreadTask { name, .. } => Some((
+                name.clone(),
+                Ok(vec![(
+                    "__lim_thread_context".to_owned(),
+                    Type::RawPointer {
+                        mutable: true,
+                        target: Box::new(Type::Unit),
+                    },
+                )]),
+            )),
+            _ => None,
+        })
+        .map(|(name, fields)| fields.map(|fields| (name, fields)))
+        .collect::<Result<HashMap<_, _>, _>>()?;
+    let enums = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Enum { name, variants, .. } => Some((
+                name.clone(),
+                variants
+                    .iter()
+                    .map(|variant| {
+                        variant
+                            .fields
+                            .iter()
+                            .map(|ty| resolve_type(ty, &aliases))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .collect::<Result<Vec<_>, String>>(),
+            )),
+            _ => None,
+        })
+        .map(|(name, variants)| variants.map(|variants| (name, variants)))
+        .collect::<Result<HashMap<_, _>, _>>()?;
+    let overrides = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::UnsafeAutoTraitImpl {
+                trait_kind,
+                type_name,
+            } => Some((type_name.clone(), *trait_kind)),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    type_has_auto_trait_inner(
+        &resolve_type(ty, &aliases)?,
+        trait_kind,
+        &structs,
+        &enums,
+        &overrides,
+        &mut HashSet::new(),
+    )
+}
+
+fn type_has_auto_trait_inner(
+    ty: &Type,
+    trait_kind: AutoTrait,
+    structs: &HashMap<String, Vec<(String, Type)>>,
+    enums: &HashMap<String, Vec<Vec<Type>>>,
+    overrides: &HashSet<(String, AutoTrait)>,
+    active: &mut HashSet<String>,
+) -> Result<bool, String> {
+    let all = |types: Vec<&Type>, active: &mut HashSet<String>| -> Result<bool, String> {
+        for nested in types {
+            if !type_has_auto_trait_inner(nested, trait_kind, structs, enums, overrides, active)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+    match ty {
+        Type::Unit
+        | Type::Never
+        | Type::Bool
+        | Type::Char
+        | Type::I8
+        | Type::I16
+        | Type::I32
+        | Type::I64
+        | Type::I128
+        | Type::Isize
+        | Type::U8
+        | Type::U16
+        | Type::U32
+        | Type::U64
+        | Type::U128
+        | Type::Usize
+        | Type::F32
+        | Type::F64 => Ok(true),
+        Type::Generic(_) => Ok(false),
+        Type::RawPointer { .. } => Ok(false),
+        Type::Cell(inner) => match trait_kind {
+            AutoTrait::Send => {
+                type_has_auto_trait_inner(inner, trait_kind, structs, enums, overrides, active)
+            }
+            AutoTrait::Sync => Ok(false),
+        },
+        Type::Reference { mutable, target } => match (trait_kind, mutable) {
+            (AutoTrait::Send, false) | (AutoTrait::Sync, _) => type_has_auto_trait_inner(
+                target,
+                AutoTrait::Sync,
+                structs,
+                enums,
+                overrides,
+                active,
+            ),
+            (AutoTrait::Send, true) => type_has_auto_trait_inner(
+                target,
+                AutoTrait::Send,
+                structs,
+                enums,
+                overrides,
+                active,
+            ),
+        },
+        Type::Tuple(fields) => all(fields.iter().collect(), active),
+        Type::Array(element, _) => {
+            type_has_auto_trait_inner(element, trait_kind, structs, enums, overrides, active)
+        }
+        Type::Named(name) => {
+            if overrides.contains(&(name.clone(), trait_kind)) {
+                return Ok(true);
+            }
+            if !active.insert(name.clone()) {
+                return Ok(true);
+            }
+            let result = if let Some(fields) = structs.get(name) {
+                all(fields.iter().map(|(_, ty)| ty).collect(), active)?
+            } else if let Some(variants) = enums.get(name) {
+                all(
+                    variants.iter().flat_map(|variant| variant.iter()).collect(),
+                    active,
+                )?
+            } else {
+                return Err(format!(
+                    "unknown type '{name}' while checking {trait_kind:?}"
+                ));
+            };
+            active.remove(name);
+            Ok(result)
+        }
+    }
 }
 
 fn reject_recursive_calls(

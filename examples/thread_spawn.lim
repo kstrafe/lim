@@ -1,0 +1,45 @@
+(#struct SharedValue ((value u64)))
+(#struct Pair ((left u64) (right u64)))
+(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64)))
+
+(#fn read-value ((value (#ref SharedValue))) u64
+  (#return (#get value value)))
+
+(#fn scale ((value f64)) f64
+  (#return (#f64.* value 2.0f64)))
+
+(#fn noop () ()
+  (#return ()))
+
+(#fn add-pair ((pair Pair)) Pair
+  (#return (Pair (#u64.+.wrap (#get pair left) 1) (#u64.+.wrap (#get pair right) 1))))
+
+(#fn pass-large ((value Large)) Large
+  (#return value))
+
+(#fn sum-seven ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64)) u64
+  (#return (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap a b) c) d) e) f) g)))
+
+(@thread-spawn ReadValueTask read-value)
+(@thread-spawn ScaleTask scale)
+(@thread-spawn NoopTask noop)
+(@thread-spawn PairTask add-pair)
+(@thread-spawn LargeTask pass-large)
+(@thread-spawn SumSevenTask sum-seven)
+
+(#fn main () u64
+  (#let-mut shared SharedValue (SharedValue 42))
+  (#let task ReadValueTask (ReadValueTask-spawn (#borrow shared)))
+  (#let scale-task ScaleTask (ScaleTask-spawn 2.5f64))
+  (#let noop-task NoopTask (NoopTask-spawn))
+  (#let pair-task PairTask (PairTask-spawn (Pair 20 21)))
+  (#let large-task LargeTask (LargeTask-spawn (Large 1 2 3 4 5 6 7)))
+  (#let sum-task SumSevenTask (SumSevenTask-spawn 6 6 6 6 6 6 6))
+  (#let result u64 (ReadValueTask-join task))
+  (#let scaled f64 (ScaleTask-join scale-task))
+  (#let no-result () (NoopTask-join noop-task))
+  (#let pair-result Pair (PairTask-join pair-task))
+  (#let large-result Large (LargeTask-join large-task))
+  (#let wide-result u64 (SumSevenTask-join sum-task))
+  (#set-field shared value 41)
+  (#return (#u64.+.wrap (#u64.+.wrap result (#get pair-result left)) (#get large-result a))))

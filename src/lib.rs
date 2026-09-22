@@ -13,7 +13,7 @@ mod typecheck;
 mod unsafecheck;
 
 pub use codegen::generate_assembly;
-pub use typecheck::check_types;
+pub use typecheck::{check_types, type_has_auto_trait};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Span {
@@ -631,6 +631,12 @@ pub struct EnumVariant {
     pub discriminant: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum AutoTrait {
+    Send,
+    Sync,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
     TypeAlias {
@@ -659,6 +665,14 @@ pub enum Item {
         name: String,
         ty: Type,
         value: Expr,
+    },
+    UnsafeAutoTraitImpl {
+        trait_kind: AutoTrait,
+        type_name: String,
+    },
+    ThreadTask {
+        name: String,
+        worker: String,
     },
 }
 
@@ -1111,6 +1125,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "let-else"
             | "const"
             | "static"
+            | "unsafe-impl"
             | "if"
             | "if-let"
             | "while"
@@ -2032,6 +2047,51 @@ fn specialize_statement(
 }
 
 fn specialize_generic_types(mut items: Vec<Item>) -> Result<Vec<Item>, String> {
+    for item in &items {
+        let Item::UnsafeAutoTraitImpl {
+            trait_kind,
+            type_name,
+        } = item
+        else {
+            continue;
+        };
+        let declaration = items.iter().find(|candidate| match candidate {
+            Item::Struct { name, .. } | Item::Enum { name, .. } | Item::TypeAlias { name, .. } => {
+                name == type_name
+            }
+            _ => false,
+        });
+        let Some(declaration) = declaration else {
+            return Err(format!(
+                "unsafe {:?} implementation refers to undeclared type '{type_name}'",
+                trait_kind
+            ));
+        };
+        let is_generic = match declaration {
+            Item::Struct {
+                type_parameters, ..
+            }
+            | Item::Enum {
+                type_parameters, ..
+            }
+            | Item::TypeAlias {
+                type_parameters, ..
+            } => !type_parameters.is_empty(),
+            _ => false,
+        };
+        if matches!(declaration, Item::TypeAlias { .. }) {
+            return Err(format!(
+                "unsafe {:?} implementations require a nominal struct or enum type, not alias '{type_name}'",
+                trait_kind
+            ));
+        }
+        if is_generic {
+            return Err(format!(
+                "unsafe {:?} implementation for generic type '{type_name}' is not supported",
+                trait_kind
+            ));
+        }
+    }
     let templates = items
         .iter()
         .filter_map(|item| match item {
@@ -2154,6 +2214,8 @@ fn specialize_generic_types(mut items: Vec<Item>) -> Result<Vec<Item>, String> {
                     &mut generated,
                 )?;
             }
+            Item::UnsafeAutoTraitImpl { .. } => {}
+            Item::ThreadTask { .. } => {}
         }
     }
     items.retain(|item| {
@@ -2236,6 +2298,21 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
                 value: lower_expr(&items[3])?,
             })
         }
+        "unsafe-impl" => {
+            if items.len() != 3 {
+                return Err("unsafe-impl requires (#unsafe-impl #send-or-sync Type)".into());
+            }
+            let trait_kind = match expect_symbol(items.get(1), "auto-trait name")? {
+                "send" => AutoTrait::Send,
+                "sync" => AutoTrait::Sync,
+                other => return Err(format!("unsupported unsafe auto-trait '{other}'")),
+            };
+            let type_name = expect_symbol(items.get(2), "auto-trait type")?.to_owned();
+            Ok(Item::UnsafeAutoTraitImpl {
+                trait_kind,
+                type_name,
+            })
+        }
         other => Err(format!("unknown top-level form '{other}'")),
     }
 }
@@ -2298,6 +2375,17 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
                 ],
             })
         }
+        "thread-spawn" => {
+            if items.len() != 4 {
+                return Err(
+                    "generated declaration must have the form (@thread-spawn TaskType worker-function)".into(),
+                );
+            }
+            Ok(Item::ThreadTask {
+                name: expect_symbol(items.get(2), "thread task type name")?.to_owned(),
+                worker: expect_symbol(items.get(3), "thread worker function")?.to_owned(),
+            })
+        }
         other => Err(format!("unknown generated declaration '@{other}'")),
     }
 }
@@ -2306,6 +2394,9 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
     let kind = expect_symbol(items.get(1), "generated declaration name")?;
     if kind == "result" {
         return parse_generated_result_items(items);
+    }
+    if kind == "thread-spawn" {
+        return Ok(vec![parse_generated_item(items)?]);
     }
     let generated = parse_generated_item(items)?;
     let Item::Enum { name, variants, .. } = &generated else {
@@ -3859,6 +3950,209 @@ mod tests {
         assert!(check_types(&immutable_reference_field)
             .unwrap_err()
             .contains("reference field 'allocator'"));
+    }
+
+    #[test]
+    fn derives_send_and_sync_and_accepts_explicit_unsafe_overrides() {
+        let program = parse_program(
+            "(#struct Plain ((value u64))) (#struct HasCell ((value (#cell u64)))) (#struct HasPointer ((value (#ptr u64)))) (#struct HasSharedReference ((value (#ref Plain)))) (#struct PromisedSend ((value (#ptr u64)))) (#struct PromisedSync ((value (#cell u64)))) (#unsafe-impl #send PromisedSend) (#unsafe-impl #sync PromisedSync)",
+        )
+        .unwrap();
+        check_types(&program).unwrap();
+        let has = |name: &str, trait_kind: AutoTrait| {
+            type_has_auto_trait(&program, &Type::Named(name.to_owned()), trait_kind).unwrap()
+        };
+
+        assert!(has("Plain", AutoTrait::Send));
+        assert!(has("Plain", AutoTrait::Sync));
+        assert!(has("HasCell", AutoTrait::Send));
+        assert!(!has("HasCell", AutoTrait::Sync));
+        assert!(!has("HasPointer", AutoTrait::Send));
+        assert!(!has("HasPointer", AutoTrait::Sync));
+        assert!(has("HasSharedReference", AutoTrait::Send));
+        assert!(has("HasSharedReference", AutoTrait::Sync));
+        assert!(has("PromisedSend", AutoTrait::Send));
+        assert!(!has("PromisedSend", AutoTrait::Sync));
+        assert!(has("PromisedSync", AutoTrait::Sync));
+
+        assert!(type_has_auto_trait(
+            &program,
+            &Type::Reference {
+                mutable: false,
+                target: Box::new(Type::Named("Plain".to_owned())),
+            },
+            AutoTrait::Send,
+        )
+        .unwrap());
+        assert!(!type_has_auto_trait(
+            &program,
+            &Type::Reference {
+                mutable: false,
+                target: Box::new(Type::Named("HasCell".to_owned())),
+            },
+            AutoTrait::Send,
+        )
+        .unwrap());
+        assert!(type_has_auto_trait(
+            &program,
+            &Type::Reference {
+                mutable: true,
+                target: Box::new(Type::Named("Plain".to_owned())),
+            },
+            AutoTrait::Send,
+        )
+        .unwrap());
+        assert!(!type_has_auto_trait(
+            &program,
+            &Type::Reference {
+                mutable: true,
+                target: Box::new(Type::Named("HasCell".to_owned())),
+            },
+            AutoTrait::Sync,
+        )
+        .unwrap());
+
+        let duplicate = parse_program(
+            "(#struct Value ((value u64))) (#unsafe-impl #send Value) (#unsafe-impl #send Value)",
+        )
+        .unwrap();
+        assert!(check_types(&duplicate)
+            .unwrap_err()
+            .contains("duplicate unsafe Send implementation"));
+
+        assert!(parse_program("(#unsafe-impl #send Unknown)")
+            .unwrap_err()
+            .contains("undeclared type 'Unknown'"));
+
+        let generic_override =
+            parse_program("(#struct Box (T) ((value T))) (#unsafe-impl #sync Box)").unwrap_err();
+        assert!(generic_override.contains("for generic type 'Box' is not supported"));
+
+        let alias_override =
+            parse_program("(#type Resource (#ptr u8)) (#unsafe-impl #send Resource)").unwrap_err();
+        assert!(alias_override.contains("require a nominal struct or enum type"));
+    }
+
+    #[test]
+    fn thread_spawn_generator_requires_send_worker_inputs_and_output() {
+        let valid = parse_program(
+            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn IncrementTask increment)",
+        )
+        .unwrap();
+        assert!(check_types(&valid).is_ok(), "{:?}", check_types(&valid));
+        assert!(valid.items.iter().any(|item| matches!(
+            item,
+            Item::ThreadTask { name, worker }
+                if name == "IncrementTask" && worker == "increment"
+        )));
+        let api = parse_program(
+            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn IncrementTask increment) (#fn main () u64 (#let task IncrementTask (IncrementTask-spawn 41)) (#let result u64 (IncrementTask-join task)) (#return result))",
+        )
+        .unwrap();
+        assert!(check_types(&api).is_ok(), "{:?}", check_types(&api));
+        let assembly = generate_assembly(&api).unwrap();
+        assert!(assembly.contains("call pthread_create"));
+        assert!(assembly.contains("call pthread_join"));
+        assert!(assembly.contains(".Llim_thread_entry_IncrementTask"));
+
+        let non_send_input = parse_program(
+            "(#fn inspect ((pointer (#ptr u64))) u64 (#return (#unsafe (#ptr-read pointer)))) (@thread-spawn PointerTask inspect)",
+        )
+        .unwrap();
+        assert!(check_types(&non_send_input)
+            .unwrap_err()
+            .contains("parameter 'pointer' does not implement Send"));
+
+        let unsafe_send_input = parse_program(
+            "(#struct NativeToken ((pointer (#ptr u64)))) (#unsafe-impl #send NativeToken) (#fn inspect ((token NativeToken)) u64 (#return 0)) (@thread-spawn TokenTask inspect)",
+        )
+        .unwrap();
+        assert!(check_types(&unsafe_send_input).is_ok());
+
+        let unsafe_sync_reference = parse_program(
+            "(#struct NativeShared ((pointer (#ptr u64)))) (#unsafe-impl #sync NativeShared) (#fn inspect ((value (#ref NativeShared))) u64 (#return 0)) (@thread-spawn InspectTask inspect)",
+        )
+        .unwrap();
+        assert!(check_types(&unsafe_sync_reference).is_ok());
+
+        let missing_sync_reference = parse_program(
+            "(#struct NativeShared ((pointer (#ptr u64)))) (#fn inspect ((value (#ref NativeShared))) u64 (#return 0)) (@thread-spawn InspectTask inspect)",
+        )
+        .unwrap();
+        assert!(check_types(&missing_sync_reference)
+            .unwrap_err()
+            .contains("parameter 'value' does not implement Send"));
+
+        let reference_return = parse_program(
+            "(#fn identity ((value (#ref u64))) (#ref u64) (#return value)) (@thread-spawn IdentityTask identity)",
+        )
+        .unwrap();
+        assert!(check_types(&reference_return)
+            .unwrap_err()
+            .contains("cannot return reference-containing values"));
+
+        let duplicate_join = parse_program(
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let task WorkTask (WorkTask-spawn 1)) (#let first u64 (WorkTask-join task)) (#let second u64 (WorkTask-join task)) (#return second))",
+        )
+        .unwrap();
+        assert!(check_types(&duplicate_join)
+            .unwrap_err()
+            .contains("was joined more than once"));
+
+        let unjoined = parse_program(
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let task WorkTask (WorkTask-spawn 1)) (#return 0))",
+        )
+        .unwrap();
+        assert!(check_types(&unjoined)
+            .unwrap_err()
+            .contains("may return while thread task 'task' is still running"));
+
+        let borrowed_then_mutated = parse_program(
+            "(#struct Shared ((value u64))) (#fn read ((value (#ref Shared))) u64 (#return (#get value value))) (@thread-spawn ReadTask read) (#fn main () u64 (#let-mut shared Shared (Shared 1)) (#let task ReadTask (ReadTask-spawn (#borrow shared))) (#set-field shared value 2) (#let result u64 (ReadTask-join task)) (#return result))",
+        )
+        .unwrap();
+        let borrow_error = check_types(&borrowed_then_mutated).unwrap_err();
+        assert!(
+            borrow_error.contains("cannot mutate 'shared' while it is immutably borrowed"),
+            "{borrow_error}"
+        );
+
+        let joined_then_mutated = parse_program(
+            "(#struct Shared ((value u64))) (#fn read ((value (#ref Shared))) u64 (#return (#get value value))) (@thread-spawn ReadTask read) (#fn main () u64 (#let-mut shared Shared (Shared 1)) (#let task ReadTask (ReadTask-spawn (#borrow shared))) (#let result u64 (ReadTask-join task)) (#set-field shared value 2) (#return result))",
+        )
+        .unwrap();
+        assert!(check_types(&joined_then_mutated).is_ok());
+
+        let mutable_borrow_while_running = parse_program(
+            "(#struct Shared ((value u64))) (#fn inspect ((value (#ref-mut Shared))) u64 (#return (#get value value))) (@thread-spawn InspectTask inspect) (#fn main () u64 (#let-mut shared Shared (Shared 1)) (#let task InspectTask (InspectTask-spawn (#borrow-mut shared))) (#set-field shared value 2) (#let result u64 (InspectTask-join task)) (#return result))",
+        )
+        .unwrap();
+        let mutable_borrow_error = check_types(&mutable_borrow_while_running).unwrap_err();
+        assert!(
+            mutable_borrow_error.contains("mutably borrowed by a running thread"),
+            "{mutable_borrow_error}"
+        );
+
+        let mutable_borrow_read_while_running = parse_program(
+            "(#struct Shared ((value u64))) (#fn inspect ((value (#ref-mut Shared))) u64 (#return (#get value value))) (@thread-spawn InspectTask inspect) (#fn main () u64 (#let-mut shared Shared (Shared 1)) (#let task InspectTask (InspectTask-spawn (#borrow-mut shared))) (#let copy Shared shared) (#let result u64 (InspectTask-join task)) (#return result))",
+        )
+        .unwrap();
+        let mutable_read_error = check_types(&mutable_borrow_read_while_running).unwrap_err();
+        assert!(
+            mutable_read_error.contains("cannot access 'shared' while it is mutably borrowed"),
+            "{mutable_read_error}"
+        );
+
+        let mutable_borrow_then_join = parse_program(
+            "(#struct Shared ((value u64))) (#fn inspect ((value (#ref-mut Shared))) u64 (#return (#get value value))) (@thread-spawn InspectTask inspect) (#fn main () u64 (#let-mut shared Shared (Shared 1)) (#let task InspectTask (InspectTask-spawn (#borrow-mut shared))) (#let result u64 (InspectTask-join task)) (#set-field shared value 2) (#return result))",
+        )
+        .unwrap();
+        assert!(check_types(&mutable_borrow_then_join).is_ok());
+
+        let unknown_worker = parse_program("(@thread-spawn MissingTask missing-worker)").unwrap();
+        assert!(check_types(&unknown_worker)
+            .unwrap_err()
+            .contains("unknown worker function 'missing-worker'"));
     }
 
     #[test]

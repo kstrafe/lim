@@ -30,6 +30,10 @@ struct Context {
     reference_types: HashSet<String>,
     reference_functions: HashSet<String>,
     function_names: HashSet<String>,
+    thread_spawn_functions: HashMap<String, Vec<crate::Type>>,
+    thread_join_functions: HashSet<String>,
+    thread_task_loans: HashMap<String, Vec<(String, LoanKind)>>,
+    thread_exclusive_owners: HashMap<String, usize>,
     return_contains_references: bool,
 }
 
@@ -71,6 +75,17 @@ impl Loans {
             )),
             Some(LoanKind::Mutable) | None => Ok(()),
         }
+    }
+}
+
+impl Context {
+    fn write(&self, owner: &str) -> Result<(), String> {
+        if self.thread_exclusive_owners.contains_key(owner) {
+            return Err(format!(
+                "cannot mutate '{owner}' while it is mutably borrowed by a running thread"
+            ));
+        }
+        self.loans.write(owner)
     }
 }
 
@@ -125,6 +140,32 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
             _ => None,
         })
         .collect::<HashSet<_>>();
+    let mut thread_spawn_functions = HashMap::new();
+    let mut thread_join_functions = HashSet::new();
+    for item in &program.items {
+        let Item::ThreadTask { name, worker } = item else {
+            continue;
+        };
+        let parameters = program.items.iter().find_map(|item| match item {
+            Item::Function(function) if function.name == *worker => Some(
+                function
+                    .parameters
+                    .iter()
+                    .map(|parameter| parameter.ty.clone())
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        });
+        if let Some(parameters) = parameters {
+            thread_spawn_functions.insert(format!("{name}-spawn"), parameters);
+        }
+        thread_join_functions.insert(format!("{name}-join"));
+    }
+    let function_names = function_names
+        .into_iter()
+        .chain(thread_spawn_functions.keys().cloned())
+        .chain(thread_join_functions.iter().cloned())
+        .collect();
     for item in &program.items {
         if let Item::Function(function) = item {
             if !function.external {
@@ -134,6 +175,8 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                     &reference_types,
                     &reference_functions,
                     &function_names,
+                    &thread_spawn_functions,
+                    &thread_join_functions,
                 )?;
             }
         }
@@ -147,6 +190,8 @@ fn check_function(
     reference_types: &HashSet<String>,
     reference_functions: &HashSet<String>,
     function_names: &HashSet<String>,
+    thread_spawn_functions: &HashMap<String, Vec<crate::Type>>,
+    thread_join_functions: &HashSet<String>,
 ) -> Result<(), String> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
@@ -172,6 +217,10 @@ fn check_function(
         reference_types: reference_types.clone(),
         reference_functions: reference_functions.clone(),
         function_names: function_names.clone(),
+        thread_spawn_functions: thread_spawn_functions.clone(),
+        thread_join_functions: thread_join_functions.clone(),
+        thread_task_loans: HashMap::new(),
+        thread_exclusive_owners: HashMap::new(),
         return_contains_references: contains_reference_type(&function.return_type, reference_types),
     };
     for statement in &function.body {
@@ -183,21 +232,45 @@ fn check_function(
 fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), String> {
     match statement {
         Statement::Let {
-            name, ty, value, ..
+            name,
+            ty,
+            value,
+            mutable,
         } => {
             let contains_references = contains_reference_type(ty, &context.reference_types);
             let origins = reference_origins(value, context, contains_references);
+            let task_loans = thread_spawn_origins(value, context);
             context.allow_local_reference = true;
             let checked = check_expression(value, context);
             context.allow_local_reference = false;
             checked?;
-            for owner in &origins {
-                context.loans.borrow(owner, LoanKind::Shared(1))?;
-            }
-            if origins.is_empty() || !contains_references {
-                context.reference_origins.remove(name);
+            if let Some(task_loans) = task_loans {
+                for (owner, kind) in &task_loans {
+                    context.loans.borrow(owner, *kind)?;
+                    if *kind == LoanKind::Mutable {
+                        *context
+                            .thread_exclusive_owners
+                            .entry(owner.clone())
+                            .or_default() += 1;
+                    }
+                }
+                context.reference_origins.insert(
+                    name.clone(),
+                    task_loans.iter().map(|(owner, _)| owner.clone()).collect(),
+                );
+                context.thread_task_loans.insert(name.clone(), task_loans);
             } else {
-                context.reference_origins.insert(name.clone(), origins);
+                for owner in &origins {
+                    context.loans.borrow(owner, LoanKind::Shared(1))?;
+                }
+                if origins.is_empty() || !contains_references {
+                    context.reference_origins.remove(name);
+                } else {
+                    context.reference_origins.insert(name.clone(), origins);
+                }
+            }
+            if *mutable {
+                context.mutable.insert(name.clone());
             }
         }
         Statement::Destructure { value, .. } | Statement::LetElse { value, .. } => {
@@ -218,12 +291,12 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
                 ));
             }
             check_expression(value, context)?;
-            context.loans.write(name)?;
+            context.write(name)?;
         }
         Statement::ArrayAssign { name, index, value } => {
             check_expression(index, context)?;
             check_expression(value, context)?;
-            context.loans.write(name)?;
+            context.write(name)?;
         }
         Statement::While { condition, body } => {
             check_expression(condition, context)?;
@@ -323,8 +396,38 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                         .try_for_each(|item| check_expression(item, context));
                     context.allow_local_reference = previous;
                     checked?;
+                    if context.thread_join_functions.contains(operator) {
+                        if let Some(Expr::Symbol(handle)) = items.get(1) {
+                            if let Some(loans) = context.thread_task_loans.remove(handle) {
+                                context.reference_origins.remove(handle);
+                                for (owner, _) in &loans {
+                                    context.loans.end(owner);
+                                }
+                                for (owner, kind) in loans {
+                                    if kind == LoanKind::Mutable {
+                                        let remove_owner = if let Some(count) =
+                                            context.thread_exclusive_owners.get_mut(&owner)
+                                        {
+                                            *count -= 1;
+                                            *count == 0
+                                        } else {
+                                            false
+                                        };
+                                        if remove_owner {
+                                            context.thread_exclusive_owners.remove(&owner);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
-                    for item in &items[1..] {
+                    let arguments = if operator == "get" && items.len() >= 3 {
+                        &items[1..items.len() - 1]
+                    } else {
+                        &items[1..]
+                    };
+                    for item in arguments {
                         check_expression(item, context)?;
                     }
                 }
@@ -337,8 +440,14 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
         Expr::Block(statements) | Expr::Loop(statements) => check_statements(statements, context)?,
         Expr::Labeled { expression, .. } => check_expression(expression, context)?,
         Expr::Quote(value) => check_expression(value, context)?,
-        Expr::Symbol(_)
-        | Expr::Integer(_)
+        Expr::Symbol(name) => {
+            if context.thread_exclusive_owners.contains_key(name) {
+                return Err(format!(
+                    "cannot access '{name}' while it is mutably borrowed by a running thread"
+                ));
+            }
+        }
+        Expr::Integer(_)
         | Expr::UnsignedInteger(_)
         | Expr::Float(_)
         | Expr::Char(_)
@@ -346,6 +455,47 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
         | Expr::At => {}
     }
     Ok(())
+}
+
+fn thread_spawn_origins(expression: &Expr, context: &Context) -> Option<Vec<(String, LoanKind)>> {
+    let Expr::List(items) = expression else {
+        return None;
+    };
+    let Expr::Symbol(function) = items.first()? else {
+        return None;
+    };
+    let parameters = context.thread_spawn_functions.get(function)?;
+    let mut loans = Vec::new();
+    for (argument, parameter) in items[1..].iter().zip(parameters) {
+        if !contains_reference_type(parameter, &context.reference_types) {
+            continue;
+        }
+        let kind = if contains_mutable_reference(parameter, &context.reference_types) {
+            LoanKind::Mutable
+        } else {
+            LoanKind::Shared(1)
+        };
+        loans.extend(
+            reference_origins(argument, context, true)
+                .into_iter()
+                .map(|owner| (owner, kind)),
+        );
+    }
+    Some(loans)
+}
+
+fn contains_mutable_reference(ty: &crate::Type, reference_types: &HashSet<String>) -> bool {
+    match ty {
+        crate::Type::Reference { mutable, .. } => *mutable,
+        crate::Type::Array(element, _) | crate::Type::Cell(element) => {
+            contains_mutable_reference(element, reference_types)
+        }
+        crate::Type::Tuple(fields) => fields
+            .iter()
+            .any(|field| contains_mutable_reference(field, reference_types)),
+        crate::Type::Named(name) => reference_types.contains(name) && false,
+        _ => false,
+    }
 }
 
 fn reference_origins(
@@ -379,6 +529,13 @@ fn reference_origins(
             }
             if operator == "cell-get" && items.len() == 2 {
                 return reference_origins(&items[1], context, true);
+            }
+            if matches!(operator.as_str(), "tuple" | "array" | "array-repeat") {
+                return items
+                    .iter()
+                    .skip(1)
+                    .flat_map(|item| reference_origins(item, context, true))
+                    .collect();
             }
             if operator == "if" {
                 return items

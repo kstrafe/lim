@@ -837,6 +837,16 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                     })
                     .collect(),
             )),
+            Item::ThreadTask { name, .. } => Some((
+                name.clone(),
+                vec![Field {
+                    name: "__lim_thread_context".into(),
+                    ty: Type::RawPointer {
+                        mutable: true,
+                        target: Box::new(Type::Unit),
+                    },
+                }],
+            )),
             _ => None,
         })
         .collect();
@@ -905,6 +915,46 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
                 max_call_depth: *call_depths.get(&function.name).unwrap_or(&1),
             },
         );
+    }
+    for item in &program.items {
+        let Item::ThreadTask { name, worker } = item else {
+            continue;
+        };
+        let worker_abi = functions
+            .get(worker)
+            .cloned()
+            .ok_or_else(|| format!("thread worker '{worker}' has no native signature"))?;
+        let task_type = Type::Named(name.clone());
+        let spawn_name = format!("{name}-spawn");
+        let join_name = format!("{name}-join");
+        for (function_name, abi) in [
+            (
+                spawn_name.clone(),
+                FunctionAbi {
+                    parameters: worker_abi.parameters.clone(),
+                    indirect_parameters: worker_abi.indirect_parameters.clone(),
+                    return_type: task_type.clone(),
+                    indirect_return: false,
+                    max_call_depth: 1,
+                },
+            ),
+            (
+                join_name.clone(),
+                FunctionAbi {
+                    parameters: vec![task_type],
+                    indirect_parameters: vec![false],
+                    indirect_return: worker_abi.indirect_return,
+                    return_type: worker_abi.return_type.clone(),
+                    max_call_depth: 1,
+                },
+            ),
+        ] {
+            if functions.insert(function_name.clone(), abi).is_some() {
+                return Err(format!(
+                    "generated thread function '{function_name}' conflicts with another function"
+                ));
+            }
+        }
     }
     let mut globals = HashMap::new();
     let mut global_types = HashMap::new();
@@ -1058,6 +1108,13 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
         }
     }
     output.push_str(".text\n");
+    if program
+        .items
+        .iter()
+        .any(|item| matches!(item, Item::ThreadTask { .. }))
+    {
+        output.push_str(".extern malloc\n.extern free\n.extern pthread_create\n.extern pthread_join\n.extern abort\n");
+    }
     for item in &program.items {
         if let Item::Function(function) = item {
             if function.external {
@@ -1082,6 +1139,16 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             Item::Enum { .. } => {}
             Item::TypeAlias { .. } => {}
             Item::Let { .. } | Item::Static { .. } => {}
+            Item::UnsafeAutoTraitImpl { .. } => {}
+            Item::ThreadTask { name, worker } => generate_thread_task(
+                name,
+                worker,
+                &mut output,
+                &structs,
+                &enums,
+                &aliases,
+                &functions,
+            )?,
         }
     }
     output.push_str(".section .note.GNU-stack,\"\",@progbits\n");
@@ -1097,6 +1164,398 @@ fn emit_indirect_parameter_copy(output: &mut String, slots: &[usize], source: &s
             slot * 8
         ));
     }
+}
+
+fn generate_thread_task(
+    name: &str,
+    worker: &str,
+    output: &mut String,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    aliases: &HashMap<String, Type>,
+    functions: &HashMap<String, FunctionAbi>,
+) -> Result<(), String> {
+    let worker_abi = functions
+        .get(worker)
+        .ok_or_else(|| format!("thread worker '{worker}' has no native signature"))?;
+    let result_type = &worker_abi.return_type;
+    if matches!(result_type, Type::Never) {
+        return Err(format!(
+            "thread worker '{worker}' cannot return the never type"
+        ));
+    }
+
+    let mut packet_offsets = Vec::with_capacity(worker_abi.parameters.len());
+    let mut packet_offset = 8usize;
+    for ty in &worker_abi.parameters {
+        let words = storage_word_count(ty, structs, enums)?;
+        if words == 0 {
+            packet_offsets.push(None);
+        } else {
+            packet_offsets.push(Some(packet_offset));
+            packet_offset += words * 8;
+        }
+    }
+    let result_offset = packet_offset;
+    let result_words = storage_word_count(result_type, structs, enums)?;
+    let allocation_size = packet_offset + result_words * 8;
+    let task_symbol = asm_symbol(name);
+    let worker_symbol = asm_symbol(worker);
+    let spawn_symbol = asm_symbol(&format!("{name}-spawn"));
+    let join_symbol = asm_symbol(&format!("{name}-join"));
+    let entry_symbol = format!(".Llim_thread_entry_{task_symbol}");
+
+    let mut incoming = Vec::<Vec<(&'static str, String, usize)>>::new();
+    let mut spill_words = 0usize;
+    let mut integer_index = 0usize;
+    let mut float_index = 0usize;
+    let mut stack_index = 0usize;
+    for (ty, indirect) in worker_abi
+        .parameters
+        .iter()
+        .zip(&worker_abi.indirect_parameters)
+    {
+        let input_words = if *indirect || is_float_type(ty) {
+            1
+        } else {
+            value_word_count(ty, structs, enums)?
+        };
+        let mut parameter_inputs = Vec::with_capacity(input_words);
+        for _ in 0..input_words {
+            let source = if !*indirect && is_float_type(ty) {
+                let source = if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
+                    (
+                        "float-register",
+                        FLOAT_ARGUMENT_REGISTERS[float_index].to_owned(),
+                    )
+                } else {
+                    let source = ("stack", (16 + stack_index * 8).to_string());
+                    stack_index += 1;
+                    source
+                };
+                float_index += 1;
+                source
+            } else {
+                let source = if integer_index < ARGUMENT_REGISTERS.len() {
+                    (
+                        "integer-register",
+                        ARGUMENT_REGISTERS[integer_index].to_owned(),
+                    )
+                } else {
+                    let source = ("stack", (16 + stack_index * 8).to_string());
+                    stack_index += 1;
+                    source
+                };
+                integer_index += 1;
+                source
+            };
+            parameter_inputs.push((source.0, source.1, spill_words + 1));
+            spill_words += 1;
+        }
+        incoming.push(parameter_inputs);
+    }
+    let context_slot = spill_words + 1;
+    let frame_size = (context_slot * 8).div_ceil(16) * 16;
+
+    output.push_str(&format!(
+        ".globl {spawn_symbol}\n.type {spawn_symbol}, @function\n{spawn_symbol}:\n    push rbp\n    mov rbp, rsp\n    sub rsp, {frame_size}\n"
+    ));
+    for parameter in &incoming {
+        for (kind, source, spill_slot) in parameter {
+            match *kind {
+                "integer-register" => output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {source}\n",
+                    spill_slot * 8
+                )),
+                "float-register" => output.push_str(&format!(
+                    "    movq QWORD PTR [rbp-{}], {source}\n",
+                    spill_slot * 8
+                )),
+                "stack" => output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp+{source}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                    spill_slot * 8
+                )),
+                _ => unreachable!(),
+            }
+        }
+    }
+    output.push_str(&format!(
+        "    mov edi, {allocation_size}\n    call malloc\n    test rax, rax\n    je .Llim_thread_alloc_fail_{task_symbol}\n    mov QWORD PTR [rbp-{}], rax\n",
+        context_slot * 8
+    ));
+    for (index, offset) in packet_offsets.iter().enumerate() {
+        let Some(offset) = offset else {
+            continue;
+        };
+        let ty = &worker_abi.parameters[index];
+        let storage_words = storage_word_count(ty, structs, enums)?;
+        if worker_abi.indirect_parameters[index] {
+            let pointer_slot = incoming[index]
+                .first()
+                .map(|(_, _, slot)| *slot)
+                .ok_or_else(|| "indirect thread argument has no input pointer".to_owned())?;
+            for word in 0..storage_words {
+                let source_offset = if word == 0 {
+                    String::new()
+                } else {
+                    format!("-{}", word * 8)
+                };
+                output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp-{}]\n    mov rcx, QWORD PTR [rax{source_offset}]\n    mov rdx, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rdx+{}], rcx\n",
+                    pointer_slot * 8,
+                    context_slot * 8,
+                    offset + (storage_words - 1 - word) * 8
+                ));
+            }
+        } else {
+            if incoming[index].len() != storage_words {
+                return Err(format!(
+                    "thread argument '{ty:?}' has incompatible native storage and value layouts"
+                ));
+            }
+            for (word, (_, _, spill_slot)) in incoming[index].iter().enumerate() {
+                output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp-{}]\n    mov rcx, QWORD PTR [rbp-{}]\n    mov QWORD PTR [rax+{}], rcx\n",
+                    context_slot * 8,
+                    spill_slot * 8,
+                    offset + word * 8
+                ));
+            }
+        }
+    }
+    output.push_str(&format!(
+        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdi, rax\n    xor esi, esi\n    lea rdx, [rip+{entry_symbol}]\n    mov rcx, rax\n    call pthread_create\n    test eax, eax\n    jne .Llim_thread_create_fail_{task_symbol}\n    mov rax, QWORD PTR [rbp-{}]\n    leave\n    ret\n.Llim_thread_alloc_fail_{task_symbol}:\n    call abort\n    ud2\n.Llim_thread_create_fail_{task_symbol}:\n    mov rdi, QWORD PTR [rbp-{}]\n    call free\n    call abort\n    ud2\n.size {spawn_symbol}, .-{spawn_symbol}\n",
+        context_slot * 8,
+        context_slot * 8,
+        context_slot * 8
+    ));
+
+    output.push_str(&format!(
+        ".type {entry_symbol}, @function\n{entry_symbol}:\n    push rbp\n    mov rbp, rsp\n    sub rsp, 16\n    mov QWORD PTR [rbp-8], rdi\n"
+    ));
+    let mut outgoing = Vec::<(usize, bool, Option<Type>, Option<String>)>::new();
+    integer_index = 0;
+    float_index = 0;
+    for (index, (ty, indirect)) in worker_abi
+        .parameters
+        .iter()
+        .zip(&worker_abi.indirect_parameters)
+        .enumerate()
+    {
+        let Some(offset) = packet_offsets[index] else {
+            continue;
+        };
+        if *indirect {
+            let register = if integer_index < ARGUMENT_REGISTERS.len() {
+                Some(ARGUMENT_REGISTERS[integer_index].to_owned())
+            } else {
+                outgoing.push((
+                    offset + (storage_word_count(ty, structs, enums)? - 1) * 8,
+                    true,
+                    None,
+                    None,
+                ));
+                None
+            };
+            if let Some(register) = register {
+                outgoing.push((
+                    offset + (storage_word_count(ty, structs, enums)? - 1) * 8,
+                    true,
+                    None,
+                    Some(register),
+                ));
+            }
+            integer_index += 1;
+        } else if is_float_type(ty) {
+            if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
+                outgoing.push((
+                    offset,
+                    false,
+                    Some(ty.clone()),
+                    Some(FLOAT_ARGUMENT_REGISTERS[float_index].to_owned()),
+                ));
+            } else {
+                outgoing.push((offset, false, Some(ty.clone()), None));
+            }
+            float_index += 1;
+        } else {
+            let words = value_word_count(ty, structs, enums)?;
+            for word in 0..words {
+                let register = if integer_index < ARGUMENT_REGISTERS.len() {
+                    Some(ARGUMENT_REGISTERS[integer_index].to_owned())
+                } else {
+                    None
+                };
+                outgoing.push((offset + word * 8, false, None, register));
+                integer_index += 1;
+            }
+        }
+    }
+    let overflow_words = outgoing
+        .iter()
+        .filter(|(_, _, _, register)| register.is_none())
+        .count();
+    let padding = overflow_words % 2;
+    if padding != 0 {
+        output.push_str("    sub rsp, 8\n");
+    }
+    for (offset, pointer, _, register) in outgoing.iter().rev() {
+        if register.is_none() {
+            if *pointer {
+                output.push_str(&format!(
+                    "    mov r10, QWORD PTR [rbp-8]\n    lea rax, [r10+{offset}]\n    push rax\n"
+                ));
+            } else {
+                output.push_str(&format!(
+                    "    mov r10, QWORD PTR [rbp-8]\n    mov rax, QWORD PTR [r10+{offset}]\n    push rax\n"
+                ));
+            }
+        }
+    }
+    for (offset, pointer, float_ty, register) in &outgoing {
+        let Some(register) = register else { continue };
+        if let Some(ty) = float_ty {
+            output.push_str(&format!(
+                "    mov r10, QWORD PTR [rbp-8]\n    {} {register}, {} PTR [r10+{offset}]\n",
+                if matches!(ty, Type::F32) {
+                    "movd"
+                } else {
+                    "movq"
+                },
+                if matches!(ty, Type::F32) {
+                    "DWORD"
+                } else {
+                    "QWORD"
+                }
+            ));
+        } else if *pointer {
+            output.push_str(&format!(
+                "    mov r10, QWORD PTR [rbp-8]\n    lea {register}, [r10+{offset}]\n"
+            ));
+        } else {
+            output.push_str(&format!(
+                "    mov r10, QWORD PTR [rbp-8]\n    mov {register}, QWORD PTR [r10+{offset}]\n"
+            ));
+        }
+    }
+    if worker_abi.indirect_return {
+        output.push_str(&format!(
+            "    mov r10, QWORD PTR [rbp-8]\n    lea r10, [r10+{}]\n",
+            result_offset + (result_words.saturating_sub(1)) * 8
+        ));
+    }
+    output.push_str(&format!("    call {worker_symbol}\n"));
+    if overflow_words + padding != 0 {
+        output.push_str(&format!(
+            "    add rsp, {}\n",
+            (overflow_words + padding) * 8
+        ));
+    }
+    if worker_abi.indirect_return {
+        // The worker wrote its result directly into the reserved packet region.
+    } else if matches!(result_type, Type::F32) {
+        output.push_str(&format!(
+            "    mov r10, QWORD PTR [rbp-8]\n    movd DWORD PTR [r10+{result_offset}], xmm0\n"
+        ));
+    } else if matches!(result_type, Type::F64) {
+        output.push_str(&format!(
+            "    mov r10, QWORD PTR [rbp-8]\n    movq QWORD PTR [r10+{result_offset}], xmm0\n"
+        ));
+    } else if result_words != 0 {
+        let words = value_word_count(result_type, structs, enums)?;
+        if words != result_words {
+            return Err(format!(
+                "thread result '{result_type:?}' has incompatible native layouts"
+            ));
+        }
+        for (word, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
+            output.push_str(&format!(
+                "    mov r10, QWORD PTR [rbp-8]\n    mov QWORD PTR [r10+{}], {register}\n",
+                result_offset + word * 8
+            ));
+        }
+    }
+    output.push_str("    xor eax, eax\n    leave\n    ret\n");
+
+    let join_frame_words = 2 + if worker_abi.indirect_return {
+        0
+    } else {
+        result_words
+    };
+    let join_frame_size = (join_frame_words * 8).div_ceil(16) * 16;
+    output.push_str(&format!(
+        ".globl {join_symbol}\n.type {join_symbol}, @function\n{join_symbol}:\n    push rbp\n    mov rbp, rsp\n    sub rsp, {join_frame_size}\n    mov QWORD PTR [rbp-8], rdi\n"
+    ));
+    if worker_abi.indirect_return {
+        output.push_str("    mov QWORD PTR [rbp-16], r10\n");
+    }
+    output.push_str(&format!(
+        "    mov rdi, QWORD PTR [rdi]\n    xor esi, esi\n    call pthread_join\n    test eax, eax\n    jne .Llim_thread_join_fail_{task_symbol}\n"
+    ));
+    if worker_abi.indirect_return {
+        for word in 0..result_words {
+            let destination_offset = if word == 0 {
+                String::new()
+            } else {
+                format!("-{}", word * 8)
+            };
+            output.push_str(&format!(
+                "    mov r10, QWORD PTR [rbp-8]\n    mov r11, QWORD PTR [rbp-16]\n    mov rax, QWORD PTR [r10+{}]\n    mov QWORD PTR [r11{destination_offset}], rax\n",
+                result_offset + (result_words - 1 - word) * 8,
+            ));
+        }
+    } else if result_words > 0 && is_float_type(result_type) {
+        let instruction = if matches!(result_type, Type::F32) {
+            "movd"
+        } else {
+            "movq"
+        };
+        let size = if matches!(result_type, Type::F32) {
+            "DWORD"
+        } else {
+            "QWORD"
+        };
+        output.push_str(&format!(
+            "    mov r10, QWORD PTR [rbp-8]\n    {instruction} xmm0, {size} PTR [r10+{result_offset}]\n    {instruction} {size} PTR [rbp-24], xmm0\n"
+        ));
+    } else if !worker_abi.indirect_return {
+        for word in 0..result_words {
+            output.push_str(&format!(
+                "    mov r10, QWORD PTR [rbp-8]\n    mov rax, QWORD PTR [r10+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                result_offset + word * 8,
+                (word + 3) * 8
+            ));
+        }
+    }
+    output.push_str("    mov rdi, QWORD PTR [rbp-8]\n    call free\n");
+    if worker_abi.indirect_return {
+        output.push_str("    mov rax, QWORD PTR [rbp-16]\n");
+    } else if is_float_type(result_type) && result_words > 0 {
+        let instruction = if matches!(result_type, Type::F32) {
+            "movd"
+        } else {
+            "movq"
+        };
+        let size = if matches!(result_type, Type::F32) {
+            "DWORD"
+        } else {
+            "QWORD"
+        };
+        output.push_str(&format!("    {instruction} xmm0, {size} PTR [rbp-24]\n"));
+    } else {
+        for (word, register) in VALUE_REGISTERS.iter().take(result_words).enumerate() {
+            output.push_str(&format!(
+                "    mov {register}, QWORD PTR [rbp-{}]\n",
+                (word + 3) * 8
+            ));
+        }
+    }
+    output.push_str(&format!(
+        "    leave\n    ret\n.Llim_thread_join_fail_{task_symbol}:\n    call abort\n    ud2\n.size {join_symbol}, .-{join_symbol}\n"
+    ));
+
+    let _ = aliases;
+    Ok(())
 }
 
 fn generate_function(
