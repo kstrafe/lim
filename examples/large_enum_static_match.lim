@@ -8,6 +8,6 @@
 
 (#fn main () u64
   (#return
-    (#match Global
+    (#match (#unsafe Global)
       ((Values payload) (#index payload 6u64))
       (Empty 0u64))))

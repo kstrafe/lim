@@ -2,6 +2,6 @@
   (#array (#array f32 2) 1.5f32 2.5f32))
 
 (#fn main () u64
-  (#return (#if (#f32.== (#index VALUES 1) 2.5)
+  (#return (#unsafe (#if (#f32.== (#index VALUES 1) 2.5)
                42
-               0)))
+               0))))

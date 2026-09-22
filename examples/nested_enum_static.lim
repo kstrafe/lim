@@ -3,6 +3,6 @@
 
 (#fn main () u64
   (#return
-    (#match Value
+    (#match (#unsafe Value)
       ((Wrapped (#tuple left right)) (#u64.+.wrap left right))
       (Empty 0))))

@@ -4,6 +4,6 @@
 
 (#fn main () u64
   (#return
-    (#match Values
+    (#match (#unsafe Values)
       ((#array first second third fourth fifth sixth last) last)
       (_ 0u64))))

@@ -3914,7 +3914,7 @@ mod tests {
         assert!(generate_assembly(&runnable).is_ok());
 
         let reference_to_global = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#static Origin Point (Point 20 22)) (#fn origin () (#ref Point) (#return (#borrow Origin))) (#fn main () u64 (#return (#get (#origin) x)))",
+            "(#struct Point ((x u64) (y u64))) (#static Origin Point (Point 20 22)) (#fn origin () (#ref Point) (#return (#unsafe (#borrow Origin)))) (#fn main () u64 (#return (#get (#origin) x)))",
         )
         .unwrap();
         assert!(check_types(&reference_to_global).is_ok());
@@ -4476,17 +4476,22 @@ mod tests {
     #[test]
     fn parses_and_checks_immutable_statics() {
         let program = parse_program(
-            "(#static BuildId u64 7) (#fn main () u64 (#return (#u64.+.wrap  BuildId 35)))",
+            "(#static BuildId u64 7) (#fn main () u64 (#return (#u64.+.wrap  (#unsafe BuildId) 35)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
+        let safe_read =
+            parse_program("(#static BuildId u64 7) (#fn main () u64 (#return BuildId))").unwrap();
+        assert!(check_types(&safe_read)
+            .unwrap_err()
+            .contains("access to static 'BuildId' requires"));
         assert!(generate_assembly(&program).unwrap().contains("BuildId:"));
     }
 
     #[test]
     fn lowers_aggregate_statics_for_index_and_field_reads() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#static Values (#array u64 3) (#array (#array u64 3) 10 20 30)) (#static Origin Point (Point 7 9)) (#static Pair (#tuple u64 f64) (#tuple (#tuple u64 f64) 4 2.5)) (#enum Maybe ((Some u64) None)) (#static Choice Maybe (Some 12)) (#fn take ((values (#array u64 3)) (point Point)) u64 (#return (#u64.+.wrap (#index values 1) (#get point y)))) (#fn return-values () (#array u64 3) (#return Values)) (#fn read-choice ((choice Maybe)) u64 (#return (#match choice ((Some value) value) (None 0)))) (#fn return-choice () Maybe (#return Choice)) (#fn main () u64 (#let copied (#array u64 3) Values) (#let copied-choice Maybe Choice) (#return (#u64.+.wrap (#index copied 0) (#u64.+.wrap (#index (#return-values) 2) (#u64.+.wrap (take Values Origin) (#u64.+.wrap (read-choice copied-choice) (read-choice (#return-choice))))))))",
+            "(#struct Point ((x u64) (y u64))) (#static Values (#array u64 3) (#array (#array u64 3) 10 20 30)) (#static Origin Point (Point 7 9)) (#static Pair (#tuple u64 f64) (#tuple (#tuple u64 f64) 4 2.5)) (#enum Maybe ((Some u64) None)) (#static Choice Maybe (Some 12)) (#fn take ((values (#array u64 3)) (point Point)) u64 (#return (#u64.+.wrap (#index values 1) (#get point y)))) (#fn return-values () (#array u64 3) (#return (#unsafe Values))) (#fn read-choice ((choice Maybe)) u64 (#return (#match choice ((Some value) value) (None 0)))) (#fn return-choice () Maybe (#return (#unsafe Choice))) (#fn main () u64 (#let copied (#array u64 3) (#unsafe Values)) (#let copied-choice Maybe (#unsafe Choice)) (#return (#u64.+.wrap (#index copied 0) (#u64.+.wrap (#index (#return-values) 2) (#u64.+.wrap (take (#unsafe Values) (#unsafe Origin)) (#u64.+.wrap (read-choice copied-choice) (read-choice (#return-choice))))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -5372,7 +5377,7 @@ mod tests {
     #[test]
     fn reads_nested_static_arrays() {
         let program = parse_program(
-            "(#static Values (#array (#array u64 2) 2) (#array (#array (#array u64 2) 2) (#array (#array u64 2) 10 20) (#array (#array u64 2) 30 40))) (#fn main () u64 (#return (#index (#index Values 1) 0)))",
+            "(#static Values (#array (#array u64 2) 2) (#array (#array (#array u64 2) 2) (#array (#array u64 2) 10 20) (#array (#array u64 2) 30 40))) (#fn main () u64 (#return (#unsafe (#index (#index Values 1) 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -5392,7 +5397,7 @@ mod tests {
     #[test]
     fn reads_nested_enum_statics() {
         let program = parse_program(
-            "(#enum Boxed ((Wrapped (#tuple u64 u64)) Empty)) (#static Value Boxed (Wrapped (#tuple (#tuple u64 u64) 10 22))) (#fn main () u64 (#return (#match Value ((Wrapped (#tuple left right)) (#u64.+.wrap left right)) (Empty 0))))",
+            "(#enum Boxed ((Wrapped (#tuple u64 u64)) Empty)) (#static Value Boxed (Wrapped (#tuple (#tuple u64 u64) 10 22))) (#fn main () u64 (#return (#match (#unsafe Value) ((Wrapped (#tuple left right)) (#u64.+.wrap left right)) (Empty 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -6550,7 +6555,7 @@ mod tests {
     #[test]
     fn lowers_static_float_arrays() {
         let program = parse_program(
-            "(#static VALUES (#array f32 2) (#array (#array f32 2) 1.5f32 2.5f32)) (#fn main () u64 (#return (#if (#f32.== (#index VALUES 1) 2.5f32) 42 0)))",
+            "(#static VALUES (#array f32 2) (#array (#array f32 2) 1.5f32 2.5f32)) (#fn main () u64 (#return (#unsafe (#if (#f32.== (#index VALUES 1) 2.5f32) 42 0))))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();

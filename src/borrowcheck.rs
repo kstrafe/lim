@@ -669,6 +669,12 @@ fn borrowed_field_parent(expression: &Expr) -> Option<String> {
 }
 
 fn borrow_place_origins(place: &Expr, context: &Context) -> HashSet<String> {
+    if let Expr::List(items) = place {
+        if items.len() == 2 && matches!(items.first(), Some(Expr::Symbol(name)) if name == "unsafe")
+        {
+            return borrow_place_origins(&items[1], context);
+        }
+    }
     match place {
         Expr::Symbol(owner) => HashSet::from([owner.clone()]),
         Expr::List(items) if borrowed_field_base(place).is_some() => {
@@ -683,6 +689,12 @@ fn reference_origins(
     context: &Context,
     result_contains_references: bool,
 ) -> HashSet<String> {
+    if let Expr::List(items) = expression {
+        if items.len() == 2 && matches!(items.first(), Some(Expr::Symbol(name)) if name == "unsafe")
+        {
+            return reference_origins(&items[1], context, result_contains_references);
+        }
+    }
     if !result_contains_references {
         return HashSet::new();
     }

@@ -4,4 +4,4 @@
     (#array (#array u64 2) 30 40)))
 
 (#fn main () u64
-  (#return (#index (#index Values 1) 0)))
+  (#return (#unsafe (#index (#index Values 1) 0))))

@@ -411,13 +411,18 @@ program and must be unique.
 
 ### Globals and statics
 
-Top-level `#const`/`#let` values are immutable compile-time values.  `#static`
-also creates immutable read-only storage and is useful for aggregate data:
+Top-level `#const`/`#let` values are immutable compile-time values. `#static`
+creates immutable read-only storage and is useful for aggregate data. Every
+read of a static must occur inside `#unsafe`, including reads used to create a
+reference to it:
 
 ```lisp
 (#const Answer u64 42u64)
 (#static Values (#array u64 3)
   (#array (#array u64 3) 10u64 20u64 30u64))
+
+(#fn first-value () u64
+  (#return (#unsafe (#index Values 0u64))))
 ```
 
 Initializers must be compile-time values.  Constant references, arithmetic,

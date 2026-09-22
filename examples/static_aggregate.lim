@@ -14,7 +14,7 @@
       (#get point y))))
 
 (#fn return-values () (#array u64 3)
-  (#return Values))
+  (#return (#unsafe Values)))
 
 (#fn read-choice ((choice Maybe)) u64
   (#return
@@ -23,18 +23,18 @@
       (None 0))))
 
 (#fn return-choice () Maybe
-  (#return Choice))
+  (#return (#unsafe Choice)))
 
 (#fn main () u64
-  (#let copied (#array u64 3) Values)
-  (#let copied-choice Maybe Choice)
+  (#let copied (#array u64 3) (#unsafe Values))
+  (#let copied-choice Maybe (#unsafe Choice))
   (#return
     (#u64.+.wrap
       (#index copied 0)
       (#u64.+.wrap
         (#index (#return-values) 2)
         (#u64.+.wrap
-          (take Values Origin)
+          (take (#unsafe Values) (#unsafe Origin))
           (#u64.+.wrap
             (read-choice copied-choice)
             (read-choice (#return-choice))))))))

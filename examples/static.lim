@@ -7,6 +7,6 @@
   u64
   (
     #return
-    (#u64.+.wrap  BuildId 35)
+    (#u64.+.wrap  (#unsafe BuildId) 35)
   )
 )

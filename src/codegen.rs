@@ -812,8 +812,146 @@ fn monomorphize_program(
     Ok(Program { items })
 }
 
+fn erase_unsafe_blocks(program: &Program) -> Program {
+    fn expr(value: &Expr) -> Expr {
+        if let Expr::List(items) = value {
+            if items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "unsafe")
+            {
+                return expr(&items[1]);
+            }
+            return Expr::List(items.iter().map(expr).collect());
+        }
+        match value {
+            Expr::Block(body) => Expr::Block(body.iter().map(statement).collect()),
+            Expr::Loop(body) => Expr::Loop(body.iter().map(statement).collect()),
+            Expr::Labeled {
+                label,
+                expression: inner,
+            } => Expr::Labeled {
+                label: label.clone(),
+                expression: Box::new(expr(inner)),
+            },
+            Expr::Quote(inner) => Expr::Quote(Box::new(expr(inner))),
+            _ => value.clone(),
+        }
+    }
+    fn statement(value: &Statement) -> Statement {
+        match value {
+            Statement::Let {
+                name,
+                ty,
+                value,
+                mutable,
+            } => Statement::Let {
+                name: name.clone(),
+                ty: ty.clone(),
+                value: expr(value),
+                mutable: *mutable,
+            },
+            Statement::Destructure {
+                pattern,
+                ty,
+                value,
+                mutable,
+            } => Statement::Destructure {
+                pattern: expr(pattern),
+                ty: ty.clone(),
+                value: expr(value),
+                mutable: *mutable,
+            },
+            Statement::LetElse {
+                pattern,
+                ty,
+                value,
+                else_body,
+            } => Statement::LetElse {
+                pattern: expr(pattern),
+                ty: ty.clone(),
+                value: expr(value),
+                else_body: else_body.iter().map(statement).collect(),
+            },
+            Statement::Assign { name, value } => Statement::Assign {
+                name: name.clone(),
+                value: expr(value),
+            },
+            Statement::ArrayAssign { name, index, value } => Statement::ArrayAssign {
+                name: name.clone(),
+                index: expr(index),
+                value: expr(value),
+            },
+            Statement::FieldAssign { name, field, value } => Statement::FieldAssign {
+                name: name.clone(),
+                field: field.clone(),
+                value: expr(value),
+            },
+            Statement::TupleAssign { name, index, value } => Statement::TupleAssign {
+                name: name.clone(),
+                index: *index,
+                value: expr(value),
+            },
+            Statement::EnumPayloadAssign {
+                name,
+                variant,
+                index,
+                value,
+            } => Statement::EnumPayloadAssign {
+                name: name.clone(),
+                variant: variant.clone(),
+                index: *index,
+                value: expr(value),
+            },
+            Statement::While { condition, body } => Statement::While {
+                condition: expr(condition),
+                body: body.iter().map(statement).collect(),
+            },
+            Statement::Loop { body } => Statement::Loop {
+                body: body.iter().map(statement).collect(),
+            },
+            Statement::For {
+                init,
+                condition,
+                step,
+                body,
+            } => Statement::For {
+                init: Box::new(statement(init)),
+                condition: expr(condition),
+                step: Box::new(statement(step)),
+                body: body.iter().map(statement).collect(),
+            },
+            Statement::Labeled {
+                label,
+                statement: inner,
+            } => Statement::Labeled {
+                label: label.clone(),
+                statement: Box::new(statement(inner)),
+            },
+            Statement::BreakValue(value) => Statement::BreakValue(expr(value)),
+            Statement::BreakToValue { label, value } => Statement::BreakToValue {
+                label: label.clone(),
+                value: expr(value),
+            },
+            Statement::Return(value) => Statement::Return(value.as_ref().map(expr)),
+            Statement::Expr(value) => Statement::Expr(expr(value)),
+            other => other.clone(),
+        }
+    }
+    let mut result = program.clone();
+    for item in &mut result.items {
+        match item {
+            Item::Function(function) if !function.external => {
+                function.body = function.body.iter().map(statement).collect();
+            }
+            Item::Let { value, .. } | Item::Static { value, .. } => *value = expr(value),
+            _ => {}
+        }
+    }
+    result
+}
+
 pub fn generate_assembly(program: &Program) -> Result<String, String> {
     check_types(program)?;
+    let program = erase_unsafe_blocks(program);
     let aliases: HashMap<String, Type> = program
         .items
         .iter()
@@ -822,7 +960,7 @@ pub fn generate_assembly(program: &Program) -> Result<String, String> {
             _ => None,
         })
         .collect();
-    let program = monomorphize_program(program, &aliases)?;
+    let program = monomorphize_program(&program, &aliases)?;
     let structs: HashMap<String, Vec<Field>> = program
         .items
         .iter()

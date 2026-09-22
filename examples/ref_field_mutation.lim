@@ -3,7 +3,7 @@
 (#static Origin Point (Point 19 23))
 
 (#fn origin-y () u64
-  (#let origin-ref (#ref Point) (#borrow Origin))
+  (#let origin-ref (#ref Point) (#unsafe (#borrow Origin)))
   (#let y-ref (#ref u64) (#borrow (#get origin-ref y)))
   (#return (#deref y-ref)))
 

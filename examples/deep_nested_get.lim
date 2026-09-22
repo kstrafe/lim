@@ -8,13 +8,13 @@
     100u64))
 
 (#fn make () Outer
-  (#return GlobalOuter))
+  (#return (#unsafe GlobalOuter)))
 
 (#fn main () u64
   (#let local Outer (make))
   (#let local-values (#array u64 7) (#get local values))
   (#let returned-values (#array u64 7) (#get (make) values))
-  (#let static-values (#array u64 7) (#get GlobalOuter values))
+  (#let static-values (#array u64 7) (#get (#unsafe GlobalOuter) values))
   (#return (#u64.+.wrap
     (#index local-values 6u64)
     (#u64.+.wrap
