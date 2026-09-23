@@ -49,8 +49,9 @@ it as the project checklist; cross items off as they are completed.
   aggregates, including references stored inside references and aggregates.
 - [ ] Add borrow-checker diagnostics with source spans, the original borrow
   site, the conflicting access, and generator invocation context.
-- [ ] Add regression tests for every remaining projection and control-flow
-  combination, including branch-local drops and multiple derived field loans.
+- [x] Add regression tests for the supported projection and control-flow
+  combinations, including nested tuples, static/dynamic arrays, branch-local
+  projections, and multiple derived field loans.
 - [x] Remove stale comments that described references as not being first-class
   values.
 

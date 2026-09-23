@@ -111,6 +111,13 @@ fn display_place(place: &str) -> String {
     place.split(PLACE_SEPARATOR).collect::<Vec<_>>().join(".")
 }
 
+fn has_child_loan(loans: &Loans, owner: &str) -> bool {
+    loans
+        .active
+        .keys()
+        .any(|active| active.starts_with(&format!("{owner}{PLACE_SEPARATOR}")))
+}
+
 impl Context {
     fn write(&self, owner: &str) -> Result<(), String> {
         self.write_place(owner, None)
@@ -650,7 +657,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                                 if path.is_empty() {
                                     check_expression(&items[1], context)?;
                                 } else {
-                                    check_expression(base, context)?;
+                                    check_projection_base(base, context)?;
                                 }
                             } else {
                                 check_expression(&items[1], context)?;
@@ -676,7 +683,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                         if path.is_empty() {
                             check_expression(&items[1], context)?;
                         } else {
-                            check_expression(base, context)?;
+                            check_projection_base(base, context)?;
                         }
                     } else {
                         check_expression(&items[1], context)?;
@@ -713,10 +720,12 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                         }
                         if reborrow_mutable_parent {
                             context.loans.end(loan);
-                            context
-                                .loans
-                                .active
-                                .insert(owner.clone(), LoanKind::Mutable);
+                            if !has_child_loan(&context.loans, owner) {
+                                context
+                                    .loans
+                                    .active
+                                    .insert(owner.clone(), LoanKind::Mutable);
+                            }
                         } else {
                             context.loans.end(loan);
                         }
@@ -1025,6 +1034,14 @@ fn static_index_segment(expression: &Expr) -> Option<String> {
         Expr::Integer(index) if *index >= 0 => Some(index.to_string()),
         Expr::UnsignedInteger(index) => Some(index.to_string()),
         _ => None,
+    }
+}
+
+fn check_projection_base(base: &Expr, context: &mut Context) -> Result<(), String> {
+    if matches!(base, Expr::Symbol(name) if context.suspended_references.contains(name)) {
+        Ok(())
+    } else {
+        check_expression(base, context)
     }
 }
 

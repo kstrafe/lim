@@ -5041,6 +5041,26 @@ mod tests {
             .unwrap_err()
             .contains("cannot access 'values.0' while it is mutably borrowed"));
 
+        let multiple_field_borrows = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#let y-ref (#ref-mut u64) (#borrow-mut (#get point-ref y))) (#drop x-ref) (#drop y-ref) (#let z-ref (#ref-mut u64) (#borrow-mut (#get point-ref y))) (#return (#deref z-ref)))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&multiple_field_borrows).is_ok(),
+            "{:?}",
+            check_types(&multiple_field_borrows)
+        );
+
+        let branch_field_borrow = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main ((choose bool)) u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#if choose (#block (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) 0) (#block (#let y-ref (#ref-mut u64) (#borrow-mut (#get point-ref y))) 0)) (#return (#get point-ref y)))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&branch_field_borrow).is_ok(),
+            "{:?}",
+            check_types(&branch_field_borrow)
+        );
+
         let original_owner_suspended = parse_program(
             "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#return (#get point y)))",
         )
