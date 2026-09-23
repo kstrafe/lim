@@ -70,7 +70,7 @@ responsible for establishing the safety invariant that a pointer is either
 null with zero capacity or points to an allocation large enough for the
 collection's initialized elements.
 
-## Ownership and failure
+## Allocation failure and destruction
 
 Allocation failure is an explicit `AllocError` result. No allocator operation
 may return a null pointer as a successful allocation. `dealloc` is called only
