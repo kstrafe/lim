@@ -6000,6 +6000,14 @@ impl FunctionContext {
         fields: &[Field],
         value: &Expr,
     ) -> Result<(), String> {
+        if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "deref")
+                && items.len() == 2
+            {
+                let ty = Type::Named(struct_name.to_owned());
+                return self.store_indirect_value_words(value, &ty, 0);
+            }
+        }
         if fields.iter().any(|field| {
             storage_word_count(&field.ty, &self.structs, &self.enums).is_ok_and(|words| words > 1)
         }) {
@@ -6562,6 +6570,18 @@ impl FunctionContext {
                     .push_str(&format!("    jmp {done_label}\n{else_label}:\n"));
                 self.store_indirect_value_words(&items[3], ty, offset)?;
                 self.output.push_str(&format!("{done_label}:\n"));
+                return Ok(());
+            }
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "deref")
+                && items.len() == 2
+            {
+                self.expression(&items[1])?;
+                self.output.push_str("    and rax, -2\n    mov rcx, rax\n");
+                for index in 0..words {
+                    self.output
+                        .push_str(&format!("    mov rax, QWORD PTR [rcx+{}]\n", index * 8));
+                    self.store_indirect_word("rax", offset + index)?;
+                }
                 return Ok(());
             }
         }
@@ -12131,6 +12151,27 @@ impl FunctionContext {
         if slots.len() != words {
             return Err("aggregate temporary has an inconsistent layout".into());
         }
+        if words > VALUE_REGISTERS.len() {
+            if let Expr::List(items) = value {
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "deref")
+                    && items.len() == 2
+                {
+                    self.copy_reference_to_slots(&items[1], slots)?;
+                    return Ok(());
+                }
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get")
+                    && items.len() == 3
+                    && matches!(items[2], Expr::Symbol(_))
+                    && matches!(
+                        self.expression_type(&items[1]),
+                        Some(Type::Reference { .. })
+                    )
+                {
+                    self.copy_reference_field_to_slots(value, slots)?;
+                    return Ok(());
+                }
+            }
+        }
         if words > VALUE_REGISTERS.len()
             && (self.store_oversized_index_to_slots(value, ty, slots)?
                 || self.store_oversized_field_to_slots(value, ty, slots)?)
@@ -12615,6 +12656,65 @@ impl FunctionContext {
         self.output
             .push_str(&format!("    lea rax, [rbp-{}]\n", base * 8));
         self.push_rax();
+        Ok(())
+    }
+
+    fn copy_reference_to_slots(&mut self, reference: &Expr, slots: &[usize]) -> Result<(), String> {
+        self.expression(reference)?;
+        self.output.push_str("    and rax, -2\n    mov rcx, rax\n");
+        for (index, slot) in slots.iter().enumerate() {
+            self.output.push_str(&format!(
+                "    mov rax, QWORD PTR [rcx+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                index * 8,
+                slot * 8
+            ));
+        }
+        Ok(())
+    }
+
+    fn copy_reference_field_to_slots(
+        &mut self,
+        value: &Expr,
+        slots: &[usize],
+    ) -> Result<(), String> {
+        let Expr::List(items) = value else {
+            return Err("large reference projection must be a get expression".into());
+        };
+        let field_name = match items.get(2) {
+            Some(Expr::Symbol(name)) => name,
+            _ => return Err("large reference projection requires a named field".into()),
+        };
+        let Type::Reference { target, .. } = self
+            .expression_type(&items[1])
+            .ok_or_else(|| "large reference projection has no base type".to_owned())?
+        else {
+            return Err("large reference projection requires a reference".into());
+        };
+        let Type::Named(struct_name) = *target else {
+            return Err("large reference projection requires a struct reference".into());
+        };
+        let fields = self
+            .structs
+            .get(&struct_name)
+            .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+        let index = fields
+            .iter()
+            .position(|field| field.name == *field_name)
+            .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))?;
+        let offset = fields[..index]
+            .iter()
+            .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .sum::<usize>();
+        self.emit_reference_field_address(&items[1], offset, false)?;
+        for (index, slot) in slots.iter().enumerate() {
+            self.output.push_str(&format!(
+                "    mov rcx, QWORD PTR [rax+{}]\n    mov QWORD PTR [rbp-{}], rcx\n",
+                index * 8,
+                slot * 8
+            ));
+        }
         Ok(())
     }
 

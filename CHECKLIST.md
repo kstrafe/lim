@@ -66,8 +66,8 @@ it as the project checklist; cross items off as they are completed.
   behavior in `docs/allocator.md`.
 - [x] Add aggregate `#deref`/`#deref-set` support for aggregates that fit the
   native value registers; larger aggregate ABI support remains a separate item.
-- [ ] Remove backend restrictions on large aggregate returns, arguments, and
-  reference projections.
+- [x] Remove backend restrictions on large aggregate returns, arguments, and
+  reference projections by routing them through indirect aggregate storage.
 - [ ] Specify and implement field-wise destruction for reference-containing
   aggregates.
 

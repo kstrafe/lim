@@ -5595,7 +5595,8 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
-        assert!(generate_assembly(&program).is_ok());
+        let assembly = generate_assembly(&program);
+        assert!(assembly.is_ok(), "{assembly:?}");
     }
 
     #[test]
@@ -6242,7 +6243,8 @@ mod tests {
             .any(|item| { matches!(item, Item::Struct { name, .. } if name == "VecU64") }));
         let type_result = check_types(&program);
         assert!(type_result.is_ok(), "{type_result:?}");
-        assert!(generate_assembly(&program).is_ok());
+        let assembly = generate_assembly(&program);
+        assert!(assembly.is_ok(), "{assembly:?}");
     }
 
     #[test]
@@ -6261,6 +6263,30 @@ mod tests {
         let write_types = check_types(&write);
         assert!(write_types.is_ok(), "{write_types:?}");
         assert!(generate_assembly(&write).is_ok());
+    }
+
+    #[test]
+    fn copies_large_aggregate_dereferences_through_indirect_storage() {
+        let program = parse_program(
+            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn take-large ((value (#ref Large))) Large (#return (#deref value))) (#fn main () u64 (#let large Large (Large 1 2 3 4 5 6 7)) (#let copy Large (take-large (#borrow large))) (#return (#get copy g)))",
+        )
+        .unwrap();
+        let type_result = check_types(&program);
+        assert!(type_result.is_ok(), "{type_result:?}");
+        let assembly = generate_assembly(&program);
+        assert!(assembly.is_ok(), "{assembly:?}");
+    }
+
+    #[test]
+    fn projects_large_fields_through_references_into_indirect_storage() {
+        let program = parse_program(
+            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#struct Outer ((large Large) (tail u64))) (#fn project ((outer (#ref Outer))) Large (#return (#get outer large))) (#fn main () u64 (#let outer Outer (Outer (Large 1 2 3 4 5 6 7) 8)) (#let result Large (project (#borrow outer))) (#return (#get result g)))",
+        )
+        .unwrap();
+        let type_result = check_types(&program);
+        assert!(type_result.is_ok(), "{type_result:?}");
+        let assembly = generate_assembly(&program);
+        assert!(assembly.is_ok(), "{assembly:?}");
     }
 
     #[test]

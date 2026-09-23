@@ -27,9 +27,9 @@ Slices, user-defined traits, methods, closures, and other source-level
 indirection mechanisms are not part of the current language. Built-in `Send`
 and `Sync` properties are structural. References and raw pointers may point to aggregate values; `#get` projects fields through a reference.
 Direct `#deref` and `#deref-set` support scalar values and aggregates that fit
-the native value registers. Large aggregate values may use hidden storage
-pointers at an ABI boundary, but those pointers cannot be written in Lim
-source.
+the native value registers. Large aggregate returns, arguments, dereferences,
+and reference projections use the compiler's explicit indirect aggregate
+storage path.
 
 ## Shared allocator state and cells
 
