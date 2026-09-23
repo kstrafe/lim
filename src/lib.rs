@@ -5121,7 +5121,8 @@ mod tests {
         let error = check_types(&program).unwrap_err();
         let rendered = render_error(source, "type-error.lim", &error);
         assert!(rendered.contains("unknown variable or enum variant 'missing'"));
-        assert!(rendered.contains("--> type-error.lim:3:3"), "{rendered}");
+        assert!(rendered.contains("--> type-error.lim:3:12"), "{rendered}");
+        assert!(rendered.contains("^^^^^^^ here"), "{rendered}");
         assert!(rendered.contains("(#return missing)"), "{rendered}");
     }
 

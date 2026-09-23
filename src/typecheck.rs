@@ -302,6 +302,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                 &globals,
                 &aliases,
                 &program.statement_spans,
+                program.source.as_deref(),
             )?,
             Item::TypeAlias { .. }
             | Item::Struct { .. }
@@ -1205,6 +1206,7 @@ fn check_function(
     globals: &HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
+    source: Option<&str>,
 ) -> Result<(), String> {
     let mut variables = globals.clone();
     let mut mutable = HashSet::new();
@@ -1268,11 +1270,16 @@ fn check_function(
             }
         })();
         last_type = result.map_err(|error: String| {
-            statement_spans
+            let statement_span = statement_spans
                 .get(&(function.name.clone(), index))
-                .map_or(error.clone(), |span| {
-                    format!("{error}; source span {}:{}", span.start, span.end)
-                })
+                .copied();
+            let precise_span = source
+                .zip(statement_span)
+                .and_then(|(source, span)| precise_type_error_span(source, span, &error))
+                .or(statement_span);
+            precise_span.map_or(error.clone(), |span| {
+                format!("{error}; source span {}:{}", span.start, span.end)
+            })
         })?;
     }
     require_type(
@@ -1290,6 +1297,28 @@ fn check_function(
                 format!("{error}; source span {}:{}", span.start, span.end)
             })
     })
+}
+
+fn precise_type_error_span(
+    source: &str,
+    statement_span: crate::Span,
+    error: &str,
+) -> Option<crate::Span> {
+    let name = error
+        .strip_prefix("unknown variable or enum variant '")?
+        .split('\'')
+        .next()?;
+    let tokens = crate::lex(source).ok()?;
+    tokens
+        .into_iter()
+        .filter(|token| {
+            token.span.start >= statement_span.start && token.span.end <= statement_span.end
+        })
+        .filter_map(|token| match token.kind {
+            crate::TokenKind::Symbol(symbol) if symbol == name => Some(token.span),
+            _ => None,
+        })
+        .last()
 }
 
 fn statement_type(
