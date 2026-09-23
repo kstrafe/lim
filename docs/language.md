@@ -185,10 +185,11 @@ address and reading or writing through a raw pointer must occur inside an
 The operations are `#addr-of`, `#addr-of-mut`, `#ptr-read`, `#ptr-write`, and
 `(#ptr-offset pointer element-index)`. `(#ptr-null (#ptr-mut T))` or
 `(#ptr-null (#ptr T))` constructs a typed null pointer; constructing one is
-safe, but dereferencing it is not. The offset consumes a raw pointer and
-returns a pointer with the same mutability and pointee type; its index must be
-`usize`. Byte-offset multiplication and address addition are checked for
-overflow and trap on overflow. Writing requires `(#ptr-mut T)`. Reads and
+safe, but dereferencing it is not. `(#ptr-is-null pointer)` safely tests
+whether a raw pointer is null without consuming it. The offset consumes a raw
+pointer and returns a pointer with the same mutability and pointee type; its
+index must be `usize`. Byte-offset multiplication and address addition are
+checked for overflow and trap on overflow. Writing requires `(#ptr-mut T)`. Reads and
 writes do not check allocation bounds, and raw-pointer operations are rejected
 outside `#unsafe`; callers must uphold pointer validity and bounds themselves.
 

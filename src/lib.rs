@@ -1939,6 +1939,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "addr-of-mut"
             | "ptr-read"
             | "ptr-null"
+            | "ptr-is-null"
             | "ptr-write"
             | "ptr-offset"
             | "cell"
@@ -6123,6 +6124,15 @@ mod tests {
         assert!(check_types(&null_pointer_program).is_ok());
         let null_assembly = generate_assembly(&null_pointer_program).unwrap();
         assert!(null_assembly.contains("xor eax, eax"));
+
+        let pointer_null_test = parse_program(
+            "(#fn main () bool (#let pointer (#ptr u64) (#ptr-null (#ptr u64))) (#return (#ptr-is-null pointer)))",
+        )
+        .unwrap();
+        assert!(check_types(&pointer_null_test).is_ok());
+        assert!(generate_assembly(&pointer_null_test)
+            .unwrap()
+            .contains("sete al"));
 
         let untyped_null_pointer =
             parse_program("(#fn bad () (#ptr u64) (#return (#ptr-null u64)))").unwrap();

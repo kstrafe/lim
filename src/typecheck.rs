@@ -2658,6 +2658,15 @@ fn list_expression(
                 _ => Err("ptr-null requires an explicit raw-pointer type".into()),
             }
         }
+        "ptr-is-null" => {
+            require_arity(operator, items, 2)?;
+            match expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )? {
+                Type::RawPointer { .. } => Ok(Type::Bool),
+                _ => Err("ptr-is-null requires a raw pointer".into()),
+            }
+        }
         "ptr-read" => {
             require_arity(operator, items, 2)?;
             let actual = expression(

@@ -8134,6 +8134,20 @@ impl FunctionContext {
                 self.output.push_str("    xor eax, eax\n");
                 Ok(())
             }
+            "ptr-is-null" => {
+                if items.len() != 2
+                    || !matches!(
+                        self.expression_type(&items[1]),
+                        Some(Type::RawPointer { .. })
+                    )
+                {
+                    return Err("ptr-is-null requires a raw pointer".into());
+                }
+                self.expression(&items[1])?;
+                self.output
+                    .push_str("    test rax, rax\n    sete al\n    movzx eax, al\n");
+                Ok(())
+            }
             "addr-of" | "addr-of-mut" => self.borrow_expression(items),
             "ptr-read" => {
                 if items.len() != 2 {
