@@ -1,8 +1,8 @@
 # Lim implementation checklist
 
 This is the working roadmap for the language. Checked items are implemented
-and covered by the current test suite. Keep this file uncommitted while using
-it as the project checklist; cross items off as they are completed.
+and covered by the current test suite. Cross items off as they are completed;
+the checklist is committed alongside the implementation it tracks.
 
 ## Completed foundation
 
