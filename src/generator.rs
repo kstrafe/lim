@@ -246,8 +246,10 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v3\ncompiler={}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
+        "lim-generator-cache-v4\ncompiler={}\ntarget={}-{}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
+        std::env::consts::ARCH,
+        std::env::consts::OS,
         context.generator_fingerprints[name].hash,
         context.generator_fingerprints[name].material,
         &items[2..],

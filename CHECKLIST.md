@@ -76,8 +76,8 @@ it as the project checklist; cross items off as they are completed.
   deprecate generic declarations and migrate the examples.
 - [ ] Add generator dependency tracking for imported files and compiler
   configuration values, not only generator definitions and nested generators.
-- [ ] Make generated-file cache entries durable across compiler-version and
-  target changes.
+- [x] Make generated-file cache entries durable across compiler-version and
+  target changes by including both values in the cache key namespace.
 - [ ] Improve generator diagnostics so failures identify the generator,
   invocation, argument position, and generated source location.
 - [ ] Add capability-aware generators without hidden typeclass/interface
