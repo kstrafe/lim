@@ -196,8 +196,9 @@ nix develop --command cargo test --all-targets
 nix develop --command cargo doc --no-deps --open
 ```
 
-Compile Lim source directly to a native executable with Clang from the Nix
-development shell. By default, the output is placed beside the input and uses
+Compile Lim source directly to a native executable from the Nix development
+shell. The backend emits assembly and invokes the system assembler and linker.
+By default, the output is placed beside the input and uses
 the input filename without its extension. `-o` selects a different path:
 
 ```sh
@@ -919,16 +920,18 @@ typing, `E4100` borrowing, `E4200` linear ownership, `E4300` unsafe checks,
 source span and structured notes; legacy string-returning APIs remain
 available for compatibility.
 
-Borrow failures include the `E4100` code, function and statement context, the
-conflicting access, and source line/column locations for the original and
-conflicting owner occurrences when source text is available. Generated forms
-retain their source context through parsing, so generator failures remain
+Borrow failures include the `E4100` code, function and statement context, and
+source locations for recognized borrow operators and the conflicting access.
+Function-body type errors carry the exact containing statement span. Generated
+forms retain their source context through parsing, so generator failures remain
 associated with their invocation diagnostics.
 
 The CLI renders errors with an available span or line/column as a source hunk
-with an underline. Some type and ownership errors still lack precise spans; the
-legacy renderer may underline a matching identifier as a best-effort hint.
-Exact expression spans through every compiler phase remain future work.
+with an underline. Nested expressions do not yet retain spans throughout the
+lowered AST, so some type errors underline the containing statement, and some
+ownership, unsafe, generator, and code-generation errors still use a
+best-effort identifier hint or have no underline. Exact recursive expression
+span propagation remains future work.
 
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures

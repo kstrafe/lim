@@ -294,9 +294,15 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     for item in &program.items {
         match item {
             Item::Function(function) if function.external => {}
-            Item::Function(function) => {
-                check_function(function, &functions, &structs, &enums, &globals, &aliases)?
-            }
+            Item::Function(function) => check_function(
+                function,
+                &functions,
+                &structs,
+                &enums,
+                &globals,
+                &aliases,
+                &program.statement_spans,
+            )?,
             Item::TypeAlias { .. }
             | Item::Struct { .. }
             | Item::Enum { .. }
@@ -1198,6 +1204,7 @@ fn check_function(
     enums: &HashMap<String, Vec<EnumVariant>>,
     globals: &HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
+    statement_spans: &HashMap<(String, usize), crate::Span>,
 ) -> Result<(), String> {
     let mut variables = globals.clone();
     let mut mutable = HashSet::new();
@@ -1220,18 +1227,32 @@ fn check_function(
     }
     let mut last_type = Type::Unit;
     for (index, statement) in function.body.iter().enumerate() {
-        last_type = if index + 1 == function.body.len() {
-            if let Statement::Expr(value) = statement {
-                expression(
-                    value,
-                    &variables,
-                    functions,
-                    structs,
-                    enums,
-                    &mutable,
-                    aliases,
-                    Some(&return_type),
-                )?
+        let result = (|| {
+            if index + 1 == function.body.len() {
+                if let Statement::Expr(value) = statement {
+                    expression(
+                        value,
+                        &variables,
+                        functions,
+                        structs,
+                        enums,
+                        &mutable,
+                        aliases,
+                        Some(&return_type),
+                    )
+                } else {
+                    statement_type(
+                        statement,
+                        &mut variables,
+                        &mut mutable,
+                        functions,
+                        structs,
+                        enums,
+                        &return_type,
+                        aliases,
+                        false,
+                    )
+                }
             } else {
                 statement_type(
                     statement,
@@ -1243,27 +1264,32 @@ fn check_function(
                     &return_type,
                     aliases,
                     false,
-                )?
+                )
             }
-        } else {
-            statement_type(
-                statement,
-                &mut variables,
-                &mut mutable,
-                functions,
-                structs,
-                enums,
-                &return_type,
-                aliases,
-                false,
-            )?
-        };
+        })();
+        last_type = result.map_err(|error: String| {
+            statement_spans
+                .get(&(function.name.clone(), index))
+                .map_or(error.clone(), |span| {
+                    format!("{error}; source span {}:{}", span.start, span.end)
+                })
+        })?;
     }
     require_type(
         &last_type,
         &return_type,
         &format!("return of function '{}'", function.name),
     )
+    .map_err(|error| {
+        function
+            .body
+            .len()
+            .checked_sub(1)
+            .and_then(|index| statement_spans.get(&(function.name.clone(), index)))
+            .map_or(error.clone(), |span| {
+                format!("{error}; source span {}:{}", span.start, span.end)
+            })
+    })
 }
 
 fn statement_type(

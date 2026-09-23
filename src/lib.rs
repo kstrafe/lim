@@ -177,7 +177,9 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
     };
 
     let mut diagnostic = Diagnostic::new(code, message);
-    if let Some((start, end)) = span_after(error, "conflicting span ") {
+    if let Some((start, end)) =
+        span_after(error, "conflicting span ").or_else(|| span_after(error, "source span "))
+    {
         if source.get(start..end).is_some() {
             let prefix = &source[..start];
             let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
@@ -5077,6 +5079,17 @@ mod tests {
         let span = program.statement_spans.get(&("main".into(), 1)).unwrap();
         assert_eq!(&source[span.start..span.end], "(#return missing)");
         assert_eq!((span.line, span.column), (3, 3));
+    }
+
+    #[test]
+    fn type_errors_render_the_exact_containing_statement() {
+        let source = "(#fn main () u64\n  (#let value u64 1u64)\n  (#return missing)\n)";
+        let program = parse_program(source).unwrap();
+        let error = check_types(&program).unwrap_err();
+        let rendered = render_error(source, "type-error.lim", &error);
+        assert!(rendered.contains("unknown variable or enum variant 'missing'"));
+        assert!(rendered.contains("--> type-error.lim:3:3"), "{rendered}");
+        assert!(rendered.contains("(#return missing)"), "{rendered}");
     }
 
     #[test]
