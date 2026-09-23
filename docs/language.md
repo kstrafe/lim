@@ -354,6 +354,11 @@ deduplicated; cycles are rejected. Imported declarations participate in the
 same compilation and duplicate-name checks as declarations in the root file.
 See `examples/imports.lim`.
 
+The compiler first resolves an import relative to the importing file, then
+searches module roots added with `CompileConfig::add_module_path` or the
+command-line `--module-path DIRECTORY` option. Search order is deterministic;
+the first existing file wins.
+
 ## Lexical syntax
 
 Whitespace separates tokens.  `;` starts a line comment.  A line beginning

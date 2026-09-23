@@ -108,8 +108,17 @@ fn main() -> ExitCode {
                     }
                     index += 1;
                 }
+                "--module-path" => {
+                    index += 1;
+                    let Some(value) = arguments.get(index) else {
+                        eprintln!("lim: --module-path requires a directory");
+                        return ExitCode::FAILURE;
+                    };
+                    config.add_module_path(value);
+                    index += 1;
+                }
                 _ => {
-                    eprintln!("lim: expected --target or --cfg after assembly output path");
+                    eprintln!("lim: expected --target, --cfg, or --module-path after assembly output path");
                     return ExitCode::FAILURE;
                 }
             }
@@ -247,6 +256,13 @@ fn binary_arguments(
                     .get(index)
                     .ok_or_else(|| "--cfg requires KEY=VALUE".to_owned())?;
                 apply_cfg_argument(&mut config, value)?;
+            }
+            "--module-path" => {
+                index += 1;
+                let value = arguments
+                    .get(index)
+                    .ok_or_else(|| "--module-path requires a directory".to_owned())?;
+                config.add_module_path(value);
             }
             "--target" => {
                 index += 1;

@@ -825,6 +825,7 @@ pub struct Program {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompileConfig {
     values: HashMap<String, String>,
+    module_paths: Vec<PathBuf>,
 }
 
 impl Default for CompileConfig {
@@ -832,6 +833,7 @@ impl Default for CompileConfig {
         let platform = env::consts::OS;
         Self {
             values: HashMap::from([("platform".into(), platform.into())]),
+            module_paths: Vec::new(),
         }
     }
 }
@@ -841,6 +843,11 @@ impl CompileConfig {
     /// `platform=linux`.
     pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>) {
         self.values.insert(key.into(), value.into());
+    }
+
+    /// Add a stable search root for string paths in `#import` forms.
+    pub fn add_module_path(&mut self, path: impl Into<PathBuf>) {
+        self.module_paths.push(path.into());
     }
 }
 
@@ -1776,7 +1783,19 @@ fn load_imports_inner(
             result.push(expression);
             continue;
         };
-        let unresolved_path = base.join(specification.path);
+        let unresolved_paths = std::iter::once(base.join(specification.path))
+            .chain(
+                config
+                    .module_paths
+                    .iter()
+                    .map(|root| root.join(specification.path)),
+            )
+            .collect::<Vec<_>>();
+        let unresolved_path = unresolved_paths
+            .iter()
+            .find(|candidate| candidate.is_file())
+            .cloned()
+            .unwrap_or_else(|| unresolved_paths[0].clone());
         let path = fs::canonicalize(&unresolved_path).map_err(|error| {
             format!(
                 "{}:{}:{}: cannot resolve import '{}': {error}",
@@ -4884,6 +4903,29 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains(".globl read_x2d_value"));
         assert!(assembly.contains(".globl ext_x2d_read_x2d_value"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn resolves_imports_from_configured_module_paths() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-module-path-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("shared.lim"), "(#type Imported u64)").unwrap();
+        let root = std::env::temp_dir().join(format!("lim-module-root-{}.lim", std::process::id()));
+        let mut config = CompileConfig::default();
+        config.add_module_path(&directory);
+        let program = parse_program_from_path_with_config(
+            "(#import \"shared.lim\") (#fn main () u64 (#return 42))",
+            &root,
+            &config,
+        )
+        .unwrap();
+        assert!(program.items.iter().any(|item| matches!(
+            item,
+            Item::TypeAlias { name, .. } if name == "Imported"
+        )));
+        std::fs::remove_file(root).ok();
         std::fs::remove_dir_all(directory).unwrap();
     }
 

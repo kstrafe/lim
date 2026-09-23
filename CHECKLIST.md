@@ -108,8 +108,8 @@ it as the project checklist; cross items off as they are completed.
   through `format_source` and `--format INPUT [OUTPUT]`.
 - [x] Add `--check-examples [DIRECTORY]`, which checks all `.lim` examples and
   reports failures by source file, including generated examples.
-- [ ] Add package/project metadata and a stable module search path beyond
-  relative imports.
+- [ ] Add package/project metadata; the stable module search path is now
+  available through `CompileConfig::add_module_path` and `--module-path`.
 - [ ] Document the complete grammar and specify the semantics of every
   builtin, especially ownership, `#unsafe`, thread, generator, and cfg forms.
 - [x] Closures, function pointers, methods, traits, and user interfaces are
