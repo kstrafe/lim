@@ -110,5 +110,6 @@ it as the project checklist; cross items off as they are completed.
   relative imports.
 - [ ] Document the complete grammar and specify the semantics of every
   builtin, especially ownership, `#unsafe`, thread, generator, and cfg forms.
-- [ ] Decide whether closures, function pointers, methods, traits, and user
-  interfaces remain permanent non-goals; document the decision explicitly.
+- [x] Closures, function pointers, methods, traits, and user interfaces are
+  documented as permanent non-goals; named free-standing functions and
+  generators provide the explicit alternatives.

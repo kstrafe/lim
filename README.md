@@ -6,6 +6,11 @@ strict static type checker, generic monomorphization, and a native x86-64
 assembly backend. The language deliberately excludes slices, traits, methods,
 and other indirection mechanisms that have not been designed yet.
 
+Closures, function-pointer values, methods/`impl` blocks, and user-defined
+traits or interfaces are permanent non-goals. Functions remain named and
+free-standing; generators are the explicit mechanism for concrete families of
+code.
+
 The compiler supports inferred lexical borrows and returnable scalar
 references with `(#ref T)` and `(#ref-mut T)`, plus explicit raw pointers
 `(#ptr T)` and `(#ptr-mut T)` inside `#unsafe` blocks.

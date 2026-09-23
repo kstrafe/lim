@@ -816,6 +816,16 @@ only causes generators to run again.
 Generated declarations are not methods and do not introduce namespaces.
 Nested generated expressions are reserved for future generated forms.
 
+## Permanent non-goals
+
+Lim intentionally has no closures, function-pointer values, methods or `impl`
+blocks, traits, or user-defined interfaces. Functions are named, free-standing
+declarations; generators create concrete declarations when specialization or
+operation families are needed. Thread spawning likewise names the worker at
+compile time rather than passing a callable value. This keeps call targets
+explicit, preserves whole-program recursion and ownership checks, and avoids
+implicit dispatch in generated code.
+
 ## Value representation and native backend
 
 The backend emits Intel-syntax x86-64 assembly and follows the explicit
