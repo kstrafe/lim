@@ -310,6 +310,30 @@ fn check_expr(
                 } else {
                     check_expr(&items[1], bindings, moved, globals, true)?;
                 }
+            } else if head == "get-payload" && items.len() == 4 {
+                if !place {
+                    if let Some(mut key) = place_key(&items[1]) {
+                        if let Expr::Symbol(variant) = &items[2] {
+                            key.push_str(&format!(".{variant}"));
+                        } else {
+                            key.push_str(".*");
+                        }
+                        match &items[3] {
+                            index if literal_index(index).is_some() => {
+                                key.push_str(&format!(".{}", literal_index(index).unwrap()))
+                            }
+                            _ => key.push_str(".*"),
+                        }
+                        if has_move_conflict(moved, &key) {
+                            return Err(format!("linear projection '{key}' was used more than once; clone it explicitly"));
+                        }
+                        moved.insert(key);
+                    } else {
+                        check_expr(&items[1], bindings, moved, globals, false)?;
+                    }
+                } else {
+                    check_expr(&items[1], bindings, moved, globals, true)?;
+                }
             } else if head == "index" && items.len() == 3 {
                 check_expr(&items[2], bindings, moved, globals, false)?;
                 if !place {
@@ -396,7 +420,7 @@ fn check_expr(
 fn simple_place_name(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::Symbol(name) => Some(name),
-        Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "get") => {
+        Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "get" || head == "get-payload") => {
             parts.get(1).and_then(|base| simple_place_name(base))
         }
         _ => None,
@@ -421,28 +445,50 @@ fn check_clone(
 fn place_key(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Symbol(name) => Some(name.clone()),
-        Expr::List(items) if items.len() == 3 => match items.first() {
-            Some(Expr::Symbol(head)) if head == "get" => {
-                let mut base = place_key(&items[1])?;
-                match &items[2] {
-                    Expr::Symbol(field) => base.push_str(&format!(".{field}")),
-                    Expr::Integer(index) => base.push_str(&format!(".{index}")),
-                    _ => base.push_str(".*"),
-                }
-                Some(base)
-            }
-            Some(Expr::Symbol(head)) if head == "index" => {
-                let mut base = place_key(&items[1])?;
-                match &items[2] {
-                    index if literal_index(index).is_some() => {
-                        base.push_str(&format!("[{}]", literal_index(index).unwrap()))
+        Expr::List(items)
+            if (items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(head)) if head == "get" || head == "index"))
+                || (items.len() == 4
+                    && matches!(items.first(), Some(Expr::Symbol(head)) if head == "get-payload")) =>
+        {
+            match items.first() {
+                Some(Expr::Symbol(head)) if head == "get" => {
+                    let mut base = place_key(&items[1])?;
+                    match &items[2] {
+                        Expr::Symbol(field) => base.push_str(&format!(".{field}")),
+                        Expr::Integer(index) => base.push_str(&format!(".{index}")),
+                        _ => base.push_str(".*"),
                     }
-                    _ => base.push_str("[*]"),
+                    Some(base)
                 }
-                Some(base)
+                Some(Expr::Symbol(head)) if head == "index" => {
+                    let mut base = place_key(&items[1])?;
+                    match &items[2] {
+                        index if literal_index(index).is_some() => {
+                            base.push_str(&format!("[{}]", literal_index(index).unwrap()))
+                        }
+                        _ => base.push_str("[*]"),
+                    }
+                    Some(base)
+                }
+                Some(Expr::Symbol(head)) if head == "get-payload" => {
+                    let mut base = place_key(&items[1])?;
+                    if let Expr::Symbol(variant) = &items[2] {
+                        base.push_str(&format!(".{variant}"));
+                    } else {
+                        base.push_str(".*");
+                    }
+                    match &items[3] {
+                        index if literal_index(index).is_some() => {
+                            base.push_str(&format!(".{}", literal_index(index).unwrap()))
+                        }
+                        _ => base.push_str(".*"),
+                    }
+                    Some(base)
+                }
+                _ => None,
             }
-            _ => None,
-        },
+        }
         _ => None,
     }
 }

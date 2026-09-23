@@ -137,7 +137,9 @@ be derived from a named reference to a struct with `(#borrow (#get reference
 field))` or `#borrow-mut` for an exclusive field reference. The derived
 reference retains the original referent's borrow: it cannot escape when that
 referent is local, and a mutable parent reference is suspended while its
-derived field reference remains live.
+derived field reference remains live. Tuple and array projections use `#get`
+and `#index`; enum payloads use
+`(#get-payload reference Variant index)`.
 
 ```lisp
 (#struct Point ((x u64) (y u64)))
@@ -641,7 +643,7 @@ The following forms are currently implemented:
 | `#break-to`, `#continue-to` | labeled loop control |
 | `#return` | explicit function return |
 | `#tuple`, `#array`, `#array-repeat` | aggregate construction |
-| `#index`, `#get` | aggregate projection |
+| `#index`, `#get`, `#get-payload` | aggregate and enum projection |
 | `#range` | range value for matching and iteration |
 | `#as` | explicit cast |
 | `#size-of`, `#align-of` | compile-time layout queries |

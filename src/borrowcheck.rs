@@ -180,7 +180,7 @@ impl Context {
             if places_conflict(loan, &place)
                 && *kind == LoanKind::Mutable
                 && (!through_mutable_reference || loan != owner)
-                && !self.scoped_mutable_owners.contains(owner)
+                && (!self.scoped_mutable_owners.contains(owner) || loan != owner)
             {
                 return Err(format!(
                     "cannot access '{}' while it is mutably borrowed",
@@ -678,7 +678,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                     } else {
                         LoanKind::Mutable
                     };
-                    let parent = borrowed_field_parent(&items[1]);
+                    let parent = borrowed_field_parent(expression);
                     if let Some((base, path)) = projection_path(&items[1]) {
                         if path.is_empty() {
                             check_expression(&items[1], context)?;
@@ -767,50 +767,24 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                             }
                         }
                     }
-                } else if operator == "get" && items.len() == 3 {
-                    let Some((base, mut path)) = projection_path(&items[1]) else {
-                        check_expression(&items[1], context)?;
-                        return Ok(());
-                    };
-                    let segment = match &items[2] {
-                        Expr::Symbol(field) => field.clone(),
-                        Expr::Integer(index) => index.to_string(),
-                        Expr::UnsignedInteger(index) => index.to_string(),
-                        _ => {
+                } else if matches!(operator.as_str(), "get" | "index" | "get-payload") {
+                    if let Some((base, path)) = projection_path(expression) {
+                        let through_mutable_reference = matches!(base, Expr::Symbol(name)
+                            if context.reference_bindings.contains(name));
+                        let place = path.join(&PLACE_SEPARATOR.to_string());
+                        if through_mutable_reference {
+                            for source in reference_origins(base, context, true) {
+                                context.read_place(&source, Some(&place), true)?;
+                            }
+                        } else if let Expr::Symbol(owner) = base {
+                            context.read_place(owner, Some(&place), false)?;
+                        } else {
                             check_expression(&items[1], context)?;
-                            return Ok(());
                         }
-                    };
-                    path.push(segment);
-                    let through_mutable_reference = matches!(base, Expr::Symbol(name)
-                        if context.reference_bindings.contains(name));
-                    let place = path.join(&PLACE_SEPARATOR.to_string());
-                    if through_mutable_reference {
-                        for source in reference_origins(base, context, true) {
-                            context.read_place(&source, Some(&place), true)?;
-                        }
-                    } else if let Expr::Symbol(owner) = base {
-                        context.read_place(owner, Some(&place), false)?;
                     } else {
-                        check_expression(&items[1], context)?;
-                    }
-                } else if operator == "index" && items.len() == 3 {
-                    let Some((base, mut path)) = projection_path(&items[1]) else {
-                        check_expression(&items[1], context)?;
-                        return Ok(());
-                    };
-                    path.push(static_index_segment(&items[2]).unwrap_or_else(|| "*".into()));
-                    let through_mutable_reference = matches!(base, Expr::Symbol(name)
-                        if context.reference_bindings.contains(name));
-                    let place = path.join(&PLACE_SEPARATOR.to_string());
-                    if through_mutable_reference {
-                        for source in reference_origins(base, context, true) {
-                            context.read_place(&source, Some(&place), true)?;
+                        for item in &items[1..] {
+                            check_expression(item, context)?;
                         }
-                    } else if let Expr::Symbol(owner) = base {
-                        context.read_place(owner, Some(&place), false)?;
-                    } else {
-                        check_expression(&items[1], context)?;
                     }
                 } else {
                     let arguments = if operator == "get" && items.len() >= 3 {
@@ -1074,6 +1048,18 @@ fn projection_path(expression: &Expr) -> Option<(&Expr, Vec<String>)> {
             path.push(segment);
             Some((base, path))
         }
+        Expr::List(items)
+            if items.len() == 4
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get-payload") =>
+        {
+            let (base, mut path) = projection_path(&items[1])?;
+            let Expr::Symbol(variant) = &items[2] else {
+                return None;
+            };
+            path.push(variant.clone());
+            path.push(static_index_segment(&items[3]).unwrap_or_else(|| "*".into()));
+            Some((base, path))
+        }
         _ => None,
     }
 }
@@ -1083,7 +1069,7 @@ fn borrowed_field_parent(expression: &Expr) -> Option<String> {
         return None;
     };
     if !matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut"))
-        || items.len() != 2
+        || (items.len() != 2 && items.len() != 3)
     {
         return None;
     }

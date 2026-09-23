@@ -1401,6 +1401,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "tuple"
             | "index"
             | "get"
+            | "get-payload"
             | "size-of"
             | "align-of"
             | "assert"
@@ -5060,6 +5061,25 @@ mod tests {
             "{:?}",
             check_types(&branch_field_borrow)
         );
+
+        let enum_payload_borrow = parse_program(
+            "(#enum Message ((Move u64 u64) Empty)) (#fn main () u64 (#let-mut message Message (Move 1 2)) (#let message-ref (#ref-mut Message) (#borrow-mut message)) (#return (#borrow-mut (#get-payload message-ref Move 0) (#get-payload message-ref Move 1))))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&enum_payload_borrow).is_ok(),
+            "{:?}",
+            check_types(&enum_payload_borrow)
+        );
+        assert!(generate_assembly(&enum_payload_borrow).is_ok());
+
+        let overlapping_enum_payload = parse_program(
+            "(#enum Message ((Move u64 u64) Empty)) (#fn main () u64 (#let-mut message Message (Move 1 2)) (#let message-ref (#ref-mut Message) (#borrow-mut message)) (#return (#borrow-mut (#get-payload message-ref Move 0) (#get-payload message-ref Move 0))))",
+        )
+        .unwrap();
+        assert!(check_types(&overlapping_enum_payload)
+            .unwrap_err()
+            .contains("cannot access 'message.Move.0' while it is mutably borrowed"));
 
         let original_owner_suspended = parse_program(
             "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#return (#get point y)))",

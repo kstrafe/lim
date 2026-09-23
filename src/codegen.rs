@@ -5799,6 +5799,30 @@ impl FunctionContext {
                         _ => None,
                     }
                 }
+                Some(Expr::Symbol(operator)) if operator == "get-payload" && items.len() == 4 => {
+                    let base = self.expression_type(&items[1])?;
+                    let Type::Named(enum_name) = (match base {
+                        Type::Reference { target, .. } => *target,
+                        other => other,
+                    }) else {
+                        return None;
+                    };
+                    let Expr::Symbol(variant_name) = &items[2] else {
+                        return None;
+                    };
+                    let index = match &items[3] {
+                        Expr::Integer(index) if *index >= 0 => usize::try_from(*index).ok()?,
+                        Expr::UnsignedInteger(index) => usize::try_from(*index).ok()?,
+                        _ => return None,
+                    };
+                    self.enums
+                        .get(&enum_name)?
+                        .iter()
+                        .find(|variant| variant.name == *variant_name)?
+                        .fields
+                        .get(index)
+                        .cloned()
+                }
                 Some(Expr::Symbol(operator)) if operator == "as" && items.len() == 3 => {
                     parse_type(items.get(2))
                         .ok()
@@ -5818,7 +5842,7 @@ impl FunctionContext {
                             .get(name)
                             .cloned()
                             .or_else(|| self.global_types.get(name).cloned())?,
-                        Expr::List(place) if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get") => {
+                        Expr::List(place) if matches!(place.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "get" | "index" | "get-payload")) => {
                             self.expression_type(&items[1])?
                         }
                         _ => return None,
@@ -7667,6 +7691,57 @@ impl FunctionContext {
 
     fn borrow_expression(&mut self, items: &[Expr]) -> Result<(), String> {
         if let Some(Expr::List(place)) = items.get(1) {
+            if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get-payload")
+                && place.len() == 4
+            {
+                let base_type = self.expression_type(&place[1]).ok_or_else(|| {
+                    "cannot determine reference type for enum payload borrow".to_owned()
+                })?;
+                let Type::Reference { target, .. } = base_type else {
+                    return Err("enum payload borrow requires a reference".into());
+                };
+                let Type::Named(enum_name) = *target else {
+                    return Err("enum payload borrow requires a reference to an enum".into());
+                };
+                let Expr::Symbol(variant_name) = &place[2] else {
+                    return Err("enum payload borrow requires a variant name".into());
+                };
+                let index = match &place[3] {
+                    Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
+                        .map_err(|_| "enum payload index is too large".to_owned())?,
+                    Expr::UnsignedInteger(index) => usize::try_from(*index)
+                        .map_err(|_| "enum payload index is too large".to_owned())?,
+                    _ => return Err("enum payload borrow requires a non-negative index".into()),
+                };
+                let variant = self
+                    .enums
+                    .get(&enum_name)
+                    .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
+                    .iter()
+                    .find(|variant| variant.name == *variant_name)
+                    .cloned()
+                    .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
+                let _field_type = variant.fields.get(index).ok_or_else(|| {
+                    format!("variant '{variant_name}' has no payload field at index {index}")
+                })?;
+                let payload_offset = 1 + variant.fields[..index]
+                    .iter()
+                    .map(|field| storage_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
+                let inactive = self.label("inactive_enum_payload_borrow");
+                let done = self.label("inactive_enum_payload_borrow_done");
+                self.expression(&place[1])?;
+                self.output.push_str(&format!(
+                    "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
+                    variant.discriminant
+                ));
+                self.emit_reference_field_address(&place[1], payload_offset, true)?;
+                self.output
+                    .push_str(&format!("    jmp {done}\n{inactive}:\n    ud2\n{done}:\n"));
+                return Ok(());
+            }
             if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get")
                 && place.len() == 3
             {
@@ -8042,6 +8117,7 @@ impl FunctionContext {
             "match" => self.match_expression(items, None, None),
             "index" => self.index_expression(items),
             "get" => self.field_expression(items),
+            "get-payload" => self.enum_payload_expression(items),
             "!" => self.boolean_not(items),
             "&&" | "||" => self.boolean_logic(operator, items),
             "assert" | "debug-assert" => self.assert_expression(operator, items),
@@ -10797,6 +10873,78 @@ impl FunctionContext {
                 Ok(())
             }
         }
+    }
+
+    fn enum_payload_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 4 {
+            return Err("get-payload requires an enum, variant, and index".into());
+        }
+        let Type::Reference { target, .. } = self
+            .expression_type(&items[1])
+            .ok_or_else(|| "get-payload has no known source type".to_owned())?
+        else {
+            return Err("get-payload currently requires an enum reference".into());
+        };
+        let Type::Named(enum_name) = *target else {
+            return Err("get-payload requires a reference to an enum".into());
+        };
+        let Expr::Symbol(variant_name) = &items[2] else {
+            return Err("get-payload requires a variant name".into());
+        };
+        let index =
+            match &items[3] {
+                Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
+                    .map_err(|_| "enum payload index is too large".to_owned())?,
+                Expr::UnsignedInteger(index) => usize::try_from(*index)
+                    .map_err(|_| "enum payload index is too large".to_owned())?,
+                _ => return Err("get-payload requires a non-negative integer index".into()),
+            };
+        let variant = self
+            .enums
+            .get(&enum_name)
+            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
+            .iter()
+            .find(|variant| variant.name == *variant_name)
+            .cloned()
+            .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
+        let field_type = variant.fields.get(index).cloned().ok_or_else(|| {
+            format!("variant '{variant_name}' has no payload field at index {index}")
+        })?;
+        let payload_offset = 1 + variant.fields[..index]
+            .iter()
+            .map(|field| storage_word_count(field, &self.structs, &self.enums))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .sum::<usize>();
+        let inactive = self.label("inactive_enum_payload_projection");
+        let done = self.label("inactive_enum_payload_projection_done");
+        self.expression(&items[1])?;
+        self.output.push_str(&format!(
+            "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
+            variant.discriminant
+        ));
+        self.emit_reference_field_address(&items[1], payload_offset, false)?;
+        let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+        if field_words > VALUE_REGISTERS.len() {
+            return Err("large enum payload projections are unsupported".into());
+        }
+        if field_words > 1 {
+            for (word, register) in VALUE_REGISTERS.iter().enumerate().take(field_words) {
+                self.output.push_str(&format!(
+                    "    mov {register}, QWORD PTR [rax+{}]\n",
+                    word * 8
+                ));
+            }
+        } else if matches!(field_type, Type::F32) {
+            self.output.push_str("    movss xmm0, DWORD PTR [rax]\n");
+        } else if matches!(field_type, Type::F64) {
+            self.output.push_str("    movq xmm0, QWORD PTR [rax]\n");
+        } else {
+            self.output.push_str("    mov rax, QWORD PTR [rax]\n");
+        }
+        self.output
+            .push_str(&format!("    jmp {done}\n{inactive}:\n    ud2\n{done}:\n"));
+        Ok(())
     }
 
     fn cell_place_address(&mut self, place: &Expr) -> Result<Type, String> {

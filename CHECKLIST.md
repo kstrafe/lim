@@ -42,9 +42,9 @@ it as the project checklist; cross items off as they are completed.
 - [x] Extend place-sensitive borrowing to nested tuple fields and array
   elements, including dynamic array indices that conservatively conflict with
   every element. Tuple and array projections now work through references.
-- [ ] Add borrowable enum-payload projections. Enum payload mutation already
-  participates in place conflict checking, but source-level payload projection
-  is not yet exposed by `#get`.
+- [x] Add borrowable enum-payload projections with explicit
+  `#get-payload reference Variant index` syntax and place-sensitive conflict
+  checking.
 - [ ] Define and implement complete reference projection rules for nested
   aggregates, including references stored inside references and aggregates.
 - [ ] Add borrow-checker diagnostics with source spans, the original borrow

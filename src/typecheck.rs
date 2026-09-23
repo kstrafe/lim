@@ -2428,8 +2428,10 @@ fn list_expression(
                         (owner_type.clone(), mutable.contains(name))
                     }
                     Expr::List(place)
-                        if place.len() == 3
-                            && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index") =>
+                        if (place.len() == 3
+                            && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index"))
+                            || (place.len() == 4
+                                && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get-payload")) =>
                     {
                         let root = projection_root(&place[1]).ok_or_else(|| {
                             format!("{operator} projection borrowing requires a reference")
@@ -2482,12 +2484,31 @@ fn list_expression(
                     }
                 }
                 Expr::List(place)
-                    if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get")
-                        && place.len() == 3 =>
+                    if (matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index")
+                        && place.len() == 3)
+                        || (matches!(place.first(), Some(Expr::Symbol(name)) if name == "get-payload")
+                            && place.len() == 4) =>
                 {
-                    return Err(format!(
-                        "{operator} field borrowing must produce a named reference using its two-argument form"
-                    ));
+                    let root = projection_root(&items[1]).ok_or_else(|| {
+                        format!("{operator} projection borrowing requires a reference")
+                    })?;
+                    let Type::Reference {
+                        mutable: reference_mutable,
+                        ..
+                    } = expression(
+                        root, variables, functions, structs, enums, mutable, aliases, None,
+                    )?
+                    else {
+                        return Err(format!(
+                            "{operator} projection borrowing requires a reference"
+                        ));
+                    };
+                    if operator == "borrow-mut" && !reference_mutable {
+                        return Err("cannot mutably borrow through an immutable reference".into());
+                    }
+                    expression(
+                        &items[1], variables, functions, structs, enums, mutable, aliases, None,
+                    )?;
                 }
                 _ => {
                     return Err(format!(
@@ -3066,6 +3087,43 @@ fn list_expression(
                 .map(|field| field.ty.clone())
                 .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))
         }
+        "get-payload" => {
+            if items.len() != 4 {
+                return Err(
+                    "get-payload requires the form (get-payload enum variant index)".into(),
+                );
+            }
+            let value_type = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let value_type = match value_type {
+                Type::Reference { target, .. } => *target,
+                other => other,
+            };
+            let Type::Named(enum_name) = value_type else {
+                return Err("get-payload requires an enum value".into());
+            };
+            let Expr::Symbol(variant_name) = &items[2] else {
+                return Err("get-payload requires a variant name".into());
+            };
+            let index = match &items[3] {
+                Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
+                    .map_err(|_| "enum payload index is too large".to_owned())?,
+                Expr::UnsignedInteger(index) => usize::try_from(*index)
+                    .map_err(|_| "enum payload index is too large".to_owned())?,
+                _ => return Err("get-payload requires a non-negative integer index".into()),
+            };
+            let variants = enums
+                .get(&enum_name)
+                .ok_or_else(|| format!("unknown enum '{enum_name}'"))?;
+            let variant = variants
+                .iter()
+                .find(|variant| variant.name == *variant_name)
+                .ok_or_else(|| format!("enum '{enum_name}' has no variant '{variant_name}'"))?;
+            variant.fields.get(index).cloned().ok_or_else(|| {
+                format!("variant '{variant_name}' has no payload field at index {index}")
+            })
+        }
         _ => {
             if let Some(fields) = structs.get(operator) {
                 if items.len() - 1 != fields.len() {
@@ -3162,8 +3220,10 @@ fn projection_root(expression: &Expr) -> Option<&Expr> {
     match expression {
         Expr::Symbol(_) => Some(expression),
         Expr::List(items)
-            if items.len() == 3
-                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index") =>
+            if (items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index"))
+                || (items.len() == 4
+                    && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get-payload")) =>
         {
             projection_root(&items[1])
         }
