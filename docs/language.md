@@ -203,7 +203,15 @@ nix develop --command cargo run -- examples/fibonacci.lim -o /tmp/fibonacci
 /tmp/fibonacci
 echo $? # 55 for the Fibonacci example
 nix develop --command cargo run -- --check-examples examples
+nix develop --command cargo run -- examples/fibonacci.lim --target x86_64-sysv
 ```
+
+Native compilation carries an explicit target description. The current
+backend accepts `x86_64-sysv` (and its GNU triple spelling
+`x86_64-unknown-linux-gnu`) and rejects unsupported targets instead of
+silently applying the host ABI. The Rust API exposes
+`TargetDescription` and `generate_assembly_for_target`; the existing
+`generate_assembly` API selects the supported host target.
 
 `--check-examples` recursively parses, type-checks, borrow-checks, and lowers
 every `.lim` file under the selected directory. It reports each source file
@@ -803,8 +811,8 @@ Nested generated expressions are reserved for future generated forms.
 
 ## Value representation and native backend
 
-The backend emits Intel-syntax x86-64 assembly and follows the host System V
-calling convention.  Scalar integer and pointer-sized ABI words use general
+The backend emits Intel-syntax x86-64 assembly and follows the explicit
+`x86_64-sysv` target description. Scalar integer and pointer-sized ABI words use general
 purpose registers; `f32` and `f64` values use SSE registers.  `i128` and
 `u128` use two machine words.
 

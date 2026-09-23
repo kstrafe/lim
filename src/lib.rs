@@ -14,7 +14,58 @@ mod typecheck;
 mod unsafecheck;
 
 pub use codegen::generate_assembly;
+pub use codegen::generate_assembly_for_target;
 pub use typecheck::{check_types, type_has_auto_trait};
+
+/// CPU architecture descriptions understood by the native backend.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TargetArchitecture {
+    X86_64,
+}
+
+/// Calling conventions understood by the native backend.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TargetAbi {
+    SystemV,
+}
+
+/// Explicit target information carried through native code generation.
+///
+/// The current backend implements only x86-64 System V, but keeping the target
+/// explicit prevents code generation from silently acquiring host-dependent
+/// ABI behavior as more backends are added.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TargetDescription {
+    pub architecture: TargetArchitecture,
+    pub abi: TargetAbi,
+}
+
+impl TargetDescription {
+    pub const X86_64_SYSTEM_V: Self = Self {
+        architecture: TargetArchitecture::X86_64,
+        abi: TargetAbi::SystemV,
+    };
+
+    pub fn host() -> Result<Self, String> {
+        if env::consts::ARCH == "x86_64" {
+            Ok(Self::X86_64_SYSTEM_V)
+        } else {
+            Err(format!(
+                "host architecture '{}' is not supported by the native backend; select an explicit x86_64 target",
+                env::consts::ARCH
+            ))
+        }
+    }
+
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "x86_64-sysv" | "x86_64-unknown-linux-gnu" => Ok(Self::X86_64_SYSTEM_V),
+            other => Err(format!(
+                "unsupported target '{other}'; supported targets: x86_64-sysv"
+            )),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Span {
@@ -4518,6 +4569,23 @@ mod tests {
             lex("(#&& true false)").unwrap()[1].kind,
             TokenKind::Symbol("#&&".into())
         );
+    }
+
+    #[test]
+    fn parses_explicit_native_target_descriptions() {
+        assert_eq!(
+            TargetDescription::parse("x86_64-sysv").unwrap(),
+            TargetDescription::X86_64_SYSTEM_V
+        );
+        assert_eq!(
+            TargetDescription::parse("x86_64-unknown-linux-gnu").unwrap(),
+            TargetDescription::X86_64_SYSTEM_V
+        );
+        assert!(TargetDescription::parse("aarch64-unknown-linux-gnu")
+            .unwrap_err()
+            .contains("supported targets: x86_64-sysv"));
+        let program = parse_program("(#fn main () u64 (#return 42))").unwrap();
+        assert!(generate_assembly_for_target(&program, TargetDescription::X86_64_SYSTEM_V).is_ok());
     }
 
     #[test]

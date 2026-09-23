@@ -87,7 +87,8 @@ it as the project checklist; cross items off as they are completed.
 
 ### Backend, platform, and interoperation
 
-- [ ] Add a target description instead of assuming host x86-64 System V ABI.
+- [x] Add an explicit target description for the native x86-64 System V ABI;
+  unsupported target names are rejected rather than silently treated as host.
 - [ ] Implement the planned native assembler/backend path so Clang is no
   longer required for normal compilation.
 - [ ] Define FFI declarations, calling conventions, layout guarantees, and

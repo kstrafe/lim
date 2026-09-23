@@ -968,6 +968,17 @@ fn erase_unsafe_blocks(program: &Program) -> Program {
 }
 
 pub fn generate_assembly(program: &Program) -> Result<String, String> {
+    let target = crate::TargetDescription::host()?;
+    generate_assembly_for_target(program, target)
+}
+
+pub fn generate_assembly_for_target(
+    program: &Program,
+    target: crate::TargetDescription,
+) -> Result<String, String> {
+    if target != crate::TargetDescription::X86_64_SYSTEM_V {
+        return Err("native backend has no implementation for the selected target".into());
+    }
     check_types(program)?;
     let program = erase_unsafe_blocks(program);
     let aliases: HashMap<String, Type> = program
