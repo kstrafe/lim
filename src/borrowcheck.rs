@@ -1,10 +1,10 @@
 //! Lexical borrow checking for Lim's first borrow model.
 //!
-//! Lim does not yet expose references as values.  A borrow is therefore an
-//! expression scope: `(#borrow owner body)` or `(#borrow-mut owner body)`.
-//! The owner is borrowed for exactly the duration of `body`.  This gives the
-//! language useful, inferred borrow checking without inventing a runtime
-//! representation before indirection is designed.
+//! References are explicit values, while expression-form borrows still provide
+//! a scoped way to access an owner: `(#borrow owner body)` or
+//! `(#borrow-mut owner body)`. The owner is borrowed for exactly the duration
+//! of `body`, and two-expression borrows retain provenance in the surrounding
+//! context for the lifetime of their binding.
 
 use std::collections::{HashMap, HashSet};
 

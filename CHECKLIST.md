@@ -51,8 +51,8 @@ it as the project checklist; cross items off as they are completed.
   site, the conflicting access, and generator invocation context.
 - [ ] Add regression tests for every remaining projection and control-flow
   combination, including branch-local drops and multiple derived field loans.
-- [ ] Remove or update stale comments that still describe references as not
-  being first-class values.
+- [x] Remove stale comments that described references as not being first-class
+  values.
 
 ### Values, memory, and aggregates
 
