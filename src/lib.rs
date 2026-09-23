@@ -5081,6 +5081,32 @@ mod tests {
             .unwrap_err()
             .contains("cannot access 'message.Move.0' while it is mutably borrowed"));
 
+        let nested_reference_aggregate = parse_program(
+            "(#struct Inner ((data (#ref-mut u64)))) (#struct Outer ((inner (#ref-mut Inner)))) (#fn main () u64 (#let-mut value u64 40) (#let-mut inner Inner (Inner (#borrow-mut value))) (#let outer Outer (Outer (#borrow-mut inner))) (#deref-set (#get (#get outer inner) data) 42) (#return (#deref (#get (#get outer inner) data))))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&nested_reference_aggregate).is_ok(),
+            "{:?}",
+            check_types(&nested_reference_aggregate)
+        );
+        assert!(generate_assembly(&nested_reference_aggregate).is_ok());
+
+        let tuple_reference_aggregate = parse_program(
+            "(#fn main () u64 (#let-mut value u64 40) (#let refs (#tuple (#ref-mut u64)) (#tuple (#borrow-mut value))) (#deref-set (#get refs 0) 42) (#return (#deref (#get refs 0))))",
+        )
+        .unwrap();
+        assert!(check_types(&tuple_reference_aggregate).is_ok());
+        assert!(generate_assembly(&tuple_reference_aggregate).is_ok());
+
+        let nested_reference_owner_write = parse_program(
+            "(#struct Inner ((data (#ref-mut u64)))) (#struct Outer ((inner (#ref-mut Inner)))) (#fn main () u64 (#let-mut value u64 40) (#let-mut inner Inner (Inner (#borrow-mut value))) (#let outer Outer (Outer (#borrow-mut inner))) (#set value 41) (#return 0))",
+        )
+        .unwrap();
+        assert!(check_types(&nested_reference_owner_write)
+            .unwrap_err()
+            .contains("cannot mutate 'value' while it is mutably borrowed"));
+
         let original_owner_suspended = parse_program(
             "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#return (#get point y)))",
         )

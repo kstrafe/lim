@@ -45,8 +45,9 @@ it as the project checklist; cross items off as they are completed.
 - [x] Add borrowable enum-payload projections with explicit
   `#get-payload reference Variant index` syntax and place-sensitive conflict
   checking.
-- [ ] Define and implement complete reference projection rules for nested
-  aggregates, including references stored inside references and aggregates.
+- [x] Define and implement reference projection rules for nested aggregates,
+  including references stored inside tuple and struct aggregates and nested
+  reference chains.
 - [ ] Add borrow-checker diagnostics with source spans, the original borrow
   site, the conflicting access, and generator invocation context.
 - [x] Add regression tests for the supported projection and control-flow

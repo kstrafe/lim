@@ -140,6 +140,9 @@ referent is local, and a mutable parent reference is suspended while its
 derived field reference remains live. Tuple and array projections use `#get`
 and `#index`; enum payloads use
 `(#get-payload reference Variant index)`.
+Reference-valued fields may be projected through nested aggregates; their
+original source borrow remains active for as long as the containing aggregate
+is live.
 
 ```lisp
 (#struct Point ((x u64) (y u64)))

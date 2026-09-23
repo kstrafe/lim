@@ -1090,11 +1090,13 @@ fn borrow_place_origins(place: &Expr, context: &Context) -> HashSet<String> {
             return borrow_place_origins(&items[1], context);
         }
     }
-    let Some((base, _)) = projection_path(place) else {
+    let Some((base, path)) = projection_path(place) else {
         return HashSet::new();
     };
     if let Expr::Symbol(owner) = base {
-        if context.reference_origins.contains_key(owner) {
+        if path.is_empty() {
+            HashSet::from([owner.clone()])
+        } else if context.reference_origins.contains_key(owner) {
             reference_origins(base, context, true)
         } else {
             HashSet::from([owner.clone()])
@@ -1109,7 +1111,9 @@ fn borrow_place_loans(place: &Expr, context: &Context) -> Vec<(String, String)> 
         return Vec::new();
     };
     let owners = if let Expr::Symbol(owner) = base {
-        if context.reference_origins.contains_key(owner) {
+        if path.is_empty() {
+            HashSet::from([owner.clone()])
+        } else if context.reference_origins.contains_key(owner) {
             reference_origins(base, context, true)
         } else {
             HashSet::from([owner.clone()])
