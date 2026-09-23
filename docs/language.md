@@ -868,6 +868,7 @@ The crate is dependency-free.  Its primary public types and functions are:
 - `parse_program(&str) -> Result<Program, String>` for canonical syntax;
 - `check_types(&Program) -> Result<(), String>`;
 - `generate_assembly(&Program) -> Result<String, String>`;
+- `format_source(&str) -> Result<String, String>`;
 - `write_generated_sources(&str, &Path) -> Result<(), String>`;
 - AST and metadata types: `Span`, `Token`, `TokenKind`, `Expr`, `Type`,
   `Statement`, `Function`, `Item`, and `Program`.

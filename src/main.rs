@@ -7,8 +7,45 @@ use std::{
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]...\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]...\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         return ExitCode::SUCCESS;
+    }
+    if arguments.first().map(String::as_str) == Some("--format") {
+        let Some(input) = arguments.get(1) else {
+            eprintln!("usage: lim --format INPUT [OUTPUT]");
+            return ExitCode::FAILURE;
+        };
+        if arguments.len() > 3 {
+            eprintln!("usage: lim --format INPUT [OUTPUT]");
+            return ExitCode::FAILURE;
+        }
+        let source = match fs::read_to_string(input) {
+            Ok(source) => source,
+            Err(error) => {
+                eprintln!("lim: {input}: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let formatted = match lim::format_source(&source) {
+            Ok(formatted) => formatted,
+            Err(error) => {
+                eprintln!("lim: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+        return match arguments.get(2) {
+            Some(output) => match fs::write(output, formatted) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("lim: {output}: {error}");
+                    ExitCode::FAILURE
+                }
+            },
+            None => {
+                print!("{formatted}");
+                ExitCode::SUCCESS
+            }
+        };
     }
     if arguments.first().map(String::as_str) == Some("--collect-cfgs") {
         if arguments.len() != 2 {

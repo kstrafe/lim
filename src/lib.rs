@@ -575,6 +575,34 @@ pub fn parse(source: &str) -> Result<Vec<SpannedExpr>, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Format canonical Lim source using the parsed S-expression structure.
+pub fn format_source(source: &str) -> Result<String, String> {
+    parse(source).map(|expressions| {
+        expressions
+            .iter()
+            .map(|expression| pretty_expression(&expression.expr, 0))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
+    })
+}
+
+fn pretty_expression(expression: &Expr, indent: usize) -> String {
+    let Expr::List(items) = expression else {
+        return expression_source(expression).unwrap_or_else(|_| "<?>".into());
+    };
+    if items.iter().all(|item| !matches!(item, Expr::List(_))) {
+        return expression_source(expression).unwrap_or_else(|_| "<?>".into());
+    }
+    let padding = " ".repeat(indent + 2);
+    let next = items
+        .iter()
+        .map(|item| format!("{}{}", padding, pretty_expression(item, indent + 2)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("(\n{next}\n{})", " ".repeat(indent))
+}
+
 /// Rust-like scalar types understood by the first typed AST pass.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
@@ -4612,6 +4640,14 @@ mod tests {
         assert_eq!(diagnostic.code_string(), "E4100");
         assert_eq!(diagnostic.span.unwrap().line, 2);
         assert_eq!(diagnostic.notes, vec!["borrowed here"]);
+    }
+
+    #[test]
+    fn formatter_normalizes_nested_syntax() {
+        let formatted = format_source("(#fn main () u64 (#return (#u64.+.wrap 40 2)))").unwrap();
+        assert!(formatted.contains("#fn\n"));
+        assert!(formatted.contains("#return"));
+        assert_eq!(format_source(&formatted).unwrap(), formatted);
     }
 
     #[test]
