@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{Expr, Function, Item, Program, Statement};
+use crate::{Expr, Function, Item, Program, Statement, TokenKind};
 
 const PLACE_SEPARATOR: char = '\u{1f}';
 
@@ -408,8 +408,13 @@ fn format_borrow_diagnostic(
         .nth(1)
         .filter(|name| !name.is_empty())
         .unwrap_or("<unknown>");
+    let exact_conflict_span = exact_conflict_span.and_then(|statement_span| {
+        source
+            .and_then(|source| conflict_operator_span(source, statement_span, owner, &error))
+            .or(Some(statement_span))
+    });
     let spans = source
-        .map(|source| source_spans(source, owner))
+        .map(|source| source_spans(source, owner, &function.name, exact_conflict_span))
         .unwrap_or_default();
     let span_text = if let Some(span) = exact_conflict_span {
         format!(
@@ -439,37 +444,94 @@ fn format_borrow_diagnostic(
     )
 }
 
-fn source_spans(source: &str, needle: &str) -> Vec<(usize, usize)> {
-    let mut result = Vec::new();
-    let bytes = source.as_bytes();
-    let needle = needle.as_bytes();
-    if needle.is_empty() {
-        return result;
-    }
-    for start in 0..bytes.len().saturating_sub(needle.len()).saturating_add(1) {
-        if &bytes[start..start + needle.len()] != needle {
-            continue;
-        }
-        let boundary = |byte: Option<&u8>| {
-            byte.is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_' && *byte != b'-')
-        };
-        if !boundary(start.checked_sub(1).and_then(|index| bytes.get(index)))
-            || !boundary(bytes.get(start + needle.len()))
-        {
-            continue;
-        }
-        let line = source[..start]
-            .bytes()
-            .filter(|byte| *byte == b'\n')
-            .count()
-            + 1;
-        let column = source[..start]
-            .rsplit('\n')
-            .next()
-            .map_or(1, |line| line.chars().count() + 1);
-        result.push((line, column));
-    }
-    result
+fn source_spans(
+    source: &str,
+    needle: &str,
+    function_name: &str,
+    conflict: Option<crate::Span>,
+) -> Vec<(usize, usize)> {
+    let Ok(tokens) = crate::lex(source) else {
+        return Vec::new();
+    };
+    let function_start = tokens
+        .windows(3)
+        .find_map(|window| {
+            let [open, keyword, name] = window else {
+                return None;
+            };
+            (open.kind == TokenKind::LParen
+                && keyword.kind == TokenKind::Symbol("#fn".into())
+                && name.kind == TokenKind::Symbol(function_name.into()))
+            .then_some(open.span.start)
+        })
+        .unwrap_or(0);
+    tokens
+        .windows(3)
+        .filter_map(|window| {
+            let [open, operator, owner] = window else {
+                return None;
+            };
+            let TokenKind::Symbol(operator_name) = &operator.kind else {
+                return None;
+            };
+            let TokenKind::Symbol(owner_name) = &owner.kind else {
+                return None;
+            };
+            (open.kind == TokenKind::LParen
+                && matches!(
+                    operator_name.as_str(),
+                    "#borrow" | "#borrow-mut" | "borrow" | "borrow-mut"
+                )
+                && owner_name == needle
+                && open.span.start >= function_start
+                && conflict.is_none_or(|conflict| operator.span.start < conflict.start))
+            .then_some((
+                operator.span.line,
+                operator.span.column,
+                operator.span.start,
+            ))
+        })
+        .last()
+        .map(|(line, column, _)| vec![(line, column)])
+        .unwrap_or_default()
+}
+
+fn conflict_operator_span(
+    source: &str,
+    statement: crate::Span,
+    owner: &str,
+    error: &str,
+) -> Option<crate::Span> {
+    let tokens = crate::lex(source).ok()?;
+    let is_borrow_conflict = error.contains("borrow");
+    tokens
+        .windows(3)
+        .filter_map(|window| {
+            let [open, operator, target] = window else {
+                return None;
+            };
+            let TokenKind::Symbol(operator_name) = &operator.kind else {
+                return None;
+            };
+            let TokenKind::Symbol(target_name) = &target.kind else {
+                return None;
+            };
+            let matching_operator = if is_borrow_conflict {
+                matches!(
+                    operator_name.as_str(),
+                    "#borrow" | "#borrow-mut" | "borrow" | "borrow-mut"
+                )
+            } else {
+                operator_name.starts_with("#set") || operator_name.starts_with("set")
+            };
+            (open.kind == TokenKind::LParen
+                && matching_operator
+                && target_name == owner
+                && operator.span.start >= statement.start
+                && operator.span.end <= statement.end)
+                .then_some(operator.span)
+        })
+        .last()
 }
 
 fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), String> {

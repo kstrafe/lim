@@ -5469,8 +5469,13 @@ mod tests {
         assert!(diagnostic.contains("conflicting access"));
         assert!(diagnostic.contains("conflicting span"));
         let rendered = render_error(diagnostic_source, "borrow.lim", &diagnostic);
-        assert!(rendered.contains("--> borrow.lim:3:3"), "{rendered}");
-        assert!(rendered.contains("  (#return (#borrow value"), "{rendered}");
+        assert!(rendered.contains("--> borrow.lim:3:28"), "{rendered}");
+        assert!(rendered.contains("--> borrow.lim:3:13"), "{rendered}");
+        assert!(rendered.contains("borrow begins here"), "{rendered}");
+        assert!(
+            rendered.contains("here\n  = note: original borrow site:"),
+            "{rendered}"
+        );
 
         let shared_write = parse_program(
             "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow value (#block (#set value 42) value))))",
