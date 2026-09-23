@@ -1229,7 +1229,12 @@ fn parse_program_in_directory(
         collect_function_statement_spans(source, &expression, form_span, &mut statement_spans);
         if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
-                items.extend(parse_generated_items(forms)?);
+                items.extend(parse_generated_items(forms).map_err(|error| {
+                    format!(
+                        "{error} while expanding generated declaration {}",
+                        expression_source(&expression).unwrap_or_else(|_| "<?>".into())
+                    )
+                })?);
                 continue;
             }
         }
@@ -2588,14 +2593,11 @@ fn write_generated_sources_in_directory(
         }
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
         if kind == "vec" {
-            let Item::Struct { name, fields, .. } = parse_generated_item(&forms)? else {
-                unreachable!("vec expansion always produces a struct")
-            };
-            let allocator = type_source(&fields[0].ty);
-            let pointer = type_source(&fields[1].ty);
-            generated.push(format!(
-                "(#struct {name} ((allocator {allocator}) (pointer {pointer}) (length usize) (capacity usize)))\n(#fn {name}-new ((allocator {allocator}) (pointer {pointer}) (capacity usize)) {name} (#return ({name} allocator pointer 0 capacity)))\n(#fn {name}-len ((vector (#ref {name}))) usize (#return (#get vector length)))\n(#fn {name}-capacity ((vector (#ref {name}))) usize (#return (#get vector capacity)))\n"
-            ));
+            generated.push(generated_vec_source(&forms)?);
+            continue;
+        }
+        if kind == "vec-alloc" {
+            generated.push(generated_vec_allocator_source(&forms)?);
             continue;
         }
         if !matches!(kind, "optional" | "result") {
@@ -3619,98 +3621,10 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         return Ok(vec![parse_generated_item(items)?]);
     }
     if kind == "vec" {
-        let generated = parse_generated_item(items)?;
-        let Item::Struct { name, fields, .. } = &generated else {
-            unreachable!("vec expansion always produces a struct")
-        };
-        let name = name.clone();
-        let fields = fields.clone();
-        let element = match &fields[1].ty {
-            Type::RawPointer { target, .. } => (**target).clone(),
-            _ => unreachable!("vec storage field is always a raw pointer"),
-        };
-        let allocator = match &fields[0].ty {
-            Type::Reference { target, .. } => (**target).clone(),
-            _ => unreachable!("vec allocator field is always a reference"),
-        };
-        let vector_type = Type::Named(name.clone());
-        return Ok(vec![
-            generated,
-            Item::Function(Function {
-                name: format!("{name}-new"),
-                external: false,
-                type_parameters: Vec::new(),
-                parameters: vec![
-                    Parameter {
-                        name: "allocator".into(),
-                        ty: Type::Reference {
-                            mutable: false,
-                            target: Box::new(allocator),
-                        },
-                        mutable: false,
-                    },
-                    Parameter {
-                        name: "pointer".into(),
-                        ty: Type::RawPointer {
-                            mutable: true,
-                            target: Box::new(element),
-                        },
-                        mutable: false,
-                    },
-                    Parameter {
-                        name: "capacity".into(),
-                        ty: Type::Usize,
-                        mutable: false,
-                    },
-                ],
-                return_type: vector_type.clone(),
-                body: vec![Statement::Return(Some(Expr::List(vec![
-                    Expr::Symbol(name.clone()),
-                    Expr::Symbol("allocator".into()),
-                    Expr::Symbol("pointer".into()),
-                    Expr::UnsignedInteger(0),
-                    Expr::Symbol("capacity".into()),
-                ])))],
-            }),
-            Item::Function(Function {
-                name: format!("{name}-len"),
-                external: false,
-                type_parameters: Vec::new(),
-                parameters: vec![Parameter {
-                    name: "vector".into(),
-                    ty: Type::Reference {
-                        mutable: false,
-                        target: Box::new(vector_type.clone()),
-                    },
-                    mutable: false,
-                }],
-                return_type: Type::Usize,
-                body: vec![Statement::Return(Some(Expr::List(vec![
-                    Expr::Symbol("get".into()),
-                    Expr::Symbol("vector".into()),
-                    Expr::Symbol("length".into()),
-                ])))],
-            }),
-            Item::Function(Function {
-                name: format!("{name}-capacity"),
-                external: false,
-                type_parameters: Vec::new(),
-                parameters: vec![Parameter {
-                    name: "vector".into(),
-                    ty: Type::Reference {
-                        mutable: false,
-                        target: Box::new(vector_type),
-                    },
-                    mutable: false,
-                }],
-                return_type: Type::Usize,
-                body: vec![Statement::Return(Some(Expr::List(vec![
-                    Expr::Symbol("get".into()),
-                    Expr::Symbol("vector".into()),
-                    Expr::Symbol("capacity".into()),
-                ])))],
-            }),
-        ]);
+        return parse_generated_source_items(&generated_vec_source(items)?);
+    }
+    if kind == "vec-alloc" {
+        return parse_generated_source_items(&generated_vec_allocator_source(items)?);
     }
     let generated = parse_generated_item(items)?;
     let Item::Enum { name, variants, .. } = &generated else {
@@ -3798,6 +3712,242 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
             body: vec![Statement::Return(Some(unwrap_or_body))],
         }),
     ])
+}
+
+fn generated_vec_source(items: &[Expr]) -> Result<String, String> {
+    let Item::Struct { name, fields, .. } = parse_generated_item(items)? else {
+        unreachable!("vec expansion always produces a struct")
+    };
+    let allocator = type_source(&fields[0].ty);
+    let pointer = type_source(&fields[1].ty);
+    Ok(format!(
+        "(#struct {name} ((allocator {allocator}) (pointer {pointer}) (length usize) (capacity usize)))\n(#fn {name}-new-with-storage ((allocator {allocator}) (pointer {pointer}) (capacity usize)) {name} (#return ({name} allocator pointer 0 capacity)))\n(#fn {name}-len ((vector (#ref {name}))) usize (#return (#get vector length)))\n(#fn {name}-capacity ((vector (#ref {name}))) usize (#return (#get vector capacity)))\n"
+    ))
+}
+
+fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
+    if items.len() != 11 {
+        return Err("generated declaration must have the form (@vec-alloc Element Allocator Vec AllocResult AllocError alloc grow dealloc destroy)".into());
+    }
+    let element = type_source(&parse_type(items.get(2))?);
+    let allocator = expect_symbol(items.get(3), "vector allocator type")?;
+    let name = expect_symbol(items.get(4), "generated vector type name")?;
+    let allocation_result = expect_symbol(items.get(5), "allocator result type")?;
+    let allocation_error = expect_symbol(items.get(6), "allocator error type")?;
+    let alloc = expect_symbol(items.get(7), "allocator allocation function")?;
+    let grow = expect_symbol(items.get(8), "allocator growth function")?;
+    let dealloc = expect_symbol(items.get(9), "allocator deallocation function")?;
+    let destroy = expect_symbol(items.get(10), "element destruction function")?;
+    let _ = (dealloc, destroy);
+    Ok(format!(
+        r#"
+(#enum {name}-ReserveError
+  (({name}-ReserveAllocationError {allocation_error})
+   {name}-ReserveCapacityOverflow))
+(#enum {name}-PushError
+  (({name}-PushReserveError {name}-ReserveError {element})
+   ({name}-PushCapacityOverflow {element})))
+(#enum {name}-SetError (({name}-SetOutOfBounds {element})))
+(#enum {name}-ReserveResult
+  (({name}-ReserveResult-ok-value ())
+   ({name}-ReserveResult-err-value {name}-ReserveError)))
+(#enum {name}-PushResult
+  (({name}-PushResult-ok-value ())
+   ({name}-PushResult-err-value {name}-PushError)))
+(#enum {name}-SetResult
+  (({name}-SetResult-ok-value ())
+   ({name}-SetResult-err-value {name}-SetError)))
+(#enum {name}-PopResult
+  (({name}-PopResult-some {element}) {name}-PopResult-none))
+(#enum {name}-GetResult
+  (({name}-GetResult-some (#ref {element})) {name}-GetResult-none))
+(#enum {name}-GetMutResult
+  (({name}-GetMutResult-some (#ref-mut {element})) {name}-GetMutResult-none))
+(#fn {name}-new
+  ((allocator (#ref {allocator})))
+  {name}
+  (#return ({name} allocator (#ptr-null (#ptr-mut {element})) 0usize 0usize)))
+(#fn {name}-reserve-fields
+  ((allocator (#ref {allocator}))
+   (pointer-slot (#ref-mut (#ptr-mut {element})))
+   (capacity-slot (#ref-mut usize))
+   (requested usize))
+  {name}-ReserveResult
+  (#let capacity usize (#deref capacity-slot))
+  (#let element-size usize (#size-of {element}))
+  (#return
+    (#if (#usize.<= requested capacity)
+      ({name}-ReserveResult-ok-value ())
+      (#if (#usize.== element-size 0usize)
+        (#block
+          (#deref-set capacity-slot requested)
+          ({name}-ReserveResult-ok-value ()))
+        (#block
+          (#let doubled usize (#usize.*.saturate capacity 2usize))
+          (#let new-capacity usize
+            (#if (#usize.> requested doubled) requested doubled))
+          (#let old-layout usize (#usize.*.wrap capacity element-size))
+          (#let new-layout usize (#usize.*.wrap new-capacity element-size))
+          (#if
+            (#&&
+              (#usize.== (#usize./.wrap new-layout element-size) new-capacity)
+              (#usize.== (#usize./.wrap old-layout element-size) capacity))
+            (#block
+              (#let allocation-result {allocation_result}
+                (#if (#usize.== capacity 0usize)
+                  ({alloc} (#clone allocator) new-layout
+                    (#align-of {element}))
+                  ({grow} (#clone allocator)
+                    (#clone (#deref pointer-slot)) old-layout new-layout
+                    (#align-of {element}))))
+              (#match allocation-result
+                (({allocation_result}-ok-value new-pointer)
+                  (#block
+                    (#deref-set pointer-slot new-pointer)
+                    (#deref-set capacity-slot new-capacity)
+                    ({name}-ReserveResult-ok-value ())))
+                (({allocation_result}-err-value error)
+                  ({name}-ReserveResult-err-value
+                    ({name}-ReserveAllocationError error)))))
+            ({name}-ReserveResult-err-value
+              {name}-ReserveCapacityOverflow)))))))
+(#fn {name}-reserve
+  ((vector (#ref-mut {name})) (requested usize))
+  {name}-ReserveResult
+  (#return
+    ({name}-reserve-fields
+      (#clone (#get vector allocator))
+      (#borrow-mut (#get vector pointer))
+      (#borrow-mut (#get vector capacity))
+      requested)))
+(#fn {name}-push
+  ((vector (#ref-mut {name})) (element {element}))
+  {name}-PushResult
+  (#let length usize (#get vector length))
+  (#let requested usize (#usize.+.saturate length 1usize))
+  (#return
+    (#if (#usize.== requested length)
+      ({name}-PushResult-err-value ({name}-PushCapacityOverflow element))
+      (#match
+        ({name}-reserve-fields
+          (#clone (#get vector allocator))
+          (#borrow-mut (#get vector pointer))
+          (#borrow-mut (#get vector capacity))
+          requested)
+        (({name}-ReserveResult-ok-value _)
+          (#block
+            (#let pointer (#ptr-mut {element})
+              (#clone (#get vector pointer)))
+            (#let destination (#ptr-mut {element})
+              (#unsafe (#ptr-offset pointer length)))
+            (#unsafe (#ptr-write destination element))
+            (#forget element)
+            (#deref-set
+              (#borrow-mut (#get vector length))
+              (#usize.+.wrap length 1usize))
+            ({name}-PushResult-ok-value ())))
+        (({name}-ReserveResult-err-value error)
+          ({name}-PushResult-err-value
+            ({name}-PushReserveError error element)))))))
+(#fn {name}-get
+  ((vector (#ref {name})) (index usize))
+  {name}-GetResult
+  (#let length usize (#get vector length))
+  (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
+  (#return
+    (#if (#usize.< index length)
+      ({name}-GetResult-some
+        (#unsafe (#ptr-borrow vector (#ptr-offset pointer index))))
+      (#block (#forget pointer) {name}-GetResult-none))))
+(#fn {name}-get-mut
+  ((vector (#ref-mut {name})) (index usize))
+  {name}-GetMutResult
+  (#let length usize (#get vector length))
+  (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
+  (#return
+    (#if (#usize.< index length)
+      ({name}-GetMutResult-some
+        (#unsafe (#ptr-borrow-mut vector (#ptr-offset pointer index))))
+      (#block (#forget pointer) {name}-GetMutResult-none))))
+(#fn {name}-set
+  ((vector (#ref-mut {name})) (index usize) (value {element}))
+  {name}-SetResult
+  (#let length usize (#get vector length))
+  (#return
+    (#if (#usize.< index length)
+      (#block
+        (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
+        (#let destination (#ptr-mut {element})
+          (#unsafe (#ptr-offset pointer index)))
+        (#let previous {element} (#unsafe (#ptr-read destination)))
+        ({destroy} previous)
+        (#unsafe (#ptr-write destination value))
+        (#forget destination)
+        (#forget value)
+        ({name}-SetResult-ok-value ()))
+      ({name}-SetResult-err-value ({name}-SetOutOfBounds value)))))
+(#fn {name}-pop
+  ((vector (#ref-mut {name})))
+  {name}-PopResult
+  (#let length usize (#get vector length))
+  (#return
+    (#if (#usize.== length 0usize)
+      {name}-PopResult-none
+      (#block
+        (#let new-length usize (#usize.-.wrap length 1usize))
+        (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
+        (#let destination (#ptr-mut {element})
+          (#unsafe (#ptr-offset pointer new-length)))
+        (#let value {element} (#unsafe (#ptr-read destination)))
+        (#forget destination)
+        (#deref-set (#borrow-mut (#get vector length)) new-length)
+        ({name}-PopResult-some value)))))
+(#fn {name}-free ((vector {name})) ()
+  (#let allocator (#ref {allocator}) (#clone (#get vector allocator)))
+  (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
+  (#let length usize (#get vector length))
+  (#let capacity usize (#get vector capacity))
+  (#let element-size usize (#size-of {element}))
+  (#let-mut index usize 0usize)
+  (#while (#usize.< index length)
+    (#let element-pointer (#ptr-mut {element})
+      (#unsafe (#ptr-offset (#clone pointer) index)))
+    (#let element-value {element} (#unsafe (#ptr-read element-pointer)))
+    (#forget element-pointer)
+    ({destroy} element-value)
+    (#set index (#usize.+.wrap index 1usize)))
+  (#if
+    (#&& (#usize.!= element-size 0usize) (#usize.!= capacity 0usize))
+    (#block
+      ({dealloc} (#clone allocator) (#clone pointer)
+        (#usize.*.wrap capacity element-size) (#align-of {element}))
+      (#forget pointer)
+      ())
+    (#block (#forget pointer) ()))
+  (#forget vector)
+  (#return ()))
+"#
+    ))
+}
+
+fn parse_generated_source_items(source: &str) -> Result<Vec<Item>, String> {
+    let mut items = Vec::new();
+    for expression in parse(source)? {
+        let expression = normalize_keywords(expression.expr);
+        if let Expr::List(forms) = &expression {
+            if matches!(forms.first(), Some(Expr::At)) {
+                items.extend(parse_generated_items(forms)?);
+                continue;
+            }
+        }
+        items.push(parse_item(&expression).map_err(|error| {
+            format!(
+                "{error} while parsing generated declaration {}",
+                expression_source(&expression).unwrap_or_else(|_| "<?>".into())
+            )
+        })?);
+    }
+    Ok(items)
 }
 
 fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
@@ -5830,8 +5980,7 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
-        let assembly = generate_assembly(&program);
-        assert!(assembly.is_ok(), "{assembly:?}");
+        assert!(generate_assembly(&program).is_ok());
 
         let local_escape =
             parse_program("(#fn bad () (#ref u64) (#let value u64 42) (#return (#borrow value)))")
@@ -6434,7 +6583,8 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
-        assert!(generate_assembly(&program).is_ok());
+        let assembly = generate_assembly(&program);
+        assert!(assembly.is_ok(), "{assembly:?}");
     }
 
     #[test]
@@ -7062,7 +7212,7 @@ mod tests {
     #[test]
     fn expands_allocator_backed_vec_with_explicit_allocator_borrow() {
         let program = parse_program(
-            "(#struct Arena ((cursor u64))) (@vec u64 Arena VecU64) (#fn main () usize (#let-mut arena Arena (Arena 0)) (#let-mut value u64 0) (#let vector VecU64 (VecU64-new (#borrow arena) (#unsafe (#addr-of-mut value)) 4)) (#return (VecU64-capacity (#borrow vector))))",
+            "(#struct Arena ((cursor u64))) (@vec u64 Arena VecU64) (#fn main () usize (#let-mut arena Arena (Arena 0)) (#let-mut value u64 0) (#let vector VecU64 (VecU64-new-with-storage (#borrow arena) (#unsafe (#addr-of-mut value)) 4)) (#return (VecU64-capacity (#borrow vector))))",
         )
         .unwrap();
         assert!(program
@@ -7142,9 +7292,69 @@ mod tests {
         write_generated_sources("(@vec u64 Arena VecU64)", &directory).unwrap();
         let generated = std::fs::read_to_string(directory.join("vec-0.lim")).unwrap();
         assert!(generated.contains("(#struct VecU64"));
-        assert!(generated.contains("VecU64-new"));
+        assert!(generated.contains("VecU64-new-with-storage"));
         assert!(generated.contains("(#ref Arena)"));
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn expands_allocator_owned_vec_declarations() {
+        let program = parse_program(
+            r#"
+(#struct Arena ((cursor u64)))
+(#enum AllocError (OutOfMemory))
+(@result (#ptr-mut u64) AllocError AllocResult)
+(@vec u64 Arena VecU64)
+(@vec-alloc u64 Arena VecU64 AllocResult AllocError arena-alloc arena-grow arena-dealloc drop-u64)
+(#fn arena-alloc ((allocator (#ref Arena)) (layout usize) (alignment usize)) AllocResult
+  (#return (AllocResult-err OutOfMemory)))
+(#fn arena-grow
+  ((allocator (#ref Arena)) (pointer (#ptr-mut u64)) (old-layout usize)
+   (new-layout usize) (alignment usize))
+  AllocResult
+  (#forget pointer)
+  (#return (AllocResult-err OutOfMemory)))
+(#fn arena-dealloc
+  ((allocator (#ref Arena)) (pointer (#ptr-mut u64)) (layout usize)
+   (alignment usize))
+  ()
+  (#forget pointer)
+  (#return ()))
+(#fn drop-u64 ((value u64)) () (#return ()))
+(#fn main () usize
+  (#let-mut arena Arena (Arena 0u64))
+  (#let-mut vector VecU64 (VecU64-new (#borrow arena)))
+  (#let reserve-result VecU64-ReserveResult
+    (VecU64-reserve (#borrow-mut vector) 4usize))
+  (#forget reserve-result)
+  (#let push-result VecU64-PushResult
+    (VecU64-push (#borrow-mut vector) 42u64))
+  (#forget push-result)
+  (#let get-result VecU64-GetResult (VecU64-get (#borrow vector) 0usize))
+  (#forget get-result)
+  (#let get-mut-result VecU64-GetMutResult
+    (VecU64-get-mut (#borrow-mut vector) 0usize))
+  (#forget get-mut-result)
+  (#let set-result VecU64-SetResult
+    (VecU64-set (#borrow-mut vector) 0usize 7u64))
+  (#forget set-result)
+  (#let pop-result VecU64-PopResult (VecU64-pop (#borrow-mut vector)))
+  (#forget pop-result)
+  (VecU64-free vector)
+  (#return 0usize))
+"#,
+        )
+        .unwrap();
+        let checked = check_types(&program);
+        assert!(checked.is_ok(), "{checked:?}");
+        let assembly = generate_assembly(&program);
+        assert!(assembly.is_ok(), "{assembly:?}");
+    }
+
+    #[test]
+    fn parses_vec_allocator_example() {
+        let program = parse_program(include_str!("../examples/vec_allocator.lim"));
+        assert!(program.is_ok(), "{program:?}");
     }
 
     #[test]

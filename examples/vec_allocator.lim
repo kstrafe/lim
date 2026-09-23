@@ -1,12 +1,102 @@
-(#struct Arena ((cursor u64)))
-(@vec u64 Arena VecU64)
+(#static DestructionCount (#cell u64) (#cell 0u64))
 
-(#fn main () usize
-  (#let-mut arena Arena (Arena 0))
-  (#let-mut storage u64 0)
-  (#let vector VecU64
-    (VecU64-new
-      (#borrow arena)
-      (#unsafe (#addr-of-mut storage))
-      4))
-  (#return (VecU64-capacity (#borrow vector))))
+(#struct Tracked ((value u64)))
+(#struct SystemAllocator ((identity u64)))
+(#enum AllocError (OutOfMemory))
+(@result (#ptr-mut Tracked) AllocError AllocResult)
+(@vec Tracked SystemAllocator VecTracked)
+(@vec-alloc Tracked SystemAllocator VecTracked AllocResult AllocError
+  system-alloc system-grow system-dealloc drop-tracked)
+
+(#extern-fn malloc ((size usize)) (#ptr-mut Tracked))
+(#extern-fn realloc ((pointer (#ptr-mut Tracked)) (size usize)) (#ptr-mut Tracked))
+(#extern-fn free ((pointer (#ptr-mut Tracked))) ())
+
+(#fn system-alloc
+  ((allocator (#ref SystemAllocator)) (layout usize) (alignment usize))
+  AllocResult
+  (#let pointer (#ptr-mut Tracked) (#unsafe (malloc layout)))
+  (#return
+    (#if (#ptr-is-null pointer)
+      (#block (#forget pointer) (AllocResult-err OutOfMemory))
+      (AllocResult-ok pointer))))
+
+(#fn system-grow
+  ((allocator (#ref SystemAllocator)) (pointer (#ptr-mut Tracked))
+   (old-layout usize) (new-layout usize) (alignment usize))
+  AllocResult
+  (#let new-pointer (#ptr-mut Tracked) (#unsafe (realloc pointer new-layout)))
+  (#return
+    (#if (#ptr-is-null new-pointer)
+      (#block (#forget new-pointer) (AllocResult-err OutOfMemory))
+      (AllocResult-ok new-pointer))))
+
+(#fn system-dealloc
+  ((allocator (#ref SystemAllocator)) (pointer (#ptr-mut Tracked))
+   (layout usize) (alignment usize))
+  ()
+  (#unsafe (free pointer))
+  (#return ()))
+
+(#fn drop-tracked ((value Tracked)) ()
+  (#let count u64 (#cell-get (#unsafe DestructionCount)))
+  (#cell-set (#unsafe DestructionCount) (#u64.+.wrap count 1u64))
+  (#return ()))
+
+(#fn main () u64
+  (#let-mut allocator SystemAllocator (SystemAllocator 0u64))
+  (#let-mut vector VecTracked (VecTracked-new (#borrow allocator)))
+  (#let first VecTracked-PushResult
+    (VecTracked-push (#borrow-mut vector) (Tracked 11u64)))
+  (#assert
+    (#match first
+      ((VecTracked-PushResult-ok-value _) true)
+      ((VecTracked-PushResult-err-value
+        (VecTracked-PushError-PushReserveError error value))
+        (#block (#forget error) (drop-tracked value) false))
+      ((VecTracked-PushResult-err-value
+        (VecTracked-PushError-PushCapacityOverflow value))
+        (#block (drop-tracked value) false))))
+  (#let second VecTracked-PushResult
+    (VecTracked-push (#borrow-mut vector) (Tracked 22u64)))
+  (#assert
+    (#match second
+      ((VecTracked-PushResult-ok-value _) true)
+      ((VecTracked-PushResult-err-value
+        (VecTracked-PushError-PushReserveError error value))
+        (#block (#forget error) (drop-tracked value) false))
+      ((VecTracked-PushResult-err-value
+        (VecTracked-PushError-PushCapacityOverflow value))
+        (#block (drop-tracked value) false))))
+  (#let third VecTracked-PushResult
+    (VecTracked-push (#borrow-mut vector) (Tracked 33u64)))
+  (#assert
+    (#match third
+      ((VecTracked-PushResult-ok-value _) true)
+      ((VecTracked-PushResult-err-value
+        (VecTracked-PushError-PushReserveError error value))
+        (#block (#forget error) (drop-tracked value) false))
+      ((VecTracked-PushResult-err-value
+        (VecTracked-PushError-PushCapacityOverflow value))
+        (#block (drop-tracked value) false))))
+  (#let read VecTracked-GetResult (VecTracked-get (#borrow vector) 1usize))
+  (#let read-value u64
+    (#match read
+      ((VecTracked-GetResult-some reference) (#get reference value))
+      (VecTracked-GetResult-none 0u64)))
+  (#assert (#u64.== read-value 22u64))
+  (#let replacement VecTracked-SetResult
+    (VecTracked-set (#borrow-mut vector) 1usize (Tracked 44u64)))
+  (#assert
+    (#match replacement
+      ((VecTracked-SetResult-ok-value _) true)
+      ((VecTracked-SetResult-err-value
+        (VecTracked-SetError-SetOutOfBounds value))
+        (#block (drop-tracked value) false))))
+  (#let popped VecTracked-PopResult (VecTracked-pop (#borrow-mut vector)))
+  (#assert
+    (#match popped
+      ((VecTracked-PopResult-some value) (#block (drop-tracked value) true))
+      (VecTracked-PopResult-none false)))
+  (VecTracked-free vector)
+  (#return (#cell-get (#unsafe DestructionCount))))
