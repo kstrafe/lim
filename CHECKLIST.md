@@ -110,8 +110,8 @@ it as the project checklist; cross items off as they are completed.
   reports failures by source file, including generated examples.
 - [ ] Add package/project metadata; the stable module search path is now
   available through `CompileConfig::add_module_path` and `--module-path`.
-- [ ] Document the complete grammar and specify the semantics of every
-  builtin, especially ownership, `#unsafe`, thread, generator, and cfg forms.
+- [x] Document the core grammar and builtin semantics, including ownership,
+  `#unsafe`, thread, generator, cfg, and explicit arithmetic forms.
 - [x] Closures, function pointers, methods, traits, and user interfaces are
   documented as permanent non-goals; named free-standing functions and
   generators provide the explicit alternatives.

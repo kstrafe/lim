@@ -890,6 +890,33 @@ available for compatibility.
 from the lower-level parser carry source spans in `ParseError` when using the
 parser internals exposed by the AST path.
 
+## Grammar and builtin semantics
+
+The core grammar is:
+
+```text
+program       = { form } ;
+form          = atom | list | quote | quasiquote | unquote | splice ;
+list          = "(" { form } ")" ;
+quote         = "'" form ;
+quasiquote    = "`" form ;
+unquote       = "," form ;
+splice        = ",@" form ;
+atom          = symbol | integer | float | character | string | "@" ;
+symbol        = identifier ;
+identifier    = { letter | digit | "_" | "-" | "." | "?" | "!" | "+" | "*" | "/" | "<" | ">" | "=" | "&" | "|" | "^" } ;
+```
+
+Whitespace and semicolon-to-end-of-line comments may occur between tokens.
+Builtin declaration and statement forms are the `#`-prefixed forms described
+in the tables and sections above; arithmetic and comparison forms include
+their type and overflow mode in the identifier. `#let`, `#let-mut`, `#borrow`,
+`#borrow-mut`, `#return`, `#unsafe`, `#drop`, and `#clone` define ownership and
+borrow behavior; `#cfg-*` is compile-time only; `#gn-*` is generator-time only;
+and `@` declarations expand before ordinary parsing, type checking, and borrow
+checking. Unknown prefixed forms are rejected rather than treated as future
+keywords.
+
 ## Examples and verification
 
 The `examples/` directory contains programs covering arithmetic, all integer
