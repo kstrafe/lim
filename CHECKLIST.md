@@ -155,7 +155,7 @@ the checklist is committed alongside the implementation it tracks.
 
 ### Newly identified runtime and language gaps
 
-- [ ] Add end-to-end tests that compile and execute generated vector operations
+- [x] Add end-to-end tests that compile and execute generated vector operations
   with a real allocator, covering growth, allocation failure, element
   destruction, and allocator-borrow lifetime enforcement.
 - [ ] Make FFI linking configurable for external libraries and object files;

@@ -2,7 +2,10 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::{Command, ExitCode},
+    sync::atomic::{AtomicUsize, Ordering},
 };
+
+static NEXT_COMPILE_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
@@ -193,7 +196,9 @@ fn collect_lim_files(directory: &Path, paths: &mut Vec<PathBuf>) -> std::io::Res
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            collect_lim_files(&path, paths)?;
+            if !entry.file_name().to_string_lossy().starts_with('.') {
+                collect_lim_files(&path, paths)?;
+            }
         } else if path.extension().is_some_and(|extension| extension == "lim") {
             paths.push(path);
         }
@@ -368,8 +373,11 @@ fn compile(
         };
     }
 
-    let assembly_path = env::temp_dir().join(format!("lim-{}-output.s", std::process::id()));
-    let object_path = env::temp_dir().join(format!("lim-{}-output.o", std::process::id()));
+    let compile_id = NEXT_COMPILE_ID.fetch_add(1, Ordering::Relaxed);
+    let assembly_path =
+        env::temp_dir().join(format!("lim-{}-{compile_id}-output.s", std::process::id()));
+    let object_path =
+        env::temp_dir().join(format!("lim-{}-{compile_id}-output.o", std::process::id()));
     let native_start = "\n.section .text\n.globl _start\n.type _start, @function\n_start:\n    xor ebp, ebp\n    and rsp, -16\n    call main\n    mov edi, eax\n    mov eax, 60\n    syscall\n    ud2\n.size _start, .-_start\n";
     if let Err(error) = fs::write(&assembly_path, format!("{assembly}{native_start}")) {
         eprintln!("lim: {}: {error}", assembly_path.display());
@@ -450,6 +458,85 @@ mod tests {
         let output = directory.join("program");
         fs::write(&input, "(#fn main () u64 (#return 42))").unwrap();
 
+        let config = lim::CompileConfig::default();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &config,
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        let status = Command::new(&output).status().unwrap();
+        assert_eq!(status.code(), Some(42));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn allocator_backed_vector_grows_and_destroys_elements() {
+        let directory = env::temp_dir().join(format!("lim-vector-runtime-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("vec.lim");
+        let output = directory.join("vec");
+        fs::write(&input, include_str!("../examples/vec_allocator.lim")).unwrap();
+
+        let config = lim::CompileConfig::default();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &config,
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        let status = Command::new(&output).status().unwrap();
+        assert_eq!(status.code(), Some(4));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn allocator_backed_vector_reports_allocation_failure_without_losing_vector() {
+        let source = r#"
+(#struct Arena ((identity u64)))
+(#enum AllocError (OutOfMemory))
+(@result (#ptr-mut u64) AllocError AllocResult)
+(@vec u64 Arena VecU64)
+(@vec-alloc u64 Arena VecU64 AllocResult AllocError
+  fail-alloc fail-grow no-dealloc drop-u64)
+(#fn fail-alloc ((allocator (#ref Arena)) (layout usize) (alignment usize)) AllocResult
+  (#return (AllocResult-err OutOfMemory)))
+(#fn fail-grow ((allocator (#ref Arena)) (pointer (#ptr-mut u64))
+                (old-layout usize) (new-layout usize) (alignment usize)) AllocResult
+  (#forget pointer)
+  (#return (AllocResult-err OutOfMemory)))
+(#fn no-dealloc ((allocator (#ref Arena)) (pointer (#ptr-mut u64))
+                 (layout usize) (alignment usize)) ()
+  (#forget pointer)
+  (#return ()))
+(#fn drop-u64 ((allocator (#ref Arena)) (value u64)) () (#return ()))
+(#fn main () u64
+  (#let-mut arena Arena (Arena 0u64))
+  (#let-mut vector VecU64 (VecU64-new (#borrow arena)))
+  (#let result VecU64-PushResult (VecU64-push (#borrow-mut vector) 42u64))
+  (#let status u64
+    (#match result
+      ((VecU64-PushResult-ok-value _) 0u64)
+      ((VecU64-PushResult-err-value _) 42u64)))
+  (VecU64-free vector)
+  (#forget arena)
+  (#return status))
+"#;
+        let directory = env::temp_dir().join(format!("lim-vector-failure-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("vec-failure.lim");
+        let output = directory.join("vec-failure");
+        fs::write(&input, source).unwrap();
         let config = lim::CompileConfig::default();
         assert_eq!(
             compile(
