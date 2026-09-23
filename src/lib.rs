@@ -4833,7 +4833,7 @@ mod tests {
         .unwrap();
         assert!(check_types(&aggregate_deref)
             .unwrap_err()
-            .contains("use get to project aggregate fields"));
+            .contains("cannot return a reference to local variable 'point'"));
 
         let stored = parse_program(
             "(#struct Allocator ((cursor u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)) (length u64))) (#fn main () u64 (#let-mut allocator Allocator (Allocator 0)) (#let-mut vector VecWithAllocator (VecWithAllocator (#borrow allocator) 0)) (#set-field allocator cursor 1) (#return 0))",
@@ -6243,6 +6243,24 @@ mod tests {
         let type_result = check_types(&program);
         assert!(type_result.is_ok(), "{type_result:?}");
         assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn dereferences_and_writes_small_aggregate_references() {
+        let read = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 40 2)) (#let point-ref (#ref Point) (#borrow point)) (#let copy Point (#deref point-ref)) (#return (#u64.+.wrap (#get copy x) (#get copy y))))",
+        )
+        .unwrap();
+        assert!(check_types(&read).is_ok());
+        assert!(generate_assembly(&read).is_ok());
+
+        let write = parse_program(
+            "(#struct Point ((x u64) (y u64))) (#fn main () Point (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#deref-set point-ref (Point 40 2)) (#return (#deref point-ref)))",
+        )
+        .unwrap();
+        let write_types = check_types(&write);
+        assert!(write_types.is_ok(), "{write_types:?}");
+        assert!(generate_assembly(&write).is_ok());
     }
 
     #[test]

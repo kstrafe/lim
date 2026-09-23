@@ -64,8 +64,8 @@ it as the project checklist; cross items off as they are completed.
   concrete `@vec` representation and explicit `@vec-sort` design.
 - [x] Define allocation failure, deallocation, destruction, and current leak
   behavior in `docs/allocator.md`.
-- [ ] Add aggregate `#deref`/`#deref-set` support, or explicitly replace these
-  scalar-only forms with projection operations for all aggregate types.
+- [x] Add aggregate `#deref`/`#deref-set` support for aggregates that fit the
+  native value registers; larger aggregate ABI support remains a separate item.
 - [ ] Remove backend restrictions on large aggregate returns, arguments, and
   reference projections.
 - [ ] Specify and implement field-wise destruction for reference-containing

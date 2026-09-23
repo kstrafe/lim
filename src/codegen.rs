@@ -7983,7 +7983,7 @@ impl FunctionContext {
                     })
                     .ok_or_else(|| "deref requires a reference".to_owned())?;
                 self.expression(&items[1])?;
-                match target {
+                match &target {
                     Type::F32 => self.output.push_str(
                         "    and rax, -2\n    movss xmm0, DWORD PTR [rax]\n",
                     ),
@@ -7993,9 +7993,24 @@ impl FunctionContext {
                     Type::I128 | Type::U128 => self
                         .output
                         .push_str("    and rax, -2\n    mov rdx, QWORD PTR [rax+8]\n    mov rax, QWORD PTR [rax]\n"),
-                    _ => self
-                        .output
-                        .push_str("    and rax, -2\n    mov rax, QWORD PTR [rax]\n"),
+                    _ => {
+                        let words = storage_word_count(&target, &self.structs, &self.enums)?;
+                        if words > VALUE_REGISTERS.len() {
+                            return Err(
+                                "deref aggregate target exceeds native value registers".into(),
+                            );
+                        }
+                        self.output.push_str("    and rax, -2\n");
+                        self.output.push_str("    mov rcx, rax\n");
+                        for (index, register) in
+                            VALUE_REGISTERS.iter().take(words).enumerate()
+                        {
+                            self.output.push_str(&format!(
+                                "    mov {register}, QWORD PTR [rcx+{}]\n",
+                                index * 8
+                            ));
+                        }
+                    }
                 }
                 Ok(())
             }
@@ -8017,6 +8032,22 @@ impl FunctionContext {
                 self.output.push_str("    and rax, -2\n");
                 self.output.push_str("    push rax\n");
                 self.stack_depth += 1;
+                let words = storage_word_count(&target, &self.structs, &self.enums)?;
+                if words > VALUE_REGISTERS.len() {
+                    return Err("deref-set aggregate target exceeds native value registers".into());
+                }
+                if words > 1 {
+                    self.expression_as_expected(&items[2], &target)?;
+                    self.output.push_str("    pop rcx\n");
+                    self.stack_depth -= 1;
+                    for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
+                        self.output.push_str(&format!(
+                            "    mov QWORD PTR [rcx+{}], {register}\n",
+                            index * 8
+                        ));
+                    }
+                    return Ok(());
+                }
                 if is_float_type(&target) {
                     self.expression_as_float(&items[2], &target)?;
                 } else {

@@ -2526,12 +2526,7 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             match actual {
-                Type::Reference { target, .. } if is_scalar_reference_target(&target, enums) => {
-                    Ok(*target)
-                }
-                Type::Reference { .. } => Err(
-                    "deref currently supports scalar references; use get to project aggregate fields".into(),
-                ),
+                Type::Reference { target, .. } => Ok(*target),
                 _ => Err("deref requires a reference".into()),
             }
         }
@@ -2547,9 +2542,6 @@ fn list_expression(
             else {
                 return Err("deref-set requires a mutable reference".into());
             };
-            if !is_scalar_reference_target(&target, enums) {
-                return Err("deref-set currently supports scalar reference targets".into());
-            }
             let actual = expression(
                 &items[2],
                 variables,

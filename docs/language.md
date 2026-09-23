@@ -26,9 +26,10 @@ Lim currently provides:
 Slices, user-defined traits, methods, closures, and other source-level
 indirection mechanisms are not part of the current language. Built-in `Send`
 and `Sync` properties are structural. References and raw pointers may point to aggregate values; `#get` projects fields through a reference.
-Direct `#deref` and raw pointer operations are currently limited to scalar
-values. Large aggregate values may use hidden storage pointers at an ABI
-boundary, but those pointers cannot be written in Lim source.
+Direct `#deref` and `#deref-set` support scalar values and aggregates that fit
+the native value registers. Large aggregate values may use hidden storage
+pointers at an ABI boundary, but those pointers cannot be written in Lim
+source.
 
 ## Shared allocator state and cells
 
@@ -136,8 +137,9 @@ The two-expression form produces a reference:
 Multiple shared borrows may overlap, but a mutable borrow cannot overlap any
 other borrow, and a shared borrow cannot overlap a mutation. References to
 locals cannot escape their function; references returned from parameters and
-globals are supported. `#deref` reads through a scalar reference, and
-`#deref-set` writes through a mutable scalar reference. A field reference can
+globals are supported. `#deref` reads through a reference, and `#deref-set`
+writes through a mutable reference when the target fits the native value
+registers. A field reference can
 be derived from a named reference to a struct with `(#borrow (#get reference
 field))` or `#borrow-mut` for an exclusive field reference. The derived
 reference retains the original referent's borrow: it cannot escape when that
