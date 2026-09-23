@@ -10,6 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{Expr, Function, Item, Program, Statement};
 
+const PLACE_SEPARATOR: char = '\u{1f}';
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoanKind {
     Shared(usize),
@@ -54,7 +56,9 @@ impl Loans {
             .cloned()
         {
             return Err(format!(
-                "cannot borrow '{place}' because '{active}' is already borrowed"
+                "cannot borrow '{}' because '{}' is already borrowed",
+                display_place(place),
+                display_place(&active)
             ));
         }
         match (self.active.get(place).copied(), kind) {
@@ -68,13 +72,16 @@ impl Loans {
                 Ok(())
             }
             (Some(LoanKind::Shared(_)), LoanKind::Mutable) => Err(format!(
-                "cannot borrow '{place}' mutably because it is already borrowed"
+                "cannot borrow '{}' mutably because it is already borrowed",
+                display_place(place)
             )),
             (Some(LoanKind::Mutable), LoanKind::Shared(_)) => Err(format!(
-                "cannot borrow '{place}' because it is already borrowed mutably"
+                "cannot borrow '{}' because it is already borrowed mutably",
+                display_place(place)
             )),
             (Some(LoanKind::Mutable), LoanKind::Mutable) => Err(format!(
-                "cannot borrow '{place}' mutably because it is already borrowed mutably"
+                "cannot borrow '{}' mutably because it is already borrowed mutably",
+                display_place(place)
             )),
         }
     }
@@ -91,13 +98,17 @@ impl Loans {
 }
 
 fn places_conflict(left: &str, right: &str) -> bool {
-    left == right
-        || left
-            .strip_prefix(right)
-            .is_some_and(|suffix| suffix.starts_with('.'))
-        || right
-            .strip_prefix(left)
-            .is_some_and(|suffix| suffix.starts_with('.'))
+    let left = left.split(PLACE_SEPARATOR).collect::<Vec<_>>();
+    let right = right.split(PLACE_SEPARATOR).collect::<Vec<_>>();
+    let common = left.len().min(right.len());
+    left[..common]
+        .iter()
+        .zip(&right[..common])
+        .all(|(left, right)| left == right || *left == "*" || *right == "*")
+}
+
+fn display_place(place: &str) -> String {
+    place.split(PLACE_SEPARATOR).collect::<Vec<_>>().join(".")
 }
 
 impl Context {
@@ -111,7 +122,10 @@ impl Context {
                 "cannot mutate '{owner}' while it is mutably borrowed by a running thread"
             ));
         }
-        let place = field.map_or_else(|| owner.to_owned(), |field| format!("{owner}.{field}"));
+        let place = field.map_or_else(
+            || owner.to_owned(),
+            |field| format!("{owner}{PLACE_SEPARATOR}{field}"),
+        );
         for (loan, kind) in &self.loans.active {
             if !places_conflict(loan, &place) {
                 continue;
@@ -119,13 +133,21 @@ impl Context {
             if matches!(kind, LoanKind::Shared(_)) {
                 return Err(format!(
                     "cannot mutate '{}' while it is immutably borrowed",
-                    if loan == owner { owner } else { &place }
+                    if loan == owner {
+                        owner.to_owned()
+                    } else {
+                        display_place(&place)
+                    }
                 ));
             }
             if !self.scoped_mutable_owners.contains(owner) {
                 return Err(format!(
                     "cannot mutate '{}' while it is mutably borrowed",
-                    if loan == owner { owner } else { &place }
+                    if loan == owner {
+                        owner.to_owned()
+                    } else {
+                        display_place(&place)
+                    }
                 ));
             }
         }
@@ -143,7 +165,10 @@ impl Context {
                 "cannot access '{owner}' while it is mutably borrowed by a running thread"
             ));
         }
-        let place = field.map_or_else(|| owner.to_owned(), |field| format!("{owner}.{field}"));
+        let place = field.map_or_else(
+            || owner.to_owned(),
+            |field| format!("{owner}{PLACE_SEPARATOR}{field}"),
+        );
         for (loan, kind) in &self.loans.active {
             if places_conflict(loan, &place)
                 && *kind == LoanKind::Mutable
@@ -151,7 +176,8 @@ impl Context {
                 && !self.scoped_mutable_owners.contains(owner)
             {
                 return Err(format!(
-                    "cannot access '{place}' while it is mutably borrowed"
+                    "cannot access '{}' while it is mutably borrowed",
+                    display_place(&place)
                 ));
             }
         }
@@ -486,7 +512,11 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
         Statement::ArrayAssign { name, index, value } => {
             check_expression(index, context)?;
             check_expression(value, context)?;
-            context.write(name)?;
+            if let Some(index) = static_index_segment(index) {
+                context.write_place(name, Some(&index))?;
+            } else {
+                context.write(name)?;
+            }
         }
         Statement::While { condition, body } => {
             check_expression(condition, context)?;
@@ -616,8 +646,12 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                                     ));
                                 }
                             }
-                            if let Some(base) = borrowed_field_base(&items[1]) {
-                                check_expression(base, context)?;
+                            if let Some((base, path)) = projection_path(&items[1]) {
+                                if path.is_empty() {
+                                    check_expression(&items[1], context)?;
+                                } else {
+                                    check_expression(base, context)?;
+                                }
                             } else {
                                 check_expression(&items[1], context)?;
                             }
@@ -638,8 +672,14 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                         LoanKind::Mutable
                     };
                     let parent = borrowed_field_parent(&items[1]);
-                    if let Some(base) = borrowed_field_base(&items[1]) {
-                        check_expression(base, context)?;
+                    if let Some((base, path)) = projection_path(&items[1]) {
+                        if path.is_empty() {
+                            check_expression(&items[1], context)?;
+                        } else {
+                            check_expression(base, context)?;
+                        }
+                    } else {
+                        check_expression(&items[1], context)?;
                     }
                     let reborrow_mutable_parent = parent
                         .as_ref()
@@ -719,11 +759,11 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                         }
                     }
                 } else if operator == "get" && items.len() == 3 {
-                    let Some(Expr::Symbol(owner)) = items.get(1) else {
+                    let Some((base, mut path)) = projection_path(&items[1]) else {
                         check_expression(&items[1], context)?;
                         return Ok(());
                     };
-                    let field = match &items[2] {
+                    let segment = match &items[2] {
                         Expr::Symbol(field) => field.clone(),
                         Expr::Integer(index) => index.to_string(),
                         Expr::UnsignedInteger(index) => index.to_string(),
@@ -732,12 +772,36 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                             return Ok(());
                         }
                     };
-                    if context.reference_bindings.contains(owner) {
-                        for source in reference_origins(&items[1], context, true) {
-                            context.read_place(&source, Some(&field), true)?;
+                    path.push(segment);
+                    let through_mutable_reference = matches!(base, Expr::Symbol(name)
+                        if context.reference_bindings.contains(name));
+                    let place = path.join(&PLACE_SEPARATOR.to_string());
+                    if through_mutable_reference {
+                        for source in reference_origins(base, context, true) {
+                            context.read_place(&source, Some(&place), true)?;
                         }
+                    } else if let Expr::Symbol(owner) = base {
+                        context.read_place(owner, Some(&place), false)?;
                     } else {
-                        context.read_place(owner, Some(&field), false)?;
+                        check_expression(&items[1], context)?;
+                    }
+                } else if operator == "index" && items.len() == 3 {
+                    let Some((base, mut path)) = projection_path(&items[1]) else {
+                        check_expression(&items[1], context)?;
+                        return Ok(());
+                    };
+                    path.push(static_index_segment(&items[2]).unwrap_or_else(|| "*".into()));
+                    let through_mutable_reference = matches!(base, Expr::Symbol(name)
+                        if context.reference_bindings.contains(name));
+                    let place = path.join(&PLACE_SEPARATOR.to_string());
+                    if through_mutable_reference {
+                        for source in reference_origins(base, context, true) {
+                            context.read_place(&source, Some(&place), true)?;
+                        }
+                    } else if let Expr::Symbol(owner) = base {
+                        context.read_place(owner, Some(&place), false)?;
+                    } else {
+                        check_expression(&items[1], context)?;
                     }
                 } else {
                     let arguments = if operator == "get" && items.len() >= 3 {
@@ -872,11 +936,9 @@ fn release_dropped_value(expression: &Expr, context: &mut Context) {
         for (owner, loan) in loans {
             context.loans.end(&loan);
             if loan != owner
-                && !context
-                    .loans
-                    .active
-                    .keys()
-                    .any(|active| active != &owner && active.starts_with(&format!("{owner}.")))
+                && !context.loans.active.keys().any(|active| {
+                    active != &owner && active.starts_with(&format!("{owner}{PLACE_SEPARATOR}"))
+                })
             {
                 context.loans.active.insert(owner, LoanKind::Mutable);
             }
@@ -958,16 +1020,45 @@ fn contains_mutable_reference(
     }
 }
 
-fn borrowed_field_base(place: &Expr) -> Option<&Expr> {
-    let Expr::List(items) = place else {
-        return None;
-    };
-    if !matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get")
-        || items.len() != 3
-    {
-        return None;
+fn static_index_segment(expression: &Expr) -> Option<String> {
+    match expression {
+        Expr::Integer(index) if *index >= 0 => Some(index.to_string()),
+        Expr::UnsignedInteger(index) => Some(index.to_string()),
+        _ => None,
     }
-    matches!(items.get(1), Some(Expr::Symbol(_))).then(|| &items[1])
+}
+
+fn projection_path(expression: &Expr) -> Option<(&Expr, Vec<String>)> {
+    match expression {
+        Expr::Symbol(_) => Some((expression, Vec::new())),
+        Expr::List(items)
+            if items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "borrow" | "borrow-mut")) =>
+        {
+            projection_path(&items[1])
+        }
+        Expr::List(items)
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index") =>
+        {
+            let (base, mut path) = projection_path(&items[1])?;
+            let is_index =
+                matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "index");
+            let segment = if is_index {
+                static_index_segment(&items[2]).unwrap_or_else(|| "*".into())
+            } else {
+                match &items[2] {
+                    Expr::Symbol(name) => name.clone(),
+                    Expr::Integer(index) => index.to_string(),
+                    Expr::UnsignedInteger(index) => index.to_string(),
+                    _ => return None,
+                }
+            };
+            path.push(segment);
+            Some((base, path))
+        }
+        _ => None,
+    }
 }
 
 fn borrowed_field_parent(expression: &Expr) -> Option<String> {
@@ -979,7 +1070,10 @@ fn borrowed_field_parent(expression: &Expr) -> Option<String> {
     {
         return None;
     }
-    let base = borrowed_field_base(&items[1])?;
+    let (base, path) = projection_path(&items[1])?;
+    if path.is_empty() {
+        return None;
+    }
     let Expr::Symbol(name) = base else {
         return None;
     };
@@ -993,45 +1087,47 @@ fn borrow_place_origins(place: &Expr, context: &Context) -> HashSet<String> {
             return borrow_place_origins(&items[1], context);
         }
     }
-    match place {
-        Expr::Symbol(owner) => HashSet::from([owner.clone()]),
-        Expr::List(items) if borrowed_field_base(place).is_some() => {
-            reference_origins(&items[1], context, true)
+    let Some((base, _)) = projection_path(place) else {
+        return HashSet::new();
+    };
+    if let Expr::Symbol(owner) = base {
+        if context.reference_origins.contains_key(owner) {
+            reference_origins(base, context, true)
+        } else {
+            HashSet::from([owner.clone()])
         }
-        _ => HashSet::new(),
+    } else {
+        HashSet::new()
     }
 }
 
 fn borrow_place_loans(place: &Expr, context: &Context) -> Vec<(String, String)> {
-    if let Expr::List(items) = place {
-        if items.len() == 2
-            && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "borrow" | "borrow-mut"))
-        {
-            return borrow_place_loans(&items[1], context);
+    let Some((base, path)) = projection_path(place) else {
+        return Vec::new();
+    };
+    let owners = if let Expr::Symbol(owner) = base {
+        if context.reference_origins.contains_key(owner) {
+            reference_origins(base, context, true)
+        } else {
+            HashSet::from([owner.clone()])
         }
-    }
-    if let Some(base) = borrowed_field_base(place) {
-        let Expr::List(items) = place else {
-            return Vec::new();
-        };
-        let field = match items.get(2) {
-            Some(Expr::Symbol(field)) => field.clone(),
-            Some(Expr::Integer(index)) => index.to_string(),
-            Some(Expr::UnsignedInteger(index)) => index.to_string(),
-            _ => return Vec::new(),
-        };
-        return reference_origins(base, context, true)
-            .into_iter()
-            .map(|owner| {
-                let loan = format!("{owner}.{field}");
-                (owner, loan)
-            })
-            .collect();
-    }
-    match place {
-        Expr::Symbol(owner) => vec![(owner.clone(), owner.clone())],
-        _ => Vec::new(),
-    }
+    } else {
+        HashSet::new()
+    };
+    owners
+        .into_iter()
+        .map(|owner| {
+            let loan = if path.is_empty() {
+                owner.clone()
+            } else {
+                format!(
+                    "{owner}{PLACE_SEPARATOR}{}",
+                    path.join(&PLACE_SEPARATOR.to_string())
+                )
+            };
+            (owner, loan)
+        })
+        .collect()
 }
 
 fn reference_origins(

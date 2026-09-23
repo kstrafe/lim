@@ -2428,16 +2428,14 @@ fn list_expression(
                         (owner_type.clone(), mutable.contains(name))
                     }
                     Expr::List(place)
-                        if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get")
-                            && place.len() == 3 =>
+                        if place.len() == 3
+                            && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index") =>
                     {
-                        if !matches!(place.get(1), Some(Expr::Symbol(_))) {
-                            return Err(format!(
-                                "{operator} field borrowing requires a named reference"
-                            ));
-                        }
+                        let root = projection_root(&place[1]).ok_or_else(|| {
+                            format!("{operator} projection borrowing requires a reference")
+                        })?;
                         let base_type = expression(
-                            &place[1], variables, functions, structs, enums, mutable, aliases, None,
+                            root, variables, functions, structs, enums, mutable, aliases, None,
                         )?;
                         let Type::Reference {
                             mutable: reference_mutable,
@@ -2445,14 +2443,10 @@ fn list_expression(
                         } = base_type
                         else {
                             return Err(format!(
-                                "{operator} field borrowing requires a reference to a struct"
+                                "{operator} projection borrowing requires a reference"
                             ));
                         };
-                        if !matches!(*target, Type::Named(ref name) if structs.contains_key(name)) {
-                            return Err(format!(
-                                "{operator} field borrowing requires a reference to a struct"
-                            ));
-                        }
+                        let _ = target;
                         let field_type = expression(
                             &items[1], variables, functions, structs, enums, mutable, aliases, None,
                         )?;
@@ -2757,10 +2751,14 @@ fn list_expression(
             if items.len() != 3 {
                 return Err("index requires the form (index array index)".into());
             }
-            let Type::Array(element, length) = expression(
+            let array_type = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
-            )?
-            else {
+            )?;
+            let array_type = match array_type {
+                Type::Reference { target, .. } => *target,
+                other => other,
+            };
+            let Type::Array(element, length) = array_type else {
                 return Err("index requires an array".into());
             };
             check_index(
@@ -3157,6 +3155,19 @@ fn list_expression(
             }
             Ok(return_type)
         }
+    }
+}
+
+fn projection_root(expression: &Expr) -> Option<&Expr> {
+    match expression {
+        Expr::Symbol(_) => Some(expression),
+        Expr::List(items)
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index") =>
+        {
+            projection_root(&items[1])
+        }
+        _ => None,
     }
 }
 

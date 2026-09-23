@@ -4995,6 +4995,52 @@ mod tests {
             check_types(&dropped_field_reference)
         );
 
+        let tuple_field_borrow = parse_program(
+            "(#fn main () u64 (#let-mut pair (#tuple u64 u64) (#tuple 1 2)) (#let pair-ref (#ref-mut (#tuple u64 u64)) (#borrow-mut pair)) (#let first-ref (#ref-mut u64) (#borrow-mut (#get pair-ref 0))) (#return (#get pair-ref 1)))",
+        )
+        .unwrap();
+        assert!(check_types(&tuple_field_borrow).is_ok());
+
+        let overlapping_tuple_field = parse_program(
+            "(#fn main () u64 (#let-mut pair (#tuple u64 u64) (#tuple 1 2)) (#let pair-ref (#ref-mut (#tuple u64 u64)) (#borrow-mut pair)) (#let first-ref (#ref-mut u64) (#borrow-mut (#get pair-ref 0))) (#return (#get pair-ref 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&overlapping_tuple_field)
+            .unwrap_err()
+            .contains("cannot access 'pair.0' while it is mutably borrowed"));
+
+        let nested_tuple_field = parse_program(
+            "(#fn main () u64 (#let-mut pair (#tuple (#tuple u64 u64) u64) (#tuple (#tuple 1 2) 3)) (#let pair-ref (#ref-mut (#tuple (#tuple u64 u64) u64)) (#borrow-mut pair)) (#let first-ref (#ref-mut u64) (#borrow-mut (#get (#get pair-ref 0) 1))) (#return (#get pair-ref 1)))",
+        )
+        .unwrap();
+        assert!(check_types(&nested_tuple_field).is_ok());
+
+        let array_element_borrow = parse_program(
+            "(#fn main () u64 (#let-mut values (#array u64 2) (#array 1 2)) (#let values-ref (#ref-mut (#array u64 2)) (#borrow-mut values)) (#let first-ref (#ref-mut u64) (#borrow-mut (#index values-ref 0))) (#return (#index values-ref 1)))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&array_element_borrow).is_ok(),
+            "{:?}",
+            check_types(&array_element_borrow)
+        );
+
+        let overlapping_array_element = parse_program(
+            "(#fn main () u64 (#let-mut values (#array u64 2) (#array 1 2)) (#let values-ref (#ref-mut (#array u64 2)) (#borrow-mut values)) (#let first-ref (#ref-mut u64) (#borrow-mut (#index values-ref 0))) (#return (#index values-ref 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&overlapping_array_element)
+            .unwrap_err()
+            .contains("cannot access 'values.0' while it is mutably borrowed"));
+
+        let dynamic_array_element = parse_program(
+            "(#fn main ((idx u64)) u64 (#let-mut values (#array u64 2) (#array 1 2)) (#let values-ref (#ref-mut (#array u64 2)) (#borrow-mut values)) (#let element-ref (#ref-mut u64) (#borrow-mut (#index values-ref idx))) (#return (#index values-ref 0)))",
+        )
+        .unwrap();
+        assert!(check_types(&dynamic_array_element)
+            .unwrap_err()
+            .contains("cannot access 'values.0' while it is mutably borrowed"));
+
         let original_owner_suspended = parse_program(
             "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (Point 1 2)) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#return (#get point y)))",
         )
