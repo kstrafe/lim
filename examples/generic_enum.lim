@@ -1,9 +1,8 @@
 (
   #enum
-  Maybe
-  (T)
+  MaybeU64
   (
-    (Some T)
+    (SomeU64 u64)
     None
   )
 )
@@ -16,8 +15,8 @@
   (
     #let
     value
-    Maybe<u64>
-    (Some 42)
+    MaybeU64
+    (SomeU64 42)
   )
   (
     #return
@@ -25,7 +24,7 @@
       #match
       value
       (
-        (Some payload)
+        (SomeU64 payload)
         payload
       )
       (None 0)

@@ -1,9 +1,8 @@
 (
   #struct
-  Box
-  (T)
+  BoxU64
   (
-    (value T)
+    (value u64)
   )
 )
 
@@ -15,8 +14,8 @@
   (
     #let
     boxed
-    Box<u64>
-    (Box<u64> 42)
+    BoxU64
+    (BoxU64 42)
   )
   (
     #return

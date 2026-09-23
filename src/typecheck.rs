@@ -2146,6 +2146,12 @@ fn list_expression(
         return Err("expression list must start with a symbol".into());
     };
     let raw_operator = operator.as_str();
+    if raw_operator.contains('<') && raw_operator.contains('>') && !raw_operator.starts_with('#') {
+        return Err(
+            "angle-bracket generic calls are not supported; use a concrete generated function"
+                .into(),
+        );
+    }
     let (qualifier, operator, mode) = typed_operator_parts(raw_operator);
     let operator_type = qualifier.map(Type::from_name);
     match operator {

@@ -3501,7 +3501,10 @@ fn parse_type_parameters(items: &[Expr], index: usize) -> Result<(Vec<String>, u
         }
         result.push(parameter);
     }
-    Ok((result, index + 1))
+    Err(
+        "generic declarations are not supported; use a concrete generated declaration instead"
+            .into(),
+    )
 }
 
 fn parse_struct_fields_at(
@@ -3616,15 +3619,10 @@ fn parse_function(items: &[Expr], external: bool) -> Result<Function, String> {
                     .iter()
                     .all(|item| matches!(item, Expr::Symbol(_)))
             {
-                let mut names = Vec::with_capacity(generic_items.len());
-                for item in generic_items {
-                    let name = expect_symbol(Some(item), "generic type parameter")?.to_owned();
-                    if names.iter().any(|existing| existing == &name) {
-                        return Err(format!("duplicate generic type parameter '{name}'"));
-                    }
-                    names.push(name);
-                }
-                (names, 3, 4, 5)
+                return Err(
+                    "generic functions are not supported; use a concrete generated function instead"
+                        .into(),
+                );
             } else {
                 (Vec::new(), 2, 3, 4)
             }
@@ -4337,7 +4335,13 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
             });
         }
     }
-    Ok(Type::from_name(expect_symbol(expression, "type")?))
+    let name = expect_symbol(expression, "type")?;
+    if name.contains('<') || name.contains('>') {
+        return Err(
+            "angle-bracket generic types are not supported; use a concrete generated type".into(),
+        );
+    }
+    Ok(Type::from_name(name))
 }
 
 fn expect_list<'a>(expression: &'a Expr, context: &str) -> Result<&'a [Expr], String> {
@@ -5029,7 +5033,7 @@ mod tests {
 
         let generic_override =
             parse_program("(#struct Box (T) ((value T))) (#unsafe-impl #sync Box)").unwrap_err();
-        assert!(generic_override.contains("for generic type 'Box' is not supported"));
+        assert!(generic_override.contains("generic declarations are not supported"));
 
         let alias_override =
             parse_program("(#type Resource (#ptr u8)) (#unsafe-impl #send Resource)").unwrap_err();
@@ -5604,31 +5608,19 @@ mod tests {
         assert!(check_types(&mutable_const)
             .unwrap_err()
             .contains("immutable variable 'Answer'"));
-        let generic = parse_program("(#fn identity (T) ((value T)) T (#return value))").unwrap();
-        let Item::Function(identity) = &generic.items[0] else {
-            panic!()
-        };
-        assert_eq!(identity.type_parameters, vec!["T"]);
-        assert_eq!(identity.parameters[0].ty, Type::Generic("T".into()));
-        assert_eq!(identity.return_type, Type::Generic("T".into()));
-        let instantiated = parse_program(
-            "(#fn identity (T) ((value T)) T (#return value)) (#fn main () u64 (#return (identity<u64> 42)))",
-        )
-        .unwrap();
-        assert!(check_types(&instantiated).is_ok());
-        let assembly = generate_assembly(&instantiated).unwrap();
-        assert!(assembly.contains("identity_x24_u64"));
-        let generic_local = parse_program(
-            "(#fn copy (T) ((value T)) T (#let result T value) (#return result)) (#fn main () u64 (#return (copy<u64> 42)))",
-        )
-        .unwrap();
-        assert!(generate_assembly(&generic_local).is_ok());
-        let missing_arguments =
-            parse_program("(#fn identity (T) ((value T)) T (#return value)) (#fn main () u64 (#return (identity 42)))")
-                .unwrap();
-        assert!(check_types(&missing_arguments)
+        let generic =
+            parse_program("(#fn identity (T) ((value T)) T (#return value))").unwrap_err();
+        assert!(generic.contains("generic functions are not supported"));
+        let instantiated = parse_program("(#fn main () u64 (#return (identity<u64> 42)))").unwrap();
+        assert!(check_types(&instantiated)
             .unwrap_err()
-            .contains("expects 1 type arguments"));
+            .contains("angle-bracket generic calls are not supported"));
+        let concrete = parse_program(
+            "(#fn identity-u64 ((value u64)) u64 (#return value)) (#fn main () u64 (#return (identity-u64 42)))",
+        )
+        .unwrap();
+        assert!(check_types(&concrete).is_ok());
+        assert!(generate_assembly(&concrete).is_ok());
     }
 
     #[test]
@@ -7094,21 +7086,20 @@ mod tests {
         assert!(generate_assembly(&unsupported_parameter)
             .unwrap()
             .contains("call identity"));
-        let generic = parse_program(
-            "(#struct Box (T) ((value T))) (#fn main () u64 (#let boxed Box<u64> (Box<u64> 42)) (#return (#get boxed value)))",
+        let concrete = parse_program(
+            "(#struct BoxU64 ((value u64))) (#fn main () u64 (#let boxed BoxU64 (BoxU64 42)) (#return (#get boxed value)))",
         )
         .unwrap();
-        assert!(check_types(&generic).is_ok());
-        assert!(generic.items.iter().any(|item| {
-            matches!(item, Item::Struct { name, fields, .. } if name == "Box$u64" && fields[0].ty == Type::U64)
-        }));
-        assert!(generate_assembly(&generic).unwrap().contains("mov rax, 42"));
-        let generic_enum = parse_program(
-            "(#enum Maybe (T) ((Some T) None)) (#fn main () u64 (#let value Maybe<u64> (Some 42)) (#return (#match value ((Some payload) payload) (None 0))))",
+        assert!(check_types(&concrete).is_ok());
+        assert!(generate_assembly(&concrete)
+            .unwrap()
+            .contains("mov rax, 42"));
+        let concrete_enum = parse_program(
+            "(#enum MaybeU64 ((SomeU64 u64) None)) (#fn main () u64 (#let value MaybeU64 (SomeU64 42)) (#return (#match value ((SomeU64 payload) payload) (None 0))))",
         )
         .unwrap();
-        assert!(check_types(&generic_enum).is_ok());
-        assert!(generate_assembly(&generic_enum).is_ok());
+        assert!(check_types(&concrete_enum).is_ok());
+        assert!(generate_assembly(&concrete_enum).is_ok());
         let free_function = parse_program(
             "(#struct Point ((x u64) (y u64))) (#fn point-new ((x u64) (y u64)) Point (#return (Point x y))) (#fn main () u64 (#return (#get (point-new 7 9) y)))",
         )
@@ -8053,12 +8044,12 @@ mod tests {
         .unwrap();
         assert!(check_types(&enum_payload).is_ok());
         assert!(generate_assembly(&enum_payload).is_ok());
-        let generic = parse_program(
-            "(#type Pair (T) (#tuple T T)) (#fn main () u64 (#let pair Pair<u64> (#tuple 20 22)) (#return (#u64.+.wrap  (#get pair 0) (#get pair 1))))",
+        let concrete = parse_program(
+            "(#type PairU64 (#tuple u64 u64)) (#fn main () u64 (#let pair PairU64 (#tuple 20 22)) (#return (#u64.+.wrap  (#get pair 0) (#get pair 1))))",
         )
         .unwrap();
-        assert!(check_types(&generic).is_ok());
-        assert!(generate_assembly(&generic).is_ok());
+        assert!(check_types(&concrete).is_ok());
+        assert!(generate_assembly(&concrete).is_ok());
     }
 
     #[test]

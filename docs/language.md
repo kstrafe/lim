@@ -13,9 +13,9 @@ forms are rejected.
 Lim currently provides:
 
 - strong static types and explicit types on bindings and parameters;
-- no type inference and explicit generic type arguments;
+- no type inference and explicit types on all bindings and calls;
 - value structs, enums, tuples, and fixed-size arrays;
-- free-standing functions, including monomorphized generic functions;
+- free-standing functions; concrete specialization is generator-driven;
 - explicit integer width and overflow behavior;
 - native x86-64 code generation using the System V ABI;
 - compile-time constants and read-only statics;
@@ -403,9 +403,9 @@ Fixed aggregates are written explicitly:
 (#array u32 4)
 ```
 
-User-defined names refer to structs, enums, and aliases.  Generic type
-arguments are written with angle brackets and must be supplied explicitly:
-`Box<u64>` and `identity<u64>`.
+User-defined names refer to concrete structs, enums, and aliases.  Generic
+declarations and angle-bracket applications are not part of Lim.  Generators
+create concrete specializations explicitly, such as `(@vec u64 Alloc VecU64)`.
 
 `()` is the unit value and `!` is the never type.  A function returning `!`
 must not reach a normal return.  A void function returns explicitly with
@@ -433,16 +433,8 @@ marked mutable:
   (#return value))
 ```
 
-Generic functions declare their type parameters in a list immediately after
-the function name.  Calls provide the arguments explicitly:
-
-```lisp
-(#fn identity (T) ((value T)) T
-  (#return value))
-
-(#fn main () u64
-  (#return (#as (identity<u32> 41u32) u64)))
-```
+Generic function declarations and angle-bracket calls are rejected.  Use a
+generator to emit a concrete function for each required type combination.
 
 There are no implicit returns.  Every reachable function path must use
 `#return`; a unit return must use `(#return ())`.
@@ -464,7 +456,7 @@ use directly passed scalar types:
 (#type Matrix (array f32 4))
 ```
 
-Aliases may be generic.  Recursive aliases are rejected.
+Aliases are concrete.  Recursive aliases are rejected.
 
 ### Structs
 
@@ -478,12 +470,8 @@ Structs are value types with named fields:
   (#return (#get point y)))
 ```
 
-Structs may be generic:
-
-```lisp
-(#struct Box (T) ((value T)))
-(#let boxed Box<u64> (Box<u64> 42u64))
-```
+Use a generator to emit concrete struct declarations when a family of
+structs is needed.
 
 ### Enums
 
@@ -838,7 +826,7 @@ The library exposes these stages:
 2. `parse` builds untyped S-expressions and preserves `@` as `Expr::At`.
 3. `parse_program` or `parse_program` lowers declarations and builtin
    forms into the typed program representation, including generated forms and
-   generic specialization.
+   concrete generator expansions.
 4. `check_types` validates declarations, expressions, layouts, patterns,
    calls, constants, mutability, and the acyclic call graph.
 5. `generate_assembly` emits native x86-64 assembly.

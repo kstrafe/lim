@@ -73,9 +73,8 @@ it as the project checklist; cross items off as they are completed.
 
 ### Generators and monomorphization
 
-- [ ] Decide whether the currently implemented angle-bracket generic syntax is
-  retained. If generators are the sole specialization mechanism, remove or
-  deprecate generic declarations and migrate the examples.
+- [x] Reject angle-bracket generic declarations and applications. Concrete
+  specialization is generator-driven, and generic examples use concrete names.
 - [x] Add generator dependency tracking for imported files and compiler
   configuration values, not only generator definitions and nested generators.
 - [x] Make generated-file cache entries durable across compiler-version and

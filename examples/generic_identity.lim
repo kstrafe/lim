@@ -1,11 +1,8 @@
 (
   #fn
-  identity
-  (T)
-  (
-    (value T)
-  )
-  T
+  identity-u64
+  ((value u64))
+  u64
   (#return value)
 )
 
@@ -16,6 +13,6 @@
   u64
   (
     #return
-    (identity<u64> 42)
+    (identity-u64 42)
   )
 )
