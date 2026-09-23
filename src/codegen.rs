@@ -1491,7 +1491,7 @@ fn generate_thread_task(
         }
     }
     output.push_str(&format!(
-        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdi, rax\n    xor esi, esi\n    lea rdx, [rip+{entry_symbol}]\n    mov rcx, rax\n    call pthread_create\n    test eax, eax\n    jne .Llim_thread_create_fail_{task_symbol}\n    mov rax, QWORD PTR [rbp-{}]\n    leave\n    ret\n.Llim_thread_alloc_fail_{task_symbol}:\n    call abort\n    ud2\n.Llim_thread_create_fail_{task_symbol}:\n    mov rdi, QWORD PTR [rbp-{}]\n    call free\n    call abort\n    ud2\n.size {spawn_symbol}, .-{spawn_symbol}\n",
+        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdi, rax\n    xor esi, esi\n    lea rdx, [rip+{entry_symbol}]\n    mov rcx, rax\n    call pthread_create\n    test eax, eax\n    jne .Llim_thread_create_fail_{task_symbol}\n    mov rax, QWORD PTR [rbp-{}]\n    leave\n    ret\n.Llim_thread_alloc_fail_{task_symbol}:\n    xor eax, eax\n    leave\n    ret\n.Llim_thread_create_fail_{task_symbol}:\n    mov rdi, QWORD PTR [rbp-{}]\n    call free\n    xor eax, eax\n    leave\n    ret\n.size {spawn_symbol}, .-{spawn_symbol}\n",
         context_slot * 8,
         context_slot * 8,
         context_slot * 8
@@ -1657,7 +1657,7 @@ fn generate_thread_task(
         output.push_str("    mov QWORD PTR [rbp-16], r10\n");
     }
     output.push_str(&format!(
-        "    mov rdi, QWORD PTR [rdi]\n    xor esi, esi\n    call pthread_join\n    test eax, eax\n    jne .Llim_thread_join_fail_{task_symbol}\n"
+        "    test rdi, rdi\n    je .Llim_thread_join_fail_{task_symbol}\n    mov rdi, QWORD PTR [rdi]\n    xor esi, esi\n    call pthread_join\n    test eax, eax\n    jne .Llim_thread_join_fail_{task_symbol}\n"
     ));
     if worker_abi.indirect_return {
         for word in 0..result_words {
@@ -1717,8 +1717,20 @@ fn generate_thread_task(
             ));
         }
     }
+    output.push_str("    leave\n    ret\n");
+    output.push_str(&format!(".Llim_thread_join_fail_{task_symbol}:\n"));
+    if worker_abi.indirect_return {
+        output.push_str("    mov r10, QWORD PTR [rbp-16]\n");
+        for word in 0..result_words {
+            output.push_str(&format!("    mov QWORD PTR [r10+{}], 0\n", word * 8));
+        }
+    } else if is_float_type(result_type) && result_words > 0 {
+        output.push_str("    pxor xmm0, xmm0\n");
+    } else {
+        output.push_str("    xor eax, eax\n");
+    }
     output.push_str(&format!(
-        "    leave\n    ret\n.Llim_thread_join_fail_{task_symbol}:\n    call abort\n    ud2\n.size {join_symbol}, .-{join_symbol}\n"
+        "    leave\n    ret\n.size {join_symbol}, .-{join_symbol}\n"
     ));
 
     let _ = aliases;

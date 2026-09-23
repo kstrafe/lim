@@ -94,8 +94,9 @@ it as the project checklist; cross items off as they are completed.
 - [x] Define constrained FFI declarations: `#extern-fn` uses the target C ABI,
   accepts directly passed scalar signatures only, and requires `#unsafe` at
   every call site.
-- [ ] Add runtime support for thread creation/join failures instead of
-  unconditionally aborting the process.
+- [x] Add failure-safe thread creation/join behavior: generated spawn returns a
+  null task on allocation/creation failure, and join returns a zeroed result on
+  a null task or join failure instead of unconditionally aborting.
 - [x] Add compile-and-run coverage for the binary pipeline under the Nix
   development shell.
 

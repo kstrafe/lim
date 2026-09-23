@@ -102,7 +102,9 @@ worker's parameter and return types against `Send`. It generates
 point; user code never passes a function pointer. Spawn arguments are copied
 into a private task packet before the worker starts. Scalar and aggregate
 arguments/results use the compiler's native calling convention. Thread
-creation/join failures currently abort the process.
+creation failures return a null task handle, and joining a null task or a task
+with a failed join returns a zeroed result. Callers must define their own
+policy for detecting and handling that sentinel.
 
 Task handles are affine in this first version: bind the result of `-spawn` to a
 local and join it exactly once. They cannot be copied, returned, stored in
