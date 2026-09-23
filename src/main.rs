@@ -306,28 +306,68 @@ fn compile(
     }
 
     let assembly_path = env::temp_dir().join(format!("lim-{}-output.s", std::process::id()));
-    if let Err(error) = fs::write(&assembly_path, assembly) {
+    let object_path = env::temp_dir().join(format!("lim-{}-output.o", std::process::id()));
+    let native_start = "\n.section .text\n.globl _start\n.type _start, @function\n_start:\n    xor ebp, ebp\n    and rsp, -16\n    call main\n    mov edi, eax\n    mov eax, 60\n    syscall\n    ud2\n.size _start, .-_start\n";
+    if let Err(error) = fs::write(&assembly_path, format!("{assembly}{native_start}")) {
         eprintln!("lim: {}: {error}", assembly_path.display());
         return ExitCode::FAILURE;
     }
-    let result = Command::new("clang")
-        .arg("-Qunused-arguments")
+    let assemble = Command::new("as")
+        .arg("--64")
         .arg(&assembly_path)
         .arg("-o")
+        .arg(&object_path)
+        .status();
+    if !assemble.as_ref().is_ok_and(|status| status.success()) {
+        let _ = fs::remove_file(&assembly_path);
+        let _ = fs::remove_file(&object_path);
+        return match assemble {
+            Ok(status) => {
+                eprintln!("lim: assembler failed with status {status}");
+                ExitCode::FAILURE
+            }
+            Err(error) => {
+                eprintln!("lim: could not run assembler: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    let dynamic_linker = native_dynamic_linker();
+    let result = Command::new("ld")
+        .arg("-o")
         .arg(output_path)
+        .arg("-e")
+        .arg("_start")
+        .arg("--dynamic-linker")
+        .arg(dynamic_linker)
+        .arg(&object_path)
+        .arg("-lc")
+        .arg("-lpthread")
         .status();
     let _ = fs::remove_file(&assembly_path);
+    let _ = fs::remove_file(&object_path);
     match result {
         Ok(status) if status.success() => ExitCode::SUCCESS,
         Ok(status) => {
-            eprintln!("lim: clang failed with status {status}");
+            eprintln!("lim: linker failed with status {status}");
             ExitCode::FAILURE
         }
         Err(error) => {
-            eprintln!("lim: could not run clang: {error}");
+            eprintln!("lim: could not run linker: {error}");
             ExitCode::FAILURE
         }
     }
+}
+
+fn native_dynamic_linker() -> String {
+    Command::new("cc")
+        .arg("-print-file-name=ld-linux-x86-64.so.2")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .filter(|path| !path.is_empty() && Path::new(path).is_absolute())
+        .unwrap_or_else(|| "/lib64/ld-linux-x86-64.so.2".to_owned())
 }
 
 #[cfg(test)]

@@ -39,7 +39,8 @@ See `examples/imports.lim` for a complete example.
 
 Compile a Lim source file directly to a native binary. By default the binary
 uses the input file's name without its `.lim` extension; pass `-o` to choose
-another path. Run inside the Nix dev shell so `clang` is available:
+another path. Run inside the Nix dev shell so the native assembler and linker
+are available:
 
 ```sh
 nix develop --command cargo run -- examples/fibonacci.lim

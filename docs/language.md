@@ -2,7 +2,8 @@
 
 Lim is a compiled, statically typed Lisp.  Its syntax is made of
 S-expressions, but its type and evaluation rules are deliberately explicit.
-The compiler currently targets native x86-64 assembly for the host system.
+The compiler currently targets native x86-64 assembly for the host system and
+assembles/links binaries directly with the system `as` and `ld` tools.
 
 This document describes the language implemented by this crate.  The
 canonical spelling uses `#` before every builtin form. Unprefixed builtin

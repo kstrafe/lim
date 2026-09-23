@@ -89,8 +89,8 @@ it as the project checklist; cross items off as they are completed.
 
 - [x] Add an explicit target description for the native x86-64 System V ABI;
   unsupported target names are rejected rather than silently treated as host.
-- [ ] Implement the planned native assembler/backend path so Clang is no
-  longer required for normal compilation.
+- [x] Implement the native x86-64 assembler/linker path; normal compilation
+  invokes `as` and `ld` directly, without requiring Clang.
 - [ ] Define FFI declarations, calling conventions, layout guarantees, and
   safety boundaries for external libraries.
 - [ ] Add runtime support for thread creation/join failures instead of
