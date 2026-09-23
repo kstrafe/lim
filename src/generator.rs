@@ -43,16 +43,19 @@ type Environment = HashMap<String, Expr>;
 type ExpandedForms = (Vec<SpannedExpr>, Vec<Expr>);
 type ExpandedFormsWithHits = (ExpandedForms, usize);
 
-pub(crate) fn expand_with_generated_cached(
+pub(crate) fn expand_with_generated_cached_with_context(
     expressions: Vec<SpannedExpr>,
     cache_dir: Option<&Path>,
+    dependency_context: &str,
 ) -> Result<(Vec<SpannedExpr>, Vec<Expr>), String> {
-    expand_with_generated_cached_and_hits(expressions, cache_dir).map(|(result, _)| result)
+    expand_with_generated_cached_and_hits(expressions, cache_dir, dependency_context)
+        .map(|(result, _)| result)
 }
 
 fn expand_with_generated_cached_and_hits(
     expressions: Vec<SpannedExpr>,
     cache_dir: Option<&Path>,
+    dependency_context: &str,
 ) -> Result<ExpandedFormsWithHits, String> {
     let mut generators = HashMap::new();
     let mut functions = HashMap::new();
@@ -108,6 +111,7 @@ fn expand_with_generated_cached_and_hits(
         },
         cache_hits: 0,
         cache_dir,
+        dependency_context,
     };
     let mut output = Vec::new();
     let mut generated = Vec::new();
@@ -203,6 +207,7 @@ struct ExpansionContext<'a> {
     budget: Budget,
     cache_hits: usize,
     cache_dir: Option<&'a Path>,
+    dependency_context: &'a str,
 }
 
 fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Vec<Expr>, String> {
@@ -246,10 +251,11 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v4\ncompiler={}\ntarget={}-{}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
+        "lim-generator-cache-v5\ncompiler={}\ntarget={}-{}\ndependency-context={}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::ARCH,
         std::env::consts::OS,
+        context.dependency_context,
         context.generator_fingerprints[name].hash,
         context.generator_fingerprints[name].material,
         &items[2..],
@@ -886,6 +892,7 @@ mod tests {
                 },
                 cache_hits: 0,
                 cache_dir: None,
+                dependency_context: "",
             },
         )
         .unwrap_err();
@@ -900,12 +907,14 @@ mod tests {
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) =
-            expand_with_generated_cached_and_hits(parse_forms(source), Some(&directory)).unwrap();
+            expand_with_generated_cached_and_hits(parse_forms(source), Some(&directory), "")
+                .unwrap();
         assert_eq!(first_hits, 0);
         assert_eq!(first.len(), 1, "nested duplicate invocations deduplicate");
 
         let ((second, _), second_hits) =
-            expand_with_generated_cached_and_hits(parse_forms(source), Some(&directory)).unwrap();
+            expand_with_generated_cached_and_hits(parse_forms(source), Some(&directory), "")
+                .unwrap();
         assert!(
             second_hits >= 1,
             "an identical generator call should hit disk cache"
@@ -924,9 +933,12 @@ mod tests {
         );
 
         let unrelated_change = source.replace("(#gn-list name)", "(#gn-list name name)");
-        let ((unrelated, _), unrelated_hits) =
-            expand_with_generated_cached_and_hits(parse_forms(&unrelated_change), Some(&directory))
-                .unwrap();
+        let ((unrelated, _), unrelated_hits) = expand_with_generated_cached_and_hits(
+            parse_forms(&unrelated_change),
+            Some(&directory),
+            "",
+        )
+        .unwrap();
         assert!(
             unrelated_hits >= 2,
             "changing an unrelated helper should preserve both cache hits"
@@ -937,10 +949,46 @@ mod tests {
         let ((changed, _), changed_hits) = expand_with_generated_cached_and_hits(
             parse_forms(&changed_dependency),
             Some(&directory),
+            "",
         )
         .unwrap();
         assert_eq!(changed_hits, 1, "only the dependent invocation should miss");
         assert_ne!(changed, second);
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn generated_syntax_cache_includes_import_and_cfg_context() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-generator-context-{}", std::process::id()));
+        let source =
+            "(#generator make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (@make ContextType)";
+        let parse_forms = |source: &str| crate::parse(source).unwrap();
+
+        let ((first, _), first_hits) = expand_with_generated_cached_and_hits(
+            parse_forms(source),
+            Some(&directory),
+            "imports=module-a\ncfg=feature=one",
+        )
+        .unwrap();
+        assert_eq!(first_hits, 0);
+        let ((same, _), same_hits) = expand_with_generated_cached_and_hits(
+            parse_forms(source),
+            Some(&directory),
+            "imports=module-a\ncfg=feature=one",
+        )
+        .unwrap();
+        assert!(same_hits >= 1);
+        assert_eq!(same, first);
+
+        let ((changed, _), changed_hits) = expand_with_generated_cached_and_hits(
+            parse_forms(source),
+            Some(&directory),
+            "imports=module-b\ncfg=feature=one",
+        )
+        .unwrap();
+        assert_eq!(changed_hits, 0);
+        assert_eq!(changed, first);
         let _ = std::fs::remove_dir_all(directory);
     }
 }

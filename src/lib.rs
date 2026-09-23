@@ -821,8 +821,14 @@ fn parse_program_in_directory(
     cache_directory: Option<&Path>,
 ) -> Result<Program, String> {
     let loaded = load_imports(source, base, config)?;
+    let dependency_context = generator_dependency_context(&loaded, config);
     let expressions = expand_cfg_forms(
-        generator::expand_with_generated_cached(loaded, cache_directory)?.0,
+        generator::expand_with_generated_cached_with_context(
+            loaded,
+            cache_directory,
+            &dependency_context,
+        )?
+        .0,
         config,
     )?;
     let mut items = Vec::with_capacity(expressions.len());
@@ -2085,8 +2091,12 @@ fn write_generated_sources_in_directory(
     cache_directory: Option<&Path>,
 ) -> Result<(), String> {
     let expressions = load_imports(source, base, config)?;
-    let (expanded, user_generated) =
-        generator::expand_with_generated_cached(expressions.clone(), cache_directory)?;
+    let dependency_context = generator_dependency_context(&expressions, config);
+    let (expanded, user_generated) = generator::expand_with_generated_cached_with_context(
+        expressions.clone(),
+        cache_directory,
+        &dependency_context,
+    )?;
     let expanded = expand_cfg_forms(expanded, config)?;
     let mut generated = Vec::new();
     for expression in expanded {
@@ -2167,6 +2177,16 @@ fn write_generated_sources_in_directory(
             .map_err(|error| format!("cannot write generated source: {error}"))?;
     }
     Ok(())
+}
+
+fn generator_dependency_context(expressions: &[SpannedExpr], config: &CompileConfig) -> String {
+    let mut values = config
+        .values
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>();
+    values.sort();
+    format!("cfg={values:?}\nloaded-forms={expressions:?}")
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> std::io::Result<()> {

@@ -221,8 +221,9 @@ individually and returns failure if any example fails.
 Generated `@` declarations are materialized under `.lim/` beside the input
 source in either mode. User-generator expansions are persistently cached under
 `.lim/cache/`; matching calls reuse their expanded syntax without rerunning the
-generator interpreter. Cache keys include the Lim compiler version and host
-target, so generated syntax is not reused across incompatible builds.
+generator interpreter. Cache keys include the Lim compiler version, target, the
+complete loaded import forms, and compiler cfg values, so generated syntax is
+not reused across incompatible project or configuration inputs.
 
 ## Compile-time configuration
 

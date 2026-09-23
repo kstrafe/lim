@@ -76,7 +76,7 @@ it as the project checklist; cross items off as they are completed.
 - [ ] Decide whether the currently implemented angle-bracket generic syntax is
   retained. If generators are the sole specialization mechanism, remove or
   deprecate generic declarations and migrate the examples.
-- [ ] Add generator dependency tracking for imported files and compiler
+- [x] Add generator dependency tracking for imported files and compiler
   configuration values, not only generator definitions and nested generators.
 - [x] Make generated-file cache entries durable across compiler-version and
   target changes by including both values in the cache key namespace.
