@@ -32,6 +32,11 @@ boundary, but those pointers cannot be written in Lim source.
 
 ## Shared allocator state and cells
 
+Dynamic allocation follows the concrete allocator ABI in
+[allocator.md](allocator.md). Allocator values are passed explicitly and
+generated collections retain an immutable allocator reference; interior
+mutability belongs to the allocator implementation.
+
 `(#cell T)` is a single-threaded interior-mutable storage cell for supported
 scalar values (`T` must be numeric, `bool`, `char`, a raw pointer, or a
 fieldless enum). `(#cell T value)` constructs one, `#cell-get` reads its

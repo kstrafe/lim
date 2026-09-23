@@ -58,7 +58,8 @@ it as the project checklist; cross items off as they are completed.
 
 ### Values, memory, and aggregates
 
-- [ ] Specify the dynamic allocation ABI and allocator ownership model.
+- [x] Specify the dynamic allocation ABI and allocator ownership model in
+  `docs/allocator.md`.
 - [ ] Implement allocator-backed generated collections, beginning with the
   concrete `@vec` and `@vec-sort` design.
 - [ ] Define allocation failure, deallocation, destruction, and leak behavior.
