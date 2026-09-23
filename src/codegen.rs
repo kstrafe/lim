@@ -8123,6 +8123,17 @@ impl FunctionContext {
                 }
                 self.expression(&items[1])
             }
+            "ptr-null" => {
+                let pointer_type = items
+                    .get(1)
+                    .and_then(|ty| crate::parse_type(Some(ty)).ok())
+                    .and_then(|ty| resolve_type(&ty, &self.aliases).ok());
+                if items.len() != 2 || !matches!(pointer_type, Some(Type::RawPointer { .. })) {
+                    return Err("ptr-null requires an explicit raw-pointer type".into());
+                }
+                self.output.push_str("    xor eax, eax\n");
+                Ok(())
+            }
             "addr-of" | "addr-of-mut" => self.borrow_expression(items),
             "ptr-read" => {
                 if items.len() != 2 {

@@ -183,7 +183,9 @@ address and reading or writing through a raw pointer must occur inside an
 ```
 
 The operations are `#addr-of`, `#addr-of-mut`, `#ptr-read`, `#ptr-write`, and
-`(#ptr-offset pointer element-index)`. The offset consumes a raw pointer and
+`(#ptr-offset pointer element-index)`. `(#ptr-null (#ptr-mut T))` or
+`(#ptr-null (#ptr T))` constructs a typed null pointer; constructing one is
+safe, but dereferencing it is not. The offset consumes a raw pointer and
 returns a pointer with the same mutability and pointee type; its index must be
 `usize`. Byte-offset multiplication and address addition are checked for
 overflow and trap on overflow. Writing requires `(#ptr-mut T)`. Reads and

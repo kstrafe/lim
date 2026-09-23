@@ -2651,6 +2651,13 @@ fn list_expression(
                 target: Box::new(owner_type.clone()),
             })
         }
+        "ptr-null" => {
+            require_arity(operator, items, 2)?;
+            match resolve_type(&parse_type(items.get(1))?, aliases)? {
+                pointer @ Type::RawPointer { .. } => Ok(pointer),
+                _ => Err("ptr-null requires an explicit raw-pointer type".into()),
+            }
+        }
         "ptr-read" => {
             require_arity(operator, items, 2)?;
             let actual = expression(

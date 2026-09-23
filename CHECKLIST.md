@@ -74,6 +74,9 @@ the checklist is committed alongside the implementation it tracks.
 - [x] Implement `#ptr-offset` for raw pointers, with a `usize` element index,
   explicit `#unsafe` boundaries, zero-sized pointee handling, and checked
   byte-offset/address overflow.
+- [x] Add typed `#ptr-null` construction so allocator-backed collections can
+  represent an empty, zero-capacity storage state without an uninitialized
+  pointer.
 - [ ] Implement `@vec-sort` using its literal comparator function name, with
   compile-time signature validation and no runtime function-pointer values.
 - [x] Define allocation failure, deallocation, destruction, and current leak

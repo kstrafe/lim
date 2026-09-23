@@ -1938,6 +1938,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "addr-of"
             | "addr-of-mut"
             | "ptr-read"
+            | "ptr-null"
             | "ptr-write"
             | "ptr-offset"
             | "cell"
@@ -6116,6 +6117,19 @@ mod tests {
 
     #[test]
     fn checks_raw_pointers_and_unsafe_blocks() {
+        let null_pointer_program =
+            parse_program("(#fn make-null () (#ptr-mut u64) (#return (#ptr-null (#ptr-mut u64))))")
+                .unwrap();
+        assert!(check_types(&null_pointer_program).is_ok());
+        let null_assembly = generate_assembly(&null_pointer_program).unwrap();
+        assert!(null_assembly.contains("xor eax, eax"));
+
+        let untyped_null_pointer =
+            parse_program("(#fn bad () (#ptr u64) (#return (#ptr-null u64)))").unwrap();
+        assert!(check_types(&untyped_null_pointer)
+            .unwrap_err()
+            .contains("ptr-null requires an explicit raw-pointer type"));
+
         let pointer_program = parse_program(
             "(#fn main () u64 (#let-mut value u64 40) (#return (#unsafe (#block (#let p (#ptr-mut u64) (#addr-of-mut value)) (#ptr-write p 42) (#ptr-read p)))))",
         )
