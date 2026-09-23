@@ -99,8 +99,8 @@ it as the project checklist; cross items off as they are completed.
 
 - [ ] Add structured compiler diagnostics and stable error codes.
 - [ ] Add a formatter and a syntax-aware pretty-printer for generated code.
-- [ ] Add a command that checks all examples and reports failures by source
-  file, including generated examples.
+- [x] Add `--check-examples [DIRECTORY]`, which checks all `.lim` examples and
+  reports failures by source file, including generated examples.
 - [ ] Add package/project metadata and a stable module search path beyond
   relative imports.
 - [ ] Document the complete grammar and specify the semantics of every

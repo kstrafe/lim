@@ -7,7 +7,7 @@ use std::{
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--cfg KEY=VALUE]...\n       lim --emit-asm INPUT OUTPUT [--cfg KEY=VALUE]...\n       lim --collect-cfgs INPUT\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--cfg KEY=VALUE]...\n       lim --emit-asm INPUT OUTPUT [--cfg KEY=VALUE]...\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         return ExitCode::SUCCESS;
     }
     if arguments.first().map(String::as_str) == Some("--collect-cfgs") {
@@ -53,6 +53,16 @@ fn main() -> ExitCode {
         }
         return compile(input_path, Path::new(output_path), true, &config);
     }
+    if arguments.first().map(String::as_str) == Some("--check-examples") {
+        if arguments.len() > 2 {
+            eprintln!("usage: lim --check-examples [DIRECTORY]");
+            return ExitCode::FAILURE;
+        }
+        let directory = arguments
+            .get(1)
+            .map_or_else(|| PathBuf::from("examples"), PathBuf::from);
+        return check_examples(&directory);
+    }
 
     let (input_path, output_path, config) = match binary_arguments(&arguments) {
         Ok(arguments) => arguments,
@@ -62,10 +72,82 @@ fn main() -> ExitCode {
             eprintln!("       lim INPUT --cfg KEY=VALUE ...");
             eprintln!("       lim --emit-asm INPUT OUTPUT [--cfg KEY=VALUE ...]");
             eprintln!("       lim --collect-cfgs INPUT");
+            eprintln!("       lim --check-examples [DIRECTORY]");
             return ExitCode::FAILURE;
         }
     };
     compile(&input_path, &output_path, false, &config)
+}
+
+fn check_examples(directory: &Path) -> ExitCode {
+    let mut paths = Vec::new();
+    if let Err(error) = collect_lim_files(directory, &mut paths) {
+        eprintln!("lim: {}: {error}", directory.display());
+        return ExitCode::FAILURE;
+    }
+    paths.sort();
+    if paths.is_empty() {
+        eprintln!("lim: no .lim examples found under {}", directory.display());
+        return ExitCode::FAILURE;
+    }
+
+    let mut failures = 0;
+    for path in &paths {
+        match check_example(path) {
+            Ok(()) => println!("ok   {}", path.display()),
+            Err(error) => {
+                println!("FAIL {}", path.display());
+                eprintln!("  {error}");
+                failures += 1;
+            }
+        }
+    }
+    println!(
+        "checked {} example{}: {} passed, {} failed",
+        paths.len(),
+        if paths.len() == 1 { "" } else { "s" },
+        paths.len() - failures,
+        failures
+    );
+    if failures == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn collect_lim_files(directory: &Path, paths: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_lim_files(&path, paths)?;
+        } else if path.extension().is_some_and(|extension| extension == "lim") {
+            paths.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn check_example(path: &Path) -> Result<(), String> {
+    let input = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let config = lim::CompileConfig::default();
+    let generated_directory = path.parent().unwrap_or_else(|| Path::new(".")).join(".lim");
+    let cache_directory = generated_directory.join("cache");
+    lim::write_generated_sources_from_path_with_config_and_cache(
+        &input,
+        path,
+        &generated_directory,
+        &config,
+        &cache_directory,
+    )?;
+    let program = lim::parse_program_from_path_with_config_and_cache(
+        &input,
+        path,
+        &config,
+        &cache_directory,
+    )?;
+    lim::generate_assembly(&program).map(|_| ())
 }
 
 fn apply_cfg_argument(config: &mut lim::CompileConfig, value: &str) -> Result<(), String> {

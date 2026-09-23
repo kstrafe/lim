@@ -195,7 +195,12 @@ nix develop --command cargo run -- examples/fibonacci.lim
 nix develop --command cargo run -- examples/fibonacci.lim -o /tmp/fibonacci
 /tmp/fibonacci
 echo $? # 55 for the Fibonacci example
+nix develop --command cargo run -- --check-examples examples
 ```
+
+`--check-examples` recursively parses, type-checks, borrow-checks, and lowers
+every `.lim` file under the selected directory. It reports each source file
+individually and returns failure if any example fails.
 
 `--emit-asm INPUT OUTPUT` remains available to inspect backend output.
 Generated `@` declarations are materialized under `.lim/` beside the input
