@@ -904,6 +904,9 @@ The crate is dependency-free.  Its primary public types and functions are:
 - `parse_program(&str) -> Result<Program, String>` for canonical syntax;
 - `check_types(&Program) -> Result<(), String>`;
 - `generate_assembly(&Program) -> Result<String, String>`;
+- `render_diagnostic(&Diagnostic, source, filename) -> String` and
+  `render_error(source, filename, error) -> String` for Rust-style terminal
+  source excerpts;
 - `format_source(&str) -> Result<String, String>`;
 - `write_generated_sources(&str, &Path) -> Result<(), String>`;
 - AST and metadata types: `Span`, `Token`, `TokenKind`, `Expr`, `Type`,
@@ -921,6 +924,11 @@ conflicting access, and source line/column locations for the original and
 conflicting owner occurrences when source text is available. Generated forms
 retain their source context through parsing, so generator failures remain
 associated with their invocation diagnostics.
+
+The CLI renders errors with an available span or line/column as a source hunk
+with an underline. Some type and ownership errors still lack precise spans; the
+legacy renderer may underline a matching identifier as a best-effort hint.
+Exact expression spans through every compiler phase remain future work.
 
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures

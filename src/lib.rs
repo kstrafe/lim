@@ -134,6 +134,242 @@ impl Diagnostic {
     }
 }
 
+/// Render a diagnostic with a source excerpt and underline when it has a span.
+pub fn render_diagnostic(diagnostic: &Diagnostic, source: &str, filename: &str) -> String {
+    let mut output = format!(
+        "error[{}]: {}",
+        diagnostic.code_string(),
+        diagnostic.message
+    );
+    if let Some(span) = diagnostic.span {
+        output.push_str(&render_source_hunk(source, filename, span, "here"));
+    }
+    for note in &diagnostic.notes {
+        output.push_str(&format!("\n  = note: {note}"));
+    }
+    output
+}
+
+/// Format a legacy compiler error string as a diagnostic, recovering a source
+/// location from the established `line:column:` and borrow-checker messages.
+pub fn render_error(source: &str, filename: &str, error: &str) -> String {
+    let (code, message) = if let Some((code, message)) = error.strip_prefix('E').and_then(|rest| {
+        let (digits, message) = rest.split_once(' ')?;
+        Some((digits.parse::<u16>().ok()?, message))
+    }) {
+        (diagnostic_code_from_number(code), message.to_owned())
+    } else if let Some((line, column, message)) = parse_location_prefix(error) {
+        let span = source_span_at(source, line, column, token_width_at(source, line, column));
+        return render_diagnostic(
+            &Diagnostic::new(diagnostic_code_for_positioned_message(&message), message)
+                .with_span(span),
+            source,
+            filename,
+        );
+    } else if error.starts_with("linear value ")
+        || error.starts_with("assignment would destroy live linear")
+    {
+        (DiagnosticCode::Linear, error.to_owned())
+    } else if error.contains("requires #unsafe") || error.starts_with("unsafe ") {
+        (DiagnosticCode::Unsafe, error.to_owned())
+    } else {
+        (DiagnosticCode::Type, error.to_owned())
+    };
+
+    let mut diagnostic = Diagnostic::new(code, message);
+    if let Some((line, column)) = location_after(error, "conflicting access ") {
+        diagnostic.span = Some(source_span_at(
+            source,
+            line,
+            column,
+            token_width_at(source, line, column),
+        ));
+    } else if let Some((line, column)) = location_after(error, " at ") {
+        diagnostic.span = Some(source_span_at(
+            source,
+            line,
+            column,
+            token_width_at(source, line, column),
+        ));
+    } else if let Some(name) = quoted_identifier(error) {
+        diagnostic.span = find_identifier_span(source, name);
+    }
+    let mut output = render_diagnostic(&diagnostic, source, filename);
+    if let Some((line, column)) = location_after(error, "original borrow site ") {
+        output.push_str("\n  = note: original borrow site:");
+        output.push_str(&render_source_hunk(
+            source,
+            filename,
+            source_span_at(source, line, column, token_width_at(source, line, column)),
+            "borrow begins here",
+        ));
+    }
+    output
+}
+
+fn token_width_at(source: &str, line: usize, column: usize) -> usize {
+    let line_text = source.lines().nth(line.saturating_sub(1)).unwrap_or("");
+    line_text
+        .chars()
+        .skip(column.saturating_sub(1))
+        .take_while(|ch| !ch.is_whitespace() && !matches!(ch, '(' | ')' | '[' | ']' | ','))
+        .count()
+        .max(1)
+}
+
+fn quoted_identifier(error: &str) -> Option<&str> {
+    let start = error.find('\'')? + 1;
+    let end = error[start..].find('\'')? + start;
+    let name = &error[start..end];
+    (!name.is_empty()
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.')))
+    .then_some(name)
+}
+
+fn find_identifier_span(source: &str, name: &str) -> Option<Span> {
+    let (start, _) = source.match_indices(name).find(|(start, _)| {
+        let before = source[..*start].chars().next_back();
+        let after = source[*start + name.len()..].chars().next();
+        let is_identifier = |ch: char| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.');
+        !before.is_some_and(is_identifier) && !after.is_some_and(is_identifier)
+    })?;
+    let line = source[..start]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1;
+    let column = source[..start]
+        .rsplit('\n')
+        .next()
+        .map_or(1, |line| line.chars().count() + 1);
+    Some(Span::new(start, start + name.len(), line, column))
+}
+
+fn diagnostic_code_from_number(number: u16) -> DiagnosticCode {
+    match number {
+        1000 => DiagnosticCode::Lex,
+        2000 => DiagnosticCode::Parse,
+        3000 => DiagnosticCode::Generator,
+        4100 => DiagnosticCode::Borrow,
+        4200 => DiagnosticCode::Linear,
+        4300 => DiagnosticCode::Unsafe,
+        5000 => DiagnosticCode::Codegen,
+        6000 => DiagnosticCode::Link,
+        _ => DiagnosticCode::Type,
+    }
+}
+
+fn diagnostic_code_for_positioned_message(message: &str) -> DiagnosticCode {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("generator") {
+        DiagnosticCode::Generator
+    } else if lower.contains("string")
+        || lower.contains("escape")
+        || lower.contains("unicode")
+        || lower.contains("character literal")
+    {
+        DiagnosticCode::Lex
+    } else {
+        DiagnosticCode::Parse
+    }
+}
+
+fn parse_location_prefix(error: &str) -> Option<(usize, usize, String)> {
+    let (line, rest) = error.split_once(':')?;
+    let (column, message) = rest.split_once(':')?;
+    Some((
+        line.parse().ok()?,
+        column.parse().ok()?,
+        message.trim().to_owned(),
+    ))
+}
+
+fn location_after(error: &str, marker: &str) -> Option<(usize, usize)> {
+    let suffix = error.split_once(marker)?.1;
+    let (line, column) = suffix.split_once(':')?;
+    let column = column
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    Some((line.parse().ok()?, column.parse().ok()?))
+}
+
+fn source_span_at(source: &str, line: usize, column: usize, width: usize) -> Span {
+    let mut offset = 0;
+    let mut line_text = "";
+    for (index, text) in source.split_inclusive('\n').enumerate() {
+        if index + 1 == line {
+            line_text = text.strip_suffix('\n').unwrap_or(text);
+            break;
+        }
+        offset += text.len();
+    }
+    let column_offset = line_text
+        .char_indices()
+        .nth(column.saturating_sub(1))
+        .map_or(line_text.len(), |(byte, _)| byte);
+    let start = offset + column_offset;
+    let end = line_text
+        .get(column_offset..)
+        .and_then(|tail| tail.char_indices().nth(width.saturating_sub(1)))
+        .map_or(start, |(byte, ch)| start + byte + ch.len_utf8());
+    Span::new(start, end.max(start), line, column)
+}
+
+fn render_source_hunk(source: &str, filename: &str, span: Span, label: &str) -> String {
+    let line_text = source
+        .lines()
+        .nth(span.line.saturating_sub(1))
+        .unwrap_or("");
+    let prefix = line_text
+        .chars()
+        .take(span.column.saturating_sub(1))
+        .collect::<String>();
+    let start_display = display_width(&prefix);
+    let selected = source.get(span.start..span.end).unwrap_or("");
+    let width = selected
+        .chars()
+        .take_while(|ch| *ch != '\n' && *ch != '\r')
+        .map(display_char_width)
+        .sum::<usize>()
+        .max(1);
+    let line_number_width = span.line.to_string().len();
+    let marker = format!(
+        "{}{}{}",
+        " ".repeat(start_display),
+        "^".repeat(width),
+        if label.is_empty() {
+            String::new()
+        } else {
+            format!(" {label}")
+        }
+    );
+    format!(
+        "\n  --> {filename}:{line}:{column}\n{blank:>gutter_width$} |\n{line:>line_number_width$} | {line_text}\n{blank:>line_number_width$} | {marker}",
+        line = span.line,
+        column = span.column,
+        blank = "",
+        line_text = line_text,
+        marker = marker,
+        gutter_width = line_number_width + 1,
+        line_number_width = line_number_width,
+    )
+}
+
+fn display_width(text: &str) -> usize {
+    text.chars().map(display_char_width).sum()
+}
+
+fn display_char_width(ch: char) -> usize {
+    if ch == '\t' {
+        4
+    } else {
+        1
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
     LParen,
@@ -4710,6 +4946,38 @@ mod tests {
         assert_eq!(diagnostic.code_string(), "E4100");
         assert_eq!(diagnostic.span.unwrap().line, 2);
         assert_eq!(diagnostic.notes, vec!["borrowed here"]);
+    }
+
+    #[test]
+    fn diagnostic_renderer_shows_and_underlines_source_lines() {
+        let source = "first line\n  missing_name\n";
+        let rendered = render_error(
+            source,
+            "example.lim",
+            "2:3: unknown variable 'missing_name'",
+        );
+        assert!(rendered.contains("error[E2000]: unknown variable 'missing_name'"));
+        assert!(rendered.contains("--> example.lim:2:3"));
+        assert!(rendered.contains("2 |   missing_name"));
+        assert!(rendered.contains("^^^ here"));
+
+        let type_error = render_error(source, "example.lim", "unknown variable 'missing_name'");
+        assert!(type_error.contains("error[E4000]: unknown variable 'missing_name'"));
+        assert!(type_error.contains("missing_name"));
+    }
+
+    #[test]
+    fn borrow_errors_render_both_source_sites() {
+        let source = "borrow owner\nmutate owner\n";
+        let rendered = render_error(
+            source,
+            "borrow.lim",
+            "E4100 borrow-checker diagnostic in function 'main' statement 1: cannot mutate 'owner'; original borrow site 1:8; conflicting access 2:1",
+        );
+        assert!(rendered.contains("error[E4100]"));
+        assert!(rendered.contains("--> borrow.lim:2:1"));
+        assert!(rendered.contains("--> borrow.lim:1:8"), "{rendered}");
+        assert!(rendered.contains("borrow begins here"));
     }
 
     #[test]

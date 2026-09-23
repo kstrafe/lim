@@ -335,7 +335,7 @@ fn compile(
         config,
         &generator_cache_directory,
     ) {
-        eprintln!("lim: {error}");
+        report_source_error(&input, input_path, &error);
         return ExitCode::FAILURE;
     }
     let program = match lim::parse_program_from_path_with_config_and_cache(
@@ -346,14 +346,14 @@ fn compile(
     ) {
         Ok(program) => program,
         Err(error) => {
-            eprintln!("lim: {error}");
+            report_source_error(&input, input_path, &error);
             return ExitCode::FAILURE;
         }
     };
     let assembly = match lim::generate_assembly_for_target(&program, target) {
         Ok(assembly) => assembly,
         Err(error) => {
-            eprintln!("lim: {error}");
+            report_source_error(&input, input_path, &error);
             return ExitCode::FAILURE;
         }
     };
@@ -420,6 +420,10 @@ fn compile(
             ExitCode::FAILURE
         }
     }
+}
+
+fn report_source_error(source: &str, filename: &str, error: &str) {
+    eprintln!("{}", lim::render_error(source, filename, error));
 }
 
 fn native_dynamic_linker() -> String {
