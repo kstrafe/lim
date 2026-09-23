@@ -102,7 +102,8 @@ it as the project checklist; cross items off as they are completed.
 
 ### Language completeness and tooling
 
-- [ ] Add structured compiler diagnostics and stable error codes.
+- [x] Add public structured diagnostics with stable phase/category codes,
+  optional source spans, and notes while retaining the existing string APIs.
 - [ ] Add a formatter and a syntax-aware pretty-printer for generated code.
 - [x] Add `--check-examples [DIRECTORY]`, which checks all `.lim` examples and
   reports failures by source file, including generated examples.

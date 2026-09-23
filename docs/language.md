@@ -872,6 +872,13 @@ The crate is dependency-free.  Its primary public types and functions are:
 - AST and metadata types: `Span`, `Token`, `TokenKind`, `Expr`, `Type`,
   `Statement`, `Function`, `Item`, and `Program`.
 
+Tooling can use `Diagnostic` and `DiagnosticCode` for stable high-level error
+categories (`E1000` lexing, `E2000` parsing, `E3000` generators, `E4000`
+typing, `E4100` borrowing, `E4200` linear ownership, `E4300` unsafe checks,
+`E5000` code generation, and `E6000` linking). Diagnostics carry an optional
+source span and structured notes; legacy string-returning APIs remain
+available for compatibility.
+
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures
 from the lower-level parser carry source spans in `ParseError` when using the

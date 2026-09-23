@@ -86,6 +86,54 @@ impl Span {
     }
 }
 
+/// Stable high-level categories for compiler diagnostics.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DiagnosticCode {
+    Lex = 1000,
+    Parse = 2000,
+    Generator = 3000,
+    Type = 4000,
+    Borrow = 4100,
+    Linear = 4200,
+    Unsafe = 4300,
+    Codegen = 5000,
+    Link = 6000,
+}
+
+/// Structured diagnostic data for editor and tooling integrations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Diagnostic {
+    pub code: DiagnosticCode,
+    pub message: String,
+    pub span: Option<Span>,
+    pub notes: Vec<String>,
+}
+
+impl Diagnostic {
+    pub fn new(code: DiagnosticCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            span: None,
+            notes: Vec::new(),
+        }
+    }
+
+    pub fn with_span(mut self, span: Span) -> Self {
+        self.span = Some(span);
+        self
+    }
+
+    pub fn note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+
+    pub fn code_string(&self) -> String {
+        format!("E{:04}", self.code as u16)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
     LParen,
@@ -4550,6 +4598,21 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn structured_diagnostics_have_stable_codes_and_notes() {
+        let diagnostic = Diagnostic::new(DiagnosticCode::Borrow, "conflicting borrow")
+            .with_span(Span {
+                start: 4,
+                end: 9,
+                line: 2,
+                column: 3,
+            })
+            .note("borrowed here");
+        assert_eq!(diagnostic.code_string(), "E4100");
+        assert_eq!(diagnostic.span.unwrap().line, 2);
+        assert_eq!(diagnostic.notes, vec!["borrowed here"]);
+    }
 
     #[test]
     fn lexes_function_and_generated_forms() {
