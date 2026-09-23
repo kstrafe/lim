@@ -2667,6 +2667,39 @@ fn list_expression(
                 _ => Err("ptr-is-null requires a raw pointer".into()),
             }
         }
+        "ptr-borrow" | "ptr-borrow-mut" => {
+            require_arity(operator, items, 3)?;
+            let owner = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let Type::Reference {
+                mutable: owner_mutable,
+                ..
+            } = owner
+            else {
+                return Err(format!("{operator} requires a reference lifetime anchor"));
+            };
+            let pointer = expression(
+                &items[2], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let Type::RawPointer {
+                mutable: pointer_mutable,
+                target,
+            } = pointer
+            else {
+                return Err(format!("{operator} requires a raw pointer"));
+            };
+            let borrowed_mutable = operator == "ptr-borrow-mut";
+            if borrowed_mutable && (!owner_mutable || !pointer_mutable) {
+                return Err(
+                    "ptr-borrow-mut requires a mutable reference anchor and mutable pointer".into(),
+                );
+            }
+            Ok(Type::Reference {
+                mutable: borrowed_mutable,
+                target,
+            })
+        }
         "ptr-read" => {
             require_arity(operator, items, 2)?;
             let actual = expression(

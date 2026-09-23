@@ -192,6 +192,10 @@ index must be `usize`. Byte-offset multiplication and address addition are
 checked for overflow and trap on overflow. Writing requires `(#ptr-mut T)`. Reads and
 writes do not check allocation bounds, and raw-pointer operations are rejected
 outside `#unsafe`; callers must uphold pointer validity and bounds themselves.
+`#ptr-borrow` and `#ptr-borrow-mut` also require `#unsafe`; their first
+argument is a reference used as the inferred lifetime anchor, and the second
+is the pointer to the referenced value. The caller must ensure the pointer is
+valid for that anchor's lifetime and, for mutable borrows, uniquely accessible.
 
 ## Building and running
 

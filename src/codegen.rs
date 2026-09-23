@@ -8148,6 +8148,20 @@ impl FunctionContext {
                     .push_str("    test rax, rax\n    sete al\n    movzx eax, al\n");
                 Ok(())
             }
+            "ptr-borrow" | "ptr-borrow-mut" => {
+                if items.len() != 3 {
+                    return Err(format!(
+                        "{operator} requires an owner reference and raw pointer"
+                    ));
+                }
+                self.expression(&items[1])?;
+                self.output.push_str("    push rax\n");
+                self.stack_depth += 1;
+                self.expression(&items[2])?;
+                self.output.push_str("    add rsp, 8\n");
+                self.stack_depth -= 1;
+                Ok(())
+            }
             "addr-of" | "addr-of-mut" => self.borrow_expression(items),
             "ptr-read" => {
                 if items.len() != 2 {

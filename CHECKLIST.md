@@ -60,6 +60,8 @@ the checklist is committed alongside the implementation it tracks.
   projections, and multiple derived field loans.
 - [x] Remove stale comments that described references as not being first-class
   values.
+- [x] Add unsafe raw-pointer-to-reference operations whose explicit reference
+  anchor feeds inferred lifetime provenance into the borrow checker.
 
 ### Values, memory, and aggregates
 

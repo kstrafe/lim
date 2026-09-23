@@ -1940,6 +1940,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "ptr-read"
             | "ptr-null"
             | "ptr-is-null"
+            | "ptr-borrow"
+            | "ptr-borrow-mut"
             | "ptr-write"
             | "ptr-offset"
             | "cell"
@@ -6187,6 +6189,32 @@ mod tests {
         assert!(check_types(&missing_unsafe)
             .unwrap_err()
             .contains("requires an enclosing (#unsafe ...) block"));
+
+        let return_borrow_from_raw_pointer = parse_program(
+            "(#fn expose ((anchor (#ref u64)) (pointer (#ptr u64))) (#ref u64) (#let reference (#ref u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference)) (#fn bad () u64 (#let-mut value u64 41) (#let pointer (#ptr u64) (#unsafe (#addr-of value))) (#let reference (#ref u64) (expose (#borrow value) pointer)) (#set value 42) (#return (#deref reference)))",
+        )
+        .unwrap();
+        let error = check_types(&return_borrow_from_raw_pointer).unwrap_err();
+        assert!(
+            error.contains("cannot mutate 'value' while it is immutably borrowed"),
+            "{error}"
+        );
+
+        let valid_return_borrow_from_raw_pointer = parse_program(
+            "(#fn expose ((anchor (#ref u64)) (pointer (#ptr u64))) (#ref u64) (#let reference (#ref u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference)) (#fn main () u64 (#let-mut value u64 41) (#let pointer (#ptr u64) (#unsafe (#addr-of value))) (#let reference (#ref u64) (expose (#borrow value) pointer)) (#return (#deref reference)))",
+        )
+        .unwrap();
+        let checked = check_types(&valid_return_borrow_from_raw_pointer);
+        assert!(checked.is_ok(), "{checked:?}");
+        assert!(generate_assembly(&valid_return_borrow_from_raw_pointer).is_ok());
+
+        let mutable_borrow_with_immutable_anchor = parse_program(
+            "(#fn bad ((anchor (#ref u64)) (pointer (#ptr-mut u64))) (#ref-mut u64) (#return (#unsafe (#ptr-borrow-mut anchor pointer))))",
+        )
+        .unwrap();
+        assert!(check_types(&mutable_borrow_with_immutable_anchor)
+            .unwrap_err()
+            .contains("requires a mutable reference anchor"));
     }
 
     #[test]

@@ -1442,6 +1442,9 @@ fn reference_origins(
             if matches!(operator.as_str(), "borrow" | "borrow-mut") && items.len() == 2 {
                 return borrow_place_origins(&items[1], context);
             }
+            if matches!(operator.as_str(), "ptr-borrow" | "ptr-borrow-mut") && items.len() == 3 {
+                return reference_origins(&items[1], context, true);
+            }
             if operator == "get" && items.len() == 3 {
                 return reference_origins(&items[1], context, true);
             }

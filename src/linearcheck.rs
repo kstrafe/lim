@@ -592,6 +592,8 @@ fn check_expr(
                 || head == "deref"
                 || head == "ptr-read"
                 || head == "ptr-is-null"
+                || head == "ptr-borrow"
+                || head == "ptr-borrow-mut"
                 || head == "ptr-write"
             {
                 for arg in items.iter().skip(1) {
