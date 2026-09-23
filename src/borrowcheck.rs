@@ -49,12 +49,15 @@ struct Context {
 
 impl Loans {
     fn borrow(&mut self, place: &str, kind: LoanKind) -> Result<(), String> {
-        if let Some(active) = self
-            .active
-            .keys()
-            .find(|active| **active != place && places_conflict(active, place))
-            .cloned()
-        {
+        if let Some(active) = self.active.iter().find_map(|(active, active_kind)| {
+            (active.as_str() != place
+                && places_conflict(active, place)
+                && !matches!(
+                    (active_kind, kind),
+                    (LoanKind::Shared(_), LoanKind::Shared(_))
+                ))
+            .then_some(active.clone())
+        }) {
             return Err(format!(
                 "cannot borrow '{}' because '{}' is already borrowed",
                 display_place(place),
