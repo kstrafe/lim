@@ -112,10 +112,12 @@ fn expand_with_generated_cached_and_hits(
         cache_hits: 0,
         cache_dir,
         dependency_context,
+        invocation_span: None,
     };
     let mut output = Vec::new();
     let mut generated = Vec::new();
     for expression in remaining {
+        context.invocation_span = Some(expression.span);
         let is_user_invocation = match &expression.expr {
             Expr::List(items) if matches!(items.first(), Some(Expr::At)) => items
                 .get(1)
@@ -208,6 +210,7 @@ struct ExpansionContext<'a> {
     cache_hits: usize,
     cache_dir: Option<&'a Path>,
     dependency_context: &'a str,
+    invocation_span: Option<Span>,
 }
 
 fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Vec<Expr>, String> {
@@ -236,7 +239,13 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     }
     if items.len() - 2 != generator.parameters.len() {
         return Err(format!(
-            "@{name} expects {} syntax argument(s), received {}",
+            "{} expects {} syntax argument(s), received {}",
+            invocation_description(
+                name,
+                expression_arguments(items),
+                &generator,
+                context.invocation_span,
+            ),
             generator.parameters.len(),
             items.len() - 2
         ));
@@ -281,8 +290,13 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
                 Err(error) => {
                     context.active.pop();
                     return Err(format!(
-                        "@{name} defined at {}:{}: {error}",
-                        generator.span.line, generator.span.column
+                        "{}: {error}",
+                        invocation_description(
+                            name,
+                            expression_arguments(items),
+                            &generator,
+                            context.invocation_span,
+                        )
                     ));
                 }
             };
@@ -302,12 +316,49 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             Ok(forms) => expanded.extend(forms),
             Err(error) => {
                 context.active.pop();
-                return Err(error);
+                return Err(format!(
+                    "while expanding generated output from {}: {error}",
+                    invocation_description(
+                        name,
+                        expression_arguments(items),
+                        &generator,
+                        context.invocation_span,
+                    )
+                ));
             }
         }
     }
     context.active.pop();
     Ok(expanded)
+}
+
+fn expression_arguments(items: &[Expr]) -> Vec<Expr> {
+    items[2..].to_vec()
+}
+
+fn invocation_description(
+    name: &str,
+    arguments: Vec<Expr>,
+    generator: &Generator,
+    invocation_span: Option<Span>,
+) -> String {
+    let arguments = arguments
+        .iter()
+        .enumerate()
+        .map(|(index, argument)| format!("argument {index}={argument:?}"))
+        .collect::<Vec<_>>();
+    format!(
+        "@{name} invocation at {}:{} (defined at {}:{}; {})",
+        invocation_span.map_or(generator.span.line, |span| span.line),
+        invocation_span.map_or(generator.span.column, |span| span.column),
+        generator.span.line,
+        generator.span.column,
+        if arguments.is_empty() {
+            "no arguments".to_owned()
+        } else {
+            arguments.join(", ")
+        }
+    )
 }
 
 fn generator_function_hashes(
@@ -893,6 +944,7 @@ mod tests {
                 cache_hits: 0,
                 cache_dir: None,
                 dependency_context: "",
+                invocation_span: None,
             },
         )
         .unwrap_err();

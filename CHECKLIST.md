@@ -80,7 +80,7 @@ it as the project checklist; cross items off as they are completed.
   configuration values, not only generator definitions and nested generators.
 - [x] Make generated-file cache entries durable across compiler-version and
   target changes by including both values in the cache key namespace.
-- [ ] Improve generator diagnostics so failures identify the generator,
+- [x] Improve generator diagnostics so failures identify the generator,
   invocation, argument position, and generated source location.
 - [ ] Add capability-aware generators without hidden typeclass/interface
   requirements; capabilities must remain explicit in generator inputs.

@@ -4726,6 +4726,13 @@ mod tests {
         assert!(unknown.contains("unknown generator builtin '#gn-unknown'"));
         assert!(unknown.contains("defined at 1:1"));
         assert!(unknown.contains("2:1: generator expansion"));
+
+        let argument_error = parse_program(
+            "(#generator fail (value) (#gn-error \"unsupported input\"))\n(@fail u64)",
+        )
+        .unwrap_err();
+        assert!(argument_error.contains("argument 0="));
+        assert!(argument_error.contains("invocation at 2:1"));
     }
 
     #[test]
