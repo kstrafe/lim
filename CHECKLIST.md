@@ -95,7 +95,7 @@ it as the project checklist; cross items off as they are completed.
   safety boundaries for external libraries.
 - [ ] Add runtime support for thread creation/join failures instead of
   unconditionally aborting the process.
-- [ ] Add compile-and-run coverage for the binary pipeline under the Nix
+- [x] Add compile-and-run coverage for the binary pipeline under the Nix
   development shell.
 
 ### Language completeness and tooling

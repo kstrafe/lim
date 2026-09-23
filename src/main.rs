@@ -329,3 +329,33 @@ fn compile(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compiles_and_runs_binary_pipeline() {
+        let directory = env::temp_dir().join(format!("lim-binary-pipeline-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("program.lim");
+        let output = directory.join("program");
+        fs::write(&input, "(#fn main () u64 (#return 42))").unwrap();
+
+        let config = lim::CompileConfig::default();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &config,
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        let status = Command::new(&output).status().unwrap();
+        assert_eq!(status.code(), Some(42));
+        fs::remove_dir_all(directory).unwrap();
+    }
+}
