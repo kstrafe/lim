@@ -91,8 +91,9 @@ it as the project checklist; cross items off as they are completed.
   unsupported target names are rejected rather than silently treated as host.
 - [x] Implement the native x86-64 assembler/linker path; normal compilation
   invokes `as` and `ld` directly, without requiring Clang.
-- [ ] Define FFI declarations, calling conventions, layout guarantees, and
-  safety boundaries for external libraries.
+- [x] Define constrained FFI declarations: `#extern-fn` uses the target C ABI,
+  accepts directly passed scalar signatures only, and requires `#unsafe` at
+  every call site.
 - [ ] Add runtime support for thread creation/join failures instead of
   unconditionally aborting the process.
 - [x] Add compile-and-run coverage for the binary pipeline under the Nix

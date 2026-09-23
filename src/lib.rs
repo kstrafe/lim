@@ -5521,13 +5521,20 @@ mod tests {
         let valid = parse_program("(#fn main () u64 (#return (#u64.+.wrap 40 2)))");
         assert!(valid.is_ok());
         let external = parse_program(
-            "(#extern-fn abs ((value i32)) i32) (#fn main () u64 (#return (#as (abs -42) u64)))",
+            "(#extern-fn abs ((value i32)) i32) (#fn main () u64 (#return (#as (#unsafe (abs -42)) u64)))",
         )
         .unwrap();
         assert!(check_types(&external).is_ok());
         let external_assembly = generate_assembly(&external).unwrap();
         assert!(external_assembly.contains(".extern abs"));
         assert!(external_assembly.contains("call abs"));
+        let unsafe_boundary = parse_program(
+            "(#extern-fn abs ((value i32)) i32) (#fn main () u64 (#return (#as (abs -42) u64)))",
+        )
+        .unwrap();
+        assert!(check_types(&unsafe_boundary)
+            .unwrap_err()
+            .contains("call to external function 'abs' requires"));
     }
 
     #[test]

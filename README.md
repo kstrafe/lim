@@ -171,13 +171,14 @@ Function calls must form an acyclic call graph; recursion is rejected so the
 native backend can calculate call-stack requirements ahead of time.
 
 Direct native symbols can be declared with `#extern-fn`. External signatures
-are explicit and limited to directly passed scalar values; the backend emits
-an assembly `.extern` declaration and uses the platform calling convention:
+are explicit and limited to directly passed scalar values. They use the
+target's System V C ABI and every call is an unsafe boundary; the caller must
+place it inside `#unsafe`:
 
 ```lisp
 (#extern-fn abs ((value i32)) i32)
 (#fn main () u64
-  (#return (#as (abs -42) u64)))
+  (#return (#as (#unsafe (abs -42)) u64)))
 ```
 
 See `examples/extern_abs.lim` for a linked example.

@@ -454,13 +454,14 @@ generator to emit a concrete function for each required type combination.
 There are no implicit returns.  Every reachable function path must use
 `#return`; a unit return must use `(#return ())`.
 
-Native functions can be declared with `#extern-fn`.  External functions must
-use directly passed scalar types:
+Native functions can be declared with `#extern-fn`. External declarations use
+the target's System V C ABI and must use directly passed scalar types. Calls
+are unsafe FFI boundaries and must be enclosed in `#unsafe`:
 
 ```lisp
 (#extern-fn abs ((value i32)) i32)
 (#fn main () u64
-  (#return (#as (abs -42i32) u64)))
+  (#return (#as (#unsafe (abs -42i32)) u64)))
 ```
 
 ### Type aliases
