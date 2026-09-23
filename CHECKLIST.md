@@ -108,8 +108,9 @@ it as the project checklist; cross items off as they are completed.
   through `format_source` and `--format INPUT [OUTPUT]`.
 - [x] Add `--check-examples [DIRECTORY]`, which checks all `.lim` examples and
   reports failures by source file, including generated examples.
-- [ ] Add package/project metadata; the stable module search path is now
-  available through `CompileConfig::add_module_path` and `--module-path`.
+- [x] Add dependency-free `lim.project` metadata with a project name and
+  manifest-relative module paths; these are loaded by the binary CLI, alongside
+  the explicit `CompileConfig::add_module_path` and `--module-path` APIs.
 - [x] Document the core grammar and builtin semantics, including ownership,
   `#unsafe`, thread, generator, cfg, and explicit arithmetic forms.
 - [x] Closures, function pointers, methods, traits, and user interfaces are

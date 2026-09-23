@@ -828,6 +828,52 @@ pub struct CompileConfig {
     module_paths: Vec<PathBuf>,
 }
 
+/// Minimal project metadata used to discover stable module roots.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectMetadata {
+    pub name: String,
+    pub module_paths: Vec<PathBuf>,
+}
+
+/// Read a dependency-free `lim.project` manifest.
+pub fn read_project(path: &Path) -> Result<ProjectMetadata, String> {
+    let source = fs::read_to_string(path)
+        .map_err(|error| format!("cannot read project manifest '{}': {error}", path.display()))?;
+    let mut name = None;
+    let mut module_paths = Vec::new();
+    for (line_number, line) in source.lines().enumerate() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (key, value) = line.split_once('=').ok_or_else(|| {
+            format!(
+                "{}:{}: manifest entries must use key = value",
+                path.display(),
+                line_number + 1
+            )
+        })?;
+        let value = value.trim().trim_matches('"');
+        match key.trim() {
+            "name" if !value.is_empty() => name = Some(value.to_owned()),
+            "module-path" if !value.is_empty() => {
+                module_paths.push(path.parent().unwrap_or_else(|| Path::new(".")).join(value))
+            }
+            other => {
+                return Err(format!(
+                    "{}:{}: unknown manifest key '{other}'",
+                    path.display(),
+                    line_number + 1
+                ))
+            }
+        }
+    }
+    Ok(ProjectMetadata {
+        name: name.ok_or_else(|| format!("project manifest '{}' has no name", path.display()))?,
+        module_paths,
+    })
+}
+
 impl Default for CompileConfig {
     fn default() -> Self {
         let platform = env::consts::OS;
@@ -4926,6 +4972,18 @@ mod tests {
             Item::TypeAlias { name, .. } if name == "Imported"
         )));
         std::fs::remove_file(root).ok();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn reads_project_manifest_module_paths() {
+        let directory = std::env::temp_dir().join(format!("lim-project-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let manifest = directory.join("lim.project");
+        std::fs::write(&manifest, "name = \"demo\"\nmodule-path = \"modules\"\n").unwrap();
+        let project = read_project(&manifest).unwrap();
+        assert_eq!(project.name, "demo");
+        assert_eq!(project.module_paths, vec![directory.join("modules")]);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

@@ -359,6 +359,16 @@ searches module roots added with `CompileConfig::add_module_path` or the
 command-line `--module-path DIRECTORY` option. Search order is deterministic;
 the first existing file wins.
 
+Projects may add a `lim.project` manifest beside the root source:
+
+```text
+name = "example"
+module-path = "modules"
+```
+
+The CLI loads manifest-relative module paths automatically. Unknown keys and
+missing names are errors.
+
 ## Lexical syntax
 
 Whitespace separates tokens.  `;` starts a line comment.  A line beginning

@@ -285,6 +285,16 @@ fn binary_arguments(
     }
 
     let input = input.ok_or_else(|| "an input file is required".to_owned())?;
+    let manifest = Path::new(&input)
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("lim.project");
+    if manifest.is_file() {
+        let metadata = lim::read_project(&manifest)?;
+        for path in metadata.module_paths {
+            config.add_module_path(path);
+        }
+    }
     let output = output.unwrap_or_else(|| {
         let path = Path::new(&input);
         let stem = path.file_stem().unwrap_or_default();
