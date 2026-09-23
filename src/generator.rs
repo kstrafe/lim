@@ -12,14 +12,21 @@ const MAX_EVALUATION_STEPS: usize = 200_000;
 const MAX_GENERATED_NODES: usize = 1_000_000;
 const MAX_EXPANSION_DEPTH: usize = 128;
 
+#[derive(Clone, Debug)]
+struct GeneratorParameter {
+    name: String,
+    capabilities: Vec<String>,
+}
+
 #[derive(Clone)]
 struct Generator {
-    parameters: Vec<String>,
+    parameters: Vec<GeneratorParameter>,
     body: Expr,
     span: Span,
 }
 
 type GeneratorFunction = Generator;
+type Capabilities = HashMap<String, HashSet<String>>;
 
 #[derive(Clone)]
 struct GeneratorFingerprint {
@@ -59,9 +66,26 @@ fn expand_with_generated_cached_and_hits(
 ) -> Result<ExpandedFormsWithHits, String> {
     let mut generators = HashMap::new();
     let mut functions = HashMap::new();
+    let mut capabilities: Capabilities = HashMap::new();
     let mut remaining = Vec::new();
     for expression in expressions {
         if let Expr::List(items) = &expression.expr {
+            if is_operator(items.first(), "#capability") {
+                let capability = symbol(items.get(1), "capability name")?.to_owned();
+                let type_name = symbol(items.get(2), "capability type")?.to_owned();
+                if items.len() != 3 || capability.starts_with('#') || type_name.starts_with('#') {
+                    return Err(at_span(
+                        "#capability requires a capability name and concrete type name".into(),
+                        expression.span,
+                        "capability declaration",
+                    ));
+                }
+                capabilities
+                    .entry(capability)
+                    .or_default()
+                    .insert(type_name);
+                continue;
+            }
             if is_operator(items.first(), "#generator") {
                 let generator = parse_generator(items, expression.span)
                     .map_err(|error| at_span(error, expression.span, "generator declaration"))?;
@@ -101,6 +125,7 @@ fn expand_with_generated_cached_and_hits(
     let mut context = ExpansionContext {
         generators: &generators,
         functions: &functions,
+        capabilities: &capabilities,
         generator_fingerprints: generator_hashes,
         active_functions: Vec::new(),
         active: Vec::new(),
@@ -178,14 +203,37 @@ fn parse_generator(items: &[Expr], span: Span) -> Result<Generator, String> {
     };
     let mut names = Vec::with_capacity(parameters.len());
     for parameter in parameters {
-        let parameter = symbol(Some(parameter), "generator parameter")?;
-        if parameter.starts_with('#') || parameter.starts_with('@') {
-            return Err(format!("invalid generator parameter '{parameter}'"));
+        let (name, capabilities) = match parameter {
+            Expr::Symbol(name) => (name.as_str(), Vec::new()),
+            Expr::List(items) if !items.is_empty() => {
+                let name = symbol(items.first(), "generator parameter name")?;
+                let mut required = Vec::new();
+                for capability in &items[1..] {
+                    let capability = symbol(Some(capability), "generator parameter capability")?;
+                    if capability.starts_with('#') || capability.starts_with('@') {
+                        return Err(format!("invalid generator capability '{capability}'"));
+                    }
+                    required.push(capability.to_owned());
+                }
+                (name, required)
+            }
+            _ => {
+                return Err("generator parameter must be a symbol or (name capability ...)".into())
+            }
+        };
+        if name.starts_with('#') || name.starts_with('@') {
+            return Err(format!("invalid generator parameter '{name}'"));
         }
-        if names.iter().any(|existing| existing == parameter) {
-            return Err(format!("duplicate generator parameter '{parameter}'"));
+        if names
+            .iter()
+            .any(|existing: &GeneratorParameter| existing.name == name)
+        {
+            return Err(format!("duplicate generator parameter '{name}'"));
         }
-        names.push(parameter.to_owned());
+        names.push(GeneratorParameter {
+            name: name.to_owned(),
+            capabilities,
+        });
     }
     Ok(Generator {
         parameters: names,
@@ -202,6 +250,7 @@ struct Budget {
 struct ExpansionContext<'a> {
     generators: &'a HashMap<String, Generator>,
     functions: &'a HashMap<String, GeneratorFunction>,
+    capabilities: &'a Capabilities,
     generator_fingerprints: HashMap<String, GeneratorFingerprint>,
     active_functions: Vec<String>,
     active: Vec<String>,
@@ -250,6 +299,43 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             items.len() - 2
         ));
     }
+    for (parameter, argument) in generator.parameters.iter().zip(&items[2..]) {
+        for capability in &parameter.capabilities {
+            let Expr::Symbol(type_name) = argument else {
+                return Err(format!(
+                    "{} parameter '{}' requires capability '{}' on a concrete type symbol",
+                    invocation_description(
+                        name,
+                        expression_arguments(items),
+                        &generator,
+                        context.invocation_span,
+                    ),
+                    parameter.name,
+                    capability,
+                ));
+            };
+            if !context
+                .capabilities
+                .get(capability)
+                .is_some_and(|types| types.contains(type_name))
+            {
+                return Err(format!(
+                    "{} parameter '{}' requires capability '{}' for type '{}'; declare (#capability {} {})",
+                    invocation_description(
+                        name,
+                        expression_arguments(items),
+                        &generator,
+                        context.invocation_span,
+                    ),
+                    parameter.name,
+                    capability,
+                    type_name,
+                    capability,
+                    type_name,
+                ));
+            }
+        }
+    }
     if context.active.len() >= MAX_EXPANSION_DEPTH {
         return Err(format!(
             "generator expansion exceeds maximum depth of {MAX_EXPANSION_DEPTH}"
@@ -282,7 +368,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             let environment = generator
                 .parameters
                 .iter()
-                .cloned()
+                .map(|parameter| parameter.name.clone())
                 .zip(items[2..].iter().cloned())
                 .collect();
             let result = match evaluate(&generator.body, &environment, context) {
@@ -777,7 +863,7 @@ fn evaluate(
             let mut nested = Environment::new();
             for (parameter, argument) in function.parameters.iter().zip(&items[2..]) {
                 nested.insert(
-                    parameter.clone(),
+                    parameter.name.clone(),
                     syntax(evaluate(argument, environment, context)?, "#gn-call")?,
                 );
             }
@@ -933,6 +1019,7 @@ mod tests {
             &mut ExpansionContext {
                 generators: &HashMap::new(),
                 functions: &HashMap::new(),
+                capabilities: &HashMap::new(),
                 generator_fingerprints: HashMap::new(),
                 active_functions: Vec::new(),
                 active: Vec::new(),

@@ -265,6 +265,20 @@ invocation arguments literally; generator values are immutable syntax nodes:
 symbols, literals, or lists. A generator returns a list of top-level forms,
 which are expanded before ordinary Lim parsing and type checking.
 
+Capabilities are explicit declarations for generator requirements. A concrete
+type opts in with `#capability`, and a generator parameter can require one:
+
+```lisp
+(#capability sortable u64)
+(#generator make-sortable ((element sortable))
+  `((#type Sortable ,element)))
+(@make-sortable u64)
+```
+
+Capability checks happen before generator evaluation. A missing declaration
+names the generator parameter, capability, and concrete type; there are no
+implicit structural or interface requirements hidden inside a generator.
+
 ```lisp
 (#generator aliases (pairs)
   (#gn-for-each pair pairs

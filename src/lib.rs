@@ -1486,6 +1486,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "ptr"
             | "ptr-mut"
             | "generator"
+            | "capability"
             | "import"
             | "import-external"
             | "cfg-if"
@@ -4684,6 +4685,27 @@ mod tests {
         )
         .unwrap_err();
         assert!(recursive.contains("recursive generator function calls are not allowed"));
+    }
+
+    #[test]
+    fn generators_require_explicit_capabilities_for_concrete_types() {
+        let valid = parse_program(
+            "(#capability sortable u64) (#generator emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit u64)",
+        )
+        .unwrap();
+        assert!(check_types(&valid).is_ok());
+
+        let missing = parse_program(
+            "(#generator emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit u64)",
+        )
+        .unwrap_err();
+        assert!(missing.contains("requires capability 'sortable'"));
+
+        let wrong_type = parse_program(
+            "(#capability sortable u64) (#generator emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit UserType)",
+        )
+        .unwrap_err();
+        assert!(wrong_type.contains("for type 'UserType'"));
     }
 
     #[test]

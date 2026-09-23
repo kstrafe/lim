@@ -81,8 +81,9 @@ it as the project checklist; cross items off as they are completed.
   target changes by including both values in the cache key namespace.
 - [x] Improve generator diagnostics so failures identify the generator,
   invocation, argument position, and generated source location.
-- [ ] Add capability-aware generators without hidden typeclass/interface
-  requirements; capabilities must remain explicit in generator inputs.
+- [x] Add capability-aware generators without hidden typeclass/interface
+  requirements; `#capability` declarations are checked against explicit
+  generator parameter requirements before evaluation.
 
 ### Backend, platform, and interoperation
 
