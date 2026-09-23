@@ -64,6 +64,9 @@ the checklist is committed alongside the implementation it tracks.
   `docs/allocator.md`.
 - [x] Implement allocator-backed generated collections, beginning with the
   concrete `@vec` representation and explicit `@vec-sort` design.
+- [x] Implement `#ptr-offset` for raw pointers, with a `usize` element index,
+  explicit `#unsafe` boundaries, zero-sized pointee handling, and checked
+  byte-offset/address overflow.
 - [x] Define allocation failure, deallocation, destruction, and current leak
   behavior in `docs/allocator.md`.
 - [x] Add aggregate `#deref`/`#deref-set` support for aggregates that fit the

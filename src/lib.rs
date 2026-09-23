@@ -1939,6 +1939,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "addr-of-mut"
             | "ptr-read"
             | "ptr-write"
+            | "ptr-offset"
             | "cell"
             | "cell-get"
             | "cell-set"
@@ -6136,6 +6137,31 @@ mod tests {
         assert!(check_types(&immutable_pointer_write)
             .unwrap_err()
             .contains("mutable raw pointer"));
+
+        let pointer_offset = parse_program(
+            "(#fn main () u64 (#let-mut value u64 42u64) (#let pointer (#ptr-mut u64) (#unsafe (#addr-of-mut value))) (#return (#unsafe (#ptr-read (#ptr-offset pointer 0usize)))))",
+        )
+        .unwrap();
+        assert!(check_types(&pointer_offset).is_ok());
+        let assembly = generate_assembly(&pointer_offset).unwrap();
+        assert!(assembly.contains("mul rcx"));
+        assert!(assembly.contains("pointer_offset_overflow"));
+
+        let wrong_index_type = parse_program(
+            "(#fn bad ((pointer (#ptr u64))) (#ptr u64) (#return (#unsafe (#ptr-offset pointer 0u64))))",
+        )
+        .unwrap();
+        assert!(check_types(&wrong_index_type)
+            .unwrap_err()
+            .contains("expected Usize"));
+
+        let missing_unsafe = parse_program(
+            "(#fn bad ((pointer (#ptr u64))) (#ptr u64) (#return (#ptr-offset pointer 1usize)))",
+        )
+        .unwrap();
+        assert!(check_types(&missing_unsafe)
+            .unwrap_err()
+            .contains("requires an enclosing (#unsafe ...) block"));
     }
 
     #[test]

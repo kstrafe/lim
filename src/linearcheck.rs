@@ -580,6 +580,13 @@ fn check_expr(
                         check_expr(arg, bindings, moved, globals, true)?;
                     }
                 }
+            } else if head == "ptr-offset" {
+                if let Some(pointer) = items.get(1) {
+                    check_expr(pointer, bindings, moved, globals, false)?;
+                }
+                if let Some(index) = items.get(2) {
+                    check_expr(index, bindings, moved, globals, false)?;
+                }
             } else if head == "addr-of"
                 || head == "addr-of-mut"
                 || head == "deref"

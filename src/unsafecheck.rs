@@ -130,7 +130,7 @@ fn check_expression(
             }
             if matches!(
                 operator,
-                Some("addr-of" | "addr-of-mut" | "ptr-read" | "ptr-write")
+                Some("addr-of" | "addr-of-mut" | "ptr-read" | "ptr-write" | "ptr-offset")
             ) && !unsafe_context
             {
                 return Err(format!(

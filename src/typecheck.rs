@@ -2632,6 +2632,35 @@ fn list_expression(
                 _ => Err("ptr-read requires a raw pointer".into()),
             }
         }
+        "ptr-offset" => {
+            require_arity(operator, items, 3)?;
+            let pointer = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let Type::RawPointer {
+                mutable: pointer_mutable,
+                target,
+            } = pointer
+            else {
+                return Err("ptr-offset requires a raw pointer and usize element index".into());
+            };
+            let index_type = expression(
+                &items[2],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&Type::Usize),
+            )?;
+            require_type(&index_type, &Type::Usize, "ptr-offset index")?;
+            validate_layout_type(&target, structs, enums)?;
+            Ok(Type::RawPointer {
+                mutable: pointer_mutable,
+                target,
+            })
+        }
         "ptr-write" => {
             require_arity(operator, items, 3)?;
             let pointer = expression(

@@ -5911,6 +5911,14 @@ impl FunctionContext {
                         _ => None,
                     }
                 }
+                Some(Expr::Symbol(operator)) if operator == "ptr-offset" && items.len() == 3 => {
+                    match self.expression_type(&items[1])? {
+                        Type::RawPointer { mutable, target } => {
+                            Some(Type::RawPointer { mutable, target })
+                        }
+                        _ => None,
+                    }
+                }
                 Some(Expr::Symbol(operator)) if operator == "ptr-write" => Some(Type::Unit),
                 Some(Expr::Symbol(operator)) if operator == "if" => {
                     if items.len() == 4 {
@@ -8128,6 +8136,10 @@ impl FunctionContext {
                     })
                     .ok_or_else(|| "ptr-read requires a raw pointer".to_owned())?;
                 self.expression(&items[1])?;
+                if self.native_type_size(&target)? == 0 {
+                    self.output.push_str("    xor eax, eax\n");
+                    return Ok(());
+                }
                 match target {
                     Type::F32 => self.output.push_str("    movss xmm0, DWORD PTR [rax]\n"),
                     Type::F64 => self.output.push_str("    movq xmm0, QWORD PTR [rax]\n"),
@@ -8136,6 +8148,35 @@ impl FunctionContext {
                         .push_str("    mov rdx, QWORD PTR [rax+8]\n    mov rax, QWORD PTR [rax]\n"),
                     _ => self.output.push_str("    mov rax, QWORD PTR [rax]\n"),
                 }
+                Ok(())
+            }
+            "ptr-offset" => {
+                if items.len() != 3 {
+                    return Err("ptr-offset requires a pointer and usize element index".into());
+                }
+                let target = self
+                    .expression_type(&items[1])
+                    .and_then(|ty| match ty {
+                        Type::RawPointer { target, .. } => Some(*target),
+                        _ => None,
+                    })
+                    .ok_or_else(|| "ptr-offset requires a raw pointer".to_owned())?;
+                let element_size = self.native_type_size(&target)?;
+                self.expression(&items[1])?;
+                self.output.push_str("    push rax\n");
+                self.stack_depth += 1;
+                self.expression_as_expected(&items[2], &Type::Usize)?;
+                if element_size == 0 {
+                    self.output.push_str("    pop rcx\n    mov rax, rcx\n");
+                    self.stack_depth -= 1;
+                    return Ok(());
+                }
+                let failure = self.label("pointer_offset_overflow");
+                let done = self.label("pointer_offset_done");
+                self.output.push_str(&format!(
+                    "    mov rcx, {element_size}\n    mul rcx\n    test rdx, rdx\n    jnz {failure}\n    mov rcx, rax\n    pop rax\n    add rax, rcx\n    jc {failure}\n    jmp {done}\n{failure}:\n    ud2\n{done}:\n"
+                ));
+                self.stack_depth -= 1;
                 Ok(())
             }
             "ptr-write" => {
@@ -8158,6 +8199,9 @@ impl FunctionContext {
                 self.expression(&items[2])?;
                 self.output.push_str("    pop rcx\n");
                 self.stack_depth -= 1;
+                if self.native_type_size(&target)? == 0 {
+                    return Ok(());
+                }
                 match target {
                     Type::F32 => self.output.push_str("    movd DWORD PTR [rcx], xmm0\n"),
                     Type::F64 => self.output.push_str("    movq QWORD PTR [rcx], xmm0\n"),
@@ -11246,33 +11290,39 @@ impl FunctionContext {
         match ty {
             Type::Unit | Type::Never => Ok(0),
             Type::I128 | Type::U128 => Ok(16),
-            Type::Array(element, length) => Ok(self.native_type_size(element)? * length),
-            Type::Tuple(fields) => fields
-                .iter()
-                .map(|field| self.native_type_size(field))
-                .sum(),
+            Type::Array(element, length) => self
+                .native_type_size(element)?
+                .checked_mul(*length)
+                .ok_or_else(|| "native type layout size overflowed usize".to_owned()),
+            Type::Tuple(fields) => fields.iter().try_fold(0usize, |size, field| {
+                size.checked_add(self.native_type_size(field)?)
+                    .ok_or_else(|| "native type layout size overflowed usize".to_owned())
+            }),
             Type::Named(name) => {
                 if let Some(fields) = self.structs.get(name) {
-                    return fields
-                        .iter()
-                        .map(|field| self.native_type_size(&field.ty))
-                        .sum();
+                    return fields.iter().try_fold(0usize, |size, field| {
+                        size.checked_add(self.native_type_size(&field.ty)?)
+                            .ok_or_else(|| "native type layout size overflowed usize".to_owned())
+                    });
                 }
                 if let Some(variants) = self.enums.get(name) {
                     let payload = variants
                         .iter()
                         .map(|variant| {
-                            variant
-                                .fields
-                                .iter()
-                                .map(|field| self.native_type_size(field))
-                                .sum::<Result<usize, String>>()
+                            variant.fields.iter().try_fold(0usize, |size, field| {
+                                size.checked_add(self.native_type_size(field)?)
+                                    .ok_or_else(|| {
+                                        "native type layout size overflowed usize".to_owned()
+                                    })
+                            })
                         })
                         .collect::<Result<Vec<_>, _>>()?
                         .into_iter()
                         .max()
                         .unwrap_or(0);
-                    return Ok(8 + payload);
+                    return 8usize
+                        .checked_add(payload)
+                        .ok_or_else(|| "native type layout size overflowed usize".to_owned());
                 }
                 Err(format!("unknown type '{name}' in size-of"))
             }
