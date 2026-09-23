@@ -2,8 +2,12 @@
 (#enum AllocError (OutOfMemory))
 (@result (#ptr-mut u64) AllocError AllocResult)
 (@vec u64 SystemAllocator VecU64)
+(@vec-sort u64 VecU64 compare-u64)
 (@vec-alloc u64 SystemAllocator VecU64 AllocResult AllocError
   system-alloc system-grow system-dealloc drop-u64)
+
+(#fn compare-u64 ((left (#ref u64)) (right (#ref u64))) bool
+  (#return (#u64.< (#deref left) (#deref right))))
 
 (#extern-fn malloc ((size usize)) (#ptr-mut u64))
 (#extern-fn realloc ((pointer (#ptr-mut u64)) (size usize)) (#ptr-mut u64))
@@ -43,12 +47,13 @@
 (#fn main () u64
   (#let-mut allocator SystemAllocator (SystemAllocator 0u64 (#cell 0u64)))
   (#let-mut vector VecU64 (VecU64-new (#borrow allocator)))
-  (#let first VecU64-PushResult (VecU64-push (#borrow-mut vector) 11u64))
+  (#let first VecU64-PushResult (VecU64-push (#borrow-mut vector) 33u64))
   (#forget first)
-  (#let second VecU64-PushResult (VecU64-push (#borrow-mut vector) 22u64))
+  (#let second VecU64-PushResult (VecU64-push (#borrow-mut vector) 11u64))
   (#forget second)
-  (#let third VecU64-PushResult (VecU64-push (#borrow-mut vector) 33u64))
+  (#let third VecU64-PushResult (VecU64-push (#borrow-mut vector) 22u64))
   (#forget third)
+  (VecU64-sort (#borrow-mut vector))
   (#let read VecU64-GetResult (VecU64-get (#borrow vector) 1usize))
   (#let read-value u64
     (#match read

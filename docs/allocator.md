@@ -63,15 +63,19 @@ destroys the replaced element, `-pop` transfers ownership to its caller, and
 Zero-sized elements do not call the allocator or deallocator, but their
 logical elements are still destroyed individually.
 
-The planned sort generator is likewise concrete and takes a comparator name as
-a literal input:
+Sorting is generated separately and takes a comparator name as a literal
+input:
 
 ```lisp
 (@vec-sort ElementType ConcreteVecType comparator-name)
 ```
 
-It is currently rejected with a targeted diagnostic; no placeholder sort
-function is emitted.
+The comparator must have the concrete signature
+`((left (#ref ElementType)) (right (#ref ElementType))) bool`. The generated
+`ConcreteVecType-sort` makes a direct call to that named function; no
+function-pointer value or runtime dispatch is created. It uses iterative
+insertion sort, so it does not add recursion to the program call graph. A
+zero-sized element vector is left unchanged.
 
 ## Required operations
 

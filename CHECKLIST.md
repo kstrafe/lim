@@ -81,7 +81,7 @@ the checklist is committed alongside the implementation it tracks.
   pointer.
 - [x] Add non-consuming `#ptr-is-null` so allocator wrappers can report
   allocation failure without losing the returned pointer value.
-- [ ] Implement `@vec-sort` using its literal comparator function name, with
+- [x] Implement `@vec-sort` using its literal comparator function name, with
   compile-time signature validation and no runtime function-pointer values.
 - [x] Define allocation failure, deallocation, destruction, and current leak
   behavior in `docs/allocator.md`.

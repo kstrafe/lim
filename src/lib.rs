@@ -2606,6 +2606,10 @@ fn write_generated_sources_in_directory(
                 })?);
             continue;
         }
+        if kind == "vec-sort" {
+            generated.push(generated_vec_sort_source(&forms)?);
+            continue;
+        }
         if !matches!(kind, "optional" | "result") {
             continue;
         }
@@ -2650,6 +2654,8 @@ fn write_generated_sources_in_directory(
     for (index, source) in generated.iter().enumerate() {
         let prefix = if source.contains("-is-some") {
             "optional"
+        } else if source.contains("-sort") {
+            "vec-sort"
         } else if source.contains("-capacity") {
             "vec"
         } else {
@@ -3610,10 +3616,18 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
                         .into(),
                 );
             }
-            parse_type(items.get(2))?;
-            expect_symbol(items.get(3), "vector sort type")?;
-            expect_symbol(items.get(4), "vector comparator")?;
-            Err("@vec-sort is reserved until raw-pointer indexing and comparator calls are available".into())
+            let element = type_source(&parse_type(items.get(2))?);
+            let name = expect_symbol(items.get(3), "vector sort type")?;
+            let comparator = expect_symbol(items.get(4), "vector comparator")?;
+            generated_vec_sort_source_parts(&element, name, comparator)
+                .and_then(|source| parse_generated_source_items(&source))
+                .and_then(|mut items| {
+                    if items.len() == 1 {
+                        Ok(items.remove(0))
+                    } else {
+                        Err("vector sort expansion produced an invalid item count".into())
+                    }
+                })
         }
         other => Err(format!("unknown generated declaration '@{other}'")),
     }
@@ -3632,6 +3646,9 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
     }
     if kind == "vec-alloc" {
         return parse_generated_source_items(&generated_vec_allocator_source(items)?);
+    }
+    if kind == "vec-sort" {
+        return parse_generated_source_items(&generated_vec_sort_source(items)?);
     }
     let generated = parse_generated_item(items)?;
     let Item::Enum { name, variants, .. } = &generated else {
@@ -3932,6 +3949,67 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
       ())
     (#block (#forget pointer) ()))
   (#forget vector)
+  (#return ()))
+"#
+    ))
+}
+
+fn generated_vec_sort_source(items: &[Expr]) -> Result<String, String> {
+    if items.len() != 5 {
+        return Err(
+            "generated declaration must have the form (@vec-sort Element VecType Comparator)"
+                .into(),
+        );
+    }
+    let element = type_source(&parse_type(items.get(2))?);
+    let vector = expect_symbol(items.get(3), "vector sort type")?;
+    let comparator = expect_symbol(items.get(4), "vector comparator")?;
+    generated_vec_sort_source_parts(&element, vector, comparator)
+}
+
+fn generated_vec_sort_source_parts(
+    element: &str,
+    vector: &str,
+    comparator: &str,
+) -> Result<String, String> {
+    Ok(format!(
+        r#"
+(#fn {vector}-sort ((vector (#ref-mut {vector}))) ()
+  (#let length usize (#get vector length))
+  (#let element-size usize (#size-of {element}))
+  (#if
+    (#&& (#usize.> length 1usize) (#usize.!= element-size 0usize))
+    (#block
+      (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
+      (#let-mut index usize 1usize)
+      (#while (#usize.< index length)
+        (#let current-pointer (#ptr-mut {element})
+          (#unsafe (#ptr-offset (#clone pointer) index)))
+        (#let current {element} (#unsafe (#ptr-read current-pointer)))
+        (#let-mut cursor usize index)
+        (#let-mut shifting bool true)
+        (#while (#&& (#usize.> cursor 0usize) shifting)
+          (#let previous-index usize (#usize.-.wrap cursor 1usize))
+          (#let previous-pointer (#ptr-mut {element})
+            (#unsafe (#ptr-offset (#clone pointer) previous-index)))
+          (#let move-previous bool
+            ({comparator}
+              (#borrow current)
+              (#unsafe (#ptr-borrow vector previous-pointer))))
+          (#if move-previous
+            (#block
+              (#let previous {element} (#unsafe (#ptr-read
+                (#unsafe (#ptr-offset (#clone pointer) previous-index)))))
+              (#unsafe (#ptr-write
+                (#unsafe (#ptr-offset (#clone pointer) cursor)) previous))
+              (#set cursor previous-index))
+            (#block (#set shifting false) ())))
+        (#unsafe (#ptr-write
+          (#unsafe (#ptr-offset (#clone pointer) cursor)) current))
+        (#set index (#usize.+.wrap index 1usize)))
+      (#forget pointer)
+      ())
+    ())
   (#return ()))
 "#
     ))
@@ -7286,9 +7364,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unimplemented_vec_sort_expansion_explicitly() {
-        let error = parse_program("(@vec-sort u64 VecU64 compare)").unwrap_err();
-        assert!(error.contains("raw-pointer indexing and comparator calls"));
+    fn vec_sort_expansion_calls_and_typechecks_its_literal_comparator() {
+        let valid = parse_program(
+            "(#struct Arena ((cursor u64))) (@vec u64 Arena VecU64) (@vec-sort u64 VecU64 compare-u64) (#fn compare-u64 ((left (#ref u64)) (right (#ref u64))) bool (#return (#u64.< (#deref left) (#deref right)))) (#fn main () u64 (#return 0u64))",
+        )
+        .unwrap();
+        let checked = check_types(&valid);
+        assert!(checked.is_ok(), "{checked:?}");
+        assert!(generate_assembly(&valid).is_ok());
+
+        let invalid = parse_program(
+            "(#struct Arena ((cursor u64))) (@vec u64 Arena VecU64) (@vec-sort u64 VecU64 compare-u64) (#fn compare-u64 ((left u64) (right u64)) bool (#return (#u64.< left right))) (#fn main () u64 (#return 0u64))",
+        )
+        .unwrap();
+        let error = check_types(&invalid).unwrap_err();
+        assert!(
+            error.contains("expected") || error.contains("type"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -7301,6 +7394,10 @@ mod tests {
         assert!(generated.contains("(#struct VecU64"));
         assert!(generated.contains("VecU64-new-with-storage"));
         assert!(generated.contains("(#ref Arena)"));
+        write_generated_sources("(@vec-sort u64 VecU64 compare-u64)", &directory).unwrap();
+        let sort = std::fs::read_to_string(directory.join("vec-sort-0.lim")).unwrap();
+        assert!(sort.contains("VecU64-sort"));
+        assert!(sort.contains("(compare-u64"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

@@ -453,7 +453,9 @@ create concrete specializations explicitly, such as `(@vec u64 Alloc VecU64)`.
 Allocator-backed collections add their concrete operations explicitly with
 `(@vec-alloc u64 Alloc VecU64 AllocResult AllocError alloc grow dealloc destroy)`;
 the generated API includes `VecU64-new`, `-reserve`, `-push`, `-get`,
-`-get-mut`, `-set`, `-pop`, and `-free`. Allocation failure and capacity
+`-get-mut`, `-set`, `-pop`, and `-free`. `(@vec-sort u64 VecU64 compare-u64)`
+adds `VecU64-sort`; its named comparator accepts two immutable element
+references and returns `bool`. Allocation failure and capacity
 overflow are returned in generated result types. See [the allocator ABI](allocator.md)
 for the allocator and destruction function signatures.
 
