@@ -177,7 +177,17 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
     };
 
     let mut diagnostic = Diagnostic::new(code, message);
-    if let Some((line, column)) = location_after(error, "conflicting access ") {
+    if let Some((start, end)) = span_after(error, "conflicting span ") {
+        if source.get(start..end).is_some() {
+            let prefix = &source[..start];
+            let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+            let column = prefix
+                .rsplit('\n')
+                .next()
+                .map_or(1, |line| line.chars().count() + 1);
+            diagnostic.span = Some(Span::new(start, end, line, column));
+        }
+    } else if let Some((line, column)) = location_after(error, "conflicting access ") {
         diagnostic.span = Some(source_span_at(
             source,
             line,
@@ -205,6 +215,16 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
         ));
     }
     output
+}
+
+fn span_after(error: &str, marker: &str) -> Option<(usize, usize)> {
+    let suffix = error.split_once(marker)?.1;
+    let (start, end) = suffix.split_once(':')?;
+    let end = end
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    Some((start.parse().ok()?, end.parse().ok()?))
 }
 
 fn token_width_at(source: &str, line: usize, column: usize) -> usize {
@@ -1056,6 +1076,7 @@ pub enum Item {
 pub struct Program {
     pub items: Vec<Item>,
     pub(crate) source: Option<String>,
+    pub(crate) statement_spans: HashMap<(String, usize), Span>,
 }
 
 /// Compile-time key/value settings used by `#cfg-*` forms.
@@ -1198,9 +1219,12 @@ fn parse_program_in_directory(
         config,
     )?;
     let mut items = Vec::with_capacity(expressions.len());
+    let mut statement_spans = HashMap::new();
     for expression in expressions {
         validate_prefixed_forms(&expression.expr)?;
+        let form_span = expression.span;
         let expression = normalize_keywords(expression.expr);
+        collect_function_statement_spans(source, &expression, form_span, &mut statement_spans);
         if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
                 items.extend(parse_generated_items(forms)?);
@@ -1215,7 +1239,73 @@ fn parse_program_in_directory(
     Ok(Program {
         items,
         source: Some(source.to_owned()),
+        statement_spans,
     })
+}
+
+/// Preserve source locations for top-level function statements before the
+/// source forms are lowered into the compiler AST.  The lowered `Statement`
+/// representation intentionally remains location-agnostic for now; this
+/// side table lets diagnostics refer to the original statement without
+/// guessing from identifier occurrences.
+fn collect_function_statement_spans(
+    source: &str,
+    expression: &Expr,
+    form_span: Span,
+    spans: &mut HashMap<(String, usize), Span>,
+) {
+    let Some(form_text) = source.get(form_span.start..form_span.end) else {
+        return;
+    };
+    let Expr::List(items) = expression else {
+        return;
+    };
+    if !matches!(items.first(), Some(Expr::Symbol(name)) if name == "#fn" || name == "fn")
+        || items.len() < 5
+    {
+        return;
+    }
+    if !form_text.trim_start().starts_with("(#fn") {
+        return;
+    }
+    let Some(Expr::Symbol(name)) = items.get(1) else {
+        return;
+    };
+    let Ok(tokens) = lex(source) else { return };
+    let tokens = tokens
+        .into_iter()
+        .filter(|token| token.span.start >= form_span.start && token.span.end <= form_span.end)
+        .collect::<Vec<_>>();
+    let mut depth = 0usize;
+    let mut direct_child = 0usize;
+    let mut current_start = None;
+    let mut statement_index = 0usize;
+    for token in &tokens {
+        match &token.kind {
+            TokenKind::LParen if depth == 0 => depth = 1,
+            TokenKind::LParen if depth == 1 => {
+                if direct_child >= 4 {
+                    current_start = Some(token.span);
+                }
+                direct_child += 1;
+                depth = 2;
+            }
+            TokenKind::LParen => depth += 1,
+            TokenKind::RParen if depth == 2 => {
+                if let Some(start) = current_start.take() {
+                    spans.insert(
+                        (name.clone(), statement_index),
+                        Span::new(start.start, token.span.end, start.line, start.column),
+                    );
+                    statement_index += 1;
+                }
+                depth = 1;
+            }
+            TokenKind::RParen => depth = depth.saturating_sub(1),
+            _ if depth == 1 => direct_child += 1,
+            _ => {}
+        }
+    }
 }
 
 /// Turn keyed struct construction into the ordinary positional constructor
@@ -4981,6 +5071,15 @@ mod tests {
     }
 
     #[test]
+    fn parsed_program_preserves_exact_function_statement_spans() {
+        let source = "(#fn main () u64\n  (#let x u64 1)\n  (#return missing)\n)";
+        let program = parse_program(source).unwrap();
+        let span = program.statement_spans.get(&("main".into(), 1)).unwrap();
+        assert_eq!(&source[span.start..span.end], "(#return missing)");
+        assert_eq!((span.line, span.column), (3, 3));
+    }
+
+    #[test]
     fn formatter_normalizes_nested_syntax() {
         let formatted = format_source("(#fn main () u64 (#return (#u64.+.wrap 40 2)))").unwrap();
         assert!(formatted.contains("#fn\n"));
@@ -5368,6 +5467,10 @@ mod tests {
         assert!(diagnostic.contains("function 'main'"));
         assert!(diagnostic.contains("original borrow site"));
         assert!(diagnostic.contains("conflicting access"));
+        assert!(diagnostic.contains("conflicting span"));
+        let rendered = render_error(diagnostic_source, "borrow.lim", &diagnostic);
+        assert!(rendered.contains("--> borrow.lim:3:3"), "{rendered}");
+        assert!(rendered.contains("  (#return (#borrow value"), "{rendered}");
 
         let shared_write = parse_program(
             "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow value (#block (#set value 42) value))))",

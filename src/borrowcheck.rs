@@ -301,6 +301,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                     &thread_spawn_functions,
                     &thread_join_functions,
                     program.source.as_deref(),
+                    &program.statement_spans,
                 )?;
             }
         }
@@ -318,6 +319,7 @@ fn check_function(
     thread_spawn_functions: &HashMap<String, Vec<crate::Type>>,
     thread_join_functions: &HashSet<String>,
     source: Option<&str>,
+    statement_spans: &HashMap<(String, usize), crate::Span>,
 ) -> Result<(), String> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
@@ -385,6 +387,9 @@ fn check_function(
                 function,
                 statement_index,
                 source,
+                statement_spans
+                    .get(&(function.name.clone(), statement_index))
+                    .copied(),
             ));
         }
     }
@@ -396,6 +401,7 @@ fn format_borrow_diagnostic(
     function: &Function,
     statement_index: usize,
     source: Option<&str>,
+    exact_conflict_span: Option<crate::Span>,
 ) -> String {
     let owner = error
         .split('\'')
@@ -405,7 +411,19 @@ fn format_borrow_diagnostic(
     let spans = source
         .map(|source| source_spans(source, owner))
         .unwrap_or_default();
-    let span_text = if spans.is_empty() {
+    let span_text = if let Some(span) = exact_conflict_span {
+        format!(
+            "original borrow site {}; conflicting access {}:{}; conflicting span {}:{}",
+            spans.first().map_or_else(
+                || "unavailable".to_owned(),
+                |site| format!("{}:{}", site.0, site.1)
+            ),
+            span.line,
+            span.column,
+            span.start,
+            span.end
+        )
+    } else if spans.is_empty() {
         "source spans unavailable".to_owned()
     } else {
         let first = spans[0];

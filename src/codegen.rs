@@ -827,6 +827,7 @@ fn monomorphize_program(
     Ok(Program {
         items,
         source: program.source.clone(),
+        statement_spans: program.statement_spans.clone(),
     })
 }
 
