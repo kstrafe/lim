@@ -29,6 +29,30 @@ the collection cannot outlive the allocator. `@vec-ref-alloc` and similar
 generators may produce alternate concrete layouts, but they must obey the same
 ownership rule.
 
+The initial generator form is:
+
+```lisp
+(@vec ElementType AllocatorType ConcreteVecType)
+```
+
+It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
+`capacity` fields, plus `ConcreteVecType-new`, `ConcreteVecType-len`, and
+`ConcreteVecType-capacity`. Construction is explicit: the caller supplies the
+allocator borrow, storage pointer, and capacity. This keeps allocation and
+failure handling in the allocator-specific layer until the collection
+generator can emit checked `alloc`/`grow` calls.
+
+The planned sort generator is likewise concrete and takes a comparator name as
+a literal input:
+
+```lisp
+(@vec-sort ElementType ConcreteVecType comparator-name)
+```
+
+It is currently rejected with a targeted diagnostic because raw-pointer
+indexing and comparator calls are not yet available. No placeholder sort
+function is emitted.
+
 ## Required operations
 
 The compiler recognizes the following allocator operation signatures when a

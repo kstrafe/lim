@@ -1,0 +1,12 @@
+(#struct Arena ((cursor u64)))
+(@vec u64 Arena VecU64)
+
+(#fn main () usize
+  (#let-mut arena Arena (Arena 0))
+  (#let-mut storage u64 0)
+  (#let vector VecU64
+    (VecU64-new
+      (#borrow arena)
+      (#unsafe (#addr-of-mut storage))
+      4))
+  (#return (VecU64-capacity (#borrow vector))))

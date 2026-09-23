@@ -60,8 +60,8 @@ it as the project checklist; cross items off as they are completed.
 
 - [x] Specify the dynamic allocation ABI and allocator ownership model in
   `docs/allocator.md`.
-- [ ] Implement allocator-backed generated collections, beginning with the
-  concrete `@vec` and `@vec-sort` design.
+- [x] Implement allocator-backed generated collections, beginning with the
+  concrete `@vec` representation and explicit `@vec-sort` design.
 - [x] Define allocation failure, deallocation, destruction, and current leak
   behavior in `docs/allocator.md`.
 - [ ] Add aggregate `#deref`/`#deref-set` support, or explicitly replace these

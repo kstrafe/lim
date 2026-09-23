@@ -2046,6 +2046,17 @@ fn write_generated_sources_in_directory(
             continue;
         }
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
+        if kind == "vec" {
+            let Item::Struct { name, fields, .. } = parse_generated_item(&forms)? else {
+                unreachable!("vec expansion always produces a struct")
+            };
+            let allocator = type_source(&fields[0].ty);
+            let pointer = type_source(&fields[1].ty);
+            generated.push(format!(
+                "(#struct {name} ((allocator {allocator}) (pointer {pointer}) (length usize) (capacity usize)))\n(#fn {name}-new ((allocator {allocator}) (pointer {pointer}) (capacity usize)) {name} (#return ({name} allocator pointer 0 capacity)))\n(#fn {name}-len ((vector (#ref {name}))) usize (#return (#get vector length)))\n(#fn {name}-capacity ((vector (#ref {name}))) usize (#return (#get vector capacity)))\n"
+            ));
+            continue;
+        }
         if !matches!(kind, "optional" | "result") {
             continue;
         }
@@ -2089,6 +2100,8 @@ fn write_generated_sources_in_directory(
     for (index, source) in generated.iter().enumerate() {
         let prefix = if source.contains("-is-some") {
             "optional"
+        } else if source.contains("-capacity") {
+            "vec"
         } else {
             "result"
         };
@@ -2991,6 +3004,57 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
                 worker: expect_symbol(items.get(3), "thread worker function")?.to_owned(),
             })
         }
+        "vec" => {
+            if items.len() != 5 {
+                return Err(
+                    "generated declaration must have the form (@vec Element Allocator VecType)"
+                        .into(),
+                );
+            }
+            let element = parse_type(items.get(2))?;
+            let allocator = expect_symbol(items.get(3), "vector allocator type")?.to_owned();
+            let name = expect_symbol(items.get(4), "generated vector type name")?.to_owned();
+            Ok(Item::Struct {
+                name,
+                type_parameters: Vec::new(),
+                fields: vec![
+                    Field {
+                        name: "allocator".into(),
+                        ty: Type::Reference {
+                            mutable: false,
+                            target: Box::new(Type::Named(allocator)),
+                        },
+                    },
+                    Field {
+                        name: "pointer".into(),
+                        ty: Type::RawPointer {
+                            mutable: true,
+                            target: Box::new(element),
+                        },
+                    },
+                    Field {
+                        name: "length".into(),
+                        ty: Type::Usize,
+                    },
+                    Field {
+                        name: "capacity".into(),
+                        ty: Type::Usize,
+                    },
+                ],
+            })
+        }
+        "vec-sort" => {
+            if items.len() != 5 {
+                return Err(
+                    "generated declaration must have the form (@vec-sort Element VecType Comparator)"
+                        .into(),
+                );
+            }
+            parse_type(items.get(2))?;
+            expect_symbol(items.get(3), "vector sort type")?;
+            expect_symbol(items.get(4), "vector comparator")?;
+            Err("@vec-sort is reserved until raw-pointer indexing and comparator calls are available".into())
+        }
         other => Err(format!("unknown generated declaration '@{other}'")),
     }
 }
@@ -3002,6 +3066,100 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
     }
     if kind == "thread-spawn" {
         return Ok(vec![parse_generated_item(items)?]);
+    }
+    if kind == "vec" {
+        let generated = parse_generated_item(items)?;
+        let Item::Struct { name, fields, .. } = &generated else {
+            unreachable!("vec expansion always produces a struct")
+        };
+        let name = name.clone();
+        let fields = fields.clone();
+        let element = match &fields[1].ty {
+            Type::RawPointer { target, .. } => (**target).clone(),
+            _ => unreachable!("vec storage field is always a raw pointer"),
+        };
+        let allocator = match &fields[0].ty {
+            Type::Reference { target, .. } => (**target).clone(),
+            _ => unreachable!("vec allocator field is always a reference"),
+        };
+        let vector_type = Type::Named(name.clone());
+        return Ok(vec![
+            generated,
+            Item::Function(Function {
+                name: format!("{name}-new"),
+                external: false,
+                type_parameters: Vec::new(),
+                parameters: vec![
+                    Parameter {
+                        name: "allocator".into(),
+                        ty: Type::Reference {
+                            mutable: false,
+                            target: Box::new(allocator),
+                        },
+                        mutable: false,
+                    },
+                    Parameter {
+                        name: "pointer".into(),
+                        ty: Type::RawPointer {
+                            mutable: true,
+                            target: Box::new(element),
+                        },
+                        mutable: false,
+                    },
+                    Parameter {
+                        name: "capacity".into(),
+                        ty: Type::Usize,
+                        mutable: false,
+                    },
+                ],
+                return_type: vector_type.clone(),
+                body: vec![Statement::Return(Some(Expr::List(vec![
+                    Expr::Symbol(name.clone()),
+                    Expr::Symbol("allocator".into()),
+                    Expr::Symbol("pointer".into()),
+                    Expr::UnsignedInteger(0),
+                    Expr::Symbol("capacity".into()),
+                ])))],
+            }),
+            Item::Function(Function {
+                name: format!("{name}-len"),
+                external: false,
+                type_parameters: Vec::new(),
+                parameters: vec![Parameter {
+                    name: "vector".into(),
+                    ty: Type::Reference {
+                        mutable: false,
+                        target: Box::new(vector_type.clone()),
+                    },
+                    mutable: false,
+                }],
+                return_type: Type::Usize,
+                body: vec![Statement::Return(Some(Expr::List(vec![
+                    Expr::Symbol("get".into()),
+                    Expr::Symbol("vector".into()),
+                    Expr::Symbol("length".into()),
+                ])))],
+            }),
+            Item::Function(Function {
+                name: format!("{name}-capacity"),
+                external: false,
+                type_parameters: Vec::new(),
+                parameters: vec![Parameter {
+                    name: "vector".into(),
+                    ty: Type::Reference {
+                        mutable: false,
+                        target: Box::new(vector_type),
+                    },
+                    mutable: false,
+                }],
+                return_type: Type::Usize,
+                body: vec![Statement::Return(Some(Expr::List(vec![
+                    Expr::Symbol("get".into()),
+                    Expr::Symbol("vector".into()),
+                    Expr::Symbol("capacity".into()),
+                ])))],
+            }),
+        ]);
     }
     let generated = parse_generated_item(items)?;
     let Item::Enum { name, variants, .. } = &generated else {
@@ -6069,6 +6227,40 @@ mod tests {
         assert!(generated.contains("Result-ok-value"));
         assert!(generated.contains("Result-unwrap-or"));
         assert!(generated.contains("Result-unwrap-err-or"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn expands_allocator_backed_vec_with_explicit_allocator_borrow() {
+        let program = parse_program(
+            "(#struct Arena ((cursor u64))) (@vec u64 Arena VecU64) (#fn main () usize (#let-mut arena Arena (Arena 0)) (#let-mut value u64 0) (#let vector VecU64 (VecU64-new (#borrow arena) (#unsafe (#addr-of-mut value)) 4)) (#return (VecU64-capacity (#borrow vector))))",
+        )
+        .unwrap();
+        assert!(program
+            .items
+            .iter()
+            .any(|item| { matches!(item, Item::Struct { name, .. } if name == "VecU64") }));
+        let type_result = check_types(&program);
+        assert!(type_result.is_ok(), "{type_result:?}");
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn rejects_unimplemented_vec_sort_expansion_explicitly() {
+        let error = parse_program("(@vec-sort u64 VecU64 compare)").unwrap_err();
+        assert!(error.contains("raw-pointer indexing and comparator calls"));
+    }
+
+    #[test]
+    fn materializes_vec_generated_source() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-generated-vec-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        write_generated_sources("(@vec u64 Arena VecU64)", &directory).unwrap();
+        let generated = std::fs::read_to_string(directory.join("vec-0.lim")).unwrap();
+        assert!(generated.contains("(#struct VecU64"));
+        assert!(generated.contains("VecU64-new"));
+        assert!(generated.contains("(#ref Arena)"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
