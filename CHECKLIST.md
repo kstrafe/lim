@@ -48,8 +48,9 @@ the checklist is committed alongside the implementation it tracks.
 - [x] Define and implement reference projection rules for nested aggregates,
   including references stored inside tuple and struct aggregates and nested
   reference chains.
-- [ ] Add borrow-checker diagnostics with source spans, the original borrow
-  site, the conflicting access, and generator invocation context.
+- [x] Add borrow-checker diagnostics with stable `E4100`, function/statement
+  context, source locations for the original borrow and conflicting access,
+  and preserved generator/source context where available.
 - [x] Add regression tests for the supported projection and control-flow
   combinations, including nested tuples, static/dynamic arrays, branch-local
   projections, and multiple derived field loans.

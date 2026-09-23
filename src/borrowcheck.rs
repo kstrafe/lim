@@ -300,6 +300,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                     &function_names,
                     &thread_spawn_functions,
                     &thread_join_functions,
+                    program.source.as_deref(),
                 )?;
             }
         }
@@ -316,6 +317,7 @@ fn check_function(
     function_names: &HashSet<String>,
     thread_spawn_functions: &HashMap<String, Vec<crate::Type>>,
     thread_join_functions: &HashSet<String>,
+    source: Option<&str>,
 ) -> Result<(), String> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
@@ -376,10 +378,80 @@ fn check_function(
             context.loans.borrow(&parameter.name, kind)?;
         }
     }
-    for statement in &function.body {
-        check_statement(statement, &mut context)?;
+    for (statement_index, statement) in function.body.iter().enumerate() {
+        if let Err(error) = check_statement(statement, &mut context) {
+            return Err(format_borrow_diagnostic(
+                error,
+                function,
+                statement_index,
+                source,
+            ));
+        }
     }
     Ok(())
+}
+
+fn format_borrow_diagnostic(
+    error: String,
+    function: &Function,
+    statement_index: usize,
+    source: Option<&str>,
+) -> String {
+    let owner = error
+        .split('\'')
+        .nth(1)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("<unknown>");
+    let spans = source
+        .map(|source| source_spans(source, owner))
+        .unwrap_or_default();
+    let span_text = if spans.is_empty() {
+        "source spans unavailable".to_owned()
+    } else {
+        let first = spans[0];
+        let second = spans.get(1).copied().unwrap_or(first);
+        format!(
+            "original borrow site {}:{}; conflicting access {}:{}",
+            first.0, first.1, second.0, second.1
+        )
+    };
+    format!(
+        "E4100 borrow-checker diagnostic in function '{}' statement {}: {}; {}",
+        function.name, statement_index, error, span_text
+    )
+}
+
+fn source_spans(source: &str, needle: &str) -> Vec<(usize, usize)> {
+    let mut result = Vec::new();
+    let bytes = source.as_bytes();
+    let needle = needle.as_bytes();
+    if needle.is_empty() {
+        return result;
+    }
+    for start in 0..bytes.len().saturating_sub(needle.len()).saturating_add(1) {
+        if &bytes[start..start + needle.len()] != needle {
+            continue;
+        }
+        let boundary = |byte: Option<&u8>| {
+            byte.is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_' && *byte != b'-')
+        };
+        if !boundary(start.checked_sub(1).and_then(|index| bytes.get(index)))
+            || !boundary(bytes.get(start + needle.len()))
+        {
+            continue;
+        }
+        let line = source[..start]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count()
+            + 1;
+        let column = source[..start]
+            .rsplit('\n')
+            .next()
+            .map_or(1, |line| line.chars().count() + 1);
+        result.push((line, column));
+    }
+    result
 }
 
 fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), String> {

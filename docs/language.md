@@ -895,6 +895,12 @@ typing, `E4100` borrowing, `E4200` linear ownership, `E4300` unsafe checks,
 source span and structured notes; legacy string-returning APIs remain
 available for compatibility.
 
+Borrow failures include the `E4100` code, function and statement context, the
+conflicting access, and source line/column locations for the original and
+conflicting owner occurrences when source text is available. Generated forms
+retain their source context through parsing, so generator failures remain
+associated with their invocation diagnostics.
+
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures
 from the lower-level parser carry source spans in `ParseError` when using the

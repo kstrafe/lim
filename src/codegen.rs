@@ -824,7 +824,10 @@ fn monomorphize_program(
                 .collect();
         }
     }
-    Ok(Program { items })
+    Ok(Program {
+        items,
+        source: program.source.clone(),
+    })
 }
 
 fn erase_unsafe_blocks(program: &Program) -> Program {

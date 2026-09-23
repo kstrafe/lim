@@ -819,6 +819,7 @@ pub enum Item {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Program {
     pub items: Vec<Item>,
+    pub(crate) source: Option<String>,
 }
 
 /// Compile-time key/value settings used by `#cfg-*` forms.
@@ -975,7 +976,10 @@ fn parse_program_in_directory(
     rename_shadowed_locals(&mut items);
     let mut items = specialize_generic_types(items)?;
     normalize_struct_literals(&mut items)?;
-    Ok(Program { items })
+    Ok(Program {
+        items,
+        source: Some(source.to_owned()),
+    })
 }
 
 /// Turn keyed struct construction into the ordinary positional constructor
@@ -5087,6 +5091,14 @@ mod tests {
         assert!(check_types(&overlapping_mutable)
             .unwrap_err()
             .contains("already borrowed mutably"));
+
+        let diagnostic_source = "(#fn main () u64\n  (#let-mut value u64 40)\n  (#return (#borrow value (#borrow-mut value value))))";
+        let diagnostic = parse_program(diagnostic_source).unwrap();
+        let diagnostic = check_types(&diagnostic).unwrap_err();
+        assert!(diagnostic.contains("E4100"));
+        assert!(diagnostic.contains("function 'main'"));
+        assert!(diagnostic.contains("original borrow site"));
+        assert!(diagnostic.contains("conflicting access"));
 
         let shared_write = parse_program(
             "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow value (#block (#set value 42) value))))",
