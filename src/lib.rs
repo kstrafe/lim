@@ -6290,6 +6290,17 @@ mod tests {
     }
 
     #[test]
+    fn dropping_reference_aggregate_releases_each_field_loan() {
+        let program = parse_program(
+            "(#struct View ((left (#ref-mut u64)) (right (#ref-mut u64)))) (#fn main () u64 (#let-mut left u64 1) (#let-mut right u64 2) (#let view View (View (#borrow-mut left) (#borrow-mut right))) (#drop view) (#set left 10) (#set right 20) (#return (#u64.+.wrap left right)))",
+        )
+        .unwrap();
+        let type_result = check_types(&program);
+        assert!(type_result.is_ok(), "{type_result:?}");
+        assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn rejects_unimplemented_vec_sort_expansion_explicitly() {
         let error = parse_program("(@vec-sort u64 VecU64 compare)").unwrap_err();
         assert!(error.contains("raw-pointer indexing and comparator calls"));

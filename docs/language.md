@@ -585,6 +585,11 @@ function named `<Type>-clone` exists with signature `(<Type>) -> <Type>`,
 `#clone` dispatches to it; use that function to define deep-copy behavior for
 resource-owning types. Otherwise the backend clones the value representation.
 `#drop` explicitly consumes a value when its result is intentionally discarded.
+For a struct, tuple, array, or enum containing references, the borrow checker
+tracks the provenance of every contained reference. Dropping the aggregate
+releases each recorded field loan, so all owners become available again only
+after the aggregate itself is dropped. Code generation does not emit runtime
+work for references because they are non-owning values.
 
 ## Operators
 

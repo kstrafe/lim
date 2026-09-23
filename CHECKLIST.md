@@ -68,7 +68,7 @@ it as the project checklist; cross items off as they are completed.
   native value registers; larger aggregate ABI support remains a separate item.
 - [x] Remove backend restrictions on large aggregate returns, arguments, and
   reference projections by routing them through indirect aggregate storage.
-- [ ] Specify and implement field-wise destruction for reference-containing
+- [x] Specify and implement field-wise destruction for reference-containing
   aggregates.
 
 ### Generators and monomorphization
