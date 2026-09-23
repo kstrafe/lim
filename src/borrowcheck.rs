@@ -453,47 +453,142 @@ fn source_spans(
     let Ok(tokens) = crate::lex(source) else {
         return Vec::new();
     };
-    let function_start = tokens
-        .windows(3)
-        .find_map(|window| {
-            let [open, keyword, name] = window else {
-                return None;
-            };
-            (open.kind == TokenKind::LParen
-                && keyword.kind == TokenKind::Symbol("#fn".into())
-                && name.kind == TokenKind::Symbol(function_name.into()))
-            .then_some(open.span.start)
-        })
-        .unwrap_or(0);
-    tokens
-        .windows(3)
-        .filter_map(|window| {
-            let [open, operator, owner] = window else {
-                return None;
-            };
-            let TokenKind::Symbol(operator_name) = &operator.kind else {
-                return None;
-            };
-            let TokenKind::Symbol(owner_name) = &owner.kind else {
-                return None;
-            };
-            (open.kind == TokenKind::LParen
-                && matches!(
-                    operator_name.as_str(),
-                    "#borrow" | "#borrow-mut" | "borrow" | "borrow-mut"
+    let Some(function_start) = tokens.windows(3).find_map(|window| {
+        let [open, keyword, name] = window else {
+            return None;
+        };
+        (open.kind == TokenKind::LParen
+            && keyword.kind == TokenKind::Symbol("#fn".into())
+            && name.kind == TokenKind::Symbol(function_name.into()))
+        .then_some(open.span.start)
+    }) else {
+        return Vec::new();
+    };
+    let aliases = borrowed_source_aliases(&tokens, function_start, conflict.map(|span| span.start));
+    let full_path = needle.trim_end_matches(".*").split('.').collect::<Vec<_>>();
+    let mut sites = Vec::new();
+    for index in 0..tokens.len().saturating_sub(2) {
+        let (open, operator, argument) = (&tokens[index], &tokens[index + 1], index + 2);
+        let TokenKind::Symbol(operator_name) = &operator.kind else {
+            continue;
+        };
+        if open.kind != TokenKind::LParen
+            || !matches!(
+                operator_name.as_str(),
+                "#borrow" | "#borrow-mut" | "borrow" | "borrow-mut"
+            )
+            || open.span.start < function_start
+            || conflict.is_some_and(|conflict| operator.span.start >= conflict.start)
+        {
+            continue;
+        }
+        let Some(argument_end) = expression_end(&tokens, argument) else {
+            continue;
+        };
+        let argument_names = tokens[argument..=argument_end]
+            .iter()
+            .filter_map(|token| match &token.kind {
+                TokenKind::Symbol(name) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        let expanded_names = argument_names
+            .iter()
+            .flat_map(|name| {
+                std::iter::once(*name).chain(
+                    aliases
+                        .get(*name)
+                        .into_iter()
+                        .flat_map(|origins| origins.iter().map(String::as_str)),
                 )
-                && owner_name == needle
-                && open.span.start >= function_start
-                && conflict.is_none_or(|conflict| operator.span.start < conflict.start))
-            .then_some((
+            })
+            .collect::<HashSet<_>>();
+        let matches_owner = argument_names.contains(needle)
+            || full_path.iter().all(|part| expanded_names.contains(part));
+        if matches_owner {
+            sites.push((
                 operator.span.line,
                 operator.span.column,
                 operator.span.start,
-            ))
-        })
-        .last()
+            ));
+        }
+    }
+    sites
+        .into_iter()
         .map(|(line, column, _)| vec![(line, column)])
+        .last()
         .unwrap_or_default()
+}
+
+fn borrowed_source_aliases(
+    tokens: &[crate::Token],
+    function_start: usize,
+    before: Option<usize>,
+) -> HashMap<String, HashSet<String>> {
+    let mut aliases = HashMap::new();
+    for index in 0..tokens.len().saturating_sub(3) {
+        if tokens[index].span.start < function_start
+            || before.is_some_and(|before| tokens[index].span.start >= before)
+            || tokens[index].kind != TokenKind::LParen
+            || tokens[index + 1].kind != TokenKind::Symbol("#let".into())
+        {
+            continue;
+        }
+        let TokenKind::Symbol(binding) = &tokens[index + 2].kind else {
+            continue;
+        };
+        let Some(type_end) = expression_end(tokens, index + 3) else {
+            continue;
+        };
+        let value_start = type_end + 1;
+        if !matches!(
+            tokens.get(value_start).map(|token| &token.kind),
+            Some(TokenKind::LParen)
+        ) || !matches!(tokens.get(value_start + 1).map(|token| &token.kind), Some(TokenKind::Symbol(operator)) if matches!(operator.as_str(), "#borrow" | "#borrow-mut"))
+        {
+            continue;
+        }
+        let Some(value_end) = expression_end(tokens, value_start) else {
+            continue;
+        };
+        let argument_start = value_start + 2;
+        let Some(argument_end) = expression_end(tokens, argument_start) else {
+            continue;
+        };
+        let origins = tokens[argument_start..=argument_end]
+            .iter()
+            .filter_map(|token| match &token.kind {
+                TokenKind::Symbol(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        if argument_end < value_end && !origins.is_empty() {
+            aliases.insert(binding.clone(), origins);
+        }
+    }
+    aliases
+}
+
+fn expression_end(tokens: &[crate::Token], start: usize) -> Option<usize> {
+    match tokens.get(start)?.kind {
+        TokenKind::LParen => {
+            let mut depth = 0usize;
+            for (index, token) in tokens.iter().enumerate().skip(start) {
+                match token.kind {
+                    TokenKind::LParen => depth += 1,
+                    TokenKind::RParen => {
+                        depth = depth.checked_sub(1)?;
+                        if depth == 0 {
+                            return Some(index);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        _ => Some(start),
+    }
 }
 
 fn conflict_operator_span(
@@ -503,8 +598,9 @@ fn conflict_operator_span(
     error: &str,
 ) -> Option<crate::Span> {
     let tokens = crate::lex(source).ok()?;
-    let is_borrow_conflict = error.contains("borrow");
-    tokens
+    let is_borrow_conflict = error.starts_with("cannot borrow");
+    let owner_names = place_name_candidates(owner);
+    let operator_span = tokens
         .windows(3)
         .filter_map(|window| {
             let [open, operator, target] = window else {
@@ -521,17 +617,44 @@ fn conflict_operator_span(
                     operator_name.as_str(),
                     "#borrow" | "#borrow-mut" | "borrow" | "borrow-mut"
                 )
+            } else if error.starts_with("cannot mutate") || error.starts_with("cannot write") {
+                operator_name.starts_with("#set")
+                    || operator_name.starts_with("set")
+                    || operator_name == "#deref-set"
             } else {
-                operator_name.starts_with("#set") || operator_name.starts_with("set")
+                false
             };
             (open.kind == TokenKind::LParen
                 && matching_operator
-                && target_name == owner
+                && (owner_names.iter().any(|candidate| target_name == candidate)
+                    || operator_name == "#deref-set")
                 && operator.span.start >= statement.start
                 && operator.span.end <= statement.end)
                 .then_some(operator.span)
         })
-        .last()
+        .last();
+    operator_span.or_else(|| {
+        tokens
+            .into_iter()
+            .filter(|token| {
+                token.span.start >= statement.start
+                    && token.span.end <= statement.end
+                    && matches!(&token.kind, TokenKind::Symbol(symbol) if owner_names.iter().any(|candidate| symbol == candidate))
+            })
+            .last()
+            .map(|token| token.span)
+    })
+}
+
+fn place_name_candidates(place: &str) -> Vec<&str> {
+    let mut candidates = vec![place];
+    if let Some((root, _)) = place.split_once('.') {
+        candidates.push(root);
+    }
+    if let Some((root, _)) = place.split_once('[') {
+        candidates.push(root);
+    }
+    candidates
 }
 
 fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), String> {

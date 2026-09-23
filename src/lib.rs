@@ -5073,6 +5073,38 @@ mod tests {
     }
 
     #[test]
+    fn borrow_errors_point_at_conflicting_reads() {
+        let source = "(#fn main () u64\n  (#let-mut value u64 1u64)\n  (#let reference (#ref-mut u64) (#borrow-mut value))\n  (#return value)\n)";
+        let program = parse_program(source).unwrap();
+        let error = check_types(&program).unwrap_err();
+        let rendered = render_error(source, "borrow-read.lim", &error);
+        assert!(rendered.contains("E4100"), "{rendered}");
+        assert!(rendered.contains("--> borrow-read.lim:4:12"), "{rendered}");
+    }
+
+    #[test]
+    fn borrow_errors_point_at_conflicting_writes() {
+        let source = "(#fn main () u64\n  (#let-mut value u64 1u64)\n  (#let reference (#ref u64) (#borrow value))\n  (#set value 2u64)\n  (#return 0u64)\n)";
+        let program = parse_program(source).unwrap();
+        let error = check_types(&program).unwrap_err();
+        let rendered = render_error(source, "borrow-write.lim", &error);
+        assert!(rendered.contains("E4100"), "{rendered}");
+        assert!(rendered.contains("--> borrow-write.lim:4:4"), "{rendered}");
+        assert!(rendered.contains("borrow-write.lim:3:31"), "{rendered}");
+    }
+
+    #[test]
+    fn projected_borrow_errors_keep_both_operator_spans() {
+        let source = "(#struct Point ((x u64) (y u64)))\n(#fn main () u64\n  (#let-mut point Point (Point 1u64 2u64))\n  (#let point-ref (#ref-mut Point) (#borrow-mut point))\n  (#let reference (#ref u64) (#borrow (#get point-ref x)))\n  (#set-field point x 3u64)\n  (#return 0u64)\n)";
+        let program = parse_program(source).unwrap();
+        let error = check_types(&program).unwrap_err();
+        let rendered = render_error(source, "borrow-field.lim", &error);
+        assert!(rendered.contains("E4100"), "{rendered}");
+        assert!(rendered.contains("--> borrow-field.lim:6:4"), "{rendered}");
+        assert!(rendered.contains("--> borrow-field.lim:5:31"), "{rendered}");
+    }
+
+    #[test]
     fn parsed_program_preserves_exact_function_statement_spans() {
         let source = "(#fn main () u64\n  (#let x u64 1)\n  (#return missing)\n)";
         let program = parse_program(source).unwrap();
