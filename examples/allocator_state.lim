@@ -11,4 +11,6 @@
   (#let-mut arena Arena (Arena (#cell 0)))
   (#let-mut vector VecU64Arena (VecU64Arena (#borrow arena) 0))
   (#let reserved u64 (VecU64Arena-reserve (#borrow vector) 42))
+  (#drop vector)
+  (#forget arena)
   (#return reserved))

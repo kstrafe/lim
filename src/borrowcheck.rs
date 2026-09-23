@@ -681,7 +681,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
     match expression {
         Expr::List(items) => {
             if let Some(Expr::Symbol(operator)) = items.first() {
-                if operator == "drop" && items.len() == 2 {
+                if matches!(operator.as_str(), "drop" | "forget") && items.len() == 2 {
                     check_expression(&items[1], context)?;
                     release_dropped_value(&items[1], context);
                 } else if operator == "if" && items.len() == 4 {

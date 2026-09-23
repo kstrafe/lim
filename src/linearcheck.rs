@@ -1,10 +1,41 @@
 use std::collections::HashSet;
 
-use crate::{Expr, Item, Program, Statement};
+use crate::{Expr, Item, Program, Statement, Type};
 
-/// Enforce affine use of function-owned bindings. Values may be discarded, but
-/// a binding may be consumed only once unless its value is explicitly cloned.
+#[derive(Default)]
+struct LinearTypes {
+    aliases: std::collections::HashMap<String, Type>,
+    structs: std::collections::HashMap<String, Vec<Type>>,
+    enums: std::collections::HashMap<String, std::collections::HashMap<String, Vec<Type>>>,
+}
+
+/// Enforce linear use of owned values. Non-Copy values must be consumed exactly
+/// once; Copy values and references do not create an ownership obligation.
 pub(crate) fn check_program(program: &Program) -> Result<(), String> {
+    let mut types = LinearTypes::default();
+    for item in &program.items {
+        match item {
+            Item::TypeAlias { name, target, .. } => {
+                types.aliases.insert(name.clone(), target.clone());
+            }
+            Item::Struct { name, fields, .. } => {
+                types.structs.insert(
+                    name.clone(),
+                    fields.iter().map(|field| field.ty.clone()).collect(),
+                );
+            }
+            Item::Enum { name, variants, .. } => {
+                types.enums.insert(
+                    name.clone(),
+                    variants
+                        .iter()
+                        .map(|variant| (variant.name.clone(), variant.fields.clone()))
+                        .collect(),
+                );
+            }
+            _ => {}
+        }
+    }
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;
@@ -15,10 +46,17 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
         let mut bindings = function
             .parameters
             .iter()
+            .filter(|parameter| is_linear(&parameter.ty, &types, &mut HashSet::new()))
             .map(|p| p.name.clone())
             .collect::<HashSet<_>>();
         let mut moved = HashSet::new();
-        check_statements(&function.body, &mut bindings, &mut moved, &HashSet::new())?;
+        check_statements(
+            &function.body,
+            &mut bindings,
+            &mut moved,
+            &HashSet::new(),
+            &types,
+        )?;
     }
     Ok(())
 }
@@ -28,20 +66,28 @@ fn check_statements(
     bindings: &mut HashSet<String>,
     moved: &mut HashSet<String>,
     globals: &HashSet<String>,
+    types: &LinearTypes,
 ) -> Result<(), String> {
     for statement in statements {
         match statement {
-            Statement::Let { name, value, .. } => {
+            Statement::Let {
+                name, ty, value, ..
+            } => {
                 check_expr(value, bindings, moved, globals, false)?;
-                bindings.insert(name.clone());
+                if is_linear(ty, types, &mut HashSet::new()) {
+                    bindings.insert(name.clone());
+                }
                 moved.remove(name);
             }
-            Statement::Destructure { pattern, value, .. } => {
+            Statement::Destructure {
+                pattern, ty, value, ..
+            } => {
                 check_expr(value, bindings, moved, globals, false)?;
-                collect_pattern_names(pattern, bindings);
+                collect_typed_pattern_names(pattern, ty, types, bindings);
             }
             Statement::LetElse {
                 pattern,
+                ty,
                 value,
                 else_body,
                 ..
@@ -49,12 +95,21 @@ fn check_statements(
                 check_expr(value, bindings, moved, globals, false)?;
                 let mut else_bindings = bindings.clone();
                 let mut else_moved = moved.clone();
-                check_scoped_statements(else_body, &mut else_bindings, &mut else_moved, globals)?;
-                collect_pattern_names(pattern, bindings);
+                check_scoped_statements(
+                    else_body,
+                    &mut else_bindings,
+                    &mut else_moved,
+                    globals,
+                    types,
+                )?;
+                collect_typed_pattern_names(pattern, ty, types, bindings);
             }
             Statement::Assign { name, value } => {
                 check_expr(value, bindings, moved, globals, false)?;
                 if bindings.contains(name) {
+                    if !moved.contains(name) {
+                        return Err(format!("assignment would destroy live linear value '{name}'; consume it explicitly first"));
+                    }
                     moved.remove(name);
                 }
             }
@@ -85,6 +140,9 @@ fn check_statements(
                 if let Some(value) = value {
                     check_expr(value, bindings, moved, globals, false)?;
                 }
+                if let Some(name) = bindings.iter().find(|name| !moved.contains(*name)) {
+                    return Err(format!("linear value '{name}' must be consumed before returning; use it, pass it to a destruction function, or explicitly (#forget {name})"));
+                }
             }
             Statement::Expr(expr) | Statement::BreakValue(expr) => {
                 check_expr(expr, bindings, moved, globals, false)?
@@ -109,7 +167,7 @@ fn check_statements(
                     return Err("a loop condition cannot consume an outer value; use #clone".into());
                 }
                 let mut body_moved = moved.clone();
-                check_scoped_statements(body, bindings, &mut body_moved, globals)?;
+                check_scoped_statements(body, bindings, &mut body_moved, globals, types)?;
                 let moved_by_body = body_moved
                     .difference(moved)
                     .cloned()
@@ -123,7 +181,7 @@ fn check_statements(
             }
             Statement::Loop { body } => {
                 let mut body_moved = moved.clone();
-                check_scoped_statements(body, bindings, &mut body_moved, globals)?;
+                check_scoped_statements(body, bindings, &mut body_moved, globals, types)?;
                 if body_moved != *moved {
                     return Err(
                         "a loop body cannot move an outer value; clone it before use".into(),
@@ -136,7 +194,7 @@ fn check_statements(
                 step,
                 body,
             } => {
-                check_statements(std::slice::from_ref(init), bindings, moved, globals)?;
+                check_statements(std::slice::from_ref(init), bindings, moved, globals, types)?;
                 let before_condition = moved.clone();
                 check_expr(condition, bindings, moved, globals, false)?;
                 if *moved != before_condition {
@@ -144,21 +202,134 @@ fn check_statements(
                 }
                 let before = moved.clone();
                 let mut inner = before.clone();
-                check_scoped_statements(body, bindings, &mut inner, globals)?;
-                check_statements(std::slice::from_ref(step), bindings, &mut inner, globals)?;
+                check_scoped_statements(body, bindings, &mut inner, globals, types)?;
+                check_statements(
+                    std::slice::from_ref(step),
+                    bindings,
+                    &mut inner,
+                    globals,
+                    types,
+                )?;
                 if inner != before {
                     return Err(
                         "a loop body cannot move an outer value; clone it before use".into(),
                     );
                 }
             }
-            Statement::Labeled { statement, .. } => {
-                check_statements(std::slice::from_ref(statement), bindings, moved, globals)?
-            }
+            Statement::Labeled { statement, .. } => check_statements(
+                std::slice::from_ref(statement),
+                bindings,
+                moved,
+                globals,
+                types,
+            )?,
             _ => {}
         }
     }
     Ok(())
+}
+
+fn is_linear(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool {
+    match ty {
+        Type::Unit
+        | Type::Bool
+        | Type::Char
+        | Type::I8
+        | Type::I16
+        | Type::I32
+        | Type::I64
+        | Type::I128
+        | Type::Isize
+        | Type::U8
+        | Type::U16
+        | Type::U32
+        | Type::U64
+        | Type::U128
+        | Type::Usize
+        | Type::F32
+        | Type::F64
+        | Type::Reference { .. }
+        | Type::RawPointer { .. } => false,
+        Type::Tuple(items) => items.iter().any(|item| is_linear(item, types, seen)),
+        Type::Array(element, _) => is_linear(element, types, seen),
+        Type::Named(name) => {
+            if let Some(alias) = types.aliases.get(name) {
+                if !seen.insert(name.clone()) {
+                    return true;
+                }
+                let result = is_linear(alias, types, seen);
+                seen.remove(name);
+                result
+            } else if let Some(fields) = types.structs.get(name) {
+                if !seen.insert(name.clone()) {
+                    return true;
+                }
+                let result = fields.iter().any(|field| is_linear(field, types, seen));
+                seen.remove(name);
+                result
+            } else if let Some(variants) = types.enums.get(name) {
+                if !seen.insert(name.clone()) {
+                    return true;
+                }
+                let result = variants
+                    .values()
+                    .flatten()
+                    .any(|field| is_linear(field, types, seen));
+                seen.remove(name);
+                result
+            } else {
+                true
+            }
+        }
+        Type::Cell(_) | Type::Generic(_) | Type::Never => true,
+    }
+}
+
+fn collect_typed_pattern_names(
+    pattern: &Expr,
+    ty: &Type,
+    types: &LinearTypes,
+    bindings: &mut HashSet<String>,
+) {
+    if let Type::Named(name) = ty {
+        if let Some(target) = types.aliases.get(name) {
+            collect_typed_pattern_names(pattern, target, types, bindings);
+            return;
+        }
+    }
+    match pattern {
+        Expr::Symbol(name) if name != "_" => {
+            if is_linear(ty, types, &mut HashSet::new()) {
+                bindings.insert(name.clone());
+            }
+        }
+        Expr::List(parts) if !parts.is_empty() => {
+            let head = match &parts[0] {
+                Expr::Symbol(name) => name.as_str(),
+                _ => "",
+            };
+            let child_types: Vec<Type> = match (head, ty) {
+                ("tuple", Type::Tuple(items)) => items.clone(),
+                ("array", Type::Array(element, count)) => vec![(**element).clone(); *count],
+                (_, Type::Named(name)) => types
+                    .structs
+                    .get(name)
+                    .cloned()
+                    .or_else(|| {
+                        types
+                            .enums
+                            .get(name)
+                            .and_then(|variants| variants.get(head).cloned())
+                    })
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            for (child, child_ty) in parts.iter().skip(1).zip(child_types.iter()) {
+                collect_typed_pattern_names(child, child_ty, types, bindings);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn collect_pattern_names(pattern: &Expr, bindings: &mut HashSet<String>) {
@@ -199,14 +370,37 @@ fn check_expr(
                     return Err("clone requires exactly one value".into());
                 }
                 check_clone(&items[1], bindings, moved)?;
+            } else if matches!(head, "forget" | "drop") && items.len() == 2 {
+                if let Some(key) = place_key(&items[1]) {
+                    let root = key.split(['.', '[']).next().unwrap_or(&key);
+                    if bindings.contains(root) {
+                        if moved.iter().any(|existing| {
+                            existing == &key
+                                || key.starts_with(&format!("{existing}."))
+                                || key.starts_with(&format!("{existing}["))
+                        }) {
+                            return Err(format!("linear value '{key}' was already consumed"));
+                        }
+                        moved.retain(|existing| {
+                            !(existing.starts_with(&format!("{key}."))
+                                || existing.starts_with(&format!("{key}[")))
+                        });
+                        moved.insert(key);
+                    } else {
+                        check_expr(&items[1], bindings, moved, globals, false)?;
+                    }
+                } else {
+                    check_expr(&items[1], bindings, moved, globals, false)?;
+                }
             } else if head == "if" && items.len() == 4 {
                 check_expr(&items[1], bindings, moved, globals, false)?;
                 let mut left = moved.clone();
                 let mut right = moved.clone();
                 check_expr(&items[2], bindings, &mut left, globals, false)?;
                 check_expr(&items[3], bindings, &mut right, globals, false)?;
-                // A value moved on either path is considered unavailable after
-                // the join; a value merely dropped on one path is still affine.
+                require_same_consumption(bindings, &left, &right)?;
+                // Both branches have consumed exactly the same outer places,
+                // so the union now also represents definite consumption.
                 *moved = left.union(&right).cloned().collect();
             } else if head == "match" && items.len() >= 3 {
                 check_expr(&items[1], bindings, moved, globals, false)?;
@@ -252,11 +446,14 @@ fn check_expr(
                     arm_moved.retain(|name| bindings.contains(name));
                     exits.push(arm_moved);
                 }
-                if let Some(joined) = exits
-                    .into_iter()
-                    .reduce(|a, b| a.union(&b).cloned().collect())
-                {
-                    *moved = joined;
+                if let Some(first) = exits.first() {
+                    for exit in exits.iter().skip(1) {
+                        require_same_consumption(bindings, first, exit)?;
+                    }
+                    *moved = exits
+                        .into_iter()
+                        .reduce(|a, b| a.union(&b).cloned().collect())
+                        .unwrap_or_default();
                 }
             } else if head == "while-let" && items.len() >= 4 {
                 check_expr(&items[2], bindings, moved, globals, true)?;
@@ -282,11 +479,13 @@ fn check_expr(
                 if let Some(otherwise) = items.get(4) {
                     check_expr(otherwise, bindings, &mut else_state, globals, false)?;
                 }
+                require_same_consumption(bindings, &then_state, &else_state)?;
                 *moved = then_state.union(&else_state).cloned().collect();
             } else if matches!(head, "&&" | "||") && items.len() == 3 {
                 check_expr(&items[1], bindings, moved, globals, false)?;
                 let mut taken = moved.clone();
                 check_expr(&items[2], bindings, &mut taken, globals, false)?;
+                require_same_consumption(bindings, moved, &taken)?;
                 *moved = moved.union(&taken).cloned().collect();
             } else if head == "unsafe" || head == "block" {
                 for arg in items.iter().skip(1) {
@@ -401,9 +600,13 @@ fn check_expr(
                 check_expr(item, bindings, moved, globals, false)?;
             }
         }
-        Expr::Block(body) | Expr::Loop(body) => {
-            check_scoped_statements(body, &mut bindings.clone(), moved, globals)?
-        }
+        Expr::Block(body) | Expr::Loop(body) => check_scoped_statements(
+            body,
+            &mut bindings.clone(),
+            moved,
+            globals,
+            &LinearTypes::default(),
+        )?,
         Expr::Labeled { expression, .. }
         | Expr::Quote(expression)
         | Expr::QuasiQuote(expression)
@@ -523,12 +726,46 @@ fn check_scoped_statements(
     bindings: &mut HashSet<String>,
     moved: &mut HashSet<String>,
     globals: &HashSet<String>,
+    types: &LinearTypes,
 ) -> Result<(), String> {
     let outer = bindings.clone();
-    check_statements(statements, bindings, moved, globals)?;
+    check_statements(statements, bindings, moved, globals, types)?;
+    if let Some(name) = bindings
+        .iter()
+        .find(|name| !outer.contains(*name) && !moved.contains(*name))
+    {
+        return Err(format!("linear value '{name}' must be consumed before leaving its scope; use it, pass it to a destruction function, or explicitly (#forget {name})"));
+    }
     bindings.retain(|name| outer.contains(name));
-    moved.retain(|name| outer.contains(name));
+    moved.retain(|name| outer.contains(place_root(name)));
     Ok(())
+}
+
+fn require_same_consumption(
+    bindings: &HashSet<String>,
+    left: &HashSet<String>,
+    right: &HashSet<String>,
+) -> Result<(), String> {
+    for binding in bindings {
+        let left_places = left
+            .iter()
+            .filter(|place| place_root(place) == binding)
+            .collect::<HashSet<_>>();
+        let right_places = right
+            .iter()
+            .filter(|place| place_root(place) == binding)
+            .collect::<HashSet<_>>();
+        if left_places != right_places {
+            return Err(format!(
+                "linear value '{binding}' must be consumed consistently on every control-flow path"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn place_root(place: &str) -> &str {
+    place.split(['.', '[']).next().unwrap_or(place)
 }
 
 fn assigned_before_read(statements: &[Statement], name: &str) -> bool {
@@ -602,9 +839,13 @@ fn check_expr_with_place(
             }
             Ok(())
         }
-        Expr::Block(statements) => {
-            check_statements(statements, &mut bindings.clone(), moved, globals)
-        }
+        Expr::Block(statements) => check_statements(
+            statements,
+            &mut bindings.clone(),
+            moved,
+            globals,
+            &LinearTypes::default(),
+        ),
         Expr::Symbol(name) if bindings.contains(name) => {
             if !moved.insert(name.clone()) {
                 Err(format!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy"))
@@ -621,17 +862,16 @@ mod tests {
     use crate::{check_types, parse_program};
 
     #[test]
-    fn values_are_affine_and_clone_is_explicit() {
+    fn values_are_linear_and_clone_is_explicit() {
         let duplicate = parse_program(
-            "(#fn main () u64 (#let value u64 20) (#return (#u64.+.wrap value value)))",
-        )
-        .unwrap();
+            "(#struct Resource ((value (#cell u64)))) (#fn consume ((value Resource)) () (#forget value) (#return ())) (#fn main () u64 (#let value Resource (Resource (#cell 20u64))) (consume value) (consume value) (#return 0u64))",
+        ).unwrap();
         assert!(check_types(&duplicate)
             .unwrap_err()
-            .contains("use (#clone value)"));
+            .contains("linear value 'value' was used more than once"));
 
         let cloned = parse_program(
-            "(#fn main () u64 (#let value u64 20) (#return (#u64.+.wrap (#clone value) value)))",
+            "(#struct Resource ((value u64))) (#fn main () u64 (#let value Resource (Resource 20u64)) (#forget (#clone value)) (#forget value) (#return 0u64))",
         )
         .unwrap();
         assert!(check_types(&cloned).is_ok());
@@ -640,12 +880,14 @@ mod tests {
     #[test]
     fn cloning_a_moved_value_is_rejected() {
         let program = parse_program(
-            "(#fn consume ((value u64)) u64 (#return value)) (#fn main () u64 (#let value u64 1) (#let moved u64 (consume value)) (#return (#clone value)))",
+            "(#struct Resource ((value (#cell u64)))) (#fn consume ((value Resource)) Resource (#return value)) (#fn inspect ((value Resource)) u64 (#forget value) (#return 0u64)) (#fn main () u64 (#let value Resource (Resource (#cell 1u64))) (#let moved Resource (consume value)) (#forget moved) (#return (inspect (#clone value))))",
         )
         .unwrap();
-        assert!(check_types(&program)
-            .unwrap_err()
-            .contains("cannot clone moved linear value 'value'"));
+        let error = check_types(&program).unwrap_err();
+        assert!(
+            error.contains("cannot clone moved linear value 'value'"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -661,14 +903,6 @@ mod tests {
 
     #[test]
     fn loop_conditions_must_clone_values_that_are_reused() {
-        let invalid = parse_program(
-            "(#fn main () u64 (#let-mut count u64 0) (#while (#u64.< count 1) (#set count 1)) (#return count))",
-        )
-        .unwrap();
-        assert!(check_types(&invalid)
-            .unwrap_err()
-            .contains("loop condition cannot consume"));
-
         let valid = parse_program(
             "(#fn main () u64 (#let-mut count u64 0) (#while (#u64.< (#clone count) 1) (#set count 1)) (#return count))",
         )
@@ -679,7 +913,7 @@ mod tests {
     #[test]
     fn explicit_clone_codegen_handles_aggregates() {
         let program = parse_program(
-            "(#struct Pair ((left u64) (right u64))) (#fn main () u64 (#let value Pair (Pair 20 22)) (#let duplicate Pair (#clone value)) (#return (#u64.+.wrap (#get duplicate left) (#get duplicate right))))",
+            "(#struct Pair ((left u64) (right u64))) (#fn main () u64 (#let value Pair (Pair 20 22)) (#let duplicate Pair (#clone value)) (#let result u64 (#u64.+.wrap (#get duplicate left) (#get duplicate right))) (#forget duplicate) (#forget value) (#return result))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -689,7 +923,7 @@ mod tests {
     #[test]
     fn named_clone_functions_define_deep_clone_behavior() {
         let program = parse_program(
-            "(#struct Point ((x u64))) (#fn Point-clone ((source Point)) Point (#return source)) (#fn consume ((point Point)) u64 (#return (#get point x))) (#fn main () u64 (#let value Point (Point 4)) (#return (consume (#clone value))))",
+            "(#struct Point ((x u64))) (#fn Point-clone ((source Point)) Point (#return source)) (#fn consume ((point Point)) u64 (#let result u64 (#get point x)) (#forget point) (#return result)) (#fn main () u64 (#let value Point (Point 4)) (#let result u64 (consume (#clone value))) (#forget value) (#return result))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -701,17 +935,77 @@ mod tests {
     #[test]
     fn field_values_are_moved_independently_and_can_be_cloned() {
         let duplicate = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let point Point (Point 20 22)) (#return (#u64.+.wrap (#get point x) (#get point x))))",
+            "(#struct Resource ((value (#cell u64)))) (#fn use ((resource Resource)) () (#forget resource) (#return ())) (#fn main () u64 (#let resource Resource (Resource (#cell 20u64))) (use resource) (use resource) (#return 0u64))",
         )
         .unwrap();
         assert!(check_types(&duplicate)
             .unwrap_err()
-            .contains("linear projection 'point.x'"));
+            .contains("linear value 'resource' was used more than once"));
 
         let cloned = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let point Point (Point 20 22)) (#return (#u64.+.wrap (#clone (#get point x)) (#get point x))))",
+            "(#struct Resource ((value (#cell u64)))) (#struct Point ((x Resource) (y u64))) (#fn main () u64 (#let point Point (Point (Resource (#cell 20u64)) 22u64)) (#forget (#clone (#get point x))) (#forget point) (#return 0u64))",
         )
         .unwrap();
         assert!(check_types(&cloned).is_ok());
+    }
+
+    #[test]
+    fn linear_values_must_be_consumed_before_return() {
+        let leaked = parse_program(
+            "(#struct Resource ((value (#cell u64)))) (#fn main () u64 (#let resource Resource (Resource (#cell 1u64))) (#return 0u64))",
+        ).unwrap();
+        assert!(check_types(&leaked)
+            .unwrap_err()
+            .contains("must be consumed before returning"));
+
+        let forgotten = parse_program(
+            "(#struct Resource ((value (#cell u64)))) (#fn main () u64 (#let resource Resource (Resource (#cell 1u64))) (#forget resource) (#return 0u64))",
+        ).unwrap();
+        assert!(check_types(&forgotten).is_ok());
+
+        let copied =
+            parse_program("(#fn main () u64 (#let number u64 1u64) (#return 0u64))").unwrap();
+        assert!(check_types(&copied).is_ok());
+    }
+
+    #[test]
+    fn linearity_is_checked_at_scope_exits_and_control_flow_joins() {
+        let escaping = parse_program(
+            "(#struct Resource ((value (#cell u64)))) (#fn main () u64 (#return (#block (#let resource Resource (Resource (#cell 1u64))) 0u64)))",
+        ).unwrap();
+        assert!(check_types(&escaping)
+            .unwrap_err()
+            .contains("before leaving its scope"));
+
+        let branch_leak = parse_program(
+            "(#struct Resource ((value (#cell u64)))) (#fn consume ((value Resource)) u64 (#forget value) (#return 1u64)) (#fn main () u64 (#let resource Resource (Resource (#cell 1u64))) (#return (#if true (consume resource) 0u64)))",
+        ).unwrap();
+        assert!(check_types(&branch_leak)
+            .unwrap_err()
+            .contains("consumed consistently on every control-flow path"));
+
+        let both_branches_consume = parse_program(
+            "(#struct Resource ((value (#cell u64)))) (#fn consume ((value Resource)) u64 (#forget value) (#return 1u64)) (#fn main () u64 (#let resource Resource (Resource (#cell 1u64))) (#return (#if true (consume resource) (consume resource))))",
+        ).unwrap();
+        assert!(check_types(&both_branches_consume).is_ok());
+
+        let different_fields = parse_program(
+            "(#struct Resource ((value (#cell u64)))) (#struct Pair ((left Resource) (right Resource))) (#fn main () u64 (#let pair Pair (Pair (Resource (#cell 1u64)) (Resource (#cell 2u64)))) (#return (#if true (#block (#forget (#get pair left)) 1u64) (#block (#forget (#get pair right)) 2u64))))",
+        ).unwrap();
+        let error = check_types(&different_fields).unwrap_err();
+        assert!(
+            error.contains("consumed consistently on every control-flow path"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn thread_tasks_cannot_be_forgotten_instead_of_joined() {
+        let program = parse_program(
+            "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#let task Task (Task-spawn 1u64)) (#forget task) (#return 0u64))",
+        ).unwrap();
+        assert!(check_types(&program)
+            .unwrap_err()
+            .contains("must be joined; it cannot be dropped or forgotten"));
     }
 }

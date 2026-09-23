@@ -2177,11 +2177,18 @@ fn list_expression(
             }
             Ok(cloned)
         }
-        "drop" => {
+        "drop" | "forget" => {
             require_arity(operator, items, 2)?;
-            expression(
+            let forgotten = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
+            if let Type::Named(name) = &forgotten {
+                if functions.contains_key(&format!("{name}-join")) {
+                    return Err(format!(
+                        "thread task '{name}' must be joined; it cannot be dropped or forgotten"
+                    ));
+                }
+            }
             Ok(Type::Unit)
         }
         "cell" => {

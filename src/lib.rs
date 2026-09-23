@@ -1616,6 +1616,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "cell-set"
             | "clone"
             | "drop"
+            | "forget"
             | "ptr"
             | "ptr-mut"
             | "generator"
@@ -5142,7 +5143,7 @@ mod tests {
         assert!(assembly.contains("mov QWORD PTR [r11], rax"));
 
         let runnable = parse_program(
-            "(#struct ArenaState ((cursor (#cell u64)))) (#fn main () u64 (#let-mut arena ArenaState (ArenaState (#cell 40))) (#let allocator (#ref ArenaState) (#borrow arena)) (#cell-set (#get allocator cursor) (#u64.+.wrap (#cell-get (#get allocator cursor)) 2)) (#return (#cell-get (#get allocator cursor))))",
+            "(#struct ArenaState ((cursor (#cell u64)))) (#fn main () u64 (#let-mut arena ArenaState (ArenaState (#cell 40))) (#let allocator (#ref ArenaState) (#borrow arena)) (#cell-set (#get allocator cursor) (#u64.+.wrap (#cell-get (#get allocator cursor)) 2)) (#let result u64 (#cell-get (#get allocator cursor))) (#drop allocator) (#forget arena) (#return result))",
         )
         .unwrap();
         assert!(

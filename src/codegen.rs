@@ -7978,7 +7978,7 @@ impl FunctionContext {
                     self.expression(&items[1])
                 }
             }
-            "drop" => {
+            "drop" | "forget" => {
                 if items.len() != 2 {
                     return Err("drop requires one value".into());
                 }

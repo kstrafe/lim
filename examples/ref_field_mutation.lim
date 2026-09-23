@@ -14,7 +14,10 @@
   (#let-mut state CellState (CellState 5 (#cell 1)))
   (#let state-ref (#ref CellState) (#borrow state))
   (#cell-set (#get state-ref counter) 42)
-  (#return (#cell-get (#get state-ref counter))))
+  (#let result u64 (#cell-get (#get state-ref counter)))
+  (#drop state-ref)
+  (#forget state)
+  (#return result))
 
 (#fn main () u64
   (#let-mut point Point (Point 1 2))

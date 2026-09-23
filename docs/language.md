@@ -108,7 +108,7 @@ policy for detecting and handling that sentinel.
 
 Task handles are affine in this first version: bind the result of `-spawn` to a
 local and join it exactly once. They cannot be copied, returned, stored in
-aggregates, or left unjoined. References captured by a worker remain borrowed
+aggregates, forgotten, dropped, or left unjoined. References captured by a worker remain borrowed
 until its handle is joined; shared captures require `Sync`, mutable captures
 exclude parent access until join. These restrictions are checked statically.
 Unsafe `#send`/`#sync` overrides are promises, not synchronization: the author
@@ -589,18 +589,22 @@ patterns.  The `else` body must diverge, for example with `#return`,
 
 ### Linear values and explicit cloning
 
-Local values and function parameters are affine: reading a binding as a value
-moves it, and a moved value cannot be read or cloned again. This applies to
-scalars as well as aggregates; mutability does not make a binding implicitly
-copyable. Use `#clone` at the point where a second value is intended:
+Local values and function parameters are linear unless their type is plain-old
+data or a reference. Built-in scalar values, raw pointers, and structs, enums,
+tuples, or arrays whose fields/elements are all copyable are structurally
+`Copy`; they can be used without consuming the binding. Resource-bearing
+aggregates remain linear and must be consumed exactly once. A moved value
+cannot be read or cloned again. Use `#clone` at the point where an additional
+value is intended:
 
 ```lisp
 (#let count u64 40u64)
 (#let total u64 (#u64.+.wrap (#clone count) count))
 ```
 
-Assignments reinitialize mutable bindings, so a common update pattern consumes
-the old value and then installs the replacement:
+Assignments reinitialize mutable bindings only after the previous linear value
+has been consumed. A common update pattern moves the old value into the update
+and installs the replacement:
 
 ```lisp
 (#let-mut count u64 0u64)
@@ -614,7 +618,24 @@ are checked, and a value moved on either path is unavailable after the join.
 function named `<Type>-clone` exists with signature `(<Type>) -> <Type>`,
 `#clone` dispatches to it; use that function to define deep-copy behavior for
 resource-owning types. Otherwise the backend clones the value representation.
-`#drop` explicitly consumes a value when its result is intentionally discarded.
+Every function return checks that all still-live linear bindings have been
+consumed. Pass an owned value to another function, or explicitly consume it
+with `#forget`. `#forget` does not run cleanup; it is intended for use after a
+user-written destruction function has released a value's resources. For
+example:
+
+```lisp
+(#struct Buffer ((allocation Allocation)))
+(#fn Buffer-destroy ((buffer Buffer)) ()
+  (Allocation-release (#get buffer allocation))
+  (#forget buffer)
+  (#return ()))
+```
+
+`#drop` also consumes a value and remains useful for explicitly ending a
+reference's borrow. A value cannot be silently overwritten, abandoned at a
+scope exit, or consumed on only some control-flow paths. The compiler does not
+insert destruction calls or silently discard linear values.
 For a struct, tuple, array, or enum containing references, the borrow checker
 tracks the provenance of every contained reference. Dropping the aggregate
 releases each recorded field loan, so all owners become available again only
@@ -927,7 +948,7 @@ Whitespace and semicolon-to-end-of-line comments may occur between tokens.
 Builtin declaration and statement forms are the `#`-prefixed forms described
 in the tables and sections above; arithmetic and comparison forms include
 their type and overflow mode in the identifier. `#let`, `#let-mut`, `#borrow`,
-`#borrow-mut`, `#return`, `#unsafe`, `#drop`, and `#clone` define ownership and
+`#borrow-mut`, `#return`, `#unsafe`, `#drop`, `#forget`, and `#clone` define ownership and
 borrow behavior; `#cfg-*` is compile-time only; `#gn-*` is generator-time only;
 and `@` declarations expand before ordinary parsing, type checking, and borrow
 checking. Unknown prefixed forms are rejected rather than treated as future
