@@ -29,18 +29,39 @@ the collection cannot outlive the allocator. `@vec-ref-alloc` and similar
 generators may produce alternate concrete layouts, but they must obey the same
 ownership rule.
 
-The initial generator form is:
+The concrete representation is declared first:
 
 ```lisp
 (@vec ElementType AllocatorType ConcreteVecType)
 ```
 
 It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
-`capacity` fields, plus `ConcreteVecType-new`, `ConcreteVecType-len`, and
-`ConcreteVecType-capacity`. Construction is explicit: the caller supplies the
-allocator borrow, storage pointer, and capacity. This keeps allocation and
-failure handling in the allocator-specific layer until the collection
-generator can emit checked `alloc`/`grow` calls.
+`capacity` fields, plus `ConcreteVecType-new-with-storage`, `-len`, and
+`-capacity`. The allocator-backed API is then generated separately:
+
+```lisp
+(@vec-alloc ElementType AllocatorType ConcreteVecType
+  AllocResult AllocError alloc-name grow-name dealloc-name destroy-name)
+```
+
+The allocation result must contain `(#ptr-mut ElementType)` on success and
+`AllocError` on failure. The four function names are literal inputs; they
+resolve to ordinary, statically checked functions. Allocation, growth, and
+deallocation functions receive `(#ref AllocatorType)` followed by layout and
+alignment values (growth also receives the old pointer and old layout). The
+element destruction function receives the allocator reference and one owned
+element. This lets destruction use allocator-local interior-mutable state
+without function pointers or a hidden global context.
+
+The generated API includes an empty `-new`, checked geometric `-reserve`,
+`-push`, `-get`, `-get-mut`, `-set`, `-pop`, and explicit `-free`. Allocation
+and capacity failures are returned in concrete generated result enums. On a
+failed push, the error value retains ownership of the element; a failed
+reserve leaves the vector's pointer and capacity unchanged. `-set` explicitly
+destroys the replaced element, `-pop` transfers ownership to its caller, and
+`-free` destroys each remaining element once before deallocating storage.
+Zero-sized elements do not call the allocator or deallocator, but their
+logical elements are still destroyed individually.
 
 The planned sort generator is likewise concrete and takes a comparator name as
 a literal input:
@@ -49,8 +70,7 @@ a literal input:
 (@vec-sort ElementType ConcreteVecType comparator-name)
 ```
 
-It is currently rejected with a targeted diagnostic because raw-pointer
-indexing and comparator calls are not yet available. No placeholder sort
+It is currently rejected with a targeted diagnostic; no placeholder sort
 function is emitted.
 
 ## Required operations
@@ -84,10 +104,9 @@ whose names are supplied as literal generator arguments:
 ```
 
 These signatures are generator contracts rather than interfaces or dynamic
-dispatch. A generator validates the literal function names and emitted calls
-are statically checked like every other Lim call. The element type is used to
-calculate `layout` and `alignment` at generation time or through explicit
-`#size-of`/`#align-of` expressions in generated code.
+dispatch. The generated calls are statically checked like every other Lim
+call. The element type is used through explicit `#size-of`/`#align-of`
+expressions in generated code.
 
 Raw pointer operations remain inside `#unsafe`. A collection generator is
 responsible for establishing the safety invariant that a pointer is either

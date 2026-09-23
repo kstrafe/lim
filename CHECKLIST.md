@@ -69,7 +69,7 @@ the checklist is committed alongside the implementation it tracks.
   `docs/allocator.md`.
 - [x] Define the concrete allocator-borrowing `@vec` representation and the
   explicit `@vec-sort` invocation contract.
-- [ ] Implement usable allocator-backed vectors: construction, checked
+- [x] Implement usable allocator-backed vectors: construction, checked
   reserve/growth, push, indexed read/write, pop, and explicit destruction.
   Allocation and capacity failures must be represented with generated
   `Result` types, including zero-sized element behavior.

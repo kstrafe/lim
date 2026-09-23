@@ -2585,7 +2585,7 @@ fn write_generated_sources_in_directory(
     let expanded = expand_cfg_forms(expanded, config)?;
     let mut generated = Vec::new();
     for expression in expanded {
-        let Expr::List(forms) = expression.expr else {
+        let Expr::List(forms) = normalize_keywords(expression.expr) else {
             continue;
         };
         if !matches!(forms.first(), Some(Expr::At)) {
@@ -2593,17 +2593,24 @@ fn write_generated_sources_in_directory(
         }
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
         if kind == "vec" {
-            generated.push(generated_vec_source(&forms)?);
+            generated.push(
+                generated_vec_source(&forms)
+                    .map_err(|error| format!("{error} while materializing @vec {forms:?}"))?,
+            );
             continue;
         }
         if kind == "vec-alloc" {
-            generated.push(generated_vec_allocator_source(&forms)?);
+            generated
+                .push(generated_vec_allocator_source(&forms).map_err(|error| {
+                    format!("{error} while materializing @vec-alloc {forms:?}")
+                })?);
             continue;
         }
         if !matches!(kind, "optional" | "result") {
             continue;
         }
-        let item = parse_generated_item(&forms)?;
+        let item = parse_generated_item(&forms)
+            .map_err(|error| format!("{error} while materializing @{kind} {forms:?}"))?;
         let Item::Enum { name, variants, .. } = item else {
             continue;
         };
@@ -3880,7 +3887,7 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
         (#let destination (#ptr-mut {element})
           (#unsafe (#ptr-offset pointer index)))
         (#let previous {element} (#unsafe (#ptr-read destination)))
-        ({destroy} previous)
+        ({destroy} (#clone (#get vector allocator)) previous)
         (#unsafe (#ptr-write destination value))
         (#forget destination)
         (#forget value)
@@ -3914,7 +3921,7 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
       (#unsafe (#ptr-offset (#clone pointer) index)))
     (#let element-value {element} (#unsafe (#ptr-read element-pointer)))
     (#forget element-pointer)
-    ({destroy} element-value)
+    ({destroy} (#clone allocator) element-value)
     (#set index (#usize.+.wrap index 1usize)))
   (#if
     (#&& (#usize.!= element-size 0usize) (#usize.!= capacity 0usize))
@@ -7320,7 +7327,7 @@ mod tests {
   ()
   (#forget pointer)
   (#return ()))
-(#fn drop-u64 ((value u64)) () (#return ()))
+(#fn drop-u64 ((allocator (#ref Arena)) (value u64)) () (#return ()))
 (#fn main () usize
   (#let-mut arena Arena (Arena 0u64))
   (#let-mut vector VecU64 (VecU64-new (#borrow arena)))
@@ -7354,7 +7361,40 @@ mod tests {
     #[test]
     fn parses_vec_allocator_example() {
         let program = parse_program(include_str!("../examples/vec_allocator.lim"));
-        assert!(program.is_ok(), "{program:?}");
+        let program = program.unwrap();
+        let checked = check_types(&program);
+        assert!(checked.is_ok(), "{checked:?}");
+        let assembly = generate_assembly(&program);
+        assert!(assembly.is_ok(), "{assembly:?}");
+        let config = CompileConfig::default();
+        let cache = std::env::temp_dir().join(format!("lim-vec-cache-{}", std::process::id()));
+        let source = include_str!("../examples/vec_allocator.lim");
+        let path = std::path::Path::new("examples/vec_allocator.lim");
+        let generated_dir =
+            std::env::temp_dir().join(format!("lim-vec-source-{}", std::process::id()));
+        write_generated_sources_from_path_with_config_and_cache(
+            source,
+            path,
+            &generated_dir,
+            &config,
+            &cache,
+        )
+        .unwrap();
+        let from_path =
+            parse_program_from_path_with_config_and_cache(source, path, &config, &cache).unwrap();
+        assert!(generate_assembly(&from_path).is_ok());
+        let _ = std::fs::remove_dir_all(generated_dir);
+        let _ = std::fs::remove_dir_all(cache);
+    }
+
+    #[test]
+    fn rejects_allocator_backed_vector_outliving_its_allocator() {
+        let program = parse_program(
+            "(#struct Arena ((cursor u64))) (@vec u64 Arena VecU64) (#fn escape () VecU64 (#let arena Arena (Arena 0u64)) (#return (VecU64-new-with-storage (#borrow arena) (#ptr-null (#ptr-mut u64)) 0usize)))",
+        )
+        .unwrap();
+        let error = check_types(&program).unwrap_err();
+        assert!(error.contains("local"), "{error}");
     }
 
     #[test]
