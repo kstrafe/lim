@@ -1905,7 +1905,7 @@ fn type_error_argument_span(expression: &crate::SpannedExpr, error: &str) -> Opt
         || error == "slice-idx requires a slice"
     {
         let operators: &[&str] = if error.starts_with("slice requires ") {
-            &["slice"]
+            &["slice-of"]
         } else if error == "slice-len requires a slice" {
             &["slice-len"]
         } else {

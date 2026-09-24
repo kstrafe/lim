@@ -1068,7 +1068,7 @@ generated task type token.
 Unknown named types in local `#let` annotations underline the type token,
 including diagnostics formatted as expected-type mismatches.
 Immutable-assignment diagnostics underline the target binding.
-Type errors for invalid `index`, `slice-len`, `get`, `get-payload`, and
+Type errors for invalid `index`, `slice-of`, `slice-len`, `get`, `get-payload`, and
 `deref-set` operands underline the argument with the incompatible shape.
 
 The CLI renders errors with an available span or line/column as a source hunk

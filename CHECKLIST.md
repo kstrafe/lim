@@ -199,7 +199,7 @@ the checklist is committed alongside the implementation it tracks.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead
-  of the entire assignment form. Invalid operands to `index`, `slice-len`,
+  of the entire assignment form. Invalid operands to `index`, `slice-of`, `slice-len`,
   `get`, `get-payload`, and `deref-set` also receive argument-level spans with
   UI coverage.
 - [x] Specify generator capability contracts beyond name membership: bind each
