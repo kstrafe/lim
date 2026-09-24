@@ -2048,6 +2048,14 @@ fn codegen_diagnostic(message: String, program: &Program) -> Diagnostic {
             collect_named_spans(child, name, spans);
         }
     }
+    fn nonconstant_call_span(expression: &SpannedExpr) -> Option<Span> {
+        if let Expr::List(items) = &expression.expr {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#call") {
+                return Some(expression.span);
+            }
+        }
+        expression.children.iter().find_map(nonconstant_call_span)
+    }
     let mut referenced_spans = Vec::new();
     for name in &referenced_names {
         for expression in program.declaration_expressions.values() {
@@ -2064,15 +2072,21 @@ fn codegen_diagnostic(message: String, program: &Program) -> Diagnostic {
     let initializer_expression_span = initializer_name.and_then(|name| {
         let expression = program.declaration_expressions.get(name)?;
         let value = expression.children.get(3)?;
-        referenced_names
-            .iter()
-            .filter(|referenced| **referenced != name)
-            .find_map(|referenced| {
-                let mut spans = Vec::new();
-                collect_named_spans(value, referenced, &mut spans);
-                spans.into_iter().next()
-            })
-            .or(Some(value.span))
+        (message
+            .contains("not constant")
+            .then(|| nonconstant_call_span(value))
+            .flatten())
+        .or_else(|| {
+            referenced_names
+                .iter()
+                .filter(|referenced| **referenced != name)
+                .find_map(|referenced| {
+                    let mut spans = Vec::new();
+                    collect_named_spans(value, referenced, &mut spans);
+                    spans.into_iter().next()
+                })
+        })
+        .or(Some(value.span))
     });
     let initializer_declaration =
         initializer_name.and_then(|name| program.declaration_spans.get(name).copied());
@@ -7455,6 +7469,23 @@ mod tests {
         assert_eq!(
             &backend.source_text.as_deref().unwrap()[backend_span.start..backend_span.end],
             "Second"
+        );
+
+        let nested_static_source = "(#fn get-value () u64 (#return 1u64))\n(#static VALUE u64 (#u64.+.wrap 1u64 (#call get-value (#fn-args))))\n(#fn main () u64 (#return (#unsafe VALUE)))";
+        let nested_static = compile_source_to_assembly(
+            nested_static_source,
+            Path::new("example.lim"),
+            &CompileConfig::default(),
+            &cache,
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(nested_static.code, DiagnosticCode::Codegen);
+        let nested_static_span = nested_static.span.unwrap();
+        assert_eq!(
+            &nested_static.source_text.as_deref().unwrap()
+                [nested_static_span.start..nested_static_span.end],
+            "(#call get-value (#fn-args))"
         );
 
         let linking = link_native_binary(

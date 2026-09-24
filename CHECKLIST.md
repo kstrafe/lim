@@ -199,7 +199,10 @@ the checklist is committed alongside the implementation it tracks.
   Missing-import and import-cycle failures underline the path string, while
   unknown cfg keys underline the referenced key token.
   `Send` failures on thread workers now underline the offending parameter type,
-  not the unrelated worker return type.
+  not the unrelated worker return type. Diagnostic hunks expand tabs at
+  four-column stops before positioning underlines. Non-constant global
+  initializers now highlight a nested `#call` that makes the initializer
+  invalid instead of the larger enclosing constant expression.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead
