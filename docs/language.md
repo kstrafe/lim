@@ -1117,6 +1117,8 @@ Duplicate character match patterns underline the later character literal.
 Enum match payload-arity errors underline the affected variant pattern.
 An explicit `#return` whose value does not match the function return type
 underlines the returned expression.
+Tuple and array constructor element type errors underline the specific
+incompatible element, even when another element has the same actual type.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the

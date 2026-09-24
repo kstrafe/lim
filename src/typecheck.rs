@@ -1838,6 +1838,24 @@ fn precise_type_error_span(
     source: &str,
 ) -> Option<crate::Span> {
     let value = crate::source_value_expression(statement);
+    if let Some(index) = error
+        .strip_prefix("tuple element ")
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|index| index.parse::<usize>().ok())
+    {
+        if let Some(span) = tuple_element_span(value, index) {
+            return Some(span);
+        }
+    }
+    if let Some(index) = error
+        .strip_prefix("array element ")
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|index| index.parse::<usize>().ok())
+    {
+        if let Some(span) = array_element_span(value, index) {
+            return Some(span);
+        }
+    }
     if let Some((payload_index, variant_name)) = error
         .strip_prefix("payload ")
         .and_then(|rest| {
@@ -2053,6 +2071,42 @@ fn precise_type_error_span(
         }
     }
     Some(value.span)
+}
+
+fn tuple_element_span(expression: &crate::SpannedExpr, index: usize) -> Option<crate::Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#tuple" || head == "tuple")
+        {
+            let value_start = usize::from(items.get(1).is_some_and(|item| {
+                parse_type(Some(item)).is_ok_and(|ty| matches!(ty, Type::Tuple(_)))
+            })) + 1;
+            if let Some(value) = expression.children.get(value_start + index) {
+                return Some(value.span);
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| tuple_element_span(child, index))
+}
+
+fn array_element_span(expression: &crate::SpannedExpr, index: usize) -> Option<crate::Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#array" || head == "array")
+        {
+            let value_start = usize::from(items.get(1).is_some_and(|item| {
+                parse_type(Some(item)).is_ok_and(|ty| matches!(ty, Type::Array(_, _)))
+            })) + 1;
+            if let Some(value) = expression.children.get(value_start + index) {
+                return Some(value.span);
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| array_element_span(child, index))
 }
 
 fn enum_constructor_payload_span(
@@ -4205,7 +4259,7 @@ fn list_expression(
             if items.len() - value_start != length {
                 return Err(format!("array constructor expects {length} elements"));
             }
-            for value in &items[value_start..] {
+            for (index, value) in items[value_start..].iter().enumerate() {
                 let actual = expression(
                     value,
                     variables,
@@ -4216,7 +4270,7 @@ fn list_expression(
                     aliases,
                     Some(element.as_ref()),
                 )?;
-                require_type(&actual, element.as_ref(), "array element")?;
+                require_type(&actual, element.as_ref(), &format!("array element {index}"))?;
             }
             Ok(Type::Array(element, length))
         }
@@ -4293,7 +4347,9 @@ fn list_expression(
                     fields.len()
                 ));
             }
-            for (value, field) in items[value_start..].iter().zip(fields.iter()) {
+            for (index, (value, field)) in
+                items[value_start..].iter().zip(fields.iter()).enumerate()
+            {
                 let actual = expression(
                     value,
                     variables,
@@ -4304,7 +4360,7 @@ fn list_expression(
                     aliases,
                     Some(field),
                 )?;
-                require_type(&actual, field, "tuple element")?;
+                require_type(&actual, field, &format!("tuple element {index}"))?;
             }
             Ok(Type::Tuple(fields))
         }

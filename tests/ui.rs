@@ -65,6 +65,18 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "tuple-element-type-mismatch",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#tuple 1u64 2u64))",
+            line_number: 2,
+        },
+        Case {
+            name: "array-element-type-mismatch",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#array 1u64 false))",
+            line_number: 2,
+        },
+        Case {
             name: "nested-mismatch",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#u64.+.wrap 1u64 false))",
@@ -659,6 +671,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "lex" => Some("\"unterminated)"),
             "type" => Some("missing"),
             "return-type-mismatch" => Some("false"),
+            "tuple-element-type-mismatch" => Some("2u64"),
+            "array-element-type-mismatch" => Some("false"),
             "import" => Some("\"missing-module.lim\""),
             "imported" => Some("\"missing-dependency.lim\""),
             "cycle-a" => Some("\"cycle-a.lim\""),
