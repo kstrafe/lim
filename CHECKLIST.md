@@ -228,6 +228,8 @@ the checklist is committed alongside the implementation it tracks.
   field value rather than a same-typed value from an earlier field. Enum
   constructor payload mismatches carry the payload index and underline the
   corresponding constructor argument.
+  Explicit `#return` type mismatches also underline the incompatible returned
+  expression, covered by a UI test.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead
