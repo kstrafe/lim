@@ -608,6 +608,7 @@ fn compilation_errors_render_the_offending_source_line() {
             );
         }
         let precise_fragment = match case.name {
+            "lex" => Some("\"unterminated)"),
             "type" => Some("missing"),
             "import" => Some("\"missing-module.lim\""),
             "imported" => Some("\"missing-dependency.lim\""),
@@ -683,7 +684,9 @@ fn compilation_errors_render_the_offending_source_line() {
                 .find(|line| line.contains(case.offending_line))
                 .unwrap();
             let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            let expected_column = if case.name == "duplicate-parameter" {
+            let expected_column = if case.name == "parse" {
+                Some(source_row.len())
+            } else if case.name == "duplicate-parameter" {
                 source_row
                     .match_indices(fragment)
                     .nth(1)
@@ -723,6 +726,18 @@ fn compilation_errors_render_the_offending_source_line() {
                 "{} underline is not aligned under {fragment:?}:\n{stderr}",
                 case.name
             );
+            if case.name == "lex" {
+                let caret_width = underline_row
+                    .chars()
+                    .skip_while(|character| *character != '^')
+                    .take_while(|character| *character == '^')
+                    .count();
+                assert_eq!(
+                    caret_width,
+                    fragment.chars().count(),
+                    "unterminated string diagnostic did not underline its full token:\n{stderr}"
+                );
+            }
         }
         if case.name == "codegen" {
             let source_row = stderr

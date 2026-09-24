@@ -1122,6 +1122,8 @@ UI regression tests verify exact caret columns for unknown identifiers,
 recursive calls, and code-generation failures as well as checking their lines.
 Repeated moves of linear fields and array elements identify their repeated
 `#get` or `#index` projections.
+The UI tests also verify full unterminated-string spans and zero-width EOF
+locations for incomplete lists.
 
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures
