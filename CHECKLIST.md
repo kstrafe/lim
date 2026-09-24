@@ -205,7 +205,8 @@ the checklist is committed alongside the implementation it tracks.
   and duplicate operation names, including the later duplicate occurrence;
   duplicate capability/type pairs and generator declarations point at their
   repeated identifier. Invalid array/struct assignment targets also underline
-  the named target instead of the full statement.
+  the named target instead of the full statement. Missing struct fields and
+  enum payload variants underline the missing member name.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

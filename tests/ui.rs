@@ -325,6 +325,18 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "unknown-get-field",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#get point missing))",
+            line_number: 4,
+        },
+        Case {
+            name: "unknown-payload-variant",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#get-payload value MissingVariant 0))",
+            line_number: 4,
+        },
+        Case {
             name: "non-reference-deref-set",
             diagnostic_code: "E4000",
             offending_line: "  (#deref-set value 2u64)",
@@ -500,6 +512,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "non-array-slice-of" => Some("value"),
             "non-struct-get" => Some("value"),
             "non-enum-payload" => Some("value"),
+            "unknown-get-field" => Some("missing"),
+            "unknown-payload-variant" => Some("MissingVariant"),
             "non-reference-deref-set" => Some("value"),
             "thread-worker-missing" => Some("missing-worker"),
             "thread-worker-reference-result" => Some("(#ref u64)"),

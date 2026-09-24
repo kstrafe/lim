@@ -1929,6 +1929,10 @@ fn type_error_argument_span(expression: &crate::SpannedExpr, error: &str) -> Opt
         (&["get"][..], 1)
     } else if error == "get-payload requires an enum value" {
         (&["get-payload"][..], 1)
+    } else if error.contains(" has no field '") {
+        (&["get"][..], 2)
+    } else if error.contains(" has no variant '") {
+        (&["get-payload"][..], 2)
     } else if error == "deref-set requires a mutable reference" {
         (&["deref-set"][..], 1)
     } else {

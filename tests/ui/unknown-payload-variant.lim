@@ -1,0 +1,4 @@
+(#enum Value ((Number u64)))
+(#fn main () u64
+  (#let value Value (Number 1u64))
+  (#return (#get-payload value MissingVariant 0)))
