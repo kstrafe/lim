@@ -4,6 +4,8 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     env, fmt, fs,
     path::{Path, PathBuf},
+    process::Command,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 mod borrowcheck;
@@ -1310,6 +1312,141 @@ pub fn parse_program_from_path_with_config_and_cache(
 ) -> Result<Program, String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
     parse_program_in_directory(source, base, config, Some(cache_directory))
+}
+
+static NEXT_NATIVE_LINK_ID: AtomicUsize = AtomicUsize::new(0);
+
+/// Compile a Lim source file to native assembly with recoverable diagnostics.
+pub fn compile_source_to_assembly(
+    source: &str,
+    source_path: &Path,
+    config: &CompileConfig,
+    cache_directory: &Path,
+    target: TargetDescription,
+) -> Result<String, Diagnostic> {
+    let tokens = lex(source).map_err(|error| {
+        Diagnostic::new(DiagnosticCode::Lex, error.message).with_span(error.span)
+    })?;
+    Parser::new(&tokens).run().map_err(|error| {
+        Diagnostic::new(DiagnosticCode::Parse, error.message).with_span(error.span)
+    })?;
+
+    let program =
+        parse_program_from_path_with_config_and_cache(source, source_path, config, cache_directory)
+            .map_err(|message| Diagnostic::new(DiagnosticCode::Generator, message))?;
+    check_types(&program).map_err(analysis_diagnostic)?;
+    generate_assembly_for_target(&program, target)
+        .map_err(|message| Diagnostic::new(DiagnosticCode::Codegen, message))
+}
+
+fn analysis_diagnostic(message: String) -> Diagnostic {
+    let code = if message.starts_with("E4100") || message.contains("borrow") {
+        DiagnosticCode::Borrow
+    } else if message.contains("unsafe") || message.contains("#unsafe") {
+        DiagnosticCode::Unsafe
+    } else if message.contains("linear")
+        || message.contains("must be consumed")
+        || message.contains("must be moved")
+        || message.contains("must be joined")
+        || message.contains("is not consumed")
+    {
+        DiagnosticCode::Linear
+    } else {
+        DiagnosticCode::Type
+    };
+    Diagnostic::new(code, message)
+}
+
+/// Assemble and link native output, returning a structured link diagnostic on
+/// tool invocation or linker failure. libc and pthread remain implicit inputs.
+pub fn link_native_binary(
+    assembly: &str,
+    output: &Path,
+    object_files: &[PathBuf],
+    libraries: &[String],
+    target: TargetDescription,
+) -> Result<(), Diagnostic> {
+    if target != TargetDescription::X86_64_SYSTEM_V {
+        return Err(Diagnostic::new(
+            DiagnosticCode::Link,
+            "native linker has no implementation for the selected target",
+        ));
+    }
+    let link_id = NEXT_NATIVE_LINK_ID.fetch_add(1, Ordering::Relaxed);
+    let assembly_path =
+        env::temp_dir().join(format!("lim-{}-{link_id}-link.s", std::process::id()));
+    let object_path = env::temp_dir().join(format!("lim-{}-{link_id}-link.o", std::process::id()));
+    let entry = "\n.section .text\n.globl _start\n.type _start, @function\n_start:\n    xor ebp, ebp\n    and rsp, -16\n    call main\n    mov edi, eax\n    mov eax, 60\n    syscall\n    ud2\n.size _start, .-_start\n";
+    let result = (|| {
+        fs::write(&assembly_path, format!("{assembly}{entry}")).map_err(|error| {
+            Diagnostic::new(
+                DiagnosticCode::Link,
+                format!("cannot write temporary assembly: {error}"),
+            )
+        })?;
+        let assemble = Command::new("as")
+            .arg("--64")
+            .arg(&assembly_path)
+            .arg("-o")
+            .arg(&object_path)
+            .status()
+            .map_err(|error| {
+                Diagnostic::new(
+                    DiagnosticCode::Link,
+                    format!("could not run assembler: {error}"),
+                )
+            })?;
+        if !assemble.success() {
+            return Err(Diagnostic::new(
+                DiagnosticCode::Link,
+                format!("assembler failed with status {assemble}"),
+            ));
+        }
+        let dynamic_linker = native_dynamic_linker();
+        let mut linker = Command::new("ld");
+        linker
+            .arg("-o")
+            .arg(output)
+            .arg("-e")
+            .arg("_start")
+            .arg("--dynamic-linker")
+            .arg(dynamic_linker)
+            .arg(&object_path);
+        for object in object_files {
+            linker.arg(object);
+        }
+        linker.arg("-lc").arg("-lpthread");
+        for library in libraries {
+            linker.arg(format!("-l{library}"));
+        }
+        let status = linker.status().map_err(|error| {
+            Diagnostic::new(
+                DiagnosticCode::Link,
+                format!("could not run linker: {error}"),
+            )
+        })?;
+        if !status.success() {
+            return Err(Diagnostic::new(
+                DiagnosticCode::Link,
+                format!("linker failed with status {status}"),
+            ));
+        }
+        Ok(())
+    })();
+    let _ = fs::remove_file(&assembly_path);
+    let _ = fs::remove_file(&object_path);
+    result
+}
+
+fn native_dynamic_linker() -> String {
+    Command::new("cc")
+        .arg("-print-file-name=ld-linux-x86-64.so.2")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .filter(|path| !path.is_empty() && Path::new(path).is_absolute())
+        .unwrap_or_else(|| "/lib64/ld-linux-x86-64.so.2".to_owned())
 }
 
 fn parse_program_in_directory(
@@ -2675,6 +2812,24 @@ pub fn write_generated_sources_from_path_with_config_and_cache(
 ) -> Result<(), String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
     write_generated_sources_in_directory(source, base, directory, config, Some(cache_directory))
+}
+
+/// Diagnostic-returning variant of generated-source materialization.
+pub fn write_generated_sources_diagnostic(
+    source: &str,
+    source_path: &Path,
+    directory: &Path,
+    config: &CompileConfig,
+    cache_directory: &Path,
+) -> Result<(), Diagnostic> {
+    write_generated_sources_from_path_with_config_and_cache(
+        source,
+        source_path,
+        directory,
+        config,
+        cache_directory,
+    )
+    .map_err(|message| Diagnostic::new(DiagnosticCode::Generator, message))
 }
 
 fn write_generated_sources_in_directory(
@@ -5387,6 +5542,42 @@ mod tests {
         assert_eq!(diagnostic.code_string(), "E4100");
         assert_eq!(diagnostic.span.unwrap().line, 2);
         assert_eq!(diagnostic.notes, vec!["borrowed here"]);
+    }
+
+    #[test]
+    fn compile_and_link_apis_return_structured_diagnostics() {
+        let cache = env::temp_dir().join(format!("lim-diagnostic-cache-{}", std::process::id()));
+        let syntax = compile_source_to_assembly(
+            "(#fn main () u64 (#return 0u64)",
+            Path::new("example.lim"),
+            &CompileConfig::default(),
+            &cache,
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(syntax.code, DiagnosticCode::Parse);
+        assert!(syntax.span.is_some());
+
+        let types = compile_source_to_assembly(
+            "(#fn main () u64 (#return missing))",
+            Path::new("example.lim"),
+            &CompileConfig::default(),
+            &cache,
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(types.code, DiagnosticCode::Type);
+
+        let linking = link_native_binary(
+            "invalid assembly instruction !",
+            Path::new("unused"),
+            &[],
+            &[],
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(linking.code, DiagnosticCode::Link);
+        let _ = fs::remove_dir_all(cache);
     }
 
     #[test]

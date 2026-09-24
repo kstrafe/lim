@@ -167,9 +167,11 @@ the checklist is committed alongside the implementation it tracks.
 - [ ] Specify and implement reusable ABI/layout guarantees for external
   aggregates, including field order, alignment, enum representation, and
   explicit calling-convention selection before widening FFI signatures.
-- [ ] Define a recoverable compilation/linking diagnostic API end to end.
-  `Diagnostic` and `DiagnosticCode` exist, but most lexer, parser, checker,
-  codegen, and CLI paths still return or print unstructured strings.
+- [x] Define a recoverable compilation/linking diagnostic API end to end.
+  `compile_source_to_assembly`, generated-source materialization, and
+  `link_native_binary` return structured diagnostics with stable phase codes;
+  the CLI uses those APIs for normal binary and assembly builds while legacy
+  string-returning APIs remain available.
 - [x] Add Rust-style CLI diagnostic rendering with source excerpts and
   underlines for errors that carry or expose a source location.
 - [ ] Carry exact spans from parsed expressions into type, ownership, borrow,

@@ -956,6 +956,11 @@ The crate is dependency-free.  Its primary public types and functions are:
   `render_error(source, filename, error) -> String` for Rust-style terminal
   source excerpts;
 - `format_source(&str) -> Result<String, String>`;
+- `compile_source_to_assembly` and `link_native_binary`, which return
+  `Result<_, Diagnostic>` with stable phase codes for lexer, parser, generator,
+  analysis, code generation, assembler, and linker failures;
+- `write_generated_sources_diagnostic` for recoverable generator-materializing
+  diagnostics;
 - `write_generated_sources(&str, &Path) -> Result<(), String>`;
 - AST and metadata types: `Span`, `Token`, `TokenKind`, `Expr`, `Type`,
   `Statement`, `Function`, `Item`, and `Program`.

@@ -2,10 +2,7 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::{Command, ExitCode},
-    sync::atomic::{AtomicUsize, Ordering},
 };
-
-static NEXT_COMPILE_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
@@ -443,32 +440,32 @@ fn compile_with_links(
         .unwrap_or_else(|| Path::new("."))
         .join(".lim");
     let generator_cache_directory = generated_directory.join("cache");
-    if let Err(error) = lim::write_generated_sources_from_path_with_config_and_cache(
+    if let Err(diagnostic) = lim::write_generated_sources_diagnostic(
         &input,
         input_file,
         &generated_directory,
         config,
         &generator_cache_directory,
     ) {
-        report_source_error(&input, input_path, &error);
+        eprintln!(
+            "{}",
+            lim::render_diagnostic(&diagnostic, &input, input_path)
+        );
         return ExitCode::FAILURE;
     }
-    let program = match lim::parse_program_from_path_with_config_and_cache(
+    let assembly = match lim::compile_source_to_assembly(
         &input,
         input_file,
         config,
         &generator_cache_directory,
+        target,
     ) {
-        Ok(program) => program,
-        Err(error) => {
-            report_source_error(&input, input_path, &error);
-            return ExitCode::FAILURE;
-        }
-    };
-    let assembly = match lim::generate_assembly_for_target(&program, target) {
         Ok(assembly) => assembly,
-        Err(error) => {
-            report_source_error(&input, input_path, &error);
+        Err(diagnostic) => {
+            eprintln!(
+                "{}",
+                lim::render_diagnostic(&diagnostic, &input, input_path)
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -483,82 +480,22 @@ fn compile_with_links(
         };
     }
 
-    let compile_id = NEXT_COMPILE_ID.fetch_add(1, Ordering::Relaxed);
-    let assembly_path =
-        env::temp_dir().join(format!("lim-{}-{compile_id}-output.s", std::process::id()));
-    let object_path =
-        env::temp_dir().join(format!("lim-{}-{compile_id}-output.o", std::process::id()));
-    let native_start = "\n.section .text\n.globl _start\n.type _start, @function\n_start:\n    xor ebp, ebp\n    and rsp, -16\n    call main\n    mov edi, eax\n    mov eax, 60\n    syscall\n    ud2\n.size _start, .-_start\n";
-    if let Err(error) = fs::write(&assembly_path, format!("{assembly}{native_start}")) {
-        eprintln!("lim: {}: {error}", assembly_path.display());
-        return ExitCode::FAILURE;
-    }
-    let assemble = Command::new("as")
-        .arg("--64")
-        .arg(&assembly_path)
-        .arg("-o")
-        .arg(&object_path)
-        .status();
-    if !assemble.as_ref().is_ok_and(|status| status.success()) {
-        let _ = fs::remove_file(&assembly_path);
-        let _ = fs::remove_file(&object_path);
-        return match assemble {
-            Ok(status) => {
-                eprintln!("lim: assembler failed with status {status}");
-                ExitCode::FAILURE
-            }
-            Err(error) => {
-                eprintln!("lim: could not run assembler: {error}");
-                ExitCode::FAILURE
-            }
-        };
-    }
-    let dynamic_linker = native_dynamic_linker();
-    let mut linker = Command::new("ld");
-    linker
-        .arg("-o")
-        .arg(output_path)
-        .arg("-e")
-        .arg("_start")
-        .arg("--dynamic-linker")
-        .arg(dynamic_linker)
-        .arg(&object_path);
-    for object in &links.object_files {
-        linker.arg(object);
-    }
-    linker.arg("-lc").arg("-lpthread");
-    for library in &links.libraries {
-        linker.arg(format!("-l{library}"));
-    }
-    let result = linker.status();
-    let _ = fs::remove_file(&assembly_path);
-    let _ = fs::remove_file(&object_path);
-    match result {
-        Ok(status) if status.success() => ExitCode::SUCCESS,
-        Ok(status) => {
-            eprintln!("lim: linker failed with status {status}");
-            ExitCode::FAILURE
-        }
-        Err(error) => {
-            eprintln!("lim: could not run linker: {error}");
+    match lim::link_native_binary(
+        &assembly,
+        output_path,
+        &links.object_files,
+        &links.libraries,
+        target,
+    ) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(diagnostic) => {
+            eprintln!(
+                "{}",
+                lim::render_diagnostic(&diagnostic, &input, input_path)
+            );
             ExitCode::FAILURE
         }
     }
-}
-
-fn report_source_error(source: &str, filename: &str, error: &str) {
-    eprintln!("{}", lim::render_error(source, filename, error));
-}
-
-fn native_dynamic_linker() -> String {
-    Command::new("cc")
-        .arg("-print-file-name=ld-linux-x86-64.so.2")
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-        .filter(|path| !path.is_empty() && Path::new(path).is_absolute())
-        .unwrap_or_else(|| "/lib64/ld-linux-x86-64.so.2".to_owned())
 }
 
 #[cfg(test)]
