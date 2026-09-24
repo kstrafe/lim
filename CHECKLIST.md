@@ -210,7 +210,8 @@ the checklist is committed alongside the implementation it tracks.
   match arms underline the variant pattern rather than treating it as an
   operator symbol. Unknown enum variants in `#let-else` patterns also underline
   the pattern token. Repeated boolean, enum, and wildcard match patterns
-  underline the later duplicate.
+  underline the later duplicate. Out-of-range and repeated integer match
+  patterns underline the corresponding literal token.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

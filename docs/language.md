@@ -1081,6 +1081,8 @@ Unknown enum variants in match arms underline the pattern token.
 Unknown enum variants in `#let-else` patterns do likewise.
 Repeated boolean, enum, and wildcard match patterns underline the later
 duplicate.
+Out-of-range and repeated integer match patterns underline the offending
+literal.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the

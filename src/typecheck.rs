@@ -1891,6 +1891,21 @@ fn precise_type_error_span(
             return Some(span);
         }
     }
+    let integer_pattern = error
+        .strip_prefix("integer match pattern ")
+        .or_else(|| error.strip_prefix("unsigned integer match pattern "))
+        .or_else(|| error.strip_prefix("duplicate integer match pattern "))
+        .and_then(|rest| {
+            rest.split_once(" does not fit")
+                .map_or(rest, |(value, _)| value)
+                .parse::<u128>()
+                .ok()
+        });
+    if let Some(value) = integer_pattern {
+        if let Some(span) = last_match_pattern_integer_span(statement, value) {
+            return Some(span);
+        }
+    }
     let enum_pattern_target = error
         .strip_prefix('\'')
         .and_then(|rest| {
@@ -2205,6 +2220,48 @@ fn last_match_pattern_symbol_span(
                 for arm in expression.children.iter().skip(2) {
                     if let Some(pattern) = arm.children.first() {
                         collect_symbols(pattern, target, spans);
+                    }
+                }
+            }
+        }
+        for child in &expression.children {
+            collect_patterns(child, target, spans);
+        }
+    }
+    let mut spans = Vec::new();
+    collect_patterns(expression, target, &mut spans);
+    spans.into_iter().max_by_key(|span| span.start)
+}
+
+fn last_match_pattern_integer_span(
+    expression: &crate::SpannedExpr,
+    target: u128,
+) -> Option<crate::Span> {
+    fn collect_integers(
+        expression: &crate::SpannedExpr,
+        target: u128,
+        spans: &mut Vec<crate::Span>,
+    ) {
+        if matches!(&expression.expr, Expr::Integer(value) if *value >= 0 && *value as u128 == target)
+            || matches!(&expression.expr, Expr::UnsignedInteger(value) if *value == target)
+        {
+            spans.push(expression.span);
+        }
+        for child in &expression.children {
+            collect_integers(child, target, spans);
+        }
+    }
+    fn collect_patterns(
+        expression: &crate::SpannedExpr,
+        target: u128,
+        spans: &mut Vec<crate::Span>,
+    ) {
+        if let Expr::List(items) = &expression.expr {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator.strip_prefix('#').unwrap_or(operator) == "match")
+            {
+                for arm in expression.children.iter().skip(2) {
+                    if let Some(pattern) = arm.children.first() {
+                        collect_integers(pattern, target, spans);
                     }
                 }
             }

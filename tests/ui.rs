@@ -361,6 +361,18 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "out-of-range-match-integer",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match value (300 0u64) (_ 1u64)))",
+            line_number: 3,
+        },
+        Case {
+            name: "duplicate-match-integer",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match value (2 0u64) (2 1u64) (_ 0u64)))",
+            line_number: 3,
+        },
+        Case {
             name: "non-reference-deref-set",
             diagnostic_code: "E4000",
             offending_line: "  (#deref-set value 2u64)",
@@ -542,6 +554,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-let-else-variant" => Some("Missing"),
             "duplicate-enum-match-pattern" => Some("Ready"),
             "duplicate-wildcard-match-pattern" => Some("_"),
+            "out-of-range-match-integer" => Some("300"),
+            "duplicate-match-integer" => Some("2"),
             "non-reference-deref-set" => Some("value"),
             "thread-worker-missing" => Some("missing-worker"),
             "thread-worker-reference-result" => Some("(#ref u64)"),
@@ -588,6 +602,7 @@ fn compilation_errors_render_the_offending_source_line() {
                     | "duplicate-function"
                     | "duplicate-enum-match-pattern"
                     | "duplicate-wildcard-match-pattern"
+                    | "duplicate-match-integer"
             ) {
                 source_row.rfind(fragment)
             } else {
