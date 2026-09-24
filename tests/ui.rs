@@ -608,6 +608,7 @@ fn compilation_errors_render_the_offending_source_line() {
             );
         }
         let precise_fragment = match case.name {
+            "type" => Some("missing"),
             "import" => Some("\"missing-module.lim\""),
             "imported" => Some("\"missing-dependency.lim\""),
             "cycle-a" => Some("\"cycle-a.lim\""),
@@ -619,6 +620,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "out-of-range-shift-count" => Some("8"),
             "recursive-alias" => Some("Second"),
             "repr-c-discriminant" => Some("2147483648"),
+            "codegen" => Some("Second"),
+            "recursive-call" => Some("worker"),
             "duplicate-type" => Some("Token"),
             "duplicate-field" => Some("x"),
             "duplicate-variant" | "duplicate-variant-global" => Some("Open"),
