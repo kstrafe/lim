@@ -239,7 +239,7 @@ these areas as stable.
   or narrow the feature and its documentation so layout-query results cannot
   be mistaken for permission to pass or reinterpret Lim aggregates as C
   values.
-- [ ] Implement and test by-value C aggregate arguments and returns, including
+- [x] Implement and test by-value C aggregate arguments and returns, including
   structs and enums, or explicitly keep them unsupported until the internal
   representation and target ABI agree.
 - [ ] Define the supported target policy and add a target/ABI test matrix.

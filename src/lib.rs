@@ -10313,6 +10313,27 @@ mod tests {
     }
 
     #[test]
+    fn c_abi_rejects_by_value_aggregate_arguments_and_returns() {
+        let argument = parse_program(
+            "(#struct Point #repr-c ((x u64))) (#extern-fn #abi-c consume-point ((point Point)) u64)",
+        )
+        .unwrap();
+        assert!(check_types(&argument).is_ok());
+        assert!(generate_assembly(&argument)
+            .unwrap_err()
+            .contains("directly passed scalar values"));
+
+        let result = parse_program(
+            "(#struct Point #repr-c ((x u64))) (#extern-fn #abi-c make-point () Point)",
+        )
+        .unwrap();
+        assert!(check_types(&result).is_ok());
+        assert!(generate_assembly(&result)
+            .unwrap_err()
+            .contains("directly passed scalar values"));
+    }
+
+    #[test]
     fn checks_and_lowers_integer_bitwise_not() {
         let program = parse_program(
             "(#fn main () u32 (#let value u32 (#u32.!  0)) (#return (#u32.&  value 42)))",
