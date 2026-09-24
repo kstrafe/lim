@@ -336,6 +336,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                 &aliases,
                 &program.statement_spans,
                 &program.statement_expressions,
+                &program.source_files,
             )?,
             Item::TypeAlias { .. }
             | Item::Struct { .. }
@@ -344,17 +345,40 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             | Item::ThreadTask { .. } => {}
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
                 let ty = globals.get(name).expect("global type collected");
-                let actual = expression(
-                    value,
-                    &globals,
-                    &functions,
-                    &structs,
-                    &enums,
-                    &HashSet::new(),
-                    &aliases,
-                    Some(ty),
-                )?;
-                require_type(&actual, ty, &format!("top-level let '{name}'"))?;
+                let result = (|| {
+                    let actual = expression(
+                        value,
+                        &globals,
+                        &functions,
+                        &structs,
+                        &enums,
+                        &HashSet::new(),
+                        &aliases,
+                        Some(ty),
+                    )?;
+                    require_type(&actual, ty, &format!("top-level let '{name}'"))
+                })();
+                result.map_err(|error: String| {
+                    let Some(declaration) = program.declaration_expressions.get(name) else {
+                        return error;
+                    };
+                    let Some(file) = program
+                        .source_files
+                        .get(declaration.span.source_id as usize)
+                    else {
+                        return error;
+                    };
+                    let source = file.source.as_str();
+                    precise_type_error_span(declaration, &error, source).map_or(
+                        error.clone(),
+                        |span| {
+                            format!(
+                                "{error}; source span {}:{}:{}",
+                                span.source_id, span.start, span.end
+                            )
+                        },
+                    )
+                })?;
             }
         }
     }
@@ -1686,6 +1710,7 @@ fn check_function(
     aliases: &HashMap<String, Type>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
     statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
+    source_files: &[crate::SourceFile],
 ) -> Result<(), String> {
     let mut variables = globals.clone();
     let mut mutable = HashSet::new();
@@ -1754,7 +1779,12 @@ fn check_function(
                 .copied();
             let source_expression = statement_expressions.get(&(function.name.clone(), index));
             let precise_span = source_expression
-                .and_then(|expression| precise_type_error_span(expression, &error))
+                .and_then(|expression| {
+                    let source = source_files
+                        .get(expression.span.source_id as usize)
+                        .map(|file| file.source.as_str())?;
+                    precise_type_error_span(expression, &error, source)
+                })
                 .or(statement_span);
             precise_span.map_or(error.clone(), |span| {
                 format!(
@@ -1793,7 +1823,11 @@ fn check_function(
     })
 }
 
-fn precise_type_error_span(statement: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
+fn precise_type_error_span(
+    statement: &crate::SpannedExpr,
+    error: &str,
+    source: &str,
+) -> Option<crate::Span> {
     let value = expression_value(statement);
     let name = error
         .strip_prefix("unknown variable or enum variant '")
@@ -1801,7 +1835,154 @@ fn precise_type_error_span(statement: &crate::SpannedExpr, error: &str) -> Optio
     if let Some(name) = name {
         return first_symbol_span(value, name).or(Some(value.span));
     }
+    let mismatch_type = error
+        .split_once("mismatched types ")
+        .and_then(|(context, types)| {
+            let (left, right) = types.split_once(" and ")?;
+            let right = right.split(';').next().unwrap_or(right);
+            let operator_type = typed_operator_qualifier(
+                value,
+                context.trim().split_whitespace().next().unwrap_or_default(),
+            );
+            Some(match operator_type {
+                Some(qualifier) if qualifier.eq_ignore_ascii_case(left) => right,
+                Some(qualifier) if qualifier.eq_ignore_ascii_case(right) => left,
+                _ => right,
+            })
+        })
+        .or_else(|| {
+            error
+                .split_once(" has type ")
+                .and_then(|(_, rest)| rest.split_once(", expected ").map(|(actual, _)| actual))
+        })
+        .or_else(|| error.split_once(", got ").map(|(_, actual)| actual));
+    if let Some(mismatch_type) = mismatch_type {
+        if let Some(span) = expression_with_type_hint(value, mismatch_type, source) {
+            return Some(span);
+        }
+    }
     Some(value.span)
+}
+
+fn typed_operator_qualifier<'a>(
+    expression: &'a crate::SpannedExpr,
+    operator: &str,
+) -> Option<&'a str> {
+    if let Expr::List(items) = &expression.expr {
+        if let Some(Expr::Symbol(head)) = items.first() {
+            if let Some(qualified) = head.strip_prefix('#') {
+                if let Some((qualifier, operation)) = qualified.split_once('.') {
+                    if operation.split('.').next() == Some(operator) {
+                        return Some(qualifier);
+                    }
+                }
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| typed_operator_qualifier(child, operator))
+}
+
+fn expression_with_type_hint(
+    expression: &crate::SpannedExpr,
+    wanted: &str,
+    source: &str,
+) -> Option<crate::Span> {
+    fn has_type_hint(expression: &crate::SpannedExpr, wanted: &str, source: &str) -> bool {
+        let text = source
+            .get(expression.span.start..expression.span.end)
+            .unwrap_or("");
+        let primitive = match &expression.expr {
+            Expr::Symbol(name) if matches!(name.as_str(), "true" | "false") => "Bool",
+            Expr::Char(_) => "Char",
+            Expr::Float(_) if text.ends_with("f32") => "F32",
+            Expr::Float(_) => "F64",
+            Expr::Integer(_) if text.ends_with("i8") => "I8",
+            Expr::Integer(_) if text.ends_with("i16") => "I16",
+            Expr::Integer(_) if text.ends_with("i32") => "I32",
+            Expr::Integer(_) if text.ends_with("i64") => "I64",
+            Expr::Integer(_) if text.ends_with("i128") => "I128",
+            Expr::Integer(_) if text.ends_with("isize") => "Isize",
+            Expr::UnsignedInteger(_) if text.ends_with("u8") => "U8",
+            Expr::UnsignedInteger(_) if text.ends_with("u16") => "U16",
+            Expr::UnsignedInteger(_) if text.ends_with("u32") => "U32",
+            Expr::UnsignedInteger(_) if text.ends_with("u64") => "U64",
+            Expr::UnsignedInteger(_) if text.ends_with("u128") => "U128",
+            Expr::UnsignedInteger(_) if text.ends_with("usize") => "Usize",
+            _ => "",
+        };
+        if primitive == wanted {
+            return true;
+        }
+        let Expr::List(items) = &expression.expr else {
+            return false;
+        };
+        let Some(Expr::Symbol(head)) = items.first() else {
+            return false;
+        };
+        if head == "#literal" {
+            return matches!(items.get(1), Some(Expr::Symbol(ty)) if ty.eq_ignore_ascii_case(wanted));
+        }
+        // A function call's result type is not encoded in its syntax. Do not
+        // mistake one of its arguments for the result when pinpointing a
+        // mismatch reported by the caller.
+        if matches!(head.as_str(), "#call" | "call") {
+            return false;
+        }
+        let Some(qualified) = head.strip_prefix('#') else {
+            return false;
+        };
+        let Some((qualifier, _)) = qualified.split_once('.') else {
+            return false;
+        };
+        is_builtin_scalar_name(qualifier) && qualifier.eq_ignore_ascii_case(wanted)
+    }
+
+    if has_type_hint(expression, wanted, source) {
+        return Some(expression.span);
+    }
+    let Expr::List(items) = &expression.expr else {
+        return None;
+    };
+    let Some(Expr::Symbol(head)) = items.first() else {
+        return None;
+    };
+    let Some(qualified) = head.strip_prefix('#') else {
+        return None;
+    };
+    let Some((qualifier, _)) = qualified.split_once('.') else {
+        return None;
+    };
+    if !is_builtin_scalar_name(qualifier) {
+        return None;
+    }
+    expression
+        .children
+        .iter()
+        .filter_map(|child| expression_with_type_hint(child, wanted, source))
+        .min_by_key(|span| span.end.saturating_sub(span.start))
+}
+
+fn is_builtin_scalar_name(name: &str) -> bool {
+    matches!(
+        name,
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "bool"
+    )
 }
 
 fn expression_value(statement: &crate::SpannedExpr) -> &crate::SpannedExpr {

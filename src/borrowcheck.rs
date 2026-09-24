@@ -413,6 +413,11 @@ fn format_borrow_diagnostic(
     let exact_conflict_span = exact_conflict_span.and_then(|statement_span| {
         statement_expression
             .and_then(|expression| conflict_operator_source_span(expression, owner, &error))
+            .or_else(|| {
+                statement_expression.and_then(|expression| {
+                    find_source_symbol(expression, &place_name_candidates(owner))
+                })
+            })
             .or(Some(statement_span))
     });
     let spans = source_spans(

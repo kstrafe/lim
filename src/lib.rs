@@ -7093,6 +7093,15 @@ mod tests {
     }
 
     #[test]
+    fn escaping_borrow_errors_highlight_the_local_referent() {
+        let source = "(#fn bad () (#ref u64)\n  (#let value u64 42)\n  (#return (#borrow value)))";
+        let program = parse_program(source).unwrap();
+        let error = check_types(&program).unwrap_err();
+        let (start, end) = span_after(&error, "conflicting span ").unwrap();
+        assert_eq!(&source[start..end], "value");
+    }
+
+    #[test]
     fn projected_borrow_errors_keep_both_operator_spans() {
         let source = "(#struct Point ((x u64) (y u64)))\n(#fn main () u64\n  (#let-mut point Point (#struct-literal Point ((x 1u64) (y 2u64))))\n  (#let point-ref (#ref-mut Point) (#borrow-mut point))\n  (#let reference (#ref u64) (#borrow (#get point-ref x)))\n  (#set-field point x 3u64)\n  (#return 0u64)\n)";
         let program = parse_program(source).unwrap();
@@ -7131,6 +7140,24 @@ mod tests {
         let error = check_types(&program).unwrap_err();
         let (start, end) = span_after(&error, "source span ").unwrap();
         assert_eq!(&source[start..end], "missing");
+    }
+
+    #[test]
+    fn type_mismatch_inside_nested_expression_highlights_the_bad_operand() {
+        for source in [
+            "(#fn main () u64 (#return (#u64.+.wrap 1u64 false)))",
+            "(#fn main () u64 (#return (#u64.+.wrap false 1u64)))",
+            "(#fn main () u64 (#return (#u64.+.wrap 1u64 2i8)))",
+        ] {
+            let program = parse_program(source).unwrap();
+            let error = check_types(&program).unwrap_err();
+            let (start, end) = span_after(&error, "source span ").unwrap();
+            assert!(
+                matches!(&source[start..end], "false" | "2i8"),
+                "wrong highlighted operand for {error}: {:?}",
+                &source[start..end]
+            );
+        }
     }
 
     #[test]

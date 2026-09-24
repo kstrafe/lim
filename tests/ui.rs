@@ -59,6 +59,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "nested-mismatch",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#u64.+.wrap 1u64 false))",
+            line_number: 2,
+        },
+        Case {
             name: "top-level-mismatch",
             diagnostic_code: "E4000",
             offending_line: "(#let TOTAL u64 true)",
@@ -276,6 +282,30 @@ fn compilation_errors_render_the_offending_source_line() {
                 source_row.find("count"),
                 underline_row.find('^'),
                 "type mismatch underline is not aligned under the offending value:\n{stderr}"
+            );
+        }
+        if case.name == "top-level-mismatch" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.find("true"),
+                underline_row.find('^'),
+                "top-level type mismatch underline is not aligned under the incompatible initializer:\n{stderr}"
+            );
+        }
+        if case.name == "nested-mismatch" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.find("false"),
+                underline_row.find('^'),
+                "nested type mismatch underline is not aligned under its incompatible operand:\n{stderr}"
             );
         }
         if case.name == "codegen" {

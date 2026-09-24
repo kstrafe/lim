@@ -181,9 +181,11 @@ the checklist is committed alongside the implementation it tracks.
 - [x] Add Rust-style CLI diagnostic rendering with source excerpts and
   underlines for errors that carry or expose a source location.
 - [ ] Carry exact spans from parsed expressions into every type, ownership,
-  borrow, unsafe, generator, and codegen error. Source identities and contents
-  are retained across imports, but some analysis fallbacks still underline a
-  containing statement rather than the precise offending expression.
+  borrow, unsafe, generator, and codegen error. Type mismatches now select
+  identifiable incompatible operands (including normalized typed literals)
+  for local and top-level initializers, and borrow escapes identify the local
+  referent. Audit and remove remaining statement/declaration fallbacks across
+  every error path, with exact-range regression coverage.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

@@ -1052,6 +1052,10 @@ Function-body type errors retain parsed expression trees and generally point
 at the offending value or identifier; some checks still report the enclosing
 expression or statement. Generated forms retain source context through
 parsing, so generator failures remain associated with their invocation.
+For mismatched operands of explicitly typed builtin expressions, the
+diagnostic mapper uses the reported types and typed syntax to underline the
+incompatible operand when it can identify one; this also works for top-level
+initializers and typed numeric literals.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the
