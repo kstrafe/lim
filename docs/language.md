@@ -101,16 +101,21 @@ worker's parameter and return types against `Send`. It generates
 `TaskType-spawn` and `TaskType-join` functions and a private native thread entry
 point; user code never passes a function pointer. Spawn arguments are copied
 into a private task packet before the worker starts. Scalar and aggregate
-arguments/results use the compiler's native calling convention. Thread
-creation failures return a null task handle, and joining a null task or a task
-with a failed join returns a zeroed result. Callers must define their own
-policy for detecting and handling that sentinel.
+arguments/results use the compiler's native calling convention. Spawn returns
+`TaskType-spawn-result`: `TaskType-spawn-ok` carries the opaque task handle and
+`TaskType-spawn-error` carries an allocation or thread-creation error. Join
+returns `TaskType-join-result`: `TaskType-join-ok` carries the worker result;
+`TaskType-join-error` carries the still-owned task handle and native error code.
+This distinguishes runtime failure from valid zero-valued results and allows
+the caller to retry a failed join. A failed join does not release captured
+borrows or free the task packet.
 
-Task handles are affine in this first version: bind the result of `-spawn` to a
-local and join it exactly once. They cannot be copied, returned, stored in
-aggregates, forgotten, dropped, or left unjoined. References captured by a worker remain borrowed
-until its handle is joined; shared captures require `Sync`, mutable captures
-exclude parent access until join. These restrictions are checked statically.
+Task handles are affine: match spawn results, and join each successful task
+handle exactly once. The join error arm must retain or retry the returned
+handle; discarding either generated result is rejected. References captured by
+a worker remain borrowed until a successful join; shared captures require
+`Sync`, mutable captures exclude parent access until join. These restrictions
+are checked statically.
 Unsafe `#send`/`#sync` overrides are promises, not synchronization: the author
 must ensure the underlying resource remains sound under concurrent access.
 

@@ -122,12 +122,14 @@ the checklist is committed alongside the implementation it tracks.
 - [x] Define constrained FFI declarations: `#extern-fn` uses the target C ABI,
   accepts directly passed scalar signatures only, and requires `#unsafe` at
   every call site.
-- [x] Add failure-safe thread creation/join behavior: generated spawn returns a
-  null task on allocation/creation failure, and join returns a zeroed result on
-  a null task or join failure instead of unconditionally aborting.
-- [ ] Replace thread null/zero failure sentinels with explicit fallible
+- [x] Add generated native thread creation/join behavior with structural
+  `Send` checks, captured-borrow tracking, and explicit runtime failure paths.
+- [x] Replace thread null/zero failure sentinels with explicit fallible
   spawn/join results. Preserve task ownership and borrow state on failed join,
   and make it possible to distinguish a valid zero result from runtime failure.
+  Spawn reports allocation versus creation errors; join failure returns its
+  still-owned handle and native error code. Runtime tests cover both direct and
+  indirect result layouts and injected spawn/join failures.
 - [x] Add compile-and-run coverage for the binary pipeline under the Nix
   development shell.
 

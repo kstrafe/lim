@@ -262,13 +262,15 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             ));
         }
         let task_type = Type::Named(name.clone());
+        let spawn_result_type = Type::Named(format!("{name}-spawn-result"));
+        let join_result_type = Type::Named(format!("{name}-join-result"));
         for (generated_name, signature) in [
             (
                 format!("{name}-spawn"),
                 Signature {
                     type_parameters: Vec::new(),
                     parameters: worker_signature.parameters.clone(),
-                    return_type: task_type.clone(),
+                    return_type: spawn_result_type,
                 },
             ),
             (
@@ -276,7 +278,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                 Signature {
                     type_parameters: Vec::new(),
                     parameters: vec![task_type],
-                    return_type: worker_signature.return_type,
+                    return_type: join_result_type,
                 },
             ),
         ] {
@@ -344,6 +346,29 @@ fn check_thread_task_ownership(
             _ => None,
         })
         .collect::<HashMap<_, _>>();
+    let task_result_enums = tasks
+        .keys()
+        .flat_map(|task| {
+            [
+                format!("{task}-spawn-result"),
+                format!("{task}-join-result"),
+            ]
+        })
+        .collect::<HashSet<_>>();
+    let enum_fields = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Enum { name, variants, .. } => Some((
+                name.clone(),
+                variants
+                    .iter()
+                    .flat_map(|variant| variant.fields.iter().cloned())
+                    .collect::<Vec<_>>(),
+            )),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
     if tasks.is_empty() {
         return Ok(());
     }
@@ -352,7 +377,12 @@ fn check_thread_task_ownership(
         match item {
             Item::Struct { name, fields, .. } => {
                 for field in fields {
-                    if type_mentions_task(&resolve_type(&field.ty, aliases)?, &tasks) {
+                    if type_mentions_task(
+                        &resolve_type(&field.ty, aliases)?,
+                        &tasks,
+                        &enum_fields,
+                        &mut HashSet::new(),
+                    ) {
                         return Err(format!(
                             "thread task handles cannot be stored in struct '{name}'"
                         ));
@@ -364,23 +394,37 @@ fn check_thread_task_ownership(
                     .iter()
                     .flat_map(|variant| &variant.fields)
                     .any(|ty| {
-                        resolve_type(ty, aliases).is_ok_and(|ty| type_mentions_task(&ty, &tasks))
+                        resolve_type(ty, aliases).is_ok_and(|ty| {
+                            type_mentions_task(&ty, &tasks, &enum_fields, &mut HashSet::new())
+                        })
                     })
                 {
-                    return Err(format!(
-                        "thread task handles cannot be stored in enum '{name}'"
-                    ));
+                    if !task_result_enums.contains(name) {
+                        return Err(format!(
+                            "thread task handles cannot be stored in enum '{name}'"
+                        ));
+                    }
                 }
             }
             Item::TypeAlias { name, target, .. } => {
-                if type_mentions_task(&resolve_type(target, aliases)?, &tasks) {
+                if type_mentions_task(
+                    &resolve_type(target, aliases)?,
+                    &tasks,
+                    &enum_fields,
+                    &mut HashSet::new(),
+                ) {
                     return Err(format!(
                         "type alias '{name}' cannot contain a thread task handle"
                     ));
                 }
             }
             Item::Let { name, ty, .. } | Item::Static { name, ty, .. } => {
-                if type_mentions_task(&resolve_type(ty, aliases)?, &tasks) {
+                if type_mentions_task(
+                    &resolve_type(ty, aliases)?,
+                    &tasks,
+                    &enum_fields,
+                    &mut HashSet::new(),
+                ) {
                     return Err(format!(
                         "global '{name}' cannot contain a thread task handle"
                     ));
@@ -388,16 +432,49 @@ fn check_thread_task_ownership(
             }
             Item::Function(function) => {
                 if function.parameters.iter().any(|parameter| {
-                    resolve_type(&parameter.ty, aliases)
-                        .is_ok_and(|ty| type_mentions_task(&ty, &tasks))
-                }) || type_mentions_task(&resolve_type(&function.return_type, aliases)?, &tasks)
-                {
+                    resolve_type(&parameter.ty, aliases).is_ok_and(|ty| {
+                        type_mentions_task(&ty, &tasks, &enum_fields, &mut HashSet::new())
+                    })
+                }) || type_mentions_task(
+                    &resolve_type(&function.return_type, aliases)?,
+                    &tasks,
+                    &enum_fields,
+                    &mut HashSet::new(),
+                ) {
                     return Err(format!(
                         "function '{}' cannot accept, return, or retain a thread task handle",
                         function.name
                     ));
                 }
-                check_function_task_uses(function, &tasks)?;
+                for statement in &function.body {
+                    check_task_statement(statement, &HashMap::new(), &tasks)?;
+                }
+                let function_locals = function
+                    .parameters
+                    .iter()
+                    .map(|parameter| (parameter.name.clone(), parameter.ty.clone()))
+                    .collect::<HashMap<_, _>>();
+                validate_thread_result_matches(
+                    &function.body,
+                    function_locals,
+                    &tasks,
+                    &enum_fields,
+                    program,
+                    aliases,
+                )?;
+                if !function
+                    .body
+                    .iter()
+                    .any(|statement| statement_contains_thread_operation(statement, &tasks))
+                {
+                    check_function_task_uses(function, &tasks)?;
+                }
+                // Task handles are linear values. The ordinary linearity checker
+                // requires every handle extracted from a spawn/join result to be
+                // consumed, while the opaque task type can only be passed to its
+                // generated join function (user signatures containing it are
+                // rejected above). This also permits a failed join's returned
+                // handle to be retried without ending its captured borrows.
             }
             Item::UnsafeAutoTraitImpl { .. } | Item::ThreadTask { .. } => {}
         }
@@ -405,14 +482,378 @@ fn check_thread_task_ownership(
     Ok(())
 }
 
-fn type_mentions_task(ty: &Type, tasks: &HashMap<String, String>) -> bool {
+fn type_mentions_task(
+    ty: &Type,
+    tasks: &HashMap<String, String>,
+    enums: &HashMap<String, Vec<Type>>,
+    seen: &mut HashSet<String>,
+) -> bool {
     match ty {
-        Type::Named(name) => tasks.contains_key(name),
+        Type::Named(name) => {
+            tasks.contains_key(name)
+                || (seen.insert(name.clone())
+                    && enums.get(name).is_some_and(|fields| {
+                        fields
+                            .iter()
+                            .any(|field| type_mentions_task(field, tasks, enums, seen))
+                    }))
+        }
         Type::Reference { target, .. }
         | Type::RawPointer { target, .. }
         | Type::Cell(target)
-        | Type::Array(target, _) => type_mentions_task(target, tasks),
-        Type::Tuple(fields) => fields.iter().any(|field| type_mentions_task(field, tasks)),
+        | Type::Array(target, _) => type_mentions_task(target, tasks, enums, seen),
+        Type::Tuple(fields) => fields
+            .iter()
+            .any(|field| type_mentions_task(field, tasks, enums, seen)),
+        _ => false,
+    }
+}
+
+fn validate_thread_result_matches(
+    statements: &[Statement],
+    mut locals: HashMap<String, Type>,
+    tasks: &HashMap<String, String>,
+    enum_fields: &HashMap<String, Vec<Type>>,
+    program: &Program,
+    aliases: &HashMap<String, Type>,
+) -> Result<(), String> {
+    let all_enums = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Enum { name, variants, .. } => Some((name.clone(), variants.clone())),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+    validate_task_match_statements(
+        statements,
+        &mut locals,
+        tasks,
+        enum_fields,
+        &all_enums,
+        aliases,
+    )
+}
+
+fn validate_task_match_statements(
+    statements: &[Statement],
+    locals: &mut HashMap<String, Type>,
+    tasks: &HashMap<String, String>,
+    enum_fields: &HashMap<String, Vec<Type>>,
+    all_enums: &HashMap<String, Vec<EnumVariant>>,
+    aliases: &HashMap<String, Type>,
+) -> Result<(), String> {
+    for statement in statements {
+        match statement {
+            Statement::Let {
+                name, ty, value, ..
+            } => {
+                validate_task_match_expression(
+                    value,
+                    locals,
+                    tasks,
+                    enum_fields,
+                    all_enums,
+                    aliases,
+                )?;
+                locals.insert(name.clone(), ty.clone());
+            }
+            Statement::Destructure { value, .. }
+            | Statement::LetElse { value, .. }
+            | Statement::Assign { value, .. }
+            | Statement::FieldAssign { value, .. }
+            | Statement::TupleAssign { value, .. }
+            | Statement::EnumPayloadAssign { value, .. }
+            | Statement::BreakValue(value)
+            | Statement::BreakToValue { value, .. }
+            | Statement::Return(Some(value))
+            | Statement::Expr(value) => validate_task_match_expression(
+                value,
+                locals,
+                tasks,
+                enum_fields,
+                all_enums,
+                aliases,
+            )?,
+            Statement::ArrayAssign { index, value, .. } => {
+                validate_task_match_expression(
+                    index,
+                    locals,
+                    tasks,
+                    enum_fields,
+                    all_enums,
+                    aliases,
+                )?;
+                validate_task_match_expression(
+                    value,
+                    locals,
+                    tasks,
+                    enum_fields,
+                    all_enums,
+                    aliases,
+                )?;
+            }
+            Statement::While { condition, body } => {
+                validate_task_match_expression(
+                    condition,
+                    locals,
+                    tasks,
+                    enum_fields,
+                    all_enums,
+                    aliases,
+                )?;
+                validate_task_match_statements(
+                    body,
+                    &mut locals.clone(),
+                    tasks,
+                    enum_fields,
+                    all_enums,
+                    aliases,
+                )?;
+            }
+            Statement::Loop { body } => validate_task_match_statements(
+                body,
+                &mut locals.clone(),
+                tasks,
+                enum_fields,
+                all_enums,
+                aliases,
+            )?,
+            Statement::For {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                validate_task_match_statements(
+                    std::slice::from_ref(init),
+                    &mut locals.clone(),
+                    tasks,
+                    enum_fields,
+                    all_enums,
+                    aliases,
+                )?;
+                validate_task_match_expression(
+                    condition,
+                    locals,
+                    tasks,
+                    enum_fields,
+                    all_enums,
+                    aliases,
+                )?;
+                validate_task_match_statements(
+                    std::slice::from_ref(step),
+                    &mut locals.clone(),
+                    tasks,
+                    enum_fields,
+                    all_enums,
+                    aliases,
+                )?;
+                validate_task_match_statements(
+                    body,
+                    &mut locals.clone(),
+                    tasks,
+                    enum_fields,
+                    all_enums,
+                    aliases,
+                )?;
+            }
+            Statement::Labeled { statement, .. } => validate_task_match_statements(
+                std::slice::from_ref(statement),
+                locals,
+                tasks,
+                enum_fields,
+                all_enums,
+                aliases,
+            )?,
+            Statement::Return(None)
+            | Statement::Break
+            | Statement::BreakTo(_)
+            | Statement::Continue
+            | Statement::ContinueTo(_) => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_task_match_expression(
+    expression: &Expr,
+    locals: &HashMap<String, Type>,
+    tasks: &HashMap<String, String>,
+    enum_fields: &HashMap<String, Vec<Type>>,
+    all_enums: &HashMap<String, Vec<EnumVariant>>,
+    aliases: &HashMap<String, Type>,
+) -> Result<(), String> {
+    match expression {
+        Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "#match" || operator == "match")
+                && items.len() >= 3
+            {
+                if let Some(Type::Named(result_type)) = thread_result_type(&items[1], locals, tasks)
+                {
+                    if let Some(variants) = all_enums.get(&result_type) {
+                        for variant in variants {
+                            if !variant.fields.iter().any(|field| {
+                                type_mentions_task(field, tasks, enum_fields, &mut HashSet::new())
+                            }) {
+                                continue;
+                            }
+                            let required_arm = items[2..].iter().find_map(|arm| {
+                                let Expr::List(arm_parts) = arm else {
+                                    return None;
+                                };
+                                let pattern = arm_parts.first()?;
+                                (pattern_variant_name(pattern) == Some(variant.name.as_str()))
+                                    .then_some(pattern)
+                            });
+                            let Some(pattern) = required_arm else {
+                                return Err(format!(
+                                    "thread result match must explicitly handle variant '{}' and its task handle",
+                                    variant.name
+                                ));
+                            };
+                            validate_task_variant_pattern(
+                                pattern,
+                                variant,
+                                tasks,
+                                enum_fields,
+                                aliases,
+                            )?;
+                        }
+                    }
+                }
+            }
+            for item in items {
+                validate_task_match_expression(
+                    item,
+                    locals,
+                    tasks,
+                    enum_fields,
+                    all_enums,
+                    aliases,
+                )?;
+            }
+        }
+        Expr::Block(body) | Expr::Loop(body) => validate_task_match_statements(
+            body,
+            &mut locals.clone(),
+            tasks,
+            enum_fields,
+            all_enums,
+            aliases,
+        )?,
+        Expr::Labeled { expression, .. }
+        | Expr::Quote(expression)
+        | Expr::QuasiQuote(expression)
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => validate_task_match_expression(
+            expression,
+            locals,
+            tasks,
+            enum_fields,
+            all_enums,
+            aliases,
+        )?,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn thread_result_type(
+    expression: &Expr,
+    locals: &HashMap<String, Type>,
+    tasks: &HashMap<String, String>,
+) -> Option<Type> {
+    if let Expr::Symbol(name) = expression {
+        return locals.get(name).cloned();
+    }
+    let Expr::List(items) = expression else {
+        return None;
+    };
+    let Expr::Symbol(function) = items.first()? else {
+        return None;
+    };
+    tasks.keys().find_map(|task| {
+        (function == &format!("{task}-spawn"))
+            .then(|| Type::Named(format!("{task}-spawn-result")))
+            .or_else(|| {
+                (function == &format!("{task}-join"))
+                    .then(|| Type::Named(format!("{task}-join-result")))
+            })
+    })
+}
+
+fn pattern_variant_name(pattern: &Expr) -> Option<&str> {
+    match pattern {
+        Expr::Symbol(name) => Some(name),
+        Expr::List(items) => match items.first()? {
+            Expr::Symbol(name) => Some(name),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn validate_task_variant_pattern(
+    pattern: &Expr,
+    variant: &EnumVariant,
+    tasks: &HashMap<String, String>,
+    enum_fields: &HashMap<String, Vec<Type>>,
+    aliases: &HashMap<String, Type>,
+) -> Result<(), String> {
+    let payload_patterns = match pattern {
+        Expr::List(items) => &items[1..],
+        _ => &[],
+    };
+    for (ty, payload_pattern) in variant.fields.iter().zip(payload_patterns) {
+        if !type_mentions_task(ty, tasks, enum_fields, &mut HashSet::new()) {
+            continue;
+        }
+        if !task_payload_pattern_is_bound(ty, payload_pattern, tasks, enum_fields, aliases) {
+            return Err(format!(
+                "thread result variant '{}' must bind its task handle instead of discarding it",
+                variant.name
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn task_payload_pattern_is_bound(
+    ty: &Type,
+    pattern: &Expr,
+    tasks: &HashMap<String, String>,
+    enum_fields: &HashMap<String, Vec<Type>>,
+    aliases: &HashMap<String, Type>,
+) -> bool {
+    let ty = resolve_type(ty, aliases).unwrap_or_else(|_| ty.clone());
+    match ty {
+        Type::Named(name) if tasks.contains_key(&name) => {
+            matches!(pattern, Expr::Symbol(binding) if binding != "_")
+        }
+        Type::Tuple(fields) => {
+            let Expr::List(patterns) = pattern else {
+                return false;
+            };
+            if !matches!(patterns.first(), Some(Expr::Symbol(head)) if head == "tuple")
+                || patterns.len() != fields.len() + 1
+            {
+                return false;
+            }
+            fields
+                .iter()
+                .zip(&patterns[1..])
+                .all(|(field, field_pattern)| {
+                    !type_mentions_task(field, tasks, enum_fields, &mut HashSet::new())
+                        || task_payload_pattern_is_bound(
+                            field,
+                            field_pattern,
+                            tasks,
+                            enum_fields,
+                            aliases,
+                        )
+                })
+        }
         _ => false,
     }
 }
@@ -658,7 +1099,7 @@ fn check_task_statement_expr(
     handles: &HashMap<String, String>,
     tasks: &HashMap<String, String>,
 ) -> Result<(), String> {
-    if contains_thread_operation(expression, tasks) {
+    if !handles.is_empty() && contains_thread_operation(expression, tasks) {
         return Err("thread spawn and join must be direct top-level statements".into());
     }
     check_task_expression_children(std::slice::from_ref(expression), handles, tasks)
@@ -2226,6 +2667,42 @@ fn expression_has_value_break(expression: &Expr) -> bool {
     }
 }
 
+fn type_contains_thread_task_value(
+    ty: &Type,
+    functions: &HashMap<String, Signature>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    aliases: &HashMap<String, Type>,
+    seen: &mut HashSet<String>,
+) -> bool {
+    let ty = resolve_type(ty, aliases).unwrap_or_else(|_| ty.clone());
+    match &ty {
+        Type::Named(name) => {
+            functions.contains_key(&format!("{name}-join"))
+                || (seen.insert(name.clone())
+                    && enums.get(name).is_some_and(|variants| {
+                        variants
+                            .iter()
+                            .flat_map(|variant| &variant.fields)
+                            .any(|field| {
+                                type_contains_thread_task_value(
+                                    field, functions, enums, aliases, seen,
+                                )
+                            })
+                    }))
+        }
+        Type::Reference { target, .. }
+        | Type::RawPointer { target, .. }
+        | Type::Cell(target)
+        | Type::Array(target, _) => {
+            type_contains_thread_task_value(target, functions, enums, aliases, seen)
+        }
+        Type::Tuple(fields) => fields
+            .iter()
+            .any(|field| type_contains_thread_task_value(field, functions, enums, aliases, seen)),
+        _ => false,
+    }
+}
+
 fn list_expression(
     items: &[Expr],
     variables: &HashMap<String, Type>,
@@ -2260,6 +2737,15 @@ fn list_expression(
             if type_contains_mutable_reference(&cloned, structs, enums, &mut HashSet::new()) {
                 return Err("a mutable reference cannot be cloned".into());
             }
+            if type_contains_thread_task_value(
+                &cloned,
+                functions,
+                enums,
+                aliases,
+                &mut HashSet::new(),
+            ) {
+                return Err("thread task handles and results cannot be cloned".into());
+            }
             if let Type::Named(name) = &cloned {
                 if functions.contains_key(&format!("{name}-join")) {
                     return Err(format!("thread task '{name}' cannot be cloned"));
@@ -2279,10 +2765,31 @@ fn list_expression(
             let forgotten = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
+            if type_contains_thread_task_value(
+                &forgotten,
+                functions,
+                enums,
+                aliases,
+                &mut HashSet::new(),
+            ) {
+                return Err(
+                    "thread task values and results cannot be dropped or forgotten; match and join them".into(),
+                );
+            }
             if let Type::Named(name) = &forgotten {
                 if functions.contains_key(&format!("{name}-join")) {
                     return Err(format!(
                         "thread task '{name}' must be joined; it cannot be dropped or forgotten"
+                    ));
+                }
+                let thread_result_task = name
+                    .strip_suffix("-spawn-result")
+                    .or_else(|| name.strip_suffix("-join-result"));
+                if thread_result_task
+                    .is_some_and(|task| functions.contains_key(&format!("{task}-spawn")))
+                {
+                    return Err(format!(
+                        "thread result '{name}' must be matched so any task handle is joined"
                     ));
                 }
             }

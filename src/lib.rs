@@ -1675,6 +1675,7 @@ fn parse_program_in_directory(
         }
     }
     rename_shadowed_locals(&mut items);
+    synthesize_thread_join_results(&mut items)?;
     let mut items = specialize_generic_types(items)?;
     normalize_struct_literals(&mut items)?;
     Ok(Program {
@@ -1699,6 +1700,43 @@ fn item_declared_names(item: &Item) -> Vec<String> {
         | Item::Let { name, .. } => vec![name.clone()],
         Item::UnsafeAutoTraitImpl { .. } => Vec::new(),
     }
+}
+
+fn synthesize_thread_join_results(items: &mut Vec<Item>) -> Result<(), String> {
+    let tasks = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::ThreadTask { name, worker } => Some((name.clone(), worker.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for (name, worker) in tasks {
+        let Some(return_type) = items.iter().find_map(|item| match item {
+            Item::Function(function) if function.name == worker => {
+                Some(function.return_type.clone())
+            }
+            _ => None,
+        }) else {
+            continue;
+        };
+        items.push(Item::Enum {
+            name: format!("{name}-join-result"),
+            type_parameters: Vec::new(),
+            variants: vec![
+                EnumVariant {
+                    name: format!("{name}-join-ok"),
+                    fields: vec![return_type],
+                    discriminant: 0,
+                },
+                EnumVariant {
+                    name: format!("{name}-join-error"),
+                    fields: vec![Type::Tuple(vec![Type::Named(name.clone()), Type::I32])],
+                    discriminant: 1,
+                },
+            ],
+        });
+    }
+    Ok(())
 }
 
 /// Preserve source locations for top-level function statements before the
@@ -4123,7 +4161,48 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         return parse_generated_result_items(items);
     }
     if kind == "thread-spawn" {
-        return Ok(vec![parse_generated_item(items)?]);
+        let task = parse_generated_item(items)?;
+        let Item::ThreadTask { name, .. } = &task else {
+            unreachable!("thread-spawn declaration always produces a task")
+        };
+        let name = name.clone();
+        let spawn_error_name = format!("{name}-spawn-error");
+        let spawn_result_name = format!("{name}-spawn-result");
+        return Ok(vec![
+            task,
+            Item::Enum {
+                name: spawn_error_name.clone(),
+                type_parameters: Vec::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: format!("{name}-spawn-allocation-error"),
+                        fields: Vec::new(),
+                        discriminant: 0,
+                    },
+                    EnumVariant {
+                        name: format!("{name}-spawn-creation-error"),
+                        fields: Vec::new(),
+                        discriminant: 1,
+                    },
+                ],
+            },
+            Item::Enum {
+                name: spawn_result_name,
+                type_parameters: Vec::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: format!("{name}-spawn-ok"),
+                        fields: vec![Type::Named(name.clone())],
+                        discriminant: 0,
+                    },
+                    EnumVariant {
+                        name: format!("{name}-spawn-error"),
+                        fields: vec![Type::Named(spawn_error_name)],
+                        discriminant: 1,
+                    },
+                ],
+            },
+        ]);
     }
     if kind == "vec" {
         return parse_generated_source_items(&generated_vec_source(items)?);
@@ -6679,15 +6758,19 @@ mod tests {
             Item::ThreadTask { name, worker }
                 if name == "IncrementTask" && worker == "increment"
         )));
-        let api = parse_program(
-            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn IncrementTask increment) (#fn main () u64 (#let task IncrementTask (IncrementTask-spawn 41)) (#let result u64 (IncrementTask-join task)) (#return result))",
-        )
-        .unwrap();
-        assert!(check_types(&api).is_ok(), "{:?}", check_types(&api));
-        let assembly = generate_assembly(&api).unwrap();
+        let assembly = generate_assembly(&valid).unwrap();
         assert!(assembly.contains("call pthread_create"));
         assert!(assembly.contains("call pthread_join"));
         assert!(assembly.contains(".Llim_thread_entry_IncrementTask"));
+
+        let api = parse_program(
+            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn IncrementTask increment) (#fn main () u64 (#return (#match (IncrementTask-spawn 41) ((IncrementTask-spawn-ok task) (#match (IncrementTask-join task) ((IncrementTask-join-ok value) value) ((IncrementTask-join-error (#tuple retry error)) (#panic)))) ((IncrementTask-spawn-error error) (#panic)))))",
+        )
+        .unwrap();
+        assert!(check_types(&api).is_ok(), "{:?}", check_types(&api));
+        let api_assembly = generate_assembly(&api).unwrap();
+        assert!(api_assembly.contains(".Llim_thread_join_fail_IncrementTask"));
+        assert!(api_assembly.contains("ud2"));
 
         let non_send_input = parse_program(
             "(#fn inspect ((pointer (#ptr u64))) u64 (#return (#unsafe (#ptr-read pointer)))) (@thread-spawn PointerTask inspect)",
@@ -6725,68 +6808,102 @@ mod tests {
             .unwrap_err()
             .contains("cannot return reference-containing values"));
 
-        let duplicate_join = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let task WorkTask (WorkTask-spawn 1)) (#let first u64 (WorkTask-join task)) (#let second u64 (WorkTask-join task)) (#return second))",
+        let forgotten_spawn_result = parse_program(
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (WorkTask-spawn 1)) (#forget result) (#return 0))",
         )
         .unwrap();
-        assert!(check_types(&duplicate_join)
+        assert!(check_types(&forgotten_spawn_result)
             .unwrap_err()
-            .contains("was joined more than once"));
+            .contains("cannot be dropped or forgotten; match and join them"));
 
-        let unjoined = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let task WorkTask (WorkTask-spawn 1)) (#return 0))",
+        let forgotten_nested_spawn_result = parse_program(
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (WorkTask-spawn 1)) (#forget (#tuple (#tuple WorkTask-spawn-result u64) result 0)) (#return 0))",
         )
         .unwrap();
-        assert!(check_types(&unjoined)
+        assert!(check_types(&forgotten_nested_spawn_result)
             .unwrap_err()
-            .contains("may return while thread task 'task' is still running"));
+            .contains("cannot be dropped or forgotten; match and join them"));
 
-        let borrowed_then_mutated = parse_program(
-            "(#struct Shared ((value u64))) (#fn read ((value (#ref Shared))) u64 (#return (#get value value))) (@thread-spawn ReadTask read) (#fn main () u64 (#let-mut shared Shared (Shared 1)) (#let task ReadTask (ReadTask-spawn (#borrow shared))) (#set-field shared value 2) (#let result u64 (ReadTask-join task)) (#return result))",
+        let discarded_spawn_handle = parse_program(
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (WorkTask-spawn 1)) (#return (#match result (_ 0))))",
         )
         .unwrap();
-        let borrow_error = check_types(&borrowed_then_mutated).unwrap_err();
-        assert!(
-            borrow_error.contains("cannot mutate 'shared' while it is immutably borrowed"),
-            "{borrow_error}"
-        );
+        assert!(check_types(&discarded_spawn_handle)
+            .unwrap_err()
+            .contains("must explicitly handle variant 'WorkTask-spawn-ok'"));
 
-        let joined_then_mutated = parse_program(
-            "(#struct Shared ((value u64))) (#fn read ((value (#ref Shared))) u64 (#return (#get value value))) (@thread-spawn ReadTask read) (#fn main () u64 (#let-mut shared Shared (Shared 1)) (#let task ReadTask (ReadTask-spawn (#borrow shared))) (#let result u64 (ReadTask-join task)) (#set-field shared value 2) (#return result))",
+        let discarded_join_error_handle = parse_program(
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#return (#match (WorkTask-spawn 1) ((WorkTask-spawn-ok task) (#match (WorkTask-join task) ((WorkTask-join-ok value) value) ((WorkTask-join-error (#tuple _ error)) (#panic)))) ((WorkTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
-        assert!(check_types(&joined_then_mutated).is_ok());
+        assert!(check_types(&discarded_join_error_handle)
+            .unwrap_err()
+            .contains("must bind its task handle instead of discarding it"));
 
-        let mutable_borrow_while_running = parse_program(
-            "(#struct Shared ((value u64))) (#fn inspect ((value (#ref-mut Shared))) u64 (#return (#get value value))) (@thread-spawn InspectTask inspect) (#fn main () u64 (#let-mut shared Shared (Shared 1)) (#let task InspectTask (InspectTask-spawn (#borrow-mut shared))) (#set-field shared value 2) (#let result u64 (InspectTask-join task)) (#return result))",
+        let forged_task = parse_program(
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let task WorkTask (WorkTask (#ptr-null (#ptr-mut ())))) (#return 0))",
         )
         .unwrap();
-        let mutable_borrow_error = check_types(&mutable_borrow_while_running).unwrap_err();
-        assert!(
-            mutable_borrow_error.contains("mutably borrowed by a running thread"),
-            "{mutable_borrow_error}"
-        );
-
-        let mutable_borrow_read_while_running = parse_program(
-            "(#struct Shared ((value u64))) (#fn inspect ((value (#ref-mut Shared))) u64 (#return (#get value value))) (@thread-spawn InspectTask inspect) (#fn main () u64 (#let-mut shared Shared (Shared 1)) (#let task InspectTask (InspectTask-spawn (#borrow-mut shared))) (#let copy Shared shared) (#let result u64 (InspectTask-join task)) (#return result))",
-        )
-        .unwrap();
-        let mutable_read_error = check_types(&mutable_borrow_read_while_running).unwrap_err();
-        assert!(
-            mutable_read_error.contains("cannot access 'shared' while it is mutably borrowed"),
-            "{mutable_read_error}"
-        );
-
-        let mutable_borrow_then_join = parse_program(
-            "(#struct Shared ((value u64))) (#fn inspect ((value (#ref-mut Shared))) u64 (#return (#get value value))) (@thread-spawn InspectTask inspect) (#fn main () u64 (#let-mut shared Shared (Shared 1)) (#let task InspectTask (InspectTask-spawn (#borrow-mut shared))) (#let result u64 (InspectTask-join task)) (#set-field shared value 2) (#return result))",
-        )
-        .unwrap();
-        assert!(check_types(&mutable_borrow_then_join).is_ok());
+        assert!(check_types(&forged_task)
+            .unwrap_err()
+            .contains("thread task type 'WorkTask' is opaque"));
 
         let unknown_worker = parse_program("(@thread-spawn MissingTask missing-worker)").unwrap();
         assert!(check_types(&unknown_worker)
             .unwrap_err()
             .contains("unknown worker function 'missing-worker'"));
+    }
+
+    #[test]
+    fn failed_thread_join_keeps_captured_borrows_active() {
+        let program = parse_program(
+            r#"(#struct Shared ((value u64)))
+(#fn read ((value (#ref Shared))) u64 (#return (#get value value)))
+(@thread-spawn ReadTask read)
+(#fn main () u64
+  (#let-mut shared Shared (Shared 1))
+  (#let spawned ReadTask-spawn-result (ReadTask-spawn (#borrow shared)))
+  (#return
+    (#match spawned
+      ((ReadTask-spawn-ok task)
+        (#match (ReadTask-join task)
+          ((ReadTask-join-ok value) (#block (#set-field shared value 2) value))
+          ((ReadTask-join-error (#tuple retry error))
+            (#block (#set-field shared value 3) 0))))
+      ((ReadTask-spawn-error error) (#block (#set-field shared value 4) 0)))))"#,
+        )
+        .unwrap();
+        let error = crate::borrowcheck::check_program(&program).unwrap_err();
+        assert!(
+            error.contains("cannot mutate 'shared' while it is immutably borrowed"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn failed_thread_join_keeps_exclusive_captures_active() {
+        let program = parse_program(
+            r#"(#struct Shared ((value u64)))
+(#fn read-mut ((value (#ref-mut Shared))) u64 (#return (#get value value)))
+(@thread-spawn MutTask read-mut)
+(#fn main () u64
+  (#let-mut shared Shared (Shared 1))
+  (#let spawned MutTask-spawn-result (MutTask-spawn (#borrow-mut shared)))
+  (#return
+    (#match spawned
+      ((MutTask-spawn-ok task)
+        (#match (MutTask-join task)
+          ((MutTask-join-ok value) (#block (#set-field shared value 2) value))
+          ((MutTask-join-error (#tuple retry error))
+            (#block (#let copy Shared shared) 0))))
+      ((MutTask-spawn-error error) (#block (#let copy Shared shared) 0)))))"#,
+        )
+        .unwrap();
+        let error = crate::borrowcheck::check_program(&program).unwrap_err();
+        assert!(
+            error.contains("cannot access 'shared' while it is mutably borrowed"),
+            "{error}"
+        );
     }
 
     #[test]

@@ -1086,10 +1086,12 @@ mod tests {
     #[test]
     fn thread_tasks_cannot_be_forgotten_instead_of_joined() {
         let program = parse_program(
-            "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#let task Task (Task-spawn 1u64)) (#forget task) (#return 0u64))",
+            "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#let result Task-spawn-result (Task-spawn 1u64)) (#forget result) (#return 0u64))",
         ).unwrap();
-        assert!(check_types(&program)
-            .unwrap_err()
-            .contains("must be joined; it cannot be dropped or forgotten"));
+        let error = check_types(&program).unwrap_err();
+        assert!(
+            error.contains("cannot be dropped or forgotten; match and join them"),
+            "{error}"
+        );
     }
 }

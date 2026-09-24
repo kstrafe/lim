@@ -501,6 +501,7 @@ fn compile_with_links(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::process::ExitStatusExt;
     use std::process::Command;
 
     #[test]
@@ -525,6 +526,207 @@ mod tests {
         );
         let status = Command::new(&output).status().unwrap();
         assert_eq!(status.code(), Some(42));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn thread_spawn_and_join_results_run_with_native_enum_layout() {
+        let directory = env::temp_dir().join(format!("lim-thread-results-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("thread.lim");
+        let output = directory.join("thread");
+        fs::write(
+            &input,
+            "(#fn zero ((value u64)) u64 (#return 0)) (@thread-spawn ZeroTask zero) (#fn main () u64 (#return (#match (ZeroTask-spawn 41) ((ZeroTask-spawn-ok task) (#match (ZeroTask-join task) ((ZeroTask-join-ok value) (#if (#u64.== value 0) 42 0)) ((ZeroTask-join-error (#tuple retry error)) (#panic)))) ((ZeroTask-spawn-error error) (#panic)))))",
+        )
+        .unwrap();
+
+        let config = lim::CompileConfig::default();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &config,
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        let status = Command::new(&output).status().unwrap();
+        assert_eq!(status.code(), Some(42));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn thread_join_large_worker_results_use_indirect_storage() {
+        let directory =
+            env::temp_dir().join(format!("lim-thread-large-result-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("thread.lim");
+        let output = directory.join("thread");
+        fs::write(
+            &input,
+            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn identity ((value Large)) Large (#return value)) (@thread-spawn LargeTask identity) (#fn main () u64 (#return (#match (LargeTask-spawn (Large 1 2 3 4 5 6 42)) ((LargeTask-spawn-ok task) (#match (LargeTask-join task) ((LargeTask-join-ok value) (#get value g)) ((LargeTask-join-error (#tuple retry error)) (#panic)))) ((LargeTask-spawn-error error) (#panic)))))",
+        )
+        .unwrap();
+
+        let config = lim::CompileConfig::default();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &config,
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        let status = Command::new(&output).status().unwrap();
+        assert_eq!(status.code(), Some(42));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn thread_creation_failure_selects_explicit_spawn_error_variant() {
+        let directory =
+            env::temp_dir().join(format!("lim-thread-spawn-failure-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("thread.lim");
+        let output = directory.join("thread");
+        let stub_source = directory.join("pthread-stub.s");
+        let stub_object = directory.join("pthread-stub.o");
+        let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (Task-spawn 41) ((Task-spawn-ok task) (#panic)) ((Task-spawn-error error) (#match error (Task-spawn-creation-error 43) (Task-spawn-allocation-error 0))))))";
+        fs::write(&input, source).unwrap();
+        fs::write(
+            &stub_source,
+            ".intel_syntax noprefix\n.text\n.globl pthread_create\npthread_create:\n    mov eax, 11\n    ret\n",
+        )
+        .unwrap();
+        assert!(Command::new("as")
+            .arg("--64")
+            .arg(&stub_source)
+            .arg("-o")
+            .arg(&stub_object)
+            .status()
+            .unwrap()
+            .success());
+
+        let config = lim::CompileConfig::default();
+        let assembly = lim::compile_source_to_assembly(
+            source,
+            &input,
+            &config,
+            &directory.join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+        assert!(lim::link_native_binary(
+            &assembly,
+            &output,
+            std::slice::from_ref(&stub_object),
+            &[],
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .is_ok());
+        assert_eq!(Command::new(&output).status().unwrap().code(), Some(43));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn thread_allocation_failure_selects_explicit_spawn_error_variant() {
+        let directory =
+            env::temp_dir().join(format!("lim-thread-alloc-failure-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("thread.lim");
+        let output = directory.join("thread");
+        let stub_source = directory.join("malloc-stub.s");
+        let stub_object = directory.join("malloc-stub.o");
+        let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (Task-spawn 41) ((Task-spawn-ok task) (#panic)) ((Task-spawn-error error) (#match error (Task-spawn-creation-error 0) (Task-spawn-allocation-error 44))))))";
+        fs::write(&input, source).unwrap();
+        fs::write(
+            &stub_source,
+            ".intel_syntax noprefix\n.text\n.globl malloc\nmalloc:\n    xor eax, eax\n    ret\n.section .note.GNU-stack,\"\",@progbits\n",
+        )
+        .unwrap();
+        assert!(Command::new("as")
+            .arg("--64")
+            .arg(&stub_source)
+            .arg("-o")
+            .arg(&stub_object)
+            .status()
+            .unwrap()
+            .success());
+
+        let config = lim::CompileConfig::default();
+        let assembly = lim::compile_source_to_assembly(
+            source,
+            &input,
+            &config,
+            &directory.join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+        assert!(lim::link_native_binary(
+            &assembly,
+            &output,
+            std::slice::from_ref(&stub_object),
+            &[],
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .is_ok());
+        assert_eq!(Command::new(&output).status().unwrap().code(), Some(44));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn thread_join_failure_selects_error_variant_without_freeing_task() {
+        let directory =
+            env::temp_dir().join(format!("lim-thread-join-failure-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("thread.lim");
+        let output = directory.join("thread");
+        let stub_source = directory.join("pthread-stub.s");
+        let stub_object = directory.join("pthread-stub.o");
+        let source = "(#extern-fn exit ((status i32)) ()) (#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (Task-spawn 41) ((Task-spawn-ok task) (#match (Task-join task) ((Task-join-ok value) 42) ((Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (exit 43)) (#panic)))))) ((Task-spawn-error error) (#panic)))))";
+        fs::write(&input, source).unwrap();
+        fs::write(
+            &stub_source,
+            ".intel_syntax noprefix\n.text\n.globl pthread_create\npthread_create:\n    push rbp\n    mov rbp, rsp\n    sub rsp, 32\n    mov QWORD PTR [rbp-8], rdi\n    mov QWORD PTR [rbp-16], rdx\n    mov QWORD PTR [rbp-24], rcx\n    mov QWORD PTR [rdi], 1\n    mov rdi, QWORD PTR [rbp-24]\n    mov rax, QWORD PTR [rbp-16]\n    call rax\n    xor eax, eax\n    leave\n    ret\n.globl pthread_join\npthread_join:\n    mov eax, 11\n    ret\n.globl free\nfree:\n    mov eax, 60\n    mov edi, 77\n    syscall\n    ud2\n.section .note.GNU-stack,\"\",@progbits\n",
+        )
+        .unwrap();
+        assert!(Command::new("as")
+            .arg("--64")
+            .arg(&stub_source)
+            .arg("-o")
+            .arg(&stub_object)
+            .status()
+            .unwrap()
+            .success());
+
+        let config = lim::CompileConfig::default();
+        let assembly = lim::compile_source_to_assembly(
+            source,
+            &input,
+            &config,
+            &directory.join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+        assert!(lim::link_native_binary(
+            &assembly,
+            &output,
+            std::slice::from_ref(&stub_object),
+            &[],
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .is_ok());
+        let status = Command::new(&output).status().unwrap();
+        assert_eq!(status.signal(), Some(4));
         fs::remove_dir_all(directory).unwrap();
     }
 

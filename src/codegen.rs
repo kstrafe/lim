@@ -1100,6 +1100,10 @@ pub fn generate_assembly_for_target(
             .cloned()
             .ok_or_else(|| format!("thread worker '{worker}' has no native signature"))?;
         let task_type = Type::Named(name.clone());
+        let spawn_result_type = Type::Named(format!("{name}-spawn-result"));
+        let join_result_type = Type::Named(format!("{name}-join-result"));
+        let join_indirect_return =
+            supports_indirect_return_type(&join_result_type, &structs, &enums);
         let spawn_name = format!("{name}-spawn");
         let join_name = format!("{name}-join");
         for (function_name, abi) in [
@@ -1108,7 +1112,7 @@ pub fn generate_assembly_for_target(
                 FunctionAbi {
                     parameters: worker_abi.parameters.clone(),
                     indirect_parameters: worker_abi.indirect_parameters.clone(),
-                    return_type: task_type.clone(),
+                    return_type: spawn_result_type,
                     indirect_return: false,
                     max_call_depth: 1,
                 },
@@ -1118,8 +1122,8 @@ pub fn generate_assembly_for_target(
                 FunctionAbi {
                     parameters: vec![task_type],
                     indirect_parameters: vec![false],
-                    indirect_return: worker_abi.indirect_return,
-                    return_type: worker_abi.return_type.clone(),
+                    indirect_return: join_indirect_return,
+                    return_type: join_result_type,
                     max_call_depth: 1,
                 },
             ),
@@ -1526,7 +1530,7 @@ fn generate_thread_task(
         }
     }
     output.push_str(&format!(
-        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdi, rax\n    xor esi, esi\n    lea rdx, [rip+{entry_symbol}]\n    mov rcx, rax\n    call pthread_create\n    test eax, eax\n    jne .Llim_thread_create_fail_{task_symbol}\n    mov rax, QWORD PTR [rbp-{}]\n    leave\n    ret\n.Llim_thread_alloc_fail_{task_symbol}:\n    xor eax, eax\n    leave\n    ret\n.Llim_thread_create_fail_{task_symbol}:\n    mov rdi, QWORD PTR [rbp-{}]\n    call free\n    xor eax, eax\n    leave\n    ret\n.size {spawn_symbol}, .-{spawn_symbol}\n",
+        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdi, rax\n    xor esi, esi\n    lea rdx, [rip+{entry_symbol}]\n    mov rcx, rax\n    call pthread_create\n    test eax, eax\n    jne .Llim_thread_create_fail_{task_symbol}\n    mov rdx, QWORD PTR [rbp-{}]\n    xor eax, eax\n    leave\n    ret\n.Llim_thread_alloc_fail_{task_symbol}:\n    mov eax, 1\n    xor edx, edx\n    leave\n    ret\n.Llim_thread_create_fail_{task_symbol}:\n    mov rdi, QWORD PTR [rbp-{}]\n    call free\n    mov eax, 1\n    mov edx, 1\n    leave\n    ret\n.size {spawn_symbol}, .-{spawn_symbol}\n",
         context_slot * 8,
         context_slot * 8,
         context_slot * 8
@@ -1679,73 +1683,52 @@ fn generate_thread_task(
     }
     output.push_str("    xor eax, eax\n    leave\n    ret\n");
 
-    let join_frame_words = 2 + if worker_abi.indirect_return {
-        0
+    let join_result_type = Type::Named(format!("{name}-join-result"));
+    let join_result_words = storage_word_count(&join_result_type, structs, enums)?;
+    let join_indirect_return = supports_indirect_return_type(&join_result_type, structs, enums);
+    if join_result_words < result_words + 1 || join_result_words < 3 {
+        return Err(format!(
+            "thread join result for '{name}' has an incompatible layout"
+        ));
+    }
+    let join_frame_words = 2 + if join_indirect_return {
+        1
     } else {
-        result_words
+        join_result_words
     };
     let join_frame_size = (join_frame_words * 8).div_ceil(16) * 16;
     output.push_str(&format!(
         ".globl {join_symbol}\n.type {join_symbol}, @function\n{join_symbol}:\n    push rbp\n    mov rbp, rsp\n    sub rsp, {join_frame_size}\n    mov QWORD PTR [rbp-8], rdi\n"
     ));
-    if worker_abi.indirect_return {
+    if join_indirect_return {
         output.push_str("    mov QWORD PTR [rbp-16], r10\n");
     }
     output.push_str(&format!(
-        "    test rdi, rdi\n    je .Llim_thread_join_fail_{task_symbol}\n    mov rdi, QWORD PTR [rdi]\n    xor esi, esi\n    call pthread_join\n    test eax, eax\n    jne .Llim_thread_join_fail_{task_symbol}\n"
+        "    test rdi, rdi\n    je .Llim_thread_join_null_{task_symbol}\n    mov rdi, QWORD PTR [rdi]\n    xor esi, esi\n    call pthread_join\n    test eax, eax\n    jne .Llim_thread_join_fail_{task_symbol}\n"
     ));
-    if worker_abi.indirect_return {
-        for word in 0..result_words {
-            let destination_offset = if word == 0 {
-                String::new()
-            } else {
-                format!("-{}", word * 8)
-            };
+    if join_indirect_return {
+        output.push_str("    mov r11, QWORD PTR [rbp-16]\n    mov QWORD PTR [r11], 0\n");
+    } else {
+        output.push_str("    mov QWORD PTR [rbp-24], 0\n");
+    }
+    for word in 0..join_result_words - 1 {
+        let destination = if join_indirect_return {
+            format!("QWORD PTR [r11-{}]", (word + 1) * 8)
+        } else {
+            format!("QWORD PTR [rbp-{}]", (word + 4) * 8)
+        };
+        if word < result_words {
             output.push_str(&format!(
-                "    mov r10, QWORD PTR [rbp-8]\n    mov r11, QWORD PTR [rbp-16]\n    mov rax, QWORD PTR [r10+{}]\n    mov QWORD PTR [r11{destination_offset}], rax\n",
+                "    mov r10, QWORD PTR [rbp-8]\n    mov rax, QWORD PTR [r10+{}]\n    mov {destination}, rax\n",
                 result_offset + (result_words - 1 - word) * 8,
             ));
-        }
-    } else if result_words > 0 && is_float_type(result_type) {
-        let instruction = if matches!(result_type, Type::F32) {
-            "movd"
         } else {
-            "movq"
-        };
-        let size = if matches!(result_type, Type::F32) {
-            "DWORD"
-        } else {
-            "QWORD"
-        };
-        output.push_str(&format!(
-            "    mov r10, QWORD PTR [rbp-8]\n    {instruction} xmm0, {size} PTR [r10+{result_offset}]\n    {instruction} {size} PTR [rbp-24], xmm0\n"
-        ));
-    } else if !worker_abi.indirect_return {
-        for word in 0..result_words {
-            output.push_str(&format!(
-                "    mov r10, QWORD PTR [rbp-8]\n    mov rax, QWORD PTR [r10+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
-                result_offset + word * 8,
-                (word + 3) * 8
-            ));
+            output.push_str(&format!("    mov {destination}, 0\n"));
         }
     }
     output.push_str("    mov rdi, QWORD PTR [rbp-8]\n    call free\n");
-    if worker_abi.indirect_return {
-        output.push_str("    mov rax, QWORD PTR [rbp-16]\n");
-    } else if is_float_type(result_type) && result_words > 0 {
-        let instruction = if matches!(result_type, Type::F32) {
-            "movd"
-        } else {
-            "movq"
-        };
-        let size = if matches!(result_type, Type::F32) {
-            "DWORD"
-        } else {
-            "QWORD"
-        };
-        output.push_str(&format!("    {instruction} xmm0, {size} PTR [rbp-24]\n"));
-    } else {
-        for (word, register) in VALUE_REGISTERS.iter().take(result_words).enumerate() {
+    if !join_indirect_return {
+        for (word, register) in VALUE_REGISTERS.iter().take(join_result_words).enumerate() {
             output.push_str(&format!(
                 "    mov {register}, QWORD PTR [rbp-{}]\n",
                 (word + 3) * 8
@@ -1753,16 +1736,24 @@ fn generate_thread_task(
         }
     }
     output.push_str("    leave\n    ret\n");
-    output.push_str(&format!(".Llim_thread_join_fail_{task_symbol}:\n"));
-    if worker_abi.indirect_return {
-        output.push_str("    mov r10, QWORD PTR [rbp-16]\n");
-        for word in 0..result_words {
-            output.push_str(&format!("    mov QWORD PTR [r10+{}], 0\n", word * 8));
+    output.push_str(&format!(
+        ".Llim_thread_join_null_{task_symbol}:\n    mov eax, 22\n.Llim_thread_join_fail_{task_symbol}:\n    mov ecx, eax\n"
+    ));
+    if join_indirect_return {
+        output.push_str("    mov r11, QWORD PTR [rbp-16]\n    mov QWORD PTR [r11], 1\n    mov rax, QWORD PTR [rbp-8]\n    mov QWORD PTR [r11-8], rax\n    mov QWORD PTR [r11-16], rcx\n");
+        for word in 2..join_result_words - 1 {
+            output.push_str(&format!("    mov QWORD PTR [r11-{}], 0\n", (word + 1) * 8));
         }
-    } else if is_float_type(result_type) && result_words > 0 {
-        output.push_str("    pxor xmm0, xmm0\n");
     } else {
-        output.push_str("    xor eax, eax\n");
+        output.push_str("    mov QWORD PTR [rbp-24], 1\n    mov rax, QWORD PTR [rbp-8]\n    mov QWORD PTR [rbp-32], rax\n    mov QWORD PTR [rbp-40], rcx\n");
+    }
+    if !join_indirect_return {
+        for (word, register) in VALUE_REGISTERS.iter().take(join_result_words).enumerate() {
+            output.push_str(&format!(
+                "    mov {register}, QWORD PTR [rbp-{}]\n",
+                (word + 3) * 8
+            ));
+        }
     }
     output.push_str(&format!(
         "    leave\n    ret\n.size {join_symbol}, .-{join_symbol}\n"

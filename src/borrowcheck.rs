@@ -637,6 +637,14 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
             let checked = check_expression(value, context);
             context.allow_local_reference = false;
             checked?;
+            let moves_thread_task = if let Expr::Symbol(source) = value {
+                context.thread_task_loans.contains_key(source).then(|| {
+                    move_thread_task_loans(source, name, context);
+                })
+            } else {
+                None
+            }
+            .is_some();
             if let Some(task_loans) = task_loans {
                 for (owner, kind) in &task_loans {
                     context.loans.borrow(owner, *kind)?;
@@ -652,7 +660,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
                     task_loans.iter().map(|(owner, _)| owner.clone()).collect(),
                 );
                 context.thread_task_loans.insert(name.clone(), task_loans);
-            } else {
+            } else if !moves_thread_task {
                 if let Some(parent) = derived_parent.as_ref() {
                     if context.mutable_references.contains(parent) {
                         context.suspended_references.insert(parent.clone());
@@ -854,6 +862,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                     check_expression(&items[3], &mut else_context)?;
                     merge_branch_context(context, &[then_context, else_context]);
                 } else if operator == "match" && items.len() >= 3 {
+                    let thread_operation = thread_match_operation(&items[1], context);
                     check_expression(&items[1], context)?;
                     let base = context.clone();
                     let mut branches = Vec::with_capacity(items.len() - 2);
@@ -865,6 +874,14 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                             return Err("match arms must contain a pattern and body".into());
                         }
                         let mut branch = base.clone();
+                        if let Some(operation) = &thread_operation {
+                            apply_thread_match_arm(
+                                operation,
+                                &parts[0],
+                                parts.len() == 3,
+                                &mut branch,
+                            )?;
+                        }
                         if parts.len() == 3 {
                             check_expression(&parts[1], &mut branch)?;
                         }
@@ -978,31 +995,6 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                         .try_for_each(|item| check_expression(item, context));
                     context.allow_local_reference = previous;
                     checked?;
-                    if context.thread_join_functions.contains(operator) {
-                        if let Some(Expr::Symbol(handle)) = items.get(1) {
-                            if let Some(loans) = context.thread_task_loans.remove(handle) {
-                                context.reference_origins.remove(handle);
-                                for (owner, _) in &loans {
-                                    context.loans.end(owner);
-                                }
-                                for (owner, kind) in loans {
-                                    if kind == LoanKind::Mutable {
-                                        let remove_owner = if let Some(count) =
-                                            context.thread_exclusive_owners.get_mut(&owner)
-                                        {
-                                            *count -= 1;
-                                            *count == 0
-                                        } else {
-                                            false
-                                        };
-                                        if remove_owner {
-                                            context.thread_exclusive_owners.remove(&owner);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
                 } else if matches!(operator.as_str(), "get" | "index" | "get-payload") {
                     if let Some((base, path)) = projection_path(expression) {
                         let through_mutable_reference = matches!(base, Expr::Symbol(name)
@@ -1186,6 +1178,160 @@ fn release_dropped_value(expression: &Expr, context: &mut Context) {
     }
     context.mutable_references.remove(&name);
     context.reference_bindings.remove(&name);
+}
+
+enum ThreadMatchOperation {
+    Spawn {
+        source: Option<String>,
+        loans: Vec<(String, LoanKind)>,
+    },
+    Join {
+        handle: String,
+    },
+}
+
+fn thread_match_operation(expression: &Expr, context: &Context) -> Option<ThreadMatchOperation> {
+    if let Expr::Symbol(source) = expression {
+        if let Some(loans) = context.thread_task_loans.get(source) {
+            return Some(ThreadMatchOperation::Spawn {
+                source: Some(source.clone()),
+                loans: loans.clone(),
+            });
+        }
+    }
+    let Expr::List(items) = expression else {
+        return None;
+    };
+    let Expr::Symbol(function) = items.first()? else {
+        return None;
+    };
+    if context.thread_join_functions.contains(function) {
+        if let Some(Expr::Symbol(handle)) = items.get(1) {
+            return Some(ThreadMatchOperation::Join {
+                handle: handle.clone(),
+            });
+        }
+    }
+    context
+        .thread_spawn_functions
+        .get(function)
+        .map(|_| ThreadMatchOperation::Spawn {
+            source: None,
+            loans: thread_spawn_origins(expression, context).unwrap_or_default(),
+        })
+}
+
+fn apply_thread_match_arm(
+    operation: &ThreadMatchOperation,
+    pattern: &Expr,
+    guarded: bool,
+    context: &mut Context,
+) -> Result<(), String> {
+    if guarded {
+        return Err("thread result matches cannot use guarded arms".into());
+    }
+    let Expr::List(parts) = pattern else {
+        return Ok(());
+    };
+    let Some(Expr::Symbol(variant)) = parts.first() else {
+        return Ok(());
+    };
+    match operation {
+        ThreadMatchOperation::Spawn { source, loans } if variant.ends_with("-spawn-ok") => {
+            let destination = parts.get(1).and_then(pattern_binding).ok_or_else(|| {
+                "thread spawn success pattern must bind its task handle".to_owned()
+            })?;
+            if let Some(source) = source {
+                move_thread_task_loans(source, &destination, context);
+            } else {
+                start_thread_task_loans(&destination, loans, context)?;
+            }
+        }
+        ThreadMatchOperation::Spawn { source, .. } if variant.ends_with("-spawn-error") => {
+            if let Some(source) = source {
+                release_thread_task_loans(source, context);
+            }
+        }
+        ThreadMatchOperation::Join { handle } if variant.ends_with("-join-ok") => {
+            release_thread_task_loans(handle, context);
+        }
+        ThreadMatchOperation::Join { handle } if variant.ends_with("-join-error") => {
+            let destination = parts.get(1).and_then(pattern_binding).ok_or_else(|| {
+                "thread join error pattern must bind the returned task handle".to_owned()
+            })?;
+            move_thread_task_loans(handle, &destination, context);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn pattern_binding(pattern: &Expr) -> Option<String> {
+    match pattern {
+        Expr::Symbol(name) if name != "_" && name != "tuple" => Some(name.clone()),
+        Expr::List(items) => items.iter().find_map(pattern_binding),
+        _ => None,
+    }
+}
+
+fn start_thread_task_loans(
+    destination: &str,
+    loans: &[(String, LoanKind)],
+    context: &mut Context,
+) -> Result<(), String> {
+    for (owner, kind) in loans {
+        context.loans.borrow(owner, *kind)?;
+        if *kind == LoanKind::Mutable {
+            *context
+                .thread_exclusive_owners
+                .entry(owner.clone())
+                .or_default() += 1;
+        }
+    }
+    context.reference_origins.insert(
+        destination.to_owned(),
+        loans.iter().map(|(owner, _)| owner.clone()).collect(),
+    );
+    context
+        .thread_task_loans
+        .insert(destination.to_owned(), loans.to_vec());
+    Ok(())
+}
+
+fn move_thread_task_loans(source: &str, destination: &str, context: &mut Context) {
+    if let Some(loans) = context.thread_task_loans.remove(source) {
+        context.reference_origins.remove(source);
+        context.reference_origins.insert(
+            destination.to_owned(),
+            loans.iter().map(|(owner, _)| owner.clone()).collect(),
+        );
+        context
+            .thread_task_loans
+            .insert(destination.to_owned(), loans);
+    }
+}
+
+fn release_thread_task_loans(source: &str, context: &mut Context) {
+    if let Some(loans) = context.thread_task_loans.remove(source) {
+        context.reference_origins.remove(source);
+        for (owner, _) in &loans {
+            context.loans.end(owner);
+        }
+        for (owner, kind) in loans {
+            if kind == LoanKind::Mutable {
+                let remove_owner =
+                    if let Some(count) = context.thread_exclusive_owners.get_mut(&owner) {
+                        *count -= 1;
+                        *count == 0
+                    } else {
+                        false
+                    };
+                if remove_owner {
+                    context.thread_exclusive_owners.remove(&owner);
+                }
+            }
+        }
+    }
 }
 
 fn thread_spawn_origins(expression: &Expr, context: &Context) -> Option<Vec<(String, LoanKind)>> {
