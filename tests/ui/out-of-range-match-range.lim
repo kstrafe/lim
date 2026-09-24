@@ -1,0 +1,3 @@
+(#fn main () u64
+  (#let value u8 4u8)
+  (#return (#match value ((#range 2 300) 0u64) (_ 1u64))))

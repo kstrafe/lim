@@ -211,7 +211,8 @@ the checklist is committed alongside the implementation it tracks.
   operator symbol. Unknown enum variants in `#let-else` patterns also underline
   the pattern token. Repeated boolean, enum, and wildcard match patterns
   underline the later duplicate. Out-of-range and repeated integer match
-  patterns underline the corresponding literal token.
+  patterns underline the corresponding literal token. Range-pattern errors
+  underline the invalid range or its upper bound when the bounds are reversed.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

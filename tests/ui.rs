@@ -373,6 +373,18 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "out-of-range-match-range",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match value ((#range 2 300) 0u64) (_ 1u64)))",
+            line_number: 3,
+        },
+        Case {
+            name: "reversed-match-range",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match value ((#range 10 2) 0u64) (_ 1u64)))",
+            line_number: 3,
+        },
+        Case {
             name: "non-reference-deref-set",
             diagnostic_code: "E4000",
             offending_line: "  (#deref-set value 2u64)",
@@ -556,6 +568,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "duplicate-wildcard-match-pattern" => Some("_"),
             "out-of-range-match-integer" => Some("300"),
             "duplicate-match-integer" => Some("2"),
+            "out-of-range-match-range" => Some("(#range 2 300)"),
+            "reversed-match-range" => Some("2"),
             "non-reference-deref-set" => Some("value"),
             "thread-worker-missing" => Some("missing-worker"),
             "thread-worker-reference-result" => Some("(#ref u64)"),

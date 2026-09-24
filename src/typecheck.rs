@@ -1906,6 +1906,11 @@ fn precise_type_error_span(
             return Some(span);
         }
     }
+    if error.contains("range pattern") || error.starts_with("range patterns require") {
+        if let Some(span) = match_range_pattern_span(statement, error) {
+            return Some(span);
+        }
+    }
     let enum_pattern_target = error
         .strip_prefix('\'')
         .and_then(|rest| {
@@ -2273,6 +2278,31 @@ fn last_match_pattern_integer_span(
     let mut spans = Vec::new();
     collect_patterns(expression, target, &mut spans);
     spans.into_iter().max_by_key(|span| span.start)
+}
+
+fn match_range_pattern_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
+    fn collect(expression: &crate::SpannedExpr, error: &str, spans: &mut Vec<crate::Span>) {
+        if let Expr::List(items) = &expression.expr {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator.strip_prefix('#').unwrap_or(operator) == "range")
+            {
+                let span = if error.contains("lower bound exceeds upper bound") {
+                    expression
+                        .children
+                        .get(2)
+                        .map_or(expression.span, |upper| upper.span)
+                } else {
+                    expression.span
+                };
+                spans.push(span);
+            }
+        }
+        for child in &expression.children {
+            collect(child, error, spans);
+        }
+    }
+    let mut spans = Vec::new();
+    collect(expression, error, &mut spans);
+    spans.into_iter().min_by_key(|span| span.start)
 }
 
 fn statement_type(
