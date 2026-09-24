@@ -1865,6 +1865,27 @@ fn precise_type_error_span(
         .contains(&suffix)
         .then_some(name)
     });
+    let named_target = named_target.or_else(|| {
+        error
+            .strip_prefix("unknown enum variant '")
+            .or_else(|| error.strip_prefix("unknown variant '"))
+            .or_else(|| error.strip_prefix("variant '"))
+            .and_then(|rest| rest.split('\'').next())
+    });
+    let named_target = named_target.or_else(|| {
+        error
+            .strip_prefix('\'')?
+            .split_once("' is not a variant of '")
+            .map(|(name, _)| name)
+    });
+    if let Some(name) = error.strip_prefix('\'').and_then(|rest| {
+        rest.split_once("' is not a variant of '")
+            .map(|(name, _)| name)
+    }) {
+        if let Some(span) = match_pattern_symbol_span(statement, name) {
+            return Some(span);
+        }
+    }
     if let Some(name) = named_target {
         if let Some(span) = first_symbol_span(statement, name) {
             return Some(span);
@@ -2098,6 +2119,35 @@ fn first_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<cr
         .iter()
         .skip(start)
         .find_map(|child| first_symbol_span(child, target))
+}
+
+fn match_pattern_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
+    fn inclusive_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
+        if matches!(&expression.expr, Expr::Symbol(name) if name == target) {
+            return Some(expression.span);
+        }
+        expression
+            .children
+            .iter()
+            .find_map(|child| inclusive_symbol_span(child, target))
+    }
+
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(operator)) if operator.strip_prefix('#').unwrap_or(operator) == "match")
+        {
+            for arm in expression.children.iter().skip(2) {
+                if let Some(pattern) = arm.children.first() {
+                    if let Some(span) = inclusive_symbol_span(pattern, target) {
+                        return Some(span);
+                    }
+                }
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| match_pattern_symbol_span(child, target))
 }
 
 fn statement_type(

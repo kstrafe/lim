@@ -337,6 +337,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "unknown-match-variant",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match value (Missing 0u64) (Ready 1u64)))",
+            line_number: 4,
+        },
+        Case {
             name: "non-reference-deref-set",
             diagnostic_code: "E4000",
             offending_line: "  (#deref-set value 2u64)",
@@ -514,6 +520,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "non-enum-payload" => Some("value"),
             "unknown-get-field" => Some("missing"),
             "unknown-payload-variant" => Some("MissingVariant"),
+            "unknown-match-variant" => Some("Missing"),
             "non-reference-deref-set" => Some("value"),
             "thread-worker-missing" => Some("missing-worker"),
             "thread-worker-reference-result" => Some("(#ref u64)"),

@@ -1077,6 +1077,7 @@ the repeated type or generator name.
 Invalid array/struct assignment targets underline the named target.
 Missing fields and enum payload variants in `get` expressions underline the
 unresolved member name.
+Unknown enum variants in match arms underline the pattern token.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the
