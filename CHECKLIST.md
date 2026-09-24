@@ -202,7 +202,8 @@ the checklist is committed alongside the implementation it tracks.
   not the unrelated worker return type, even when an earlier local has the
   same name as the unknown type. Diagnostic hunks expand tabs at
   four-column stops before positioning underlines; common wide and combining
-  Unicode characters are included in display-column calculations.
+  Unicode characters are included in display-column calculations, and lexer
+  columns count Unicode scalars to match the renderer.
   Non-constant global
   initializers now highlight a nested `#call` that makes the initializer
   invalid instead of the larger enclosing constant expression. Imported

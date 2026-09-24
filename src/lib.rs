@@ -581,7 +581,7 @@ impl<'a> Lexer<'a> {
         if byte == b'\n' {
             self.line += 1;
             self.column = 1;
-        } else {
+        } else if byte & 0b1100_0000 != 0b1000_0000 {
             self.column += 1;
         }
         Some(byte)
@@ -7631,6 +7631,21 @@ mod tests {
         let rendered = render_diagnostic(&diagnostic, source, "unicode.lim");
         assert!(rendered.contains("1 | 界e\u{301}bad"), "{rendered}");
         assert!(rendered.contains("  |    ^^^ here"), "{rendered}");
+    }
+
+    #[test]
+    fn lexer_columns_render_unicode_tokens_at_their_display_position() {
+        let source = "界 missing";
+        let tokens = lex(source).unwrap();
+        let token = tokens
+            .iter()
+            .find(|token| matches!(&token.kind, TokenKind::Symbol(name) if name == "missing"))
+            .unwrap();
+        assert_eq!(token.span.column, 3);
+        let diagnostic =
+            Diagnostic::new(DiagnosticCode::Type, "unknown name").with_span(token.span);
+        let rendered = render_diagnostic(&diagnostic, source, "unicode.lim");
+        assert!(rendered.contains("  |    ^^^^^^^ here"), "{rendered}");
     }
 
     #[test]
