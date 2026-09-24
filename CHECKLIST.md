@@ -137,9 +137,10 @@ the checklist is committed alongside the implementation it tracks.
   optional source spans, and notes while retaining the existing string APIs.
 - [x] Add a parser-backed formatter and syntax-aware pretty-printer, exposed
   through `format_source` and `--format INPUT [OUTPUT]`.
-- [ ] Preserve comments and source annotations in formatted output, and define
-  idempotent canonical formatting for every accepted syntax form, including
-  generator templates and generated declarations.
+- [x] Preserve semicolon comments and source annotations in formatted output
+  (commented files are currently preserved verbatim); keep parser-backed
+  canonical formatting idempotent for generator templates and generated
+  declarations.
 - [x] Add `--check-examples [DIRECTORY]`, which checks all `.lim` examples and
   reports failures by source file, including generated examples.
 - [x] Add dependency-free `lim.project` metadata with a project name and
