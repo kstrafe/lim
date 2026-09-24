@@ -1493,6 +1493,15 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
             .find_map(|child| symbol_span(child, name))
     }
 
+    fn declared_name_span(expression: &SpannedExpr, name: &str) -> Option<Span> {
+        if let Some(child) = expression.children.get(1) {
+            if matches!(&child.expr, Expr::Symbol(source_name) if source_name == name) {
+                return Some(child.span);
+            }
+        }
+        None
+    }
+
     if let Some(name) = message
         .strip_prefix("unknown type '")
         .and_then(|rest| rest.split('\'').next())
@@ -1643,12 +1652,18 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
     }
 
     if message.contains("unsafe") && message.contains("implementation") {
-        if let Some(type_name) = message.split('\'').nth(1).and_then(|name| {
-            program
-                .declaration_spans
-                .get(&format!("$unsafe-impl:{name}"))
-        }) {
-            return Some(*type_name);
+        if let Some(type_name) = message.split('\'').nth(1) {
+            let key = format!("$unsafe-impl:{type_name}");
+            if let Some(span) = program
+                .declaration_expressions
+                .get(&key)
+                .and_then(|expression| symbol_span(expression, type_name))
+            {
+                return Some(span);
+            }
+            if let Some(span) = program.declaration_spans.get(&key) {
+                return Some(*span);
+            }
         }
     }
 
@@ -1666,6 +1681,13 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
                 {
                     return Some(*span);
                 }
+            }
+            if let Some(span) = program
+                .declaration_expressions
+                .get(function)
+                .and_then(|expression| declared_name_span(expression, function))
+            {
+                return Some(span);
             }
             if let Some(span) = program.declaration_spans.get(function) {
                 return Some(*span);
@@ -1699,6 +1721,13 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
             continue;
         };
         let key = declaration_key.unwrap_or(name);
+        if let Some(span) = program
+            .declaration_expressions
+            .get(key)
+            .and_then(|expression| declared_name_span(expression, name))
+        {
+            return Some(span);
+        }
         if let Some(span) = program.declaration_spans.get(key) {
             return Some(*span);
         }
@@ -2101,8 +2130,13 @@ fn parse_program_in_directory(
     }
     rename_shadowed_locals(&mut items);
     synthesize_thread_join_results(&mut items, &declaration_spans, &source_files)?;
-    let mut items =
-        specialize_generic_types(items, &statement_spans, &declaration_spans, &source_files)?;
+    let mut items = specialize_generic_types(
+        items,
+        &statement_spans,
+        &declaration_spans,
+        &declaration_expressions,
+        &source_files,
+    )?;
     normalize_function_calls(
         &mut items,
         &statement_spans,
@@ -4871,6 +4905,7 @@ fn specialize_generic_types(
     mut items: Vec<Item>,
     statement_spans: &HashMap<(String, usize), Span>,
     declaration_spans: &HashMap<String, Span>,
+    declaration_expressions: &HashMap<String, SpannedExpr>,
     source_files: &[SourceFile],
 ) -> Result<Vec<Item>, String> {
     for item in &items {
@@ -4892,10 +4927,15 @@ fn specialize_generic_types(
                 "unsafe {:?} implementation refers to undeclared type '{type_name}'",
                 trait_kind
             );
-            let span = declaration_spans.get(&format!("$unsafe-impl:{type_name}"));
-            return Err(span.map_or(error.clone(), |span| {
-                attach_span_to_source_error(error, *span, source_files)
-            }));
+            let key = format!("$unsafe-impl:{type_name}");
+            let precise = declaration_expressions
+                .get(&key)
+                .and_then(|expression| source_symbol_span(expression, type_name, false));
+            return Err(precise
+                .or_else(|| declaration_spans.get(&key).copied())
+                .map_or(error.clone(), |span| {
+                    attach_span_to_source_error(error, span, source_files)
+                }));
         };
         let is_generic = match declaration {
             Item::Struct {
@@ -4914,20 +4954,30 @@ fn specialize_generic_types(
                 "unsafe {:?} implementations require a nominal struct or enum type, not alias '{type_name}'",
                 trait_kind
             );
-            let span = declaration_spans.get(&format!("$unsafe-impl:{type_name}"));
-            return Err(span.map_or(error.clone(), |span| {
-                attach_span_to_source_error(error, *span, source_files)
-            }));
+            let key = format!("$unsafe-impl:{type_name}");
+            let precise = declaration_expressions
+                .get(&key)
+                .and_then(|expression| source_symbol_span(expression, type_name, false));
+            return Err(precise
+                .or_else(|| declaration_spans.get(&key).copied())
+                .map_or(error.clone(), |span| {
+                    attach_span_to_source_error(error, span, source_files)
+                }));
         }
         if is_generic {
             let error = format!(
                 "unsafe {:?} implementation for generic type '{type_name}' is not supported",
                 trait_kind
             );
-            let span = declaration_spans.get(&format!("$unsafe-impl:{type_name}"));
-            return Err(span.map_or(error.clone(), |span| {
-                attach_span_to_source_error(error, *span, source_files)
-            }));
+            let key = format!("$unsafe-impl:{type_name}");
+            let precise = declaration_expressions
+                .get(&key)
+                .and_then(|expression| source_symbol_span(expression, type_name, false));
+            return Err(precise
+                .or_else(|| declaration_spans.get(&key).copied())
+                .map_or(error.clone(), |span| {
+                    attach_span_to_source_error(error, span, source_files)
+                }));
         }
     }
     let templates = items

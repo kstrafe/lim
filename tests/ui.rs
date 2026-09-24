@@ -363,6 +363,9 @@ fn compilation_errors_render_the_offending_source_line() {
             );
         }
         let precise_fragment = match case.name {
+            "duplicate-type" => Some("Token"),
+            "duplicate-global" => Some("COUNT"),
+            "unsafe-impl" => Some("Missing"),
             "unsafe" => Some("VALUE"),
             "borrow" => Some("#set"),
             "linear" => Some("resource"),

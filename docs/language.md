@@ -1059,6 +1059,8 @@ initializers and typed numeric literals.
 Named-call and struct-literal validation retains source spans through lowering,
 so unknown or duplicate names and missing-argument/field forms underline the
 responsible identifier or argument/field list.
+Declaration uniqueness and unsafe-impl validation likewise underline the
+repeated or invalid name instead of the whole declaration.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the
