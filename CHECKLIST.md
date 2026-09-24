@@ -220,7 +220,8 @@ the checklist is committed alongside the implementation it tracks.
   Every UI fixture is required to declare a precise fragment or a custom
   alignment assertion.
   Mismatched `#if` branch values underline the incompatible branch, excluding
-  the condition expression from type-hint matching.
+  the condition expression from type-hint matching. Mismatched `#match` arms
+  similarly exclude the scrutinee and patterns from arm-value selection.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

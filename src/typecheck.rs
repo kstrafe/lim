@@ -1998,6 +1998,9 @@ fn precise_type_error_span(
         if error.starts_with("if branches has mismatched types") {
             return if_branch_mismatch_span(value, mismatch_type, source).or(Some(value.span));
         }
+        if error.starts_with("match arms has mismatched types") {
+            return match_branch_mismatch_span(value, mismatch_type, source).or(Some(value.span));
+        }
         if let Some(span) = expression_with_type_hint(value, mismatch_type, source) {
             return Some(span);
         }
@@ -2026,6 +2029,31 @@ fn if_branch_mismatch_span(
         .children
         .iter()
         .find_map(|child| if_branch_mismatch_span(child, wanted, source))
+}
+
+fn match_branch_mismatch_span(
+    expression: &crate::SpannedExpr,
+    wanted: &str,
+    source: &str,
+) -> Option<crate::Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#match" | "match"))
+        {
+            for arm in expression.children.iter().skip(2) {
+                if let Some(value) = arm.children.get(1) {
+                    if let Some(span) = if_branch_mismatch_span(value, wanted, source)
+                        .or_else(|| expression_with_type_hint(value, wanted, source))
+                    {
+                        return Some(span);
+                    }
+                }
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| match_branch_mismatch_span(child, wanted, source))
 }
 
 fn type_error_argument_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {

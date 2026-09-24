@@ -71,6 +71,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "match-branch-mismatch",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match true (true 1u64) (false false)))",
+            line_number: 2,
+        },
+        Case {
             name: "operator-arity",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#u64.+.wrap 1u64))",
@@ -636,6 +642,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-function" => Some("missing"),
             "nonboolean-if-condition" => Some("1u64"),
             "if-branch-mismatch" => Some("false"),
+            "match-branch-mismatch" => Some("false"),
             "noninteger-array-index" => Some("true"),
             "out-of-range-shift-count" => Some("8"),
             "recursive-alias" => Some("Second"),
@@ -738,7 +745,7 @@ fn compilation_errors_render_the_offending_source_line() {
                     .map(|(column, _)| column)
             } else if matches!(
                 case.name,
-                "destructure-type-mismatch" | "out-of-range-shift-count"
+                "destructure-type-mismatch" | "out-of-range-shift-count" | "match-branch-mismatch"
             ) {
                 source_row.rfind(fragment)
             } else if matches!(
