@@ -208,7 +208,8 @@ the checklist is committed alongside the implementation it tracks.
   the named target instead of the full statement. Missing struct fields and
   enum payload variants underline the missing member name, and invalid enum
   match arms underline the variant pattern rather than treating it as an
-  operator symbol.
+  operator symbol. Unknown enum variants in `#let-else` patterns also underline
+  the pattern token.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

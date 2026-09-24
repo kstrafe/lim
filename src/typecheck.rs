@@ -1878,11 +1878,19 @@ fn precise_type_error_span(
             .split_once("' is not a variant of '")
             .map(|(name, _)| name)
     });
-    if let Some(name) = error.strip_prefix('\'').and_then(|rest| {
-        rest.split_once("' is not a variant of '")
-            .map(|(name, _)| name)
-    }) {
-        if let Some(span) = match_pattern_symbol_span(statement, name) {
+    let enum_pattern_target = error
+        .strip_prefix('\'')
+        .and_then(|rest| {
+            rest.split_once("' is not a variant of '")
+                .map(|(name, _)| name)
+        })
+        .or_else(|| {
+            error
+                .strip_prefix("unknown enum variant '")
+                .and_then(|rest| rest.split('\'').next())
+        });
+    if let Some(name) = enum_pattern_target {
+        if let Some(span) = type_pattern_symbol_span(statement, name) {
             return Some(span);
         }
     }
@@ -2121,7 +2129,7 @@ fn first_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<cr
         .find_map(|child| first_symbol_span(child, target))
 }
 
-fn match_pattern_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
+fn type_pattern_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
     fn inclusive_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
         if matches!(&expression.expr, Expr::Symbol(name) if name == target) {
             return Some(expression.span);
@@ -2142,12 +2150,19 @@ fn match_pattern_symbol_span(expression: &crate::SpannedExpr, target: &str) -> O
                     }
                 }
             }
+        } else if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.strip_prefix('#').unwrap_or(operator), "let-else" | "if-let" | "while-let"))
+        {
+            if let Some(pattern) = expression.children.get(1) {
+                if let Some(span) = inclusive_symbol_span(pattern, target) {
+                    return Some(span);
+                }
+            }
         }
     }
     expression
         .children
         .iter()
-        .find_map(|child| match_pattern_symbol_span(child, target))
+        .find_map(|child| type_pattern_symbol_span(child, target))
 }
 
 fn statement_type(

@@ -343,6 +343,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "unknown-let-else-variant",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let-else Missing State value (#return 1u64))",
+            line_number: 4,
+        },
+        Case {
             name: "non-reference-deref-set",
             diagnostic_code: "E4000",
             offending_line: "  (#deref-set value 2u64)",
@@ -521,6 +527,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-get-field" => Some("missing"),
             "unknown-payload-variant" => Some("MissingVariant"),
             "unknown-match-variant" => Some("Missing"),
+            "unknown-let-else-variant" => Some("Missing"),
             "non-reference-deref-set" => Some("value"),
             "thread-worker-missing" => Some("missing-worker"),
             "thread-worker-reference-result" => Some("(#ref u64)"),
