@@ -222,6 +222,9 @@ the checklist is committed alongside the implementation it tracks.
   Mismatched `#if` branch values underline the incompatible branch, excluding
   the condition expression from type-hint matching. Mismatched `#match` arms
   similarly exclude the scrutinee and patterns from arm-value selection.
+  Named-call type mismatches carry the parameter name through type checking
+  and underline that argument's value, even if an earlier argument has the
+  same type.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

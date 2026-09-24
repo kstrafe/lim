@@ -131,6 +131,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "call-argument-type-mismatch",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#call consume (#fn-args (first true) (value false))))",
+            line_number: 3,
+        },
+        Case {
             name: "call-missing-argument",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#call take (#fn-args )))",
@@ -703,6 +709,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "generator" | "generator-imported" => Some("(@fail)"),
             "nonconstant-static" => Some("(#call get-value (#fn-args))"),
             "call-arguments" => Some("other"),
+            "call-argument-type-mismatch" => Some("false"),
             "call-missing-argument" => Some("#fn-args"),
             "struct-literal" => Some("((y 1u64))"),
             _ => None,

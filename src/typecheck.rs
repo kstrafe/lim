@@ -13,6 +13,7 @@ const LOOP_VALUE_CONTEXT: &str = "\0lim-loop-value";
 struct Signature {
     type_parameters: Vec<String>,
     parameters: Vec<Type>,
+    parameter_names: Vec<String>,
     return_type: Type,
 }
 
@@ -226,6 +227,11 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                 function.name.clone(),
                 Signature {
                     type_parameters: function.type_parameters.clone(),
+                    parameter_names: function
+                        .parameters
+                        .iter()
+                        .map(|parameter| parameter.name.clone())
+                        .collect(),
                     parameters: function
                         .parameters
                         .iter()
@@ -301,6 +307,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                 Signature {
                     type_parameters: Vec::new(),
                     parameters: worker_signature.parameters.clone(),
+                    parameter_names: worker_signature.parameter_names.clone(),
                     return_type: spawn_result_type,
                 },
             ),
@@ -309,6 +316,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                 Signature {
                     type_parameters: Vec::new(),
                     parameters: vec![task_type],
+                    parameter_names: vec!["task".into()],
                     return_type: join_result_type,
                 },
             ),
@@ -1973,6 +1981,22 @@ fn precise_type_error_span(
             return Some(span);
         }
     }
+    if let Some((parameter_name, function_name)) = error
+        .strip_prefix("argument '")
+        .and_then(|rest| {
+            rest.split_once("' to '")
+                .map(|(parameter, rest)| (parameter, rest))
+        })
+        .and_then(|(parameter, rest)| {
+            rest.split_once('\'')
+                .map(|(function, _)| (parameter, function))
+        })
+    {
+        if let Some(span) = named_call_argument_span(statement, function_name, parameter_name) {
+            return Some(span);
+        }
+    }
+
     let mismatch_type = error
         .split_once("mismatched types ")
         .and_then(|(context, types)| {
@@ -2043,6 +2067,34 @@ fn control_flow_mismatch_span(
         .iter()
         .find_map(|child| control_flow_mismatch_span(child, wanted, source))
         .or_else(|| expression_with_type_hint(expression, wanted, source))
+}
+
+fn named_call_argument_span(
+    expression: &crate::SpannedExpr,
+    function_name: &str,
+    parameter_name: &str,
+) -> Option<crate::Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#call" | "call"))
+            && matches!(items.get(1), Some(Expr::Symbol(callee)) if callee == function_name)
+        {
+            let arguments = expression.children.get(2)?;
+            if let Some(value) = arguments.children.iter().skip(1).find_map(|argument| {
+                let Expr::List(parts) = &argument.expr else {
+                    return None;
+                };
+                matches!(parts.first(), Some(Expr::Symbol(name)) if name == parameter_name)
+                    .then(|| argument.children.get(1).map(|value| value.span))
+                    .flatten()
+            }) {
+                return Some(value);
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| named_call_argument_span(child, function_name, parameter_name))
 }
 
 fn type_error_argument_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
@@ -2219,6 +2271,9 @@ fn expression_with_type_hint(
     let Some(Expr::Symbol(head)) = items.first() else {
         return None;
     };
+    if matches!(head.as_str(), "#call" | "call") {
+        return None;
+    }
     let is_typed_scalar_operator = head
         .strip_prefix('#')
         .and_then(|qualified| qualified.split_once('.'))
@@ -4606,7 +4661,11 @@ fn list_expression(
                     parameter_types.len()
                 ));
             }
-            for (argument, parameter_type) in items[1..].iter().zip(&parameter_types) {
+            for ((argument, parameter_type), parameter) in items[1..]
+                .iter()
+                .zip(&parameter_types)
+                .zip(&signature.parameter_names)
+            {
                 let actual = expression(
                     argument,
                     variables,
@@ -4620,7 +4679,7 @@ fn list_expression(
                 require_type(
                     &actual,
                     parameter_type,
-                    &format!("argument to '{operator}'"),
+                    &format!("argument '{parameter}' to '{operator}'"),
                 )?;
             }
             Ok(return_type)
