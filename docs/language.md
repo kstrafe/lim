@@ -1115,6 +1115,8 @@ Diagnostic source hunks expand tabs at four-column stops before aligning the
 underline, so the displayed code and caret use the same columns.
 When a global constant expression contains a function call, its codegen
 diagnostic highlights the nested `#call` form rather than the whole initializer.
+Imported parser diagnostics use the reported position to underline the full
+offending token when it can be read from the imported source.
 
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures

@@ -202,7 +202,9 @@ the checklist is committed alongside the implementation it tracks.
   not the unrelated worker return type. Diagnostic hunks expand tabs at
   four-column stops before positioning underlines. Non-constant global
   initializers now highlight a nested `#call` that makes the initializer
-  invalid instead of the larger enclosing constant expression.
+  invalid instead of the larger enclosing constant expression. Imported
+  parser/generator location diagnostics underline the full token at the
+  reported line and column, rather than only its first character.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

@@ -1924,7 +1924,7 @@ fn generator_diagnostic(message: String, root_path: &Path, root_source: &str) ->
             } else {
                 continue;
             };
-        let span = source_span_at(&source, line, column, 1);
+        let span = source_span_at(&source, line, column, token_width_at(&source, line, column));
         let code = diagnostic_code_for_positioned_message(&parse_message);
         return Diagnostic::new(code, parse_message)
             .with_span(span)
@@ -1948,7 +1948,12 @@ fn generator_diagnostic(message: String, root_path: &Path, root_source: &str) ->
         if let (Ok(line), Ok(column)) = (line.parse::<usize>(), column.parse::<usize>()) {
             let code = diagnostic_code_for_positioned_message(error_message);
             return Diagnostic::new(code, error_message.trim_start())
-                .with_span(source_span_at(root_source, line, column, 1))
+                .with_span(source_span_at(
+                    root_source,
+                    line,
+                    column,
+                    token_width_at(root_source, line, column),
+                ))
                 .with_source(root_path.display().to_string(), root_source.to_owned());
         }
     }
@@ -1971,7 +1976,12 @@ fn generator_diagnostic(message: String, root_path: &Path, root_source: &str) ->
                     if !source_name.is_empty() {
                         let code = diagnostic_code_for_positioned_message(parse_message);
                         return Diagnostic::new(code, parse_message)
-                            .with_span(source_span_at(&source, line, column, 1))
+                            .with_span(source_span_at(
+                                &source,
+                                line,
+                                column,
+                                token_width_at(&source, line, column),
+                            ))
                             .with_source(source_name, source);
                     }
                 }
@@ -7924,6 +7934,32 @@ mod tests {
         let rendered = render_diagnostic(&diagnostic, root_source, "root.lim");
         assert!(rendered.contains("--> "));
         assert!(rendered.contains("module.lim:2:12"), "{rendered}");
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn imported_parser_diagnostics_highlight_the_full_offending_token() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-import-parser-span-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let module_path = directory.join("module.lim");
+        let module_source = "  bad-token here";
+        std::fs::write(&module_path, module_source).unwrap();
+        let root_path = directory.join("root.lim");
+        let diagnostic = generator_diagnostic(
+            format!("{}: 1:3: unexpected token", module_path.display()),
+            &root_path,
+            "",
+        );
+        let span = diagnostic.span.unwrap();
+        assert_eq!(
+            &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
+            "bad-token"
+        );
+        assert_eq!(
+            diagnostic.source_name.as_deref(),
+            Some(module_path.to_str().unwrap())
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 
