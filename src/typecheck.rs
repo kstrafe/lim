@@ -1878,6 +1878,19 @@ fn precise_type_error_span(
             .split_once("' is not a variant of '")
             .map(|(name, _)| name)
     });
+    let duplicate_pattern = if error == "duplicate wildcard match pattern" {
+        Some("_")
+    } else {
+        error
+            .strip_prefix("duplicate boolean match pattern '")
+            .or_else(|| error.strip_prefix("duplicate enum match pattern '"))
+            .and_then(|rest| rest.split('\'').next())
+    };
+    if let Some(pattern) = duplicate_pattern {
+        if let Some(span) = last_match_pattern_symbol_span(statement, pattern) {
+            return Some(span);
+        }
+    }
     let enum_pattern_target = error
         .strip_prefix('\'')
         .and_then(|rest| {
@@ -2163,6 +2176,46 @@ fn type_pattern_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Op
         .children
         .iter()
         .find_map(|child| type_pattern_symbol_span(child, target))
+}
+
+fn last_match_pattern_symbol_span(
+    expression: &crate::SpannedExpr,
+    target: &str,
+) -> Option<crate::Span> {
+    fn collect_symbols(
+        expression: &crate::SpannedExpr,
+        target: &str,
+        spans: &mut Vec<crate::Span>,
+    ) {
+        if matches!(&expression.expr, Expr::Symbol(name) if name == target) {
+            spans.push(expression.span);
+        }
+        for child in &expression.children {
+            collect_symbols(child, target, spans);
+        }
+    }
+    fn collect_patterns(
+        expression: &crate::SpannedExpr,
+        target: &str,
+        spans: &mut Vec<crate::Span>,
+    ) {
+        if let Expr::List(items) = &expression.expr {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator.strip_prefix('#').unwrap_or(operator) == "match")
+            {
+                for arm in expression.children.iter().skip(2) {
+                    if let Some(pattern) = arm.children.first() {
+                        collect_symbols(pattern, target, spans);
+                    }
+                }
+            }
+        }
+        for child in &expression.children {
+            collect_patterns(child, target, spans);
+        }
+    }
+    let mut spans = Vec::new();
+    collect_patterns(expression, target, &mut spans);
+    spans.into_iter().max_by_key(|span| span.start)
 }
 
 fn statement_type(
