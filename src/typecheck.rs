@@ -1840,7 +1840,17 @@ fn precise_type_error_span(
         .strip_prefix("unknown type '")
         .and_then(|tail| tail.split('\'').next());
     if let Some(name) = unknown_type {
-        return first_symbol_span(value, name).or(Some(value.span));
+        return first_symbol_span(statement, name)
+            .or_else(|| first_symbol_span(value, name))
+            .or(Some(value.span));
+    }
+    if let Some(name) = error
+        .split_once("expected Named(\"")
+        .and_then(|(_, rest)| rest.split_once('\"').map(|(name, _)| name))
+    {
+        if let Some(span) = first_symbol_span(statement, name) {
+            return Some(span);
+        }
     }
     let mismatch_type = error
         .split_once("mismatched types ")

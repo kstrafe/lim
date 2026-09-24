@@ -196,6 +196,9 @@ the checklist is committed alongside the implementation it tracks.
   discriminant, thread-task worker/result, and task-in-aggregate diagnostics
   now identify their invalid source token/type as well. Thread-task handles in
   function signatures and type aliases also underline the task type token.
+  Unknown named types in local `#let` annotations underline the annotation,
+  including when type checking represents the failure as an expected-type
+  mismatch.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

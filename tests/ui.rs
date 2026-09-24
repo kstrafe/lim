@@ -240,6 +240,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 1,
         },
         Case {
+            name: "unknown-local-type",
+            diagnostic_code: "E4000",
+            offending_line: "(#fn main () u64 (#let value Missing 1u64) (#return 0u64))",
+            line_number: 1,
+        },
+        Case {
             name: "thread-worker-missing",
             diagnostic_code: "E4000",
             offending_line: "(#thread-task Task missing-worker)",
@@ -350,7 +356,10 @@ fn compilation_errors_render_the_offending_source_line() {
                 "nested type mismatch underline is not aligned under its incompatible operand:\n{stderr}"
             );
         }
-        if case.name == "thread-worker-unknown-type" {
+        if matches!(
+            case.name,
+            "thread-worker-unknown-type" | "unknown-local-type"
+        ) {
             let source_row = stderr
                 .lines()
                 .find(|line| line.contains(case.offending_line))
@@ -359,7 +368,8 @@ fn compilation_errors_render_the_offending_source_line() {
             assert_eq!(
                 source_row.find("Missing"),
                 underline_row.find('^'),
-                "unknown type diagnostic is not aligned under the unknown type name:\n{stderr}"
+                "unknown type diagnostic is not aligned under the unknown type name for {}:\n{stderr}",
+                case.name
             );
         }
         if case.name == "call-duplicate-argument" {
@@ -392,6 +402,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "duplicate-type" => Some("Token"),
             "duplicate-global" => Some("COUNT"),
             "unsafe-impl" => Some("Missing"),
+            "unknown-local-type" => Some("Missing"),
             "thread-worker-missing" => Some("missing-worker"),
             "thread-worker-reference-result" => Some("(#ref u64)"),
             "thread-task-function-signature" => Some("Task"),
