@@ -1,7 +1,7 @@
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    process::{Command, ExitCode},
+    process::ExitCode,
 };
 
 fn main() -> ExitCode {
@@ -501,6 +501,7 @@ fn compile_with_links(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     #[test]
     fn compiles_and_runs_binary_pipeline() {

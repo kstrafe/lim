@@ -2274,7 +2274,7 @@ fn requires_explicit_operator_type(name: &str) -> bool {
     )
 }
 
-fn normalize_keywords(expression: Expr) -> Expr {
+pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
     match expression {
         Expr::Symbol(name) => {
             Expr::Symbol(name.strip_prefix('#').map_or(name.clone(), str::to_owned))
@@ -4586,7 +4586,7 @@ fn enum_discriminant(expression: &Expr) -> Option<u64> {
     }
 }
 
-fn parse_function(items: &[Expr], external: bool) -> Result<Function, String> {
+pub(crate) fn parse_function(items: &[Expr], external: bool) -> Result<Function, String> {
     if items.len() < 4 {
         return Err("fn requires a name, parameter list, return type, and body".into());
     }
@@ -5823,7 +5823,7 @@ mod tests {
     #[test]
     fn generators_require_explicit_capabilities_for_concrete_types() {
         let valid = parse_program(
-            "(#capability sortable u64) (#generator emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit u64)",
+            "(#fn u64-less ((left (#ref u64)) (right (#ref u64))) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#generator emit ((element sortable)) (#gn-list)) (@emit u64)",
         )
         .unwrap();
         assert!(check_types(&valid).is_ok());
@@ -5835,10 +5835,22 @@ mod tests {
         assert!(missing.contains("requires capability 'sortable'"));
 
         let wrong_type = parse_program(
-            "(#capability sortable u64) (#generator emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit UserType)",
+            "(#fn u64-less ((left (#ref u64)) (right (#ref u64))) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#generator emit ((element sortable)) (#gn-list)) (@emit UserType)",
         )
         .unwrap_err();
         assert!(wrong_type.contains("for type 'UserType'"));
+
+        let wrong_signature = parse_program(
+            "(#fn u64-less ((left u64) (right u64)) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#generator emit ((element sortable)) (#gn-list)) (@emit u64)",
+        )
+        .unwrap_err();
+        assert!(wrong_signature.contains("contract requires"));
+
+        let missing_operation = parse_program(
+            "(#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#generator emit ((element sortable)) (#gn-list)) (@emit u64)",
+        )
+        .unwrap_err();
+        assert!(missing_operation.contains("requires operation function 'u64-less'"));
     }
 
     #[test]

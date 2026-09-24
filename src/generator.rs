@@ -26,7 +26,8 @@ struct Generator {
 }
 
 type GeneratorFunction = Generator;
-type Capabilities = HashMap<String, HashSet<String>>;
+type CapabilityOperations = HashMap<String, String>;
+type Capabilities = HashMap<String, HashMap<String, CapabilityOperations>>;
 
 #[derive(Clone)]
 struct GeneratorFingerprint {
@@ -50,6 +51,67 @@ type Environment = HashMap<String, Expr>;
 type ExpandedForms = (Vec<SpannedExpr>, Vec<Expr>);
 type ExpandedFormsWithHits = (ExpandedForms, usize);
 
+fn declared_lim_function_signatures(
+    expressions: &[SpannedExpr],
+) -> Result<HashMap<String, String>, String> {
+    let mut signatures = HashMap::new();
+    for expression in expressions {
+        let normalized = crate::normalize_keywords(expression.expr.clone());
+        let Expr::List(items) = &normalized else {
+            continue;
+        };
+        let Some(Expr::Symbol(kind)) = items.first() else {
+            continue;
+        };
+        let external = match kind.as_str() {
+            "fn" => false,
+            "extern-fn" => true,
+            _ => continue,
+        };
+        let function = crate::parse_function(items, external)
+            .map_err(|error| at_span(error, expression.span, "capability operation signature"))?;
+        let arguments = function
+            .parameters
+            .iter()
+            .map(|parameter| parameter.ty.clone())
+            .collect::<Vec<_>>();
+        let signature = format!("{arguments:?}->{:?}", function.return_type);
+        if signatures
+            .insert(function.name.clone(), signature)
+            .is_some()
+        {
+            return Err(format!(
+                "duplicate function '{}' while resolving generator capability contracts",
+                function.name
+            ));
+        }
+    }
+    Ok(signatures)
+}
+
+fn hash_capability_definitions(capabilities: &Capabilities) -> u128 {
+    let mut material = Vec::new();
+    let mut names = capabilities.keys().collect::<Vec<_>>();
+    names.sort();
+    for name in names {
+        let types = &capabilities[name];
+        let mut type_names = types.keys().collect::<Vec<_>>();
+        type_names.sort();
+        for type_name in type_names {
+            let operations = &types[type_name];
+            let mut operation_names = operations.keys().collect::<Vec<_>>();
+            operation_names.sort();
+            for operation in operation_names {
+                material.push(format!(
+                    "{name}/{type_name}/{operation}:{}",
+                    operations[operation]
+                ));
+            }
+        }
+    }
+    stable_hash(material.join("\n").as_bytes())
+}
+
 pub(crate) fn expand_with_generated_cached_with_context(
     expressions: Vec<SpannedExpr>,
     cache_dir: Option<&Path>,
@@ -67,23 +129,99 @@ fn expand_with_generated_cached_and_hits(
     let mut generators = HashMap::new();
     let mut functions = HashMap::new();
     let mut capabilities: Capabilities = HashMap::new();
+    let declared_functions = declared_lim_function_signatures(&expressions)?;
     let mut remaining = Vec::new();
     for expression in expressions {
         if let Expr::List(items) = &expression.expr {
             if is_operator(items.first(), "#capability") {
                 let capability = symbol(items.get(1), "capability name")?.to_owned();
                 let type_name = symbol(items.get(2), "capability type")?.to_owned();
-                if items.len() != 3 || capability.starts_with('#') || type_name.starts_with('#') {
+                if items.len() != 4 || capability.starts_with('#') || type_name.starts_with('#') {
                     return Err(at_span(
-                        "#capability requires a capability name and concrete type name".into(),
+                        "#capability requires a name, concrete type, and operation contracts"
+                            .into(),
                         expression.span,
                         "capability declaration",
                     ));
                 }
-                capabilities
-                    .entry(capability)
-                    .or_default()
-                    .insert(type_name);
+                let mut operations = HashMap::new();
+                let operation_forms = match items.get(3) {
+                    Some(Expr::List(forms)) if !forms.is_empty() => forms,
+                    _ => {
+                        return Err(at_span(
+                            "#capability operation contracts must be a non-empty list".into(),
+                            expression.span,
+                            "capability declaration",
+                        ))
+                    }
+                };
+                for operation in operation_forms {
+                    let Expr::List(parts) = operation else {
+                        return Err(at_span(
+                            "capability operations have the form (function (ArgumentType ...) ReturnType)".into(),
+                            expression.span,
+                            "capability declaration",
+                        ));
+                    };
+                    if parts.len() != 3 {
+                        return Err(at_span(
+                            "capability operations have the form (function (ArgumentType ...) ReturnType)".into(),
+                            expression.span,
+                            "capability declaration",
+                        ));
+                    }
+                    let operation_name = symbol(parts.first(), "capability operation function")?;
+                    let argument_types = match &parts[1] {
+                        Expr::List(types) => types
+                            .iter()
+                            .map(|ty| {
+                                crate::parse_type(Some(&crate::normalize_keywords(ty.clone())))
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                        _ => {
+                            return Err(at_span(
+                                "capability operation argument types must be a list".into(),
+                                expression.span,
+                                "capability declaration",
+                            ))
+                        }
+                    };
+                    let return_type =
+                        crate::parse_type(Some(&crate::normalize_keywords(parts[2].clone())))?;
+                    let signature = format!("{argument_types:?}->{return_type:?}");
+                    let Some(actual_signature) = declared_functions.get(operation_name) else {
+                        return Err(at_span(
+                            format!("capability '{capability}' for '{type_name}' requires operation function '{operation_name}', but it is not declared"),
+                            expression.span,
+                            "capability declaration",
+                        ));
+                    };
+                    if actual_signature != &signature {
+                        return Err(at_span(
+                            format!("capability operation '{operation_name}' has signature {actual_signature}; contract requires {signature}"),
+                            expression.span,
+                            "capability declaration",
+                        ));
+                    }
+                    if operations
+                        .insert(operation_name.to_owned(), signature)
+                        .is_some()
+                    {
+                        return Err(at_span(
+                            format!("duplicate operation '{operation_name}' in capability '{capability}'"),
+                            expression.span,
+                            "capability declaration",
+                        ));
+                    }
+                }
+                let types = capabilities.entry(capability.clone()).or_default();
+                if types.insert(type_name.clone(), operations).is_some() {
+                    return Err(at_span(
+                        format!("duplicate capability '{capability}' declaration for type '{type_name}'"),
+                        expression.span,
+                        "capability declaration",
+                    ));
+                }
                 continue;
             }
             if is_operator(items.first(), "#generator") {
@@ -120,12 +258,14 @@ fn expand_with_generated_cached_and_hits(
     }
 
     let interpreter_hash = stable_hash(include_bytes!("generator.rs"));
+    let capability_hash = hash_capability_definitions(&capabilities);
     let function_hashes = generator_function_hashes(&functions, interpreter_hash)?;
     let generator_hashes = generator_hashes(&generators, &function_hashes, interpreter_hash);
     let mut context = ExpansionContext {
         generators: &generators,
         functions: &functions,
         capabilities: &capabilities,
+        capability_hash,
         generator_fingerprints: generator_hashes,
         active_functions: Vec::new(),
         active: Vec::new(),
@@ -251,6 +391,7 @@ struct ExpansionContext<'a> {
     generators: &'a HashMap<String, Generator>,
     functions: &'a HashMap<String, GeneratorFunction>,
     capabilities: &'a Capabilities,
+    capability_hash: u128,
     generator_fingerprints: HashMap<String, GeneratorFingerprint>,
     active_functions: Vec<String>,
     active: Vec<String>,
@@ -317,7 +458,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             if !context
                 .capabilities
                 .get(capability)
-                .is_some_and(|types| types.contains(type_name))
+                .is_some_and(|types| types.contains_key(type_name))
             {
                 return Err(format!(
                     "{} parameter '{}' requires capability '{}' for type '{}'; declare (#capability {} {})",
@@ -346,11 +487,12 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v5\ncompiler={}\ntarget={}-{}\ndependency-context={}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
+        "lim-generator-cache-v6\ncompiler={}\ntarget={}-{}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::ARCH,
         std::env::consts::OS,
         context.dependency_context,
+        context.capability_hash,
         context.generator_fingerprints[name].hash,
         context.generator_fingerprints[name].material,
         &items[2..],
@@ -1020,6 +1162,7 @@ mod tests {
                 generators: &HashMap::new(),
                 functions: &HashMap::new(),
                 capabilities: &HashMap::new(),
+                capability_hash: 0,
                 generator_fingerprints: HashMap::new(),
                 active_functions: Vec::new(),
                 active: Vec::new(),
@@ -1094,6 +1237,37 @@ mod tests {
         assert_eq!(changed_hits, 1, "only the dependent invocation should miss");
         assert_ne!(changed, second);
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn generated_cache_invalidates_when_capability_contract_changes() {
+        let directory = std::env::temp_dir().join(format!(
+            "lim-generator-capability-cache-{}",
+            std::process::id()
+        ));
+        let source = |operation: &str| {
+            format!(
+                "(#fn less ((a (#ref u64)) (b (#ref u64))) bool (#return true)) (#fn less-v2 ((a (#ref u64)) (b (#ref u64))) bool (#return true)) (#capability sortable u64 (({operation} ((#ref u64) (#ref u64)) bool))) (#generator emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit u64)"
+            )
+        };
+        let expand = |text: &str| {
+            expand_with_generated_cached_and_hits(crate::parse(text).unwrap(), Some(&directory), "")
+                .unwrap()
+        };
+
+        let ((first, _), first_hits) = expand(&source("less"));
+        assert_eq!(first_hits, 0);
+        let ((again, _), again_hits) = expand(&source("less"));
+        assert!(again_hits > 0);
+        assert_eq!(first[0].expr, again[0].expr);
+
+        let ((changed, _), changed_hits) = expand(&source("less-v2"));
+        assert_eq!(
+            changed_hits, 0,
+            "a changed capability contract must miss cache"
+        );
+        assert_eq!(first[0].expr, changed[0].expr);
+        let _ = fs::remove_dir_all(directory);
     }
 
     #[test]

@@ -177,10 +177,10 @@ the checklist is committed alongside the implementation it tracks.
 - [ ] Carry exact spans from parsed expressions into type, ownership, borrow,
   unsafe, generator, and codegen errors; remove identifier-search fallbacks so
   all underlines point to the actual offending syntax.
-- [ ] Specify generator capability contracts beyond name membership: bind each
-  capability to concrete operation signatures, validate those signatures
-  before expansion, and include capability definitions in cache dependency
-  invalidation.
+- [x] Specify generator capability contracts beyond name membership: bind each
+  capability/type pair to concrete free-standing operation signatures, validate
+  function existence and exact signatures before expansion, and include a
+  deterministic capability-contract hash in generated-code cache keys.
 - [ ] Add a soundness-focused audit and adversarial regression suite for
   unsafe pointer operations, reference provenance through all aggregate/control
   flow forms, `Send`/`Sync` overrides, and generated destruction paths.

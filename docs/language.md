@@ -284,15 +284,23 @@ Capabilities are explicit declarations for generator requirements. A concrete
 type opts in with `#capability`, and a generator parameter can require one:
 
 ```lisp
-(#capability sortable u64)
+(#fn u64-less ((left (#ref u64)) (right (#ref u64))) bool
+  (#return (#u64.< (#deref left) (#deref right))))
+(#capability sortable u64
+  ((u64-less ((#ref u64) (#ref u64)) bool)))
 (#generator make-sortable ((element sortable))
   `((#type Sortable ,element)))
 (@make-sortable u64)
 ```
 
-Capability checks happen before generator evaluation. A missing declaration
-names the generator parameter, capability, and concrete type; there are no
-implicit structural or interface requirements hidden inside a generator.
+Each capability declaration lists concrete free-standing operations and their
+full argument/return types. Before any generator runs, the compiler verifies
+that every named function exists and exactly matches its declared signature.
+A missing capability reports the parameter, capability, and concrete type;
+there are no implicit structural or interface requirements hidden inside a
+generator. Capability definitions are part of the generated-code cache key, so
+changing an operation contract cannot reuse expansions made under an older
+contract.
 
 ```lisp
 (#generator aliases (pairs)
