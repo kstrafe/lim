@@ -89,7 +89,7 @@ the checklist is committed alongside the implementation it tracks.
   native value registers; larger aggregate ABI support remains a separate item.
 - [x] Remove backend restrictions on large aggregate returns, arguments, and
   reference projections by routing them through indirect aggregate storage.
-- [ ] Finish large aggregate lowering for nested multiword fields and payloads
+- [x] Finish large aggregate lowering for nested multiword fields and payloads
   across returns, globals, reference projections, patterns, and native ABI
   boundaries; several backend branches still report scalar-field-only limits.
 - [x] Specify and implement field-wise destruction for reference-containing

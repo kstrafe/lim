@@ -3532,7 +3532,7 @@ fn value_word_count(
         if let Some(fields) = structs.get(name) {
             let words = fields
                 .iter()
-                .map(|field| value_word_count(&field.ty, structs, enums))
+                .map(|field| storage_word_count(&field.ty, structs, enums))
                 .collect::<Result<Vec<_>, _>>()?;
             let total = words.into_iter().sum::<usize>();
             if total <= VALUE_REGISTERS.len() {
@@ -3547,7 +3547,7 @@ fn value_word_count(
                         variant
                             .fields
                             .iter()
-                            .map(|field| value_word_count(field, structs, enums))
+                            .map(|field| storage_word_count(field, structs, enums))
                             .collect::<Result<Vec<_>, _>>()
                             .map(|words| words.into_iter().sum::<usize>())
                     })
@@ -3574,7 +3574,7 @@ fn value_word_count(
     if let Type::Tuple(fields) = ty {
         let words = fields
             .iter()
-            .map(|field| value_word_count(field, structs, enums))
+            .map(|field| storage_word_count(field, structs, enums))
             .collect::<Result<Vec<_>, _>>()?;
         let total = words.into_iter().sum::<usize>();
         if total <= VALUE_REGISTERS.len() {
@@ -4721,6 +4721,17 @@ fn constant_aggregate_words(
             }
             words.resize(payload_words + 1, 0);
             Ok(words)
+        }
+        Type::I128 | Type::U128 => {
+            let value = constant_value(
+                expression,
+                enums,
+                constants,
+                initializers,
+                evaluating_constants,
+                Some(ty),
+            )? as u128;
+            Ok(vec![value as u64, (value >> 64) as u64])
         }
         _ => Ok(vec![scalar_word(expression)?]),
     }
@@ -6061,7 +6072,7 @@ impl FunctionContext {
                         continue;
                     }
                     if source_slots.len() != words {
-                        return Err("large struct returns currently require scalar fields".into());
+                        return Err("struct return field has an inconsistent storage layout".into());
                     }
                     for (index, source_slot) in source_slots.iter().enumerate() {
                         self.output.push_str(&format!(
@@ -6084,15 +6095,14 @@ impl FunctionContext {
                     if words == 0 {
                         continue;
                     }
-                    if words != 1 {
-                        return Err("large struct returns currently require scalar fields".into());
+                    for word in 0..words {
+                        self.load_global_word(name, offset + word)?;
+                        self.output.push_str(&format!(
+                            "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                            pointer_slot * 8,
+                            (offset + word) * 8
+                        ));
                     }
-                    self.load_global_word(name, offset)?;
-                    self.output.push_str(&format!(
-                        "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
-                        pointer_slot * 8,
-                        offset * 8
-                    ));
                     offset += words;
                 }
                 return Ok(());
@@ -6432,7 +6442,13 @@ impl FunctionContext {
         let mut offset = 0usize;
         if let Expr::Symbol(name) = value {
             if let Some(Storage::Tuple(slots)) = self.locals.get(name).cloned() {
-                if slots.len() != fields.len() {
+                let total_words = fields
+                    .iter()
+                    .map(|field| storage_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
+                if slots.len() != total_words {
                     return Err("tuple return has an inconsistent flattened layout".into());
                 }
                 let mut source_offset = 0;
@@ -6441,16 +6457,15 @@ impl FunctionContext {
                     if words == 0 {
                         continue;
                     }
-                    if words != 1 || slots.get(source_offset).is_none() {
-                        return Err("large tuple returns currently require scalar fields".into());
+                    for word in 0..words {
+                        let source_slot = slots[source_offset + word];
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                            source_slot * 8,
+                            pointer_slot * 8,
+                            (offset + word) * 8
+                        ));
                     }
-                    let source_slot = slots[source_offset];
-                    self.output.push_str(&format!(
-                        "    mov rax, QWORD PTR [rbp-{}]\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
-                        source_slot * 8,
-                        pointer_slot * 8,
-                        offset * 8
-                    ));
                     source_offset += words;
                     offset += words;
                 }
@@ -6465,15 +6480,14 @@ impl FunctionContext {
                     if words == 0 {
                         continue;
                     }
-                    if words != 1 {
-                        return Err("large tuple returns currently require scalar fields".into());
+                    for word in 0..words {
+                        self.load_global_word(name, offset + word)?;
+                        self.output.push_str(&format!(
+                            "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                            pointer_slot * 8,
+                            (offset + word) * 8
+                        ));
                     }
-                    self.load_global_word(name, offset)?;
-                    self.output.push_str(&format!(
-                        "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
-                        pointer_slot * 8,
-                        offset * 8
-                    ));
                     offset += words;
                 }
                 return Ok(());
@@ -6611,12 +6625,31 @@ impl FunctionContext {
                 && items.len() == 2
             {
                 self.expression(&items[1])?;
-                self.output.push_str("    and rax, -2\n    mov rcx, rax\n");
+                let global_layout = self.label("indirect_deref_global_layout");
+                let done = self.label("indirect_deref_done");
+                self.output.push_str(&format!(
+                    "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+                ));
+                for index in 0..words {
+                    let byte_offset = index * 8;
+                    let address = if byte_offset == 0 {
+                        "rax".to_owned()
+                    } else {
+                        format!("rax-{byte_offset}")
+                    };
+                    self.output
+                        .push_str(&format!("    mov rcx, QWORD PTR [{address}]\n"));
+                    self.store_indirect_word("rcx", offset + index)?;
+                }
+                self.output.push_str(&format!(
+                    "    jmp {done}\n{global_layout}:\n    and rax, -2\n"
+                ));
                 for index in 0..words {
                     self.output
-                        .push_str(&format!("    mov rax, QWORD PTR [rcx+{}]\n", index * 8));
-                    self.store_indirect_word("rax", offset + index)?;
+                        .push_str(&format!("    mov rcx, QWORD PTR [rax+{}]\n", index * 8));
+                    self.store_indirect_word("rcx", offset + index)?;
                 }
+                self.output.push_str(&format!("{done}:\n"));
                 return Ok(());
             }
         }
@@ -7101,7 +7134,7 @@ impl FunctionContext {
             .iter()
             .flat_map(|(_, field_slots)| field_slots.iter().copied())
             .collect::<Vec<_>>();
-        self.store_value_words(value, &ty, &flat)
+        self.store_value_to_slots(value, &ty, &flat)
     }
 
     fn store_enum(&mut self, name: &str, enum_name: &str, value: &Expr) -> Result<(), String> {
@@ -7361,7 +7394,7 @@ impl FunctionContext {
             }
         }
         let ty = Type::Tuple(fields);
-        self.store_value_words(value, &ty, &slots)
+        self.store_value_to_slots(value, &ty, &slots)
     }
 
     fn store_value_words(
@@ -8039,32 +8072,50 @@ impl FunctionContext {
                     .ok_or_else(|| "deref requires a reference".to_owned())?;
                 self.expression(&items[1])?;
                 match &target {
-                    Type::F32 => self.output.push_str(
-                        "    and rax, -2\n    movss xmm0, DWORD PTR [rax]\n",
-                    ),
+                    Type::F32 => self
+                        .output
+                        .push_str("    and rax, -2\n    movss xmm0, DWORD PTR [rax]\n"),
                     Type::F64 => self
                         .output
                         .push_str("    and rax, -2\n    movq xmm0, QWORD PTR [rax]\n"),
-                    Type::I128 | Type::U128 => self
-                        .output
-                        .push_str("    and rax, -2\n    mov rdx, QWORD PTR [rax+8]\n    mov rax, QWORD PTR [rax]\n"),
+                    Type::I128 | Type::U128 => {
+                        let global_layout = self.label("wide_reference_global_layout");
+                        let done = self.label("wide_reference_done");
+                        self.output.push_str(&format!(
+                            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n    mov rdx, QWORD PTR [rax-8]\n    jmp {done}\n{global_layout}:\n    and rax, -2\n    mov rdx, QWORD PTR [rax+8]\n{done}:\n    mov rax, QWORD PTR [rax]\n"
+                        ));
+                    }
                     _ => {
                         let words = storage_word_count(&target, &self.structs, &self.enums)?;
                         if words > VALUE_REGISTERS.len() {
                             return Err(
-                                "deref aggregate target exceeds native value registers".into(),
+                                "deref aggregate target exceeds native value registers".into()
                             );
                         }
-                        self.output.push_str("    and rax, -2\n");
-                        self.output.push_str("    mov rcx, rax\n");
-                        for (index, register) in
-                            VALUE_REGISTERS.iter().take(words).enumerate()
-                        {
+                        let global_layout = self.label("aggregate_reference_global_layout");
+                        let done = self.label("aggregate_reference_done");
+                        self.output.push_str(&format!(
+                            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+                        ));
+                        for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
+                            let offset = index * 8;
+                            let address = if offset == 0 {
+                                "rax".to_owned()
+                            } else {
+                                format!("rax-{offset}")
+                            };
+                            self.output
+                                .push_str(&format!("    mov {register}, QWORD PTR [{address}]\n"));
+                        }
+                        self.output
+                            .push_str(&format!("    jmp {done}\n{global_layout}:\n"));
+                        for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
                             self.output.push_str(&format!(
-                                "    mov {register}, QWORD PTR [rcx+{}]\n",
+                                "    mov {register}, QWORD PTR [rax+{}]\n",
                                 index * 8
                             ));
                         }
+                        self.output.push_str(&format!("{done}:\n"));
                     }
                 }
                 Ok(())
@@ -10799,14 +10850,32 @@ impl FunctionContext {
             if field_words > VALUE_REGISTERS.len() {
                 return Err("large fields projected through references are unsupported".into());
             }
-            self.emit_reference_field_address(&items[1], offset_words, false)?;
+            self.emit_reference_field_address(&items[1], offset_words, field_words > 1)?;
             if field_words > 1 {
+                let global_layout = self.label("reference_value_global_layout");
+                let done = self.label("reference_value_done");
+                self.output.push_str(&format!(
+                    "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+                ));
+                for (word, register) in VALUE_REGISTERS.iter().enumerate().take(field_words) {
+                    let offset = word * 8;
+                    let address = if offset == 0 {
+                        "rax".to_owned()
+                    } else {
+                        format!("rax-{offset}")
+                    };
+                    self.output
+                        .push_str(&format!("    mov {register}, QWORD PTR [{address}]\n"));
+                }
+                self.output
+                    .push_str(&format!("    jmp {done}\n{global_layout}:\n"));
                 for (word, register) in VALUE_REGISTERS.iter().enumerate().take(field_words) {
                     self.output.push_str(&format!(
                         "    mov {register}, QWORD PTR [rax+{}]\n",
                         word * 8
                     ));
                 }
+                self.output.push_str(&format!("{done}:\n"));
             } else {
                 match field_type {
                     Type::F32 => self.output.push_str("    movss xmm0, DWORD PTR [rax]\n"),
@@ -12777,14 +12846,33 @@ impl FunctionContext {
 
     fn copy_reference_to_slots(&mut self, reference: &Expr, slots: &[usize]) -> Result<(), String> {
         self.expression(reference)?;
-        self.output.push_str("    and rax, -2\n    mov rcx, rax\n");
+        let global_layout = self.label("reference_copy_global_layout");
+        let done = self.label("reference_copy_done");
+        self.output.push_str(&format!(
+            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+        ));
+        for (index, slot) in slots.iter().enumerate() {
+            let offset = index * 8;
+            let address = if offset == 0 {
+                "rax".to_owned()
+            } else {
+                format!("rax-{offset}")
+            };
+            self.output.push_str(&format!(
+                "    mov rcx, QWORD PTR [{address}]\n    mov QWORD PTR [rbp-{}], rcx\n",
+                slot * 8
+            ));
+        }
+        self.output
+            .push_str(&format!("    jmp {done}\n{global_layout}:\n"));
         for (index, slot) in slots.iter().enumerate() {
             self.output.push_str(&format!(
-                "    mov rax, QWORD PTR [rcx+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                "    mov rcx, QWORD PTR [rax+{}]\n    mov QWORD PTR [rbp-{}], rcx\n",
                 index * 8,
                 slot * 8
             ));
         }
+        self.output.push_str(&format!("{done}:\n"));
         Ok(())
     }
 
@@ -12823,7 +12911,26 @@ impl FunctionContext {
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .sum::<usize>();
-        self.emit_reference_field_address(&items[1], offset, false)?;
+        self.emit_reference_field_address(&items[1], offset, true)?;
+        let global_layout = self.label("reference_copy_global_layout");
+        let done = self.label("reference_copy_done");
+        self.output.push_str(&format!(
+            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+        ));
+        for (index, slot) in slots.iter().enumerate() {
+            let offset = index * 8;
+            let address = if offset == 0 {
+                "rax".to_owned()
+            } else {
+                format!("rax-{offset}")
+            };
+            self.output.push_str(&format!(
+                "    mov rcx, QWORD PTR [{address}]\n    mov QWORD PTR [rbp-{}], rcx\n",
+                slot * 8
+            ));
+        }
+        self.output
+            .push_str(&format!("    jmp {done}\n{global_layout}:\n"));
         for (index, slot) in slots.iter().enumerate() {
             self.output.push_str(&format!(
                 "    mov rcx, QWORD PTR [rax+{}]\n    mov QWORD PTR [rbp-{}], rcx\n",
@@ -12831,6 +12938,7 @@ impl FunctionContext {
                 slot * 8
             ));
         }
+        self.output.push_str(&format!("{done}:\n"));
         Ok(())
     }
 

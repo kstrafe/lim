@@ -552,4 +552,33 @@ mod tests {
         assert_eq!(status.code(), Some(42));
         fs::remove_dir_all(directory).unwrap();
     }
+
+    #[test]
+    fn nested_multiword_aggregates_keep_layout_across_native_calls() {
+        let directory =
+            env::temp_dir().join(format!("lim-nested-aggregate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("nested.lim");
+        let output = directory.join("nested");
+        fs::write(
+            &input,
+            include_str!("../examples/nested_multiword_aggregates.lim"),
+        )
+        .unwrap();
+        let config = lim::CompileConfig::default();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &config,
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        let status = Command::new(&output).status().unwrap();
+        assert_eq!(status.code(), Some(22));
+        fs::remove_dir_all(directory).unwrap();
+    }
 }
