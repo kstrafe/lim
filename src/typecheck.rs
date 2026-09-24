@@ -1785,6 +1785,7 @@ fn check_function(
                         .map(|file| file.source.as_str())?;
                     precise_type_error_span(expression, &error, source)
                 })
+                .or_else(|| source_expression.map(crate::source_value_span))
                 .or(statement_span);
             precise_span.map_or(error.clone(), |span| {
                 format!(
@@ -1828,7 +1829,7 @@ fn precise_type_error_span(
     error: &str,
     source: &str,
 ) -> Option<crate::Span> {
-    let value = expression_value(statement);
+    let value = crate::source_value_expression(statement);
     let name = error
         .strip_prefix("unknown variable or enum variant '")
         .and_then(|tail| tail.split('\'').next());
@@ -1985,27 +1986,8 @@ fn is_builtin_scalar_name(name: &str) -> bool {
     )
 }
 
-fn expression_value(statement: &crate::SpannedExpr) -> &crate::SpannedExpr {
-    let Expr::List(items) = &statement.expr else {
-        return statement;
-    };
-    let Some(Expr::Symbol(head)) = items.first() else {
-        return statement;
-    };
-    let value_index = match head.as_str() {
-        "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" => Some(3),
-        "#return" | "return" | "#break" | "break" => Some(1),
-        "#set" | "set" => Some(2),
-        "#set-field" | "set-field" | "#set-index" | "set-index" => Some(3),
-        _ => None,
-    };
-    value_index
-        .and_then(|index| statement.children.get(index))
-        .unwrap_or(statement)
-}
-
 fn expression_value_span(statement: &crate::SpannedExpr) -> crate::Span {
-    expression_value(statement).span
+    crate::source_value_span(statement)
 }
 
 fn first_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {

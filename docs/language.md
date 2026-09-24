@@ -1060,10 +1060,12 @@ initializers and typed numeric literals.
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the
 type, ownership, borrow, unsafe, generator, and code-generation phases use
-them where their checks identify a source expression. Some diagnostics still
-fall back to a containing expression or declaration, especially when an
-analysis error does not retain the responsible AST node. Complete exact-span
-propagation through every analysis result remains tracked work.
+them where their checks identify a source expression. Statement-level checks
+prefer their value expression over the enclosing statement when a more
+precise node is not available. Some diagnostics still highlight an enclosing
+expression or declaration when an analysis error does not retain its
+responsible AST node. Complete exact-span propagation through every analysis
+result remains tracked work.
 
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures

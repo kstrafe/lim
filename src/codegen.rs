@@ -2164,6 +2164,11 @@ fn generate_function(
             source_expression
                 .and_then(|expression| codegen_expression_span(expression, &error))
                 .or_else(|| {
+                    statement_expressions
+                        .get(&(function.name.clone(), index))
+                        .map(crate::source_value_span)
+                })
+                .or_else(|| {
                     statement_spans
                         .get(&(function.name.clone(), index))
                         .copied()

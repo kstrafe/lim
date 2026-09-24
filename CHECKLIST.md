@@ -184,8 +184,9 @@ the checklist is committed alongside the implementation it tracks.
   borrow, unsafe, generator, and codegen error. Type mismatches now select
   identifiable incompatible operands (including normalized typed literals)
   for local and top-level initializers, and borrow escapes identify the local
-  referent. Audit and remove remaining statement/declaration fallbacks across
-  every error path, with exact-range regression coverage.
+  referent. Error paths now prefer a parsed value expression over a whole
+  statement when a more precise node is unavailable. Audit remaining opaque
+  expression/declaration cases and add exact-range coverage for each.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

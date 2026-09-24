@@ -90,6 +90,12 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                         .flatten()
                     });
                 precise
+                    .or_else(|| {
+                        program
+                            .statement_expressions
+                            .get(&key)
+                            .map(crate::source_value_span)
+                    })
                     .or_else(|| program.statement_spans.get(&key).copied())
                     .map_or(error.clone(), |span| {
                         format!(

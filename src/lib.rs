@@ -825,6 +825,32 @@ pub struct SpannedExpr {
     pub children: Vec<SpannedExpr>,
 }
 
+/// Select the value expression most directly responsible for a statement-level
+/// diagnostic, falling back to the complete source expression for forms whose
+/// operands are not named in the statement syntax.
+pub(crate) fn source_value_expression(expression: &SpannedExpr) -> &SpannedExpr {
+    let Expr::List(items) = &expression.expr else {
+        return expression;
+    };
+    let Some(Expr::Symbol(head)) = items.first() else {
+        return expression;
+    };
+    let value_index = match head.as_str() {
+        "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" => Some(3),
+        "#return" | "return" | "#break" | "break" | "#break-to" => Some(1),
+        "#set" | "set" => Some(2),
+        "#set-field" | "set-field" | "#set-index" | "set-index" => Some(3),
+        _ => None,
+    };
+    value_index
+        .and_then(|index| expression.children.get(index))
+        .unwrap_or(expression)
+}
+
+pub(crate) fn source_value_span(expression: &SpannedExpr) -> Span {
+    source_value_expression(expression).span
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParseError {
     pub message: String,

@@ -418,6 +418,7 @@ fn format_borrow_diagnostic(
                     find_source_symbol(expression, &place_name_candidates(owner))
                 })
             })
+            .or_else(|| statement_expression.map(crate::source_value_span))
             .or(Some(statement_span))
     });
     let spans = source_spans(

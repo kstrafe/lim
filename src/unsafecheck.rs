@@ -30,6 +30,12 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                             .statement_expressions
                             .get(&key)
                             .and_then(|expression| precise_unsafe_span(expression, &error))
+                            .or_else(|| {
+                                program
+                                    .statement_expressions
+                                    .get(&key)
+                                    .map(crate::source_value_span)
+                            })
                             .or_else(|| program.statement_spans.get(&key).copied());
                         span.map_or(error.clone(), |span| {
                             format!(
