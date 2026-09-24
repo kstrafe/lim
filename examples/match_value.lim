@@ -17,11 +17,11 @@
     (
       #match
       (Some 42)
-      (
+      (#case
         (Some value)
         value
       )
-      (None 0)
+      (#case None 0)
     )
   )
 )

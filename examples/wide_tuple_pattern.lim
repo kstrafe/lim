@@ -3,5 +3,5 @@
     (#tuple (#tuple i128 u64) 42 7))
   (#return
     (#match value
-      ((#tuple 42 7) 42)
-      (_ 0))))
+      (#case (#tuple 42 7) 42)
+      (#case _ 0))))

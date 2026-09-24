@@ -8,12 +8,12 @@
   (#return
     (#u64.+.wrap
       (#match value
-        ((#or 41u64 42u64) 10u64)
-        (_ 0u64))
+        (#case (#or 41u64 42u64) 10u64)
+        (#case _ 0u64))
       (#u64.+.wrap
         (#match pair
-          ((#tuple 1u64 2u64) 20u64)
-          (_ 0u64))
+          (#case (#tuple 1u64 2u64) 20u64)
+          (#case _ 0u64))
         (#match option
-          ((Some (#or 41u64 42u64)) 12u64)
-          (None 0u64))))))
+          (#case (Some (#or 41u64 42u64)) 12u64)
+          (#case None 0u64))))))

@@ -33,11 +33,11 @@
     (
       #match
       value
-      (
+      (#case
         (Pair left right)
         (#u64.+.wrap  left right)
       )
-      (Empty 0)
+      (#case Empty 0)
     )
   )
 )

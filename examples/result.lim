@@ -3,8 +3,8 @@
 (#fn classify ((value Result)) u64
   (#return
     (#match value
-      ((Result-ok-value 42) 1)
-      ((Result-err-value _) 0))))
+      (#case (Result-ok-value 42) 1)
+      (#case (Result-err-value _) 0))))
 
 (#fn main () u64
   (#let value Result (#call Result-ok (#fn-args (value 42))))

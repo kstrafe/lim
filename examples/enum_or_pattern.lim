@@ -4,4 +4,4 @@
   (#let value Maybe? (#call Maybe?-construct (#fn-args (value 42))))
   (#return
     (#match value
-      ((#or Maybe?-some Maybe?-none) 42))))
+      (#case (#or Maybe?-some Maybe?-none) 42))))

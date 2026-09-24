@@ -3,11 +3,11 @@
   (#return
     (#u64.+.wrap
       (#match value
-        ((#or 1 2 3) 42)
-        (_ 0))
+        (#case (#or 1 2 3) 42)
+        (#case _ 0))
       (#call bool-or (#fn-args (value true))))))
 
 (#fn bool-or ((value bool)) u64
   (#return
     (#match value
-      ((#or true false) 42))))
+      (#case (#or true false) 42))))

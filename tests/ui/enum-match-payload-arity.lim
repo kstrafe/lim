@@ -1,4 +1,4 @@
 (#enum Choice ((One u64) Done))
 (#fn main () u64
   (#let value Choice (One 10u64))
-  (#return (#match value ((One left right) 0u64) (Done 1u64))))
+  (#return (#match value (#case (One left right) 0u64) (#case Done 1u64))))

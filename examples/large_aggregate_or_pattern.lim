@@ -11,10 +11,10 @@
   (#return
     (#u64.+.wrap
       (#match tuple-value
-        ((#or (#tuple 1 2 3 4 5 6 41)
+        (#case (#or (#tuple 1 2 3 4 5 6 41)
               (#tuple 1 2 3 4 5 6 42)) 20u64)
-        (_ 0u64))
+        (#case _ 0u64))
       (#match struct-value
-        ((#or (LargeOr 1 2 3 4 5 6 41)
+        (#case (#or (LargeOr 1 2 3 4 5 6 41)
               (LargeOr 1 2 3 4 5 6 42)) 22u64)
-        (_ 0u64)))))
+        (#case _ 0u64)))))

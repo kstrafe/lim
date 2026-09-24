@@ -11,8 +11,8 @@
   (#return
     (#u64.+.wrap
       (#match tuple-value
-        ((#tuple first second third fourth fifth sixth last) last)
-        (_ 0u64))
+        (#case (#tuple first second third fourth fifth sixth last) last)
+        (#case _ 0u64))
       (#match struct-value
-        ((Large first second third fourth fifth sixth last) last)
-        (_ 0u64)))))
+        (#case (Large first second third fourth fifth sixth last) last)
+        (#case _ 0u64)))))

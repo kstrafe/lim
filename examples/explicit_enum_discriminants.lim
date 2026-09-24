@@ -3,5 +3,5 @@
 (#fn main () u64
   (#let value Result (Ok 42))
   (#return (#match value
-    ((Ok payload) payload)
-    ((Err _) 0))))
+    (#case (Ok payload) payload)
+    (#case (Err _) 0))))

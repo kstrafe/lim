@@ -23,11 +23,11 @@
     (
       #match
       value
-      (
+      (#case
         (SomeU64 payload)
         payload
       )
-      (None 0)
+      (#case None 0)
     )
   )
 )

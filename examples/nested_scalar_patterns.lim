@@ -7,8 +7,8 @@
   (#return
     (#u64.+.wrap
       (#match pair
-        ((#tuple (#range 10u64 20u64) (#or 2u64 3u64)) 20u64)
-        (_ 0u64))
+        (#case (#tuple (#range 10u64 20u64) (#or 2u64 3u64)) 20u64)
+        (#case _ 0u64))
       (#match value
-        ((Value (#range 10u64 20u64)) 22u64)
-        (Empty 0u64)))))
+        (#case (Value (#range 10u64 20u64)) 22u64)
+        (#case Empty 0u64)))))

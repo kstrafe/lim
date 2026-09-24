@@ -1,14 +1,14 @@
 (#fn classify ((value i32)) u64
   (#return
     (#match value
-      ((#range -10 10) 42)
-      (_ 0))))
+      (#case (#range -10 10) 42)
+      (#case _ 0))))
 
 (#fn wide-classify ((value i128)) u64
   (#return
     (#match value
-      ((#range -2i128 2i128) 42)
-      (_ 0))))
+      (#case (#range -2i128 2i128) 42)
+      (#case _ 0))))
 
 (#fn main () u64
   (#return (#u64.+.wrap (#call classify (#fn-args (value 7))) (#call wide-classify (#fn-args (value 1))))))

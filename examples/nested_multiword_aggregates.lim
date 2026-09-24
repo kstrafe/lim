@@ -37,11 +37,11 @@
 (#fn inspect ((value Envelope)) u64
   (#return
     (#match value
-      ((Value (WideRecord id (WidePair wide small) tail _))
+      (#case (Value (WideRecord id (WidePair wide small) tail _))
         (#if (#u128.== wide 18446744073709551616u128)
           (#u64.+.wrap id small)
           (#block (#forget id) (#forget small) 0u64)))
-      (Empty 0u64))))
+      (#case Empty 0u64))))
 
 (#fn pass-envelope ((value Envelope)) Envelope
   (#return value))

@@ -14,8 +14,8 @@
 (#fn consume-enum ((value LargePayload)) u64
   (#return
     (#match value
-      ((Big first second third fourth fifth sixth seventh) seventh)
-      (Empty 0u64))))
+      (#case (Big first second third fourth fifth sixth seventh) seventh)
+      (#case Empty 0u64))))
 
 (#fn main () u64
   (#let tuple-value (#tuple u64 u64 u64 u64 u64 u64 u64)

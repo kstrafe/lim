@@ -1,5 +1,5 @@
 (#fn main () u64
   (#return
     (#match (#tuple (#tuple u64 u64) 10 32)
-      ((#tuple 10 middle) middle)
-      (_ 0))))
+      (#case (#tuple 10 middle) middle)
+      (#case _ 0))))

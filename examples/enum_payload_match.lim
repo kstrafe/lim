@@ -3,8 +3,8 @@
 (#fn classify ((value Maybe)) u64
   (#return
     (#match value
-      ((Some 42) 1)
-      (None 0))))
+      (#case (Some 42) 1)
+      (#case None 0))))
 
 (#fn main () u64
   (#return (#call classify (#fn-args (value (Some 42))))))

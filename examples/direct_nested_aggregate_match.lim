@@ -8,10 +8,10 @@
 (#fn main () u64
   (#return
     (#match (#call make (#fn-args ))
-      ((#array
+      (#case (#array
         (#tuple _ _)
         (#tuple _ _)
         (#tuple _ _)
         (#tuple _ last))
        last)
-      (_ 0u64))))
+      (#case _ 0u64))))

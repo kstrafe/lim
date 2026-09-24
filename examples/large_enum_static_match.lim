@@ -9,5 +9,5 @@
 (#fn main () u64
   (#return
     (#match (#unsafe Global)
-      ((Values payload) (#index payload 6u64))
-      (Empty 0u64))))
+      (#case (Values payload) (#index payload 6u64))
+      (#case Empty 0u64))))

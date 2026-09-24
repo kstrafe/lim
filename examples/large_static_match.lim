@@ -5,5 +5,5 @@
 (#fn main () u64
   (#return
     (#match (#unsafe Values)
-      ((#array first second third fourth fifth sixth last) last)
-      (_ 0u64))))
+      (#case (#array first second third fourth fifth sixth last) last)
+      (#case _ 0u64))))

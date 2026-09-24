@@ -58,8 +58,8 @@
   (#let read VecU64-GetResult (#call VecU64-get (#fn-args (vector (#borrow vector)) (index 1usize))))
   (#let read-value u64
     (#match read
-      ((VecU64-GetResult-some reference) (#deref reference))
-      (VecU64-GetResult-none 0u64)))
+      (#case (VecU64-GetResult-some reference) (#deref reference))
+      (#case VecU64-GetResult-none 0u64)))
   (#assert (#u64.== read-value 22u64))
   (#let replacement VecU64-SetResult
     (#call VecU64-set (#fn-args (vector (#borrow-mut vector)) (index 1usize) (value 44u64))))
@@ -67,9 +67,9 @@
   (#let popped VecU64-PopResult (#call VecU64-pop (#fn-args (vector (#borrow-mut vector)))))
   (#assert
     (#match popped
-      ((VecU64-PopResult-some value)
+      (#case (VecU64-PopResult-some value)
         (#block (#call drop-u64 (#fn-args (allocator (#borrow allocator)) (value value))) true))
-      (VecU64-PopResult-none false)))
+      (#case VecU64-PopResult-none false)))
   (#call VecU64-free (#fn-args (vector vector)))
   (#let destruction-count u64 (#cell-get (#get allocator destructions)))
   (#forget allocator)

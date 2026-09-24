@@ -109,8 +109,14 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "match-branch-mismatch",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match true (true 1u64) (false false)))",
+            offending_line: "  (#return (#match true (#case true 1u64) (#case false false)))",
             line_number: 2,
+        },
+        Case {
+            name: "match-missing-case",
+            diagnostic_code: "E2000",
+            offending_line: "    (true 1u64)",
+            line_number: 3,
         },
         Case {
             name: "operator-arity",
@@ -477,13 +483,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "unknown-match-variant",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value (Missing 0u64) (Ready 1u64)))",
+            offending_line: "  (#return (#match value (#case Missing 0u64) (#case Ready 1u64)))",
             line_number: 4,
         },
         Case {
             name: "non-exhaustive-match",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value (Ready 1u64)))",
+            offending_line: "  (#return (#match value (#case Ready 1u64)))",
             line_number: 4,
         },
         Case {
@@ -495,49 +501,51 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-enum-match-pattern",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value (Ready 0u64) (Ready 1u64)))",
+            offending_line: "  (#return (#match value (#case Ready 0u64) (#case Ready 1u64)))",
             line_number: 4,
         },
         Case {
             name: "enum-match-payload-arity",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value ((One left right) 0u64) (Done 1u64)))",
+            offending_line:
+                "  (#return (#match value (#case (One left right) 0u64) (#case Done 1u64)))",
             line_number: 4,
         },
         Case {
             name: "duplicate-wildcard-match-pattern",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match true (_ 0u64) (_ 1u64)))",
+            offending_line: "  (#return (#match true (#case _ 0u64) (#case _ 1u64)))",
             line_number: 2,
         },
         Case {
             name: "out-of-range-match-integer",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value (300 0u64) (_ 1u64)))",
+            offending_line: "  (#return (#match value (#case 300 0u64) (#case _ 1u64)))",
             line_number: 3,
         },
         Case {
             name: "duplicate-match-integer",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value (2 0u64) (2 1u64) (_ 0u64)))",
+            offending_line:
+                "  (#return (#match value (#case 2 0u64) (#case 2 1u64) (#case _ 0u64)))",
             line_number: 3,
         },
         Case {
             name: "duplicate-character-match-pattern",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match #\\a (#\\b 0u64) (#\\b 1u64)))",
+            offending_line: "  (#return (#match #\\a (#case #\\b 0u64) (#case #\\b 1u64)))",
             line_number: 2,
         },
         Case {
             name: "out-of-range-match-range",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value ((#range 2 300) 0u64) (_ 1u64)))",
+            offending_line: "  (#return (#match value (#case (#range 2 300) 0u64) (#case _ 1u64)))",
             line_number: 3,
         },
         Case {
             name: "reversed-match-range",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#match value ((#range 10 2) 0u64) (_ 1u64)))",
+            offending_line: "  (#return (#match value (#case (#range 10 2) 0u64) (#case _ 1u64)))",
             line_number: 3,
         },
         Case {
@@ -715,6 +723,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "nonboolean-if-condition" => Some("1u64"),
             "if-branch-mismatch" => Some("false"),
             "match-branch-mismatch" => Some("false"),
+            "match-missing-case" => Some("(true 1u64)"),
             "noninteger-array-index" => Some("true"),
             "out-of-range-shift-count" => Some("8"),
             "recursive-alias" => Some("Second"),

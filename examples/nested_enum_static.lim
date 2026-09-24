@@ -4,5 +4,5 @@
 (#fn main () u64
   (#return
     (#match (#unsafe Value)
-      ((Wrapped (#tuple left right)) (#u64.+.wrap left right))
-      (Empty 0))))
+      (#case (Wrapped (#tuple left right)) (#u64.+.wrap left right))
+      (#case Empty 0))))

@@ -5,5 +5,5 @@
   (#set-payload value Pair 1 30)
   (#return
     (#match value
-      ((Pair left right) (#u64.+.wrap left right))
-      (Empty 0))))
+      (#case (Pair left right) (#u64.+.wrap left right))
+      (#case Empty 0))))

@@ -4,5 +4,5 @@
   (#let value Number (Value 2))
   (#return
     (#match value
-      ((Value (#or 1 2 3)) 42)
-      (Empty 0))))
+      (#case (Value (#or 1 2 3)) 42)
+      (#case Empty 0))))

@@ -24,5 +24,5 @@
     (#u64.+.wrap
       (#u64.+.wrap (#get tuple-value 6) (#get struct-value g))
       (#match enum-value
-        ((Big first second third fourth fifth sixth seventh) seventh)
-        (Empty 0u64)))))
+        (#case (Big first second third fourth fifth sixth seventh) seventh)
+        (#case Empty 0u64)))))

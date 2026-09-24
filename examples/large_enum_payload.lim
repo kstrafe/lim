@@ -11,5 +11,5 @@
   (#let value Wrapped (#call make (#fn-args )))
   (#return
     (#match value
-      ((Values payload) (#index payload 6u64))
-      (Empty 0u64))))
+      (#case (Values payload) (#index payload 6u64))
+      (#case Empty 0u64))))

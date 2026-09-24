@@ -19,8 +19,8 @@
 (#fn read-choice ((choice Maybe)) u64
   (#return
     (#match choice
-      ((Some value) value)
-      (None 0))))
+      (#case (Some value) value)
+      (#case None 0))))
 
 (#fn return-choice () Maybe
   (#return (#unsafe Choice)))

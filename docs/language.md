@@ -914,22 +914,23 @@ Recursive calls are rejected.  Mutual recursion is rejected as well.
 ## Patterns and matching
 
 `#match` is exhaustive for enums and scalar booleans; `_` supplies a wildcard.
-Enum payloads are written as constructor patterns:
+Every arm must be explicitly introduced with `#case`. Enum payloads are
+written as constructor patterns:
 
 ```lisp
 (#match value
-  ((Some payload) payload)
-  (None 0u64))
+  (#case (Some payload) payload)
+  (#case None 0u64))
 ```
 
 Tuple, struct, array, scalar, range, typed-literal, and `#or` patterns are
-supported.  Guards use `#when`:
+supported. Guards are placed between the pattern and body, using `#when`:
 
 ```lisp
 (#match value
-  ((Some payload) (#when (#u64.>.wrap payload 40u64)) payload)
-  ((Some _) 0u64)
-  (None 0u64))
+  (#case (Some payload) (#when (#u64.>.wrap payload 40u64)) payload)
+  (#case (Some _) 0u64)
+  (#case None 0u64))
 ```
 
 Destructuring uses the same aggregate pattern shapes:
