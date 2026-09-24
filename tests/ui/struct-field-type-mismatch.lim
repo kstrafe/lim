@@ -1,0 +1,5 @@
+(#struct Pair ((flag bool) (count u64)))
+(#fn main () u64
+  (#let pair Pair (#struct-literal Pair ((flag true) (count false))))
+  (#forget pair)
+  (#return 0u64))

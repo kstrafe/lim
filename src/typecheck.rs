@@ -1838,6 +1838,14 @@ fn precise_type_error_span(
     source: &str,
 ) -> Option<crate::Span> {
     let value = crate::source_value_expression(statement);
+    if let Some(field_name) = error
+        .strip_prefix("field '")
+        .and_then(|rest| rest.split_once("' of '").map(|(field, _)| field))
+    {
+        if let Some(span) = struct_literal_field_value_span(value, field_name) {
+            return Some(span);
+        }
+    }
     let name = error
         .strip_prefix("unknown variable or enum variant '")
         .and_then(|tail| tail.split('\'').next());
@@ -2029,6 +2037,36 @@ fn precise_type_error_span(
         }
     }
     Some(value.span)
+}
+
+fn struct_literal_field_value_span(
+    expression: &crate::SpannedExpr,
+    field_name: &str,
+) -> Option<crate::Span> {
+    fn find_field(expression: &crate::SpannedExpr, field_name: &str) -> Option<crate::Span> {
+        if let Expr::List(items) = &expression.expr {
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == field_name)
+                && items.len() == 2
+            {
+                return expression.children.get(1).map(|value| value.span);
+            }
+        }
+        expression
+            .children
+            .iter()
+            .find_map(|child| find_field(child, field_name))
+    }
+
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#struct-literal" | "struct-literal"))
+        {
+            return find_field(expression, field_name);
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| struct_literal_field_value_span(child, field_name))
 }
 
 fn control_flow_mismatch_span(

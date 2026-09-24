@@ -224,7 +224,8 @@ the checklist is committed alongside the implementation it tracks.
   similarly exclude the scrutinee and patterns from arm-value selection.
   Named-call type mismatches carry the parameter name through type checking
   and underline that argument's value, even if an earlier argument has the
-  same type.
+  same type. Struct-literal field mismatches identify the responsible named
+  field value rather than a same-typed value from an earlier field.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

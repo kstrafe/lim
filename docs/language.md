@@ -1074,6 +1074,8 @@ For `#match` result mismatches, span selection only considers arm values, not
 the scrutinee or patterns.
 Named-call argument type errors include the parameter name internally, allowing
 the diagnostic to underline the responsible named value rather than the call.
+Struct-literal field type errors similarly underline the named field value,
+even when an earlier field has the same actual type.
 Unknown named types in local `#let` annotations underline the type token,
 including diagnostics formatted as expected-type mismatches.
 Immutable-assignment diagnostics underline the target binding.
