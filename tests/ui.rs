@@ -144,6 +144,19 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 1,
         },
         Case {
+            name: "generator-capability-signature",
+            diagnostic_code: "E3000",
+            offending_line: "(#capability order u64 ((compare (u64 u64) u64)))",
+            line_number: 2,
+        },
+        Case {
+            name: "generator-capability-duplicate-operation",
+            diagnostic_code: "E3000",
+            offending_line:
+                "(#capability order u64 ((compare (u64 u64) bool) (compare (u64 u64) bool)))",
+            line_number: 2,
+        },
+        Case {
             name: "codegen",
             diagnostic_code: "E5000",
             offending_line: "(#const First u64 (#u64.+.wrap Second 1u64))",
@@ -468,6 +481,9 @@ fn compilation_errors_render_the_offending_source_line() {
             "thread-task-type-alias" => Some("Task"),
             "thread-task-field" => Some("Task"),
             "duplicate-function" => Some("main"),
+            "generator-capability" => Some("missing"),
+            "generator-capability-signature" => Some("compare"),
+            "generator-capability-duplicate-operation" => Some("compare"),
             "unsafe" => Some("VALUE"),
             "borrow" => Some("#set"),
             "linear" => Some("resource"),
@@ -484,6 +500,11 @@ fn compilation_errors_render_the_offending_source_line() {
                 .unwrap();
             let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
             let expected_column = if case.name == "duplicate-parameter" {
+                source_row
+                    .match_indices(fragment)
+                    .nth(1)
+                    .map(|(column, _)| column)
+            } else if case.name == "generator-capability-duplicate-operation" {
                 source_row
                     .match_indices(fragment)
                     .nth(1)

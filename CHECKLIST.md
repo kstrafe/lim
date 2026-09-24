@@ -201,7 +201,8 @@ the checklist is committed alongside the implementation it tracks.
   mismatch. Immutable assignments now underline the assigned binding instead
   of the entire assignment form. Invalid operands to `index`, `slice-of`, `slice-len`,
   `get`, `get-payload`, and `deref-set` also receive argument-level spans with
-  UI coverage.
+  UI coverage. Generator capability checks now pinpoint missing, mismatched,
+  and duplicate operation names, including the later duplicate occurrence.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

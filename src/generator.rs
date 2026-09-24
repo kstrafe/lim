@@ -166,7 +166,13 @@ fn expand_with_generated_cached_and_hits(
                         ))
                     }
                 };
-                for operation in operation_forms {
+                for (operation_index, operation) in operation_forms.iter().enumerate() {
+                    let operation_name_span = expression
+                        .children
+                        .get(3)
+                        .and_then(|contracts| contracts.children.get(operation_index))
+                        .and_then(|operation| operation.children.first())
+                        .map_or(expression.span, |name| name.span);
                     let Expr::List(parts) = operation else {
                         return Err(at_span(
                             "capability operations have the form (function (ArgumentType ...) ReturnType)".into(),
@@ -212,14 +218,14 @@ fn expand_with_generated_cached_and_hits(
                     let Some(actual_signature) = declared_functions.get(operation_name) else {
                         return Err(at_span(
                             format!("capability '{capability}' for '{type_name}' requires operation function '{operation_name}', but it is not declared"),
-                            expression.span,
+                            operation_name_span,
                             "capability declaration",
                         ));
                     };
                     if actual_signature != &signature {
                         return Err(at_span(
                             format!("capability operation '{operation_name}' has signature {actual_signature}; contract requires {signature}"),
-                            expression.span,
+                            operation_name_span,
                             "capability declaration",
                         ));
                     }
@@ -229,7 +235,7 @@ fn expand_with_generated_cached_and_hits(
                     {
                         return Err(at_span(
                             format!("duplicate operation '{operation_name}' in capability '{capability}'"),
-                            expression.span,
+                            operation_name_span,
                             "capability declaration",
                         ));
                     }
