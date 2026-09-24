@@ -181,6 +181,8 @@ the checklist is committed alongside the implementation it tracks.
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a
   deterministic capability-contract hash in generated-code cache keys.
-- [ ] Add a soundness-focused audit and adversarial regression suite for
-  unsafe pointer operations, reference provenance through all aggregate/control
-  flow forms, `Send`/`Sync` overrides, and generated destruction paths.
+- [x] Add a soundness-focused audit and adversarial regression suite for
+  unsafe pointer operations, reference provenance through aggregate/control
+  flow forms, `Send`/`Sync` overrides, and generated destruction paths;
+  `docs/soundness-audit.md` maps each invariant to its regression evidence and
+  records the limits of unsafe promises.

@@ -6139,6 +6139,32 @@ mod tests {
     }
 
     #[test]
+    fn soundness_audit_tracks_raw_pointer_borrows_through_returned_tuples() {
+        let program = parse_program(
+            "(#fn expose ((anchor (#ref u64)) (pointer (#ptr u64))) (#tuple (#ref u64) u64) (#let reference (#ref u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return (#tuple (#tuple (#ref u64) u64) reference 1u64))) (#fn bad () u64 (#let-mut value u64 41u64) (#let pointer (#ptr u64) (#unsafe (#addr-of value))) (#let result (#tuple (#ref u64) u64) (expose (#borrow value) pointer)) (#set value 42u64) (#return (#deref (#get result 0))))",
+        )
+        .unwrap();
+        let error = check_types(&program).unwrap_err();
+        assert!(
+            error.contains("cannot mutate 'value' while it is immutably borrowed"),
+            "a reference derived from an unsafe pointer must keep its anchor loan through aggregate return: {error}"
+        );
+    }
+
+    #[test]
+    fn soundness_audit_keeps_enum_payload_borrows_live_across_match() {
+        let program = parse_program(
+            "(#enum HeldRef ((Held (#ref u64)) Empty)) (#fn hold ((source (#ref u64))) HeldRef (#return (Held source))) (#fn bad () u64 (#let-mut value u64 41u64) (#let held HeldRef (hold (#borrow value))) (#set value 42u64) (#return (#match held ((Held reference) (#deref reference)) (Empty 0u64))))",
+        )
+        .unwrap();
+        let error = check_types(&program).unwrap_err();
+        assert!(
+            error.contains("cannot mutate 'value' while it is immutably borrowed"),
+            "enum payload borrows must remain live until the matching branch consumes the enum: {error}"
+        );
+    }
+
+    #[test]
     fn supports_single_threaded_interior_mutable_cells() {
         let program = parse_program(
             "(#fn main () u64 (#let counter (#cell u64) (#cell 40)) (#cell-set counter (#u64.+.wrap (#cell-get counter) 2)) (#return (#cell-get counter)))",
