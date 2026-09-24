@@ -1502,6 +1502,17 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
         None
     }
 
+    fn task_type_span(expression: &SpannedExpr, program: &Program) -> Option<Span> {
+        for item in &program.items {
+            if let Item::ThreadTask { name, .. } = item {
+                if let Some(span) = symbol_span(expression, name) {
+                    return Some(span);
+                }
+            }
+        }
+        None
+    }
+
     if let Some(name) = message
         .strip_prefix("unknown type '")
         .and_then(|rest| rest.split('\'').next())
@@ -1514,6 +1525,20 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
             .min_by_key(|span| (span.source_id, span.start));
         if span.is_some() {
             return span;
+        }
+    }
+
+    if let Some(alias_name) = message
+        .strip_prefix("type alias '")
+        .and_then(|rest| rest.split_once("' is recursive").map(|(name, _)| name))
+    {
+        if let Some(span) = program
+            .declaration_expressions
+            .get(alias_name)
+            .and_then(|expression| expression.children.get(2))
+            .map(|target| target.span)
+        {
+            return Some(span);
         }
     }
 
@@ -1595,6 +1620,34 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
             {
                 return Some(span);
             }
+        }
+    }
+
+    if let Some(alias_name) = message
+        .strip_prefix("type alias '")
+        .and_then(|rest| rest.split('\'').next())
+        .filter(|_| message.contains("cannot contain a thread task handle"))
+    {
+        if let Some(span) = program
+            .declaration_expressions
+            .get(alias_name)
+            .and_then(|expression| task_type_span(expression, program))
+        {
+            return Some(span);
+        }
+    }
+
+    if let Some(function_name) = message
+        .strip_prefix("function '")
+        .and_then(|rest| rest.split('\'').next())
+        .filter(|_| message.contains("cannot accept, return, or retain a thread task handle"))
+    {
+        if let Some(span) = program
+            .declaration_expressions
+            .get(function_name)
+            .and_then(|expression| task_type_span(expression, program))
+        {
+            return Some(span);
         }
     }
 

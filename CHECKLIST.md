@@ -194,7 +194,8 @@ the checklist is committed alongside the implementation it tracks.
   unsafe-impl targets, and specialization-time validation now underline the
   relevant name where that name is available in the original form. C-enum
   discriminant, thread-task worker/result, and task-in-aggregate diagnostics
-  now identify their invalid source token/type as well.
+  now identify their invalid source token/type as well. Thread-task handles in
+  function signatures and type aliases also underline the task type token.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

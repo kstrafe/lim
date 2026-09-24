@@ -251,6 +251,18 @@ fn compilation_errors_render_the_offending_source_line() {
             offending_line: "(#fn worker ((value (#ref u64))) (#ref u64) (#return value))",
             line_number: 1,
         },
+        Case {
+            name: "thread-task-function-signature",
+            diagnostic_code: "E4000",
+            offending_line: "(#fn bad ((task Task)) u64 (#return 0u64))",
+            line_number: 3,
+        },
+        Case {
+            name: "thread-task-type-alias",
+            diagnostic_code: "E4000",
+            offending_line: "(#type TaskAlias Task)",
+            line_number: 3,
+        },
     ];
 
     for case in cases {
@@ -375,12 +387,15 @@ fn compilation_errors_render_the_offending_source_line() {
             );
         }
         let precise_fragment = match case.name {
+            "recursive-alias" => Some("Second"),
             "repr-c-discriminant" => Some("2147483648"),
             "duplicate-type" => Some("Token"),
             "duplicate-global" => Some("COUNT"),
             "unsafe-impl" => Some("Missing"),
             "thread-worker-missing" => Some("missing-worker"),
             "thread-worker-reference-result" => Some("(#ref u64)"),
+            "thread-task-function-signature" => Some("Task"),
+            "thread-task-type-alias" => Some("Task"),
             "thread-task-field" => Some("Task"),
             "unsafe" => Some("VALUE"),
             "borrow" => Some("#set"),
@@ -397,7 +412,10 @@ fn compilation_errors_render_the_offending_source_line() {
                 .find(|line| line.contains(case.offending_line))
                 .unwrap();
             let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            let expected_column = if case.name == "thread-worker-reference-result" {
+            let expected_column = if matches!(
+                case.name,
+                "thread-worker-reference-result" | "thread-task-type-alias"
+            ) {
                 source_row.rfind(fragment)
             } else {
                 source_row.find(fragment)

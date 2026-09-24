@@ -1063,6 +1063,8 @@ Declaration uniqueness and unsafe-impl validation likewise underline the
 repeated or invalid name instead of the whole declaration. C-layout
 discriminant and thread-task declaration diagnostics target the invalid
 discriminant, worker name, result type, or aggregate field type.
+Thread-task handles in function signatures and type aliases underline the
+generated task type token.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the
