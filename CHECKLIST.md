@@ -202,7 +202,9 @@ the checklist is committed alongside the implementation it tracks.
   of the entire assignment form. Invalid operands to `index`, `slice-of`, `slice-len`,
   `get`, `get-payload`, and `deref-set` also receive argument-level spans with
   UI coverage. Generator capability checks now pinpoint missing, mismatched,
-  and duplicate operation names, including the later duplicate occurrence.
+  and duplicate operation names, including the later duplicate occurrence;
+  duplicate capability/type pairs and generator declarations point at their
+  repeated identifier.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

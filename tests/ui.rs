@@ -157,6 +157,18 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "generator-capability-duplicate-type",
+            diagnostic_code: "E3000",
+            offending_line: "(#capability order u64 ((compare (u64 u64) bool)))",
+            line_number: 3,
+        },
+        Case {
+            name: "duplicate-generator",
+            diagnostic_code: "E3000",
+            offending_line: "(#generator make () (#gn-list))",
+            line_number: 2,
+        },
+        Case {
             name: "codegen",
             diagnostic_code: "E5000",
             offending_line: "(#const First u64 (#u64.+.wrap Second 1u64))",
@@ -484,6 +496,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "generator-capability" => Some("missing"),
             "generator-capability-signature" => Some("compare"),
             "generator-capability-duplicate-operation" => Some("compare"),
+            "generator-capability-duplicate-type" => Some("u64"),
+            "duplicate-generator" => Some("make"),
             "unsafe" => Some("VALUE"),
             "borrow" => Some("#set"),
             "linear" => Some("resource"),

@@ -242,9 +242,16 @@ fn expand_with_generated_cached_and_hits(
                 }
                 let types = capabilities.entry(capability.clone()).or_default();
                 if types.insert(type_name.clone(), operations).is_some() {
+                    let type_name_span = expression
+                        .children
+                        .get(2)
+                        .filter(
+                            |name| matches!(&name.expr, Expr::Symbol(name) if name == &type_name),
+                        )
+                        .map_or(expression.span, |name| name.span);
                     return Err(at_span(
                         format!("duplicate capability '{capability}' declaration for type '{type_name}'"),
-                        expression.span,
+                        type_name_span,
                         "capability declaration",
                     ));
                 }
@@ -255,16 +262,26 @@ fn expand_with_generated_cached_and_hits(
                     .map_err(|error| at_span(error, expression.span, "generator declaration"))?;
                 let name = symbol(items.get(1), "generator name")?.to_owned();
                 if functions.contains_key(&name) {
+                    let name_span = expression
+                        .children
+                        .get(1)
+                        .filter(|symbol| matches!(&symbol.expr, Expr::Symbol(symbol) if symbol == &name))
+                        .map_or(expression.span, |symbol| symbol.span);
                     return Err(at_span(
                         format!("duplicate generator or generator function declaration '{name}'"),
-                        expression.span,
+                        name_span,
                         "generator declaration",
                     ));
                 }
                 if generators.insert(name.clone(), generator).is_some() {
+                    let name_span = expression
+                        .children
+                        .get(1)
+                        .filter(|symbol| matches!(&symbol.expr, Expr::Symbol(symbol) if symbol == &name))
+                        .map_or(expression.span, |symbol| symbol.span);
                     return Err(at_span(
                         format!("duplicate generator declaration '{name}'"),
-                        expression.span,
+                        name_span,
                         "generator declaration",
                     ));
                 }
@@ -279,9 +296,14 @@ fn expand_with_generated_cached_and_hits(
                 if generators.contains_key(&name)
                     || functions.insert(name.clone(), function).is_some()
                 {
+                    let name_span = expression
+                        .children
+                        .get(1)
+                        .filter(|symbol| matches!(&symbol.expr, Expr::Symbol(symbol) if symbol == &name))
+                        .map_or(expression.span, |symbol| symbol.span);
                     return Err(at_span(
                         format!("duplicate generator or generator function declaration '{name}'"),
-                        expression.span,
+                        name_span,
                         "generator function declaration",
                     ));
                 }
