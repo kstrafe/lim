@@ -235,7 +235,7 @@ these areas as stable.
 
 ### Native ABI and targets
 
-- [ ] Make `#repr-c` layout guarantees match actual Lim storage and the C ABI,
+- [x] Make `#repr-c` layout guarantees match actual Lim storage and the C ABI,
   or narrow the feature and its documentation so layout-query results cannot
   be mistaken for permission to pass or reinterpret Lim aggregates as C
   values.

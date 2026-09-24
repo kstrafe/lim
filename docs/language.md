@@ -571,7 +571,9 @@ object files are passed to `ld` before libraries, and libraries are emitted as
 
 ### C aggregate layout
 
-`#repr-c` opts a struct or enum into the x86-64 System V C layout. Struct
+`#repr-c` opts a struct or enum into the x86-64 System V C layout for layout
+queries only; it does not change the Lim runtime representation or grant FFI
+compatibility. Struct
 fields follow declaration order, with natural field alignment and tail
 padding. `#size-of` and `#align-of` report this layout for marked types;
 `#offset-of Type field` reports a marked struct field's byte offset. Payload
@@ -580,8 +582,10 @@ union of variant payload structs; fieldless enums use the same 32-bit tag.
 Discriminants must fit in signed 32-bit C `int`. These guarantees currently
 apply to layout queries only: Lim's runtime aggregate storage still uses its
 internal flattened representation, so `#repr-c` values must not be reinterpreted
-as C memory or passed through FFI. By-value aggregate FFI and field access
-through external aggregate pointers remain unsupported.
+as C memory or passed through FFI. `#size-of`, `#align-of`, and `#offset-of`
+report a C layout description, not the in-memory layout of a Lim value. By-value
+aggregate FFI and field access through external aggregate pointers remain
+rejected. Only the native x86-64 System V target is currently supported.
 
 ### Type aliases
 
