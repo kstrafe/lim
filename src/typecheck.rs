@@ -1940,6 +1940,13 @@ fn precise_type_error_span(
     if let Some(span) = type_error_argument_span(value, error) {
         return Some(span);
     }
+    if error.starts_with("operator '") || error.starts_with("function '") {
+        if let Some(operator) = error.split('\'').nth(1) {
+            if let Some(span) = source_operator_span(statement, operator) {
+                return Some(span);
+            }
+        }
+    }
     if let Some(name) = error
         .split_once("expected Named(\"")
         .and_then(|(_, rest)| rest.split_once('\"').map(|(name, _)| name))
@@ -2025,6 +2032,26 @@ fn find_operator_argument(
         .children
         .iter()
         .find_map(|child| find_operator_argument(child, operators, argument))
+}
+
+fn source_operator_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
+    if let Expr::List(items) = &expression.expr {
+        if let Some(Expr::Symbol(head)) = items.first() {
+            let normalized = head.strip_prefix('#').unwrap_or(head);
+            if normalized == target || normalized.split('.').skip(1).any(|part| part == target) {
+                return expression.children.first().map(|head| head.span);
+            }
+            if matches!(head.as_str(), "#call" | "call")
+                && matches!(items.get(1), Some(Expr::Symbol(name)) if name == target)
+            {
+                return expression.children.get(1).map(|name| name.span);
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| source_operator_span(child, target))
 }
 
 fn typed_operator_qualifier<'a>(

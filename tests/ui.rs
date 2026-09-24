@@ -65,6 +65,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "operator-arity",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#u64.+.wrap 1u64))",
+            line_number: 2,
+        },
+        Case {
             name: "top-level-mismatch",
             diagnostic_code: "E4000",
             offending_line: "(#let TOTAL u64 true)",
@@ -548,6 +554,7 @@ fn compilation_errors_render_the_offending_source_line() {
             );
         }
         let precise_fragment = match case.name {
+            "operator-arity" => Some("#u64.+.wrap"),
             "recursive-alias" => Some("Second"),
             "repr-c-discriminant" => Some("2147483648"),
             "duplicate-type" => Some("Token"),

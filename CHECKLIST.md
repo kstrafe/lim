@@ -205,7 +205,8 @@ the checklist is committed alongside the implementation it tracks.
   and duplicate operation names, including the later duplicate occurrence;
   duplicate capability/type pairs and generator declarations point at their
   repeated identifier. Generator-function recursion diagnostics underline the
-  recursive `#gn-call` target. Invalid array/struct assignment targets underline
+  recursive `#gn-call` target. Builtin arity errors underline the operator
+  identifier, including its full typed spelling. Invalid array/struct assignment targets underline
   the named target instead of the full statement. Missing struct fields and
   enum payload variants underline the missing member name, and invalid enum
   match arms underline the variant pattern rather than treating it as an
