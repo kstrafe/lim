@@ -203,11 +203,11 @@ these areas as stable.
 
 ### Safety audit and ownership
 
-- [ ] Re-audit thread spawn/join failure paths, including task-handle
+- [x] Re-audit thread spawn/join failure paths, including task-handle
   ownership and captured borrows on every success and error branch. Reconcile
   the checklist claims, regression tests, and `docs/soundness-audit.md`; add
   adversarial tests for any uncovered paths.
-- [ ] Extend the soundness audit with explicit invariants and adversarial
+- [x] Extend the soundness audit with explicit invariants and adversarial
   tests for unsafe `Send`/`Sync` overrides, raw-pointer-derived references,
   and unsafe destruction/allocator interactions. Clearly distinguish
   compiler-enforced guarantees from programmer promises.
