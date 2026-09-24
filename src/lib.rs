@@ -3962,7 +3962,7 @@ fn load_imports_inner(
         let Some((line, column, message)) = parse_location_prefix(&error) else {
             return format!("{}: {error}", base.display());
         };
-        let mut span = source_span_at(source, line, column, 1);
+        let mut span = source_span_at(source, line, column, token_width_at(source, line, column));
         span.source_id = source_id;
         let prefix = if diagnostic_code_for_positioned_message(&message) == DiagnosticCode::Lex {
             "lex error: "
@@ -4451,7 +4451,12 @@ pub fn write_generated_sources_diagnostic(
             if let Some((line, column, parse_message)) = parse_location_prefix(&message) {
                 let code = diagnostic_code_for_positioned_message(&parse_message);
                 return Diagnostic::new(code, parse_message)
-                    .with_span(source_span_at(source, line, column, 1))
+                    .with_span(source_span_at(
+                        source,
+                        line,
+                        column,
+                        token_width_at(source, line, column),
+                    ))
                     .with_source(source_path.display().to_string(), source.to_owned());
             }
         }
@@ -7958,49 +7963,49 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-import-parser-span-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let module_path = directory.join("module.lim");
-        let module_source = "  bad-token here";
-        std::fs::write(&module_path, module_source).unwrap();
         let root_path = directory.join("root.lim");
-        let diagnostic = generator_diagnostic(
-            format!("{}: 1:3: unexpected token", module_path.display()),
+        let root_source = "(#fn main () u64\n  (#return \"bad token)\n)";
+        let diagnostic = write_generated_sources_diagnostic(
+            root_source,
             &root_path,
-            "",
-        );
+            &directory.join("generated"),
+            &CompileConfig::default(),
+            &directory.join("cache"),
+        )
+        .unwrap_err();
         let span = diagnostic.span.unwrap();
         assert_eq!(
             &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
-            "bad-token"
+            "\"bad token)"
         );
         assert_eq!(
             diagnostic.source_name.as_deref(),
+            Some(root_path.to_str().unwrap())
+        );
+
+        let module_path = directory.join("module.lim");
+        let module_source = r#"(#fn broken () u64
+  (#return "bad \" token)
+)"#;
+        std::fs::write(&module_path, module_source).unwrap();
+        let import_source = "(#import \"module.lim\")\n(#fn main () u64 (#return 0u64))";
+        let diagnostic = compile_source_to_assembly(
+            import_source,
+            &root_path,
+            &CompileConfig::default(),
+            &directory.join("cache"),
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        let span = diagnostic.span.unwrap();
+        assert_eq!(
+            &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
+            r#""bad \" token)"#
+        );
+        assert_eq!(span.source_id, 1);
+        assert_eq!(
+            diagnostic.source_name.as_deref(),
             Some(module_path.to_str().unwrap())
-        );
-
-        let string_source = "  \"bad token\" here";
-        std::fs::write(&module_path, string_source).unwrap();
-        let diagnostic = generator_diagnostic(
-            format!("{}: 1:3: unexpected token", module_path.display()),
-            &root_path,
-            "",
-        );
-        let span = diagnostic.span.unwrap();
-        assert_eq!(
-            &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
-            "\"bad token\""
-        );
-
-        let escaped_source = r#"  "bad \" token" here"#;
-        std::fs::write(&module_path, escaped_source).unwrap();
-        let diagnostic = generator_diagnostic(
-            format!("{}: 1:3: unexpected token", module_path.display()),
-            &root_path,
-            "",
-        );
-        let span = diagnostic.span.unwrap();
-        assert_eq!(
-            &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
-            r#""bad \" token""#
         );
         std::fs::remove_dir_all(directory).unwrap();
     }
