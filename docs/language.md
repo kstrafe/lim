@@ -501,6 +501,11 @@ are unsafe FFI boundaries and must be enclosed in `#unsafe`:
   (#return (#as (#unsafe (abs -42i32)) u64)))
 ```
 
+Binary compilation always links libc and pthread. Additional native link inputs
+can be supplied repeatedly with `--link-lib NAME` and `--link-object PATH`;
+object files are passed to `ld` before libraries, and libraries are emitted as
+`-lNAME` arguments. These options apply to binary output, not `--emit-asm`.
+
 ### Type aliases
 
 ```lisp

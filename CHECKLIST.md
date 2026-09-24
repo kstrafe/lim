@@ -160,9 +160,10 @@ the checklist is committed alongside the implementation it tracks.
 - [x] Add end-to-end tests that compile and execute generated vector operations
   with a real allocator, covering growth, allocation failure, element
   destruction, and allocator-borrow lifetime enforcement.
-- [ ] Make FFI linking configurable for external libraries and object files;
-  `#extern-fn` currently declares scalar signatures, while the binary linker
-  invocation supplies only the built-in C and pthread libraries.
+- [x] Make FFI linking configurable for external libraries and object files;
+  `#extern-fn` remains restricted to scalar signatures, while binary compilation
+  accepts repeated `--link-lib` and `--link-object` arguments in deterministic
+  object-before-library order after the built-in C and pthread libraries.
 - [ ] Specify and implement reusable ABI/layout guarantees for external
   aggregates, including field order, alignment, enum representation, and
   explicit calling-convention selection before widening FFI signatures.

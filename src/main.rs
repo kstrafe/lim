@@ -10,7 +10,7 @@ static NEXT_COMPILE_ID: AtomicUsize = AtomicUsize::new(0);
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]...\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]...\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         return ExitCode::SUCCESS;
     }
     if arguments.first().map(String::as_str) == Some("--format") {
@@ -139,7 +139,7 @@ fn main() -> ExitCode {
         return check_examples(&directory);
     }
 
-    let (input_path, output_path, config, target) = match binary_arguments(&arguments) {
+    let (input_path, output_path, config, target, links) = match binary_arguments(&arguments) {
         Ok(arguments) => arguments,
         Err(error) => {
             eprintln!("lim: {error}");
@@ -151,7 +151,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    compile(&input_path, &output_path, false, &config, target)
+    compile_with_links(&input_path, &output_path, false, &config, target, &links)
 }
 
 fn check_examples(directory: &Path) -> ExitCode {
@@ -240,11 +240,21 @@ fn apply_cfg_argument(config: &mut lim::CompileConfig, value: &str) -> Result<()
 
 fn binary_arguments(
     arguments: &[String],
-) -> Result<(String, PathBuf, lim::CompileConfig, lim::TargetDescription), String> {
+) -> Result<
+    (
+        String,
+        PathBuf,
+        lim::CompileConfig,
+        lim::TargetDescription,
+        LinkOptions,
+    ),
+    String,
+> {
     let mut input = None;
     let mut output = None;
     let mut config = lim::CompileConfig::default();
     let mut target = lim::TargetDescription::host()?;
+    let mut links = LinkOptions::default();
     let mut index = 0;
     while index < arguments.len() {
         match arguments[index].as_str() {
@@ -275,6 +285,23 @@ fn binary_arguments(
                     .get(index)
                     .ok_or_else(|| "--target requires a target name".to_owned())?;
                 target = lim::TargetDescription::parse(value)?;
+            }
+            "--link-lib" => {
+                index += 1;
+                let value = arguments
+                    .get(index)
+                    .ok_or_else(|| "--link-lib requires a library name".to_owned())?;
+                if value.is_empty() || value.starts_with('-') {
+                    return Err("--link-lib requires a non-empty library name".into());
+                }
+                links.libraries.push(value.clone());
+            }
+            "--link-object" => {
+                index += 1;
+                let value = arguments
+                    .get(index)
+                    .ok_or_else(|| "--link-object requires an object-file path".to_owned())?;
+                links.object_files.push(PathBuf::from(value));
             }
             "-h" | "--help" => return Err("help must be requested as the first argument".into()),
             value if value.starts_with('-') => {
@@ -310,7 +337,13 @@ fn binary_arguments(
         result.push(stem);
         result
     });
-    Ok((input, output, config, target))
+    Ok((input, output, config, target, links))
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct LinkOptions {
+    libraries: Vec<String>,
+    object_files: Vec<PathBuf>,
 }
 
 fn compile(
@@ -319,6 +352,24 @@ fn compile(
     emit_assembly: bool,
     config: &lim::CompileConfig,
     target: lim::TargetDescription,
+) -> ExitCode {
+    compile_with_links(
+        input_path,
+        output_path,
+        emit_assembly,
+        config,
+        target,
+        &LinkOptions::default(),
+    )
+}
+
+fn compile_with_links(
+    input_path: &str,
+    output_path: &Path,
+    emit_assembly: bool,
+    config: &lim::CompileConfig,
+    target: lim::TargetDescription,
+    links: &LinkOptions,
 ) -> ExitCode {
     let input = match fs::read_to_string(input_path) {
         Ok(source) => source,
@@ -404,17 +455,23 @@ fn compile(
         };
     }
     let dynamic_linker = native_dynamic_linker();
-    let result = Command::new("ld")
+    let mut linker = Command::new("ld");
+    linker
         .arg("-o")
         .arg(output_path)
         .arg("-e")
         .arg("_start")
         .arg("--dynamic-linker")
         .arg(dynamic_linker)
-        .arg(&object_path)
-        .arg("-lc")
-        .arg("-lpthread")
-        .status();
+        .arg(&object_path);
+    for object in &links.object_files {
+        linker.arg(object);
+    }
+    linker.arg("-lc").arg("-lpthread");
+    for library in &links.libraries {
+        linker.arg(format!("-l{library}"));
+    }
+    let result = linker.status();
     let _ = fs::remove_file(&assembly_path);
     let _ = fs::remove_file(&object_path);
     match result {
@@ -471,6 +528,68 @@ mod tests {
         );
         let status = Command::new(&output).status().unwrap();
         assert_eq!(status.code(), Some(42));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn binary_arguments_accept_repeated_link_inputs() {
+        let arguments = [
+            "program.lim".to_owned(),
+            "--link-lib".to_owned(),
+            "m".to_owned(),
+            "--link-object".to_owned(),
+            "support.o".to_owned(),
+            "--link-lib".to_owned(),
+            "crypto".to_owned(),
+        ];
+        let (_, _, _, _, links) = binary_arguments(&arguments).unwrap();
+        assert_eq!(links.libraries, ["m", "crypto"]);
+        assert_eq!(links.object_files, [PathBuf::from("support.o")]);
+    }
+
+    #[test]
+    fn links_external_object_for_extern_function() {
+        let directory = env::temp_dir().join(format!("lim-link-object-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let assembly = directory.join("support.s");
+        let object = directory.join("support.o");
+        let input = directory.join("program.lim");
+        let output = directory.join("program");
+        fs::write(
+            &assembly,
+            ".globl provided_value\n.type provided_value, @function\nprovided_value:\n    mov $42, %eax\n    ret\n",
+        )
+        .unwrap();
+        assert!(Command::new("as")
+            .arg("--64")
+            .arg(&assembly)
+            .arg("-o")
+            .arg(&object)
+            .status()
+            .unwrap()
+            .success());
+        fs::write(
+            &input,
+            "(#extern-fn provided_value () u64) (#fn main () u64 (#return (#unsafe (provided_value))))",
+        )
+        .unwrap();
+        let links = LinkOptions {
+            libraries: Vec::new(),
+            object_files: vec![object],
+        };
+        assert_eq!(
+            compile_with_links(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &lim::CompileConfig::default(),
+                lim::TargetDescription::X86_64_SYSTEM_V,
+                &links,
+            ),
+            ExitCode::SUCCESS
+        );
+        assert_eq!(Command::new(&output).status().unwrap().code(), Some(42));
         fs::remove_dir_all(directory).unwrap();
     }
 
