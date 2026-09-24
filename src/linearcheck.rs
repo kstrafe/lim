@@ -1090,6 +1090,16 @@ mod tests {
     }
 
     #[test]
+    fn repeated_linear_array_move_highlights_the_repeated_index() {
+        let source = "(#fn main () u64\n  (#let values (#array (#cell u64) 2) (#array (#array (#cell u64) 2) (#cell 1u64) (#cell 2u64)))\n  (#let first (#cell u64) (#index values 0))\n  (#let second (#cell u64) (#index values 0))\n  (#forget first)\n  (#forget second)\n  (#forget values)\n  (#return 0u64))";
+        let program = parse_program(source).unwrap();
+        let error = check_types(&program).unwrap_err();
+        assert!(error.contains("linear projection 'values[0]' was used more than once"));
+        let (start, end) = crate::span_after(&error, "source span ").unwrap();
+        assert_eq!(&source[start..end], "(#index values 0)");
+    }
+
+    #[test]
     fn linear_values_must_be_consumed_before_return() {
         let leaked = parse_program(
             "(#struct Resource ((value (#cell u64)))) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value (#cell 1u64))))) (#return 0u64))",

@@ -1120,7 +1120,8 @@ offending token when it can be read from the imported source, including quoted
 tokens that contain whitespace.
 UI regression tests verify exact caret columns for unknown identifiers,
 recursive calls, and code-generation failures as well as checking their lines.
-Repeated moves of a linear field identify the repeated `#get` projection.
+Repeated moves of linear fields and array elements identify their repeated
+`#get` or `#index` projections.
 
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures
