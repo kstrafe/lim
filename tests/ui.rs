@@ -71,6 +71,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "unknown-function",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#call missing (#fn-args)))",
+            line_number: 2,
+        },
+        Case {
             name: "top-level-mismatch",
             diagnostic_code: "E4000",
             offending_line: "(#let TOTAL u64 true)",
@@ -555,6 +561,7 @@ fn compilation_errors_render_the_offending_source_line() {
         }
         let precise_fragment = match case.name {
             "operator-arity" => Some("#u64.+.wrap"),
+            "unknown-function" => Some("missing"),
             "recursive-alias" => Some("Second"),
             "repr-c-discriminant" => Some("2147483648"),
             "duplicate-type" => Some("Token"),

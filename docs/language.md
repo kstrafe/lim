@@ -1072,6 +1072,7 @@ Type errors for invalid `index`, `slice-of`, `slice-len`, `get`, `get-payload`, 
 `deref-set` operands underline the argument with the incompatible shape.
 Builtin arity errors underline the operator identifier, retaining its qualified
 spelling in source.
+Unresolved function calls underline the callee name.
 Generator capability-contract errors underline the implicated operation name,
 including the second spelling in a duplicate-operation error.
 Generator-function recursion errors underline the recursive `#gn-call` target.

@@ -1,0 +1,2 @@
+(#fn main () u64
+  (#return (#call missing (#fn-args))))

@@ -1940,7 +1940,10 @@ fn precise_type_error_span(
     if let Some(span) = type_error_argument_span(value, error) {
         return Some(span);
     }
-    if error.starts_with("operator '") || error.starts_with("function '") {
+    if error.starts_with("operator '")
+        || error.starts_with("function '")
+        || error.starts_with("unknown function '")
+    {
         if let Some(operator) = error.split('\'').nth(1) {
             if let Some(span) = source_operator_span(statement, operator) {
                 return Some(span);
