@@ -2,8 +2,11 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fs,
+    fs::{self, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, SystemTime},
 };
 
 use crate::{Expr, Span, SpannedExpr};
@@ -11,6 +14,7 @@ use crate::{Expr, Span, SpannedExpr};
 const MAX_EVALUATION_STEPS: usize = 200_000;
 const MAX_GENERATED_NODES: usize = 1_000_000;
 const MAX_EXPANSION_DEPTH: usize = 128;
+static CACHE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
 struct GeneratorParameter {
@@ -943,6 +947,7 @@ pub(crate) fn cached_generated_source(
     let path = directory.join(format!("generated-{digest:032x}.lim"));
     let key_path = directory.join(format!("generated-{digest:032x}.key"));
     let digest_path = directory.join(format!("generated-{digest:032x}.hash"));
+    cleanup_abandoned_staging(directory);
     if let Ok(existing_key) = fs::read_to_string(&key_path) {
         if existing_key != key {
             return Err(format!(
@@ -964,21 +969,15 @@ pub(crate) fn cached_generated_source(
     let source = generate()?;
     fs::create_dir_all(directory)
         .map_err(|error| format!("cannot create generated-source cache: {error}"))?;
-    let temporary_source = path.with_extension(format!("{}-source.tmp", std::process::id()));
-    let temporary_key = key_path.with_extension(format!("{}-key.tmp", std::process::id()));
-    fs::write(&temporary_source, &source)
-        .map_err(|error| format!("cannot write generated source cache: {error}"))?;
-    fs::write(&temporary_key, key)
-        .map_err(|error| format!("cannot write generated-source cache key: {error}"))?;
-    let temporary_digest = digest_path.with_extension(format!("{}-hash.tmp", std::process::id()));
-    fs::write(&temporary_digest, generated_source_digest(key, &source))
-        .map_err(|error| format!("cannot write generated-source cache digest: {error}"))?;
-    fs::rename(&temporary_source, &path)
-        .map_err(|error| format!("cannot publish generated source cache: {error}"))?;
-    fs::rename(&temporary_key, &key_path)
-        .map_err(|error| format!("cannot publish generated-source cache key: {error}"))?;
-    fs::rename(&temporary_digest, &digest_path)
-        .map_err(|error| format!("cannot publish generated-source cache digest: {error}"))?;
+    publish_cache_file(&path, source.as_bytes(), "generated source")?;
+    publish_cache_file(&key_path, key.as_bytes(), "generated-source cache key")?;
+    // Publish the digest last: readers treat it as the commit marker for the
+    // corresponding source and full key and reject any intermediate mixture.
+    publish_cache_file(
+        &digest_path,
+        generated_source_digest(key, &source).as_bytes(),
+        "generated-source cache digest",
+    )?;
     Ok(source)
 }
 
@@ -988,6 +987,59 @@ fn generated_source_digest(key: &str, source: &str) -> String {
     contents.push(0);
     contents.extend_from_slice(source.as_bytes());
     format!("{:032x}", stable_hash(&contents))
+}
+
+fn write_cache_staging(target: &Path, contents: &[u8]) -> Result<PathBuf, String> {
+    for _ in 0..128 {
+        let sequence = CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let temporary = target.with_extension(format!("{}-{sequence}.tmp", std::process::id()));
+        let mut file = match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("cannot create cache staging file: {error}")),
+        };
+        if let Err(error) = file.write_all(contents) {
+            let _ = fs::remove_file(&temporary);
+            return Err(format!("cannot write cache staging file: {error}"));
+        }
+        return Ok(temporary);
+    }
+    Err("cannot allocate a unique cache staging file".into())
+}
+
+fn publish_cache_file(target: &Path, contents: &[u8], description: &str) -> Result<(), String> {
+    let temporary = write_cache_staging(target, contents)?;
+    if let Err(error) = fs::rename(&temporary, target) {
+        let _ = fs::remove_file(temporary);
+        return Err(format!("cannot publish {description}: {error}"));
+    }
+    Ok(())
+}
+
+fn cleanup_abandoned_staging(directory: &Path) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    let now = SystemTime::now();
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if !path.extension().is_some_and(|extension| extension == "tmp") {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age > Duration::from_secs(60 * 60));
+        if stale {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 fn stable_hash(bytes: &[u8]) -> u128 {
@@ -1000,6 +1052,7 @@ fn stable_hash(bytes: &[u8]) -> u128 {
 }
 
 fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<Expr>> {
+    cleanup_abandoned_staging(directory);
     let bytes = fs::read(cache_path(directory, key)).ok()?;
     if bytes.get(..8)? != b"LIMGEN2\0" {
         return None;
@@ -1071,10 +1124,7 @@ fn write_cached_expansion(directory: &Path, key: &str, expressions: &[Expr]) {
     contents.extend_from_slice(&(source.len() as u64).to_le_bytes());
     contents.extend_from_slice(source.as_bytes());
     contents.extend_from_slice(&stable_hash(&contents).to_le_bytes());
-    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
-    if fs::write(&temporary, contents).is_ok() {
-        let _ = fs::rename(temporary, path);
-    }
+    let _ = publish_cache_file(&path, &contents, "generator syntax cache");
 }
 
 fn cached_expansion_key(bytes: &[u8]) -> Option<&[u8]> {
@@ -1420,6 +1470,71 @@ mod tests {
             2
         );
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn generated_source_cache_publication_is_safe_for_concurrent_writers() {
+        let directory = std::env::temp_dir().join(format!(
+            "lim-concurrent-generated-cache-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let abandoned = directory.join("abandoned.1-0.tmp");
+        fs::write(&abandoned, "incomplete cache write").unwrap();
+        let old_time = SystemTime::now() - Duration::from_secs(2 * 60 * 60);
+        OpenOptions::new()
+            .write(true)
+            .open(&abandoned)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(old_time))
+            .unwrap();
+        let workers = (0..12)
+            .map(|index| {
+                let directory = directory.clone();
+                std::thread::spawn(move || {
+                    let (key, source) = if index % 2 == 0 {
+                        ("shared-key", "(#type Shared u64)")
+                    } else {
+                        ("other-key", "(#type Other u64)")
+                    };
+                    cached_generated_source(&directory, key, || Ok(source.into())).unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        for (index, worker) in workers.into_iter().enumerate() {
+            assert_eq!(
+                worker.join().unwrap(),
+                if index % 2 == 0 {
+                    "(#type Shared u64)"
+                } else {
+                    "(#type Other u64)"
+                }
+            );
+        }
+        assert_eq!(
+            cached_generated_source(&directory, "shared-key", || {
+                Err("concurrent cache entry was not published coherently".into())
+            })
+            .unwrap(),
+            "(#type Shared u64)"
+        );
+        assert_eq!(
+            cached_generated_source(&directory, "other-key", || {
+                Err("concurrent cache entry was not published coherently".into())
+            })
+            .unwrap(),
+            "(#type Other u64)"
+        );
+        assert!(fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension != "tmp")));
+        assert!(!abandoned.exists(), "stale staging file should be removed");
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

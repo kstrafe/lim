@@ -384,7 +384,7 @@ Each item requires documentation and regression coverage before being checked.
   Test valid edited source, truncation, missing metadata, and stale artifacts.
   Preserve full-key collision checks. Document that checksums detect damage,
   not an attacker who can rewrite both the cache and its metadata.
-- [ ] Make cache publication robust across concurrent compilers and interrupted
+- [x] Make cache publication robust across concurrent compilers and interrupted
   writes. Current inspectable artifacts publish source and key separately and
   use process-ID temporary filenames. Use unique per-write staging and a
   coherent validated publication protocol, including concurrent library calls
