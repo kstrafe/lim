@@ -329,3 +329,137 @@ these areas as stable.
 - [x] Define the supported target policy and add a target/ABI test matrix.
   Unsupported targets must continue to fail explicitly; add a backend and
   linker path for each newly supported target.
+
+## Next development priorities (September 2026 audit)
+
+These are follow-ups beyond the completed baseline, not claims that every
+limitation below is a soundness bug. Implementation must retain explicit
+types, ownership and destruction, concrete generators, and free-standing
+functions; no implicit dispatch, runtime recursion, or external Rust crates.
+Each item requires documentation and regression coverage before being checked.
+
+### Priority 1: semantic consistency and safety guarantees
+
+- [ ] Specify and enforce evaluation order for named calls and aggregate
+  construction. `normalize_call_expr` in `src/lib.rs` currently rearranges
+  argument expressions into parameter declaration order. Decide explicitly
+  whether evaluation follows source order or declaration order; if source
+  order, stage values before ABI argument placement. Apply the same documented
+  rule to struct field initializers. Test reordered arguments/fields with
+  observable side effects, traps, moves, and conflicting borrows; ensure
+  borrow checking and native execution use the same order.
+- [ ] Support destructuring aggregates that retain references.
+  `Statement::Destructure` and `Statement::LetElse` in `src/borrowcheck.rs`
+  currently reject these values wholesale. Transfer field-specific origins,
+  loans, and mutable-reference ownership to pattern bindings, including
+  nested structs, tuples, and enum payloads. Accept returned wrappers whose
+  referents remain alive; reject escaped locals, duplicated mutable loans,
+  and parent access during a derived mutable borrow. Cover both let-else
+  branches and explicit consumption of remaining linear fields.
+- [ ] Remove register-count limits from otherwise legal aggregate projections.
+  `src/codegen.rs` still rejects large fields projected through references and
+  large enum payload projections. Reuse indirect aggregate destinations rather
+  than requiring every projected value to fit `VALUE_REGISTERS`. Test nested
+  aggregates above the register threshold, zero-sized and mixed scalar fields,
+  local/global referents, and inactive enum variants. Preserve the distinction
+  between copying a Copy value and illegally moving a linear value out of a
+  reference; these tests must execute natively, not only pass type checking.
+- [ ] Report a conservative stack bound in bytes, not only call depth.
+  The backend documentation currently connects finite call depth to a static
+  stack requirement. Account for frames, expression temporaries, outgoing
+  arguments, indirect aggregate storage, alignment, and generated helpers
+  along each call path. Add a stack-usage report with the limiting call chain
+  for main and thread entry points. Mark external-call usage unknown unless
+  an explicit trusted bound is supplied; do not claim no overflow merely
+  because recursion is forbidden. Test nested large calls, repeated loops
+  without stack growth, checked size arithmetic, and thread stack budgets.
+
+### Priority 2: trustworthy generated artifacts and diagnostics
+
+- [ ] Detect syntactically valid modifications to cached generated source.
+  `cached_generated_source` in `src/generator.rs` verifies the input key and
+  parses the `.lim` file, but does not verify its original output contents.
+  Store and validate an output digest/length for both inspectable source and
+  cached expansions; define whether edits cause regeneration or a diagnostic.
+  Test valid edited source, truncation, missing metadata, and stale artifacts.
+  Preserve full-key collision checks. Document that checksums detect damage,
+  not an attacker who can rewrite both the cache and its metadata.
+- [ ] Make cache publication robust across concurrent compilers and interrupted
+  writes. Current inspectable artifacts publish source and key separately and
+  use process-ID temporary filenames. Use unique per-write staging and a
+  coherent validated publication protocol, including concurrent library calls
+  in one process. Test simultaneous same-key and different-key invocations,
+  interruption between publication steps, and cleanup of abandoned temporary
+  files; readers must never accept a mismatched source/metadata pair.
+- [ ] Automatically fingerprint generator implementation changes in cache keys.
+  Builtin materialization in `src/lib.rs` currently includes package version
+  and a manually maintained `builtin-materializer` revision. Add a deterministic
+  implementation/build fingerprint that changes when expansion semantics or
+  reachable generator helpers change, even without a package version bump.
+  Use the effective compilation target/configuration rather than assuming host
+  settings. Test builtin and user-generator hits, helper-only changes, cfg
+  changes, and identical reproducible builds without timestamps or local paths.
+- [ ] Carry diagnostic identity and exact spans through semantic lowering.
+  Replace message-text/name-based span recovery in `src/lib.rs` incrementally
+  with node IDs, structured error variants, and retained source ranges.
+  Preserve expansion provenance so errors can label both the generated code
+  and invocation, plus a borrow origin where relevant. Add exact-range UI
+  assertions for repeated identifiers, shadowing, reordered named arguments,
+  nested `#case` patterns, imports, and cache hits; changing message wording
+  must not change the highlighted token.
+
+### Priority 3: collection ergonomics without implicit behavior
+
+- [ ] Add explicit ranged immutable subslices. `docs/language.md` currently
+  documents immutable slices without ranged slicing. Choose a constructor
+  distinct from the slice type, specify half-open bounds and failure behavior,
+  and retain the original referent's lifetime through nested slices and
+  function returns. Test empty and end-boundary ranges, reversed/out-of-bounds
+  ranges, overflow, zero-sized elements, and attempted escape from a local.
+- [ ] Add mutable slices and an explicit disjoint-split operation. Specify
+  exclusive reborrowing, parent suspension, and linear handling of mutable
+  views before implementing syntax. A checked split must establish disjoint
+  regions without callbacks, implicit copying, or lifetime annotations.
+  Test writes through each half, prohibited overlapping views and parent
+  access, nested reborrows, zero-sized elements, and return provenance.
+- [ ] Establish a safe synchronization foundation for shared allocators and
+  other interior-mutable state. Send/Sync classification alone is not a
+  synchronization operation. Specify a small explicit atomic API, supported
+  scalar widths/alignment, memory-order arguments, and invalid-order errors;
+  provide concrete generated wrappers if appropriate. Keep unsafe override
+  obligations explicit. Test cross-thread publication and counter updates,
+  reject invalid orderings, and document which target guarantees are relied
+  upon; stress tests alone are not a memory-model proof.
+
+### Priority 4: tooling and implementation quality
+
+- [ ] Format commented source instead of returning the entire file unchanged.
+  `format_source` in `src/lib.rs` currently bypasses formatting when any line
+  contains a semicolon, including semicolons inside strings. Retain token
+  trivia/comment attachment and format declarations, calls, `#case` arms, and
+  generator quasiquotes without dropping or moving comments to the wrong
+  form. Test leading/trailing comments, strings with semicolons, empty lists,
+  and formatting idempotence; parsed semantics must remain unchanged.
+- [ ] Add a dependency-free compiler robustness suite with explicit resource
+  budgets. Audit parser nesting, import traversal, generator expansion size,
+  aggregate layout arithmetic, and diagnostic rendering beyond existing
+  generator limits. Exercise seeded generated inputs and malformed/truncated
+  files in bounded subprocesses. Require deterministic diagnostics instead of
+  panics, stack overflow, hangs, or partially published outputs; keep minimal
+  reproducers for every discovered failure.
+- [ ] Establish reproducible compile-time and generated-code performance
+  baselines before optimizing the compiler. Measure lex/parse, import/cfg,
+  generation (cold and warm cache), semantic checks, native emission, and
+  linking separately on small and large generated projects. Record time,
+  peak memory where available, and artifact sizes with toolchain/machine
+  details. Include runtime collection and aggregate workloads with checked
+  outputs; use results to prioritize work without flaky timing assertions in
+  ordinary correctness tests.
+- [ ] Reconcile the language reference with executable examples and accepted
+  syntax. Known documentation drift includes the claim that Lim source
+  exposes no pointers in the value-representation section, despite explicit
+  pointer operations. Audit canonical type-versus-constructor forms, named
+  calls, `#case`, aggregate limits, and actual stack guarantees. Compile every
+  positive documentation example and assert every negative example's intended
+  diagnostic; intentional backend limitations must be stated rather than
+  hidden by a passing parser-only test.
