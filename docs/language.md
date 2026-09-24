@@ -1067,6 +1067,7 @@ Thread-task handles in function signatures and type aliases underline the
 generated task type token.
 Unknown named types in local `#let` annotations underline the type token,
 including diagnostics formatted as expected-type mismatches.
+Immutable-assignment diagnostics underline the target binding.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the

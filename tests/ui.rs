@@ -246,6 +246,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 1,
         },
         Case {
+            name: "immutable-assignment",
+            diagnostic_code: "E4000",
+            offending_line: "  (#set value 2u64)",
+            line_number: 3,
+        },
+        Case {
             name: "thread-worker-missing",
             diagnostic_code: "E4000",
             offending_line: "(#thread-task Task missing-worker)",
@@ -403,6 +409,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "duplicate-global" => Some("COUNT"),
             "unsafe-impl" => Some("Missing"),
             "unknown-local-type" => Some("Missing"),
+            "immutable-assignment" => Some("value"),
             "thread-worker-missing" => Some("missing-worker"),
             "thread-worker-reference-result" => Some("(#ref u64)"),
             "thread-task-function-signature" => Some("Task"),

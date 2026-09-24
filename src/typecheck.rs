@@ -1844,6 +1844,19 @@ fn precise_type_error_span(
             .or_else(|| first_symbol_span(value, name))
             .or(Some(value.span));
     }
+    let named_target = [
+        "cannot assign to immutable variable '",
+        "cannot replace '",
+        "cannot mutate immutable variable '",
+        "unknown variable '",
+    ]
+    .iter()
+    .find_map(|prefix| error.strip_prefix(prefix)?.split('\'').next());
+    if let Some(name) = named_target {
+        if let Some(span) = first_symbol_span(statement, name) {
+            return Some(span);
+        }
+    }
     if let Some(name) = error
         .split_once("expected Named(\"")
         .and_then(|(_, rest)| rest.split_once('\"').map(|(name, _)| name))
