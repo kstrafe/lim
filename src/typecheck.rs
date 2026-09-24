@@ -1995,11 +1995,37 @@ fn precise_type_error_span(
         })
         .or_else(|| error.split_once(", got ").map(|(_, actual)| actual));
     if let Some(mismatch_type) = mismatch_type {
+        if error.starts_with("if branches has mismatched types") {
+            return if_branch_mismatch_span(value, mismatch_type, source).or(Some(value.span));
+        }
         if let Some(span) = expression_with_type_hint(value, mismatch_type, source) {
             return Some(span);
         }
     }
     Some(value.span)
+}
+
+fn if_branch_mismatch_span(
+    expression: &crate::SpannedExpr,
+    wanted: &str,
+    source: &str,
+) -> Option<crate::Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#if" | "if"))
+        {
+            for branch in expression.children.get(2..4).into_iter().flatten() {
+                if let Some(span) = if_branch_mismatch_span(branch, wanted, source)
+                    .or_else(|| expression_with_type_hint(branch, wanted, source))
+                {
+                    return Some(span);
+                }
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| if_branch_mismatch_span(child, wanted, source))
 }
 
 fn type_error_argument_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
@@ -2160,13 +2186,11 @@ fn expression_with_type_hint(
         if matches!(head.as_str(), "#call" | "call") {
             return false;
         }
-        let Some(qualified) = head.strip_prefix('#') else {
-            return false;
-        };
-        let Some((qualifier, _)) = qualified.split_once('.') else {
-            return false;
-        };
-        is_builtin_scalar_name(qualifier) && qualifier.eq_ignore_ascii_case(wanted)
+        head.strip_prefix('#')
+            .and_then(|qualified| qualified.split_once('.'))
+            .is_some_and(|(qualifier, _)| {
+                is_builtin_scalar_name(qualifier) && qualifier.eq_ignore_ascii_case(wanted)
+            })
     }
 
     if has_type_hint(expression, wanted, source) {
@@ -2178,14 +2202,16 @@ fn expression_with_type_hint(
     let Some(Expr::Symbol(head)) = items.first() else {
         return None;
     };
-    let Some(qualified) = head.strip_prefix('#') else {
-        return None;
-    };
-    let Some((qualifier, _)) = qualified.split_once('.') else {
-        return None;
-    };
-    if !is_builtin_scalar_name(qualifier) {
-        return None;
+    let is_typed_scalar_operator = head
+        .strip_prefix('#')
+        .and_then(|qualified| qualified.split_once('.'))
+        .is_some_and(|(qualifier, _)| is_builtin_scalar_name(qualifier));
+    if !is_typed_scalar_operator {
+        return expression
+            .children
+            .iter()
+            .filter_map(|child| expression_with_type_hint(child, wanted, source))
+            .min_by_key(|span| span.end.saturating_sub(span.start));
     }
     expression
         .children
