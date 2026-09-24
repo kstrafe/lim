@@ -415,7 +415,7 @@ fn format_borrow_diagnostic(
             .and_then(|expression| conflict_operator_source_span(expression, owner, &error))
             .or_else(|| {
                 statement_expression.and_then(|expression| {
-                    find_source_symbol(expression, &place_name_candidates(owner))
+                    find_accessed_source_symbol(expression, &place_name_candidates(owner))
                 })
             })
             .or_else(|| statement_expression.map(crate::source_value_span))
@@ -454,6 +454,43 @@ fn format_borrow_diagnostic(
         "E4100 borrow-checker diagnostic in function '{}' statement {}: {}; {}",
         function.name, statement_index, error, span_text
     )
+}
+
+fn find_accessed_source_symbol(
+    expression: &crate::SpannedExpr,
+    names: &[&str],
+) -> Option<crate::Span> {
+    if matches!(&expression.expr, Expr::Symbol(name) if names.contains(&name.as_str())) {
+        return Some(expression.span);
+    }
+    let Expr::List(items) = &expression.expr else {
+        return expression
+            .children
+            .iter()
+            .find_map(|child| find_accessed_source_symbol(child, names));
+    };
+    let head = match items.first() {
+        Some(Expr::Symbol(name)) => name.as_str(),
+        _ => "",
+    };
+    match head {
+        "#get" | "get" | "#get-payload" | "get-payload" => expression
+            .children
+            .get(1)
+            .and_then(|base| find_accessed_source_symbol(base, names)),
+        "#struct-literal" | "struct-literal" => expression
+            .children
+            .get(2)
+            .into_iter()
+            .flat_map(|fields| &fields.children)
+            .filter_map(|field| field.children.get(1))
+            .find_map(|value| find_accessed_source_symbol(value, names)),
+        _ => expression
+            .children
+            .iter()
+            .skip(1)
+            .find_map(|child| find_accessed_source_symbol(child, names)),
+    }
 }
 
 fn source_spans(
@@ -562,7 +599,7 @@ fn conflict_operator_source_span(
 ) -> Option<crate::Span> {
     let owner_names = place_name_candidates(owner);
     if error.starts_with("cannot access") {
-        return find_source_symbol(expression, &owner_names);
+        return find_accessed_source_symbol(expression, &owner_names);
     }
     fn visit(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
         let Expr::List(items) = &expression.expr else {
@@ -598,16 +635,6 @@ fn conflict_operator_source_span(
         }
     }
     visit(expression, error)
-}
-
-fn find_source_symbol(expression: &crate::SpannedExpr, names: &[&str]) -> Option<crate::Span> {
-    if matches!(&expression.expr, Expr::Symbol(name) if names.contains(&name.as_str())) {
-        return Some(expression.span);
-    }
-    expression
-        .children
-        .iter()
-        .find_map(|child| find_source_symbol(child, names))
 }
 
 fn place_name_candidates(place: &str) -> Vec<&str> {

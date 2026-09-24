@@ -185,6 +185,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "borrow-conflict-field-name",
+            diagnostic_code: "E4100",
+            offending_line: "  (#return (#tuple (#get pair owner) owner)))",
+            line_number: 6,
+        },
+        Case {
             name: "linear",
             diagnostic_code: "E4200",
             offending_line:
@@ -738,6 +744,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unsafe-external-call" => Some("external-value"),
             "unsafe-pointer-op" => Some("#ptr-read"),
             "borrow" => Some("#set"),
+            "borrow-conflict-field-name" => Some("owner"),
             "linear" => Some("resource"),
             "generator" | "generator-imported" => Some("(@fail)"),
             "nonconstant-static" => Some("(#call get-value (#fn-args))"),
@@ -787,7 +794,10 @@ fn compilation_errors_render_the_offending_source_line() {
                     .map(|(column, _)| column)
             } else if matches!(
                 case.name,
-                "destructure-type-mismatch" | "out-of-range-shift-count" | "match-branch-mismatch"
+                "destructure-type-mismatch"
+                    | "out-of-range-shift-count"
+                    | "match-branch-mismatch"
+                    | "borrow-conflict-field-name"
             ) {
                 source_row.rfind(fragment)
             } else if matches!(

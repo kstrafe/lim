@@ -1119,6 +1119,8 @@ An explicit `#return` whose value does not match the function return type
 underlines the returned expression.
 Tuple and array constructor element type errors underline the specific
 incompatible element, even when another element has the same actual type.
+Borrow conflict spans select the accessed binding rather than a same-named
+field selector in the same expression.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the
