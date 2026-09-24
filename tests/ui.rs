@@ -125,6 +125,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "enum-payload-type-mismatch",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let value Payload (Pair true false))",
+            line_number: 3,
+        },
+        Case {
             name: "struct-literal-duplicate-field",
             diagnostic_code: "E4000",
             offending_line: "  (#let point Point (#struct-literal Point ((x 1u64) (x 2u64))))",
@@ -719,6 +725,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "call-missing-argument" => Some("#fn-args"),
             "struct-literal" => Some("((y 1u64))"),
             "struct-field-type-mismatch" => Some("false"),
+            "enum-payload-type-mismatch" => Some("false"),
             _ => None,
         };
         let has_custom_alignment = matches!(

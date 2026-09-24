@@ -225,7 +225,9 @@ the checklist is committed alongside the implementation it tracks.
   Named-call type mismatches carry the parameter name through type checking
   and underline that argument's value, even if an earlier argument has the
   same type. Struct-literal field mismatches identify the responsible named
-  field value rather than a same-typed value from an earlier field.
+  field value rather than a same-typed value from an earlier field. Enum
+  constructor payload mismatches carry the payload index and underline the
+  corresponding constructor argument.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

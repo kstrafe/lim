@@ -1838,6 +1838,22 @@ fn precise_type_error_span(
     source: &str,
 ) -> Option<crate::Span> {
     let value = crate::source_value_expression(statement);
+    if let Some((payload_index, variant_name)) = error
+        .strip_prefix("payload ")
+        .and_then(|rest| {
+            rest.split_once(" of variant '")
+                .map(|(index, rest)| (index, rest))
+        })
+        .and_then(|(index, rest)| {
+            let index = index.parse::<usize>().ok()?;
+            let variant = rest.split_once('\'')?.0;
+            Some((index, variant))
+        })
+    {
+        if let Some(span) = enum_constructor_payload_span(value, variant_name, payload_index) {
+            return Some(span);
+        }
+    }
     if let Some(field_name) = error
         .strip_prefix("field '")
         .and_then(|rest| rest.split_once("' of '").map(|(field, _)| field))
@@ -2037,6 +2053,25 @@ fn precise_type_error_span(
         }
     }
     Some(value.span)
+}
+
+fn enum_constructor_payload_span(
+    expression: &crate::SpannedExpr,
+    variant_name: &str,
+    payload_index: usize,
+) -> Option<crate::Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(name)) if name == variant_name) {
+            return expression
+                .children
+                .get(payload_index + 1)
+                .map(|payload| payload.span);
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| enum_constructor_payload_span(child, variant_name, payload_index))
 }
 
 fn struct_literal_field_value_span(
@@ -4667,7 +4702,9 @@ fn list_expression(
                         variant.fields.len()
                     ));
                 }
-                for (argument, field_type) in items[1..].iter().zip(&variant.fields) {
+                for (payload_index, (argument, field_type)) in
+                    items[1..].iter().zip(&variant.fields).enumerate()
+                {
                     let actual = expression(
                         argument,
                         variables,
@@ -4678,7 +4715,11 @@ fn list_expression(
                         aliases,
                         Some(field_type),
                     )?;
-                    require_type(&actual, field_type, &format!("payload of '{operator}'"))?;
+                    require_type(
+                        &actual,
+                        field_type,
+                        &format!("payload {payload_index} of variant '{operator}'"),
+                    )?;
                 }
                 return Ok(Type::Named(enum_name.clone()));
             }
