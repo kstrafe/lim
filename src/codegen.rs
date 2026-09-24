@@ -1131,7 +1131,7 @@ pub fn generate_assembly_for_target(
         );
     }
     for item in &program.items {
-        let Item::ThreadTask { name, worker } = item else {
+        let Item::ThreadTask { name, worker, .. } = item else {
             continue;
         };
         let worker_abi = functions
@@ -1375,7 +1375,7 @@ pub fn generate_assembly_for_target(
             Item::TypeAlias { .. } => {}
             Item::Let { .. } | Item::Static { .. } => {}
             Item::UnsafeAutoTraitImpl { .. } => {}
-            Item::ThreadTask { name, worker } => generate_thread_task(
+            Item::ThreadTask { name, worker, .. } => generate_thread_task(
                 name,
                 worker,
                 &mut output,

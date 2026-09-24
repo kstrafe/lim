@@ -110,6 +110,15 @@ This distinguishes runtime failure from valid zero-valued results and allows
 the caller to retry a failed join. A failed join does not release captured
 borrows or free the task packet.
 
+For inspection, `@thread-spawn TaskType worker` materializes in `.lim/` as a
+`#thread-task` declaration containing explicit `#thread-task-spawn` and
+`#thread-task-join` builtin signatures, followed by `#enum` declarations for
+their results. The spawn signature exposes `TaskType-spawn`; its result enum
+contains `TaskType-spawn-ok` and `TaskType-spawn-error`. The join signature
+exposes `TaskType-join`, and its result enum contains `TaskType-join-ok` and
+`TaskType-join-error`. The compiler validates and reuses matching signatures
+and enums rather than synthesizing duplicates.
+
 Task handles are affine: match spawn results, and join each successful task
 handle exactly once. The join error arm must retain or retry the returned
 handle; discarding either generated result is rejected. References captured by

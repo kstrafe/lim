@@ -949,6 +949,13 @@ pub struct Parameter {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GeneratedFunctionSignature {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub return_type: Type,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Statement {
     Let {
         name: String,
@@ -1103,6 +1110,7 @@ pub enum Item {
     ThreadTask {
         name: String,
         worker: String,
+        generated_functions: Vec<GeneratedFunctionSignature>,
     },
 }
 
@@ -1721,20 +1729,124 @@ fn synthesize_thread_join_results(items: &mut Vec<Item>) -> Result<(), String> {
     let tasks = items
         .iter()
         .filter_map(|item| match item {
-            Item::ThreadTask { name, worker } => Some((name.clone(), worker.clone())),
+            Item::ThreadTask {
+                name,
+                worker,
+                generated_functions,
+            } => Some((name.clone(), worker.clone(), generated_functions.clone())),
             _ => None,
         })
         .collect::<Vec<_>>();
-    for (name, worker) in tasks {
-        let Some(return_type) = items.iter().find_map(|item| match item {
-            Item::Function(function) if function.name == worker => {
-                Some(function.return_type.clone())
-            }
+    for (name, worker, declared_generated_functions) in tasks {
+        let Some(worker_function) = items.iter().find_map(|item| match item {
+            Item::Function(function) if function.name == worker => Some(function.clone()),
             _ => None,
         }) else {
             continue;
         };
-        items.push(Item::Enum {
+        let expected_generated_functions = thread_task_function_signatures(&name, &worker_function);
+        if !declared_generated_functions.is_empty()
+            && declared_generated_functions != expected_generated_functions
+        {
+            return Err(format!(
+                "generated function signatures for '#thread-task {name}' do not match worker '{worker}'"
+            ));
+        }
+        let return_type = worker_function.return_type.clone();
+        for expected in thread_task_generated_enums(&name, return_type) {
+            let Item::Enum {
+                name: generated_name,
+                ..
+            } = &expected
+            else {
+                unreachable!("thread task generated item is an enum")
+            };
+            if let Some(existing) = items.iter().find(|item| {
+                matches!(item, Item::Enum { name: existing_name, .. } if existing_name == generated_name)
+            }) {
+                if existing != &expected {
+                    return Err(format!(
+                        "explicit generated thread type '{}' does not match its #thread-task declaration",
+                        generated_name
+                    ));
+                }
+            } else {
+                items.push(expected);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn thread_task_function_signatures(
+    name: &str,
+    worker: &Function,
+) -> Vec<GeneratedFunctionSignature> {
+    let spawn_parameters = worker
+        .parameters
+        .iter()
+        .map(|parameter| Parameter {
+            name: parameter.name.clone(),
+            ty: parameter.ty.clone(),
+            mutable: false,
+        })
+        .collect();
+    vec![
+        GeneratedFunctionSignature {
+            name: format!("{name}-spawn"),
+            parameters: spawn_parameters,
+            return_type: Type::Named(format!("{name}-spawn-result")),
+        },
+        GeneratedFunctionSignature {
+            name: format!("{name}-join"),
+            parameters: vec![Parameter {
+                name: "task".into(),
+                ty: Type::Named(name.into()),
+                mutable: false,
+            }],
+            return_type: Type::Named(format!("{name}-join-result")),
+        },
+    ]
+}
+
+fn thread_task_generated_enums(name: &str, return_type: Type) -> Vec<Item> {
+    let spawn_error_name = format!("{name}-spawn-error");
+    vec![
+        Item::Enum {
+            name: spawn_error_name.clone(),
+            representation: Representation::Lim,
+            type_parameters: Vec::new(),
+            variants: vec![
+                EnumVariant {
+                    name: format!("{name}-spawn-allocation-error"),
+                    fields: Vec::new(),
+                    discriminant: 0,
+                },
+                EnumVariant {
+                    name: format!("{name}-spawn-creation-error"),
+                    fields: Vec::new(),
+                    discriminant: 1,
+                },
+            ],
+        },
+        Item::Enum {
+            name: format!("{name}-spawn-result"),
+            representation: Representation::Lim,
+            type_parameters: Vec::new(),
+            variants: vec![
+                EnumVariant {
+                    name: format!("{name}-spawn-ok"),
+                    fields: vec![Type::Named(name.into())],
+                    discriminant: 0,
+                },
+                EnumVariant {
+                    name: format!("{name}-spawn-error"),
+                    fields: vec![Type::Named(spawn_error_name)],
+                    discriminant: 1,
+                },
+            ],
+        },
+        Item::Enum {
             name: format!("{name}-join-result"),
             representation: Representation::Lim,
             type_parameters: Vec::new(),
@@ -1746,13 +1858,25 @@ fn synthesize_thread_join_results(items: &mut Vec<Item>) -> Result<(), String> {
                 },
                 EnumVariant {
                     name: format!("{name}-join-error"),
-                    fields: vec![Type::Tuple(vec![Type::Named(name.clone()), Type::I32])],
+                    fields: vec![Type::Tuple(vec![Type::Named(name.into()), Type::I32])],
                     discriminant: 1,
                 },
             ],
-        });
-    }
-    Ok(())
+        },
+    ]
+}
+
+fn thread_task_generated_source(name: &str, worker: &str, worker_function: &Function) -> String {
+    let spawn_parameters = worker_function
+        .parameters
+        .iter()
+        .map(|parameter| format!("({} {})", parameter.name, type_source(&parameter.ty)))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "(#thread-task {name} {worker} (#thread-task-spawn {name}-spawn ({spawn_parameters}) {name}-spawn-result) (#thread-task-join {name}-join ((task {name})) {name}-join-result))\n(#enum {name}-spawn-error ({name}-spawn-allocation-error {name}-spawn-creation-error))\n(#enum {name}-spawn-result (({name}-spawn-ok {name}) ({name}-spawn-error {name}-spawn-error)))\n(#enum {name}-join-result (({name}-join-ok {}) ({name}-join-error (#tuple {name} i32))))\n",
+        type_source(&worker_function.return_type)
+    )
 }
 
 /// Preserve source locations for top-level function statements before the
@@ -2371,6 +2495,9 @@ fn is_builtin_form(name: &str) -> bool {
             | "const"
             | "static"
             | "unsafe-impl"
+            | "thread-task"
+            | "thread-task-spawn"
+            | "thread-task-join"
             | "if"
             | "if-let"
             | "while"
@@ -3122,6 +3249,18 @@ fn write_generated_sources_in_directory(
         &dependency_context,
     )?;
     let expanded = expand_cfg_forms(expanded, config)?;
+    let worker_functions = expanded
+        .iter()
+        .filter_map(|expression| {
+            let parsed = parse_item(&normalize_keywords(expression.expr.clone())).ok()?;
+            match parsed {
+                Item::Function(function) if !function.external => {
+                    Some((function.name.clone(), function))
+                }
+                _ => None,
+            }
+        })
+        .collect::<HashMap<_, _>>();
     let mut generated = Vec::new();
     for expression in expanded {
         let Expr::List(forms) = normalize_keywords(expression.expr) else {
@@ -3131,6 +3270,15 @@ fn write_generated_sources_in_directory(
             continue;
         }
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
+        if kind == "thread-spawn" {
+            let task = expect_symbol(forms.get(2), "thread task type name")?;
+            let worker = expect_symbol(forms.get(3), "thread worker function")?;
+            let worker_function = worker_functions.get(worker).ok_or_else(|| {
+                format!("cannot materialize @thread-spawn: worker '{worker}' is not defined")
+            })?;
+            generated.push(thread_task_generated_source(task, worker, worker_function));
+            continue;
+        }
         if kind == "vec" {
             generated.push(
                 generated_vec_source(&forms)
@@ -3193,6 +3341,8 @@ fn write_generated_sources_in_directory(
     for (index, source) in generated.iter().enumerate() {
         let prefix = if source.contains("-is-some") {
             "optional"
+        } else if source.contains("#thread-task") {
+            "thread-spawn"
         } else if source.contains("-sort") {
             "vec-sort"
         } else if source.contains("-capacity") {
@@ -3985,6 +4135,24 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
         }
         "fn" => Ok(Item::Function(parse_function(items, false)?)),
         "extern-fn" => Ok(Item::Function(parse_function(items, true)?)),
+        "thread-task" => {
+            if !matches!(items.len(), 3 | 5) {
+                return Err("#thread-task requires a task type, worker function, and optionally spawn/join signature declarations".into());
+            }
+            let generated_functions = if items.len() == 5 {
+                vec![
+                    parse_thread_task_function_signature(items.get(3), "thread-task-spawn")?,
+                    parse_thread_task_function_signature(items.get(4), "thread-task-join")?,
+                ]
+            } else {
+                Vec::new()
+            };
+            Ok(Item::ThreadTask {
+                name: expect_symbol(items.get(1), "thread task type name")?.to_owned(),
+                worker: expect_symbol(items.get(2), "thread worker function")?.to_owned(),
+                generated_functions,
+            })
+        }
         "struct" => {
             let representation = if matches!(items.get(2), Some(Expr::Symbol(name)) if name == "repr-c")
             {
@@ -4072,6 +4240,50 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
     }
 }
 
+fn parse_thread_task_function_signature(
+    expression: Option<&Expr>,
+    expected_builtin: &str,
+) -> Result<GeneratedFunctionSignature, String> {
+    let items = expect_list(
+        expression.ok_or_else(|| format!("#thread-task requires #{expected_builtin}"))?,
+        "generated thread function signature",
+    )?;
+    if items.len() != 4
+        || !matches!(items.first(), Some(Expr::Symbol(name)) if name == expected_builtin)
+    {
+        return Err(format!(
+            "expected (#{expected_builtin} name parameters return-type)"
+        ));
+    }
+    let name = expect_symbol(items.get(1), "generated thread function name")?.to_owned();
+    let parameter_items = expect_list(
+        items.get(2).unwrap(),
+        "generated thread function parameters",
+    )?;
+    let mut parameters = Vec::with_capacity(parameter_items.len());
+    for parameter in parameter_items {
+        let parts = expect_list(parameter, "generated thread function parameter")?;
+        let mutable = matches!(parts.first(), Some(Expr::Symbol(name)) if name == "mut");
+        let (name_index, type_index) = if mutable { (1, 2) } else { (0, 1) };
+        if parts.len() != type_index + 1 {
+            return Err(
+                "generated thread parameters must have form (name Type) or (#mut name Type)".into(),
+            );
+        }
+        parameters.push(Parameter {
+            name: expect_symbol(parts.get(name_index), "generated thread parameter name")?
+                .to_owned(),
+            ty: parse_type(parts.get(type_index))?,
+            mutable,
+        });
+    }
+    Ok(GeneratedFunctionSignature {
+        name,
+        parameters,
+        return_type: parse_type(items.get(3))?,
+    })
+}
+
 fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
     if !matches!(items.first(), Some(Expr::At)) {
         return Err("generated declaration must start with '@'".into());
@@ -4141,6 +4353,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
             Ok(Item::ThreadTask {
                 name: expect_symbol(items.get(2), "thread task type name")?.to_owned(),
                 worker: expect_symbol(items.get(3), "thread worker function")?.to_owned(),
+                generated_functions: Vec::new(),
             })
         }
         "vec" => {
@@ -4214,49 +4427,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
     }
     if kind == "thread-spawn" {
         let task = parse_generated_item(items)?;
-        let Item::ThreadTask { name, .. } = &task else {
-            unreachable!("thread-spawn declaration always produces a task")
-        };
-        let name = name.clone();
-        let spawn_error_name = format!("{name}-spawn-error");
-        let spawn_result_name = format!("{name}-spawn-result");
-        return Ok(vec![
-            task,
-            Item::Enum {
-                name: spawn_error_name.clone(),
-                representation: Representation::Lim,
-                type_parameters: Vec::new(),
-                variants: vec![
-                    EnumVariant {
-                        name: format!("{name}-spawn-allocation-error"),
-                        fields: Vec::new(),
-                        discriminant: 0,
-                    },
-                    EnumVariant {
-                        name: format!("{name}-spawn-creation-error"),
-                        fields: Vec::new(),
-                        discriminant: 1,
-                    },
-                ],
-            },
-            Item::Enum {
-                name: spawn_result_name,
-                representation: Representation::Lim,
-                type_parameters: Vec::new(),
-                variants: vec![
-                    EnumVariant {
-                        name: format!("{name}-spawn-ok"),
-                        fields: vec![Type::Named(name.clone())],
-                        discriminant: 0,
-                    },
-                    EnumVariant {
-                        name: format!("{name}-spawn-error"),
-                        fields: vec![Type::Named(spawn_error_name)],
-                        discriminant: 1,
-                    },
-                ],
-            },
-        ]);
+        return Ok(vec![task]);
     }
     if kind == "vec" {
         return parse_generated_source_items(&generated_vec_source(items)?);
@@ -6826,7 +6997,7 @@ mod tests {
         assert!(check_types(&valid).is_ok(), "{:?}", check_types(&valid));
         assert!(valid.items.iter().any(|item| matches!(
             item,
-            Item::ThreadTask { name, worker }
+            Item::ThreadTask { name, worker, .. }
                 if name == "IncrementTask" && worker == "increment"
         )));
         let assembly = generate_assembly(&valid).unwrap();
@@ -8217,6 +8388,44 @@ mod tests {
         assert!(generated.contains("Result-ok-value"));
         assert!(generated.contains("Result-unwrap-or"));
         assert!(generated.contains("Result-unwrap-err-or"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn materializes_thread_spawn_as_a_prefixed_builtin_declaration() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-generated-thread-spawn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker)";
+        write_generated_sources(source, &directory).unwrap();
+        let generated = std::fs::read_to_string(directory.join("thread-spawn-0.lim")).unwrap();
+        assert!(generated.contains("(#thread-task Task worker"));
+        assert!(
+            generated.contains("(#thread-task-spawn Task-spawn ((value u64)) Task-spawn-result)")
+        );
+        assert!(generated.contains("(#thread-task-join Task-join ((task Task)) Task-join-result)"));
+        assert!(generated.contains("Task-spawn-ok"));
+        assert!(generated.contains("Task-spawn-error"));
+        assert!(generated.contains("Task-join-ok"));
+        assert!(generated.contains("Task-join-error"));
+
+        let lowered = parse_program(&format!(
+            "(#fn worker ((value u64)) u64 (#return value)) {generated}"
+        ))
+        .unwrap();
+        let original = parse_program(source).unwrap();
+        let generated_names = |program: &Program| {
+            program
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    Item::Enum { name, .. } if name.starts_with("Task-") => Some(name.clone()),
+                    _ => None,
+                })
+                .collect::<HashSet<_>>()
+        };
+        assert_eq!(generated_names(&original), generated_names(&lowered));
+        assert_eq!(generated_names(&original).len(), 3);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

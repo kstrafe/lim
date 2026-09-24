@@ -240,7 +240,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
         }
     }
     for item in &program.items {
-        let Item::ThreadTask { name, worker } = item else {
+        let Item::ThreadTask { name, worker, .. } = item else {
             continue;
         };
         let worker_item = program.items.iter().find_map(|item| match item {
@@ -369,7 +369,7 @@ fn check_thread_task_ownership(
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::ThreadTask { name, worker } => Some((name.clone(), worker.clone())),
+            Item::ThreadTask { name, worker, .. } => Some((name.clone(), worker.clone())),
             _ => None,
         })
         .collect::<HashMap<_, _>>();

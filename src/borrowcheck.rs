@@ -265,7 +265,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
     let mut thread_spawn_functions = HashMap::new();
     let mut thread_join_functions = HashSet::new();
     for item in &program.items {
-        let Item::ThreadTask { name, worker } = item else {
+        let Item::ThreadTask { name, worker, .. } = item else {
             continue;
         };
         let parameters = program.items.iter().find_map(|item| match item {
