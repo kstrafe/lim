@@ -293,6 +293,8 @@ fn expand_with_generated_cached_and_hits(
                 .unwrap_or(false),
             _ => false,
         };
+        let original_expr = expression.expr.clone();
+        let original_children = expression.children.clone();
         let expanded = expand_top(expression.expr, &mut context)
             .map_err(|error| at_span(error, expression.span, "generator expansion"))?;
         if is_user_invocation {
@@ -313,9 +315,17 @@ fn expand_with_generated_cached_and_hits(
             }
             generated.extend(expanded.iter().cloned());
         }
-        output.extend(expanded.into_iter().map(|expr| SpannedExpr {
-            expr,
-            span: expression.span,
+        output.extend(expanded.into_iter().map(|expr| {
+            let unchanged = expr == original_expr;
+            SpannedExpr {
+                expr,
+                span: expression.span,
+                children: if unchanged {
+                    original_children.clone()
+                } else {
+                    Vec::new()
+                },
+            }
         }));
     }
     Ok(((output, generated), context.cache_hits))

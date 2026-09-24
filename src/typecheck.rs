@@ -302,7 +302,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                 &globals,
                 &aliases,
                 &program.statement_spans,
-                program.source.as_deref(),
+                &program.statement_expressions,
             )?,
             Item::TypeAlias { .. }
             | Item::Struct { .. }
@@ -1206,7 +1206,7 @@ fn check_function(
     globals: &HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
-    source: Option<&str>,
+    statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
 ) -> Result<(), String> {
     let mut variables = globals.clone();
     let mut mutable = HashSet::new();
@@ -1273,9 +1273,10 @@ fn check_function(
             let statement_span = statement_spans
                 .get(&(function.name.clone(), index))
                 .copied();
-            let precise_span = source
-                .zip(statement_span)
-                .and_then(|(source, span)| precise_type_error_span(source, span, &error))
+            let source_expression = statement_expressions
+                .get(&(function.name.clone(), index));
+            let precise_span = source_expression
+                .and_then(|expression| precise_type_error_span(expression, &error))
                 .or(statement_span);
             precise_span.map_or(error.clone(), |span| {
                 format!("{error}; source span {}:{}", span.start, span.end)
@@ -1288,11 +1289,12 @@ fn check_function(
         &format!("return of function '{}'", function.name),
     )
     .map_err(|error| {
-        function
-            .body
-            .len()
-            .checked_sub(1)
-            .and_then(|index| statement_spans.get(&(function.name.clone(), index)))
+        function.body.len().checked_sub(1).and_then(|index| {
+            statement_expressions
+                .get(&(function.name.clone(), index))
+                .map(|expression| expression_value_span(expression))
+                .or_else(|| statement_spans.get(&(function.name.clone(), index)).copied())
+        })
             .map_or(error.clone(), |span| {
                 format!("{error}; source span {}:{}", span.start, span.end)
             })
@@ -1300,25 +1302,55 @@ fn check_function(
 }
 
 fn precise_type_error_span(
-    source: &str,
-    statement_span: crate::Span,
+    statement: &crate::SpannedExpr,
     error: &str,
 ) -> Option<crate::Span> {
+    let value = expression_value(statement);
     let name = error
-        .strip_prefix("unknown variable or enum variant '")?
-        .split('\'')
-        .next()?;
-    let tokens = crate::lex(source).ok()?;
-    tokens
-        .into_iter()
-        .filter(|token| {
-            token.span.start >= statement_span.start && token.span.end <= statement_span.end
-        })
-        .filter_map(|token| match token.kind {
-            crate::TokenKind::Symbol(symbol) if symbol == name => Some(token.span),
-            _ => None,
-        })
-        .last()
+        .strip_prefix("unknown variable or enum variant '")
+        .and_then(|tail| tail.split('\'').next());
+    if let Some(name) = name {
+        return first_symbol_span(value, name).or(Some(value.span));
+    }
+    Some(value.span)
+}
+
+fn expression_value(statement: &crate::SpannedExpr) -> &crate::SpannedExpr {
+    let Expr::List(items) = &statement.expr else {
+        return statement;
+    };
+    let Some(Expr::Symbol(head)) = items.first() else {
+        return statement;
+    };
+    let value_index = match head.as_str() {
+        "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" => Some(3),
+        "#return" | "return" | "#break" | "break" => Some(1),
+        "#set" | "set" => Some(2),
+        "#set-field" | "set-field" | "#set-index" | "set-index" => Some(3),
+        _ => None,
+    };
+    value_index
+        .and_then(|index| statement.children.get(index))
+        .unwrap_or(statement)
+}
+
+fn expression_value_span(statement: &crate::SpannedExpr) -> crate::Span {
+    expression_value(statement).span
+}
+
+fn first_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
+    if matches!(&expression.expr, Expr::Symbol(name) if name == target) {
+        return Some(expression.span);
+    }
+    let Expr::List(items) = &expression.expr else {
+        return None;
+    };
+    let children = &expression.children[..];
+    let start = usize::from(matches!(items.first(), Some(Expr::Symbol(_))));
+    children
+        .iter()
+        .skip(start)
+        .find_map(|child| first_symbol_span(child, target))
 }
 
 fn statement_type(

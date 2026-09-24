@@ -828,6 +828,7 @@ fn monomorphize_program(
         items,
         source: program.source.clone(),
         statement_spans: program.statement_spans.clone(),
+        statement_expressions: program.statement_expressions.clone(),
     })
 }
 

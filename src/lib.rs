@@ -808,6 +808,10 @@ pub enum Expr {
 pub struct SpannedExpr {
     pub expr: Expr,
     pub span: Span,
+    /// Exact source children in expression order. Preserved separately from
+    /// `Expr` so later lowering can retain source locations without wrapping
+    /// every syntax node in the public AST.
+    pub children: Vec<SpannedExpr>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1088,6 +1092,7 @@ pub struct Program {
     pub items: Vec<Item>,
     pub(crate) source: Option<String>,
     pub(crate) statement_spans: HashMap<(String, usize), Span>,
+    pub(crate) statement_expressions: HashMap<(String, usize), SpannedExpr>,
 }
 
 /// Compile-time key/value settings used by `#cfg-*` forms.
@@ -1468,11 +1473,15 @@ fn parse_program_in_directory(
     )?;
     let mut items = Vec::with_capacity(expressions.len());
     let mut statement_spans = HashMap::new();
+    let mut statement_expressions = HashMap::new();
     for expression in expressions {
         validate_prefixed_forms(&expression.expr)?;
-        let form_span = expression.span;
+        collect_function_statement_spans(
+            &expression,
+            &mut statement_spans,
+            &mut statement_expressions,
+        );
         let expression = normalize_keywords(expression.expr);
-        collect_function_statement_spans(source, &expression, form_span, &mut statement_spans);
         if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
                 items.extend(parse_generated_items(forms).map_err(|error| {
@@ -1493,6 +1502,7 @@ fn parse_program_in_directory(
         items,
         source: Some(source.to_owned()),
         statement_spans,
+        statement_expressions,
     })
 }
 
@@ -1502,15 +1512,11 @@ fn parse_program_in_directory(
 /// side table lets diagnostics refer to the original statement without
 /// guessing from identifier occurrences.
 fn collect_function_statement_spans(
-    source: &str,
-    expression: &Expr,
-    form_span: Span,
+    expression: &SpannedExpr,
     spans: &mut HashMap<(String, usize), Span>,
+    expressions: &mut HashMap<(String, usize), SpannedExpr>,
 ) {
-    let Some(form_text) = source.get(form_span.start..form_span.end) else {
-        return;
-    };
-    let Expr::List(items) = expression else {
+    let Expr::List(items) = &expression.expr else {
         return;
     };
     if !matches!(items.first(), Some(Expr::Symbol(name)) if name == "#fn" || name == "fn")
@@ -1518,46 +1524,13 @@ fn collect_function_statement_spans(
     {
         return;
     }
-    if !form_text.trim_start().starts_with("(#fn") {
-        return;
-    }
     let Some(Expr::Symbol(name)) = items.get(1) else {
         return;
     };
-    let Ok(tokens) = lex(source) else { return };
-    let tokens = tokens
-        .into_iter()
-        .filter(|token| token.span.start >= form_span.start && token.span.end <= form_span.end)
-        .collect::<Vec<_>>();
-    let mut depth = 0usize;
-    let mut direct_child = 0usize;
-    let mut current_start = None;
-    let mut statement_index = 0usize;
-    for token in &tokens {
-        match &token.kind {
-            TokenKind::LParen if depth == 0 => depth = 1,
-            TokenKind::LParen if depth == 1 => {
-                if direct_child >= 4 {
-                    current_start = Some(token.span);
-                }
-                direct_child += 1;
-                depth = 2;
-            }
-            TokenKind::LParen => depth += 1,
-            TokenKind::RParen if depth == 2 => {
-                if let Some(start) = current_start.take() {
-                    spans.insert(
-                        (name.clone(), statement_index),
-                        Span::new(start.start, token.span.end, start.line, start.column),
-                    );
-                    statement_index += 1;
-                }
-                depth = 1;
-            }
-            TokenKind::RParen => depth = depth.saturating_sub(1),
-            _ if depth == 1 => direct_child += 1,
-            _ => {}
-        }
+    for (statement_index, statement) in expression.children.iter().skip(4).enumerate() {
+        let key = (name.clone(), statement_index);
+        spans.insert(key.clone(), statement.span);
+        expressions.insert(key, statement.clone());
     }
 }
 
@@ -2396,6 +2369,7 @@ fn expand_cfg_forms(
             .map(|expr| SpannedExpr {
                 expr,
                 span: form.span,
+                children: Vec::new(),
             })
             .collect();
         expanded.extend(expand_cfg_forms(selected, config)?);
@@ -5374,14 +5348,16 @@ impl<'a> Parser<'a> {
                 let quoted = self
                     .expression()
                     .map_err(|_| self.error("expected expression after quote", token.span))?;
+                let inner = quoted.expr.clone();
                 Ok(SpannedExpr {
-                    expr: Expr::Quote(Box::new(quoted.expr)),
+                    expr: Expr::Quote(Box::new(inner)),
                     span: Span::new(
                         token.span.start,
                         quoted.span.end,
                         token.span.line,
                         token.span.column,
                     ),
+                    children: vec![quoted],
                 })
             }
             TokenKind::QuasiQuote | TokenKind::Unquote | TokenKind::UnquoteSplicing => {
@@ -5392,10 +5368,11 @@ impl<'a> Parser<'a> {
                         token.span,
                     )
                 })?;
+                let nested_expr = nested.expr.clone();
                 let expr = match token.kind {
-                    TokenKind::QuasiQuote => Expr::QuasiQuote(Box::new(nested.expr)),
-                    TokenKind::Unquote => Expr::Unquote(Box::new(nested.expr)),
-                    TokenKind::UnquoteSplicing => Expr::UnquoteSplicing(Box::new(nested.expr)),
+                    TokenKind::QuasiQuote => Expr::QuasiQuote(Box::new(nested_expr.clone())),
+                    TokenKind::Unquote => Expr::Unquote(Box::new(nested_expr.clone())),
+                    TokenKind::UnquoteSplicing => Expr::UnquoteSplicing(Box::new(nested_expr)),
                     _ => unreachable!(),
                 };
                 Ok(SpannedExpr {
@@ -5406,6 +5383,7 @@ impl<'a> Parser<'a> {
                         token.span.line,
                         token.span.column,
                     ),
+                    children: vec![nested],
                 })
             }
             TokenKind::At => {
@@ -5413,6 +5391,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::At,
                     span: token.span,
+                    children: Vec::new(),
                 })
             }
             TokenKind::Symbol(value) => {
@@ -5425,6 +5404,7 @@ impl<'a> Parser<'a> {
                             literal,
                         ]),
                         span: token.span,
+                        children: Vec::new(),
                     });
                 }
                 if let Some((literal, ty)) = parse_typed_float_atom(value) {
@@ -5435,11 +5415,13 @@ impl<'a> Parser<'a> {
                             literal,
                         ]),
                         span: token.span,
+                        children: Vec::new(),
                     });
                 }
                 Ok(SpannedExpr {
                     expr: Expr::Symbol(value.clone()),
                     span: token.span,
+                    children: Vec::new(),
                 })
             }
             TokenKind::Integer(value) => {
@@ -5447,6 +5429,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::Integer(*value),
                     span: token.span,
+                    children: Vec::new(),
                 })
             }
             TokenKind::UnsignedInteger(value) => {
@@ -5454,6 +5437,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::UnsignedInteger(*value),
                     span: token.span,
+                    children: Vec::new(),
                 })
             }
             TokenKind::Float(value) => {
@@ -5461,6 +5445,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::Float(value.clone()),
                     span: token.span,
+                    children: Vec::new(),
                 })
             }
             TokenKind::Char(value) => {
@@ -5468,6 +5453,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::Char(*value),
                     span: token.span,
+                    children: Vec::new(),
                 })
             }
             TokenKind::String(value) => {
@@ -5475,6 +5461,7 @@ impl<'a> Parser<'a> {
                 Ok(SpannedExpr {
                     expr: Expr::String(value.clone()),
                     span: token.span,
+                    children: Vec::new(),
                 })
             }
         }
@@ -5484,6 +5471,7 @@ impl<'a> Parser<'a> {
         let start = self.tokens[self.index].span;
         self.index += 1;
         let mut items = Vec::new();
+        let mut children = Vec::new();
         loop {
             match self.tokens.get(self.index) {
                 Some(Token {
@@ -5495,9 +5483,14 @@ impl<'a> Parser<'a> {
                     return Ok(SpannedExpr {
                         expr: Expr::List(items),
                         span: Span::new(start.start, end, start.line, start.column),
+                        children,
                     });
                 }
-                Some(_) => items.push(self.expression()?.expr),
+                Some(_) => {
+                    let child = self.expression()?;
+                    items.push(child.expr.clone());
+                    children.push(child);
+                }
                 None => return Err(self.error("unterminated list; expected ')'", self.eof_span())),
             }
         }
