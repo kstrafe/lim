@@ -1074,6 +1074,7 @@ Generator capability-contract errors underline the implicated operation name,
 including the second spelling in a duplicate-operation error.
 Duplicate capability/type pairs and duplicate generator declarations underline
 the repeated type or generator name.
+Invalid array/struct assignment targets underline the named target.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the

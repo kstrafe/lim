@@ -1847,11 +1847,24 @@ fn precise_type_error_span(
     let named_target = [
         "cannot assign to immutable variable '",
         "cannot replace '",
+        "cannot replace reference-containing elements of '",
         "cannot mutate immutable variable '",
         "unknown variable '",
     ]
     .iter()
     .find_map(|prefix| error.strip_prefix(prefix)?.split('\'').next());
+    let named_target = named_target.or_else(|| {
+        let rest = error.strip_prefix('\'')?;
+        let (name, suffix) = rest.split_once('\'')?;
+        [
+            " is not an array",
+            " is not a struct",
+            " is not an enum",
+            " is not a tuple",
+        ]
+        .contains(&suffix)
+        .then_some(name)
+    });
     if let Some(name) = named_target {
         if let Some(span) = first_symbol_span(statement, name) {
             return Some(span);

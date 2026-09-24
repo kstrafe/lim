@@ -283,6 +283,18 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "non-array-assignment",
+            diagnostic_code: "E4000",
+            offending_line: "  (#set-index value 0usize 2u64)",
+            line_number: 3,
+        },
+        Case {
+            name: "non-struct-assignment",
+            diagnostic_code: "E4000",
+            offending_line: "  (#set-field value field 2u64)",
+            line_number: 3,
+        },
+        Case {
             name: "non-slice-len",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#slice-len value))",
@@ -481,6 +493,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-local-type" => Some("Missing"),
             "immutable-assignment" => Some("value"),
             "non-array-index" => Some("value"),
+            "non-array-assignment" => Some("value"),
+            "non-struct-assignment" => Some("value"),
             "non-slice-len" => Some("value"),
             "non-slice-idx" => Some("value"),
             "non-array-slice-of" => Some("value"),

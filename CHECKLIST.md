@@ -204,7 +204,8 @@ the checklist is committed alongside the implementation it tracks.
   UI coverage. Generator capability checks now pinpoint missing, mismatched,
   and duplicate operation names, including the later duplicate occurrence;
   duplicate capability/type pairs and generator declarations point at their
-  repeated identifier.
+  repeated identifier. Invalid array/struct assignment targets also underline
+  the named target instead of the full statement.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a
