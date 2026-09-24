@@ -1,0 +1,34 @@
+(#struct Resource ((owned (#cell u64))))
+(#struct Bundle ((left Resource) (right Resource)))
+(#struct Counter ((total (#cell u64))))
+
+(#fn Resource-destroy ((counter (#ref Counter)) (value Resource)) ()
+  (#let (Resource owned) Resource value)
+  (#cell-set (#get counter total)
+    (#u64.+.wrap (#cell-get (#get counter total)) 1u64))
+  (#forget owned)
+  (#return ()))
+
+(#fn Bundle-destroy ((counter (#ref Counter)) (value Bundle)) ()
+  (#let (Bundle left right) Bundle value)
+  (Resource-destroy (#clone counter) left)
+  (Resource-destroy (#clone counter) right)
+  (#return ()))
+
+(#fn make-bundle () Bundle
+  (#return
+    (Bundle
+      (Resource (#cell 0u64))
+      (Resource (#cell 0u64)))))
+
+(#fn pass-through ((value Bundle)) Bundle
+  (#return value))
+
+(#fn main () u64
+  (#let-mut counter Counter (Counter (#cell 0u64)))
+  (#let bundle Bundle (make-bundle))
+  (#let moved Bundle (pass-through bundle))
+  (Bundle-destroy (#borrow counter) moved)
+  (#let destroyed u64 (#cell-get (#get counter total)))
+  (#forget counter)
+  (#return destroyed))

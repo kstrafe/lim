@@ -94,9 +94,10 @@ the checklist is committed alongside the implementation it tracks.
   boundaries; several backend branches still report scalar-field-only limits.
 - [x] Specify and implement field-wise destruction for reference-containing
   aggregates.
-- [ ] Define deterministic destruction for owned resources and generated
-  collections, including exactly-once behavior on moves, returns, early
-  returns, and aggregate fields; currently users must call `-free` explicitly.
+- [x] Define and test deterministic explicit destruction for owned resources
+  and generated collections: user/generated destroy functions consume values,
+  including after moves/returns and field-wise aggregate destruction; no
+  implicit destructor calls are inserted, and `-free` consumes a vector.
 
 ### Generators and monomorphization
 

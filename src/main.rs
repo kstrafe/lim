@@ -581,4 +581,29 @@ mod tests {
         assert_eq!(status.code(), Some(22));
         fs::remove_dir_all(directory).unwrap();
     }
+
+    #[test]
+    fn explicit_aggregate_destruction_runs_once_after_moves_and_returns() {
+        let directory =
+            env::temp_dir().join(format!("lim-explicit-destroy-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("destroy.lim");
+        let output = directory.join("destroy");
+        fs::write(&input, include_str!("../examples/explicit_destruction.lim")).unwrap();
+        let config = lim::CompileConfig::default();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &config,
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        let status = Command::new(&output).status().unwrap();
+        assert_eq!(status.code(), Some(2));
+        fs::remove_dir_all(directory).unwrap();
+    }
 }

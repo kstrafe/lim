@@ -652,6 +652,18 @@ example:
   (#return ()))
 ```
 
+Destruction is an ordinary explicit call, not a type hook. A destructor takes
+the owned value by value, destructures resource-bearing fields, and calls the
+appropriate field destructors before forgetting any remaining representation.
+Moving or returning a value transfers the caller's cleanup responsibility;
+every explicit `#return` is checked for still-live linear locals. Early-return
+paths must likewise consume the values they own before returning. The compiler
+never inserts a destructor, so discarding resources with `#forget` remains an
+intentional leak rather than hidden cleanup. Generated collections follow the
+same rule: their generated `-free` function explicitly destroys each remaining
+element and releases storage once, and consuming the vector prevents a second
+free.
+
 `#drop` also consumes a value and remains useful for explicitly ending a
 reference's borrow. A value cannot be silently overwritten, abandoned at a
 scope exit, or consumed on only some control-flow paths. The compiler does not
