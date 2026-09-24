@@ -207,7 +207,8 @@ the checklist is committed alongside the implementation it tracks.
   reported line and column, including quoted tokens containing whitespace,
   rather than only the first character. UI
   diagnostics now also assert exact token alignment for unknown identifiers,
-  recursion, and codegen errors.
+  recursion, and codegen errors. Repeated linear field moves underline the
+  repeated `#get` projection instead of the enclosing `#let` statement.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

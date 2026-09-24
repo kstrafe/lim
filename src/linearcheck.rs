@@ -111,12 +111,60 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
 
 fn precise_linear_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
     let name = error.split('\'').nth(1)?;
+    fn source_place_key(expression: &crate::SpannedExpr) -> Option<String> {
+        match &expression.expr {
+            Expr::Symbol(name) => Some(name.clone()),
+            Expr::List(items) if items.len() == 3 => {
+                let head = match items.first()? {
+                    Expr::Symbol(head) => head.strip_prefix('#').unwrap_or(head),
+                    _ => return None,
+                };
+                let mut base = source_place_key(expression.children.get(1)?)?;
+                match head {
+                    "get" => match &items[2] {
+                        Expr::Symbol(field) => base.push_str(&format!(".{field}")),
+                        Expr::Integer(index) => base.push_str(&format!(".{index}")),
+                        _ => base.push_str(".*"),
+                    },
+                    "index" => match literal_index(&items[2]) {
+                        Some(index) => base.push_str(&format!("[{index}]")),
+                        None => base.push_str("[*]"),
+                    },
+                    _ => return None,
+                }
+                Some(base)
+            }
+            Expr::List(items) if items.len() == 4 => {
+                let head = match items.first()? {
+                    Expr::Symbol(head) => head.strip_prefix('#').unwrap_or(head),
+                    _ => return None,
+                };
+                if head != "get-payload" {
+                    return None;
+                }
+                let mut base = source_place_key(expression.children.get(1)?)?;
+                if let Expr::Symbol(variant) = &items[2] {
+                    base.push_str(&format!(".{variant}"));
+                } else {
+                    base.push_str(".*");
+                }
+                match literal_index(&items[3]) {
+                    Some(index) => base.push_str(&format!(".{index}")),
+                    None => base.push_str(".*"),
+                }
+                Some(base)
+            }
+            _ => None,
+        }
+    }
     fn occurrences<'a>(
         expression: &'a crate::SpannedExpr,
         name: &str,
         spans: &mut Vec<crate::Span>,
     ) {
-        if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
+        if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name)
+            || source_place_key(expression).as_deref() == Some(name)
+        {
             spans.push(expression.span);
         }
         for child in &expression.children {
@@ -1029,6 +1077,16 @@ mod tests {
         )
         .unwrap();
         assert!(check_types(&cloned).is_ok());
+    }
+
+    #[test]
+    fn repeated_linear_field_move_highlights_the_repeated_projection() {
+        let source = "(#struct Resource ((value (#cell u64))))\n(#struct Pair ((item Resource) (other u64)))\n(#fn main () u64\n  (#let pair Pair (#struct-literal Pair ((item (#struct-literal Resource ((value (#cell 1u64))))) (other 0u64))))\n  (#let first Resource (#get pair item))\n  (#let second Resource (#get pair item))\n  (#forget first)\n  (#forget second)\n  (#forget pair)\n  (#return 0u64))";
+        let program = parse_program(source).unwrap();
+        let error = check_types(&program).unwrap_err();
+        assert!(error.contains("linear projection 'pair.item' was used more than once"));
+        let (start, end) = crate::span_after(&error, "source span ").unwrap();
+        assert_eq!(&source[start..end], "(#get pair item)");
     }
 
     #[test]
