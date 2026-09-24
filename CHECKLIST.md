@@ -204,7 +204,8 @@ the checklist is committed alongside the implementation it tracks.
   initializers now highlight a nested `#call` that makes the initializer
   invalid instead of the larger enclosing constant expression. Imported
   parser/generator location diagnostics underline the full token at the
-  reported line and column, rather than only its first character. UI
+  reported line and column, including quoted tokens containing whitespace,
+  rather than only the first character. UI
   diagnostics now also assert exact token alignment for unknown identifiers,
   recursion, and codegen errors.
   Unknown named types in local `#let` annotations underline the annotation,

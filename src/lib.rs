@@ -268,12 +268,28 @@ fn source_id_after(error: &str, marker: &str) -> Option<u32> {
 
 fn token_width_at(source: &str, line: usize, column: usize) -> usize {
     let line_text = source.lines().nth(line.saturating_sub(1)).unwrap_or("");
-    line_text
-        .chars()
-        .skip(column.saturating_sub(1))
+    let mut token = line_text.chars().skip(column.saturating_sub(1));
+    let Some(first) = token.next() else {
+        return 1;
+    };
+    if first == '"' {
+        let mut width = 1;
+        let mut escaped = false;
+        for ch in token {
+            width += 1;
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                return width;
+            }
+        }
+        return width;
+    }
+    1 + token
         .take_while(|ch| !ch.is_whitespace() && !matches!(ch, '(' | ')' | '[' | ']' | ','))
         .count()
-        .max(1)
 }
 
 fn diagnostic_code_from_number(number: u16) -> DiagnosticCode {
@@ -7959,6 +7975,19 @@ mod tests {
         assert_eq!(
             diagnostic.source_name.as_deref(),
             Some(module_path.to_str().unwrap())
+        );
+
+        let string_source = "  \"bad token\" here";
+        std::fs::write(&module_path, string_source).unwrap();
+        let diagnostic = generator_diagnostic(
+            format!("{}: 1:3: unexpected token", module_path.display()),
+            &root_path,
+            "",
+        );
+        let span = diagnostic.span.unwrap();
+        assert_eq!(
+            &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
+            "\"bad token\""
         );
         std::fs::remove_dir_all(directory).unwrap();
     }
