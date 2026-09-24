@@ -232,7 +232,8 @@ the checklist is committed alongside the implementation it tracks.
   expression, covered by a UI test. Tuple and array construction diagnostics
   retain the mismatching element index and underline that element rather than
   another value with the same inferred type. Borrow conflicts distinguish an
-  accessed binding from a same-named struct field selector.
+  accessed binding from a same-named struct field selector, call callee, or
+  named-argument label.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

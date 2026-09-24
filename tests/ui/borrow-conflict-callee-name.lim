@@ -1,0 +1,5 @@
+(#fn owner ((arg u64)) u64 (#return arg))
+(#fn main () u64
+  (#let-mut owner u64 1u64)
+  (#let reference (#ref-mut u64) (#borrow-mut owner))
+  (#return (#call owner (#fn-args (arg owner)))))

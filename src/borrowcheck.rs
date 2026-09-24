@@ -478,6 +478,10 @@ fn find_accessed_source_symbol(
             .children
             .get(1)
             .and_then(|base| find_accessed_source_symbol(base, names)),
+        "#call" | "call" => expression
+            .children
+            .get(2)
+            .and_then(|arguments| find_accessed_source_symbol(arguments, names)),
         "#struct-literal" | "struct-literal" => expression
             .children
             .get(2)
