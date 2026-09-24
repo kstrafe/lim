@@ -1850,6 +1850,7 @@ fn precise_type_error_span(
         "cannot replace '",
         "cannot replace reference-containing elements of '",
         "cannot mutate immutable variable '",
+        "cannot mutably borrow immutable variable '",
         "unknown variable '",
     ]
     .iter()
@@ -2026,6 +2027,8 @@ fn type_error_argument_span(expression: &crate::SpannedExpr, error: &str) -> Opt
         (&["get-payload"][..], 2)
     } else if error == "deref-set requires a mutable reference" {
         (&["deref-set"][..], 1)
+    } else if error == "cannot mutably borrow through an immutable reference" {
+        (&["borrow-mut"][..], 1)
     } else {
         return None;
     };

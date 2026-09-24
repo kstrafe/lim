@@ -295,6 +295,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "immutable-mutable-borrow",
+            diagnostic_code: "E4100",
+            offending_line: "  (#let reference (#ref-mut u64) (#borrow-mut value))",
+            line_number: 3,
+        },
+        Case {
             name: "non-array-index",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#index value 0usize))",
@@ -591,6 +597,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-local-type" => Some("Missing"),
             "destructure-type-mismatch" => Some("Point"),
             "immutable-assignment" => Some("value"),
+            "immutable-mutable-borrow" => Some("value"),
             "non-array-index" => Some("value"),
             "non-array-assignment" => Some("value"),
             "non-struct-assignment" => Some("value"),

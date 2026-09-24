@@ -201,7 +201,8 @@ the checklist is committed alongside the implementation it tracks.
   mismatch. Immutable assignments now underline the assigned binding instead
   of the entire assignment form. Named-type mismatches in destructuring lets
   underline the declared type rather than an identically named pattern
-  constructor. Invalid operands to `index`, `slice-of`, `slice-len`,
+  constructor. Mutable-borrow-through-immutable-reference errors underline
+  the owner argument. Invalid operands to `index`, `slice-of`, `slice-len`,
   `get`, `get-payload`, and `deref-set` also receive argument-level spans with
   UI coverage. Generator capability checks now pinpoint missing, mismatched,
   and duplicate operation names, including the later duplicate occurrence;
