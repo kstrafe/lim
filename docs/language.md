@@ -236,10 +236,16 @@ nix develop --command cargo run -- --check-examples examples
 nix develop --command cargo run -- examples/fibonacci.lim --target x86_64-sysv
 ```
 
-Native compilation carries an explicit target description. The current
-backend accepts `x86_64-sysv` (and its GNU triple spelling
-`x86_64-unknown-linux-gnu`) and rejects unsupported targets instead of
-silently applying the host ABI. The Rust API exposes
+Native compilation carries an explicit target description. The supported
+target/ABI matrix currently has one entry:
+
+| Target spellings | OS/object format | CPU ABI | Backend/linker |
+| --- | --- | --- | --- |
+| `x86_64-sysv`, `x86_64-unknown-linux-gnu` | Linux ELF | x86-64 System V | native x86-64 assembly, GNU `as` and `ld` |
+
+All other target names (including other operating systems using the System V
+calling convention) are rejected. Host selection requires both Linux and
+x86-64. The Rust API exposes
 `TargetDescription` and `generate_assembly_for_target`; the existing
 `generate_assembly` API selects the supported host target.
 

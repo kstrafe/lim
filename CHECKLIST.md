@@ -242,6 +242,6 @@ these areas as stable.
 - [x] Implement and test by-value C aggregate arguments and returns, including
   structs and enums, or explicitly keep them unsupported until the internal
   representation and target ABI agree.
-- [ ] Define the supported target policy and add a target/ABI test matrix.
+- [x] Define the supported target policy and add a target/ABI test matrix.
   Unsupported targets must continue to fail explicitly; add a backend and
   linker path for each newly supported target.

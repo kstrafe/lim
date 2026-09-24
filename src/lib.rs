@@ -49,12 +49,13 @@ impl TargetDescription {
     };
 
     pub fn host() -> Result<Self, String> {
-        if env::consts::ARCH == "x86_64" {
+        if env::consts::ARCH == "x86_64" && env::consts::OS == "linux" {
             Ok(Self::X86_64_SYSTEM_V)
         } else {
             Err(format!(
-                "host architecture '{}' is not supported by the native backend; select an explicit x86_64 target",
-                env::consts::ARCH
+                "host '{}-{}' is not supported by the native backend; supported targets: x86_64-sysv (Linux ELF)",
+                env::consts::ARCH,
+                env::consts::OS
             ))
         }
     }
@@ -7197,18 +7198,22 @@ mod tests {
     }
 
     #[test]
-    fn parses_explicit_native_target_descriptions() {
-        assert_eq!(
-            TargetDescription::parse("x86_64-sysv").unwrap(),
-            TargetDescription::X86_64_SYSTEM_V
-        );
-        assert_eq!(
-            TargetDescription::parse("x86_64-unknown-linux-gnu").unwrap(),
-            TargetDescription::X86_64_SYSTEM_V
-        );
-        assert!(TargetDescription::parse("aarch64-unknown-linux-gnu")
-            .unwrap_err()
-            .contains("supported targets: x86_64-sysv"));
+    fn native_target_matrix_accepts_only_linux_x86_64_system_v() {
+        for alias in ["x86_64-sysv", "x86_64-unknown-linux-gnu"] {
+            let target = TargetDescription::parse(alias).unwrap();
+            assert_eq!(target, TargetDescription::X86_64_SYSTEM_V);
+            let program = parse_program("(#fn main () u64 (#return 42))").unwrap();
+            assert!(generate_assembly_for_target(&program, target).is_ok());
+        }
+        for unsupported in [
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "x86_64-pc-windows-msvc",
+        ] {
+            assert!(TargetDescription::parse(unsupported)
+                .unwrap_err()
+                .contains("supported targets: x86_64-sysv"));
+        }
         let program = parse_program("(#fn main () u64 (#return 42))").unwrap();
         assert!(generate_assembly_for_target(&program, TargetDescription::X86_64_SYSTEM_V).is_ok());
     }
