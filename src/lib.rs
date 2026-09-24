@@ -1585,14 +1585,28 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
         }
     }
 
-    if let Some(worker_name) = message
-        .strip_prefix("thread worker '")
-        .and_then(|rest| rest.split('\'').next())
-    {
-        if let Some(span) = program
-            .declaration_expressions
-            .get(worker_name)
-            .and_then(|expression| expression.children.get(3))
+    if let Some(rest) = message.strip_prefix("thread worker '") {
+        let (worker_name, details) = rest.split_once('\'')?;
+        let declaration = program.declaration_expressions.get(worker_name)?;
+        if let Some(parameter_name) = details
+            .strip_prefix(" parameter '")
+            .and_then(|rest| rest.split('\'').next())
+        {
+            if let Some(span) = declaration.children.get(2).and_then(|parameters| {
+                parameters.children.iter().find_map(|parameter| {
+                    let name = parameter.children.first()?;
+                    if matches!(&name.expr, Expr::Symbol(name) if name == parameter_name) {
+                        parameter.children.get(1).map(|ty| ty.span)
+                    } else {
+                        None
+                    }
+                })
+            }) {
+                return Some(span);
+            }
+        } else if let Some(span) = declaration
+            .children
+            .get(3)
             .map(|return_type| return_type.span)
         {
             return Some(span);

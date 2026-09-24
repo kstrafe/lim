@@ -1067,6 +1067,7 @@ Thread-task handles in function signatures and type aliases underline the
 generated task type token.
 Import resolution errors underline the path string, and unknown cfg keys
 underline the referenced key.
+Thread-worker `Send` errors underline the failing parameter type.
 Unknown named types in local `#let` annotations underline the type token,
 including diagnostics formatted as expected-type mismatches.
 Immutable-assignment diagnostics underline the target binding.

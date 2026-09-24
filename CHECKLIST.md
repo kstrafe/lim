@@ -198,6 +198,8 @@ the checklist is committed alongside the implementation it tracks.
   function signatures and type aliases also underline the task type token.
   Missing-import and import-cycle failures underline the path string, while
   unknown cfg keys underline the referenced key token.
+  `Send` failures on thread workers now underline the offending parameter type,
+  not the unrelated worker return type.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

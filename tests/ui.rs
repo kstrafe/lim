@@ -652,6 +652,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "reversed-match-range" => Some("2"),
             "non-reference-deref-set" => Some("value"),
             "thread-worker-missing" => Some("missing-worker"),
+            "thread-send" => Some("(#ptr u64)"),
             "thread-worker-reference-result" => Some("(#ref u64)"),
             "thread-task-function-signature" => Some("Task"),
             "thread-task-type-alias" => Some("Task"),
