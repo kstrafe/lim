@@ -692,7 +692,7 @@ mod tests {
         let output = directory.join("thread");
         let stub_source = directory.join("pthread-stub.s");
         let stub_object = directory.join("pthread-stub.o");
-        let source = "(#extern-fn exit ((status i32)) ()) (#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (Task-spawn 41) ((Task-spawn-ok task) (#match (Task-join task) ((Task-join-ok value) 42) ((Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (exit 43)) (#panic)))))) ((Task-spawn-error error) (#panic)))))";
+        let source = "(#extern-fn #abi-c exit ((status i32)) ()) (#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (Task-spawn 41) ((Task-spawn-ok task) (#match (Task-join task) ((Task-join-ok value) 42) ((Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (exit 43)) (#panic)))))) ((Task-spawn-error error) (#panic)))))";
         fs::write(&input, source).unwrap();
         fs::write(
             &stub_source,
@@ -810,7 +810,7 @@ mod tests {
             .success());
         fs::write(
             &input,
-            "(#extern-fn provided_value () u64) (#fn main () u64 (#return (#unsafe (provided_value))))",
+            "(#extern-fn #abi-c provided_value () u64) (#fn main () u64 (#return (#unsafe (provided_value))))",
         )
         .unwrap();
         let links = LinkOptions {

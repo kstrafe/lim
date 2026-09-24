@@ -20,6 +20,17 @@ const FLOAT_ARGUMENT_REGISTERS: [&str; 8] = [
     "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
 ];
 
+fn round_up(value: usize, alignment: usize) -> Result<usize, String> {
+    let remainder = value % alignment;
+    if remainder == 0 {
+        Ok(value)
+    } else {
+        value
+            .checked_add(alignment - remainder)
+            .ok_or_else(|| "C layout size overflowed usize".to_owned())
+    }
+}
+
 fn asm_symbol(name: &str) -> String {
     let mut symbol = String::new();
     for byte in name.bytes() {
@@ -1026,6 +1037,23 @@ pub fn generate_assembly_for_target(
         })
         .collect();
     let mut enums = HashMap::new();
+    let repr_c_types: HashSet<String> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct {
+                name,
+                representation: crate::Representation::C,
+                ..
+            }
+            | Item::Enum {
+                name,
+                representation: crate::Representation::C,
+                ..
+            } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
     for item in &program.items {
         if let Item::Enum { name, variants, .. } = item {
             let variants = variants
@@ -1071,6 +1099,17 @@ pub fn generate_assembly_for_target(
         {
             return Err(format!(
                 "external function '{}' must use directly passed scalar values",
+                function.name
+            ));
+        }
+        if function.external
+            && parameters
+                .iter()
+                .chain(std::iter::once(&return_type))
+                .any(|ty| matches!(ty, Type::Named(name) if enums.contains_key(name) && !repr_c_types.contains(name)))
+        {
+            return Err(format!(
+                "external function '{}' uses an enum without an explicit #repr-c layout",
                 function.name
             ));
         }
@@ -1308,6 +1347,7 @@ pub fn generate_assembly_for_target(
                 &mut output,
                 &structs,
                 &enums,
+                &repr_c_types,
                 &globals,
                 &global_types,
                 &aliases,
@@ -1768,6 +1808,7 @@ fn generate_function(
     output: &mut String,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
+    repr_c_types: &HashSet<String>,
     globals: &HashMap<String, GlobalValue>,
     global_types: &HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
@@ -2085,6 +2126,7 @@ fn generate_function(
         locals,
         structs: structs.clone(),
         enums: enums.clone(),
+        repr_c_types: repr_c_types.clone(),
         globals: globals.clone(),
         global_types: global_types.clone(),
         aliases: aliases.clone(),
@@ -4815,6 +4857,7 @@ struct FunctionContext {
     locals: HashMap<String, Storage>,
     structs: HashMap<String, Vec<Field>>,
     enums: HashMap<String, Vec<EnumVariant>>,
+    repr_c_types: HashSet<String>,
     globals: HashMap<String, GlobalValue>,
     global_types: HashMap<String, Type>,
     aliases: HashMap<String, Type>,
@@ -8384,6 +8427,7 @@ impl FunctionContext {
             }
             "size-of" => self.layout_size_expression("size-of", items),
             "align-of" => self.layout_size_expression("align-of", items),
+            "offset-of" => self.layout_size_expression("offset-of", items),
             "match" => self.match_expression(items, None, None),
             "index" => self.index_expression(items),
             "get" => self.field_expression(items),
@@ -11407,11 +11451,35 @@ impl FunctionContext {
     }
 
     fn layout_size_expression(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
-        if items.len() != 2 {
-            return Err(format!("{operator} requires one type"));
+        let expected = if operator == "offset-of" { 3 } else { 2 };
+        if items.len() != expected {
+            return Err(format!(
+                "{operator} requires {}",
+                if operator == "offset-of" {
+                    "a type and field name"
+                } else {
+                    "one type"
+                }
+            ));
         }
         let ty = resolve_type(&parse_type(items.get(1))?, &self.aliases)?;
-        let value = if operator == "size-of" {
+        let value = if operator == "offset-of" {
+            let Type::Named(name) = &ty else {
+                return Err("offset-of requires a #repr-c struct type".into());
+            };
+            if !self.repr_c_types.contains(name) {
+                return Err(format!("offset-of requires '#repr-c' type '{name}'"));
+            }
+            let field_name = match items.get(2) {
+                Some(Expr::Symbol(field)) => field,
+                _ => return Err("offset-of field must be an identifier".into()),
+            };
+            let fields = self
+                .structs
+                .get(name)
+                .ok_or_else(|| format!("offset-of requires struct type '{name}'"))?;
+            self.c_field_offset(fields, field_name)?
+        } else if operator == "size-of" {
             self.native_type_size(&ty)?
         } else {
             self.native_type_align(&ty)?
@@ -11421,6 +11489,11 @@ impl FunctionContext {
     }
 
     fn native_type_align(&self, ty: &Type) -> Result<usize, String> {
+        if let Type::Named(name) = ty {
+            if self.repr_c_types.contains(name) {
+                return Ok(self.c_layout(ty)?.1);
+            }
+        }
         match ty {
             Type::Unit | Type::Never => Ok(1),
             Type::I128 | Type::U128 => Ok(8),
@@ -11453,6 +11526,11 @@ impl FunctionContext {
     }
 
     fn native_type_size(&self, ty: &Type) -> Result<usize, String> {
+        if let Type::Named(name) = ty {
+            if self.repr_c_types.contains(name) {
+                return Ok(self.c_layout(ty)?.0);
+            }
+        }
         match ty {
             Type::Unit | Type::Never => Ok(0),
             Type::I128 | Type::U128 => Ok(16),
@@ -11494,6 +11572,106 @@ impl FunctionContext {
             }
             Type::Generic(name) => Err(format!("generic type '{name}' has no concrete size")),
             _ => Ok(8),
+        }
+    }
+
+    fn c_field_offset(&self, fields: &[Field], wanted: &str) -> Result<usize, String> {
+        let mut offset = 0usize;
+        for field in fields {
+            let (size, align) = self.c_layout(&field.ty)?;
+            offset = round_up(offset, align)?;
+            if field.name == wanted {
+                return Ok(offset);
+            }
+            offset = offset
+                .checked_add(size)
+                .ok_or_else(|| "C layout size overflowed usize".to_owned())?;
+        }
+        Err(format!("unknown field '{wanted}' in #repr-c struct"))
+    }
+
+    fn c_layout(&self, ty: &Type) -> Result<(usize, usize), String> {
+        let scalar = match ty {
+            Type::Bool | Type::I8 | Type::U8 => Some((1, 1)),
+            Type::I16 | Type::U16 => Some((2, 2)),
+            Type::I32 | Type::U32 | Type::F32 => Some((4, 4)),
+            Type::I128 | Type::U128 => Some((16, 16)),
+            Type::I64
+            | Type::U64
+            | Type::Isize
+            | Type::Usize
+            | Type::F64
+            | Type::RawPointer { .. } => Some((8, 8)),
+            _ => None,
+        };
+        if let Some(layout) = scalar {
+            return Ok(layout);
+        }
+        match ty {
+            Type::Array(element, length) => {
+                let (size, align) = self.c_layout(element)?;
+                Ok((
+                    size.checked_mul(*length)
+                        .ok_or_else(|| "C layout size overflowed usize".to_owned())?,
+                    align,
+                ))
+            }
+            Type::Named(name) if self.repr_c_types.contains(name) => {
+                if let Some(fields) = self.structs.get(name) {
+                    let mut size = 0usize;
+                    let mut align = 1usize;
+                    for field in fields {
+                        let (field_size, field_align) = self.c_layout(&field.ty)?;
+                        size = round_up(size, field_align)?
+                            .checked_add(field_size)
+                            .ok_or_else(|| "C layout size overflowed usize".to_owned())?;
+                        align = align.max(field_align);
+                    }
+                    Ok((round_up(size, align)?, align))
+                } else if let Some(variants) = self.enums.get(name) {
+                    let mut payload_size = 0usize;
+                    let mut payload_align = 1usize;
+                    for variant in variants {
+                        let mut size = 0usize;
+                        let mut align = 1usize;
+                        for field in &variant.fields {
+                            let (field_size, field_align) = self.c_layout(field)?;
+                            size = round_up(size, field_align)?
+                                .checked_add(field_size)
+                                .ok_or_else(|| "C layout size overflowed usize".to_owned())?;
+                            align = align.max(field_align);
+                        }
+                        payload_size = payload_size.max(round_up(size, align)?);
+                        payload_align = payload_align.max(align);
+                    }
+                    let align = payload_align.max(4);
+                    let offset = round_up(4, payload_align)?;
+                    Ok((
+                        round_up(
+                            offset
+                                .checked_add(payload_size)
+                                .ok_or_else(|| "C layout size overflowed usize".to_owned())?,
+                            align,
+                        )?,
+                        align,
+                    ))
+                } else {
+                    Err(format!("unknown #repr-c type '{name}'"))
+                }
+            }
+            Type::Tuple(fields) => {
+                let mut size = 0usize;
+                let mut align = 1usize;
+                for field in fields {
+                    let (field_size, field_align) = self.c_layout(field)?;
+                    size = round_up(size, field_align)?
+                        .checked_add(field_size)
+                        .ok_or_else(|| "C layout size overflowed usize".to_owned())?;
+                    align = align.max(field_align);
+                }
+                Ok((round_up(size, align)?, align))
+            }
+            _ => Err(format!("type {ty:?} has no supported C layout")),
         }
     }
 

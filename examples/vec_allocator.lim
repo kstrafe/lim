@@ -9,9 +9,9 @@
 (#fn compare-u64 ((left (#ref u64)) (right (#ref u64))) bool
   (#return (#u64.< (#deref left) (#deref right))))
 
-(#extern-fn malloc ((size usize)) (#ptr-mut u64))
-(#extern-fn realloc ((pointer (#ptr-mut u64)) (size usize)) (#ptr-mut u64))
-(#extern-fn free ((pointer (#ptr-mut u64))) ())
+(#extern-fn #abi-c malloc ((size usize)) (#ptr-mut u64))
+(#extern-fn #abi-c realloc ((pointer (#ptr-mut u64)) (size usize)) (#ptr-mut u64))
+(#extern-fn #abi-c free ((pointer (#ptr-mut u64))) ())
 
 (#fn system-alloc
   ((allocator (#ref SystemAllocator)) (layout usize) (alignment usize))

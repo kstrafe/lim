@@ -3,7 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    parse_type, AutoTrait, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type,
+    parse_type, AutoTrait, CallingConvention, EnumVariant, Expr, Field, Function, Item, Program,
+    Representation, Statement, Type,
 };
 
 const LOOP_VALUE_CONTEXT: &str = "\0lim-loop-value";
@@ -16,6 +17,32 @@ struct Signature {
 }
 
 pub fn check_types(program: &Program) -> Result<(), String> {
+    for item in &program.items {
+        match item {
+            Item::Function(function)
+                if function.external != (function.calling_convention == CallingConvention::C) =>
+            {
+                return Err(format!(
+                    "function '{}' has an inconsistent calling convention",
+                    function.name
+                ))
+            }
+            Item::Enum {
+                name,
+                representation: Representation::C,
+                variants,
+                ..
+            } if variants
+                .iter()
+                .any(|variant| variant.discriminant > i32::MAX as u64) =>
+            {
+                return Err(format!(
+                    "#repr-c enum '{name}' discriminants must fit in signed 32-bit C int"
+                ))
+            }
+            _ => {}
+        }
+    }
     let mut declared_types = HashSet::new();
     for item in &program.items {
         match item {
@@ -3317,6 +3344,19 @@ fn list_expression(
             require_arity(operator, items, 2)?;
             let ty = resolve_type(&parse_type(items.get(1))?, aliases)?;
             validate_layout_type(&ty, structs, enums)?;
+            Ok(Type::Usize)
+        }
+        "offset-of" => {
+            require_arity(operator, items, 3)?;
+            let ty = resolve_type(&parse_type(items.get(1))?, aliases)?;
+            let Type::Named(name) = ty else {
+                return Err("offset-of requires a #repr-c struct type".into());
+            };
+            let field = match items.get(2) {
+                Some(Expr::Symbol(field)) => field,
+                _ => return Err("offset-of field must be an identifier".into()),
+            };
+            let _ = (name, field);
             Ok(Type::Usize)
         }
         "array" => {

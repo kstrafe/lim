@@ -166,9 +166,11 @@ the checklist is committed alongside the implementation it tracks.
   `#extern-fn` remains restricted to scalar signatures, while binary compilation
   accepts repeated `--link-lib` and `--link-object` arguments in deterministic
   object-before-library order after the built-in C and pthread libraries.
-- [ ] Specify and implement reusable ABI/layout guarantees for external
-  aggregates, including field order, alignment, enum representation, and
-  explicit calling-convention selection before widening FFI signatures.
+- [x] Specify reusable C layout metadata for external aggregates: explicit
+  `#repr-c`, declaration-order fields, natural alignment/padding, tagged-union
+  enum layout, `#size-of`/`#align-of`/`#offset-of`, and explicit `#abi-c` on
+  external functions. By-value aggregate FFI remains rejected until Lim's
+  runtime aggregate representation can match C's ABI.
 - [x] Define a recoverable compilation/linking diagnostic API end to end.
   `compile_source_to_assembly`, generated-source materialization, and
   `link_native_binary` return structured diagnostics with stable phase codes;

@@ -1027,10 +1027,23 @@ pub enum Statement {
 pub struct Function {
     pub name: String,
     pub external: bool,
+    pub calling_convention: CallingConvention,
     pub type_parameters: Vec<String>,
     pub parameters: Vec<Parameter>,
     pub return_type: Type,
     pub body: Vec<Statement>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CallingConvention {
+    Lim,
+    C,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Representation {
+    Lim,
+    C,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1062,11 +1075,13 @@ pub enum Item {
     Function(Function),
     Struct {
         name: String,
+        representation: Representation,
         type_parameters: Vec<String>,
         fields: Vec<Field>,
     },
     Enum {
         name: String,
+        representation: Representation,
         type_parameters: Vec<String>,
         variants: Vec<EnumVariant>,
     },
@@ -1721,6 +1736,7 @@ fn synthesize_thread_join_results(items: &mut Vec<Item>) -> Result<(), String> {
         };
         items.push(Item::Enum {
             name: format!("{name}-join-result"),
+            representation: Representation::Lim,
             type_parameters: Vec::new(),
             variants: vec![
                 EnumVariant {
@@ -2255,7 +2271,7 @@ fn rename_expression(
                         );
                     }
                 }
-                "as" | "size-of" | "align-of" => {
+                "as" | "size-of" | "align-of" | "offset-of" => {
                     for item in items
                         .iter_mut()
                         .skip(1)
@@ -2386,6 +2402,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "get-payload"
             | "size-of"
             | "align-of"
+            | "offset-of"
             | "assert"
             | "debug-assert"
             | "panic"
@@ -3436,9 +3453,13 @@ fn specialize_type(
             }
             let concrete = match template {
                 Item::Struct {
-                    name: _, fields, ..
+                    name: _,
+                    representation,
+                    fields,
+                    ..
                 } => Item::Struct {
                     name: specialized.clone(),
+                    representation,
                     type_parameters: Vec::new(),
                     fields: fields
                         .iter()
@@ -3457,9 +3478,13 @@ fn specialize_type(
                         .collect::<Result<Vec<_>, String>>()?,
                 },
                 Item::Enum {
-                    name: _, variants, ..
+                    name: _,
+                    representation,
+                    variants,
+                    ..
                 } => Item::Enum {
                     name: specialized.clone(),
+                    representation,
                     type_parameters: Vec::new(),
                     variants: variants
                         .iter()
@@ -3961,17 +3986,41 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
         "fn" => Ok(Item::Function(parse_function(items, false)?)),
         "extern-fn" => Ok(Item::Function(parse_function(items, true)?)),
         "struct" => {
-            let (type_parameters, field_index) = parse_type_parameters(items, 2)?;
+            let representation = if matches!(items.get(2), Some(Expr::Symbol(name)) if name == "repr-c")
+            {
+                Representation::C
+            } else {
+                Representation::Lim
+            };
+            let declaration_index = if representation == Representation::C {
+                3
+            } else {
+                2
+            };
+            let (type_parameters, field_index) = parse_type_parameters(items, declaration_index)?;
             Ok(Item::Struct {
                 name: expect_symbol(items.get(1), "struct name")?.to_owned(),
+                representation,
                 type_parameters: type_parameters.clone(),
                 fields: parse_struct_fields_at(items, field_index, &type_parameters)?,
             })
         }
         "enum" => {
-            let (type_parameters, variant_index) = parse_type_parameters(items, 2)?;
+            let representation = if matches!(items.get(2), Some(Expr::Symbol(name)) if name == "repr-c")
+            {
+                Representation::C
+            } else {
+                Representation::Lim
+            };
+            let declaration_index = if representation == Representation::C {
+                3
+            } else {
+                2
+            };
+            let (type_parameters, variant_index) = parse_type_parameters(items, declaration_index)?;
             Ok(Item::Enum {
                 name: expect_symbol(items.get(1), "enum name")?.to_owned(),
+                representation,
                 type_parameters: type_parameters.clone(),
                 variants: parse_enum_variants_at(items, variant_index, &type_parameters)?,
             })
@@ -4039,6 +4088,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
             let name = expect_symbol(items.get(3), "generated optional type name")?.to_owned();
             Ok(Item::Enum {
                 name: name.clone(),
+                representation: Representation::Lim,
                 type_parameters: Vec::new(),
                 variants: vec![
                     EnumVariant {
@@ -4066,6 +4116,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
             let name = expect_symbol(items.get(4), "generated result type name")?.to_owned();
             Ok(Item::Enum {
                 name: name.clone(),
+                representation: Representation::Lim,
                 type_parameters: Vec::new(),
                 variants: vec![
                     EnumVariant {
@@ -4104,6 +4155,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
             let name = expect_symbol(items.get(4), "generated vector type name")?.to_owned();
             Ok(Item::Struct {
                 name,
+                representation: Representation::Lim,
                 type_parameters: Vec::new(),
                 fields: vec![
                     Field {
@@ -4172,6 +4224,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
             task,
             Item::Enum {
                 name: spawn_error_name.clone(),
+                representation: Representation::Lim,
                 type_parameters: Vec::new(),
                 variants: vec![
                     EnumVariant {
@@ -4188,6 +4241,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
             },
             Item::Enum {
                 name: spawn_result_name,
+                representation: Representation::Lim,
                 type_parameters: Vec::new(),
                 variants: vec![
                     EnumVariant {
@@ -4255,6 +4309,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-construct"),
             external: false,
+            calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "value".into(),
@@ -4270,6 +4325,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-is-some"),
             external: false,
+            calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "value".into(),
@@ -4282,6 +4338,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-unwrap-or"),
             external: false,
+            calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![
                 Parameter {
@@ -4656,6 +4713,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-ok"),
             external: false,
+            calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "value".into(),
@@ -4671,6 +4729,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-err"),
             external: false,
+            calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "error".into(),
@@ -4686,6 +4745,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-is-ok"),
             external: false,
+            calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
                 name: "value".into(),
@@ -4698,6 +4758,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-unwrap-or"),
             external: false,
+            calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![
                 Parameter {
@@ -4717,6 +4778,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-unwrap-err-or"),
             external: false,
+            calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![
                 Parameter {
@@ -4886,12 +4948,16 @@ fn enum_discriminant(expression: &Expr) -> Option<u64> {
 }
 
 pub(crate) fn parse_function(items: &[Expr], external: bool) -> Result<Function, String> {
-    if items.len() < 4 {
+    let name_index = if external { 2 } else { 1 };
+    if external && !matches!(items.get(1), Some(Expr::Symbol(name)) if name == "abi-c") {
+        return Err("extern-fn requires an explicit #abi-c calling convention".into());
+    }
+    if items.len() < name_index + 3 {
         return Err("fn requires a name, parameter list, return type, and body".into());
     }
-    let name = expect_symbol(items.get(1), "function name")?.to_owned();
+    let name = expect_symbol(items.get(name_index), "function name")?.to_owned();
     let (type_parameters, parameter_index, return_index, body_index) =
-        if let Some(Expr::List(generic_items)) = items.get(2) {
+        if let Some(Expr::List(generic_items)) = items.get(name_index + 1) {
             if !generic_items.is_empty()
                 && generic_items
                     .iter()
@@ -4902,10 +4968,10 @@ pub(crate) fn parse_function(items: &[Expr], external: bool) -> Result<Function,
                         .into(),
                 );
             } else {
-                (Vec::new(), 2, 3, 4)
+                (Vec::new(), name_index + 1, name_index + 2, name_index + 3)
             }
         } else {
-            (Vec::new(), 2, 3, 4)
+            (Vec::new(), name_index + 1, name_index + 2, name_index + 3)
         };
     if items.len() <= return_index {
         return Err("fn requires a name, parameter list, return type, and body".into());
@@ -4954,6 +5020,11 @@ pub(crate) fn parse_function(items: &[Expr], external: bool) -> Result<Function,
     Ok(Function {
         name,
         external,
+        calling_convention: if external {
+            CallingConvention::C
+        } else {
+            CallingConvention::Lim
+        },
         type_parameters,
         parameters,
         return_type,
@@ -7322,7 +7393,7 @@ mod tests {
         let valid = parse_program("(#fn main () u64 (#return (#u64.+.wrap 40 2)))");
         assert!(valid.is_ok());
         let external = parse_program(
-            "(#extern-fn abs ((value i32)) i32) (#fn main () u64 (#return (#as (#unsafe (abs -42)) u64)))",
+            "(#extern-fn #abi-c abs ((value i32)) i32) (#fn main () u64 (#return (#as (#unsafe (abs -42)) u64)))",
         )
         .unwrap();
         assert!(check_types(&external).is_ok());
@@ -7330,7 +7401,7 @@ mod tests {
         assert!(external_assembly.contains(".extern abs"));
         assert!(external_assembly.contains("call abs"));
         let unsafe_boundary = parse_program(
-            "(#extern-fn abs ((value i32)) i32) (#fn main () u64 (#return (#as (abs -42) u64)))",
+            "(#extern-fn #abi-c abs ((value i32)) i32) (#fn main () u64 (#return (#as (abs -42) u64)))",
         )
         .unwrap();
         assert!(check_types(&unsafe_boundary)
@@ -9115,6 +9186,32 @@ mod tests {
             .contains("mov rax, 8"));
         let invalid = parse_program("(#fn main () usize (#return (#size-of Unknown)))").unwrap();
         assert!(check_types(&invalid).is_err());
+    }
+
+    #[test]
+    fn c_layout_is_explicit_and_reports_field_offsets() {
+        let program = parse_program("(#struct Point #repr-c ((x u8) (y u32) (z u16))) (#fn main () usize (#return (#offset-of Point y)))").unwrap();
+        assert!(check_types(&program).is_ok());
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("mov rax, 4"));
+        let size = parse_program("(#struct Point #repr-c ((x u8) (y u32) (z u16))) (#fn main () usize (#return (#size-of Point)))").unwrap();
+        assert!(generate_assembly(&size).unwrap().contains("mov rax, 12"));
+        let align = parse_program("(#struct Point #repr-c ((x u8) (y u32))) (#fn main () usize (#return (#align-of Point)))").unwrap();
+        assert!(generate_assembly(&align).unwrap().contains("mov rax, 4"));
+        let not_c = parse_program(
+            "(#struct Point ((x u64))) (#fn main () usize (#return (#offset-of Point x)))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&not_c).is_err());
+        let enum_layout = parse_program(
+            "(#enum Code #repr-c (Small Large)) (#fn main () usize (#return (#size-of Code)))",
+        )
+        .unwrap();
+        assert!(generate_assembly(&enum_layout)
+            .unwrap()
+            .contains("mov rax, 4"));
+        let bad_enum = parse_program("(#enum Code #repr-c ((TooLarge 2147483648))) (#fn main () usize (#return (#size-of Code)))").unwrap();
+        assert!(check_types(&bad_enum).is_err());
     }
 
     #[test]

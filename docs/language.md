@@ -515,12 +515,13 @@ generator to emit a concrete function for each required type combination.
 There are no implicit returns.  Every reachable function path must use
 `#return`; a unit return must use `(#return ())`.
 
-Native functions can be declared with `#extern-fn`. External declarations use
-the target's System V C ABI and must use directly passed scalar types. Calls
-are unsafe FFI boundaries and must be enclosed in `#unsafe`:
+Native functions declare their calling convention explicitly. `#abi-c` selects
+the target's C ABI; external signatures currently accept scalar values and raw
+pointers only. By-value aggregate FFI signatures remain rejected. Calls are unsafe FFI boundaries and must be enclosed in
+`#unsafe`:
 
 ```lisp
-(#extern-fn abs ((value i32)) i32)
+(#extern-fn #abi-c abs ((value i32)) i32)
 (#fn main () u64
   (#return (#as (#unsafe (abs -42i32)) u64)))
 ```
@@ -529,6 +530,20 @@ Binary compilation always links libc and pthread. Additional native link inputs
 can be supplied repeatedly with `--link-lib NAME` and `--link-object PATH`;
 object files are passed to `ld` before libraries, and libraries are emitted as
 `-lNAME` arguments. These options apply to binary output, not `--emit-asm`.
+
+### C aggregate layout
+
+`#repr-c` opts a struct or enum into the x86-64 System V C layout. Struct
+fields follow declaration order, with natural field alignment and tail
+padding. `#size-of` and `#align-of` report this layout for marked types;
+`#offset-of Type field` reports a marked struct field's byte offset. Payload
+enums use a signed 32-bit C `int` tag followed by a maximally sized and aligned
+union of variant payload structs; fieldless enums use the same 32-bit tag.
+Discriminants must fit in signed 32-bit C `int`. These guarantees currently
+apply to layout queries only: Lim's runtime aggregate storage still uses its
+internal flattened representation, so `#repr-c` values must not be reinterpreted
+as C memory or passed through FFI. By-value aggregate FFI and field access
+through external aggregate pointers remain unsupported.
 
 ### Type aliases
 
