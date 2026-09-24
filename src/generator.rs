@@ -77,12 +77,17 @@ fn declared_lim_function_signatures(
             .collect::<Vec<_>>();
         let signature = format!("{arguments:?}->{:?}", function.return_type);
         if signatures.contains_key(&function.name) {
+            let name_span = expression
+                .children
+                .get(1)
+                .filter(|name| matches!(&name.expr, Expr::Symbol(name) if name == &function.name))
+                .map_or(expression.span, |name| name.span);
             return Err(at_span(
                 format!(
                     "duplicate function '{}' while resolving generator capability contracts",
                     function.name
                 ),
-                expression.span,
+                name_span,
                 "function declaration",
             ));
         }

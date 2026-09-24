@@ -448,6 +448,9 @@ fn compilation_errors_render_the_offending_source_line() {
             "recursive-alias" => Some("Second"),
             "repr-c-discriminant" => Some("2147483648"),
             "duplicate-type" => Some("Token"),
+            "duplicate-field" => Some("x"),
+            "duplicate-variant" | "duplicate-variant-global" => Some("Open"),
+            "duplicate-parameter" => Some("value"),
             "duplicate-global" => Some("COUNT"),
             "unsafe-impl" => Some("Missing"),
             "unknown-local-type" => Some("Missing"),
@@ -464,6 +467,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "thread-task-function-signature" => Some("Task"),
             "thread-task-type-alias" => Some("Task"),
             "thread-task-field" => Some("Task"),
+            "duplicate-function" => Some("main"),
             "unsafe" => Some("VALUE"),
             "borrow" => Some("#set"),
             "linear" => Some("resource"),
@@ -479,9 +483,18 @@ fn compilation_errors_render_the_offending_source_line() {
                 .find(|line| line.contains(case.offending_line))
                 .unwrap();
             let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            let expected_column = if matches!(
+            let expected_column = if case.name == "duplicate-parameter" {
+                source_row
+                    .match_indices(fragment)
+                    .nth(1)
+                    .map(|(column, _)| column)
+            } else if matches!(
                 case.name,
-                "thread-worker-reference-result" | "thread-task-type-alias"
+                "thread-worker-reference-result"
+                    | "thread-task-type-alias"
+                    | "duplicate-field"
+                    | "duplicate-variant"
+                    | "duplicate-function"
             ) {
                 source_row.rfind(fragment)
             } else {
