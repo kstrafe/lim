@@ -1072,6 +1072,7 @@ Type errors for invalid `index`, `slice-of`, `slice-len`, `get`, `get-payload`, 
 `deref-set` operands underline the argument with the incompatible shape.
 Generator capability-contract errors underline the implicated operation name,
 including the second spelling in a duplicate-operation error.
+Generator-function recursion errors underline the recursive `#gn-call` target.
 Duplicate capability/type pairs and duplicate generator declarations underline
 the repeated type or generator name.
 Invalid array/struct assignment targets underline the named target.

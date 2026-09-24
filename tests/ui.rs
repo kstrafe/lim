@@ -585,6 +585,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "thread-task-field" => Some("Task"),
             "duplicate-function" => Some("main"),
             "generator-capability" => Some("missing"),
+            "generator-function-recursion" => Some("first"),
             "generator-capability-signature" => Some("compare"),
             "generator-capability-duplicate-operation" => Some("compare"),
             "generator-capability-duplicate-type" => Some("u64"),

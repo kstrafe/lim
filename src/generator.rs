@@ -23,6 +23,7 @@ struct Generator {
     parameters: Vec<GeneratorParameter>,
     body: Expr,
     span: Span,
+    source_body: Option<SpannedExpr>,
 }
 
 type GeneratorFunction = Generator;
@@ -258,7 +259,7 @@ fn expand_with_generated_cached_and_hits(
                 continue;
             }
             if is_operator(items.first(), "#generator") {
-                let generator = parse_generator(items, expression.span)
+                let generator = parse_generator(items, &expression)
                     .map_err(|error| at_span(error, expression.span, "generator declaration"))?;
                 let name = symbol(items.get(1), "generator name")?.to_owned();
                 if functions.contains_key(&name) {
@@ -288,10 +289,9 @@ fn expand_with_generated_cached_and_hits(
                 continue;
             }
             if is_operator(items.first(), "#gn-fn") {
-                let function =
-                    parse_generator_function(items, expression.span).map_err(|error| {
-                        at_span(error, expression.span, "generator function declaration")
-                    })?;
+                let function = parse_generator_function(items, &expression).map_err(|error| {
+                    at_span(error, expression.span, "generator function declaration")
+                })?;
                 let name = symbol(items.get(1), "generator function name")?.to_owned();
                 if generators.contains_key(&name)
                     || functions.insert(name.clone(), function).is_some()
@@ -331,7 +331,20 @@ fn expand_with_generated_cached_and_hits(
             responsible_function
                 .and_then(|name| functions.get(name))
                 .map_or(error.clone(), |function| {
-                    at_span(error, function.span, "generator function")
+                    let callee = error
+                        .strip_prefix("recursive generator function calls are not allowed: ")
+                        .and_then(|cycle| cycle.split(" -> ").last());
+                    let call_span = callee.and_then(|callee| {
+                        function
+                            .source_body
+                            .as_ref()
+                            .and_then(|body| generator_call_span(body, callee))
+                    });
+                    at_span(
+                        error,
+                        call_span.unwrap_or(function.span),
+                        "generator function",
+                    )
                 })
         })?;
     let generator_hashes = generator_hashes(&generators, &function_hashes, interpreter_hash);
@@ -405,18 +418,21 @@ fn expand_with_generated_cached_and_hits(
     Ok(((output, generated), context.cache_hits))
 }
 
-fn parse_generator_function(items: &[Expr], span: Span) -> Result<GeneratorFunction, String> {
+fn parse_generator_function(
+    items: &[Expr],
+    source: &SpannedExpr,
+) -> Result<GeneratorFunction, String> {
     if items.len() != 4 {
         return Err("#gn-fn requires a name, parameter list, and body".into());
     }
-    parse_generator(items, span).map_err(|error| {
+    parse_generator(items, source).map_err(|error| {
         error
             .replace("#generator", "#gn-fn")
             .replace("generator '", "generator function '")
     })
 }
 
-fn parse_generator(items: &[Expr], span: Span) -> Result<Generator, String> {
+fn parse_generator(items: &[Expr], source: &SpannedExpr) -> Result<Generator, String> {
     if items.len() != 4 {
         return Err("#generator requires a name, parameter list, and body".into());
     }
@@ -462,8 +478,23 @@ fn parse_generator(items: &[Expr], span: Span) -> Result<Generator, String> {
     Ok(Generator {
         parameters: names,
         body: items[3].clone(),
-        span,
+        span: source.span,
+        source_body: source.children.get(3).cloned(),
     })
+}
+
+fn generator_call_span(expression: &SpannedExpr, callee: &str) -> Option<Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "#gn-call")
+            && matches!(items.get(1), Some(Expr::Symbol(name)) if name == callee)
+        {
+            return expression.children.get(1).map(|name| name.span);
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| generator_call_span(child, callee))
 }
 
 struct Budget {
