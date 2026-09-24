@@ -1120,7 +1120,8 @@ underlines the returned expression.
 Tuple and array constructor element type errors underline the specific
 incompatible element, even when another element has the same actual type.
 Aggregate constructor arity errors underline an extra value or the constructor
-head when an element is missing.
+head when an element is missing; nested tuple mismatch coverage confirms the
+inner expression does not steal the outer diagnostic span.
 Borrow conflict spans select the accessed binding rather than a same-named
 field selector, call callee, or named-argument label in the same expression.
 

@@ -232,7 +232,8 @@ the checklist is committed alongside the implementation it tracks.
   expression, covered by a UI test. Tuple and array construction diagnostics
   retain the mismatching element index and underline that element rather than
   another value with the same inferred type; extra constructor values and
-  missing-element constructor heads are also pinpointed. Borrow conflicts distinguish an
+  missing-element constructor heads are also pinpointed, including nested
+  tuple constructors. Borrow conflicts distinguish an
   accessed binding from a same-named struct field selector, call callee, or
   named-argument label.
   Unknown named types in local `#let` annotations underline the annotation,
