@@ -1,0 +1,3 @@
+(#fn main () u64
+  (#let values (#array u64 1) (#array 1u64))
+  (#return (#index values true)))

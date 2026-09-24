@@ -2005,6 +2005,20 @@ fn precise_type_error_span(
 fn type_error_argument_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
     let (operators, argument) = if error == "index requires an array" {
         (&["index"][..], 1)
+    } else if error == "array index must be an integer"
+        || error.starts_with("array index ") && error.contains(" is out of bounds")
+    {
+        (&["index"][..], 2)
+    } else if error.starts_with("if condition has type ") {
+        (&["if"][..], 1)
+    } else if error.starts_with("while condition has type ") {
+        (&["while"][..], 1)
+    } else if error.starts_with("for condition has type ") {
+        (&["for"][..], 2)
+    } else if error.starts_with("shift count ") {
+        (&["<<", ">>"][..], 2)
+    } else if error == "unary '-' requires a numeric operand" {
+        (&["-"][..], 1)
     } else if error.starts_with("slice requires ")
         || error == "slice-len requires a slice"
         || error == "slice-idx requires a slice"
@@ -2041,10 +2055,15 @@ fn find_operator_argument(
     argument: usize,
 ) -> Option<crate::Span> {
     if let Expr::List(items) = &expression.expr {
-        if matches!(items.first(), Some(Expr::Symbol(head)) if operators.iter().any(|operator| head.strip_prefix('#').unwrap_or(head) == *operator))
-        {
-            if let Some(argument) = expression.children.get(argument) {
-                return Some(argument.span);
+        if let Some(Expr::Symbol(head)) = items.first() {
+            let normalized = head.strip_prefix('#').unwrap_or(head);
+            if operators.iter().any(|operator| {
+                normalized == *operator
+                    || normalized.split('.').skip(1).any(|part| part == *operator)
+            }) {
+                if let Some(argument) = expression.children.get(argument) {
+                    return Some(argument.span);
+                }
             }
         }
     }

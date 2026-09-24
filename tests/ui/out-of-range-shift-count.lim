@@ -1,0 +1,2 @@
+(#fn main () u8
+  (#return (#u8.<< 1u8 8)))

@@ -204,7 +204,8 @@ the checklist is committed alongside the implementation it tracks.
   constructor. Mutable-borrow-through-immutable-reference errors underline
   the owner argument. Invalid operands to `index`, `slice-of`, `slice-len`,
   `get`, `get-payload`, and `deref-set` also receive argument-level spans with
-  UI coverage. Generator capability checks now pinpoint missing, mismatched,
+  UI coverage. Invalid conditions, array indices, and out-of-range shift counts
+  also select their offending operand. Generator capability checks now pinpoint missing, mismatched,
   and duplicate operation names, including the later duplicate occurrence;
   duplicate capability/type pairs and generator declarations point at their
   repeated identifier. Generator-function recursion diagnostics underline the

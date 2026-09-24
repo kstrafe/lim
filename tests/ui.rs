@@ -71,6 +71,24 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "nonboolean-if-condition",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#if 1u64 2u64 3u64))",
+            line_number: 2,
+        },
+        Case {
+            name: "noninteger-array-index",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#index values true))",
+            line_number: 3,
+        },
+        Case {
+            name: "out-of-range-shift-count",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#u8.<< 1u8 8))",
+            line_number: 2,
+        },
+        Case {
             name: "unknown-function",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#call missing (#fn-args)))",
@@ -592,6 +610,9 @@ fn compilation_errors_render_the_offending_source_line() {
         let precise_fragment = match case.name {
             "operator-arity" => Some("#u64.+.wrap"),
             "unknown-function" => Some("missing"),
+            "nonboolean-if-condition" => Some("1u64"),
+            "noninteger-array-index" => Some("true"),
+            "out-of-range-shift-count" => Some("8"),
             "recursive-alias" => Some("Second"),
             "repr-c-discriminant" => Some("2147483648"),
             "duplicate-type" => Some("Token"),
@@ -667,11 +688,11 @@ fn compilation_errors_render_the_offending_source_line() {
                     .match_indices(fragment)
                     .nth(1)
                     .map(|(column, _)| column)
-            } else if case.name == "destructure-type-mismatch" {
-                source_row
-                    .match_indices(fragment)
-                    .nth(1)
-                    .map(|(column, _)| column)
+            } else if matches!(
+                case.name,
+                "destructure-type-mismatch" | "out-of-range-shift-count"
+            ) {
+                source_row.rfind(fragment)
             } else if matches!(
                 case.name,
                 "thread-worker-reference-result"
