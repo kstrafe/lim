@@ -1857,6 +1857,9 @@ fn precise_type_error_span(
             return Some(span);
         }
     }
+    if let Some(span) = type_error_argument_span(value, error) {
+        return Some(span);
+    }
     if let Some(name) = error
         .split_once("expected Named(\"")
         .and_then(|(_, rest)| rest.split_once('\"').map(|(name, _)| name))
@@ -1892,6 +1895,52 @@ fn precise_type_error_span(
         }
     }
     Some(value.span)
+}
+
+fn type_error_argument_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
+    let (operators, argument) = if error == "index requires an array" {
+        (&["index"][..], 1)
+    } else if error.starts_with("slice requires ")
+        || error == "slice-len requires a slice"
+        || error == "slice-idx requires a slice"
+    {
+        let operators: &[&str] = if error.starts_with("slice requires ") {
+            &["slice"]
+        } else if error == "slice-len requires a slice" {
+            &["slice-len"]
+        } else {
+            &["slice-idx"]
+        };
+        return find_operator_argument(expression, operators, 1);
+    } else if error == "get requires a struct or tuple value" {
+        (&["get"][..], 1)
+    } else if error == "get-payload requires an enum value" {
+        (&["get-payload"][..], 1)
+    } else if error == "deref-set requires a mutable reference" {
+        (&["deref-set"][..], 1)
+    } else {
+        return None;
+    };
+    find_operator_argument(expression, operators, argument)
+}
+
+fn find_operator_argument(
+    expression: &crate::SpannedExpr,
+    operators: &[&str],
+    argument: usize,
+) -> Option<crate::Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if operators.iter().any(|operator| head.strip_prefix('#').unwrap_or(head) == *operator))
+        {
+            if let Some(argument) = expression.children.get(argument) {
+                return Some(argument.span);
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| find_operator_argument(child, operators, argument))
 }
 
 fn typed_operator_qualifier<'a>(

@@ -1,0 +1,4 @@
+(#fn main () u64
+  (#let value u64 1u64)
+  (#deref-set value 2u64)
+  (#return 0u64))
