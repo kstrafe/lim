@@ -61,6 +61,11 @@ fn precise_unsafe_span(expression: &crate::SpannedExpr, error: &str) -> Option<c
             return Some(expression.span);
         }
         if let Expr::List(items) = &expression.expr {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "#call" | "call"))
+                && matches!(items.get(1), Some(Expr::Symbol(callee)) if callee == target)
+            {
+                return expression.children.get(1).map(|callee| callee.span);
+            }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == target || operator.strip_prefix('#') == Some(target))
             {
                 return expression.children.first().map(|head| head.span);

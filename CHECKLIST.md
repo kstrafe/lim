@@ -200,13 +200,14 @@ the checklist is committed alongside the implementation it tracks.
   unknown cfg keys underline the referenced key token.
   `Send` failures on thread workers now underline the offending parameter type,
   not the unrelated worker return type, even when an earlier local has the
-  same name as the unknown type. Diagnostic hunks expand tabs at
+  same name as the unknown type. Unsafe external calls underline the callee
+  in `#call` syntax, and raw-pointer safety errors underline their builtin.
+  Diagnostic hunks expand tabs at
   four-column stops before positioning underlines; common wide and combining
   Unicode characters are included in display-column calculations, and lexer
   columns count Unicode scalars to match the renderer.
-  Non-constant global
-  initializers now highlight a nested `#call` that makes the initializer
-  invalid instead of the larger enclosing constant expression. Imported
+  Non-constant global initializers now highlight a nested `#call` that makes
+  the initializer invalid instead of the larger enclosing constant expression.
   Imported and generated-source parser errors retain their original lexer or
   parser spans instead of reconstructing one-character spans from locations;
   this covers quoted tokens with whitespace and escaped quotes. UI
@@ -227,8 +228,9 @@ the checklist is committed alongside the implementation it tracks.
   the owner argument. Invalid operands to `index`, `slice-of`, `slice-len`,
   `get`, `get-payload`, and `deref-set` also receive argument-level spans with
   UI coverage. Invalid conditions, array indices, and out-of-range shift counts
-  also select their offending operand. Generator capability checks now pinpoint missing, mismatched,
-  and duplicate operation names, including the later duplicate occurrence;
+  also select their offending operand. Generator capability checks now pinpoint
+  missing, mismatched, and duplicate operation names, including the later
+  duplicate occurrence;
   duplicate capability/type pairs and generator declarations point at their
   repeated identifier. Generator-function recursion diagnostics underline the
   recursive `#gn-call` target, and duplicate generator parameters underline

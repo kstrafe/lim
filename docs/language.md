@@ -1088,6 +1088,8 @@ Generator-function recursion errors underline the recursive `#gn-call` target.
 Duplicate generator parameters underline the repeated parameter name.
 Unknown worker parameter types are resolved to the worker signature even when
 an unrelated earlier local has the same name.
+Unsafe external calls in named `#call` syntax underline the callee; raw-pointer
+operation errors underline the offending builtin name.
 Duplicate capability/type pairs and duplicate generator declarations underline
 the repeated type or generator name.
 Invalid array/struct assignment targets underline the named target.

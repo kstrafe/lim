@@ -150,6 +150,18 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "unsafe-external-call",
+            diagnostic_code: "E4300",
+            offending_line: "  (#let result i32 (#call external-value (#fn-args (value 1i32))))",
+            line_number: 3,
+        },
+        Case {
+            name: "unsafe-pointer-op",
+            diagnostic_code: "E4300",
+            offending_line: "  (#return (#ptr-read pointer))",
+            line_number: 2,
+        },
+        Case {
             name: "generator",
             diagnostic_code: "E3000",
             offending_line: "(@fail)",
@@ -670,6 +682,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "duplicate-generator" => Some("make"),
             "duplicate-generator-parameter" => Some("x"),
             "unsafe" => Some("VALUE"),
+            "unsafe-external-call" => Some("external-value"),
+            "unsafe-pointer-op" => Some("#ptr-read"),
             "borrow" => Some("#set"),
             "linear" => Some("resource"),
             "generator" | "generator-imported" => Some("(@fail)"),
