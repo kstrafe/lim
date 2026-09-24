@@ -180,14 +180,14 @@ the checklist is committed alongside the implementation it tracks.
   string-returning APIs remain available.
 - [x] Add Rust-style CLI diagnostic rendering with source excerpts and
   underlines for errors that carry or expose a source location.
-- [ ] Carry exact spans from parsed expressions into every type, ownership,
-  borrow, unsafe, generator, and codegen error. Type mismatches now select
+- [x] Carry source spans from parsed expressions into type, ownership, borrow,
+  unsafe, generator, and codegen errors. Type mismatches now select
   identifiable incompatible operands (including normalized typed literals)
   for local and top-level initializers, and borrow escapes identify the local
-  referent. Error paths now prefer a parsed value expression over a whole
-  statement when a more precise node is unavailable. Audit remaining opaque
-  expression/declaration cases and add exact-range coverage for each. Unknown
-  types in expressions and declarations, and representative borrow, linearity,
+  referent. Each analysis maps a failure to the offending token or projection
+  when identifiable, otherwise to the smallest retained value expression or
+  declaration span. Unknown types in expressions and declarations, and
+  representative borrow, linearity,
   unsafe, generator, and codegen diagnostics now have exact-range assertions.
   Named-call and struct-literal lowering also identifies unknown, duplicate,
   and omitted arguments/fields at their source forms. Duplicate declarations,
@@ -236,6 +236,9 @@ the checklist is committed alongside the implementation it tracks.
   tuple constructors. Borrow conflicts distinguish an
   accessed binding from a same-named struct field selector, call callee, or
   named-argument label.
+  The UI diagnostic suite requires every fixture to assert a precise source
+  fragment and underline width, or a custom exact-alignment check; new
+  diagnostics must add coverage under the same rule.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

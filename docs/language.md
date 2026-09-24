@@ -1130,10 +1130,11 @@ with an underline. The parsed source tree retains recursive spans, and the
 type, ownership, borrow, unsafe, generator, and code-generation phases use
 them where their checks identify a source expression. Statement-level checks
 prefer their value expression over the enclosing statement when a more
-precise node is not available. Some diagnostics still highlight an enclosing
-expression or declaration when an analysis error does not retain its
-responsible AST node. Complete exact-span propagation through every analysis
-result remains tracked work.
+precise token or projection is not available. In that case the diagnostic
+uses the smallest retained expression or declaration span. The UI suite
+requires each diagnostic fixture to assert an exact source fragment and
+underline width, or a custom exact-alignment check, so future diagnostics keep
+this source-location contract.
 Diagnostic source hunks expand tabs at four-column stops before aligning the
 underline, and account for common wide and combining Unicode characters, so
 the displayed code and caret use the same columns. Lexer column positions count
