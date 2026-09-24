@@ -1,0 +1,2 @@
+(#fn main () u64
+  (#return (#match #\a (#\b 0u64) (#\b 1u64))))

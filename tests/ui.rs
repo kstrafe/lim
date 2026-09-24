@@ -373,6 +373,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "duplicate-character-match-pattern",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match #\\a (#\\b 0u64) (#\\b 1u64)))",
+            line_number: 2,
+        },
+        Case {
             name: "out-of-range-match-range",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#match value ((#range 2 300) 0u64) (_ 1u64)))",
@@ -568,6 +574,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "duplicate-wildcard-match-pattern" => Some("_"),
             "out-of-range-match-integer" => Some("300"),
             "duplicate-match-integer" => Some("2"),
+            "duplicate-character-match-pattern" => Some("#\\b"),
             "out-of-range-match-range" => Some("(#range 2 300)"),
             "reversed-match-range" => Some("2"),
             "non-reference-deref-set" => Some("value"),
@@ -617,6 +624,7 @@ fn compilation_errors_render_the_offending_source_line() {
                     | "duplicate-enum-match-pattern"
                     | "duplicate-wildcard-match-pattern"
                     | "duplicate-match-integer"
+                    | "duplicate-character-match-pattern"
             ) {
                 source_row.rfind(fragment)
             } else {

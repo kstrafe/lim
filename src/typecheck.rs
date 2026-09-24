@@ -1891,6 +1891,11 @@ fn precise_type_error_span(
             return Some(span);
         }
     }
+    if error.starts_with("duplicate character match pattern") {
+        if let Some(span) = last_match_pattern_char_span(statement) {
+            return Some(span);
+        }
+    }
     let integer_pattern = error
         .strip_prefix("integer match pattern ")
         .or_else(|| error.strip_prefix("unsigned integer match pattern "))
@@ -2277,6 +2282,35 @@ fn last_match_pattern_integer_span(
     }
     let mut spans = Vec::new();
     collect_patterns(expression, target, &mut spans);
+    spans.into_iter().max_by_key(|span| span.start)
+}
+
+fn last_match_pattern_char_span(expression: &crate::SpannedExpr) -> Option<crate::Span> {
+    fn collect_chars(expression: &crate::SpannedExpr, spans: &mut Vec<crate::Span>) {
+        if matches!(expression.expr, Expr::Char(_)) {
+            spans.push(expression.span);
+        }
+        for child in &expression.children {
+            collect_chars(child, spans);
+        }
+    }
+    fn collect_patterns(expression: &crate::SpannedExpr, spans: &mut Vec<crate::Span>) {
+        if let Expr::List(items) = &expression.expr {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator.strip_prefix('#').unwrap_or(operator) == "match")
+            {
+                for arm in expression.children.iter().skip(2) {
+                    if let Some(pattern) = arm.children.first() {
+                        collect_chars(pattern, spans);
+                    }
+                }
+            }
+        }
+        for child in &expression.children {
+            collect_patterns(child, spans);
+        }
+    }
+    let mut spans = Vec::new();
+    collect_patterns(expression, &mut spans);
     spans.into_iter().max_by_key(|span| span.start)
 }
 
