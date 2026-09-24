@@ -1068,6 +1068,8 @@ generated task type token.
 Unknown named types in local `#let` annotations underline the type token,
 including diagnostics formatted as expected-type mismatches.
 Immutable-assignment diagnostics underline the target binding.
+Named-type mismatches in destructuring lets underline the annotation, even when
+the pattern constructor has the same name.
 Type errors for invalid `index`, `slice-of`, `slice-len`, `get`, `get-payload`, and
 `deref-set` operands underline the argument with the incompatible shape.
 Builtin arity errors underline the operator identifier, retaining its qualified

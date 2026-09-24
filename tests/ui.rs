@@ -283,6 +283,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 1,
         },
         Case {
+            name: "destructure-type-mismatch",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let (Point x) Point value)",
+            line_number: 4,
+        },
+        Case {
             name: "immutable-assignment",
             diagnostic_code: "E4000",
             offending_line: "  (#set value 2u64)",
@@ -583,6 +589,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "duplicate-global" => Some("COUNT"),
             "unsafe-impl" => Some("Missing"),
             "unknown-local-type" => Some("Missing"),
+            "destructure-type-mismatch" => Some("Point"),
             "immutable-assignment" => Some("value"),
             "non-array-index" => Some("value"),
             "non-array-assignment" => Some("value"),
@@ -639,6 +646,11 @@ fn compilation_errors_render_the_offending_source_line() {
                     .nth(1)
                     .map(|(column, _)| column)
             } else if case.name == "generator-capability-duplicate-operation" {
+                source_row
+                    .match_indices(fragment)
+                    .nth(1)
+                    .map(|(column, _)| column)
+            } else if case.name == "destructure-type-mismatch" {
                 source_row
                     .match_indices(fragment)
                     .nth(1)

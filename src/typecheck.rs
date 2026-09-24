@@ -1840,7 +1840,8 @@ fn precise_type_error_span(
         .strip_prefix("unknown type '")
         .and_then(|tail| tail.split('\'').next());
     if let Some(name) = unknown_type {
-        return first_symbol_span(statement, name)
+        return declared_type_span(statement, name)
+            .or_else(|| first_symbol_span(statement, name))
             .or_else(|| first_symbol_span(value, name))
             .or(Some(value.span));
     }
@@ -1964,6 +1965,9 @@ fn precise_type_error_span(
         .split_once("expected Named(\"")
         .and_then(|(_, rest)| rest.split_once('\"').map(|(name, _)| name))
     {
+        if let Some(span) = declared_type_span(statement, name) {
+            return Some(span);
+        }
         if let Some(span) = first_symbol_span(statement, name) {
             return Some(span);
         }
@@ -2205,6 +2209,21 @@ fn first_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<cr
         .iter()
         .skip(start)
         .find_map(|child| first_symbol_span(child, target))
+}
+
+fn declared_type_span(statement: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
+    let Expr::List(items) = &statement.expr else {
+        return None;
+    };
+    if !matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut" | "#let-else"))
+    {
+        return None;
+    }
+    statement
+        .children
+        .get(2)
+        .filter(|ty| matches!(&ty.expr, Expr::Symbol(name) if name == target))
+        .map(|ty| ty.span)
 }
 
 fn type_pattern_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {
