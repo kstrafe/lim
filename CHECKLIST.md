@@ -213,6 +213,8 @@ the checklist is committed alongside the implementation it tracks.
   repeated `#get` projection, and repeated array-element moves underline the
   repeated `#index`, instead of the enclosing `#let` statement. CLI tests
   assert full unterminated-string spans and zero-width end-of-file parse spans.
+  Every UI fixture is required to declare a precise fragment or a custom
+  alignment assertion.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

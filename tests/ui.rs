@@ -672,12 +672,28 @@ fn compilation_errors_render_the_offending_source_line() {
             "unsafe" => Some("VALUE"),
             "borrow" => Some("#set"),
             "linear" => Some("resource"),
+            "generator" | "generator-imported" => Some("(@fail)"),
             "nonconstant-static" => Some("(#call get-value (#fn-args))"),
             "call-arguments" => Some("other"),
             "call-missing-argument" => Some("#fn-args"),
             "struct-literal" => Some("((y 1u64))"),
             _ => None,
         };
+        let has_custom_alignment = matches!(
+            case.name,
+            "parse"
+                | "mismatched-let"
+                | "nested-mismatch"
+                | "top-level-mismatch"
+                | "struct-literal-duplicate-field"
+                | "call-duplicate-argument"
+                | "thread-worker-unknown-type"
+        );
+        assert!(
+            precise_fragment.is_some() || has_custom_alignment,
+            "UI case {} must assert an exact source fragment or custom alignment",
+            case.name
+        );
         if let Some(fragment) = precise_fragment {
             let source_row = stderr
                 .lines()

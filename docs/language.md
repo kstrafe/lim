@@ -1124,7 +1124,8 @@ recursive calls, and code-generation failures as well as checking their lines.
 Repeated moves of linear fields and array elements identify their repeated
 `#get` or `#index` projections.
 The UI tests also verify full unterminated-string spans and zero-width EOF
-locations for incomplete lists.
+locations for incomplete lists. Each UI fixture must provide an exact
+highlighted fragment or an explicit custom caret-alignment assertion.
 
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures
