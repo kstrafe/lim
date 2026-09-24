@@ -374,12 +374,23 @@ the first existing file wins.
 Projects may add a `lim.project` manifest beside the root source:
 
 ```text
+schema-version = 1
 name = "example"
+source-root = "src"
+output-dir = "build"
 module-path = "modules"
+target = "x86_64-sysv"
+link-lib = "m"
+link-object = "native/support.o"
 ```
 
-The CLI loads manifest-relative module paths automatically. Unknown keys and
-missing names are errors.
+All paths are relative to the manifest. The CLI adds the source root and
+module paths to import search, defaults binary output into the output
+directory, and applies the manifest target unless `--target` overrides it.
+Repeated `link-lib` and `link-object` entries add linker inputs. Schema version
+1 validates required name/version, supported target names, existing source and
+module directories, duplicate module roots, and existing object files; unknown
+keys are errors.
 
 ## Lexical syntax
 

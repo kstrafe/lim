@@ -1095,19 +1095,33 @@ pub struct CompileConfig {
     module_paths: Vec<PathBuf>,
 }
 
-/// Minimal project metadata used to discover stable module roots.
+/// Versioned project settings consumed by the command-line build driver.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectMetadata {
+    pub schema_version: u32,
     pub name: String,
+    pub source_root: PathBuf,
+    pub output_directory: PathBuf,
     pub module_paths: Vec<PathBuf>,
+    pub target: Option<TargetDescription>,
+    pub link_libraries: Vec<String>,
+    pub link_objects: Vec<PathBuf>,
 }
 
-/// Read a dependency-free `lim.project` manifest.
+/// Read and validate a dependency-free, versioned `lim.project` manifest.
 pub fn read_project(path: &Path) -> Result<ProjectMetadata, String> {
     let source = fs::read_to_string(path)
         .map_err(|error| format!("cannot read project manifest '{}': {error}", path.display()))?;
+    let base = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut schema_version = None;
     let mut name = None;
+    let mut source_root = None;
+    let mut output_directory = None;
     let mut module_paths = Vec::new();
+    let mut target = None;
+    let mut link_libraries = Vec::new();
+    let mut link_objects = Vec::new();
+    let mut singular_keys = HashSet::new();
     for (line_number, line) in source.lines().enumerate() {
         let line = line.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
@@ -1120,12 +1134,34 @@ pub fn read_project(path: &Path) -> Result<ProjectMetadata, String> {
                 line_number + 1
             )
         })?;
+        let key = key.trim();
         let value = value.trim().trim_matches('"');
-        match key.trim() {
-            "name" if !value.is_empty() => name = Some(value.to_owned()),
-            "module-path" if !value.is_empty() => {
-                module_paths.push(path.parent().unwrap_or_else(|| Path::new(".")).join(value))
+        let repeatable = matches!(key, "module-path" | "link-lib" | "link-object");
+        if !repeatable && !singular_keys.insert(key.to_owned()) {
+            return Err(format!(
+                "{}:{}: duplicate manifest key '{key}'",
+                path.display(),
+                line_number + 1
+            ));
+        }
+        match key {
+            "schema-version" if value == "1" => schema_version = Some(1),
+            "schema-version" => {
+                return Err(format!(
+                    "{}:{}: unsupported schema-version '{value}' (expected 1)",
+                    path.display(),
+                    line_number + 1
+                ))
             }
+            "name" if !value.is_empty() => name = Some(value.to_owned()),
+            "source-root" if !value.is_empty() => source_root = Some(base.join(value)),
+            "output-dir" if !value.is_empty() => output_directory = Some(base.join(value)),
+            "target" if !value.is_empty() => target = Some(TargetDescription::parse(value)?),
+            "module-path" if !value.is_empty() => module_paths.push(base.join(value)),
+            "link-lib" if !value.is_empty() && !value.starts_with('-') => {
+                link_libraries.push(value.to_owned())
+            }
+            "link-object" if !value.is_empty() => link_objects.push(base.join(value)),
             other => {
                 return Err(format!(
                     "{}:{}: unknown manifest key '{other}'",
@@ -1135,9 +1171,75 @@ pub fn read_project(path: &Path) -> Result<ProjectMetadata, String> {
             }
         }
     }
+    let source_root = source_root.unwrap_or_else(|| base.to_path_buf());
+    if !source_root.is_dir() {
+        return Err(format!(
+            "project source root '{}' is not an existing directory",
+            source_root.display()
+        ));
+    }
+    let source_root = source_root.canonicalize().map_err(|error| {
+        format!(
+            "cannot resolve project source root '{}': {error}",
+            source_root.display()
+        )
+    })?;
+    let mut canonical_roots = HashSet::new();
+    for root in &mut module_paths {
+        if !root.is_dir() {
+            return Err(format!(
+                "project module root '{}' is not an existing directory",
+                root.display()
+            ));
+        }
+        *root = root.canonicalize().map_err(|error| {
+            format!(
+                "cannot resolve project module root '{}': {error}",
+                root.display()
+            )
+        })?;
+        if !canonical_roots.insert(root.clone()) {
+            return Err(format!(
+                "duplicate project module root '{}'",
+                root.display()
+            ));
+        }
+    }
+    let mut object_paths = HashSet::new();
+    for object in &mut link_objects {
+        if !object.is_file() {
+            return Err(format!(
+                "project link object '{}' is not an existing file",
+                object.display()
+            ));
+        }
+        *object = object.canonicalize().map_err(|error| {
+            format!(
+                "cannot resolve project link object '{}': {error}",
+                object.display()
+            )
+        })?;
+        if !object_paths.insert(object.clone()) {
+            return Err(format!(
+                "duplicate project link object '{}'",
+                object.display()
+            ));
+        }
+    }
     Ok(ProjectMetadata {
+        schema_version: schema_version.ok_or_else(|| {
+            format!(
+                "project manifest '{}' has no schema-version = 1",
+                path.display()
+            )
+        })?,
         name: name.ok_or_else(|| format!("project manifest '{}' has no name", path.display()))?,
+        source_root,
+        output_directory: output_directory.unwrap_or_else(|| base.join("build")),
         module_paths,
+        target,
+        link_libraries,
+        link_objects,
     })
 }
 
@@ -5655,11 +5757,54 @@ mod tests {
     fn reads_project_manifest_module_paths() {
         let directory = std::env::temp_dir().join(format!("lim-project-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
+        std::fs::create_dir_all(directory.join("modules")).unwrap();
+        std::fs::write(directory.join("support.o"), "test-object").unwrap();
         let manifest = directory.join("lim.project");
-        std::fs::write(&manifest, "name = \"demo\"\nmodule-path = \"modules\"\n").unwrap();
+        std::fs::write(
+            &manifest,
+            "schema-version = 1\nname = \"demo\"\nsource-root = \"src\"\noutput-dir = \"artifacts\"\nmodule-path = \"modules\"\ntarget = \"x86_64-sysv\"\nlink-lib = \"m\"\nlink-object = \"support.o\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(directory.join("src")).unwrap();
         let project = read_project(&manifest).unwrap();
+        assert_eq!(project.schema_version, 1);
         assert_eq!(project.name, "demo");
-        assert_eq!(project.module_paths, vec![directory.join("modules")]);
+        assert_eq!(
+            project.source_root,
+            directory.join("src").canonicalize().unwrap()
+        );
+        assert_eq!(project.output_directory, directory.join("artifacts"));
+        assert_eq!(
+            project.module_paths,
+            vec![directory.join("modules").canonicalize().unwrap()]
+        );
+        assert_eq!(project.target, Some(TargetDescription::X86_64_SYSTEM_V));
+        assert_eq!(project.link_libraries, ["m"]);
+        assert_eq!(
+            project.link_objects,
+            vec![directory.join("support.o").canonicalize().unwrap()]
+        );
+
+        std::fs::write(
+            &manifest,
+            "schema-version = 1\nname = \"demo\"\nmodule-path = \"modules\"\nmodule-path = \"./modules\"\n",
+        )
+        .unwrap();
+        assert!(read_project(&manifest)
+            .unwrap_err()
+            .contains("duplicate project module root"));
+        std::fs::write(&manifest, "schema-version = 2\nname = \"demo\"\n").unwrap();
+        assert!(read_project(&manifest)
+            .unwrap_err()
+            .contains("unsupported schema-version"));
+        std::fs::write(
+            &manifest,
+            "schema-version = 1\nname = \"demo\"\nmodule-path = \"missing\"\n",
+        )
+        .unwrap();
+        assert!(read_project(&manifest)
+            .unwrap_err()
+            .contains("not an existing directory"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

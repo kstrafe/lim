@@ -146,7 +146,7 @@ the checklist is committed alongside the implementation it tracks.
 - [x] Add dependency-free `lim.project` metadata with a project name and
   manifest-relative module paths; these are loaded by the binary CLI, alongside
   the explicit `CompileConfig::add_module_path` and `--module-path` APIs.
-- [ ] Extend project metadata with a versioned schema, explicit source root and
+- [x] Extend project metadata with a versioned schema, explicit source root and
   output directory, target/link settings, and validation for duplicate or
   nonexistent module roots.
 - [x] Document the core grammar and builtin semantics, including ownership,

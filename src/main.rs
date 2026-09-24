@@ -81,6 +81,7 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+        let mut target_explicit = false;
         let mut index = 3;
         while index < arguments.len() {
             match arguments[index].as_str() {
@@ -97,6 +98,7 @@ fn main() -> ExitCode {
                             return ExitCode::FAILURE;
                         }
                     };
+                    target_explicit = true;
                     index += 1;
                 }
                 "--cfg" => {
@@ -123,6 +125,24 @@ fn main() -> ExitCode {
                 _ => {
                     eprintln!("lim: expected --target, --cfg, or --module-path after assembly output path");
                     return ExitCode::FAILURE;
+                }
+            }
+        }
+        let metadata = match project_for_input(input_path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                eprintln!("lim: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+        if let Some(metadata) = metadata {
+            config.add_module_path(&metadata.source_root);
+            for path in metadata.module_paths {
+                config.add_module_path(path);
+            }
+            if !target_explicit {
+                if let Some(project_target) = metadata.target {
+                    target = project_target;
                 }
             }
         }
@@ -254,6 +274,7 @@ fn binary_arguments(
     let mut output = None;
     let mut config = lim::CompileConfig::default();
     let mut target = lim::TargetDescription::host()?;
+    let mut target_explicit = false;
     let mut links = LinkOptions::default();
     let mut index = 0;
     while index < arguments.len() {
@@ -285,6 +306,7 @@ fn binary_arguments(
                     .get(index)
                     .ok_or_else(|| "--target requires a target name".to_owned())?;
                 target = lim::TargetDescription::parse(value)?;
+                target_explicit = true;
             }
             "--link-lib" => {
                 index += 1;
@@ -317,17 +339,31 @@ fn binary_arguments(
     }
 
     let input = input.ok_or_else(|| "an input file is required".to_owned())?;
-    let manifest = Path::new(&input)
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("lim.project");
-    if manifest.is_file() {
-        let metadata = lim::read_project(&manifest)?;
-        for path in metadata.module_paths {
+    let metadata = project_for_input(&input)?;
+    if let Some(metadata) = &metadata {
+        config.add_module_path(&metadata.source_root);
+        for path in &metadata.module_paths {
             config.add_module_path(path);
         }
+        if !target_explicit {
+            if let Some(project_target) = metadata.target {
+                target = project_target;
+            }
+        }
+        links
+            .libraries
+            .extend(metadata.link_libraries.iter().cloned());
+        links
+            .object_files
+            .extend(metadata.link_objects.iter().cloned());
     }
     let output = output.unwrap_or_else(|| {
+        if let Some(metadata) = &metadata {
+            let stem = Path::new(&input).file_stem().unwrap_or_default();
+            let mut result = metadata.output_directory.clone();
+            result.push(stem);
+            return result;
+        }
         let path = Path::new(&input);
         let stem = path.file_stem().unwrap_or_default();
         let mut result = path
@@ -338,6 +374,20 @@ fn binary_arguments(
         result
     });
     Ok((input, output, config, target, links))
+}
+
+fn project_for_input(input: &str) -> Result<Option<lim::ProjectMetadata>, String> {
+    let mut directory = Path::new(input).parent().unwrap_or_else(|| Path::new("."));
+    loop {
+        let manifest = directory.join("lim.project");
+        if manifest.is_file() {
+            return lim::read_project(&manifest).map(Some);
+        }
+        let Some(parent) = directory.parent() else {
+            return Ok(None);
+        };
+        directory = parent;
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -371,6 +421,15 @@ fn compile_with_links(
     target: lim::TargetDescription,
     links: &LinkOptions,
 ) -> ExitCode {
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        if let Err(error) = fs::create_dir_all(parent) {
+            eprintln!("lim: {}: {error}", parent.display());
+            return ExitCode::FAILURE;
+        }
+    }
     let input = match fs::read_to_string(input_path) {
         Ok(source) => source,
         Err(error) => {
@@ -545,6 +604,46 @@ mod tests {
         let (_, _, _, _, links) = binary_arguments(&arguments).unwrap();
         assert_eq!(links.libraries, ["m", "crypto"]);
         assert_eq!(links.object_files, [PathBuf::from("support.o")]);
+    }
+
+    #[test]
+    fn project_manifest_settings_flow_into_binary_arguments() {
+        let directory = env::temp_dir().join(format!("lim-project-cli-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(directory.join("src")).unwrap();
+        fs::create_dir_all(directory.join("modules")).unwrap();
+        fs::write(directory.join("modules/shared.lim"), "(#type Shared u64)").unwrap();
+        fs::write(directory.join("support.o"), "object").unwrap();
+        let manifest = format!(
+            "schema-version = 1\nname = \"demo\"\nsource-root = \"src\"\noutput-dir = \"build\"\nmodule-path = \"modules\"\ntarget = \"x86_64-sysv\"\nlink-lib = \"m\"\nlink-object = \"support.o\"\n"
+        );
+        fs::write(directory.join("lim.project"), manifest).unwrap();
+        let input = directory.join("src/main.lim");
+        fs::write(
+            &input,
+            "(#import \"shared.lim\") (#fn main () u64 (#return 0u64))",
+        )
+        .unwrap();
+        let arguments = vec![input.to_string_lossy().into_owned()];
+        let (_, output, config, target, links) = binary_arguments(&arguments).unwrap();
+        assert_eq!(output, directory.join("build/main"));
+        assert_eq!(target, lim::TargetDescription::X86_64_SYSTEM_V);
+        assert_eq!(links.libraries, ["m"]);
+        assert_eq!(
+            links.object_files,
+            [directory.join("support.o").canonicalize().unwrap()]
+        );
+        let program = lim::parse_program_from_path_with_config(
+            &fs::read_to_string(&input).unwrap(),
+            &input,
+            &config,
+        )
+        .unwrap();
+        assert!(program.items.iter().any(|item| matches!(
+            item,
+            lim::Item::TypeAlias { name, .. } if name == "Shared"
+        )));
+        let _ = fs::remove_dir_all(directory);
     }
 
     #[test]
