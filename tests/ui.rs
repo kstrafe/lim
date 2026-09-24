@@ -298,7 +298,7 @@ fn compilation_errors_render_the_offending_source_line() {
             name: "thread-worker-unknown-type",
             diagnostic_code: "E4000",
             offending_line: "(#fn worker ((argument Missing)) u64 (#return 1u64))",
-            line_number: 1,
+            line_number: 4,
         },
         Case {
             name: "unknown-local-type",

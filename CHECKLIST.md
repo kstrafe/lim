@@ -199,7 +199,8 @@ the checklist is committed alongside the implementation it tracks.
   Missing-import and import-cycle failures underline the path string, while
   unknown cfg keys underline the referenced key token.
   `Send` failures on thread workers now underline the offending parameter type,
-  not the unrelated worker return type. Diagnostic hunks expand tabs at
+  not the unrelated worker return type, even when an earlier local has the
+  same name as the unknown type. Diagnostic hunks expand tabs at
   four-column stops before positioning underlines; common wide and combining
   Unicode characters are included in display-column calculations.
   Non-constant global
