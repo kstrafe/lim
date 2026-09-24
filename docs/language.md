@@ -1048,16 +1048,18 @@ available for compatibility.
 
 Borrow failures include the `E4100` code, function and statement context, and
 source locations for recognized borrow operators and the conflicting access.
-Function-body type errors carry the exact containing statement span. Generated
-forms retain their source context through parsing, so generator failures remain
-associated with their invocation diagnostics.
+Function-body type errors retain parsed expression trees and generally point
+at the offending value or identifier; some checks still report the enclosing
+expression or statement. Generated forms retain source context through
+parsing, so generator failures remain associated with their invocation.
 
 The CLI renders errors with an available span or line/column as a source hunk
-with an underline. Nested expressions do not yet retain spans throughout the
-lowered AST, so some type errors underline the containing statement, and some
-ownership, unsafe, generator, and code-generation errors still use a
-best-effort identifier hint or have no underline. Exact recursive expression
-span propagation remains future work.
+with an underline. The parsed source tree retains recursive spans, and the
+type, ownership, borrow, unsafe, generator, and code-generation phases use
+them where their checks identify a source expression. Some diagnostics still
+fall back to a containing expression or declaration, especially when an
+analysis error does not retain the responsible AST node. Complete exact-span
+propagation through every analysis result remains tracked work.
 
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures

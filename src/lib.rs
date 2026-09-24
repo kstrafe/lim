@@ -7113,7 +7113,7 @@ mod tests {
     }
 
     #[test]
-    fn type_errors_render_the_exact_containing_statement() {
+    fn type_errors_pinpoint_an_unknown_identifier() {
         let source = "(#fn main () u64\n  (#let value u64 1u64)\n  (#return missing)\n)";
         let program = parse_program(source).unwrap();
         let error = check_types(&program).unwrap_err();
