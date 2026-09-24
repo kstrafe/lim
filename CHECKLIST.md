@@ -376,7 +376,7 @@ Each item requires documentation and regression coverage before being checked.
 
 ### Priority 2: trustworthy generated artifacts and diagnostics
 
-- [ ] Detect syntactically valid modifications to cached generated source.
+- [x] Detect syntactically valid modifications to cached generated source.
   `cached_generated_source` in `src/generator.rs` verifies the input key and
   parses the `.lim` file, but does not verify its original output contents.
   Store and validate an output digest/length for both inspectable source and

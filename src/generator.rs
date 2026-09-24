@@ -942,6 +942,7 @@ pub(crate) fn cached_generated_source(
     let digest = stable_hash(key.as_bytes());
     let path = directory.join(format!("generated-{digest:032x}.lim"));
     let key_path = directory.join(format!("generated-{digest:032x}.key"));
+    let digest_path = directory.join(format!("generated-{digest:032x}.hash"));
     if let Ok(existing_key) = fs::read_to_string(&key_path) {
         if existing_key != key {
             return Err(format!(
@@ -949,8 +950,12 @@ pub(crate) fn cached_generated_source(
                 path.display()
             ));
         }
-        if let Ok(source) = fs::read_to_string(&path) {
-            if crate::parse(&source).is_ok() {
+        if let (Ok(source), Ok(expected_digest)) =
+            (fs::read_to_string(&path), fs::read_to_string(&digest_path))
+        {
+            if expected_digest == generated_source_digest(key, &source)
+                && crate::parse(&source).is_ok()
+            {
                 return Ok(source);
             }
         }
@@ -965,11 +970,24 @@ pub(crate) fn cached_generated_source(
         .map_err(|error| format!("cannot write generated source cache: {error}"))?;
     fs::write(&temporary_key, key)
         .map_err(|error| format!("cannot write generated-source cache key: {error}"))?;
+    let temporary_digest = digest_path.with_extension(format!("{}-hash.tmp", std::process::id()));
+    fs::write(&temporary_digest, generated_source_digest(key, &source))
+        .map_err(|error| format!("cannot write generated-source cache digest: {error}"))?;
     fs::rename(&temporary_source, &path)
         .map_err(|error| format!("cannot publish generated source cache: {error}"))?;
     fs::rename(&temporary_key, &key_path)
         .map_err(|error| format!("cannot publish generated-source cache key: {error}"))?;
+    fs::rename(&temporary_digest, &digest_path)
+        .map_err(|error| format!("cannot publish generated-source cache digest: {error}"))?;
     Ok(source)
+}
+
+fn generated_source_digest(key: &str, source: &str) -> String {
+    let mut contents = Vec::with_capacity(key.len() + 1 + source.len());
+    contents.extend_from_slice(key.as_bytes());
+    contents.push(0);
+    contents.extend_from_slice(source.as_bytes());
+    format!("{:032x}", stable_hash(&contents))
 }
 
 fn stable_hash(bytes: &[u8]) -> u128 {
@@ -983,14 +1001,29 @@ fn stable_hash(bytes: &[u8]) -> u128 {
 
 fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<Expr>> {
     let bytes = fs::read(cache_path(directory, key)).ok()?;
-    let mut cursor = 0;
+    if bytes.get(..8)? != b"LIMGEN2\0" {
+        return None;
+    }
+    let mut cursor = 8;
     let key_length = read_cache_length(&bytes, &mut cursor)?;
     let key_end = cursor.checked_add(key_length)?;
     if bytes.get(cursor..key_end)? != key.as_bytes() {
         return None;
     }
     cursor = key_end;
-    let source = std::str::from_utf8(bytes.get(cursor..)?).ok()?;
+    let source_length = read_cache_length(&bytes, &mut cursor)?;
+    let source_end = cursor.checked_add(source_length)?;
+    let source_bytes = bytes.get(cursor..source_end)?;
+    cursor = source_end;
+    let checksum_end = cursor.checked_add(16)?;
+    if checksum_end != bytes.len() {
+        return None;
+    }
+    let checksum = u128::from_le_bytes(bytes.get(cursor..checksum_end)?.try_into().ok()?);
+    if checksum != stable_hash(&bytes[..cursor]) {
+        return None;
+    }
+    let source = std::str::from_utf8(source_bytes).ok()?;
     Some(
         crate::parse(source)
             .ok()?
@@ -1021,29 +1054,36 @@ fn write_cached_expansion(directory: &Path, key: &str, expressions: &[Expr]) {
         return;
     }
     if let Ok(existing) = fs::read(&path) {
-        let mut cursor = 0;
-        if let Some(existing_length) = read_cache_length(&existing, &mut cursor) {
-            if let Some(existing_end) = cursor.checked_add(existing_length) {
-                if let Some(existing_key) = existing.get(cursor..existing_end) {
-                    if existing_key != key.as_bytes()
-                        && std::str::from_utf8(existing_key)
-                            .is_ok_and(|value| cache_path(directory, value) == path)
-                    {
-                        // A genuine digest collision must not overwrite the other entry.
-                        return;
-                    }
-                }
+        if let Some(existing_key) = cached_expansion_key(&existing) {
+            if existing_key != key.as_bytes()
+                && std::str::from_utf8(existing_key)
+                    .is_ok_and(|value| cache_path(directory, value) == path)
+            {
+                // A genuine digest collision must not overwrite the other entry.
+                return;
             }
         }
     }
-    let mut contents = Vec::with_capacity(16 + key.len() + source.len());
+    let mut contents = Vec::with_capacity(40 + key.len() + source.len());
+    contents.extend_from_slice(b"LIMGEN2\0");
     contents.extend_from_slice(&(key.len() as u64).to_le_bytes());
     contents.extend_from_slice(key.as_bytes());
+    contents.extend_from_slice(&(source.len() as u64).to_le_bytes());
     contents.extend_from_slice(source.as_bytes());
+    contents.extend_from_slice(&stable_hash(&contents).to_le_bytes());
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
     if fs::write(&temporary, contents).is_ok() {
         let _ = fs::rename(temporary, path);
     }
+}
+
+fn cached_expansion_key(bytes: &[u8]) -> Option<&[u8]> {
+    if bytes.get(..8)? != b"LIMGEN2\0" {
+        return None;
+    }
+    let mut cursor = 8;
+    let length = read_cache_length(bytes, &mut cursor)?;
+    bytes.get(cursor..cursor.checked_add(length)?)
 }
 
 fn evaluate(
@@ -1340,10 +1380,21 @@ mod tests {
         let first =
             cached_generated_source(&directory, "key-a", || Ok("(#type Cached u64)".into()))
                 .unwrap();
+        let source_path = fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| path.extension().is_some_and(|extension| extension == "lim"))
+            .unwrap();
+        fs::write(&source_path, "(#type Edited u64)").unwrap();
+        let mut regenerated = false;
         let second = cached_generated_source(&directory, "key-a", || {
-            Err("cache miss unexpectedly invoked generator".into())
+            regenerated = true;
+            Ok("(#type Cached u64)".into())
         })
         .unwrap();
+        assert!(regenerated, "edited but valid source must not be trusted");
+        assert_eq!(fs::read_to_string(source_path).unwrap(), second);
         let different =
             cached_generated_source(&directory, "key-b", || Ok("(#type Other u64)".into()))
                 .unwrap();
@@ -1424,6 +1475,29 @@ mod tests {
             second_hits >= 1,
             "an identical generator call should hit disk cache"
         );
+        for entry in fs::read_dir(&directory).unwrap().filter_map(Result::ok) {
+            let path = entry.path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "cache")
+            {
+                let mut contents = fs::read(&path).unwrap();
+                let cached = b"CachedType";
+                let edited = b"HackedType";
+                if let Some(offset) = contents
+                    .windows(cached.len())
+                    .position(|part| part == cached)
+                {
+                    contents[offset..offset + cached.len()].copy_from_slice(edited);
+                    fs::write(path, contents).unwrap();
+                }
+            }
+        }
+        let ((third, _), third_hits) =
+            expand_with_generated_cached_and_hits(parse_forms(source), Some(&directory), "")
+                .unwrap();
+        assert_eq!(third_hits, 0, "edited cache bytes must fail verification");
+        assert_eq!(third, first);
         let syntax = |forms: &[SpannedExpr]| {
             forms
                 .iter()
