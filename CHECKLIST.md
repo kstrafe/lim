@@ -200,7 +200,9 @@ the checklist is committed alongside the implementation it tracks.
   unknown cfg keys underline the referenced key token.
   `Send` failures on thread workers now underline the offending parameter type,
   not the unrelated worker return type. Diagnostic hunks expand tabs at
-  four-column stops before positioning underlines. Non-constant global
+  four-column stops before positioning underlines; common wide and combining
+  Unicode characters are included in display-column calculations.
+  Non-constant global
   initializers now highlight a nested `#call` that makes the initializer
   invalid instead of the larger enclosing constant expression. Imported
   parser/generator location diagnostics underline the full token at the

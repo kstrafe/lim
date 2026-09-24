@@ -1112,7 +1112,8 @@ expression or declaration when an analysis error does not retain its
 responsible AST node. Complete exact-span propagation through every analysis
 result remains tracked work.
 Diagnostic source hunks expand tabs at four-column stops before aligning the
-underline, so the displayed code and caret use the same columns.
+underline, and account for common wide and combining Unicode characters, so
+the displayed code and caret use the same columns.
 When a global constant expression contains a function call, its codegen
 diagnostic highlights the nested `#call` form rather than the whole initializer.
 Imported parser diagnostics use the reported position to underline the full

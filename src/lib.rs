@@ -422,7 +422,48 @@ fn advance_display_column(column: usize, ch: char) -> usize {
     if ch == '\t' {
         column + (4 - column % 4)
     } else {
-        column + 1
+        column + display_char_width(ch)
+    }
+}
+
+fn display_char_width(ch: char) -> usize {
+    let value = ch as u32;
+    if matches!(
+        value,
+        0x0300..=0x036f
+            | 0x0483..=0x0489
+            | 0x0591..=0x05bd
+            | 0x05bf
+            | 0x05c1..=0x05c2
+            | 0x0610..=0x061a
+            | 0x064b..=0x065f
+            | 0x0670
+            | 0x06d6..=0x06ed
+            | 0x1ab0..=0x1aff
+            | 0x1dc0..=0x1dff
+            | 0x20d0..=0x20ff
+            | 0xfe00..=0xfe0f
+            | 0xfe20..=0xfe2f
+            | 0xe0100..=0xe01ef
+    ) {
+        0
+    } else if matches!(
+        value,
+        0x1100..=0x115f
+            | 0x2329..=0x232a
+            | 0x2e80..=0xa4cf
+            | 0xac00..=0xd7a3
+            | 0xf900..=0xfaff
+            | 0xfe10..=0xfe19
+            | 0xfe30..=0xfe6f
+            | 0xff00..=0xff60
+            | 0xffe0..=0xffe6
+            | 0x1f300..=0x1faff
+            | 0x20000..=0x3fffd
+    ) {
+        2
+    } else {
+        1
     }
 }
 
@@ -7557,6 +7598,16 @@ mod tests {
         let rendered = render_diagnostic(&diagnostic, source, "tabs.lim");
         assert!(rendered.contains("1 | a   b"), "{rendered}");
         assert!(rendered.contains("1 | a   b\n  |     ^ here"), "{rendered}");
+    }
+
+    #[test]
+    fn diagnostic_renderer_accounts_for_wide_and_combining_characters() {
+        let source = "界e\u{301}bad";
+        let diagnostic =
+            Diagnostic::new(DiagnosticCode::Type, "bad value").with_span(Span::new(6, 9, 1, 4));
+        let rendered = render_diagnostic(&diagnostic, source, "unicode.lim");
+        assert!(rendered.contains("1 | 界e\u{301}bad"), "{rendered}");
+        assert!(rendered.contains("  |    ^^^ here"), "{rendered}");
     }
 
     #[test]
