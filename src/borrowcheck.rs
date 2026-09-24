@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{Expr, Function, Item, Program, Statement, TokenKind};
+use crate::{Expr, Function, Item, Program, Statement};
 
 const PLACE_SEPARATOR: char = '\u{1f}';
 
@@ -300,8 +300,8 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                     &function_names,
                     &thread_spawn_functions,
                     &thread_join_functions,
-                    program.source.as_deref(),
                     &program.statement_spans,
+                    &program.statement_expressions,
                 )?;
             }
         }
@@ -318,8 +318,8 @@ fn check_function(
     function_names: &HashSet<String>,
     thread_spawn_functions: &HashMap<String, Vec<crate::Type>>,
     thread_join_functions: &HashSet<String>,
-    source: Option<&str>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
+    statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
 ) -> Result<(), String> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
@@ -386,10 +386,11 @@ fn check_function(
                 error,
                 function,
                 statement_index,
-                source,
                 statement_spans
                     .get(&(function.name.clone(), statement_index))
                     .copied(),
+                statement_expressions.get(&(function.name.clone(), statement_index)),
+                statement_expressions,
             ));
         }
     }
@@ -400,8 +401,9 @@ fn format_borrow_diagnostic(
     error: String,
     function: &Function,
     statement_index: usize,
-    source: Option<&str>,
     exact_conflict_span: Option<crate::Span>,
+    statement_expression: Option<&crate::SpannedExpr>,
+    function_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
 ) -> String {
     let owner = error
         .split('\'')
@@ -409,22 +411,26 @@ fn format_borrow_diagnostic(
         .filter(|name| !name.is_empty())
         .unwrap_or("<unknown>");
     let exact_conflict_span = exact_conflict_span.and_then(|statement_span| {
-        source
-            .and_then(|source| conflict_operator_span(source, statement_span, owner, &error))
+        statement_expression
+            .and_then(|expression| conflict_operator_source_span(expression, owner, &error))
             .or(Some(statement_span))
     });
-    let spans = source
-        .map(|source| source_spans(source, owner, &function.name, exact_conflict_span))
-        .unwrap_or_default();
+    let spans = source_spans(
+        function_expressions,
+        &function.name,
+        owner,
+        exact_conflict_span,
+    );
     let span_text = if let Some(span) = exact_conflict_span {
         format!(
-            "original borrow site {}; conflicting access {}:{}; conflicting span {}:{}",
+            "original borrow site {}; conflicting access {}:{}; conflicting span {}:{}:{}",
             spans.first().map_or_else(
                 || "unavailable".to_owned(),
                 |site| format!("{}:{}", site.0, site.1)
             ),
             span.line,
             span.column,
+            span.source_id,
             span.start,
             span.end
         )
@@ -445,205 +451,157 @@ fn format_borrow_diagnostic(
 }
 
 fn source_spans(
-    source: &str,
-    needle: &str,
+    expressions: &HashMap<(String, usize), crate::SpannedExpr>,
     function_name: &str,
+    needle: &str,
     conflict: Option<crate::Span>,
 ) -> Vec<(usize, usize)> {
-    let Ok(tokens) = crate::lex(source) else {
-        return Vec::new();
-    };
-    let Some(function_start) = tokens.windows(3).find_map(|window| {
-        let [open, keyword, name] = window else {
-            return None;
-        };
-        (open.kind == TokenKind::LParen
-            && keyword.kind == TokenKind::Symbol("#fn".into())
-            && name.kind == TokenKind::Symbol(function_name.into()))
-        .then_some(open.span.start)
-    }) else {
-        return Vec::new();
-    };
-    let aliases = borrowed_source_aliases(&tokens, function_start, conflict.map(|span| span.start));
     let full_path = needle.trim_end_matches(".*").split('.').collect::<Vec<_>>();
+    let mut statements = expressions
+        .iter()
+        .filter(|((name, _), _)| name == function_name)
+        .collect::<Vec<_>>();
+    statements.sort_by_key(|((_, index), _)| *index);
+
+    let mut aliases = HashMap::<String, HashSet<String>>::new();
     let mut sites = Vec::new();
-    for index in 0..tokens.len().saturating_sub(2) {
-        let (open, operator, argument) = (&tokens[index], &tokens[index + 1], index + 2);
-        let TokenKind::Symbol(operator_name) = &operator.kind else {
-            continue;
-        };
-        if open.kind != TokenKind::LParen
-            || !matches!(
-                operator_name.as_str(),
-                "#borrow" | "#borrow-mut" | "borrow" | "borrow-mut"
-            )
-            || open.span.start < function_start
-            || conflict.is_some_and(|conflict| operator.span.start >= conflict.start)
-        {
-            continue;
+    for (_, statement) in statements {
+        if conflict.is_some_and(|span| statement.span.start >= span.start) {
+            break;
         }
-        let Some(argument_end) = expression_end(&tokens, argument) else {
-            continue;
-        };
-        let argument_names = tokens[argument..=argument_end]
-            .iter()
-            .filter_map(|token| match &token.kind {
-                TokenKind::Symbol(name) => Some(name.as_str()),
-                _ => None,
-            })
-            .collect::<HashSet<_>>();
-        let expanded_names = argument_names
-            .iter()
-            .flat_map(|name| {
-                std::iter::once(*name).chain(
-                    aliases
-                        .get(*name)
-                        .into_iter()
-                        .flat_map(|origins| origins.iter().map(String::as_str)),
-                )
-            })
-            .collect::<HashSet<_>>();
-        let matches_owner = argument_names.contains(needle)
-            || full_path.iter().all(|part| expanded_names.contains(part));
-        if matches_owner {
-            sites.push((
-                operator.span.line,
-                operator.span.column,
-                operator.span.start,
-            ));
+        if let Expr::List(items) = &statement.expr {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
+            {
+                if let (Some(Expr::Symbol(binding)), Some(value)) =
+                    (items.get(1), statement.children.get(3))
+                {
+                    let mut borrow_forms = Vec::new();
+                    collect_borrow_forms(value, &mut borrow_forms);
+                    let mut origins = HashSet::new();
+                    for form in borrow_forms {
+                        if let Some(argument) = form.children.get(1) {
+                            collect_source_symbols(argument, &mut origins);
+                        }
+                    }
+                    if !origins.is_empty() {
+                        aliases.insert(binding.clone(), origins);
+                    }
+                }
+            }
+        }
+        let mut borrow_forms = Vec::new();
+        collect_borrow_forms(statement, &mut borrow_forms);
+        for form in borrow_forms {
+            let Some(operator) = form.children.first() else {
+                continue;
+            };
+            if conflict.is_some_and(|span| operator.span.start >= span.start) {
+                continue;
+            }
+            let Some(argument) = form.children.get(1) else {
+                continue;
+            };
+            let mut names = HashSet::new();
+            collect_source_symbols(argument, &mut names);
+            let mut expanded = names.clone();
+            for name in &names {
+                if let Some(origins) = aliases.get(name) {
+                    expanded.extend(origins.iter().cloned());
+                }
+            }
+            if names.contains(needle) || full_path.iter().all(|part| expanded.contains(*part)) {
+                sites.push((
+                    operator.span.line,
+                    operator.span.column,
+                    operator.span.start,
+                ));
+            }
         }
     }
     sites
         .into_iter()
+        .max_by_key(|(_, _, start)| *start)
         .map(|(line, column, _)| vec![(line, column)])
-        .last()
         .unwrap_or_default()
 }
 
-fn borrowed_source_aliases(
-    tokens: &[crate::Token],
-    function_start: usize,
-    before: Option<usize>,
-) -> HashMap<String, HashSet<String>> {
-    let mut aliases = HashMap::new();
-    for index in 0..tokens.len().saturating_sub(3) {
-        if tokens[index].span.start < function_start
-            || before.is_some_and(|before| tokens[index].span.start >= before)
-            || tokens[index].kind != TokenKind::LParen
-            || tokens[index + 1].kind != TokenKind::Symbol("#let".into())
+fn collect_borrow_forms<'a>(
+    expression: &'a crate::SpannedExpr,
+    forms: &mut Vec<&'a crate::SpannedExpr>,
+) {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#borrow" | "#borrow-mut"))
         {
-            continue;
-        }
-        let TokenKind::Symbol(binding) = &tokens[index + 2].kind else {
-            continue;
-        };
-        let Some(type_end) = expression_end(tokens, index + 3) else {
-            continue;
-        };
-        let value_start = type_end + 1;
-        if !matches!(
-            tokens.get(value_start).map(|token| &token.kind),
-            Some(TokenKind::LParen)
-        ) || !matches!(tokens.get(value_start + 1).map(|token| &token.kind), Some(TokenKind::Symbol(operator)) if matches!(operator.as_str(), "#borrow" | "#borrow-mut"))
-        {
-            continue;
-        }
-        let Some(value_end) = expression_end(tokens, value_start) else {
-            continue;
-        };
-        let argument_start = value_start + 2;
-        let Some(argument_end) = expression_end(tokens, argument_start) else {
-            continue;
-        };
-        let origins = tokens[argument_start..=argument_end]
-            .iter()
-            .filter_map(|token| match &token.kind {
-                TokenKind::Symbol(name) => Some(name.clone()),
-                _ => None,
-            })
-            .collect::<HashSet<_>>();
-        if argument_end < value_end && !origins.is_empty() {
-            aliases.insert(binding.clone(), origins);
+            forms.push(expression);
         }
     }
-    aliases
-}
-
-fn expression_end(tokens: &[crate::Token], start: usize) -> Option<usize> {
-    match tokens.get(start)?.kind {
-        TokenKind::LParen => {
-            let mut depth = 0usize;
-            for (index, token) in tokens.iter().enumerate().skip(start) {
-                match token.kind {
-                    TokenKind::LParen => depth += 1,
-                    TokenKind::RParen => {
-                        depth = depth.checked_sub(1)?;
-                        if depth == 0 {
-                            return Some(index);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            None
-        }
-        _ => Some(start),
+    for child in &expression.children {
+        collect_borrow_forms(child, forms);
     }
 }
 
-fn conflict_operator_span(
-    source: &str,
-    statement: crate::Span,
+fn collect_source_symbols(expression: &crate::SpannedExpr, names: &mut HashSet<String>) {
+    if let Expr::Symbol(name) = &expression.expr {
+        names.insert(name.clone());
+    }
+    for child in &expression.children {
+        collect_source_symbols(child, names);
+    }
+}
+
+fn conflict_operator_source_span(
+    expression: &crate::SpannedExpr,
     owner: &str,
     error: &str,
 ) -> Option<crate::Span> {
-    let tokens = crate::lex(source).ok()?;
-    let is_borrow_conflict = error.starts_with("cannot borrow");
     let owner_names = place_name_candidates(owner);
-    let operator_span = tokens
-        .windows(3)
-        .filter_map(|window| {
-            let [open, operator, target] = window else {
-                return None;
-            };
-            let TokenKind::Symbol(operator_name) = &operator.kind else {
-                return None;
-            };
-            let TokenKind::Symbol(target_name) = &target.kind else {
-                return None;
-            };
-            let matching_operator = if is_borrow_conflict {
-                matches!(
-                    operator_name.as_str(),
-                    "#borrow" | "#borrow-mut" | "borrow" | "borrow-mut"
-                )
-            } else if error.starts_with("cannot mutate") || error.starts_with("cannot write") {
-                operator_name.starts_with("#set")
-                    || operator_name.starts_with("set")
-                    || operator_name == "#deref-set"
+    if error.starts_with("cannot access") {
+        return find_source_symbol(expression, &owner_names);
+    }
+    fn visit(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
+        let Expr::List(items) = &expression.expr else {
+            return None;
+        };
+        let operator = match items.first() {
+            Some(Expr::Symbol(name)) => name.as_str(),
+            _ => "",
+        };
+        let matches_operator = if error.starts_with("cannot borrow") {
+            matches!(operator, "#borrow" | "#borrow-mut")
+        } else if error.starts_with("cannot mutate") || error.starts_with("cannot write") {
+            operator.starts_with("#set") || operator == "#deref-set"
+        } else {
+            false
+        };
+        let own = matches_operator
+            .then(|| expression.children.first().map(|head| head.span))
+            .flatten();
+        let nested = expression
+            .children
+            .iter()
+            .filter_map(|child| visit(child, error))
+            .max_by_key(|span| span.start);
+        match (own, nested) {
+            (Some(own), Some(nested)) => Some(if own.start > nested.start {
+                own
             } else {
-                false
-            };
-            (open.kind == TokenKind::LParen
-                && matching_operator
-                && (owner_names.iter().any(|candidate| target_name == candidate)
-                    || operator_name == "#deref-set")
-                && operator.span.start >= statement.start
-                && operator.span.end <= statement.end)
-                .then_some(operator.span)
-        })
-        .last();
-    operator_span.or_else(|| {
-        tokens
-            .into_iter()
-            .filter(|token| {
-                token.span.start >= statement.start
-                    && token.span.end <= statement.end
-                    && matches!(&token.kind, TokenKind::Symbol(symbol) if owner_names.iter().any(|candidate| symbol == candidate))
-            })
-            .last()
-            .map(|token| token.span)
-    })
+                nested
+            }),
+            (Some(span), None) | (None, Some(span)) => Some(span),
+            (None, None) => None,
+        }
+    }
+    visit(expression, error)
+}
+
+fn find_source_symbol(expression: &crate::SpannedExpr, names: &[&str]) -> Option<crate::Span> {
+    if matches!(&expression.expr, Expr::Symbol(name) if names.contains(&name.as_str())) {
+        return Some(expression.span);
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| find_source_symbol(child, names))
 }
 
 fn place_name_candidates(place: &str) -> Vec<&str> {

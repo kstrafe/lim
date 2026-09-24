@@ -75,6 +75,8 @@ pub struct Span {
     pub end: usize,
     pub line: usize,
     pub column: usize,
+    /// Index into `Program::source_files`; standalone parses use zero.
+    pub source_id: u32,
 }
 
 impl Span {
@@ -84,6 +86,7 @@ impl Span {
             end,
             line,
             column,
+            source_id: 0,
         }
     }
 }
@@ -109,6 +112,8 @@ pub struct Diagnostic {
     pub message: String,
     pub span: Option<Span>,
     pub notes: Vec<String>,
+    pub source_name: Option<String>,
+    pub source_text: Option<String>,
 }
 
 impl Diagnostic {
@@ -118,11 +123,19 @@ impl Diagnostic {
             message: message.into(),
             span: None,
             notes: Vec::new(),
+            source_name: None,
+            source_text: None,
         }
     }
 
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = Some(span);
+        self
+    }
+
+    pub fn with_source(mut self, name: impl Into<String>, source: impl Into<String>) -> Self {
+        self.source_name = Some(name.into());
+        self.source_text = Some(source.into());
         self
     }
 
@@ -138,6 +151,8 @@ impl Diagnostic {
 
 /// Render a diagnostic with a source excerpt and underline when it has a span.
 pub fn render_diagnostic(diagnostic: &Diagnostic, source: &str, filename: &str) -> String {
+    let source = diagnostic.source_text.as_deref().unwrap_or(source);
+    let filename = diagnostic.source_name.as_deref().unwrap_or(filename);
     let mut output = format!(
         "error[{}]: {}",
         diagnostic.code_string(),
@@ -182,7 +197,10 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
     if let Some((start, end)) =
         span_after(error, "conflicting span ").or_else(|| span_after(error, "source span "))
     {
-        if source.get(start..end).is_some() {
+        let source_id = source_id_after(error, "conflicting span ")
+            .or_else(|| source_id_after(error, "source span "))
+            .unwrap_or(0);
+        if source_id == 0 && source.get(start..end).is_some() {
             let prefix = &source[..start];
             let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
             let column = prefix
@@ -205,8 +223,6 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
             column,
             token_width_at(source, line, column),
         ));
-    } else if let Some(name) = quoted_identifier(error) {
-        diagnostic.span = find_identifier_span(source, name);
     }
     let mut output = render_diagnostic(&diagnostic, source, filename);
     if let Some((line, column)) = location_after(error, "original borrow site ") {
@@ -223,12 +239,30 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
 
 fn span_after(error: &str, marker: &str) -> Option<(usize, usize)> {
     let suffix = error.split_once(marker)?.1;
-    let (start, end) = suffix.split_once(':')?;
-    let end = end
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect::<String>();
-    Some((start.parse().ok()?, end.parse().ok()?))
+    let values = suffix
+        .split(':')
+        .take(3)
+        .map(|part| {
+            part.chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+                .parse::<usize>()
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    match values.as_slice() {
+        [start, end] => Some((*start, *end)),
+        [_, start, end] => Some((*start, *end)),
+        _ => None,
+    }
+}
+
+fn source_id_after(error: &str, marker: &str) -> Option<u32> {
+    let suffix = error.split_once(marker)?.1;
+    let pieces = suffix.split(':').take(3).collect::<Vec<_>>();
+    (pieces.len() == 3)
+        .then(|| pieces[0].parse().ok())
+        .flatten()
 }
 
 fn token_width_at(source: &str, line: usize, column: usize) -> usize {
@@ -239,36 +273,6 @@ fn token_width_at(source: &str, line: usize, column: usize) -> usize {
         .take_while(|ch| !ch.is_whitespace() && !matches!(ch, '(' | ')' | '[' | ']' | ','))
         .count()
         .max(1)
-}
-
-fn quoted_identifier(error: &str) -> Option<&str> {
-    let start = error.find('\'')? + 1;
-    let end = error[start..].find('\'')? + start;
-    let name = &error[start..end];
-    (!name.is_empty()
-        && name
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.')))
-    .then_some(name)
-}
-
-fn find_identifier_span(source: &str, name: &str) -> Option<Span> {
-    let (start, _) = source.match_indices(name).find(|(start, _)| {
-        let before = source[..*start].chars().next_back();
-        let after = source[*start + name.len()..].chars().next();
-        let is_identifier = |ch: char| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.');
-        !before.is_some_and(is_identifier) && !after.is_some_and(is_identifier)
-    })?;
-    let line = source[..start]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count()
-        + 1;
-    let column = source[..start]
-        .rsplit('\n')
-        .next()
-        .map_or(1, |line| line.chars().count() + 1);
-    Some(Span::new(start, start + name.len(), line, column))
 }
 
 fn diagnostic_code_from_number(number: u16) -> DiagnosticCode {
@@ -1091,8 +1095,17 @@ pub enum Item {
 pub struct Program {
     pub items: Vec<Item>,
     pub(crate) source: Option<String>,
+    pub(crate) source_files: Vec<SourceFile>,
     pub(crate) statement_spans: HashMap<(String, usize), Span>,
     pub(crate) statement_expressions: HashMap<(String, usize), SpannedExpr>,
+    pub(crate) declaration_spans: HashMap<String, Span>,
+    pub(crate) declaration_expressions: HashMap<String, SpannedExpr>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SourceFile {
+    pub path: PathBuf,
+    pub source: String,
 }
 
 /// Compile-time key/value settings used by `#cfg-*` forms.
@@ -1282,20 +1295,26 @@ impl CompileConfig {
 pub fn parse_program(source: &str) -> Result<Program, String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
-    parse_program_in_directory(source, &base, &CompileConfig::default(), None)
+    parse_program_in_directory(source, &base, None, &CompileConfig::default(), None)
 }
 
 /// Parse a Lim program using explicit compile-time configuration values.
 pub fn parse_program_with_config(source: &str, config: &CompileConfig) -> Result<Program, String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
-    parse_program_in_directory(source, &base, config, None)
+    parse_program_in_directory(source, &base, None, config, None)
 }
 
 /// Parse a Lim program while resolving file imports relative to `source_path`.
 pub fn parse_program_from_path(source: &str, source_path: &Path) -> Result<Program, String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    parse_program_in_directory(source, base, &CompileConfig::default(), None)
+    parse_program_in_directory(
+        source,
+        base,
+        Some(source_path),
+        &CompileConfig::default(),
+        None,
+    )
 }
 
 /// Parse a Lim program while resolving imports and evaluating cfg forms using `config`.
@@ -1305,7 +1324,7 @@ pub fn parse_program_from_path_with_config(
     config: &CompileConfig,
 ) -> Result<Program, String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    parse_program_in_directory(source, base, config, None)
+    parse_program_in_directory(source, base, Some(source_path), config, None)
 }
 
 /// Parse a source file using cfg settings and a persistent generator cache.
@@ -1316,7 +1335,13 @@ pub fn parse_program_from_path_with_config_and_cache(
     cache_directory: &Path,
 ) -> Result<Program, String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    parse_program_in_directory(source, base, config, Some(cache_directory))
+    parse_program_in_directory(
+        source,
+        base,
+        Some(source_path),
+        config,
+        Some(cache_directory),
+    )
 }
 
 static NEXT_NATIVE_LINK_ID: AtomicUsize = AtomicUsize::new(0);
@@ -1338,13 +1363,13 @@ pub fn compile_source_to_assembly(
 
     let program =
         parse_program_from_path_with_config_and_cache(source, source_path, config, cache_directory)
-            .map_err(|message| Diagnostic::new(DiagnosticCode::Generator, message))?;
-    check_types(&program).map_err(analysis_diagnostic)?;
+            .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    check_types(&program).map_err(|message| analysis_diagnostic(message, &program))?;
     generate_assembly_for_target(&program, target)
-        .map_err(|message| Diagnostic::new(DiagnosticCode::Codegen, message))
+        .map_err(|message| codegen_diagnostic(message, &program))
 }
 
-fn analysis_diagnostic(message: String) -> Diagnostic {
+fn analysis_diagnostic(message: String, program: &Program) -> Diagnostic {
     let code = if message.starts_with("E4100") || message.contains("borrow") {
         DiagnosticCode::Borrow
     } else if message.contains("unsafe") || message.contains("#unsafe") {
@@ -1359,7 +1384,146 @@ fn analysis_diagnostic(message: String) -> Diagnostic {
     } else {
         DiagnosticCode::Type
     };
-    Diagnostic::new(code, message)
+    let mut diagnostic = Diagnostic::new(code, message.clone());
+    if let Some((start, end)) = span_after(&message, "source span ") {
+        let source_id = source_id_after(&message, "source span ").unwrap_or(0);
+        if let Some(file) = program.source_files.get(source_id as usize) {
+            if start <= end && file.source.get(start..end).is_some() {
+                let prefix = &file.source[..start];
+                let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+                let column = prefix
+                    .rsplit('\n')
+                    .next()
+                    .map_or(1, |line| line.chars().count() + 1);
+                diagnostic.span = Some(Span {
+                    start,
+                    end,
+                    line,
+                    column,
+                    source_id,
+                });
+                diagnostic =
+                    diagnostic.with_source(file.path.display().to_string(), file.source.clone());
+            }
+        }
+    }
+    diagnostic
+}
+
+fn attach_generator_source(mut message: String, source_files: &[SourceFile]) -> String {
+    let Some(source_id) = source_id_after(&message, "source span ") else {
+        return message;
+    };
+    if let Some(file) = source_files.get(source_id as usize) {
+        message.push_str(&format!("; source file {}", file.path.display()));
+    }
+    message
+}
+
+fn generator_diagnostic(message: String, root_path: &Path, root_source: &str) -> Diagnostic {
+    let mut diagnostic = Diagnostic::new(DiagnosticCode::Generator, message.clone());
+    let Some(path) = message
+        .rsplit_once("source file ")
+        .map(|(_, path)| path.trim())
+    else {
+        return diagnostic;
+    };
+    let Some((start, end)) = span_after(&message, "source span ") else {
+        return diagnostic;
+    };
+    let source = if Path::new(path) == root_path {
+        root_source.to_owned()
+    } else if let Ok(source) = fs::read_to_string(path) {
+        source
+    } else {
+        return diagnostic;
+    };
+    if start > end || source.get(start..end).is_none() {
+        return diagnostic;
+    }
+    let prefix = &source[..start];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix
+        .rsplit('\n')
+        .next()
+        .map_or(1, |line| line.chars().count() + 1);
+    diagnostic.span = Some(Span {
+        start,
+        end,
+        line,
+        column,
+        source_id: source_id_after(&message, "source span ").unwrap_or(0),
+    });
+    diagnostic.with_source(path, source)
+}
+
+fn codegen_diagnostic(message: String, program: &Program) -> Diagnostic {
+    let mut diagnostic = Diagnostic::new(DiagnosticCode::Codegen, message.clone());
+    let marked_span = (
+        span_after(&message, "source span "),
+        source_id_after(&message, "source span "),
+    );
+    let explicit_span = marked_span.0.zip(marked_span.1);
+    let referenced_names = message.split('\'').skip(1).step_by(2).collect::<Vec<_>>();
+    fn collect_named_spans(expression: &SpannedExpr, name: &str, spans: &mut Vec<Span>) {
+        if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
+            spans.push(expression.span);
+        }
+        for child in &expression.children {
+            collect_named_spans(child, name, spans);
+        }
+    }
+    let mut referenced_spans = Vec::new();
+    for name in &referenced_names {
+        for expression in program.declaration_expressions.values() {
+            if let Some(children) = expression.children.get(2..) {
+                for child in children {
+                    collect_named_spans(child, name, &mut referenced_spans);
+                }
+            }
+        }
+    }
+    let declaration_span = referenced_spans
+        .into_iter()
+        .max_by_key(|span| span.start)
+        .or_else(|| {
+            referenced_names
+                .iter()
+                .find_map(|name| program.declaration_spans.get(*name).copied())
+        });
+    let (span, source_id) = if let Some(((start, end), source_id)) = explicit_span {
+        (
+            Span {
+                start,
+                end,
+                source_id,
+                ..Span::new(start, end, 1, 1)
+            },
+            source_id,
+        )
+    } else if let Some(span) = declaration_span {
+        (span, span.source_id)
+    } else {
+        return diagnostic;
+    };
+    let Some(file) = program.source_files.get(source_id as usize) else {
+        return diagnostic;
+    };
+    if span.start > span.end || file.source.get(span.start..span.end).is_none() {
+        return diagnostic;
+    }
+    let prefix = &file.source[..span.start];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix
+        .rsplit('\n')
+        .next()
+        .map_or(1, |line| line.chars().count() + 1);
+    diagnostic.span = Some(Span {
+        line,
+        column,
+        ..span
+    });
+    diagnostic.with_source(file.path.display().to_string(), file.source.clone())
 }
 
 /// Assemble and link native output, returning a structured link diagnostic on
@@ -1457,23 +1621,27 @@ fn native_dynamic_linker() -> String {
 fn parse_program_in_directory(
     source: &str,
     base: &Path,
+    source_path: Option<&Path>,
     config: &CompileConfig,
     cache_directory: Option<&Path>,
 ) -> Result<Program, String> {
-    let loaded = load_imports(source, base, config)?;
+    let (loaded, source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&loaded, config);
     let expressions = expand_cfg_forms(
         generator::expand_with_generated_cached_with_context(
             loaded,
             cache_directory,
             &dependency_context,
-        )?
+        )
+        .map_err(|error| attach_generator_source(error, &source_files))?
         .0,
         config,
     )?;
     let mut items = Vec::with_capacity(expressions.len());
     let mut statement_spans = HashMap::new();
     let mut statement_expressions = HashMap::new();
+    let mut declaration_spans = HashMap::new();
+    let mut declaration_expressions = HashMap::new();
     for expression in expressions {
         validate_prefixed_forms(&expression.expr)?;
         collect_function_statement_spans(
@@ -1481,19 +1649,30 @@ fn parse_program_in_directory(
             &mut statement_spans,
             &mut statement_expressions,
         );
+        let form_span = expression.span;
+        let source_expression = expression.clone();
         let expression = normalize_keywords(expression.expr);
-        if let Expr::List(forms) = &expression {
+        let parsed_items = if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
-                items.extend(parse_generated_items(forms).map_err(|error| {
+                parse_generated_items(forms).map_err(|error| {
                     format!(
                         "{error} while expanding generated declaration {}",
                         expression_source(&expression).unwrap_or_else(|_| "<?>".into())
                     )
-                })?);
-                continue;
+                })?
+            } else {
+                vec![parse_item(&expression)?]
             }
+        } else {
+            vec![parse_item(&expression)?]
+        };
+        for item in parsed_items {
+            for name in item_declared_names(&item) {
+                declaration_spans.insert(name.clone(), form_span);
+                declaration_expressions.insert(name, source_expression.clone());
+            }
+            items.push(item);
         }
-        items.push(parse_item(&expression)?);
     }
     rename_shadowed_locals(&mut items);
     let mut items = specialize_generic_types(items)?;
@@ -1501,9 +1680,25 @@ fn parse_program_in_directory(
     Ok(Program {
         items,
         source: Some(source.to_owned()),
+        source_files,
         statement_spans,
         statement_expressions,
+        declaration_spans,
+        declaration_expressions,
     })
+}
+
+fn item_declared_names(item: &Item) -> Vec<String> {
+    match item {
+        Item::Function(function) => vec![function.name.clone()],
+        Item::Struct { name, .. }
+        | Item::Enum { name, .. }
+        | Item::TypeAlias { name, .. }
+        | Item::ThreadTask { name, .. }
+        | Item::Static { name, .. }
+        | Item::Let { name, .. } => vec![name.clone()],
+        Item::UnsafeAutoTraitImpl { .. } => Vec::new(),
+    }
 }
 
 /// Preserve source locations for top-level function statements before the
@@ -1531,6 +1726,13 @@ fn collect_function_statement_spans(
         let key = (name.clone(), statement_index);
         spans.insert(key.clone(), statement.span);
         expressions.insert(key, statement.clone());
+    }
+}
+
+fn set_source_id(expression: &mut SpannedExpr, source_id: u32) {
+    expression.span.source_id = source_id;
+    for child in &mut expression.children {
+        set_source_id(child, source_id);
     }
 }
 
@@ -2271,9 +2473,36 @@ fn load_imports(
     base: &Path,
     config: &CompileConfig,
 ) -> Result<Vec<SpannedExpr>, String> {
+    load_imports_with_sources(source, base, None, config).map(|(forms, _)| forms)
+}
+
+fn load_imports_with_sources(
+    source: &str,
+    base: &Path,
+    source_path: Option<&Path>,
+    config: &CompileConfig,
+) -> Result<(Vec<SpannedExpr>, Vec<SourceFile>), String> {
     let mut active = Vec::new();
     let mut loaded = HashSet::new();
-    load_imports_inner(source, base, &mut active, &mut loaded, config)
+    let root_path = source_path
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| base.join("<memory>"));
+    let mut source_ids = HashMap::from([(root_path.clone(), 0u32)]);
+    let mut source_files = vec![SourceFile {
+        path: root_path,
+        source: source.to_owned(),
+    }];
+    let forms = load_imports_inner(
+        source,
+        base,
+        0,
+        &mut active,
+        &mut loaded,
+        &mut source_ids,
+        &mut source_files,
+        config,
+    )?;
+    Ok((forms, source_files))
 }
 
 fn cfg_value(expression: &Expr) -> Result<String, String> {
@@ -2380,11 +2609,17 @@ fn expand_cfg_forms(
 fn load_imports_inner(
     source: &str,
     base: &Path,
+    source_id: u32,
     active: &mut Vec<PathBuf>,
     loaded: &mut HashSet<String>,
+    source_ids: &mut HashMap<PathBuf, u32>,
+    source_files: &mut Vec<SourceFile>,
     config: &CompileConfig,
 ) -> Result<Vec<SpannedExpr>, String> {
-    let expressions = parse(source).map_err(|error| format!("{}: {error}", base.display()))?;
+    let mut expressions = parse(source).map_err(|error| format!("{}: {error}", base.display()))?;
+    for expression in &mut expressions {
+        set_source_id(expression, source_id);
+    }
     let expressions = expand_cfg_forms(expressions, config)?;
     let mut result = Vec::new();
     for expression in expressions {
@@ -2437,12 +2672,23 @@ fn load_imports_inner(
         }
         let imported_source = fs::read_to_string(&path)
             .map_err(|error| format!("cannot read import '{}': {error}", path.display()))?;
+        let imported_source_id = *source_ids.entry(path.clone()).or_insert_with(|| {
+            let id = source_files.len() as u32;
+            source_files.push(SourceFile {
+                path: path.clone(),
+                source: imported_source.clone(),
+            });
+            id
+        });
         active.push(path.clone());
         let mut imported = load_imports_inner(
             &imported_source,
             path.parent().unwrap_or_else(|| Path::new(".")),
+            imported_source_id,
             active,
             loaded,
+            source_ids,
+            source_files,
             config,
         )?;
         active.pop();
@@ -5530,6 +5776,7 @@ mod tests {
                 end: 9,
                 line: 2,
                 column: 3,
+                source_id: 0,
             })
             .note("borrowed here");
         assert_eq!(diagnostic.code_string(), "E4100");
@@ -5560,6 +5807,39 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(types.code, DiagnosticCode::Type);
+        assert!(types.span.is_some());
+
+        let generator_source = "(#generator fail () (#gn-error \"unsupported\"))\n(@fail)";
+        let generator = compile_source_to_assembly(
+            generator_source,
+            Path::new("example.lim"),
+            &CompileConfig::default(),
+            &cache,
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(generator.code, DiagnosticCode::Generator);
+        let generator_span = generator.span.unwrap();
+        assert_eq!(
+            &generator.source_text.as_deref().unwrap()[generator_span.start..generator_span.end],
+            "(@fail)"
+        );
+
+        let backend_source = "(#const First u64 (#u64.+.wrap Second 1))\n(#const Second u64 (#u64.+.wrap First 1))\n(#fn main () u64 (#return First))";
+        let backend = compile_source_to_assembly(
+            backend_source,
+            Path::new("example.lim"),
+            &CompileConfig::default(),
+            &cache,
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(backend.code, DiagnosticCode::Codegen);
+        let backend_span = backend.span.unwrap();
+        assert_eq!(
+            &backend.source_text.as_deref().unwrap()[backend_span.start..backend_span.end],
+            "Second"
+        );
 
         let linking = link_native_binary(
             "invalid assembly instruction !",
@@ -5656,6 +5936,15 @@ mod tests {
         assert!(rendered.contains("--> type-error.lim:3:12"), "{rendered}");
         assert!(rendered.contains("^^^^^^^ here"), "{rendered}");
         assert!(rendered.contains("(#return missing)"), "{rendered}");
+    }
+
+    #[test]
+    fn type_errors_preserve_the_offending_nested_expression_span() {
+        let source = "(#fn main () u64\n  (#return (#u64.+.wrap 1u64 missing))\n)";
+        let program = parse_program(source).unwrap();
+        let error = check_types(&program).unwrap_err();
+        let (start, end) = span_after(&error, "source span ").unwrap();
+        assert_eq!(&source[start..end], "missing");
     }
 
     #[test]
@@ -5923,6 +6212,63 @@ mod tests {
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains(".globl read_x2d_value"));
         assert!(assembly.contains(".globl ext_x2d_read_x2d_value"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn imported_diagnostics_keep_their_own_source_file_and_offsets() {
+        let directory = std::env::temp_dir().join(format!("lim-source-map-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let module_path = directory.join("module.lim");
+        let module_source = "(#fn broken () u64\n  (#return missing))";
+        std::fs::write(&module_path, module_source).unwrap();
+        let root_path = directory.join("root.lim");
+        let root_source = "(#import \"module.lim\") (#fn main () u64 (#return 0u64))";
+        let program = parse_program_from_path(root_source, &root_path).unwrap();
+        let error = check_types(&program).unwrap_err();
+        let diagnostic = analysis_diagnostic(error, &program);
+        let span = diagnostic.span.unwrap();
+        assert_eq!(span.source_id, 1);
+        assert_eq!(
+            &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
+            "missing"
+        );
+        let rendered = render_diagnostic(&diagnostic, root_source, "root.lim");
+        assert!(rendered.contains("--> "));
+        assert!(rendered.contains("module.lim:2:12"), "{rendered}");
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn imported_generator_errors_keep_the_invocation_source_span() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-import-generator-span-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let module_path = directory.join("module.lim");
+        let module_source = "(#generator fail () (#gn-error \"unsupported\"))\n(@fail)";
+        std::fs::write(&module_path, module_source).unwrap();
+        let root_path = directory.join("root.lim");
+        let root_source = "(#import \"module.lim\")";
+        let diagnostic = compile_source_to_assembly(
+            root_source,
+            &root_path,
+            &CompileConfig::default(),
+            &directory.join("cache"),
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(diagnostic.code, DiagnosticCode::Generator);
+        let span = diagnostic.span.unwrap();
+        assert_eq!(span.source_id, 1);
+        assert_eq!(
+            &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
+            "(@fail)"
+        );
+        assert!(diagnostic
+            .source_name
+            .as_deref()
+            .unwrap()
+            .ends_with("module.lim"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -6808,6 +7154,13 @@ mod tests {
         assert!(check_types(&missing_unsafe)
             .unwrap_err()
             .contains("requires an enclosing (#unsafe ...) block"));
+
+        let unsafe_span_source =
+            "(#fn bad ((pointer (#ptr u64))) (#ptr u64)\n  (#return (#ptr-offset pointer 1usize)))";
+        let unsafe_span_program = parse_program(unsafe_span_source).unwrap();
+        let unsafe_span_error = check_types(&unsafe_span_program).unwrap_err();
+        let (start, end) = span_after(&unsafe_span_error, "source span ").unwrap();
+        assert_eq!(&unsafe_span_source[start..end], "#ptr-offset");
 
         let return_borrow_from_raw_pointer = parse_program(
             "(#fn expose ((anchor (#ref u64)) (pointer (#ptr u64))) (#ref u64) (#let reference (#ref u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference)) (#fn bad () u64 (#let-mut value u64 41) (#let pointer (#ptr u64) (#unsafe (#addr-of value))) (#let reference (#ref u64) (expose (#borrow value) pointer)) (#set value 42) (#return (#deref reference)))",

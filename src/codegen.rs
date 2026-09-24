@@ -827,8 +827,11 @@ fn monomorphize_program(
     Ok(Program {
         items,
         source: program.source.clone(),
+        source_files: program.source_files.clone(),
         statement_spans: program.statement_spans.clone(),
         statement_expressions: program.statement_expressions.clone(),
+        declaration_spans: program.declaration_spans.clone(),
+        declaration_expressions: program.declaration_expressions.clone(),
     })
 }
 
@@ -1305,7 +1308,23 @@ pub fn generate_assembly_for_target(
                 &global_types,
                 &aliases,
                 &functions,
-            )?,
+                &program.statement_spans,
+                &program.statement_expressions,
+            )
+            .map_err(|error| {
+                if error.contains("source span ") {
+                    return error;
+                }
+                program
+                    .declaration_spans
+                    .get(&function.name)
+                    .map_or(error.clone(), |span| {
+                        format!(
+                            "{error}; source span {}:{}:{}",
+                            span.source_id, span.start, span.end
+                        )
+                    })
+            })?,
             Item::Function(_) => {}
             Item::Struct { .. } => {}
             Item::Enum { .. } => {}
@@ -1320,7 +1339,18 @@ pub fn generate_assembly_for_target(
                 &enums,
                 &aliases,
                 &functions,
-            )?,
+            )
+            .map_err(|error| {
+                program
+                    .declaration_spans
+                    .get(name)
+                    .map_or(error.clone(), |span| {
+                        format!(
+                            "{error}; source span {}:{}:{}",
+                            span.source_id, span.start, span.end
+                        )
+                    })
+            })?,
         }
     }
     output.push_str(".section .note.GNU-stack,\"\",@progbits\n");
@@ -1751,6 +1781,8 @@ fn generate_function(
     global_types: &HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
     functions: &HashMap<String, FunctionAbi>,
+    statement_spans: &HashMap<(String, usize), crate::Span>,
+    statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
 ) -> Result<(), String> {
     let return_type = resolve_type(&function.return_type, aliases)?;
     ensure_return_type(&return_type, enums, structs)?;
@@ -2085,8 +2117,23 @@ fn generate_function(
         aggregate_projection_depth: 0,
         output: String::new(),
     };
-    for statement in &function.body {
-        context.statement(statement)?;
+    for (index, statement) in function.body.iter().enumerate() {
+        context.statement(statement).map_err(|error| {
+            let source_expression = statement_expressions.get(&(function.name.clone(), index));
+            source_expression
+                .and_then(|expression| codegen_expression_span(expression, &error))
+                .or_else(|| {
+                    statement_spans
+                        .get(&(function.name.clone(), index))
+                        .copied()
+                })
+                .map_or(error.clone(), |span| {
+                    format!(
+                        "{error}; source span {}:{}:{}",
+                        span.source_id, span.start, span.end
+                    )
+                })
+        })?;
     }
     if function.body.is_empty() {
         context.output.push_str("    xor eax, eax\n");
@@ -2095,6 +2142,25 @@ fn generate_function(
     output.push_str(&format!("{return_label}:\n"));
     output.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
     Ok(())
+}
+
+fn codegen_expression_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
+    let target = error.split('\'').nth(1)?;
+    fn collect(expression: &crate::SpannedExpr, target: &str, spans: &mut Vec<crate::Span>) {
+        if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == target) {
+            spans.push(expression.span);
+        }
+        for child in &expression.children {
+            collect(child, target, spans);
+        }
+    }
+    let mut spans = Vec::new();
+    collect(expression, target, &mut spans);
+    if error.contains("used more than once") {
+        spans.into_iter().max_by_key(|span| span.start)
+    } else {
+        spans.into_iter().next()
+    }
 }
 
 fn collect_local_types(

@@ -1137,7 +1137,10 @@ fn is_operator(expression: Option<&Expr>, expected: &str) -> bool {
 }
 
 fn at_span(message: String, span: Span, context: &str) -> String {
-    format!("{}:{}: {context}: {message}", span.line, span.column)
+    format!(
+        "{}:{}: {context}: {message}; source span {}:{}:{}",
+        span.line, span.column, span.source_id, span.start, span.end
+    )
 }
 
 fn expression_nodes(expression: &Expr) -> usize {

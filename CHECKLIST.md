@@ -174,9 +174,11 @@ the checklist is committed alongside the implementation it tracks.
   string-returning APIs remain available.
 - [x] Add Rust-style CLI diagnostic rendering with source excerpts and
   underlines for errors that carry or expose a source location.
-- [ ] Carry exact spans from parsed expressions into type, ownership, borrow,
+- [x] Carry exact spans from parsed expressions into type, ownership, borrow,
   unsafe, generator, and codegen errors; remove identifier-search fallbacks so
-  all underlines point to the actual offending syntax.
+  all underlines point to the actual offending syntax. Source identities and
+  contents are retained across imports, and structured diagnostics render
+  imported locations against the owning source file.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

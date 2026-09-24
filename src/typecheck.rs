@@ -1273,13 +1273,15 @@ fn check_function(
             let statement_span = statement_spans
                 .get(&(function.name.clone(), index))
                 .copied();
-            let source_expression = statement_expressions
-                .get(&(function.name.clone(), index));
+            let source_expression = statement_expressions.get(&(function.name.clone(), index));
             let precise_span = source_expression
                 .and_then(|expression| precise_type_error_span(expression, &error))
                 .or(statement_span);
             precise_span.map_or(error.clone(), |span| {
-                format!("{error}; source span {}:{}", span.start, span.end)
+                format!(
+                    "{error}; source span {}:{}:{}",
+                    span.source_id, span.start, span.end
+                )
             })
         })?;
     }
@@ -1289,22 +1291,30 @@ fn check_function(
         &format!("return of function '{}'", function.name),
     )
     .map_err(|error| {
-        function.body.len().checked_sub(1).and_then(|index| {
-            statement_expressions
-                .get(&(function.name.clone(), index))
-                .map(|expression| expression_value_span(expression))
-                .or_else(|| statement_spans.get(&(function.name.clone(), index)).copied())
-        })
+        function
+            .body
+            .len()
+            .checked_sub(1)
+            .and_then(|index| {
+                statement_expressions
+                    .get(&(function.name.clone(), index))
+                    .map(|expression| expression_value_span(expression))
+                    .or_else(|| {
+                        statement_spans
+                            .get(&(function.name.clone(), index))
+                            .copied()
+                    })
+            })
             .map_or(error.clone(), |span| {
-                format!("{error}; source span {}:{}", span.start, span.end)
+                format!(
+                    "{error}; source span {}:{}:{}",
+                    span.source_id, span.start, span.end
+                )
             })
     })
 }
 
-fn precise_type_error_span(
-    statement: &crate::SpannedExpr,
-    error: &str,
-) -> Option<crate::Span> {
+fn precise_type_error_span(statement: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
     let value = expression_value(statement);
     let name = error
         .strip_prefix("unknown variable or enum variant '")

@@ -50,15 +50,80 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
             .map(|p| p.name.clone())
             .collect::<HashSet<_>>();
         let mut moved = HashSet::new();
-        check_statements(
-            &function.body,
-            &mut bindings,
-            &mut moved,
-            &HashSet::new(),
-            &types,
-        )?;
+        for (index, statement) in function.body.iter().enumerate() {
+            check_statements(
+                std::slice::from_ref(statement),
+                &mut bindings,
+                &mut moved,
+                &HashSet::new(),
+                &types,
+            )
+            .map_err(|error| {
+                let key = (function.name.clone(), index);
+                let precise = program
+                    .statement_expressions
+                    .get(&key)
+                    .and_then(|expression| precise_linear_span(expression, &error))
+                    .or_else(|| {
+                        error.contains("must be consumed").then(|| {
+                            function.body.iter().enumerate().find_map(|(index, _)| {
+                                let expression = program
+                                    .statement_expressions
+                                    .get(&(function.name.clone(), index))?;
+                                let Expr::List(items) = &expression.expr else {
+                                    return None;
+                                };
+                                if !matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
+                                {
+                                    return None;
+                                }
+                                match (items.get(1), expression.children.get(1)) {
+                                    (Some(Expr::Symbol(binding)), Some(binding_span))
+                                        if binding == error.split('\'').nth(1)? =>
+                                    {
+                                        Some(binding_span.span)
+                                    }
+                                    _ => None,
+                                }
+                            })
+                        })
+                        .flatten()
+                    });
+                precise
+                    .or_else(|| program.statement_spans.get(&key).copied())
+                    .map_or(error.clone(), |span| {
+                        format!(
+                            "{error}; source span {}:{}:{}",
+                            span.source_id, span.start, span.end
+                        )
+                    })
+            })?;
+        }
     }
     Ok(())
+}
+
+fn precise_linear_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
+    let name = error.split('\'').nth(1)?;
+    fn occurrences<'a>(
+        expression: &'a crate::SpannedExpr,
+        name: &str,
+        spans: &mut Vec<crate::Span>,
+    ) {
+        if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
+            spans.push(expression.span);
+        }
+        for child in &expression.children {
+            occurrences(child, name, spans);
+        }
+    }
+    let mut spans = Vec::new();
+    occurrences(expression, name, &mut spans);
+    if error.contains("was used more than once") {
+        spans.into_iter().max_by_key(|span| span.start)
+    } else {
+        spans.into_iter().next()
+    }
 }
 
 fn check_statements(
@@ -976,6 +1041,15 @@ mod tests {
         let copied =
             parse_program("(#fn main () u64 (#let number u64 1u64) (#return 0u64))").unwrap();
         assert!(check_types(&copied).is_ok());
+    }
+
+    #[test]
+    fn linearity_diagnostics_point_to_the_exact_binding() {
+        let source = "(#struct Resource ((value (#cell u64))))\n(#fn main () u64\n  (#let resource Resource (Resource (#cell 1u64)))\n  (#return 0u64))";
+        let program = parse_program(source).unwrap();
+        let error = check_types(&program).unwrap_err();
+        let (start, end) = crate::span_after(&error, "source span ").unwrap();
+        assert_eq!(&source[start..end], "resource");
     }
 
     #[test]

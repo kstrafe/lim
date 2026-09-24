@@ -22,12 +22,68 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
             if function.external {
                 continue;
             }
-            for statement in &function.body {
-                check_statement(statement, false, &statics, &external_functions)?;
+            for (index, statement) in function.body.iter().enumerate() {
+                check_statement(statement, false, &statics, &external_functions).map_err(
+                    |error| {
+                        let key = (function.name.clone(), index);
+                        let span = program
+                            .statement_expressions
+                            .get(&key)
+                            .and_then(|expression| precise_unsafe_span(expression, &error))
+                            .or_else(|| program.statement_spans.get(&key).copied());
+                        span.map_or(error.clone(), |span| {
+                            format!(
+                                "{error}; source span {}:{}:{}",
+                                span.source_id, span.start, span.end
+                            )
+                        })
+                    },
+                )?;
             }
         }
     }
     Ok(())
+}
+
+fn precise_unsafe_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
+    fn visit(
+        expression: &crate::SpannedExpr,
+        target: &str,
+        static_access: bool,
+    ) -> Option<crate::Span> {
+        if static_access && matches!(&expression.expr, Expr::Symbol(name) if name == target) {
+            return Some(expression.span);
+        }
+        if let Expr::List(items) = &expression.expr {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == target || operator.strip_prefix('#') == Some(target))
+            {
+                return expression.children.first().map(|head| head.span);
+            }
+        }
+        expression
+            .children
+            .iter()
+            .find_map(|child| visit(child, target, static_access))
+    }
+
+    if let Some(target) = error
+        .strip_prefix("unsafe operation '")
+        .and_then(|tail| tail.split('\'').next())
+        .or_else(|| {
+            error
+                .strip_prefix("call to external function '")
+                .and_then(|tail| tail.split('\'').next())
+        })
+    {
+        return visit(expression, target, false);
+    }
+    if let Some(target) = error
+        .strip_prefix("access to static '")
+        .and_then(|tail| tail.split('\'').next())
+    {
+        return visit(expression, target, true);
+    }
+    None
 }
 
 fn check_statement(
