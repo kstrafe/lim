@@ -1950,6 +1950,11 @@ fn precise_type_error_span(
             }
         }
     }
+    if error.contains("match is not exhaustive") {
+        if let Some(span) = source_operator_span(statement, "match") {
+            return Some(span);
+        }
+    }
     if let Some(name) = error
         .split_once("expected Named(\"")
         .and_then(|(_, rest)| rest.split_once('\"').map(|(name, _)| name))

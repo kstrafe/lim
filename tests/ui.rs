@@ -355,6 +355,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "non-exhaustive-match",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match value (Ready 1u64)))",
+            line_number: 4,
+        },
+        Case {
             name: "unknown-let-else-variant",
             diagnostic_code: "E4000",
             offending_line: "  (#let-else Missing State value (#return 1u64))",
@@ -583,6 +589,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-get-field" => Some("missing"),
             "unknown-payload-variant" => Some("MissingVariant"),
             "unknown-match-variant" => Some("Missing"),
+            "non-exhaustive-match" => Some("#match"),
             "unknown-let-else-variant" => Some("Missing"),
             "duplicate-enum-match-pattern" => Some("Ready"),
             "duplicate-wildcard-match-pattern" => Some("_"),
