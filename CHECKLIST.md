@@ -196,6 +196,8 @@ the checklist is committed alongside the implementation it tracks.
   discriminant, thread-task worker/result, and task-in-aggregate diagnostics
   now identify their invalid source token/type as well. Thread-task handles in
   function signatures and type aliases also underline the task type token.
+  Missing-import and import-cycle failures underline the path string, while
+  unknown cfg keys underline the referenced key token.
   Unknown named types in local `#let` annotations underline the annotation,
   including when type checking represents the failure as an expected-type
   mismatch. Immutable assignments now underline the assigned binding instead

@@ -1065,6 +1065,8 @@ discriminant and thread-task declaration diagnostics target the invalid
 discriminant, worker name, result type, or aggregate field type.
 Thread-task handles in function signatures and type aliases underline the
 generated task type token.
+Import resolution errors underline the path string, and unknown cfg keys
+underline the referenced key.
 Unknown named types in local `#let` annotations underline the type token,
 including diagnostics formatted as expected-type mismatches.
 Immutable-assignment diagnostics underline the target binding.

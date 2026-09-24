@@ -3801,9 +3801,10 @@ fn expand_cfg_forms(
     let mut expanded = Vec::new();
     for form in forms {
         let at_form = |error: String| {
+            let span = cfg_error_span(&form, &error).unwrap_or(form.span);
             format!(
                 "type error: {error}; source span {}:{}:{}",
-                form.span.source_id, form.span.start, form.span.end
+                span.source_id, span.start, span.end
             )
         };
         let Expr::List(items) = &form.expr else {
@@ -3862,6 +3863,27 @@ fn expand_cfg_forms(
     Ok(expanded)
 }
 
+fn cfg_error_span(form: &SpannedExpr, error: &str) -> Option<Span> {
+    let key = error
+        .strip_prefix("unknown cfg key '#")?
+        .split('\'')
+        .next()?;
+    fn find_key(expression: &SpannedExpr, key: &str) -> Option<Span> {
+        if let Expr::List(items) = &expression.expr {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "#cfg-is")
+                && matches!(items.get(1), Some(Expr::Symbol(name)) if name.strip_prefix('#').unwrap_or(name) == key)
+            {
+                return expression.children.get(1).map(|name| name.span);
+            }
+        }
+        expression
+            .children
+            .iter()
+            .find_map(|child| find_key(child, key))
+    }
+    find_key(form, key)
+}
+
 fn load_imports_inner(
     source: &str,
     base: &Path,
@@ -3913,12 +3935,16 @@ fn load_imports_inner(
             .cloned()
             .unwrap_or_else(|| unresolved_paths[0].clone());
         let path = fs::canonicalize(&unresolved_path).map_err(|error| {
+            let path_span = expression
+                .children
+                .get(1)
+                .map_or(expression.span, |path| path.span);
             attach_span_to_source_error(
                 format!(
                     "cannot resolve import '{}': {error}",
                     unresolved_path.display()
                 ),
-                expression.span,
+                path_span,
                 source_files,
             )
         })?;
@@ -3928,9 +3954,13 @@ fn load_imports_inner(
                 .map(|entry| entry.display().to_string())
                 .collect::<Vec<_>>();
             cycle.push(path.display().to_string());
+            let path_span = expression
+                .children
+                .get(1)
+                .map_or(expression.span, |path| path.span);
             return Err(attach_span_to_source_error(
                 format!("import cycle: {}", cycle.join(" -> ")),
-                expression.span,
+                path_span,
                 source_files,
             ));
         }

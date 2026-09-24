@@ -608,6 +608,10 @@ fn compilation_errors_render_the_offending_source_line() {
             );
         }
         let precise_fragment = match case.name {
+            "import" => Some("\"missing-module.lim\""),
+            "imported" => Some("\"missing-dependency.lim\""),
+            "cycle-a" => Some("\"cycle-a.lim\""),
+            "cfg" => Some("#platfrom"),
             "operator-arity" => Some("#u64.+.wrap"),
             "unknown-function" => Some("missing"),
             "nonboolean-if-condition" => Some("1u64"),
