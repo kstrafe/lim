@@ -1117,7 +1117,7 @@ When a global constant expression contains a function call, its codegen
 diagnostic highlights the nested `#call` form rather than the whole initializer.
 Imported parser diagnostics use the reported position to underline the full
 offending token when it can be read from the imported source, including quoted
-tokens that contain whitespace.
+tokens with internal whitespace and escaped quotes.
 UI regression tests verify exact caret columns for unknown identifiers,
 recursive calls, and code-generation failures as well as checking their lines.
 Repeated moves of linear fields and array elements identify their repeated

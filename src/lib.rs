@@ -7989,6 +7989,19 @@ mod tests {
             &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
             "\"bad token\""
         );
+
+        let escaped_source = r#"  "bad \" token" here"#;
+        std::fs::write(&module_path, escaped_source).unwrap();
+        let diagnostic = generator_diagnostic(
+            format!("{}: 1:3: unexpected token", module_path.display()),
+            &root_path,
+            "",
+        );
+        let span = diagnostic.span.unwrap();
+        assert_eq!(
+            &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
+            r#""bad \" token""#
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 
