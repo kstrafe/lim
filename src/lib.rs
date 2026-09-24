@@ -4670,10 +4670,9 @@ fn write_generated_sources_in_directory(
             continue;
         }
         let key = format!(
-            "lim-inspectable-generated-source-v2\nbuiltin-materializer=5\ncompiler={}\ntarget={}-{}\ndependency-context={}\ninvocation={invocation}",
+            "lim-inspectable-generated-source-v3\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ninvocation={invocation}",
             env!("CARGO_PKG_VERSION"),
-            std::env::consts::ARCH,
-            std::env::consts::OS,
+            env!("LIM_BUILD_FINGERPRINT"),
             dependency_context,
         );
         generator::cached_generated_source(&generated_cache, &key, || {

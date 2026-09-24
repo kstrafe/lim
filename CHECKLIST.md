@@ -391,7 +391,7 @@ Each item requires documentation and regression coverage before being checked.
   in one process. Test simultaneous same-key and different-key invocations,
   interruption between publication steps, and cleanup of abandoned temporary
   files; readers must never accept a mismatched source/metadata pair.
-- [ ] Automatically fingerprint generator implementation changes in cache keys.
+- [x] Automatically fingerprint generator implementation changes in cache keys.
   Builtin materialization in `src/lib.rs` currently includes package version
   and a manually maintained `builtin-materializer` revision. Add a deterministic
   implementation/build fingerprint that changes when expansion semantics or

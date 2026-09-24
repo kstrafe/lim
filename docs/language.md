@@ -982,7 +982,8 @@ free-standing helpers:
 Expansion is part of program parsing. Readable generated Lim sources for both
 built-in and user-defined `@` invocations are stored as hash-named `.lim` files
 under `.lim/cache/`. Their keys include the invocation, compiler version,
-target, loaded imports, and cfg values; user-generator execution also caches
+supported target, loaded imports, cfg values, and a deterministic fingerprint
+of compiler Rust sources and build logic. User-generator execution also caches
 raw emitted syntax there using the generator and transitive `#gn-fn` hashes.
 Invalid or stale cache entries are ignored and recomputed. The `.lim/`
 directory is build output; deleting it only causes generators to run again.
