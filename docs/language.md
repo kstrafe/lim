@@ -1091,6 +1091,7 @@ literal.
 Range-pattern diagnostics underline the invalid range, or its upper bound when
 the bounds are reversed.
 Duplicate character match patterns underline the later character literal.
+Enum match payload-arity errors underline the affected variant pattern.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the

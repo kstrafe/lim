@@ -373,6 +373,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "enum-match-payload-arity",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match value ((One left right) 0u64) (Done 1u64)))",
+            line_number: 4,
+        },
+        Case {
             name: "duplicate-wildcard-match-pattern",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#match true (_ 0u64) (_ 1u64)))",
@@ -592,6 +598,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "non-exhaustive-match" => Some("#match"),
             "unknown-let-else-variant" => Some("Missing"),
             "duplicate-enum-match-pattern" => Some("Ready"),
+            "enum-match-payload-arity" => Some("One"),
             "duplicate-wildcard-match-pattern" => Some("_"),
             "out-of-range-match-integer" => Some("300"),
             "duplicate-match-integer" => Some("2"),

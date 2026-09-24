@@ -1926,6 +1926,11 @@ fn precise_type_error_span(
             error
                 .strip_prefix("unknown enum variant '")
                 .and_then(|rest| rest.split('\'').next())
+        })
+        .or_else(|| {
+            error
+                .strip_prefix("variant '")
+                .and_then(|rest| rest.split('\'').next())
         });
     if let Some(name) = enum_pattern_target {
         if let Some(span) = type_pattern_symbol_span(statement, name) {

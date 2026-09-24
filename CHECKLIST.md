@@ -217,7 +217,8 @@ the checklist is committed alongside the implementation it tracks.
   underline the later duplicate. Out-of-range and repeated integer match
   patterns underline the corresponding literal token. Range-pattern errors
   underline the invalid range or its upper bound when the bounds are reversed;
-  duplicate character patterns underline the later character literal.
+  duplicate character patterns underline the later character literal. Enum
+  match payload-arity errors underline the affected variant pattern.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a
