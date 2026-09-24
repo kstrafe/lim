@@ -264,6 +264,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "non-slice-idx",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#slice-idx value 0usize))",
+            line_number: 3,
+        },
+        Case {
             name: "non-array-slice-of",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#slice-of value))",
@@ -448,6 +454,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "immutable-assignment" => Some("value"),
             "non-array-index" => Some("value"),
             "non-slice-len" => Some("value"),
+            "non-slice-idx" => Some("value"),
             "non-array-slice-of" => Some("value"),
             "non-struct-get" => Some("value"),
             "non-enum-payload" => Some("value"),
