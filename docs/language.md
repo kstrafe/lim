@@ -247,12 +247,15 @@ every `.lim` file under the selected directory. It reports each source file
 individually and returns failure if any example fails.
 
 `--emit-asm INPUT OUTPUT` remains available to inspect backend output.
-Generated `@` declarations are materialized under `.lim/` beside the input
-source in either mode. User-generator expansions are persistently cached under
-`.lim/cache/`; matching calls reuse their expanded syntax without rerunning the
-generator interpreter. Cache keys include the Lim compiler version, target, the
-complete loaded import forms, and compiler cfg values, so generated syntax is
-not reused across incompatible project or configuration inputs.
+Every generated `@` expansion is materialized as a readable, content-addressed
+`.lim` entry under `.lim/cache/`, regardless of whether it uses a built-in or a
+user-defined generator. The digest is derived from the normalized invocation,
+compiler version, target, complete loaded import forms, and compiler cfg
+values. A neighboring key file verifies the full key before a cache hit, so a
+digest collision cannot return unrelated generated source. User-generator
+evaluation also keeps its lower-level syntax cache in the same directory.
+There are no numbered generated-source files; deleting `.lim/` only causes
+generators to run and materialized entries to be recreated.
 
 ## Compile-time configuration
 
@@ -924,16 +927,13 @@ free-standing helpers:
 - `Name-is-ok`;
 - `Name-unwrap-or` and `Name-unwrap-err-or`.
 
-Expansion is part of program parsing. The command-line compiler writes
-readable generated Lim source files into `.lim/` beside the input, and stores
-content-addressed user-generator expansion entries under `.lim/cache/`. A hit
-requires identical literal arguments, the invoked generator, its transitive
-`#gn-fn` dependencies, and generator interpreter implementation. Unrelated
-generator and helper changes do not invalidate that entry. Each entry caches
-the generator's raw emitted forms; nested `@` invocations are then expanded
-independently and can hit their own entries. Invalid or stale cache files are
-ignored and recomputed. The `.lim/` directory is build output; deleting it
-only causes generators to run again.
+Expansion is part of program parsing. Readable generated Lim sources for both
+built-in and user-defined `@` invocations are stored as hash-named `.lim` files
+under `.lim/cache/`. Their keys include the invocation, compiler version,
+target, loaded imports, and cfg values; user-generator execution also caches
+raw emitted syntax there using the generator and transitive `#gn-fn` hashes.
+Invalid or stale cache entries are ignored and recomputed. The `.lim/`
+directory is build output; deleting it only causes generators to run again.
 Generated declarations are not methods and do not introduce namespaces.
 Nested generated expressions are reserved for future generated forms.
 

@@ -801,6 +801,47 @@ fn cache_path(directory: &Path, key: &str) -> PathBuf {
     ))
 }
 
+/// Read or create an inspectable generated-source artifact in the shared
+/// content-addressed cache. The complete key lives beside the `.lim` file so
+/// a digest collision is detected instead of treated as a hit.
+pub(crate) fn cached_generated_source(
+    directory: &Path,
+    key: &str,
+    generate: impl FnOnce() -> Result<String, String>,
+) -> Result<String, String> {
+    let digest = stable_hash(key.as_bytes());
+    let path = directory.join(format!("generated-{digest:032x}.lim"));
+    let key_path = directory.join(format!("generated-{digest:032x}.key"));
+    if let Ok(existing_key) = fs::read_to_string(&key_path) {
+        if existing_key != key {
+            return Err(format!(
+                "generated-source cache hash collision at {}",
+                path.display()
+            ));
+        }
+        if let Ok(source) = fs::read_to_string(&path) {
+            if crate::parse(&source).is_ok() {
+                return Ok(source);
+            }
+        }
+    }
+
+    let source = generate()?;
+    fs::create_dir_all(directory)
+        .map_err(|error| format!("cannot create generated-source cache: {error}"))?;
+    let temporary_source = path.with_extension(format!("{}-source.tmp", std::process::id()));
+    let temporary_key = key_path.with_extension(format!("{}-key.tmp", std::process::id()));
+    fs::write(&temporary_source, &source)
+        .map_err(|error| format!("cannot write generated source cache: {error}"))?;
+    fs::write(&temporary_key, key)
+        .map_err(|error| format!("cannot write generated-source cache key: {error}"))?;
+    fs::rename(&temporary_source, &path)
+        .map_err(|error| format!("cannot publish generated source cache: {error}"))?;
+    fs::rename(&temporary_key, &key_path)
+        .map_err(|error| format!("cannot publish generated-source cache key: {error}"))?;
+    Ok(source)
+}
+
 fn stable_hash(bytes: &[u8]) -> u128 {
     let mut hash = 0x6c62272e07bb014262b821756295c58du128;
     for byte in bytes {
@@ -1160,6 +1201,45 @@ fn expression_nodes(expression: &Expr) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inspectable_generated_source_cache_uses_the_full_key_and_reuses_source() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-inspectable-cache-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        let first =
+            cached_generated_source(&directory, "key-a", || Ok("(#type Cached u64)".into()))
+                .unwrap();
+        let second = cached_generated_source(&directory, "key-a", || {
+            Err("cache miss unexpectedly invoked generator".into())
+        })
+        .unwrap();
+        let different =
+            cached_generated_source(&directory, "key-b", || Ok("(#type Other u64)".into()))
+                .unwrap();
+        assert_eq!(first, second);
+        assert_ne!(first, different);
+        let entries = fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|path| path.extension().is_some_and(|ext| ext == "lim"))
+                .count(),
+            2
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|path| path.extension().is_some_and(|ext| ext == "key"))
+                .count(),
+            2
+        );
+        let _ = fs::remove_dir_all(directory);
+    }
 
     #[test]
     fn generator_evaluation_has_a_finite_step_budget() {

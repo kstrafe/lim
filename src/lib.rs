@@ -3176,7 +3176,7 @@ fn is_unprefixed_builtin_name(name: &str) -> bool {
 /// Materialize built-in generated declarations as source files.
 ///
 /// Expansion remains part of parse_program; this helper gives command-line
-/// builds an inspectable cache of generated Lim source under .lim/.
+/// builds an inspectable cache of generated Lim source under .lim/cache/.
 pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
@@ -3261,8 +3261,11 @@ fn write_generated_sources_in_directory(
             }
         })
         .collect::<HashMap<_, _>>();
-    let mut generated = Vec::new();
+    let generated_cache = cache_directory
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| directory.join("cache"));
     for expression in expanded {
+        let invocation = expression_source(&expression.expr)?;
         let Expr::List(forms) = normalize_keywords(expression.expr) else {
             continue;
         };
@@ -3270,95 +3273,37 @@ fn write_generated_sources_in_directory(
             continue;
         }
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
-        if kind == "thread-spawn" {
-            let task = expect_symbol(forms.get(2), "thread task type name")?;
-            let worker = expect_symbol(forms.get(3), "thread worker function")?;
-            let worker_function = worker_functions.get(worker).ok_or_else(|| {
-                format!("cannot materialize @thread-spawn: worker '{worker}' is not defined")
-            })?;
-            generated.push(thread_task_generated_source(task, worker, worker_function));
+        if !matches!(
+            kind,
+            "thread-spawn" | "vec" | "vec-alloc" | "vec-sort" | "optional" | "result"
+        ) {
             continue;
         }
-        if kind == "vec" {
-            generated.push(
-                generated_vec_source(&forms)
-                    .map_err(|error| format!("{error} while materializing @vec {forms:?}"))?,
-            );
-            continue;
-        }
-        if kind == "vec-alloc" {
-            generated
-                .push(generated_vec_allocator_source(&forms).map_err(|error| {
-                    format!("{error} while materializing @vec-alloc {forms:?}")
-                })?);
-            continue;
-        }
-        if kind == "vec-sort" {
-            generated.push(generated_vec_sort_source(&forms)?);
-            continue;
-        }
-        if !matches!(kind, "optional" | "result") {
-            continue;
-        }
-        let item = parse_generated_item(&forms)
-            .map_err(|error| format!("{error} while materializing @{kind} {forms:?}"))?;
-        let Item::Enum { name, variants, .. } = item else {
-            continue;
-        };
-        let first = variants
-            .first()
-            .and_then(|variant| variant.fields.first())
-            .ok_or_else(|| format!("{kind} expansion has no payload type"))?;
-        let first_name = variants
-            .first()
-            .map(|variant| variant.name.as_str())
-            .ok_or_else(|| format!("{kind} expansion has no payload constructor"))?;
-        let second_name = variants
-            .get(1)
-            .map(|variant| variant.name.as_str())
-            .unwrap_or("none");
-        let first_source = type_source(first);
-        if kind == "optional" {
-            generated.push(format!(
-                "(#enum {name} (({first_name} {first_source}) {second_name}))\n(#fn {name}-construct ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-is-some ((value {name})) bool (#return (#match value (({first_name} _) true) ({second_name} false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (({first_name} payload) payload) ({second_name} fallback))))\n",
-            ));
-        } else {
-            let second = variants
-                .get(1)
-                .and_then(|variant| variant.fields.first())
-                .ok_or_else(|| "result expansion has no error payload type".to_owned())?;
-            let second_source = type_source(second);
-            generated.push(format!(
-                "(#enum {name} (({first_name} {first_source}) ({second_name} {second_source})))\n(#fn {name}-ok ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-err ((error {second_source})) {name} (#return ({second_name} error)))\n(#fn {name}-is-ok ((value {name})) bool (#return (#match value (({first_name} _) true) (({second_name} _) false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (({first_name} payload) payload) (({second_name} _) fallback))))\n(#fn {name}-unwrap-err-or ((value {name}) (fallback {second_source})) {second_source} (#return (#match value (({first_name} _) fallback) (({second_name} error) error))))\n",
-            ));
-        }
+        let key = format!(
+            "lim-inspectable-generated-source-v2\nbuiltin-materializer=2\ncompiler={}\ntarget={}-{}\ndependency-context={}\ninvocation={invocation}",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::ARCH,
+            std::env::consts::OS,
+            dependency_context,
+        );
+        generator::cached_generated_source(&generated_cache, &key, || {
+            materialize_builtin_generated_source(&kind, &forms, &worker_functions)
+        })?;
     }
-    if generated.is_empty() && user_generated.is_empty() {
-        return Ok(());
-    }
-    fs::create_dir_all(directory)
-        .map_err(|error| format!("cannot create generated-code directory: {error}"))?;
-    for (index, source) in generated.iter().enumerate() {
-        let prefix = if source.contains("-is-some") {
-            "optional"
-        } else if source.contains("#thread-task") {
-            "thread-spawn"
-        } else if source.contains("-sort") {
-            "vec-sort"
-        } else if source.contains("-capacity") {
-            "vec"
-        } else {
-            "result"
-        };
-        let path = directory.join(format!("{prefix}-{index}.lim"));
-        write_if_changed(&path, source)
-            .map_err(|error| format!("cannot write generated source: {error}"))?;
-    }
-    for (index, expression) in user_generated.iter().enumerate() {
-        let source = expression_source(expression)?;
-        let path = directory.join(format!("generator-{index}.lim"));
-        write_if_changed(&path, &format!("{source}\n"))
-            .map_err(|error| format!("cannot write generated source: {error}"))?;
+    if !user_generated.is_empty() {
+        let source = user_generated
+            .iter()
+            .map(expression_source)
+            .collect::<Result<Vec<_>, _>>()?
+            .join("\n");
+        let key = format!(
+            "lim-inspectable-user-generator-source-v2\ncompiler={}\ntarget={}-{}\ndependency-context={}\nsource={source}",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::ARCH,
+            std::env::consts::OS,
+            dependency_context,
+        );
+        generator::cached_generated_source(&generated_cache, &key, || Ok(source))?;
     }
     Ok(())
 }
@@ -3373,11 +3318,65 @@ fn generator_dependency_context(expressions: &[SpannedExpr], config: &CompileCon
     format!("cfg={values:?}\nloaded-forms={expressions:?}")
 }
 
-fn write_if_changed(path: &Path, contents: &str) -> std::io::Result<()> {
-    if fs::read_to_string(path).is_ok_and(|existing| existing == contents) {
-        return Ok(());
+fn materialize_builtin_generated_source(
+    kind: &str,
+    forms: &[Expr],
+    worker_functions: &HashMap<String, Function>,
+) -> Result<String, String> {
+    if kind == "thread-spawn" {
+        let task = expect_symbol(forms.get(2), "thread task type name")?;
+        let worker = expect_symbol(forms.get(3), "thread worker function")?;
+        let worker_function = worker_functions.get(worker).ok_or_else(|| {
+            format!("cannot materialize @thread-spawn: worker '{worker}' is not defined")
+        })?;
+        return Ok(thread_task_generated_source(task, worker, worker_function));
     }
-    fs::write(path, contents)
+    if kind == "vec" {
+        return generated_vec_source(forms)
+            .map_err(|error| format!("{error} while materializing @vec {forms:?}"));
+    }
+    if kind == "vec-alloc" {
+        return generated_vec_allocator_source(forms)
+            .map_err(|error| format!("{error} while materializing @vec-alloc {forms:?}"));
+    }
+    if kind == "vec-sort" {
+        return generated_vec_sort_source(forms);
+    }
+
+    let item = parse_generated_item(forms)
+        .map_err(|error| format!("{error} while materializing @{kind} {forms:?}"))?;
+    let Item::Enum { name, variants, .. } = item else {
+        return Err(format!("@{kind} did not produce an enum"));
+    };
+    let first = variants
+        .first()
+        .and_then(|variant| variant.fields.first())
+        .ok_or_else(|| format!("{kind} expansion has no payload type"))?;
+    let first_name = variants
+        .first()
+        .map(|variant| variant.name.as_str())
+        .ok_or_else(|| format!("{kind} expansion has no payload constructor"))?;
+    let second_name = variants
+        .get(1)
+        .map(|variant| variant.name.as_str())
+        .unwrap_or("none");
+    let first_source = type_source(first);
+    if kind == "optional" {
+        Ok(format!(
+            "(#enum {name} (({first_name} {first_source}) {second_name}))\n(#fn {name}-construct ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-is-some ((value {name})) bool (#return (#match value (({first_name} _) true) ({second_name} false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (({first_name} payload) payload) ({second_name} fallback))))\n"
+        ))
+    } else if kind == "result" {
+        let second = variants
+            .get(1)
+            .and_then(|variant| variant.fields.first())
+            .ok_or_else(|| "result expansion has no error payload type".to_owned())?;
+        let second_source = type_source(second);
+        Ok(format!(
+            "(#enum {name} (({first_name} {first_source}) ({second_name} {second_source})))\n(#fn {name}-ok ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-err ((error {second_source})) {name} (#return ({second_name} error)))\n(#fn {name}-is-ok ((value {name})) bool (#return (#match value (({first_name} _) true) (({second_name} _) false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (({first_name} payload) payload) (({second_name} _) fallback))))\n(#fn {name}-unwrap-err-or ((value {name}) (fallback {second_source})) {second_source} (#return (#match value (({first_name} _) fallback) (({second_name} error) error))))\n"
+        ))
+    } else {
+        Err(format!("unknown builtin generated declaration '@{kind}'"))
+    }
 }
 
 pub(crate) fn expression_source(expression: &Expr) -> Result<String, String> {
@@ -6089,6 +6088,20 @@ impl<'a> Parser<'a> {
 mod tests {
     use super::*;
 
+    fn read_cached_generated_source(directory: &Path, contains: &str) -> (PathBuf, String) {
+        let cache = directory.join("cache");
+        for entry in std::fs::read_dir(cache).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|extension| extension == "lim") {
+                let source = std::fs::read_to_string(&path).unwrap();
+                if source.contains(contains) {
+                    return (path, source);
+                }
+            }
+        }
+        panic!("no cached generated source contains {contains:?}");
+    }
+
     #[test]
     fn structured_diagnostics_have_stable_codes_and_notes() {
         let diagnostic = Diagnostic::new(DiagnosticCode::Borrow, "conflicting borrow")
@@ -8369,7 +8382,7 @@ mod tests {
             std::env::temp_dir().join(format!("lim-generated-optional-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
         write_generated_sources("(@optional u64 Maybe?)", &directory).unwrap();
-        let generated = std::fs::read_to_string(directory.join("optional-0.lim")).unwrap();
+        let (_, generated) = read_cached_generated_source(&directory, "Maybe?-construct");
         assert!(generated.contains("#enum"));
         assert!(generated.contains("#return"));
         let program = parse_program(&generated).unwrap();
@@ -8384,10 +8397,27 @@ mod tests {
             std::env::temp_dir().join(format!("lim-generated-result-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
         write_generated_sources("(@result u64 u32 Result)", &directory).unwrap();
-        let generated = std::fs::read_to_string(directory.join("result-0.lim")).unwrap();
+        let (_, generated) = read_cached_generated_source(&directory, "Result-ok-value");
         assert!(generated.contains("Result-ok-value"));
         assert!(generated.contains("Result-unwrap-or"));
         assert!(generated.contains("Result-unwrap-err-or"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn materializes_user_generators_in_the_shared_hashed_cache() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-generated-user-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        let source = "(#generator emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (@emit CachedType)";
+        write_generated_sources(source, &directory).unwrap();
+        let (path, generated) = read_cached_generated_source(&directory, "CachedType");
+        assert!(path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("generated-"));
+        assert!(generated.contains("(#type CachedType u64)"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -8398,7 +8428,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&directory);
         let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker)";
         write_generated_sources(source, &directory).unwrap();
-        let generated = std::fs::read_to_string(directory.join("thread-spawn-0.lim")).unwrap();
+        let (path, generated) =
+            read_cached_generated_source(&directory, "#thread-task Task worker");
+        assert!(path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("generated-"));
+        assert!(!directory.join("thread-spawn-0.lim").exists());
         assert!(generated.contains("(#thread-task Task worker"));
         assert!(
             generated.contains("(#thread-task-spawn Task-spawn ((value u64)) Task-spawn-result)")
@@ -8525,12 +8562,12 @@ mod tests {
             std::env::temp_dir().join(format!("lim-generated-vec-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
         write_generated_sources("(@vec u64 Arena VecU64)", &directory).unwrap();
-        let generated = std::fs::read_to_string(directory.join("vec-0.lim")).unwrap();
+        let (_, generated) = read_cached_generated_source(&directory, "VecU64-new-with-storage");
         assert!(generated.contains("(#struct VecU64"));
         assert!(generated.contains("VecU64-new-with-storage"));
         assert!(generated.contains("(#ref Arena)"));
         write_generated_sources("(@vec-sort u64 VecU64 compare-u64)", &directory).unwrap();
-        let sort = std::fs::read_to_string(directory.join("vec-sort-0.lim")).unwrap();
+        let (_, sort) = read_cached_generated_source(&directory, "VecU64-sort");
         assert!(sort.contains("VecU64-sort"));
         assert!(sort.contains("(compare-u64"));
         std::fs::remove_dir_all(directory).unwrap();
