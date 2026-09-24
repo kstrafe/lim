@@ -207,9 +207,9 @@ the checklist is committed alongside the implementation it tracks.
   Non-constant global
   initializers now highlight a nested `#call` that makes the initializer
   invalid instead of the larger enclosing constant expression. Imported
-  parser/generator location diagnostics underline the full token at the
-  reported line and column, including quoted tokens with internal whitespace
-  and escaped quotes rather than only their first character. UI
+  Imported and generated-source parser errors retain their original lexer or
+  parser spans instead of reconstructing one-character spans from locations;
+  this covers quoted tokens with whitespace and escaped quotes. UI
   diagnostics now also assert exact token alignment for unknown identifiers,
   recursion, and codegen errors, including underline widths. Repeated linear
   field moves underline the repeated `#get` projection, and repeated

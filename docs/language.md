@@ -1119,9 +1119,9 @@ the displayed code and caret use the same columns. Lexer column positions count
 Unicode scalar values rather than UTF-8 bytes.
 When a global constant expression contains a function call, its codegen
 diagnostic highlights the nested `#call` form rather than the whole initializer.
-Imported parser diagnostics use the reported position to underline the full
-offending token when it can be read from the imported source, including quoted
-tokens with internal whitespace and escaped quotes.
+Imported-source parsing retains lexer and parser spans directly, including
+quoted tokens with internal whitespace and escaped quotes, instead of
+reconstructing a one-character range from line and column.
 UI regression tests verify exact caret columns for unknown identifiers,
 recursive calls, and code-generation failures, including highlighted widths, as
 well as checking their lines.

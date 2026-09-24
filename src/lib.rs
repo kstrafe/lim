@@ -4022,18 +4022,18 @@ fn load_imports_inner(
     source_files: &mut Vec<SourceFile>,
     config: &CompileConfig,
 ) -> Result<Vec<SpannedExpr>, String> {
-    let mut expressions = parse(source).map_err(|error| {
-        let Some((line, column, message)) = parse_location_prefix(&error) else {
-            return format!("{}: {error}", base.display());
-        };
-        let mut span = source_span_at(source, line, column, token_width_at(source, line, column));
+    let tokens = lex(source).map_err(|error| {
+        let mut span = error.span;
         span.source_id = source_id;
-        let prefix = if diagnostic_code_for_positioned_message(&message) == DiagnosticCode::Lex {
-            "lex error: "
-        } else {
-            "parse error: "
-        };
-        let error = attach_span_to_source_error_kind(message, span, source_files, prefix);
+        let error =
+            attach_span_to_source_error_kind(error.message, span, source_files, "lex error: ");
+        attach_generator_source(error, source_files)
+    })?;
+    let mut expressions = Parser::new(&tokens).run().map_err(|error| {
+        let mut span = error.span;
+        span.source_id = source_id;
+        let error =
+            attach_span_to_source_error_kind(error.message, span, source_files, "parse error: ");
         attach_generator_source(error, source_files)
     })?;
     for expression in &mut expressions {
@@ -8065,7 +8065,7 @@ mod tests {
         let span = diagnostic.span.unwrap();
         assert_eq!(
             &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
-            "\"bad token)"
+            "\"bad token)\n)"
         );
         assert_eq!(
             diagnostic.source_name.as_deref(),
@@ -8089,7 +8089,7 @@ mod tests {
         let span = diagnostic.span.unwrap();
         assert_eq!(
             &diagnostic.source_text.as_deref().unwrap()[span.start..span.end],
-            r#""bad \" token)"#
+            "\"bad \\\" token)\n)"
         );
         assert_eq!(span.source_id, 1);
         assert_eq!(
