@@ -340,7 +340,7 @@ Each item requires documentation and regression coverage before being checked.
 
 ### Priority 1: semantic consistency and safety guarantees
 
-- [ ] Specify and enforce evaluation order for named calls and aggregate
+- [x] Specify and enforce evaluation order for named calls and aggregate
   construction. `normalize_call_expr` in `src/lib.rs` currently rearranges
   argument expressions into parameter declaration order. Decide explicitly
   whether evaluation follows source order or declaration order; if source

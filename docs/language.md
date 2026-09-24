@@ -552,6 +552,11 @@ Function calls also name every argument explicitly. Use `#call` with a
 
 This is the only function-call spelling. Positional call forms are rejected,
 including calls with no arguments, which use `(#call function (#fn-args))`.
+Named argument expressions are evaluated in the function's parameter
+declaration order, regardless of the order of labels in `#fn-args`. `#struct-literal`
+field expressions are evaluated in the struct's field declaration order,
+regardless of their written order. The compiler checks and lowers expressions
+in these same orders; labels select destinations and do not control effects.
 
 Generic function declarations and angle-bracket calls are rejected.  Use a
 generator to emit a concrete function for each required type combination.

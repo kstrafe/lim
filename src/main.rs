@@ -530,6 +530,45 @@ mod tests {
     }
 
     #[test]
+    fn named_arguments_and_struct_fields_evaluate_in_declaration_order() {
+        let directory =
+            env::temp_dir().join(format!("lim-evaluation-order-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("program.lim");
+        let output = directory.join("program");
+        fs::write(
+            &input,
+            "(#struct Pair ((slot-a u64) (slot-b u64)))\n\
+             (#fn set-value ((target (#ref-mut u64))) u64 (#deref-set target 10u64) (#return 5u64))\n\
+             (#fn read-value ((target (#ref u64))) u64 (#return (#deref target)))\n\
+             (#fn ordered-call ((write-step u64) (read-value u64)) u64 (#return read-value))\n\
+             (#fn main () u64\n\
+               (#let-mut state u64 0u64)\n\
+               (#let call-result u64 (#call ordered-call (#fn-args (read-value (#call read-value (#fn-args (target (#borrow state))))) (write-step (#call set-value (#fn-args (target (#borrow-mut state))))))))\n\
+               (#set state 0u64)\n\
+               (#let pair Pair (#struct-literal Pair ((slot-b (#call read-value (#fn-args (target (#borrow state))))) (slot-a (#call set-value (#fn-args (target (#borrow-mut state))))))))\n\
+               (#return (#u64.+.wrap call-result (#get pair slot-b))))",
+        )
+        .unwrap();
+
+        let config = lim::CompileConfig::default();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &config,
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        let status = Command::new(&output).status().unwrap();
+        assert_eq!(status.code(), Some(20));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn thread_spawn_and_join_results_run_with_native_enum_layout() {
         let directory = env::temp_dir().join(format!("lim-thread-results-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
