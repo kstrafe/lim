@@ -2636,7 +2636,15 @@ pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
         Expr::Symbol(name) => {
             Expr::Symbol(name.strip_prefix('#').map_or(name.clone(), str::to_owned))
         }
-        Expr::List(items) => Expr::List(items.into_iter().map(normalize_keywords).collect()),
+        Expr::List(mut items) => {
+            // Keep the source distinction between the array type `#array` and
+            // its value constructor `#array-of`, while sharing the established
+            // internal array-constructor implementation.
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#array-of") {
+                items[0] = Expr::Symbol("array".to_owned());
+            }
+            Expr::List(items.into_iter().map(normalize_keywords).collect())
+        }
         Expr::Block(statements) => Expr::Block(statements),
         Expr::Labeled { label, expression } => Expr::Labeled {
             label,
