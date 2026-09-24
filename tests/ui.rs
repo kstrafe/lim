@@ -742,18 +742,17 @@ fn compilation_errors_render_the_offending_source_line() {
                 "{} underline is not aligned under {fragment:?}:\n{stderr}",
                 case.name
             );
-            if case.name == "lex" {
-                let caret_width = underline_row
-                    .chars()
-                    .skip_while(|character| *character != '^')
-                    .take_while(|character| *character == '^')
-                    .count();
-                assert_eq!(
-                    caret_width,
-                    fragment.chars().count(),
-                    "unterminated string diagnostic did not underline its full token:\n{stderr}"
-                );
-            }
+            let caret_width = underline_row
+                .chars()
+                .skip_while(|character| *character != '^')
+                .take_while(|character| *character == '^')
+                .count();
+            assert_eq!(
+                caret_width,
+                fragment.chars().count(),
+                "{} underline width does not match the declared source fragment {fragment:?}:\n{stderr}",
+                case.name
+            );
         }
         if case.name == "codegen" {
             let source_row = stderr

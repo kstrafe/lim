@@ -1122,7 +1122,8 @@ Imported parser diagnostics use the reported position to underline the full
 offending token when it can be read from the imported source, including quoted
 tokens with internal whitespace and escaped quotes.
 UI regression tests verify exact caret columns for unknown identifiers,
-recursive calls, and code-generation failures as well as checking their lines.
+recursive calls, and code-generation failures, including highlighted widths, as
+well as checking their lines.
 Repeated moves of linear fields and array elements identify their repeated
 `#get` or `#index` projections.
 The UI tests also verify full unterminated-string spans and zero-width EOF

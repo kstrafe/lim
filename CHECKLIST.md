@@ -210,8 +210,9 @@ the checklist is committed alongside the implementation it tracks.
   reported line and column, including quoted tokens with internal whitespace
   and escaped quotes rather than only their first character. UI
   diagnostics now also assert exact token alignment for unknown identifiers,
-  recursion, and codegen errors. Repeated linear field moves underline the
-  repeated `#get` projection, and repeated array-element moves underline the
+  recursion, and codegen errors, including underline widths. Repeated linear
+  field moves underline the repeated `#get` projection, and repeated
+  array-element moves underline the
   repeated `#index`, instead of the enclosing `#let` statement. CLI tests
   assert full unterminated-string spans and zero-width end-of-file parse spans.
   Every UI fixture is required to declare a precise fragment or a custom
