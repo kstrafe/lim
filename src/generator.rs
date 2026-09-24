@@ -259,8 +259,13 @@ fn expand_with_generated_cached_and_hits(
                 continue;
             }
             if is_operator(items.first(), "#generator") {
-                let generator = parse_generator(items, &expression)
-                    .map_err(|error| at_span(error, expression.span, "generator declaration"))?;
+                let generator = parse_generator(items, &expression).map_err(|error| {
+                    if error.contains("source span ") {
+                        error
+                    } else {
+                        at_span(error, expression.span, "generator declaration")
+                    }
+                })?;
                 let name = symbol(items.get(1), "generator name")?.to_owned();
                 if functions.contains_key(&name) {
                     let name_span = expression
@@ -442,7 +447,7 @@ fn parse_generator(items: &[Expr], source: &SpannedExpr) -> Result<Generator, St
         _ => return Err(format!("generator '{name}' parameters must be a list")),
     };
     let mut names = Vec::with_capacity(parameters.len());
-    for parameter in parameters {
+    for (parameter_index, parameter) in parameters.iter().enumerate() {
         let (name, capabilities) = match parameter {
             Expr::Symbol(name) => (name.as_str(), Vec::new()),
             Expr::List(items) if !items.is_empty() => {
@@ -468,7 +473,20 @@ fn parse_generator(items: &[Expr], source: &SpannedExpr) -> Result<Generator, St
             .iter()
             .any(|existing: &GeneratorParameter| existing.name == name)
         {
-            return Err(format!("duplicate generator parameter '{name}'"));
+            let parameter_span = source
+                .children
+                .get(2)
+                .and_then(|parameters| parameters.children.get(parameter_index))
+                .and_then(|parameter| match &parameter.expr {
+                    Expr::List(_) => parameter.children.first(),
+                    _ => Some(parameter),
+                })
+                .map_or(source.span, |name| name.span);
+            return Err(at_span(
+                format!("duplicate generator parameter '{name}'"),
+                parameter_span,
+                "generator parameter",
+            ));
         }
         names.push(GeneratorParameter {
             name: name.to_owned(),

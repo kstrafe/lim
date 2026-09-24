@@ -181,6 +181,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "duplicate-generator-parameter",
+            diagnostic_code: "E3000",
+            offending_line: "(#generator make (x x) (#gn-list))",
+            line_number: 1,
+        },
+        Case {
             name: "codegen",
             diagnostic_code: "E5000",
             offending_line: "(#const First u64 (#u64.+.wrap Second 1u64))",
@@ -632,6 +638,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "generator-capability-duplicate-operation" => Some("compare"),
             "generator-capability-duplicate-type" => Some("u64"),
             "duplicate-generator" => Some("make"),
+            "duplicate-generator-parameter" => Some("x"),
             "unsafe" => Some("VALUE"),
             "borrow" => Some("#set"),
             "linear" => Some("resource"),
@@ -652,7 +659,10 @@ fn compilation_errors_render_the_offending_source_line() {
                     .match_indices(fragment)
                     .nth(1)
                     .map(|(column, _)| column)
-            } else if case.name == "generator-capability-duplicate-operation" {
+            } else if matches!(
+                case.name,
+                "generator-capability-duplicate-operation" | "duplicate-generator-parameter"
+            ) {
                 source_row
                     .match_indices(fragment)
                     .nth(1)

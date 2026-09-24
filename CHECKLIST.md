@@ -208,7 +208,8 @@ the checklist is committed alongside the implementation it tracks.
   and duplicate operation names, including the later duplicate occurrence;
   duplicate capability/type pairs and generator declarations point at their
   repeated identifier. Generator-function recursion diagnostics underline the
-  recursive `#gn-call` target. Builtin arity errors underline the operator
+  recursive `#gn-call` target, and duplicate generator parameters underline
+  the repeated parameter. Builtin arity errors underline the operator
   identifier, including its full typed spelling; unresolved calls underline
   the function name. Non-exhaustive match diagnostics underline the `#match`
   head. Invalid array/struct assignment targets underline
