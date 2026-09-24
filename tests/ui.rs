@@ -239,6 +239,18 @@ fn compilation_errors_render_the_offending_source_line() {
             offending_line: "(#fn worker ((argument Missing)) u64 (#return 1u64))",
             line_number: 1,
         },
+        Case {
+            name: "thread-worker-missing",
+            diagnostic_code: "E4000",
+            offending_line: "(#thread-task Task missing-worker)",
+            line_number: 1,
+        },
+        Case {
+            name: "thread-worker-reference-result",
+            diagnostic_code: "E4000",
+            offending_line: "(#fn worker ((value (#ref u64))) (#ref u64) (#return value))",
+            line_number: 1,
+        },
     ];
 
     for case in cases {
@@ -363,9 +375,13 @@ fn compilation_errors_render_the_offending_source_line() {
             );
         }
         let precise_fragment = match case.name {
+            "repr-c-discriminant" => Some("2147483648"),
             "duplicate-type" => Some("Token"),
             "duplicate-global" => Some("COUNT"),
             "unsafe-impl" => Some("Missing"),
+            "thread-worker-missing" => Some("missing-worker"),
+            "thread-worker-reference-result" => Some("(#ref u64)"),
+            "thread-task-field" => Some("Task"),
             "unsafe" => Some("VALUE"),
             "borrow" => Some("#set"),
             "linear" => Some("resource"),
@@ -381,8 +397,13 @@ fn compilation_errors_render_the_offending_source_line() {
                 .find(|line| line.contains(case.offending_line))
                 .unwrap();
             let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            let expected_column = if case.name == "thread-worker-reference-result" {
+                source_row.rfind(fragment)
+            } else {
+                source_row.find(fragment)
+            };
             assert_eq!(
-                source_row.find(fragment),
+                expected_column,
                 underline_row.find('^'),
                 "{} underline is not aligned under {fragment:?}:\n{stderr}",
                 case.name

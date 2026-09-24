@@ -1060,7 +1060,9 @@ Named-call and struct-literal validation retains source spans through lowering,
 so unknown or duplicate names and missing-argument/field forms underline the
 responsible identifier or argument/field list.
 Declaration uniqueness and unsafe-impl validation likewise underline the
-repeated or invalid name instead of the whole declaration.
+repeated or invalid name instead of the whole declaration. C-layout
+discriminant and thread-task declaration diagnostics target the invalid
+discriminant, worker name, result type, or aggregate field type.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the
