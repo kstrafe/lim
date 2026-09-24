@@ -2133,6 +2133,7 @@ fn parse_program_in_directory(
     let mut items = specialize_generic_types(
         items,
         &statement_spans,
+        &statement_expressions,
         &declaration_spans,
         &declaration_expressions,
         &source_files,
@@ -2501,6 +2502,31 @@ fn source_symbol_span(expression: &SpannedExpr, name: &str, last: bool) -> Optio
     } else {
         spans.into_iter().min_by_key(|span| span.start)
     }
+}
+
+fn source_type_name_span(expression: &SpannedExpr, name: &str) -> Option<Span> {
+    if let Expr::Symbol(symbol) = &expression.expr {
+        if symbol == name || symbol.starts_with(&format!("{name}<")) {
+            return Some(expression.span);
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| source_type_name_span(child, name))
+}
+
+fn specialization_error_span(expression: &SpannedExpr, error: &str) -> Option<Span> {
+    if let Some(name) = error
+        .split_once("generic type '")
+        .and_then(|(_, rest)| rest.split('\'').next())
+    {
+        return source_type_name_span(expression, name);
+    }
+    error
+        .rsplit('\'')
+        .nth(1)
+        .and_then(|name| source_symbol_span(expression, name, false))
 }
 
 fn source_form_head_span(expression: &SpannedExpr, names: &[&str]) -> Option<Span> {
@@ -4904,6 +4930,7 @@ fn specialize_statement(
 fn specialize_generic_types(
     mut items: Vec<Item>,
     statement_spans: &HashMap<(String, usize), Span>,
+    statement_expressions: &HashMap<(String, usize), SpannedExpr>,
     declaration_spans: &HashMap<String, Span>,
     declaration_expressions: &HashMap<String, SpannedExpr>,
     source_files: &[SourceFile],
@@ -5059,10 +5086,16 @@ fn specialize_generic_types(
                                 &mut generated,
                             )
                             .map_err(|error| {
-                                statement_spans
-                                    .get(&(function.name.clone(), index))
+                                let key = (function.name.clone(), index);
+                                statement_expressions
+                                    .get(&key)
+                                    .and_then(|expression| {
+                                        specialization_error_span(expression, &error)
+                                            .or_else(|| Some(source_value_span(expression)))
+                                    })
+                                    .or_else(|| statement_spans.get(&key).copied())
                                     .map_or(error.clone(), |span| {
-                                        attach_span_to_source_error(error, *span, source_files)
+                                        attach_span_to_source_error(error, span, source_files)
                                     })
                             })
                         })
@@ -5132,9 +5165,14 @@ fn specialize_generic_types(
         result.map_err(|error| {
             current_name
                 .as_ref()
-                .and_then(|name| declaration_spans.get(name))
+                .and_then(|name| {
+                    declaration_expressions
+                        .get(name)
+                        .and_then(|expression| specialization_error_span(expression, &error))
+                        .or_else(|| declaration_spans.get(name).copied())
+                })
                 .map_or(error.clone(), |span| {
-                    attach_span_to_source_error(error, *span, source_files)
+                    attach_span_to_source_error(error, span, source_files)
                 })
         })?;
     }
