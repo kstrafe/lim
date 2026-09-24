@@ -1483,6 +1483,31 @@ fn analysis_diagnostic(message: String, program: &Program) -> Diagnostic {
 }
 
 fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
+    fn symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span> {
+        if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
+            return Some(expression.span);
+        }
+        expression
+            .children
+            .iter()
+            .find_map(|child| symbol_span(child, name))
+    }
+
+    if let Some(name) = message
+        .strip_prefix("unknown type '")
+        .and_then(|rest| rest.split('\'').next())
+    {
+        let span = program
+            .declaration_expressions
+            .values()
+            .chain(program.statement_expressions.values())
+            .filter_map(|expression| symbol_span(expression, name))
+            .min_by_key(|span| (span.source_id, span.start));
+        if span.is_some() {
+            return span;
+        }
+    }
+
     if let Some(variant) = message
         .strip_prefix("variant '")
         .and_then(|rest| rest.split_once("' is already defined in enum '"))
@@ -10341,7 +10366,12 @@ mod tests {
             .unwrap()
             .contains("mov rax, 8"));
         let invalid = parse_program("(#fn main () usize (#return (#size-of Unknown)))").unwrap();
-        assert!(check_types(&invalid).is_err());
+        let error = check_types(&invalid).unwrap_err();
+        let (start, end) = span_after(&error, "source span ").unwrap();
+        assert_eq!(
+            &"(#fn main () usize (#return (#size-of Unknown)))"[start..end],
+            "Unknown"
+        );
     }
 
     #[test]

@@ -308,6 +308,38 @@ fn compilation_errors_render_the_offending_source_line() {
                 "nested type mismatch underline is not aligned under its incompatible operand:\n{stderr}"
             );
         }
+        if case.name == "thread-worker-unknown-type" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.find("Missing"),
+                underline_row.find('^'),
+                "unknown type diagnostic is not aligned under the unknown type name:\n{stderr}"
+            );
+        }
+        let precise_fragment = match case.name {
+            "unsafe" => Some("VALUE"),
+            "borrow" => Some("#set"),
+            "linear" => Some("resource"),
+            "nonconstant-static" => Some("(#call get-value (#fn-args))"),
+            _ => None,
+        };
+        if let Some(fragment) = precise_fragment {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.find(fragment),
+                underline_row.find('^'),
+                "{} underline is not aligned under {fragment:?}:\n{stderr}",
+                case.name
+            );
+        }
         if case.name == "codegen" {
             let source_row = stderr
                 .lines()

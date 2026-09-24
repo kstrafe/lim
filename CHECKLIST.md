@@ -186,7 +186,9 @@ the checklist is committed alongside the implementation it tracks.
   for local and top-level initializers, and borrow escapes identify the local
   referent. Error paths now prefer a parsed value expression over a whole
   statement when a more precise node is unavailable. Audit remaining opaque
-  expression/declaration cases and add exact-range coverage for each.
+  expression/declaration cases and add exact-range coverage for each. Unknown
+  types in expressions and declarations, and representative borrow, linearity,
+  unsafe, generator, and codegen diagnostics now have exact-range assertions.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

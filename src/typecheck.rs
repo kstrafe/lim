@@ -1836,6 +1836,12 @@ fn precise_type_error_span(
     if let Some(name) = name {
         return first_symbol_span(value, name).or(Some(value.span));
     }
+    let unknown_type = error
+        .strip_prefix("unknown type '")
+        .and_then(|tail| tail.split('\'').next());
+    if let Some(name) = unknown_type {
+        return first_symbol_span(value, name).or(Some(value.span));
+    }
     let mismatch_type = error
         .split_once("mismatched types ")
         .and_then(|(context, types)| {
