@@ -1,7 +1,7 @@
 (#struct Point ((x u64) (y u64)))
 
 (#fn point-value () u64
-  (#let point Point (Point 40 2))
+  (#let point Point (#struct-literal Point ((x 40) (y 2))))
   (#return (#if-let (Point 40 y) point y 0)))
 
 (#fn main () u64
@@ -10,4 +10,4 @@
   (#while-let (#tuple 1 _) value
     (#set total (#u64.+.wrap total (#get value 1)))
     (#set-field value 0 0))
-  (#return (#u64.+.wrap total (point-value))))
+  (#return (#u64.+.wrap total (#call point-value (#fn-args )))))

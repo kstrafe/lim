@@ -1,0 +1,2 @@
+(#import "generator-imported/module.lim")
+(#fn main () u64 (#return 0u64))

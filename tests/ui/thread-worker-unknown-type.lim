@@ -1,0 +1,2 @@
+(#fn worker ((argument Missing)) u64 (#return 1u64))
+(#thread-task Task worker)

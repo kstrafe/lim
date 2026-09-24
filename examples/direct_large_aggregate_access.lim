@@ -8,10 +8,10 @@
       1u64 2u64 3u64 4u64 5u64 6u64 40u64)))
 
 (#fn make-struct () Large
-  (#return (Large 1u64 2u64 3u64 4u64 5u64 6u64 2u64)))
+  (#return (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 2u64)))))
 
 (#fn main () u64
   (#return
     (#u64.+.wrap
-      (#get (make-tuple) 6)
-      (#get (make-struct) g))))
+      (#get (#call make-tuple (#fn-args )) 6)
+      (#get (#call make-struct (#fn-args )) g))))

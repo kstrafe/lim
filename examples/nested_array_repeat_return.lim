@@ -2,4 +2,4 @@
   (#return (#array-repeat (#tuple 30 12))))
 
 (#fn main () u64
-  (#return (#get (#index (values) 1) 0)))
+  (#return (#get (#index (#call values (#fn-args )) 1) 0)))

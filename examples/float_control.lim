@@ -21,7 +21,7 @@
     (
       #if
       (#f32.>
-        (choose true)
+        (#call choose (#fn-args (flag true)))
         1.0
       )
       42

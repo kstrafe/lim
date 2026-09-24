@@ -4,8 +4,7 @@
 
 (#fn make () LargeWithUnit
   (#return
-    (LargeWithUnit
-      1u64 2u64 3u64 4u64 5u64 6u64 40u64 ())))
+    (#struct-literal LargeWithUnit ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 40u64) (marker ())))))
 
 (#fn make-tuple () (#tuple u64 u64 u64 u64 u64 u64 u64 ())
   (#return
@@ -13,8 +12,8 @@
       1u64 2u64 3u64 4u64 5u64 6u64 40u64 ())))
 
 (#fn main () u64
-  (#let value LargeWithUnit (make))
-  (#let tuple (#tuple u64 u64 u64 u64 u64 u64 u64 ()) (make-tuple))
+  (#let value LargeWithUnit (#call make (#fn-args )))
+  (#let tuple (#tuple u64 u64 u64 u64 u64 u64 u64 ()) (#call make-tuple (#fn-args )))
   (#return
     (#u64.+.wrap
       (#u64.+.wrap (#get value a) (#get value g))

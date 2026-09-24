@@ -76,15 +76,17 @@ fn declared_lim_function_signatures(
             .map(|parameter| parameter.ty.clone())
             .collect::<Vec<_>>();
         let signature = format!("{arguments:?}->{:?}", function.return_type);
-        if signatures
-            .insert(function.name.clone(), signature)
-            .is_some()
-        {
-            return Err(format!(
-                "duplicate function '{}' while resolving generator capability contracts",
-                function.name
+        if signatures.contains_key(&function.name) {
+            return Err(at_span(
+                format!(
+                    "duplicate function '{}' while resolving generator capability contracts",
+                    function.name
+                ),
+                expression.span,
+                "function declaration",
             ));
         }
+        signatures.insert(function.name.clone(), signature);
     }
     Ok(signatures)
 }
@@ -134,8 +136,12 @@ fn expand_with_generated_cached_and_hits(
     for expression in expressions {
         if let Expr::List(items) = &expression.expr {
             if is_operator(items.first(), "#capability") {
-                let capability = symbol(items.get(1), "capability name")?.to_owned();
-                let type_name = symbol(items.get(2), "capability type")?.to_owned();
+                let capability = symbol(items.get(1), "capability name")
+                    .map_err(|error| at_span(error, expression.span, "capability declaration"))?
+                    .to_owned();
+                let type_name = symbol(items.get(2), "capability type")
+                    .map_err(|error| at_span(error, expression.span, "capability declaration"))?
+                    .to_owned();
                 if items.len() != 4 || capability.starts_with('#') || type_name.starts_with('#') {
                     return Err(at_span(
                         "#capability requires a name, concrete type, and operation contracts"
@@ -170,14 +176,20 @@ fn expand_with_generated_cached_and_hits(
                             "capability declaration",
                         ));
                     }
-                    let operation_name = symbol(parts.first(), "capability operation function")?;
+                    let operation_name = symbol(parts.first(), "capability operation function")
+                        .map_err(|error| {
+                            at_span(error, expression.span, "capability declaration")
+                        })?;
                     let argument_types = match &parts[1] {
                         Expr::List(types) => types
                             .iter()
                             .map(|ty| {
                                 crate::parse_type(Some(&crate::normalize_keywords(ty.clone())))
                             })
-                            .collect::<Result<Vec<_>, _>>()?,
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(|error| {
+                                at_span(error, expression.span, "capability declaration")
+                            })?,
                         _ => {
                             return Err(at_span(
                                 "capability operation argument types must be a list".into(),
@@ -187,7 +199,10 @@ fn expand_with_generated_cached_and_hits(
                         }
                     };
                     let return_type =
-                        crate::parse_type(Some(&crate::normalize_keywords(parts[2].clone())))?;
+                        crate::parse_type(Some(&crate::normalize_keywords(parts[2].clone())))
+                            .map_err(|error| {
+                                at_span(error, expression.span, "capability declaration")
+                            })?;
                     let signature = format!("{argument_types:?}->{return_type:?}");
                     let Some(actual_signature) = declared_functions.get(operation_name) else {
                         return Err(at_span(
@@ -229,12 +244,18 @@ fn expand_with_generated_cached_and_hits(
                     .map_err(|error| at_span(error, expression.span, "generator declaration"))?;
                 let name = symbol(items.get(1), "generator name")?.to_owned();
                 if functions.contains_key(&name) {
-                    return Err(format!(
-                        "duplicate generator or generator function declaration '{name}'"
+                    return Err(at_span(
+                        format!("duplicate generator or generator function declaration '{name}'"),
+                        expression.span,
+                        "generator declaration",
                     ));
                 }
                 if generators.insert(name.clone(), generator).is_some() {
-                    return Err(format!("duplicate generator declaration '{name}'"));
+                    return Err(at_span(
+                        format!("duplicate generator declaration '{name}'"),
+                        expression.span,
+                        "generator declaration",
+                    ));
                 }
                 continue;
             }
@@ -247,8 +268,10 @@ fn expand_with_generated_cached_and_hits(
                 if generators.contains_key(&name)
                     || functions.insert(name.clone(), function).is_some()
                 {
-                    return Err(format!(
-                        "duplicate generator or generator function declaration '{name}'"
+                    return Err(at_span(
+                        format!("duplicate generator or generator function declaration '{name}'"),
+                        expression.span,
+                        "generator function declaration",
                     ));
                 }
                 continue;
@@ -259,7 +282,25 @@ fn expand_with_generated_cached_and_hits(
 
     let interpreter_hash = stable_hash(include_bytes!("generator.rs"));
     let capability_hash = hash_capability_definitions(&capabilities);
-    let function_hashes = generator_function_hashes(&functions, interpreter_hash)?;
+    let function_hashes =
+        generator_function_hashes(&functions, interpreter_hash).map_err(|error| {
+            let responsible_function = error
+                .strip_prefix("recursive generator function calls are not allowed: ")
+                .and_then(|cycle| {
+                    let names = cycle.split(" -> ").collect::<Vec<_>>();
+                    names.get(names.len().saturating_sub(2)).copied()
+                })
+                .or_else(|| {
+                    error
+                        .split_once(" called from generator function '")
+                        .and_then(|(_, rest)| rest.strip_suffix('\'').or(Some(rest)))
+                });
+            responsible_function
+                .and_then(|name| functions.get(name))
+                .map_or(error.clone(), |function| {
+                    at_span(error, function.span, "generator function")
+                })
+        })?;
     let generator_hashes = generator_hashes(&generators, &function_hashes, interpreter_hash);
     let mut context = ExpansionContext {
         generators: &generators,
@@ -633,9 +674,16 @@ fn hash_generator_function(
             "recursive generator function calls are not allowed: {chain}"
         ));
     }
-    let function = functions
-        .get(name)
-        .ok_or_else(|| format!("unknown generator function '{name}'"))?;
+    let function = functions.get(name).ok_or_else(|| {
+        active.last().map_or_else(
+            || format!("unknown generator function '{name}'"),
+            |caller| {
+                format!(
+                    "unknown generator function '{name}' called from generator function '{caller}'"
+                )
+            },
+        )
+    })?;
     active.push(name.to_owned());
     let mut calls = Vec::new();
     collect_generator_function_calls(&function.body, &mut calls);

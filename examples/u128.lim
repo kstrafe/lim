@@ -21,7 +21,7 @@
     #return
     (
       #as
-      (add 20 22)
+      (#call add (#fn-args (left 20) (right 22)))
       u64
     )
   )

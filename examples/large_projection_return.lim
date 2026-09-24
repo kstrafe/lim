@@ -3,10 +3,10 @@
 
 (#fn project () (#array u64 7)
   (#let value Wrapped
-    (Wrapped (#array (#array u64 7)
-      1u64 2u64 3u64 4u64 5u64 6u64 42u64)))
+    (#struct-literal Wrapped ((payload (#array (#array u64 7)
+      1u64 2u64 3u64 4u64 5u64 6u64 42u64)))))
   (#return (#get value payload)))
 
 (#fn main () u64
-  (#let value (#array u64 7) (project))
+  (#let value (#array u64 7) (#call project (#fn-args )))
   (#return (#index value 6u64)))

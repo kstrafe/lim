@@ -11,4 +11,4 @@
   (#return a))
 
 (#fn main () u64
-  (#return (fib 10)))
+  (#return (#call fib (#fn-args (n 10)))))

@@ -2,4 +2,4 @@
   (#return 41))
 
 (#fn main () u64
-  (#return (#u64.+.wrap (math.add-one) 1)))
+  (#return (#u64.+.wrap (#call math.add-one (#fn-args )) 1)))

@@ -7,7 +7,7 @@
     (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64)
       1u64 2u64 3u64 4u64 5u64 6u64 40u64))
   (#let struct-value Large
-    (Large 1u64 2u64 3u64 4u64 5u64 6u64 2u64))
+    (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 2u64))))
   (#return
     (#u64.+.wrap
       (#match tuple-value

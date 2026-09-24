@@ -22,10 +22,10 @@
     (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64)
       1u64 2u64 3u64 4u64 5u64 6u64 42u64))
   (#let struct-value Large
-    (Large 1u64 2u64 3u64 4u64 5u64 6u64 42u64))
+    (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 42u64))))
   (#let enum-value LargePayload
     (Big 1u64 2u64 3u64 4u64 5u64 6u64 42u64))
   (#return
     (#u64.+.wrap
-      (#u64.+.wrap (consume-tuple tuple-value) (consume-struct struct-value))
-      (consume-enum enum-value))))
+      (#u64.+.wrap (#call consume-tuple (#fn-args (value tuple-value))) (#call consume-struct (#fn-args (value struct-value))))
+      (#call consume-enum (#fn-args (value enum-value))))))

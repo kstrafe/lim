@@ -2,6 +2,6 @@
 
 (#fn main () u64
   (#return
-    (#match (Point 10 32)
+    (#match (#struct-literal Point ((x 10) (y 32)))
       ((Point 10 middle) middle)
       (_ 0))))

@@ -1546,6 +1546,9 @@ fn reference_origins(
             if matches!(operator.as_str(), "borrow" | "borrow-mut") && items.len() == 2 {
                 return borrow_place_origins(&items[1], context);
             }
+            if matches!(operator.as_str(), "slice-of" | "slice-idx") && items.len() >= 2 {
+                return reference_origins(&items[1], context, true);
+            }
             if matches!(operator.as_str(), "ptr-borrow" | "ptr-borrow-mut") && items.len() == 3 {
                 return reference_origins(&items[1], context, true);
             }
@@ -1630,7 +1633,7 @@ fn type_contains_reference(
     seen: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        crate::Type::Reference { .. } => true,
+        crate::Type::Reference { .. } | crate::Type::Slice(_) => true,
         crate::Type::Array(element, _) | crate::Type::Cell(element) => {
             type_contains_reference(element, program, seen)
         }
@@ -1670,6 +1673,7 @@ fn type_contains_mutable_reference(
 ) -> bool {
     match ty {
         crate::Type::Reference { mutable: true, .. } => true,
+        crate::Type::Slice(_) => false,
         crate::Type::Reference { mutable: false, .. } | crate::Type::RawPointer { .. } => false,
         crate::Type::Array(element, _) | crate::Type::Cell(element) => {
             type_contains_mutable_reference(element, program, seen)
@@ -1705,7 +1709,7 @@ fn type_contains_mutable_reference(
 
 fn contains_reference_type(ty: &crate::Type, reference_types: &HashSet<String>) -> bool {
     match ty {
-        crate::Type::Reference { .. } => true,
+        crate::Type::Reference { .. } | crate::Type::Slice(_) => true,
         crate::Type::Array(element, _) | crate::Type::Cell(element) => {
             contains_reference_type(element, reference_types)
         }

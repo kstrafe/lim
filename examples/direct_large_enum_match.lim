@@ -6,6 +6,6 @@
 
 (#fn main () u64
   (#return
-    (#match (make 42u64)
+    (#match (#call make (#fn-args (last 42u64)))
       ((Big first second third fourth fifth sixth seventh) seventh)
       (Empty 0u64))))

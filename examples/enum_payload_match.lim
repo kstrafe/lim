@@ -7,4 +7,4 @@
       (None 0))))
 
 (#fn main () u64
-  (#return (classify (Some 42))))
+  (#return (#call classify (#fn-args (value (Some 42))))))

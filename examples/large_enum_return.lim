@@ -5,7 +5,7 @@
   (#return (Big 1u64 2u64 3u64 4u64 5u64 6u64 last)))
 
 (#fn main () u64
-  (#let value LargePayload (make 42u64))
+  (#let value LargePayload (#call make (#fn-args (last 42u64))))
   (#return
     (#match value
       ((Big first second third fourth fifth sixth seventh) seventh)

@@ -14,7 +14,7 @@
   Point
   (
     #return
-    (Point 7 34)
+    (#struct-literal Point ((x 7) (y 34)))
   )
 )
 
@@ -27,7 +27,7 @@
     #let
     point
     Point
-    (make_point)
+    (#call make_point (#fn-args ))
   )
   (
     #return

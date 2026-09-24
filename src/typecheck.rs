@@ -266,14 +266,18 @@ pub fn check_types(program: &Program) -> Result<(), String> {
             .iter()
             .zip(&worker_signature.parameters)
         {
-            if !type_has_auto_trait(program, ty, AutoTrait::Send)? {
+            if !type_has_auto_trait(program, ty, AutoTrait::Send)
+                .map_err(|error| format!("{error} while checking thread worker '{worker}'"))?
+            {
                 return Err(format!(
                     "thread worker '{worker}' parameter '{}' does not implement Send",
                     parameter.name
                 ));
             }
         }
-        if !type_has_auto_trait(program, &worker_signature.return_type, AutoTrait::Send)? {
+        if !type_has_auto_trait(program, &worker_signature.return_type, AutoTrait::Send)
+            .map_err(|error| format!("{error} while checking thread worker '{worker}'"))?
+        {
             return Err(format!(
                 "thread worker '{worker}' return type does not implement Send"
             ));
@@ -1424,6 +1428,9 @@ fn type_has_auto_trait_inner(
                 active,
             ),
         },
+        Type::Slice(target) => {
+            type_has_auto_trait_inner(target, AutoTrait::Sync, structs, enums, overrides, active)
+        }
         Type::Tuple(fields) => all(fields.iter().collect(), active),
         Type::Array(element, _) => {
             type_has_auto_trait_inner(element, trait_kind, structs, enums, overrides, active)
@@ -1474,7 +1481,9 @@ fn reject_recursive_calls(
 
     let mut state = HashMap::<String, bool>::new();
     let mut path = Vec::new();
-    for name in names {
+    let mut ordered_names = names.into_iter().collect::<Vec<_>>();
+    ordered_names.sort();
+    for name in ordered_names {
         visit_call_graph(&name, &edges, &mut state, &mut path)?;
     }
     Ok(())
@@ -1548,7 +1557,9 @@ fn visit_call_graph(
     state.insert(name.to_owned(), true);
     path.push(name.to_owned());
     if let Some(calls) = edges.get(name) {
-        for called in calls {
+        let mut ordered_calls = calls.iter().collect::<Vec<_>>();
+        ordered_calls.sort();
+        for called in ordered_calls {
             visit_call_graph(called, edges, state, path)?;
         }
     }
@@ -3056,6 +3067,59 @@ fn list_expression(
             )?;
             require_type(&actual, &ty, "typed literal")?;
             Ok(ty)
+        }
+        "slice-of" => {
+            require_arity(operator, items, 2)?;
+            let source = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let Type::Reference {
+                mutable: false,
+                target,
+            } = source
+            else {
+                return Err("slice requires an immutable reference to an array".into());
+            };
+            let Type::Array(element, _) = *target else {
+                return Err("slice requires a reference to an array".into());
+            };
+            Ok(Type::Slice(element))
+        }
+        "slice-len" => {
+            require_arity(operator, items, 2)?;
+            if !matches!(
+                expression(
+                    &items[1], variables, functions, structs, enums, mutable, aliases, None
+                )?,
+                Type::Slice(_)
+            ) {
+                return Err("slice-len requires a slice".into());
+            }
+            Ok(Type::Usize)
+        }
+        "slice-idx" => {
+            require_arity(operator, items, 3)?;
+            let Type::Slice(element) = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?
+            else {
+                return Err("slice-idx requires a slice".into());
+            };
+            let index = expression(
+                &items[2],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&Type::Usize),
+            )?;
+            require_type(&index, &Type::Usize, "slice index")?;
+            Ok(Type::Reference {
+                mutable: false,
+                target: element,
+            })
         }
         "borrow" | "borrow-mut" => {
             if items.len() == 2 {
@@ -4885,7 +4949,9 @@ fn validate_layout_type(
             .flat_map(|variant| variant.fields.iter())
             .try_for_each(|field| validate_layout_type(field, structs, enums)),
         Type::Named(name) => Err(format!("unknown type '{name}' in size-of")),
-        Type::Array(element, _) => validate_layout_type(element, structs, enums),
+        Type::Array(element, _) | Type::Slice(element) => {
+            validate_layout_type(element, structs, enums)
+        }
         Type::Tuple(fields) => fields
             .iter()
             .try_for_each(|field| validate_layout_type(field, structs, enums)),
@@ -5012,7 +5078,7 @@ fn contains_reference_type(
     seen: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        Type::Reference { .. } => true,
+        Type::Reference { .. } | Type::Slice(_) => true,
         Type::Array(element, _) | Type::Cell(element) => {
             contains_reference_type(element, structs, enums, seen)
         }
@@ -5091,6 +5157,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::F32 => "f32",
         Type::F64 => "f64",
         Type::Reference { .. } => "reference",
+        Type::Slice(_) => "slice",
         Type::RawPointer { .. } => "raw pointer",
         Type::Cell(_) => "interior mutable cell",
         Type::Generic(name) | Type::Named(name) => name,

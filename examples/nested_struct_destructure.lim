@@ -2,5 +2,5 @@
 (#struct Outer ((inner Inner) (tail u64)))
 
 (#fn main () u64
-  (#let (Outer inner tail) Outer (Outer (Inner 10 20) 32))
+  (#let (Outer inner tail) Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 32))))
   (#return tail))

@@ -7,5 +7,5 @@
       ((Result-err-value _) 0))))
 
 (#fn main () u64
-  (#let value Result (Result-ok 42))
-  (#return (classify value)))
+  (#let value Result (#call Result-ok (#fn-args (value 42))))
+  (#return (#call classify (#fn-args (value value)))))

@@ -1,7 +1,7 @@
 (#struct Point ((x u64) (y u64)))
 (#static Values (#array u64 3)
   (#array (#array u64 3) 10 20 30))
-(#static Origin Point (Point 7 9))
+(#static Origin Point (#struct-literal Point ((x 7) (y 9))))
 (#static Pair (#tuple u64 f64)
   (#tuple (#tuple u64 f64) 4 2.5))
 (#enum Maybe ((Some u64) None))
@@ -32,9 +32,9 @@
     (#u64.+.wrap
       (#index copied 0)
       (#u64.+.wrap
-        (#index (#return-values) 2)
+        (#index (#call return-values (#fn-args)) 2)
         (#u64.+.wrap
-          (take (#unsafe Values) (#unsafe Origin))
+          (#call take (#fn-args (values (#unsafe Values)) (point (#unsafe Origin))))
           (#u64.+.wrap
-            (read-choice copied-choice)
-            (read-choice (#return-choice))))))))
+            (#call read-choice (#fn-args (choice copied-choice)))
+            (#call read-choice (#fn-args (choice (#call return-choice (#fn-args)))))))))))

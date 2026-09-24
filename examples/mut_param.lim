@@ -20,6 +20,6 @@
   u64
   (
     #return
-    (increment 41)
+    (#call increment (#fn-args (value 41)))
   )
 )

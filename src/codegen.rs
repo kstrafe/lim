@@ -299,6 +299,7 @@ fn specialized_type_name(ty: &Type) -> String {
             specialized_type_name(target)
         ),
         Type::Cell(target) => format!("cell_{}", specialized_type_name(target)),
+        Type::Slice(target) => format!("slice_{}", specialized_type_name(target)),
         Type::Generic(name) | Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
             "tuple{}",
@@ -323,6 +324,7 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
         Type::Array(element, length) => {
             Type::Array(Box::new(substitute_type(element, substitutions)), *length)
         }
+        Type::Slice(element) => Type::Slice(Box::new(substitute_type(element, substitutions))),
         Type::Tuple(fields) => Type::Tuple(
             fields
                 .iter()
@@ -1204,93 +1206,99 @@ pub fn generate_assembly_for_target(
                 return Err(format!("top-level binding '{name}' cannot be mutable"));
             }
             let ty = resolve_type(ty, &aliases)?;
-            let global = match &ty {
-                Type::Unit => {
-                    if !matches!(value, Expr::List(items) if items.is_empty()) {
-                        return Err(format!("unit global '{name}' must be initialized with ()"));
+            let global = (|| -> Result<GlobalValue, String> {
+                let global = match &ty {
+                    Type::Unit => {
+                        if !matches!(value, Expr::List(items) if items.is_empty()) {
+                            return Err(format!(
+                                "unit global '{name}' must be initialized with ()"
+                            ));
+                        }
+                        GlobalValue::Zero
                     }
-                    GlobalValue::Zero
-                }
-                Type::Never => {
-                    return Err(format!("global '{name}' cannot have the never type"));
-                }
-                Type::I128 | Type::U128 => {
-                    let value = match value {
-                        Expr::UnsignedInteger(value) => *value,
-                        _ => constant_value(
+                    Type::Never => {
+                        return Err(format!("global '{name}' cannot have the never type"));
+                    }
+                    Type::I128 | Type::U128 => {
+                        let value = match value {
+                            Expr::UnsignedInteger(value) => *value,
+                            _ => constant_value(
+                                value,
+                                &enums,
+                                &constants,
+                                &constant_initializers,
+                                &mut evaluating_constants,
+                                Some(&ty),
+                            )? as u128,
+                        };
+                        if matches!(item, Item::Let { .. }) {
+                            constants.insert(name.clone(), value as i128);
+                        }
+                        GlobalValue::Wide {
+                            low: value as u64,
+                            high: (value >> 64) as u64,
+                        }
+                    }
+                    Type::F32 => {
+                        let value = constant_float_value(
                             value,
-                            &enums,
                             &constants,
+                            &float_constants,
                             &constant_initializers,
-                            &mut evaluating_constants,
-                            Some(&ty),
-                        )? as u128,
-                    };
-                    if matches!(item, Item::Let { .. }) {
-                        constants.insert(name.clone(), value as i128);
+                            &mut evaluating_float_constants,
+                            true,
+                        )? as f32;
+                        if matches!(item, Item::Let { .. }) {
+                            float_constants.insert(name.clone(), value as f64);
+                        }
+                        GlobalValue::F32(value.to_bits())
                     }
-                    GlobalValue::Wide {
-                        low: value as u64,
-                        high: (value >> 64) as u64,
-                    }
-                }
-                Type::F32 => {
-                    let value = constant_float_value(
-                        value,
-                        &constants,
-                        &float_constants,
-                        &constant_initializers,
-                        &mut evaluating_float_constants,
-                        true,
-                    )? as f32;
-                    if matches!(item, Item::Let { .. }) {
-                        float_constants.insert(name.clone(), value as f64);
-                    }
-                    GlobalValue::F32(value.to_bits())
-                }
-                Type::F64 => {
-                    let value = constant_float_value(
-                        value,
-                        &constants,
-                        &float_constants,
-                        &constant_initializers,
-                        &mut evaluating_float_constants,
-                        false,
-                    )?;
-                    if matches!(item, Item::Let { .. }) {
-                        float_constants.insert(name.clone(), value);
-                    }
-                    GlobalValue::F64(value.to_bits())
-                }
-                _ if ensure_scalar_type(&ty, &enums).is_ok() => {
-                    let normalized = normalize_global_integer(
-                        constant_value(
+                    Type::F64 => {
+                        let value = constant_float_value(
                             value,
-                            &enums,
                             &constants,
+                            &float_constants,
                             &constant_initializers,
-                            &mut evaluating_constants,
-                            Some(&ty),
-                        )?,
+                            &mut evaluating_float_constants,
+                            false,
+                        )?;
+                        if matches!(item, Item::Let { .. }) {
+                            float_constants.insert(name.clone(), value);
+                        }
+                        GlobalValue::F64(value.to_bits())
+                    }
+                    _ if ensure_scalar_type(&ty, &enums).is_ok() => {
+                        let normalized = normalize_global_integer(
+                            constant_value(
+                                value,
+                                &enums,
+                                &constants,
+                                &constant_initializers,
+                                &mut evaluating_constants,
+                                Some(&ty),
+                            )?,
+                            &ty,
+                        );
+                        if matches!(item, Item::Let { .. }) {
+                            constants.insert(name.clone(), normalized);
+                        }
+                        GlobalValue::Integer(normalized)
+                    }
+                    _ => GlobalValue::Aggregate(constant_aggregate_words(
+                        value,
                         &ty,
-                    );
-                    if matches!(item, Item::Let { .. }) {
-                        constants.insert(name.clone(), normalized);
-                    }
-                    GlobalValue::Integer(normalized)
-                }
-                _ => GlobalValue::Aggregate(constant_aggregate_words(
-                    value,
-                    &ty,
-                    &structs,
-                    &enums,
-                    &constants,
-                    &float_constants,
-                    &constant_initializers,
-                    &mut evaluating_constants,
-                    &mut evaluating_float_constants,
-                )?),
-            };
+                        &structs,
+                        &enums,
+                        &constants,
+                        &float_constants,
+                        &constant_initializers,
+                        &mut evaluating_constants,
+                        &mut evaluating_float_constants,
+                    )?),
+                };
+                Ok(global)
+            })()
+            .map_err(|error| format!("{error} in global initializer '{name}'"))?;
             global_types.insert(name.clone(), ty);
             globals.insert(name.clone(), global);
         }
@@ -3472,7 +3480,7 @@ fn add_local(
             length: *length,
             element_words,
         }
-    } else if matches!(&ty, Type::Tuple(_)) {
+    } else if matches!(&ty, Type::Tuple(_) | Type::Slice(_)) {
         let base = *next_slot;
         let words = storage_word_count(&ty, structs, enums)?;
         *next_slot += words;
@@ -3535,6 +3543,7 @@ fn storage_word_count(
         Type::Array(element, length) => {
             Ok(storage_word_count(element, structs, enums)?.saturating_mul(*length))
         }
+        Type::Slice(_) => Ok(2),
         Type::Tuple(fields) => fields
             .iter()
             .map(|field| storage_word_count(field, structs, enums))
@@ -3680,6 +3689,9 @@ fn value_word_count(
         if total <= VALUE_REGISTERS.len() {
             return Ok(total);
         }
+    }
+    if matches!(ty, Type::Slice(_)) {
+        return Ok(2);
     }
     Err(format!("native ABI does not support value type {ty:?}"))
 }
@@ -3978,6 +3990,9 @@ fn is_flat_native_value(
     enums: &HashMap<String, Vec<EnumVariant>>,
 ) -> bool {
     if matches!(ty, Type::Unit | Type::Never) {
+        return true;
+    }
+    if matches!(ty, Type::Slice(_)) {
         return true;
     }
     if ensure_scalar_type(ty, enums).is_ok() || is_wide_integer(ty) {
@@ -4941,6 +4956,9 @@ impl FunctionContext {
                     self.store_array(name, value)?;
                 } else if matches!(ty, Type::Tuple(_)) {
                     self.store_tuple(name, value)?;
+                } else if matches!(ty, Type::Slice(_)) {
+                    let slots = local_slots(&self.locals, name)?;
+                    self.store_value_words(value, &ty, &slots)?;
                 } else if is_wide_integer(&ty) {
                     self.expression(value)?;
                     let Storage::Wide { low, high } = self
@@ -5905,6 +5923,25 @@ impl FunctionContext {
                 _ => Some(Type::Unit),
             }),
             Expr::List(items) => match items.first() {
+                Some(Expr::Symbol(operator)) if operator == "slice-of" && items.len() == 2 => {
+                    let Type::Reference { target, .. } = self.expression_type(&items[1])? else {
+                        return None;
+                    };
+                    let Type::Array(element, _) = *target else {
+                        return None;
+                    };
+                    Some(Type::Slice(element))
+                }
+                Some(Expr::Symbol(operator)) if operator == "slice-len" => Some(Type::Usize),
+                Some(Expr::Symbol(operator)) if operator == "slice-idx" && items.len() == 3 => {
+                    match self.expression_type(&items[1])? {
+                        Type::Slice(element) => Some(Type::Reference {
+                            mutable: false,
+                            target: element,
+                        }),
+                        _ => None,
+                    }
+                }
                 Some(Expr::Symbol(operator)) if operator == "clone" && items.len() == 2 => {
                     self.expression_type(&items[1])
                 }
@@ -7135,7 +7172,7 @@ impl FunctionContext {
     }
 
     fn is_aggregate_type(&self, ty: &Type) -> bool {
-        if matches!(ty, Type::Array(_, _) | Type::Tuple(_)) {
+        if matches!(ty, Type::Array(_, _) | Type::Tuple(_) | Type::Slice(_)) {
             return true;
         }
         let Type::Named(name) = ty else { return false };
@@ -8033,6 +8070,70 @@ impl FunctionContext {
             _ => return Err("expression list must start with a symbol".into()),
         };
         let (qualifier, operator, mode) = operator_parts(operator);
+        if operator == "slice-of" {
+            if items.len() != 2 {
+                return Err("slice requires an immutable reference to an array".into());
+            }
+            let source_type = self
+                .expression_type(&items[1])
+                .ok_or_else(|| "cannot determine slice source type".to_owned())?;
+            let Type::Reference { target, .. } = source_type else {
+                return Err("slice requires an array reference".into());
+            };
+            let Type::Array(_, length) = *target else {
+                return Err("slice requires a reference to an array".into());
+            };
+            self.expression(&items[1])?;
+            self.output.push_str(&format!("    mov rdx, {length}\n"));
+            return Ok(());
+        }
+        if operator == "slice-len" {
+            if items.len() != 2 {
+                return Err("slice-len requires a slice".into());
+            }
+            if let Expr::Symbol(name) = &items[1] {
+                if let Some(Storage::Tuple(slots)) = self.locals.get(name) {
+                    self.output
+                        .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slots[1] * 8));
+                    return Ok(());
+                }
+            }
+            self.expression(&items[1])?;
+            self.output.push_str("    mov rax, rdx\n");
+            return Ok(());
+        }
+        if operator == "slice-idx" {
+            if items.len() != 3 {
+                return Err("slice-idx requires a slice and usize index".into());
+            }
+            let element_type = match self.expression_type(&items[1]) {
+                Some(Type::Slice(element)) => *element,
+                _ => return Err("slice-idx requires a slice".into()),
+            };
+            if let Expr::Symbol(name) = &items[1] {
+                if let Some(Storage::Tuple(slots)) = self.locals.get(name).cloned() {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
+                        slots[0] * 8,
+                        slots[1] * 8
+                    ));
+                } else {
+                    self.expression(&items[1])?;
+                }
+            } else {
+                self.expression(&items[1])?;
+            }
+            self.output.push_str("    push rax\n    push rdx\n");
+            self.stack_depth += 2;
+            self.expression(&items[2])?;
+            self.output.push_str("    pop rdx\n    pop rcx\n");
+            self.stack_depth -= 2;
+            let fail = self.label("slice_bounds_fail");
+            let done = self.label("slice_bounds_done");
+            let stride = storage_word_count(&element_type, &self.structs, &self.enums)? * 8;
+            self.output.push_str(&format!("    cmp rax, rdx\n    jae {fail}\n    imul rax, {stride}\n    sub rcx, rax\n    mov rax, rcx\n    jmp {done}\n{fail}:\n    ud2\n{done}:\n"));
+            return Ok(());
+        }
         if let Some((enum_name, variant_fields)) =
             self.enums.iter().find_map(|(enum_name, variants)| {
                 variants
@@ -11534,6 +11635,7 @@ impl FunctionContext {
         match ty {
             Type::Unit | Type::Never => Ok(0),
             Type::I128 | Type::U128 => Ok(16),
+            Type::Slice(_) => Ok(16),
             Type::Array(element, length) => self
                 .native_type_size(element)?
                 .checked_mul(*length)
@@ -13819,6 +13921,34 @@ impl FunctionContext {
                 Box::new(VALUE_REGISTERS[..words].iter().copied())
             };
             for register in registers {
+                self.output.push_str(&format!("    push {register}\n"));
+                self.stack_depth += 1;
+            }
+            return Ok(());
+        }
+        if matches!(ty, Type::Slice(_)) {
+            if let Expr::Symbol(local) = value {
+                let Some(Storage::Tuple(slots)) = self.locals.get(local) else {
+                    return Err(format!("'{local}' is not a slice local"));
+                };
+                let slots = slots.clone();
+                let order: &[usize] = if reverse { &[1, 0] } else { &[0, 1] };
+                for index in order {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n",
+                        slots[*index] * 8
+                    ));
+                    self.push_rax();
+                }
+                return Ok(());
+            }
+            self.expression(value)?;
+            let order: &[&str] = if reverse {
+                &["rdx", "rax"]
+            } else {
+                &["rax", "rdx"]
+            };
+            for register in order {
                 self.output.push_str(&format!("    push {register}\n"));
                 self.stack_depth += 1;
             }

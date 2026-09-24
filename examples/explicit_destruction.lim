@@ -11,24 +11,22 @@
 
 (#fn Bundle-destroy ((counter (#ref Counter)) (value Bundle)) ()
   (#let (Bundle left right) Bundle value)
-  (Resource-destroy (#clone counter) left)
-  (Resource-destroy (#clone counter) right)
+  (#call Resource-destroy (#fn-args (counter (#clone counter)) (value left)))
+  (#call Resource-destroy (#fn-args (counter (#clone counter)) (value right)))
   (#return ()))
 
 (#fn make-bundle () Bundle
   (#return
-    (Bundle
-      (Resource (#cell 0u64))
-      (Resource (#cell 0u64)))))
+    (#struct-literal Bundle ((left (#struct-literal Resource ((owned (#cell 0u64))))) (right (#struct-literal Resource ((owned (#cell 0u64)))))))))
 
 (#fn pass-through ((value Bundle)) Bundle
   (#return value))
 
 (#fn main () u64
-  (#let-mut counter Counter (Counter (#cell 0u64)))
-  (#let bundle Bundle (make-bundle))
-  (#let moved Bundle (pass-through bundle))
-  (Bundle-destroy (#borrow counter) moved)
+  (#let-mut counter Counter (#struct-literal Counter ((total (#cell 0u64)))))
+  (#let bundle Bundle (#call make-bundle (#fn-args )))
+  (#let moved Bundle (#call pass-through (#fn-args (value bundle))))
+  (#call Bundle-destroy (#fn-args (counter (#borrow counter)) (value moved)))
   (#let destroyed u64 (#cell-get (#get counter total)))
   (#forget counter)
   (#return destroyed))

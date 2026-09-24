@@ -15,7 +15,7 @@
     #let
     boxed
     BoxU64
-    (BoxU64 42)
+    (#struct-literal BoxU64 ((value 42)))
   )
   (
     #return

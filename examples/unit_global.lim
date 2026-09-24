@@ -4,4 +4,4 @@
   (#return 41))
 
 (#fn main () u64
-  (#return (consume UNIT)))
+  (#return (#call consume (#fn-args (value UNIT)))))

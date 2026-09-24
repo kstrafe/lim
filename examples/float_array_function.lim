@@ -34,10 +34,7 @@
     #let
     value
     f32
-    (
-      sum
-      (make)
-    )
+    (#call sum (#fn-args (values (#call make (#fn-args )))))
   )
   (
     #return

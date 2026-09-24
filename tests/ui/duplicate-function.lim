@@ -1,0 +1,2 @@
+(#fn main () u64 (#return 1u64))
+(#fn main () u64 (#return 2u64))

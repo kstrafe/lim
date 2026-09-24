@@ -1,0 +1,3 @@
+(#const First u64 (#u64.+.wrap Second 1u64))
+(#const Second u64 (#u64.+.wrap First 1u64))
+(#fn main () u64 (#return First))

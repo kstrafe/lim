@@ -7,4 +7,4 @@
       (_ 0))))
 
 (#fn main () u64
-  (#return (classify (Point 40 2))))
+  (#return (#call classify (#fn-args (value (#struct-literal Point ((x 40) (y 2))))))))

@@ -1,0 +1,372 @@
+use std::process::Command;
+
+struct Case {
+    name: &'static str,
+    diagnostic_code: &'static str,
+    offending_line: &'static str,
+    line_number: usize,
+}
+
+#[test]
+fn compilation_errors_render_the_offending_source_line() {
+    let cases = [
+        Case {
+            name: "lex",
+            diagnostic_code: "E1000",
+            offending_line: "  (#return \"unterminated)",
+            line_number: 2,
+        },
+        Case {
+            name: "parse",
+            diagnostic_code: "E2000",
+            offending_line: "  (#return 0u64",
+            line_number: 2,
+        },
+        Case {
+            name: "import",
+            diagnostic_code: "E4000",
+            offending_line: "(#import \"missing-module.lim\")",
+            line_number: 1,
+        },
+        Case {
+            name: "imported",
+            diagnostic_code: "E4000",
+            offending_line: "(#import \"missing-dependency.lim\")",
+            line_number: 1,
+        },
+        Case {
+            name: "cycle-a",
+            diagnostic_code: "E4000",
+            offending_line: "(#import \"cycle-a.lim\")",
+            line_number: 1,
+        },
+        Case {
+            name: "cfg",
+            diagnostic_code: "E4000",
+            offending_line: "(#cfg-if (#cfg-is #platfrom linux) (#fn main () u64 (#return 0u64)))",
+            line_number: 1,
+        },
+        Case {
+            name: "type",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#u64.+.wrap value missing))",
+            line_number: 3,
+        },
+        Case {
+            name: "mismatched-let",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let total u64 count)",
+            line_number: 3,
+        },
+        Case {
+            name: "top-level-mismatch",
+            diagnostic_code: "E4000",
+            offending_line: "(#let TOTAL u64 true)",
+            line_number: 1,
+        },
+        Case {
+            name: "struct-literal",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let point Point (#struct-literal Point ((y 1u64))))",
+            line_number: 3,
+        },
+        Case {
+            name: "call-arguments",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#call take (#fn-args (other 42u64))))",
+            line_number: 4,
+        },
+        Case {
+            name: "borrow",
+            diagnostic_code: "E4100",
+            offending_line: "  (#set value 2u64)",
+            line_number: 4,
+        },
+        Case {
+            name: "linear",
+            diagnostic_code: "E4200",
+            offending_line:
+                "  (#let resource Resource (#struct-literal Resource ((value (#cell 1u64)))))",
+            line_number: 3,
+        },
+        Case {
+            name: "unsafe",
+            diagnostic_code: "E4300",
+            offending_line: "  (#return VALUE)",
+            line_number: 3,
+        },
+        Case {
+            name: "generator",
+            diagnostic_code: "E3000",
+            offending_line: "(@fail)",
+            line_number: 2,
+        },
+        Case {
+            name: "generator-imported",
+            diagnostic_code: "E3000",
+            offending_line: "(@fail)",
+            line_number: 2,
+        },
+        Case {
+            name: "generator-function-recursion",
+            diagnostic_code: "E3000",
+            offending_line: "(#gn-fn second (x) (#gn-call first x))",
+            line_number: 2,
+        },
+        Case {
+            name: "generator-capability",
+            diagnostic_code: "E3000",
+            offending_line: "(#capability order u64 ((missing (u64 u64) bool)))",
+            line_number: 1,
+        },
+        Case {
+            name: "codegen",
+            diagnostic_code: "E5000",
+            offending_line: "(#const First u64 (#u64.+.wrap Second 1u64))",
+            line_number: 1,
+        },
+        Case {
+            name: "nonconstant-static",
+            diagnostic_code: "E5000",
+            offending_line: "(#static VALUE u64 (#call get-value (#fn-args)))",
+            line_number: 2,
+        },
+        Case {
+            name: "recursive-call",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#call worker (#fn-args)))",
+            line_number: 2,
+        },
+        Case {
+            name: "duplicate-type",
+            diagnostic_code: "E4000",
+            offending_line: "(#struct Token ())",
+            line_number: 2,
+        },
+        Case {
+            name: "duplicate-parameter",
+            diagnostic_code: "E4000",
+            offending_line: "(#fn main ((value u64) (value u64)) u64 (#return value))",
+            line_number: 1,
+        },
+        Case {
+            name: "duplicate-field",
+            diagnostic_code: "E4000",
+            offending_line: "(#struct Point ((x u64) (x u64)))",
+            line_number: 1,
+        },
+        Case {
+            name: "duplicate-variant",
+            diagnostic_code: "E2000",
+            offending_line: "(#enum State (Open Closed Open))",
+            line_number: 1,
+        },
+        Case {
+            name: "duplicate-variant-global",
+            diagnostic_code: "E4000",
+            offending_line: "(#enum Other (Open))",
+            line_number: 2,
+        },
+        Case {
+            name: "recursive-alias",
+            diagnostic_code: "E4000",
+            offending_line: "(#type First Second)",
+            line_number: 1,
+        },
+        Case {
+            name: "duplicate-global",
+            diagnostic_code: "E4000",
+            offending_line: "(#let COUNT u64 2u64)",
+            line_number: 2,
+        },
+        Case {
+            name: "duplicate-function",
+            diagnostic_code: "E3000",
+            offending_line: "(#fn main () u64 (#return 2u64))",
+            line_number: 2,
+        },
+        Case {
+            name: "repr-c-discriminant",
+            diagnostic_code: "E4000",
+            offending_line: "(#enum Code #repr-c ((TooLarge 2147483648)))",
+            line_number: 1,
+        },
+        Case {
+            name: "unsafe-impl",
+            diagnostic_code: "E4000",
+            offending_line: "(#unsafe-impl #send Missing)",
+            line_number: 1,
+        },
+        Case {
+            name: "thread-send",
+            diagnostic_code: "E4000",
+            offending_line: "(#fn worker ((pointer (#ptr u64))) u64 (#return 0u64))",
+            line_number: 1,
+        },
+        Case {
+            name: "thread-task-field",
+            diagnostic_code: "E4000",
+            offending_line: "(#struct Container ((task Task)))",
+            line_number: 3,
+        },
+        Case {
+            name: "thread-worker-unknown-type",
+            diagnostic_code: "E4000",
+            offending_line: "(#fn worker ((argument Missing)) u64 (#return 1u64))",
+            line_number: 1,
+        },
+    ];
+
+    for case in cases {
+        let source_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ui/");
+        let input = format!("{source_path}{}.lim", case.name);
+        let output = std::env::temp_dir().join(format!(
+            "lim-ui-{}-{}-{}.s",
+            std::process::id(),
+            case.name,
+            case.line_number
+        ));
+        let result = Command::new(env!("CARGO_BIN_EXE_lim"))
+            .args(["--emit-asm", &input, output.to_str().unwrap()])
+            .output()
+            .unwrap_or_else(|error| panic!("failed to run Lim UI case {}: {error}", case.name));
+
+        assert!(
+            !result.status.success(),
+            "UI case {} unexpectedly compiled",
+            case.name
+        );
+        let stderr = String::from_utf8(result.stderr).expect("compiler stderr is UTF-8");
+        assert!(
+            stderr.contains(&format!("error[{}]", case.diagnostic_code)),
+            "UI case {} had the wrong diagnostic category:\n{stderr}",
+            case.name
+        );
+        let expected_source = match case.name {
+            "imported" => format!("{source_path}imported/broken-module.lim"),
+            "cycle-a" => format!("{source_path}cycle-b.lim"),
+            "generator-imported" => {
+                format!("{source_path}generator-imported/module.lim")
+            }
+            _ => input.clone(),
+        };
+        assert!(
+            stderr.contains(&format!("--> {expected_source}:{}:", case.line_number)),
+            "UI case {} did not point to line {}:\n{stderr}",
+            case.name,
+            case.line_number
+        );
+        assert!(
+            stderr.contains(case.offending_line),
+            "UI case {} did not show its offending source line:\n{stderr}",
+            case.name
+        );
+        assert!(
+            stderr.lines().any(|line| line.contains('^')),
+            "UI case {} did not underline the source:\n{stderr}",
+            case.name
+        );
+        if case.name == "mismatched-let" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.find("count"),
+                underline_row.find('^'),
+                "type mismatch underline is not aligned under the offending value:\n{stderr}"
+            );
+        }
+        if case.name == "codegen" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.find("Second"),
+                underline_row.find('^'),
+                "codegen underline is not aligned under the offending symbol:\n{stderr}"
+            );
+        }
+        if case.name == "recursive-call" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.find("worker"),
+                underline_row.find('^'),
+                "recursive-call underline is not aligned under the recursive callee:\n{stderr}"
+            );
+        }
+        if case.name == "generator-imported" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.find("(@fail)"),
+                underline_row.find('^'),
+                "imported generator underline is not aligned under its invocation:\n{stderr}"
+            );
+        }
+        if case.name == "type" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.find("missing"),
+                underline_row.find('^'),
+                "nested type error is not aligned under its offending identifier:\n{stderr}"
+            );
+        }
+        if case.name == "nonconstant-static" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.find("(#call"),
+                underline_row.find('^'),
+                "non-constant initializer underline is not aligned under its expression:\n{stderr}"
+            );
+        }
+        if matches!(
+            case.name,
+            "duplicate-parameter"
+                | "duplicate-field"
+                | "duplicate-variant"
+                | "duplicate-variant-global"
+        ) {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            let duplicated_name = match case.name {
+                "duplicate-parameter" => "value",
+                "duplicate-field" => "x",
+                _ => "Open",
+            };
+            let occurrence_index = usize::from(case.name != "duplicate-variant-global");
+            let second_value = source_row
+                .match_indices(duplicated_name)
+                .nth(occurrence_index)
+                .unwrap()
+                .0;
+            assert_eq!(
+                Some(second_value),
+                underline_row.find('^'),
+                "duplicate declaration underline is not aligned under the second name:\n{stderr}"
+            );
+        }
+        let _ = std::fs::remove_file(output);
+    }
+}

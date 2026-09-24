@@ -14,7 +14,7 @@
   Point
   (
     #return
-    (Point 1.5 2.5)
+    (#struct-literal Point ((x 1.5) (y 2.5)))
   )
 )
 
@@ -31,7 +31,7 @@
         (#f64.>
           (
             #get
-            (make)
+            (#call make (#fn-args ))
             x
           )
           1.0
@@ -39,7 +39,7 @@
         (#f32.>
           (
             #get
-            (make)
+            (#call make (#fn-args ))
             y
           )
           2.0

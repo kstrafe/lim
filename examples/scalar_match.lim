@@ -24,6 +24,6 @@
   u64
   (
     #return
-    (classify 1)
+    (#call classify (#fn-args (value 1)))
   )
 )

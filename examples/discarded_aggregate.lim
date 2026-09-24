@@ -2,5 +2,5 @@
 
 (#fn main () u64
   (#tuple (#tuple u64 u64) 1 2)
-  (Pair 3 4)
+  (#struct-literal Pair ((left 3) (right 4)))
   (#return 42))

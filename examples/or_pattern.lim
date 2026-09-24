@@ -5,7 +5,7 @@
       (#match value
         ((#or 1 2 3) 42)
         (_ 0))
-      (bool-or true))))
+      (#call bool-or (#fn-args (value true))))))
 
 (#fn bool-or ((value bool)) u64
   (#return

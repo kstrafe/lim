@@ -13,6 +13,6 @@
   u64
   (
     #return
-    (identity-u64 42)
+    (#call identity-u64 (#fn-args (value 42)))
   )
 )

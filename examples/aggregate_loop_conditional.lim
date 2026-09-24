@@ -5,4 +5,4 @@
       (#unreachable)))))
 
 (#fn main () u64
-  (#return (#get (values) 1)))
+  (#return (#get (#call values (#fn-args )) 1)))

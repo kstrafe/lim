@@ -4,4 +4,4 @@
   (#return value))
 
 (#fn main () u64
-  (#return (read 42)))
+  (#return (#call read (#fn-args (value 42)))))

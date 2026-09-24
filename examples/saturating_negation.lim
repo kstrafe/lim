@@ -2,4 +2,4 @@
   (#return (#i8.-.saturate value)))
 
 (#fn main () u64
-  (#return (#as (saturate -128) u64)))
+  (#return (#as (#call saturate (#fn-args (value -128))) u64)))

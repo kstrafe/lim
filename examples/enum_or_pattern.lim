@@ -1,7 +1,7 @@
 (@optional u64 Maybe?)
 
 (#fn main () u64
-  (#let value Maybe? (Maybe?-construct 42))
+  (#let value Maybe? (#call Maybe?-construct (#fn-args (value 42))))
   (#return
     (#match value
       ((#or Maybe?-some Maybe?-none) 42))))

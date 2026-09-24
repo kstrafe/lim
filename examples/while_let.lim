@@ -9,7 +9,7 @@
     #let-mut
     value
     Maybe?
-    (Maybe?-construct 42)
+    (#call Maybe?-construct (#fn-args (value 42)))
   )
   (#let-mut total u64 0)
   (

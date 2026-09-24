@@ -20,6 +20,6 @@
   UserId
   (
     #return
-    (add_one 41)
+    (#call add_one (#fn-args (id 41)))
   )
 )

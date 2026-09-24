@@ -568,7 +568,7 @@ mod tests {
         let output = directory.join("thread");
         fs::write(
             &input,
-            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn identity ((value Large)) Large (#return value)) (@thread-spawn LargeTask identity) (#fn main () u64 (#return (#match (LargeTask-spawn (Large 1 2 3 4 5 6 42)) ((LargeTask-spawn-ok task) (#match (LargeTask-join task) ((LargeTask-join-ok value) (#get value g)) ((LargeTask-join-error (#tuple retry error)) (#panic)))) ((LargeTask-spawn-error error) (#panic)))))",
+            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn identity ((value Large)) Large (#return value)) (@thread-spawn LargeTask identity) (#fn main () u64 (#return (#match (LargeTask-spawn (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 42)))) ((LargeTask-spawn-ok task) (#match (LargeTask-join task) ((LargeTask-join-ok value) (#get value g)) ((LargeTask-join-error (#tuple retry error)) (#panic)))) ((LargeTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
 
@@ -692,7 +692,7 @@ mod tests {
         let output = directory.join("thread");
         let stub_source = directory.join("pthread-stub.s");
         let stub_object = directory.join("pthread-stub.o");
-        let source = "(#extern-fn #abi-c exit ((status i32)) ()) (#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (Task-spawn 41) ((Task-spawn-ok task) (#match (Task-join task) ((Task-join-ok value) 42) ((Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (exit 43)) (#panic)))))) ((Task-spawn-error error) (#panic)))))";
+        let source = "(#extern-fn #abi-c exit ((status i32)) ()) (#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (Task-spawn 41) ((Task-spawn-ok task) (#match (Task-join task) ((Task-join-ok value) 42) ((Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (#call exit (#fn-args (status 43)))) (#panic)))))) ((Task-spawn-error error) (#panic)))))";
         fs::write(&input, source).unwrap();
         fs::write(
             &stub_source,
@@ -810,7 +810,7 @@ mod tests {
             .success());
         fs::write(
             &input,
-            "(#extern-fn #abi-c provided_value () u64) (#fn main () u64 (#return (#unsafe (provided_value))))",
+            "(#extern-fn #abi-c provided_value () u64) (#fn main () u64 (#return (#unsafe (#call provided_value (#fn-args )))))",
         )
         .unwrap();
         let links = LinkOptions {
@@ -867,25 +867,25 @@ mod tests {
 (@vec-alloc u64 Arena VecU64 AllocResult AllocError
   fail-alloc fail-grow no-dealloc drop-u64)
 (#fn fail-alloc ((allocator (#ref Arena)) (layout usize) (alignment usize)) AllocResult
-  (#return (AllocResult-err OutOfMemory)))
+  (#return (#call AllocResult-err (#fn-args (error OutOfMemory)))))
 (#fn fail-grow ((allocator (#ref Arena)) (pointer (#ptr-mut u64))
                 (old-layout usize) (new-layout usize) (alignment usize)) AllocResult
   (#forget pointer)
-  (#return (AllocResult-err OutOfMemory)))
+  (#return (#call AllocResult-err (#fn-args (error OutOfMemory)))))
 (#fn no-dealloc ((allocator (#ref Arena)) (pointer (#ptr-mut u64))
                  (layout usize) (alignment usize)) ()
   (#forget pointer)
   (#return ()))
 (#fn drop-u64 ((allocator (#ref Arena)) (value u64)) () (#return ()))
 (#fn main () u64
-  (#let-mut arena Arena (Arena 0u64))
-  (#let-mut vector VecU64 (VecU64-new (#borrow arena)))
-  (#let result VecU64-PushResult (VecU64-push (#borrow-mut vector) 42u64))
+  (#let-mut arena Arena (#struct-literal Arena ((identity 0u64))))
+  (#let-mut vector VecU64 (#call VecU64-new (#fn-args (allocator (#borrow arena)))))
+  (#let result VecU64-PushResult (#call VecU64-push (#fn-args (vector (#borrow-mut vector)) (element 42u64))))
   (#let status u64
     (#match result
       ((VecU64-PushResult-ok-value _) 0u64)
       ((VecU64-PushResult-err-value _) 42u64)))
-  (VecU64-free vector)
+  (#call VecU64-free (#fn-args (vector vector)))
   (#forget arena)
   (#return status))
 "#;

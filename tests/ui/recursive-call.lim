@@ -1,0 +1,4 @@
+(#fn main () u64
+  (#return (#call worker (#fn-args))))
+(#fn worker () u64
+  (#return (#call main (#fn-args))))

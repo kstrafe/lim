@@ -5,4 +5,4 @@
   (#return (#get value 0)))
 
 (#fn main () u64
-  (#return (consume (make))))
+  (#return (#call consume (#fn-args (value (#call make (#fn-args )))))))

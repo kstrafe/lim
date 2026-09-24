@@ -39,10 +39,6 @@
   u64
   (
     #return
-    (
-      consume
-      (Pair 1.5 41)
-      2.0
-    )
+    (#call consume (#fn-args (pair (#struct-literal Pair ((scale 1.5) (value 41)))) (factor 2.0)))
   )
 )

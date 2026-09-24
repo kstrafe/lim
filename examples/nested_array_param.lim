@@ -6,4 +6,4 @@
     (#array (#array (#tuple u64 u64) 2)
       (#tuple (#tuple u64 u64) 10 20)
       (#tuple (#tuple u64 u64) 30 12)))
-  (#return (consume values)))
+  (#return (#call consume (#fn-args (values values)))))

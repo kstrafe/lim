@@ -27,7 +27,7 @@
     #let
     value
     Maybe
-    (make)
+    (#call make (#fn-args ))
   )
   (
     #return

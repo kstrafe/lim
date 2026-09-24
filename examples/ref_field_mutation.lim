@@ -1,6 +1,6 @@
 (#struct Point ((x u64) (y u64)))
 (#struct CellState ((prefix u64) (counter (#cell u64))))
-(#static Origin Point (Point 19 23))
+(#static Origin Point (#struct-literal Point ((x 19) (y 23))))
 
 (#fn origin-y () u64
   (#let origin-ref (#ref Point) (#unsafe (#borrow Origin)))
@@ -11,7 +11,7 @@
   (#return (#get point y)))
 
 (#fn mutate-cell-through-reference () u64
-  (#let-mut state CellState (CellState 5 (#cell 1)))
+  (#let-mut state CellState (#struct-literal CellState ((prefix 5) (counter (#cell 1)))))
   (#let state-ref (#ref CellState) (#borrow state))
   (#cell-set (#get state-ref counter) 42)
   (#let result u64 (#cell-get (#get state-ref counter)))
@@ -20,11 +20,11 @@
   (#return result))
 
 (#fn main () u64
-  (#let-mut point Point (Point 1 2))
-  (#let original-y u64 (point-y (#borrow point)))
+  (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
+  (#let original-y u64 (#call point-y (#fn-args (point (#borrow point)))))
   (#let point-ref (#ref-mut Point) (#borrow-mut point))
   (#let y-ref (#ref-mut u64) (#borrow-mut (#get point-ref y)))
   (#deref-set y-ref 42)
   (#return (#u64.+.wrap
-    (#u64.+.wrap (#u64.+.wrap (#deref y-ref) original-y) (origin-y))
-    (mutate-cell-through-reference))))
+    (#u64.+.wrap (#u64.+.wrap (#deref y-ref) original-y) (#call origin-y (#fn-args )))
+    (#call mutate-cell-through-reference (#fn-args )))))

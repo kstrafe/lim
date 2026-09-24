@@ -6,4 +6,4 @@
     (None (#tuple (#tuple u64 u64) 30 12)))))
 
 (#fn main () u64
-  (#return (#get (choose (Some 10)) 1)))
+  (#return (#get (#call choose (#fn-args (value (Some 10)))) 1)))

@@ -1,0 +1,3 @@
+(#fn worker ((pointer (#ptr u64))) u64 (#return 0u64))
+(@thread-spawn Task worker)
+(#fn main () u64 (#return 0u64))

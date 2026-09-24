@@ -1,0 +1,3 @@
+(#fn get-value () u64 (#return 1u64))
+(#static VALUE u64 (#call get-value (#fn-args)))
+(#fn main () u64 (#return (#unsafe VALUE)))

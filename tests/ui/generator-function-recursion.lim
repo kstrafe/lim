@@ -1,0 +1,2 @@
+(#gn-fn first (x) (#gn-call second x))
+(#gn-fn second (x) (#gn-call first x))

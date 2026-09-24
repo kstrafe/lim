@@ -3,8 +3,8 @@
    (e u64) (f u64) (g u64)))
 
 (#fn make ((last u64)) Large
-  (#return (Large 1u64 2u64 3u64 4u64 5u64 6u64 last)))
+  (#return (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g last)))))
 
 (#fn main () u64
-  (#let value Large (make 42u64))
+  (#let value Large (#call make (#fn-args (last 42u64))))
   (#return (#get value g)))

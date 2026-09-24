@@ -4,5 +4,5 @@
 (#fn main () u64
   (#return
     (#u64.+.wrap
-      (widget-value (Widget 20))
-      (external-widget-value (external-Widget 22)))))
+      (#call widget-value (#fn-args (widget (#struct-literal Widget ((value 20))))))
+      (#call external-widget-value (#fn-args (external-widget (#struct-literal external-Widget ((external-value 22)))))))))

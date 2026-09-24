@@ -8,9 +8,9 @@
   (#return (#cell-get (#get (#get vector allocator) cursor))))
 
 (#fn main () u64
-  (#let-mut arena Arena (Arena (#cell 0)))
-  (#let-mut vector VecU64Arena (VecU64Arena (#borrow arena) 0))
-  (#let reserved u64 (VecU64Arena-reserve (#borrow vector) 42))
+  (#let-mut arena Arena (#struct-literal Arena ((cursor (#cell 0)))))
+  (#let-mut vector VecU64Arena (#struct-literal VecU64Arena ((allocator (#borrow arena)) (length 0))))
+  (#let reserved u64 (#call VecU64Arena-reserve (#fn-args (vector (#borrow vector)) (count 42))))
   (#drop vector)
   (#forget arena)
   (#return reserved))

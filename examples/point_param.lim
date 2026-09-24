@@ -26,10 +26,7 @@
     #let
     result
     Point
-    (
-      identity
-      (Point 11 37)
-    )
+    (#call identity (#fn-args (point (#struct-literal Point ((x 11) (y 37))))))
   )
   (
     #return

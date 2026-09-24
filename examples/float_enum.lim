@@ -49,10 +49,7 @@
     (
       #if
       (#f32.>
-        (
-          read
-          (make)
-        )
+        (#call read (#fn-args (value (#call make (#fn-args )))))
         2.0
       )
       42

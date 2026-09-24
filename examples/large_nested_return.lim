@@ -7,7 +7,7 @@
       (#tuple 40u128 42u64))))
 
 (#fn main () u64
-  (#let values (#array (#tuple u128 u64) 4) (make))
+  (#let values (#array (#tuple u128 u64) 4) (#call make (#fn-args )))
   (#let item (#tuple u128 u64) (#index values 3u64))
-  (#let direct-item (#tuple u128 u64) (#index (make) 3u64))
+  (#let direct-item (#tuple u128 u64) (#index (#call make (#fn-args )) 3u64))
   (#return (#u64.+.wrap (#get item 1) (#get direct-item 1))))

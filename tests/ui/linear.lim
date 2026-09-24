@@ -1,0 +1,4 @@
+(#struct Resource ((value (#cell u64))))
+(#fn main () u64
+  (#let resource Resource (#struct-literal Resource ((value (#cell 1u64)))))
+  (#return 0u64))

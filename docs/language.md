@@ -16,6 +16,7 @@ Lim currently provides:
 - strong static types and explicit types on bindings and parameters;
 - no type inference and explicit types on all bindings and calls;
 - value structs, enums, tuples, and fixed-size arrays;
+- immutable borrowed slices with checked indexing;
 - free-standing functions; concrete specialization is generator-driven;
 - explicit integer width and overflow behavior;
 - native x86-64 code generation using the System V ABI;
@@ -24,7 +25,7 @@ Lim currently provides:
 - pure user-defined syntax generators with a restricted `#gn-*` operation set;
 - no recursion, allowing the compiler to calculate a finite call depth.
 
-Slices, user-defined traits, methods, closures, and other source-level
+User-defined traits, methods, closures, and other source-level
 indirection mechanisms are not part of the current language. Built-in `Send`
 and `Sync` properties are structural. References and raw pointers may point to aggregate values; `#get` projects fields through a reference.
 Direct `#deref` and `#deref-set` support scalar values and aggregates that fit
@@ -171,7 +172,7 @@ is live.
 ```lisp
 (#struct Point ((x u64) (y u64)))
 (#fn main () u64
-  (#let-mut point Point (Point 1 2))
+  (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
   (#let point-ref (#ref-mut Point) (#borrow-mut point))
   (#let y-ref (#ref-mut u64) (#borrow-mut (#get point-ref y)))
   (#deref-set y-ref 42)
@@ -483,6 +484,21 @@ Fixed aggregates are written explicitly:
 (#array u32 4)
 ```
 
+Construct a fixed-size array value with `#array-of`, keeping it visually
+distinct from the `#array` type form:
+
+```lisp
+(#let values (#array u32 3)
+  (#array-of (#array u32 3) 10u32 20u32 30u32))
+```
+
+An immutable slice type is written `(#slice T)`. Create a full-array view with
+`(#slice-of (#borrow array))`; the array's borrow is retained by the slice. Use
+`(#slice-len view)` for its runtime length and
+`(#slice-idx view index)` to get a shared reference to an element. Indexing
+checks the index against the slice length and traps if it is out of bounds.
+Slices are immutable for now; ranged subslices are not yet supported.
+
 User-defined names refer to concrete structs, enums, and aliases.  Generic
 declarations and angle-bracket applications are not part of Lim.  Generators
 create concrete specializations explicitly, such as `(@vec u64 Alloc VecU64)`.
@@ -520,6 +536,16 @@ marked mutable:
   (#set value (#u64.+.wrap value 1u64))
   (#return value))
 ```
+
+Function calls also name every argument explicitly. Use `#call` with a
+`#fn-args` list; each argument label must match a parameter in the declaration:
+
+```lisp
+(#call add (#fn-args (left 20u32) (right 22u32)))
+```
+
+This is the only function-call spelling. Positional call forms are rejected,
+including calls with no arguments, which use `(#call function (#fn-args))`.
 
 Generic function declarations and angle-bracket calls are rejected.  Use a
 generator to emit a concrete function for each required type combination.
@@ -575,7 +601,7 @@ Structs are value types with named fields:
 (#struct Point ((x u64) (y u64)))
 
 (#fn main () u64
-  (#let point Point (Point 7u64 9u64))
+  (#let point Point (#struct-literal Point ((x 7u64) (y 9u64))))
   (#return (#get point y)))
 ```
 
@@ -634,7 +660,8 @@ aggregate local:
 (#set total (#u64.+.wrap total 1u64))
 ```
 
-Structs can be created with keyed fields using `#struct-literal`. Every field
+Struct types are not constructors. Create a value with `#struct-literal`, or
+write a named free-standing constructor function that returns one. Every field
 must be supplied exactly once; fields may appear in any order, and omitted
 fields are not defaulted:
 
@@ -645,9 +672,9 @@ fields are not defaulted:
     ((y 22u64) (x 20u64))))
 ```
 
-The compiler lowers this form to the ordinary positional constructor, so it
-has the same ownership and code-generation behavior as `(Point 20u64 22u64)`.
-Unknown, duplicate, or missing fields are compile-time errors.
+Unknown, duplicate, or missing fields are compile-time errors. A type name in
+call position, such as `(Point 20u64 22u64)`, is rejected; give constructor
+functions distinct names such as `make-point`.
 
 Aggregate projections can be updated with `#set-index`, `#set-field`, and
 `#set-payload`:

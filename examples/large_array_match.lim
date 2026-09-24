@@ -5,6 +5,6 @@
 
 (#fn main () u64
   (#return
-    (#match (make)
+    (#match (#call make (#fn-args ))
       ((#array first second third fourth fifth sixth last) last)
       (_ 0u64))))

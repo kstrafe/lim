@@ -11,6 +11,8 @@ the checklist is committed alongside the implementation it tracks.
 - [x] Nix development shell with the Rust toolchain.
 - [x] Explicit `#`-prefixed builtin syntax; legacy unprefixed forms rejected.
 - [x] Explicit typed bindings, free-standing functions, and explicit returns.
+- [x] Require named function arguments using `#call` and `#fn-args`; reject
+  positional calls and validate argument labels at compile time.
 - [x] Builtin scalar types through 128-bit integers, floats, `bool`, `char`,
   unit, and never.
 - [x] Explicitly qualified arithmetic, comparison, shift, cast, and overflow
@@ -178,11 +180,10 @@ the checklist is committed alongside the implementation it tracks.
   string-returning APIs remain available.
 - [x] Add Rust-style CLI diagnostic rendering with source excerpts and
   underlines for errors that carry or expose a source location.
-- [x] Carry exact spans from parsed expressions into type, ownership, borrow,
-  unsafe, generator, and codegen errors; remove identifier-search fallbacks so
-  all underlines point to the actual offending syntax. Source identities and
-  contents are retained across imports, and structured diagnostics render
-  imported locations against the owning source file.
+- [ ] Carry exact spans from parsed expressions into every type, ownership,
+  borrow, unsafe, generator, and codegen error. Source identities and contents
+  are retained across imports, but some analysis fallbacks still underline a
+  containing statement rather than the precise offending expression.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a
@@ -192,3 +193,55 @@ the checklist is committed alongside the implementation it tracks.
   flow forms, `Send`/`Sync` overrides, and generated destruction paths;
   `docs/soundness-audit.md` maps each invariant to its regression evidence and
   records the limits of unsafe promises.
+
+## Remaining hardening and platform work
+
+These items close known gaps between the implementation, its safety claims,
+and the documented behavior. They are not prerequisites for the current
+single-target experimental compiler, but should be completed before treating
+these areas as stable.
+
+### Safety audit and ownership
+
+- [ ] Re-audit thread spawn/join failure paths, including task-handle
+  ownership and captured borrows on every success and error branch. Reconcile
+  the checklist claims, regression tests, and `docs/soundness-audit.md`; add
+  adversarial tests for any uncovered paths.
+- [ ] Extend the soundness audit with explicit invariants and adversarial
+  tests for unsafe `Send`/`Sync` overrides, raw-pointer-derived references,
+  and unsafe destruction/allocator interactions. Clearly distinguish
+  compiler-enforced guarantees from programmer promises.
+
+### Diagnostics and generated source
+
+- [x] Add CLI UI regression fixtures for lexical/parser errors, imports and
+  cycles, cfg and type/named-call errors, struct literals, borrow, linearity,
+  top-level type mismatches, unsafe, recursion, duplicate
+  parameters, fields, local/cross-enum variants, types, and recursive aliases;
+  thread ownership and thread-safety; generator invocation,
+  capability-contract and #gn-fn recursion failures; and codegen failures.
+  Assert diagnostic categories, source lines,
+  underlines, and key token alignment, including imported files and nested
+  expressions.
+- [x] Ensure source-level compilation errors carry a source location and
+  underline the responsible Lim statement, declaration, or expression across
+  parsing, imports/cfg, generators, type/ownership/borrow/unsafe checking, and
+  code generation. CLI UI coverage exercises representative failures in each
+  phase. Some diagnostics use a containing statement/declaration span where
+  the exact inner token is not retained; exact-span coverage remains tracked
+  separately above.
+- [x] Add diagnostic regression tests for nested expressions and imported
+  generated source locations, asserting the exact highlighted source range.
+
+### Native ABI and targets
+
+- [ ] Make `#repr-c` layout guarantees match actual Lim storage and the C ABI,
+  or narrow the feature and its documentation so layout-query results cannot
+  be mistaken for permission to pass or reinterpret Lim aggregates as C
+  values.
+- [ ] Implement and test by-value C aggregate arguments and returns, including
+  structs and enums, or explicitly keep them unsupported until the internal
+  representation and target ABI agree.
+- [ ] Define the supported target policy and add a target/ABI test matrix.
+  Unsupported targets must continue to fail explicitly; add a backend and
+  linker path for each newly supported target.
