@@ -1856,6 +1856,20 @@ fn precise_type_error_span(
             return Some(span);
         }
     }
+    for (prefix, operator) in [
+        ("tuple constructor expects ", "#tuple"),
+        ("array constructor expects ", "#array"),
+    ] {
+        if let Some(expected) = error
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|count| count.parse::<usize>().ok())
+        {
+            if let Some(span) = constructor_arity_span(value, operator, expected) {
+                return Some(span);
+            }
+        }
+    }
     if let Some((payload_index, variant_name)) = error
         .strip_prefix("payload ")
         .and_then(|rest| {
@@ -2107,6 +2121,39 @@ fn array_element_span(expression: &crate::SpannedExpr, index: usize) -> Option<c
         .children
         .iter()
         .find_map(|child| array_element_span(child, index))
+}
+
+fn constructor_arity_span(
+    expression: &crate::SpannedExpr,
+    operator: &str,
+    expected: usize,
+) -> Option<crate::Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if head == operator) {
+            let has_explicit_type = items.get(1).is_some_and(|item| {
+                parse_type(Some(item)).is_ok_and(|ty| match operator {
+                    "#tuple" => matches!(ty, Type::Tuple(_)),
+                    "#array" => matches!(ty, Type::Array(_, _)),
+                    _ => false,
+                })
+            });
+            let value_start = usize::from(has_explicit_type) + 1;
+            let actual = items.len().saturating_sub(value_start);
+            if actual > expected {
+                return expression
+                    .children
+                    .get(value_start + expected)
+                    .map(|extra| extra.span);
+            }
+            if actual < expected {
+                return expression.children.first().map(|head| head.span);
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| constructor_arity_span(child, operator, expected))
 }
 
 fn enum_constructor_payload_span(

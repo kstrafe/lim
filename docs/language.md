@@ -1119,6 +1119,8 @@ An explicit `#return` whose value does not match the function return type
 underlines the returned expression.
 Tuple and array constructor element type errors underline the specific
 incompatible element, even when another element has the same actual type.
+Aggregate constructor arity errors underline an extra value or the constructor
+head when an element is missing.
 Borrow conflict spans select the accessed binding rather than a same-named
 field selector, call callee, or named-argument label in the same expression.
 

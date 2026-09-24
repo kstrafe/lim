@@ -77,6 +77,18 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "tuple-constructor-extra-element",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#tuple 1u64 true false))",
+            line_number: 2,
+        },
+        Case {
+            name: "array-constructor-missing-element",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#array 1u64))",
+            line_number: 2,
+        },
+        Case {
             name: "nested-mismatch",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#u64.+.wrap 1u64 false))",
@@ -685,6 +697,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "return-type-mismatch" => Some("false"),
             "tuple-element-type-mismatch" => Some("2u64"),
             "array-element-type-mismatch" => Some("false"),
+            "tuple-constructor-extra-element" => Some("false"),
+            "array-constructor-missing-element" => Some("#array"),
             "import" => Some("\"missing-module.lim\""),
             "imported" => Some("\"missing-dependency.lim\""),
             "cycle-a" => Some("\"cycle-a.lim\""),
