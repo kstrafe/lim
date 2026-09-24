@@ -1111,6 +1111,8 @@ precise node is not available. Some diagnostics still highlight an enclosing
 expression or declaration when an analysis error does not retain its
 responsible AST node. Complete exact-span propagation through every analysis
 result remains tracked work.
+Diagnostic source hunks expand tabs at four-column stops before aligning the
+underline, so the displayed code and caret use the same columns.
 
 `Span` offsets are byte offsets into the original UTF-8 source.  `line` and
 `column` are one-based.  Lexer failures carry a `LexError`; parser failures

@@ -354,17 +354,15 @@ fn render_source_hunk(source: &str, filename: &str, span: Span, label: &str) -> 
         .lines()
         .nth(span.line.saturating_sub(1))
         .unwrap_or("");
-    let prefix = line_text
-        .chars()
-        .take(span.column.saturating_sub(1))
-        .collect::<String>();
-    let start_display = display_width(&prefix);
+    let prefix = line_text.chars().take(span.column.saturating_sub(1));
+    let start_display = prefix.fold(0, |column, ch| advance_display_column(column, ch));
+    let rendered_line = expand_tabs(line_text);
     let selected = source.get(span.start..span.end).unwrap_or("");
     let width = selected
         .chars()
         .take_while(|ch| *ch != '\n' && *ch != '\r')
-        .map(display_char_width)
-        .sum::<usize>()
+        .fold(start_display, advance_display_column)
+        .saturating_sub(start_display)
         .max(1);
     let line_number_width = span.line.to_string().len();
     let marker = format!(
@@ -382,21 +380,33 @@ fn render_source_hunk(source: &str, filename: &str, span: Span, label: &str) -> 
         line = span.line,
         column = span.column,
         blank = "",
-        line_text = line_text,
+        line_text = rendered_line,
         marker = marker,
         line_number_width = line_number_width,
     )
 }
 
-fn display_width(text: &str) -> usize {
-    text.chars().map(display_char_width).sum()
+fn expand_tabs(text: &str) -> String {
+    let mut expanded = String::with_capacity(text.len());
+    let mut column = 0;
+    for ch in text.chars() {
+        if ch == '\t' {
+            let spaces = 4 - column % 4;
+            expanded.push_str(&" ".repeat(spaces));
+            column += spaces;
+        } else {
+            expanded.push(ch);
+            column = advance_display_column(column, ch);
+        }
+    }
+    expanded
 }
 
-fn display_char_width(ch: char) -> usize {
+fn advance_display_column(column: usize, ch: char) -> usize {
     if ch == '\t' {
-        4
+        column + (4 - column % 4)
     } else {
-        1
+        column + 1
     }
 }
 
@@ -7475,6 +7485,16 @@ mod tests {
         let type_error = render_error(source, "example.lim", "unknown variable 'missing_name'");
         assert!(type_error.contains("error[E4000]: unknown variable 'missing_name'"));
         assert!(type_error.contains("missing_name"));
+    }
+
+    #[test]
+    fn diagnostic_renderer_expands_tabs_before_aligning_underlines() {
+        let source = "a\tb";
+        let diagnostic =
+            Diagnostic::new(DiagnosticCode::Type, "bad value").with_span(Span::new(2, 3, 1, 3));
+        let rendered = render_diagnostic(&diagnostic, source, "tabs.lim");
+        assert!(rendered.contains("1 | a   b"), "{rendered}");
+        assert!(rendered.contains("1 | a   b\n  |     ^ here"), "{rendered}");
     }
 
     #[test]
