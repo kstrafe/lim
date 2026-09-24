@@ -189,6 +189,8 @@ the checklist is committed alongside the implementation it tracks.
   expression/declaration cases and add exact-range coverage for each. Unknown
   types in expressions and declarations, and representative borrow, linearity,
   unsafe, generator, and codegen diagnostics now have exact-range assertions.
+  Named-call and struct-literal lowering also identifies unknown, duplicate,
+  and omitted arguments/fields at their source forms.
 - [x] Specify generator capability contracts beyond name membership: bind each
   capability/type pair to concrete free-standing operation signatures, validate
   function existence and exact signatures before expansion, and include a

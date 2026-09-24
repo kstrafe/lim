@@ -2106,13 +2106,17 @@ fn parse_program_in_directory(
     normalize_function_calls(
         &mut items,
         &statement_spans,
+        &statement_expressions,
         &declaration_spans,
+        &declaration_expressions,
         &source_files,
     )?;
     normalize_struct_literals(
         &mut items,
         &statement_spans,
+        &statement_expressions,
         &declaration_spans,
+        &declaration_expressions,
         &source_files,
     )?;
     Ok(Program {
@@ -2374,7 +2378,9 @@ fn set_source_id(expression: &mut SpannedExpr, source_id: u32) {
 fn normalize_function_calls(
     items: &mut [Item],
     statement_spans: &HashMap<(String, usize), Span>,
+    statement_expressions: &HashMap<(String, usize), SpannedExpr>,
     declaration_spans: &HashMap<String, Span>,
+    declaration_expressions: &HashMap<String, SpannedExpr>,
     source_files: &[SourceFile],
 ) -> Result<(), String> {
     let signatures = items
@@ -2416,25 +2422,95 @@ fn normalize_function_calls(
             Item::Function(function) => {
                 for (index, statement) in function.body.iter_mut().enumerate() {
                     normalize_call_statement(statement, &signatures).map_err(|error| {
-                        statement_spans
-                            .get(&(function.name.clone(), index))
+                        let key = (function.name.clone(), index);
+                        statement_expressions
+                            .get(&key)
+                            .map(|expression| call_normalization_span(expression, &error))
+                            .or_else(|| statement_spans.get(&key).copied())
                             .map_or(error.clone(), |span| {
-                                attach_span_to_source_error(error, *span, source_files)
+                                attach_span_to_source_error(error, span, source_files)
                             })
                     })?;
                 }
             }
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
                 normalize_call_expr(value, &signatures).map_err(|error| {
-                    declaration_spans.get(name).map_or(error.clone(), |span| {
-                        attach_span_to_source_error(error, *span, source_files)
-                    })
+                    declaration_expressions
+                        .get(name)
+                        .map(|expression| call_normalization_span(expression, &error))
+                        .or_else(|| declaration_spans.get(name).copied())
+                        .map_or(error.clone(), |span| {
+                            attach_span_to_source_error(error, span, source_files)
+                        })
                 })?;
             }
             _ => {}
         }
     }
     Ok(())
+}
+
+fn collect_source_symbol_spans(expression: &SpannedExpr, name: &str, spans: &mut Vec<Span>) {
+    if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
+        spans.push(expression.span);
+    }
+    for child in &expression.children {
+        collect_source_symbol_spans(child, name, spans);
+    }
+}
+
+fn source_symbol_span(expression: &SpannedExpr, name: &str, last: bool) -> Option<Span> {
+    let mut spans = Vec::new();
+    collect_source_symbol_spans(expression, name, &mut spans);
+    if last {
+        spans.into_iter().max_by_key(|span| span.start)
+    } else {
+        spans.into_iter().min_by_key(|span| span.start)
+    }
+}
+
+fn source_form_head_span(expression: &SpannedExpr, names: &[&str]) -> Option<Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(name)) if names.contains(&name.as_str())) {
+            return expression.children.first().map(|head| head.span);
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| source_form_head_span(child, names))
+}
+
+fn source_form_child_span(
+    expression: &SpannedExpr,
+    names: &[&str],
+    child_index: usize,
+) -> Option<Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(name)) if names.contains(&name.as_str())) {
+            return expression.children.get(child_index).map(|child| child.span);
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| source_form_child_span(child, names, child_index))
+}
+
+fn call_normalization_span(expression: &SpannedExpr, error: &str) -> Span {
+    if let Some(target) = error.rsplit('\'').nth(1) {
+        if let Some(span) = source_symbol_span(expression, target, error.contains("more than once"))
+        {
+            return span;
+        }
+    }
+    if error.contains("missing parameter") || error.contains("#fn-args") {
+        if let Some(span) = source_form_head_span(expression, &["#fn-args", "fn-args"]) {
+            return span;
+        }
+    }
+    source_form_head_span(expression, &["#call", "call"])
+        .unwrap_or_else(|| source_value_span(expression))
 }
 
 fn attach_span_to_source_error(error: String, span: Span, source_files: &[SourceFile]) -> String {
@@ -2627,7 +2703,9 @@ fn normalize_call_expr(
 fn normalize_struct_literals(
     items: &mut [Item],
     statement_spans: &HashMap<(String, usize), Span>,
+    statement_expressions: &HashMap<(String, usize), SpannedExpr>,
     declaration_spans: &HashMap<String, Span>,
+    declaration_expressions: &HashMap<String, SpannedExpr>,
     source_files: &[SourceFile],
 ) -> Result<(), String> {
     let structs = items
@@ -2643,25 +2721,50 @@ fn normalize_struct_literals(
             Item::Function(function) => {
                 for (index, statement) in function.body.iter_mut().enumerate() {
                     normalize_struct_statement(statement, &structs).map_err(|error| {
-                        statement_spans
-                            .get(&(function.name.clone(), index))
+                        let key = (function.name.clone(), index);
+                        statement_expressions
+                            .get(&key)
+                            .map(|expression| struct_normalization_span(expression, &error))
+                            .or_else(|| statement_spans.get(&key).copied())
                             .map_or(error.clone(), |span| {
-                                attach_span_to_source_error(error, *span, source_files)
+                                attach_span_to_source_error(error, span, source_files)
                             })
                     })?;
                 }
             }
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
                 normalize_struct_expr(value, &structs).map_err(|error| {
-                    declaration_spans.get(name).map_or(error.clone(), |span| {
-                        attach_span_to_source_error(error, *span, source_files)
-                    })
+                    declaration_expressions
+                        .get(name)
+                        .map(|expression| struct_normalization_span(expression, &error))
+                        .or_else(|| declaration_spans.get(name).copied())
+                        .map_or(error.clone(), |span| {
+                            attach_span_to_source_error(error, span, source_files)
+                        })
                 })?;
             }
             _ => {}
         }
     }
     Ok(())
+}
+
+fn struct_normalization_span(expression: &SpannedExpr, error: &str) -> Span {
+    if error.contains("missing field") {
+        if let Some(span) =
+            source_form_child_span(expression, &["#struct-literal", "struct-literal"], 2)
+        {
+            return span;
+        }
+    } else if let Some(target) = error.rsplit('\'').nth(1) {
+        if let Some(span) =
+            source_symbol_span(expression, target, error.contains("duplicate field"))
+        {
+            return span;
+        }
+    }
+    source_form_head_span(expression, &["#struct-literal", "struct-literal"])
+        .unwrap_or_else(|| source_value_span(expression))
 }
 
 fn normalize_struct_statement(

@@ -1056,6 +1056,9 @@ For mismatched operands of explicitly typed builtin expressions, the
 diagnostic mapper uses the reported types and typed syntax to underline the
 incompatible operand when it can identify one; this also works for top-level
 initializers and typed numeric literals.
+Named-call and struct-literal validation retains source spans through lowering,
+so unknown or duplicate names and missing-argument/field forms underline the
+responsible identifier or argument/field list.
 
 The CLI renders errors with an available span or line/column as a source hunk
 with an underline. The parsed source tree retains recursive spans, and the

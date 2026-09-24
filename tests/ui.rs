@@ -77,9 +77,27 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "struct-literal-duplicate-field",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let point Point (#struct-literal Point ((x 1u64) (x 2u64))))",
+            line_number: 3,
+        },
+        Case {
             name: "call-arguments",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#call take (#fn-args (other 42u64))))",
+            line_number: 4,
+        },
+        Case {
+            name: "call-missing-argument",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#call take (#fn-args )))",
+            line_number: 4,
+        },
+        Case {
+            name: "call-duplicate-argument",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#call take (#fn-args (value 1u64) (value 2u64))))",
             line_number: 4,
         },
         Case {
@@ -320,11 +338,38 @@ fn compilation_errors_render_the_offending_source_line() {
                 "unknown type diagnostic is not aligned under the unknown type name:\n{stderr}"
             );
         }
+        if case.name == "call-duplicate-argument" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.rfind("value"),
+                underline_row.find('^'),
+                "duplicate argument underline does not select its second occurrence:\n{stderr}"
+            );
+        }
+        if case.name == "struct-literal-duplicate-field" {
+            let source_row = stderr
+                .lines()
+                .find(|line| line.contains(case.offending_line))
+                .unwrap();
+            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+            assert_eq!(
+                source_row.rfind("x"),
+                underline_row.find('^'),
+                "duplicate struct field underline does not select its second occurrence:\n{stderr}"
+            );
+        }
         let precise_fragment = match case.name {
             "unsafe" => Some("VALUE"),
             "borrow" => Some("#set"),
             "linear" => Some("resource"),
             "nonconstant-static" => Some("(#call get-value (#fn-args))"),
+            "call-arguments" => Some("other"),
+            "call-missing-argument" => Some("#fn-args"),
+            "struct-literal" => Some("((y 1u64))"),
             _ => None,
         };
         if let Some(fragment) = precise_fragment {
