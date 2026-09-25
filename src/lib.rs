@@ -2847,6 +2847,11 @@ fn source_form_child_span(
 }
 
 fn call_normalization_span(expression: &SpannedExpr, error: &str) -> Span {
+    if error.contains("more than once") {
+        if let Some(span) = duplicate_call_parameter_span(expression) {
+            return span;
+        }
+    }
     if let Some(target) = error.rsplit('\'').nth(1) {
         if let Some(span) = source_symbol_span(expression, target, error.contains("more than once"))
         {
@@ -2860,6 +2865,30 @@ fn call_normalization_span(expression: &SpannedExpr, error: &str) -> Span {
     }
     source_form_head_span(expression, &["#call", "call"])
         .unwrap_or_else(|| source_value_span(expression))
+}
+
+fn duplicate_call_parameter_span(expression: &SpannedExpr) -> Option<Span> {
+    if let Expr::List(items) = &expression.expr {
+        if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#call" || name == "call") {
+            let arguments = expression.children.get(2)?;
+            let mut seen = HashSet::new();
+            for argument in arguments.children.iter().skip(1) {
+                let Expr::List(parts) = &argument.expr else {
+                    continue;
+                };
+                let Some(Expr::Symbol(parameter)) = parts.first() else {
+                    continue;
+                };
+                if !seen.insert(parameter.as_str()) {
+                    return argument.children.first().map(|parameter| parameter.span);
+                }
+            }
+        }
+    }
+    expression
+        .children
+        .iter()
+        .find_map(duplicate_call_parameter_span)
 }
 
 fn attach_span_to_source_error(error: String, span: Span, source_files: &[SourceFile]) -> String {
@@ -7974,6 +8003,15 @@ mod tests {
         let formatted = format_source(source).unwrap();
         assert_ne!(formatted, source);
         assert!(formatted.contains("semi;colon"));
+    }
+
+    #[test]
+    fn duplicate_call_argument_span_is_found_from_source_structure() {
+        let source = "(#fn take ((arg u64)) () (#return ())) (#fn main () () (#call take (#fn-args (arg 1u64) (arg 2u64))) (#return ()))";
+        let forms = parse(source).unwrap();
+        let span = duplicate_call_parameter_span(&forms[1]).unwrap();
+        assert_eq!(&source[span.start..span.end], "arg");
+        assert_eq!(source.rfind("(arg").unwrap() + 1, span.start);
     }
 
     #[test]

@@ -409,6 +409,8 @@ Each item requires documentation and regression coverage before being checked.
   assertions for repeated identifiers, shadowing, reordered named arguments,
   nested `#case` patterns, imports, and cache hits; changing message wording
   must not change the highlighted token.
+  - [x] Resolve duplicate named-call parameter spans from retained syntax
+    structure instead of recovering the parameter name from diagnostic text.
 
 ### Priority 3: collection ergonomics without implicit behavior
 
