@@ -948,7 +948,7 @@ pub fn format_source(source: &str) -> Result<String, String> {
     // Comments are intentionally not represented in the syntax tree. Until
     // they have trivia ownership in the parser, preserve commented files
     // verbatim rather than dropping or relocating user annotations.
-    if source.lines().any(|line| line.contains(';')) {
+    if source_has_comments(source) {
         parse(source)?;
         return Ok(source.to_owned());
     }
@@ -960,6 +960,27 @@ pub fn format_source(source: &str) -> Result<String, String> {
             .join("\n")
             + "\n"
     })
+}
+
+fn source_has_comments(source: &str) -> bool {
+    let mut in_string = false;
+    let mut escaped = false;
+    for byte in source.bytes() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+        } else if byte == b'"' {
+            in_string = true;
+        } else if byte == b';' {
+            return true;
+        }
+    }
+    false
 }
 
 fn pretty_expression(expression: &Expr, indent: usize) -> String {
@@ -7875,6 +7896,14 @@ mod tests {
         assert!(formatted.contains("#fn\n"));
         assert!(formatted.contains("#return"));
         assert_eq!(format_source(&formatted).unwrap(), formatted);
+    }
+
+    #[test]
+    fn formatter_does_not_treat_semicolons_inside_strings_as_comments() {
+        let source = "(#fn main () () (#print \"semi;colon\") (#return ()))";
+        let formatted = format_source(source).unwrap();
+        assert_ne!(formatted, source);
+        assert!(formatted.contains("semi;colon"));
     }
 
     #[test]

@@ -440,6 +440,8 @@ Each item requires documentation and regression coverage before being checked.
   generator quasiquotes without dropping or moving comments to the wrong
   form. Test leading/trailing comments, strings with semicolons, empty lists,
   and formatting idempotence; parsed semantics must remain unchanged.
+  - [x] Distinguish actual line comments from semicolons inside string literals
+    before deciding whether comment-preserving formatting is required.
 - [x] Bound recursive parser nesting and return a source-spanned parse error
   before the Rust call stack can be exhausted. Test the nesting limit at and
   beyond its boundary with generated inputs.
