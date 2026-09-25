@@ -57,6 +57,7 @@ fn seeded_malformed_and_truncated_sources_fail_deterministically_in_bounded_proc
         "(#fn main () u64 (#return \"unfinished))".to_owned(),
         "(#fn main () u64 (#return (#u64.+.wrap 1u64 2u64))".to_owned(),
         "(@unknown-generator u64)".to_owned(),
+        "(#generator abort (message) (#gn-error message)) (@abort \"deterministic expansion failure\")".to_owned(),
     ];
     let alphabet = b"()#@;`,'\" abcdef0123456789_+-";
     for length in 1..=48 {

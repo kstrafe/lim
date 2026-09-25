@@ -14,6 +14,7 @@ use crate::{Expr, Span, SpannedExpr};
 const MAX_EVALUATION_STEPS: usize = 200_000;
 const MAX_GENERATED_NODES: usize = 1_000_000;
 const MAX_EXPANSION_DEPTH: usize = 128;
+const MAX_CACHE_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 static CACHE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
@@ -947,16 +948,17 @@ pub(crate) fn cached_generated_source(
     let key_path = directory.join(format!("generated-{digest:032x}.key"));
     let digest_path = directory.join(format!("generated-{digest:032x}.hash"));
     cleanup_abandoned_staging(directory);
-    if let Ok(existing_key) = fs::read_to_string(&key_path) {
+    if let Some(existing_key) = read_bounded_cache_text(&key_path) {
         if existing_key != key {
             return Err(format!(
                 "generated-source cache hash collision at {}",
                 path.display()
             ));
         }
-        if let (Ok(source), Ok(expected_digest)) =
-            (fs::read_to_string(&path), fs::read_to_string(&digest_path))
-        {
+        if let (Some(source), Some(expected_digest)) = (
+            read_bounded_cache_text(&path),
+            read_bounded_cache_text(&digest_path),
+        ) {
             if expected_digest == generated_source_digest(key, &source)
                 && crate::parse(&source).is_ok()
             {
@@ -1052,7 +1054,7 @@ fn stable_hash(bytes: &[u8]) -> u128 {
 
 fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<Expr>> {
     cleanup_abandoned_staging(directory);
-    let bytes = fs::read(cache_path(directory, key)).ok()?;
+    let bytes = read_bounded_cache_file(&cache_path(directory, key))?;
     if bytes.get(..8)? != b"LIMGEN2\0" {
         return None;
     }
@@ -1085,6 +1087,18 @@ fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<Expr>> {
     )
 }
 
+fn read_bounded_cache_file(path: &Path) -> Option<Vec<u8>> {
+    if fs::metadata(path).ok()?.len() > MAX_CACHE_ARTIFACT_BYTES {
+        return None;
+    }
+    let bytes = fs::read(path).ok()?;
+    (bytes.len() as u64 <= MAX_CACHE_ARTIFACT_BYTES).then_some(bytes)
+}
+
+fn read_bounded_cache_text(path: &Path) -> Option<String> {
+    String::from_utf8(read_bounded_cache_file(path)?).ok()
+}
+
 fn read_cache_length(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
     let end = cursor.checked_add(8)?;
     let length = u64::from_le_bytes(bytes.get(*cursor..end)?.try_into().ok()?);
@@ -1105,7 +1119,7 @@ fn write_cached_expansion(directory: &Path, key: &str, expressions: &[Expr]) {
     if fs::create_dir_all(directory).is_err() {
         return;
     }
-    if let Ok(existing) = fs::read(&path) {
+    if let Some(existing) = read_bounded_cache_file(&path) {
         if let Some(existing_key) = cached_expansion_key(&existing) {
             if existing_key != key.as_bytes()
                 && std::str::from_utf8(existing_key)
@@ -1435,7 +1449,7 @@ mod tests {
             .map(|entry| entry.path())
             .find(|path| path.extension().is_some_and(|extension| extension == "lim"))
             .unwrap();
-        fs::write(&source_path, "(#type Edited u64)").unwrap();
+        fs::write(&source_path, b"LIMGEN").unwrap();
         let mut regenerated = false;
         let second = cached_generated_source(&directory, "key-a", || {
             regenerated = true;
@@ -1468,6 +1482,31 @@ mod tests {
                 .count(),
             2
         );
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn syntax_cache_rejects_truncated_and_forged_lengths() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-truncated-syntax-cache-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let path = cache_path(&directory, "robustness-key");
+        for bytes in [
+            b"LIMGEN2\0".as_slice(),
+            b"LIMGEN2\0\xff\xff\xff\xff\xff\xff\xff\xff".as_slice(),
+            b"LIMGEN2\0\x01\0\0\0\0\0\0\0x".as_slice(),
+        ] {
+            fs::write(&path, bytes).unwrap();
+            assert!(read_cached_expansion(&directory, "robustness-key").is_none());
+        }
+        OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(MAX_CACHE_ARTIFACT_BYTES + 1)
+            .unwrap();
+        assert!(read_bounded_cache_file(&path).is_none());
         let _ = fs::remove_dir_all(directory);
     }
 

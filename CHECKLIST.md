@@ -455,7 +455,7 @@ Each item requires documentation and regression coverage before being checked.
 - [x] Bound recursive parser nesting and return a source-spanned parse error
   before the Rust call stack can be exhausted. Test the nesting limit at and
   beyond its boundary with generated inputs.
-- [ ] Add a dependency-free compiler robustness suite with explicit resource
+- [x] Add a dependency-free compiler robustness suite with explicit resource
   budgets. Audit import traversal, generator expansion size, aggregate layout
   arithmetic, and diagnostic rendering beyond existing limits. Exercise seeded
   generated inputs and malformed/truncated files in bounded subprocesses.
@@ -469,6 +469,9 @@ Each item requires documentation and regression coverage before being checked.
     source lines while preserving source-column alignment.
   - [x] Exercise seeded malformed/truncated inputs in timeout-bounded compiler
     subprocesses; require deterministic diagnostics and no partial assembly.
+  - [x] Include failing generator invocations in the bounded subprocess seeds,
+    and reject truncated, forged-length, and oversized cache artifacts without
+    panicking or trusting partially published generated source.
 - [x] Establish reproducible compile-time and generated-code performance
   baselines before optimizing the compiler. Measure lex/parse, import/cfg,
   generation (cold and warm cache), semantic checks, native emission, and
