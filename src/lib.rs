@@ -114,7 +114,16 @@ pub struct Diagnostic {
     pub code: DiagnosticCode,
     pub message: String,
     pub span: Option<Span>,
+    pub labels: Vec<DiagnosticLabel>,
     pub notes: Vec<String>,
+    pub source_name: Option<String>,
+    pub source_text: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DiagnosticLabel {
+    pub message: String,
+    pub span: Span,
     pub source_name: Option<String>,
     pub source_text: Option<String>,
 }
@@ -125,6 +134,7 @@ impl Diagnostic {
             code,
             message: message.into(),
             span: None,
+            labels: Vec::new(),
             notes: Vec::new(),
             source_name: None,
             source_text: None,
@@ -163,6 +173,16 @@ pub fn render_diagnostic(diagnostic: &Diagnostic, source: &str, filename: &str) 
     );
     if let Some(span) = diagnostic.span {
         output.push_str(&render_source_hunk(source, filename, span, "here"));
+    }
+    for label in &diagnostic.labels {
+        let label_source = label.source_text.as_deref().unwrap_or(source);
+        let label_filename = label.source_name.as_deref().unwrap_or(filename);
+        output.push_str(&render_source_hunk(
+            label_source,
+            label_filename,
+            label.span,
+            &label.message,
+        ));
     }
     for note in &diagnostic.notes {
         output.push_str(&format!("\n  = note: {note}"));
@@ -1787,7 +1807,7 @@ pub fn compile_source_to_assembly(
         parse_program_from_path_with_config_and_cache(source, source_path, config, cache_directory)
             .map_err(|message| generator_diagnostic(message, source_path, source))?;
     typecheck::check_types_with_span(&program)
-        .map_err(|(message, span)| analysis_diagnostic(message, span, &program))?;
+        .map_err(|(message, span, labels)| analysis_diagnostic(message, span, labels, &program))?;
     generate_assembly_for_target(&program, target)
         .map_err(|message| codegen_diagnostic(message, &program))
 }
@@ -1795,6 +1815,7 @@ pub fn compile_source_to_assembly(
 fn analysis_diagnostic(
     message: String,
     structured_span: Option<Span>,
+    structured_labels: Vec<(Span, String)>,
     program: &Program,
 ) -> Diagnostic {
     let code = if message.starts_with("E4100") || message.contains("borrow") {
@@ -1817,6 +1838,16 @@ fn analysis_diagnostic(
             diagnostic = diagnostic
                 .with_span(span)
                 .with_source(file.path.display().to_string(), file.source.clone());
+        }
+    }
+    for (span, label) in structured_labels {
+        if let Some(file) = program.source_files.get(span.source_id as usize) {
+            diagnostic.labels.push(DiagnosticLabel {
+                message: label,
+                span,
+                source_name: Some(file.path.display().to_string()),
+                source_text: Some(file.source.clone()),
+            });
         }
     }
     let span_marker = if message.contains("conflicting span ") {
@@ -8532,7 +8563,7 @@ mod tests {
         let root_source = "(#import \"module.lim\") (#fn main () u64 (#return 0u64))";
         let program = parse_program_from_path(root_source, &root_path).unwrap();
         let error = check_types(&program).unwrap_err();
-        let diagnostic = analysis_diagnostic(error, None, &program);
+        let diagnostic = analysis_diagnostic(error, None, Vec::new(), &program);
         let span = diagnostic.span.unwrap();
         assert_eq!(span.source_id, 1);
         assert_eq!(
@@ -8549,32 +8580,32 @@ mod tests {
     fn function_type_diagnostics_carry_the_span_without_message_metadata() {
         let source = "(#fn main () u64 (#return false))";
         let program = parse_program(source).unwrap();
-        let (message, span) = typecheck::check_types_with_span(&program).unwrap_err();
+        let (message, span, labels) = typecheck::check_types_with_span(&program).unwrap_err();
         assert!(!message.contains("source span "));
         let span = span.expect("mismatched return has a structured source span");
         assert_eq!(&source[span.start..span.end], "false");
 
-        let diagnostic = analysis_diagnostic(message, Some(span), &program);
+        let diagnostic = analysis_diagnostic(message, Some(span), labels, &program);
         assert_eq!(diagnostic.span, Some(span));
         assert_eq!(diagnostic.code, DiagnosticCode::Type);
 
         let global_source = "(#let total u64 false)";
         let global_program = parse_program(global_source).unwrap();
-        let (message, span) = typecheck::check_types_with_span(&global_program).unwrap_err();
+        let (message, span, _) = typecheck::check_types_with_span(&global_program).unwrap_err();
         assert!(!message.contains("source span "));
         let span = span.expect("mismatched global initializer has a structured span");
         assert_eq!(&global_source[span.start..span.end], "false");
 
         let unsafe_source = "(#static VALUE u64 1u64) (#fn main () u64 (#return VALUE))";
         let unsafe_program = parse_program(unsafe_source).unwrap();
-        let (message, span) = typecheck::check_types_with_span(&unsafe_program).unwrap_err();
+        let (message, span, _) = typecheck::check_types_with_span(&unsafe_program).unwrap_err();
         assert!(!message.contains("source span "));
         let span = span.expect("unsafe static access has a structured span");
         assert_eq!(&unsafe_source[span.start..span.end], "VALUE");
 
         let linear_source = "(#struct Resource ((value (#cell u64)))) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value (#cell 1u64))))) (#return 0u64))";
         let linear_program = parse_program(linear_source).unwrap();
-        let (message, span) = typecheck::check_types_with_span(&linear_program).unwrap_err();
+        let (message, span, _) = typecheck::check_types_with_span(&linear_program).unwrap_err();
         assert!(!message.contains("source span "));
         let span = span.expect("unconsumed linear local has a structured span");
         assert_eq!(&linear_source[span.start..span.end], "resource");
@@ -8939,14 +8970,14 @@ mod tests {
             .contains("already borrowed mutably"));
 
         let diagnostic_source = "(#fn main () u64\n  (#let-mut value u64 40)\n  (#return (#borrow value (#borrow-mut value value))))";
-        let diagnostic = parse_program(diagnostic_source).unwrap();
-        let diagnostic = check_types(&diagnostic).unwrap_err();
-        assert!(diagnostic.contains("E4100"));
-        assert!(diagnostic.contains("function 'main'"));
-        assert!(diagnostic.contains("original borrow site"));
-        assert!(diagnostic.contains("conflicting access"));
-        assert!(diagnostic.contains("conflicting span"));
-        let rendered = render_error(diagnostic_source, "borrow.lim", &diagnostic);
+        let diagnostic_program = parse_program(diagnostic_source).unwrap();
+        let legacy_diagnostic = check_types(&diagnostic_program).unwrap_err();
+        assert!(legacy_diagnostic.contains("E4100"));
+        assert!(legacy_diagnostic.contains("function 'main'"));
+        assert!(legacy_diagnostic.contains("original borrow site"));
+        assert!(legacy_diagnostic.contains("conflicting access"));
+        assert!(legacy_diagnostic.contains("conflicting span"));
+        let rendered = render_error(diagnostic_source, "borrow.lim", &legacy_diagnostic);
         assert!(rendered.contains("--> borrow.lim:3:28"), "{rendered}");
         assert!(rendered.contains("--> borrow.lim:3:13"), "{rendered}");
         assert!(rendered.contains("borrow begins here"), "{rendered}");
@@ -8954,6 +8985,25 @@ mod tests {
             rendered.contains("here\n  = note: original borrow site:"),
             "{rendered}"
         );
+
+        let (message, primary, labels) =
+            typecheck::check_types_with_span(&diagnostic_program).unwrap_err();
+        assert!(!message.contains("conflicting span"));
+        let primary = primary.expect("borrow conflict has a structured primary span");
+        assert_eq!(
+            &diagnostic_source[primary.start..primary.end],
+            "#borrow-mut"
+        );
+        assert_eq!(labels.len(), 1);
+        assert_eq!(
+            &diagnostic_source[labels[0].0.start..labels[0].0.end],
+            "#borrow"
+        );
+        let structured_diagnostic =
+            analysis_diagnostic(message, Some(primary), labels, &diagnostic_program);
+        let rendered = render_diagnostic(&structured_diagnostic, diagnostic_source, "borrow.lim");
+        assert!(rendered.contains("borrow begins here"), "{rendered}");
+        assert_eq!(rendered.matches("\n  --> ").count(), 2, "{rendered}");
 
         let shared_write = parse_program(
             "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow value (#block (#set value 42) value))))",
@@ -9281,7 +9331,9 @@ mod tests {
       (#case (ReadTask-spawn-error error) (#block (#set-field shared value 4) 0)))))"#,
         )
         .unwrap();
-        let error = crate::borrowcheck::check_program(&program).unwrap_err();
+        let error = crate::borrowcheck::check_program(&program)
+            .unwrap_err()
+            .message;
         assert!(
             error.contains("cannot mutate 'shared' while it is immutably borrowed"),
             "{error}"
@@ -9307,7 +9359,9 @@ mod tests {
       (#case (MutTask-spawn-error error) (#block (#let copy Shared shared) 0)))))"#,
         )
         .unwrap();
-        let error = crate::borrowcheck::check_program(&program).unwrap_err();
+        let error = crate::borrowcheck::check_program(&program)
+            .unwrap_err()
+            .message;
         assert!(
             error.contains("cannot access 'shared' while it is mutably borrowed"),
             "{error}"

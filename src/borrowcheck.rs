@@ -201,7 +201,23 @@ impl Context {
     }
 }
 
-pub(crate) fn check_program(program: &Program) -> Result<(), String> {
+pub(crate) struct BorrowDiagnostic {
+    pub message: String,
+    pub span: Option<crate::Span>,
+    pub labels: Vec<(crate::Span, String)>,
+}
+
+impl From<String> for BorrowDiagnostic {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            span: None,
+            labels: Vec::new(),
+        }
+    }
+}
+
+pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
     let globals = program
         .items
         .iter()
@@ -328,7 +344,7 @@ fn check_function(
     thread_join_functions: &HashSet<String>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
     statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
-) -> Result<(), String> {
+) -> Result<(), BorrowDiagnostic> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
     let mut mutable_references = HashSet::new();
@@ -414,7 +430,7 @@ fn format_borrow_diagnostic(
     exact_conflict_span: Option<crate::Span>,
     statement_expression: Option<&crate::SpannedExpr>,
     function_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
-) -> String {
+) -> BorrowDiagnostic {
     let owner = error
         .split('\'')
         .nth(1)
@@ -437,33 +453,17 @@ fn format_borrow_diagnostic(
         owner,
         exact_conflict_span,
     );
-    let span_text = if let Some(span) = exact_conflict_span {
-        format!(
-            "original borrow site {}; conflicting access {}:{}; conflicting span {}:{}:{}",
-            spans.first().map_or_else(
-                || "unavailable".to_owned(),
-                |site| format!("{}:{}", site.0, site.1)
-            ),
-            span.line,
-            span.column,
-            span.source_id,
-            span.start,
-            span.end
-        )
-    } else if spans.is_empty() {
-        "source spans unavailable".to_owned()
-    } else {
-        let first = spans[0];
-        let second = spans.get(1).copied().unwrap_or(first);
-        format!(
-            "original borrow site {}:{}; conflicting access {}:{}",
-            first.0, first.1, second.0, second.1
-        )
-    };
-    format!(
-        "E4100 borrow-checker diagnostic in function '{}' statement {}: {}; {}",
-        function.name, statement_index, error, span_text
-    )
+    BorrowDiagnostic {
+        message: format!(
+            "E4100 borrow-checker diagnostic in function '{}' statement {}: {}",
+            function.name, statement_index, error
+        ),
+        span: exact_conflict_span,
+        labels: spans
+            .into_iter()
+            .map(|span| (span, "borrow begins here".to_owned()))
+            .collect(),
+    }
 }
 
 fn find_accessed_source_symbol(
@@ -512,7 +512,7 @@ fn source_spans(
     function_name: &str,
     needle: &str,
     conflict: Option<crate::Span>,
-) -> Vec<(usize, usize)> {
+) -> Vec<crate::Span> {
     let full_path = needle.trim_end_matches(".*").split('.').collect::<Vec<_>>();
     let mut statements = expressions
         .iter()
@@ -567,18 +567,14 @@ fn source_spans(
                 }
             }
             if names.contains(needle) || full_path.iter().all(|part| expanded.contains(*part)) {
-                sites.push((
-                    operator.span.line,
-                    operator.span.column,
-                    operator.span.start,
-                ));
+                sites.push(operator.span);
             }
         }
     }
     sites
         .into_iter()
-        .max_by_key(|(_, _, start)| *start)
-        .map(|(line, column, _)| vec![(line, column)])
+        .max_by_key(|span| span.start)
+        .map(|span| vec![span])
         .unwrap_or_default()
 }
 

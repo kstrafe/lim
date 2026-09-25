@@ -18,26 +18,46 @@ struct Signature {
 }
 
 pub fn check_types(program: &Program) -> Result<(), String> {
-    check_types_with_span(program).map_err(|(message, span)| {
-        span.map_or(message.clone(), |span| {
+    check_types_with_span(program).map_err(|(message, span, labels)| {
+        let mut error = span.map_or(message.clone(), |span| {
             format!(
                 "{message}; source span {}:{}:{}",
                 span.source_id, span.start, span.end
             )
-        })
+        });
+        if let Some((origin, _)) = labels.first() {
+            error.push_str(&format!(
+                "; original borrow site {}:{}",
+                origin.line, origin.column
+            ));
+            if let Some(conflict) = span {
+                error.push_str(&format!(
+                    "; conflicting access {}:{}",
+                    conflict.line, conflict.column
+                ));
+                error.push_str(&format!(
+                    "; conflicting span {}:{}:{}",
+                    conflict.source_id, conflict.start, conflict.end
+                ));
+            }
+        }
+        error
     })
 }
 
 pub(crate) fn check_types_with_span(
     program: &Program,
-) -> Result<(), (String, Option<crate::Span>)> {
+) -> Result<(), (String, Option<crate::Span>, Vec<(crate::Span, String)>)> {
     let mut diagnostic_span = None;
-    check_types_inner(program, &mut diagnostic_span).map_err(|message| (message, diagnostic_span))
+    let mut diagnostic_labels = Vec::new();
+    check_types_inner(program, &mut diagnostic_span, &mut diagnostic_labels)
+        .map_err(|message| (message, diagnostic_span, diagnostic_labels))
 }
 
 fn check_types_inner(
     program: &Program,
     diagnostic_span: &mut Option<crate::Span>,
+    diagnostic_labels: &mut Vec<(crate::Span, String)>,
 ) -> Result<(), String> {
     for item in &program.items {
         match item {
@@ -431,7 +451,11 @@ fn check_types_inner(
         *diagnostic_span = span;
         message
     })?;
-    crate::borrowcheck::check_program(program)?;
+    crate::borrowcheck::check_program(program).map_err(|error| {
+        *diagnostic_span = error.span;
+        *diagnostic_labels = error.labels;
+        error.message
+    })?;
     crate::unsafecheck::check_program_with_span(program).map_err(|(message, span)| {
         *diagnostic_span = span;
         message

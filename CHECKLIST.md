@@ -429,6 +429,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Carry linear-checker source locations as structured spans into the CLI
     diagnostic path; the existing linearity diagnostic coverage pins the local
     ownership violation without serializing the range into its message.
+  - [x] Preserve borrow conflicts and their origin as structured primary and
+    secondary spans through CLI rendering; tests assert both exact source
+    tokens and distinct rendered hunks without span-marker text.
   - [x] Resolve duplicate-parameter diagnostics at parameter validation time
     from the retained function declaration tree, and remove the corresponding
     message-parsing branch from `unlocated_analysis_span`; the UI test asserts
