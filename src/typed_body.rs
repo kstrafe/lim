@@ -7,6 +7,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn borrowed_places_retain_binding_identity_and_checked_type() {
+        let source = "(#fn main () u64
+          (#let u64 u64 42u64)
+          (#let view (#ref u64) (#borrow u64))
+          (#return (#deref view)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let owner = body
+            .nodes
+            .iter()
+            .find(|node| {
+                matches!(&node.kind,
+            NodeKind::Symbol { name, binding: Some(_) } if name == "u64")
+            })
+            .unwrap();
+        assert_eq!(owner.ty, Some(Type::U64));
+        let NodeKind::Symbol {
+            binding: Some(id), ..
+        } = owner.kind
+        else {
+            unreachable!()
+        };
+        assert_eq!(body.bindings[id.0].name, "u64");
+        assert_eq!(body.bindings.len(), 2, "syntax must not create bindings");
+    }
+
+    #[test]
     fn nodes_keep_contextual_types_numeric_modes_and_reordered_call_spans() {
         let source = "(#fn add ((left u32) (right u32)) u32 (#return (#u32.+.saturate left right)))
           (#fn main () u32 (#let x u32 40) (#return (#call add (#fn-args (right 2) (left x)))))";
@@ -236,7 +264,7 @@ pub(crate) enum Control {
         mutable: bool,
         otherwise: Option<Vec<Instruction>>,
     },
-    Assign(String, Projection, NodeId),
+    Assign(PlaceRoot, Projection, NodeId),
     While(NodeId, Vec<Instruction>),
     Loop(Vec<Instruction>),
     For(Box<Instruction>, NodeId, Box<Instruction>, Vec<Instruction>),
@@ -245,6 +273,12 @@ pub(crate) enum Control {
     Break(Option<String>, Option<NodeId>),
     Continue(Option<String>),
     Evaluate(NodeId),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum PlaceRoot {
+    Local(BindingId),
+    Global(String),
 }
 
 #[derive(Clone, Debug)]
@@ -267,7 +301,6 @@ pub(crate) struct Body {
     pub nodes: Vec<Node>,
     pub bindings: Vec<Binding>,
     pub instructions: Vec<Instruction>,
-    by_address: HashMap<usize, NodeId>,
     emission_nodes: Vec<NodeId>,
     callees: HashMap<FunctionId, String>,
 }
@@ -391,8 +424,11 @@ impl Body {
                     mutable: *mutable,
                 },
             },
-            Control::Assign(name, projection, value) => {
-                let name = name.clone();
+            Control::Assign(root, projection, value) => {
+                let name = match root {
+                    PlaceRoot::Local(id) => self.bindings[id.0].name.clone(),
+                    PlaceRoot::Global(name) => name.clone(),
+                };
                 let value = expr(*value);
                 match projection {
                     Projection::Local => Statement::Assign { name, value },
@@ -475,13 +511,6 @@ impl Body {
         output
     }
 
-    pub fn node_for(&self, expression: &Expr) -> Option<(NodeId, &Node)> {
-        let id = *self
-            .by_address
-            .get(&(std::ptr::from_ref(expression) as usize))?;
-        Some((id, &self.nodes[id.0]))
-    }
-
     pub fn lower(
         function: &Function,
         declarations: &Declarations,
@@ -491,6 +520,7 @@ impl Body {
         let mut builder = Builder {
             body: Body::default(),
             names: HashMap::new(),
+            by_address: HashMap::new(),
             declarations,
             types,
             spans,
@@ -506,13 +536,7 @@ impl Body {
         walk_statements(&function.body, &mut expressions);
         builder.body.emission_nodes = expressions
             .iter()
-            .map(|expression| {
-                builder
-                    .body
-                    .node_for(expression)
-                    .expect("lowered expression")
-                    .0
-            })
+            .map(|expression| builder.by_address[&(std::ptr::from_ref(*expression) as usize)])
             .collect();
         builder.body
     }
@@ -597,6 +621,8 @@ fn walk_statements<'a>(statements: &'a [Statement], output: &mut Vec<&'a Expr>) 
 struct Builder<'a> {
     body: Body,
     names: HashMap<String, BindingId>,
+    // Temporary syntax correspondence, discarded once the arena is complete.
+    by_address: HashMap<usize, NodeId>,
     declarations: &'a Declarations,
     types: &'a HashMap<usize, Type>,
     spans: &'a HashMap<usize, Span>,
@@ -604,9 +630,6 @@ struct Builder<'a> {
 
 impl Builder<'_> {
     fn binding(&mut self, name: &str, ty: Type) -> BindingId {
-        if let Some(id) = self.names.get(name) {
-            return *id;
-        }
         let id = BindingId(self.body.bindings.len());
         self.body.bindings.push(Binding {
             name: name.into(),
@@ -616,33 +639,127 @@ impl Builder<'_> {
         id
     }
 
+    fn place(&self, name: &str) -> PlaceRoot {
+        if let Some(id) = self.names.get(name) {
+            PlaceRoot::Local(*id)
+        } else {
+            assert!(
+                self.declarations.globals.contains_key(name),
+                "checked assignment target: {name}"
+            );
+            PlaceRoot::Global(name.into())
+        }
+    }
+
+    // Pattern nodes retain their original syntax, but declaration occurrences
+    // carry the same identity as uses in the successful scope. Never discover
+    // a binding from its first use: unused bindings must exist too.
+    fn pattern_bindings(&mut self, pattern: &Expr, ty: &Type, enum_pattern: bool) {
+        let ty = resolve_type(ty, &self.declarations.aliases).expect("checked pattern type");
+        if enum_pattern {
+            if let Type::Named(name) = &ty {
+                if let Some(variants) = self.declarations.enums.get(name) {
+                    if let Expr::List(items) = pattern {
+                        if let Some(Expr::Symbol(head)) = items.first() {
+                            if let Some(variant) = variants.iter().find(|v| v.name == *head) {
+                                let fields = variant.fields.clone();
+                                for (child, field) in items[1..].iter().zip(fields) {
+                                    self.pattern_bindings(child, &field, false);
+                                }
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+        match pattern {
+            Expr::Symbol(name) if !matches!(name.as_str(), "_" | "true" | "false") => {
+                let binding = self.binding(name, ty);
+                let id = self.by_address[&(std::ptr::from_ref(pattern) as usize)];
+                self.body.nodes[id.0].kind = NodeKind::Symbol {
+                    name: name.clone(),
+                    binding: Some(binding),
+                };
+            }
+            Expr::List(items) => {
+                let Some(Expr::Symbol(head)) = items.first() else {
+                    return;
+                };
+                let fields = match &ty {
+                    Type::Tuple(fields) if head == "tuple" => fields.clone(),
+                    Type::Array(element, length) if head == "array" => {
+                        vec![*element.clone(); *length]
+                    }
+                    Type::Named(name) if head == name => self
+                        .declarations
+                        .structs
+                        .get(name)
+                        .map(|fields| fields.iter().map(|f| f.ty.clone()).collect())
+                        .unwrap_or_default(),
+                    _ => return, // Literal, range, and or patterns bind nothing.
+                };
+                for (child, field) in items[1..].iter().zip(fields) {
+                    self.pattern_bindings(child, &field, false);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn match_arm(&mut self, arm: &Expr, ty: &Type) -> NodeId {
+        let saved = self.names.clone();
+        let Expr::List(parts) = arm else {
+            unreachable!("checked match arm");
+        };
+        let pattern = self.expression(&parts[0]);
+        self.pattern_bindings(&parts[0], ty, true);
+        let mut children = vec![pattern];
+        children.extend(parts[1..].iter().map(|part| self.expression(part)));
+        self.names = saved;
+        self.record(arm, NodeKind::Syntax(children))
+    }
+
     fn expression(&mut self, expression: &Expr) -> NodeId {
         let address = std::ptr::from_ref(expression) as usize;
-        let ty = self.types.get(&address).cloned();
         let kind = match expression {
             Expr::Symbol(name) => {
-                let binding = if let Some(ty) = ty.as_ref().filter(|_| {
-                    !self.declarations.globals.contains_key(name)
-                        && name != "true"
-                        && name != "false"
-                        && !self
-                            .declarations
-                            .enums
-                            .values()
-                            .any(|variants| variants.iter().any(|v| v.name == *name))
-                }) {
-                    Some(self.binding(name, ty.clone()))
-                } else {
-                    None
-                };
+                let binding = self
+                    .types
+                    .contains_key(&address)
+                    .then(|| self.names.get(name).copied())
+                    .flatten();
                 NodeKind::Symbol {
                     name: name.clone(),
                     binding,
                 }
             }
             Expr::List(items) => {
-                let children = items.iter().map(|child| self.expression(child)).collect();
+                let children = if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match")
+                {
+                    let ty = self.types[&(std::ptr::from_ref(&items[1]) as usize)].clone();
+                    let mut children = vec![self.expression(&items[0]), self.expression(&items[1])];
+                    children.extend(items[2..].iter().map(|arm| self.match_arm(arm, &ty)));
+                    children
+                } else {
+                    items
+                        .iter()
+                        .map(|child| self.expression(child))
+                        .collect::<Vec<_>>()
+                };
                 if let Some(Expr::Symbol(head)) = items.first() {
+                    if matches!(head.as_str(), "borrow" | "borrow-mut") {
+                        if let Some(Expr::Symbol(name)) = items.get(1) {
+                            if let Some(binding) = self.names.get(name).copied() {
+                                self.body.nodes[children[1].0].kind = NodeKind::Symbol {
+                                    name: name.clone(),
+                                    binding: Some(binding),
+                                };
+                                self.body.nodes[children[1].0].ty =
+                                    Some(self.body.bindings[binding.0].ty.clone());
+                            }
+                        }
+                    }
                     if let Some(callee) = self.declarations.function_id(head) {
                         self.body.callees.insert(callee, head.clone());
                     }
@@ -667,21 +784,29 @@ impl Builder<'_> {
             Expr::UnquoteSplicing(inner) => NodeKind::Quoted("splice", self.expression(inner)),
             _ => NodeKind::Literal(expression.clone()),
         };
+        self.record(expression, kind)
+    }
+
+    fn record(&mut self, expression: &Expr, kind: NodeKind) -> NodeId {
+        let address = std::ptr::from_ref(expression) as usize;
         let id = NodeId(self.body.nodes.len());
         self.body.nodes.push(Node {
-            ty,
+            ty: self.types.get(&address).cloned(),
             span: self.spans.get(&address).copied(),
             kind,
         });
-        self.body.by_address.insert(address, id);
+        self.by_address.insert(address, id);
         id
     }
 
     fn statements(&mut self, statements: &[Statement]) -> Vec<Instruction> {
-        statements
+        let saved = self.names.clone();
+        let instructions = statements
             .iter()
             .map(|statement| self.statement(statement))
-            .collect()
+            .collect();
+        self.names = saved;
+        instructions
     }
 
     fn statement(&mut self, statement: &Statement) -> Instruction {
@@ -704,35 +829,48 @@ impl Builder<'_> {
                 ty,
                 value,
                 mutable,
-            } => Control::Destructure {
-                pattern: self.expression(pattern),
-                value: self.expression(value),
-                ty: resolve_type(ty, &self.declarations.aliases).expect("checked pattern"),
-                mutable: *mutable,
-                otherwise: None,
-            },
+            } => {
+                let value = self.expression(value);
+                let pattern_id = self.expression(pattern);
+                let ty = resolve_type(ty, &self.declarations.aliases).expect("checked pattern");
+                self.pattern_bindings(pattern, &ty, false);
+                Control::Destructure {
+                    pattern: pattern_id,
+                    value,
+                    ty,
+                    mutable: *mutable,
+                    otherwise: None,
+                }
+            }
             Statement::LetElse {
                 pattern,
                 ty,
                 value,
                 else_body,
-            } => Control::Destructure {
-                pattern: self.expression(pattern),
-                value: self.expression(value),
-                ty: resolve_type(ty, &self.declarations.aliases).expect("checked pattern"),
-                mutable: false,
-                otherwise: Some(self.statements(else_body)),
-            },
+            } => {
+                let value = self.expression(value);
+                let otherwise = Some(self.statements(else_body));
+                let pattern_id = self.expression(pattern);
+                let ty = resolve_type(ty, &self.declarations.aliases).expect("checked pattern");
+                self.pattern_bindings(pattern, &ty, true);
+                Control::Destructure {
+                    pattern: pattern_id,
+                    value,
+                    ty,
+                    mutable: false,
+                    otherwise,
+                }
+            }
             Statement::Assign { name, value } => {
-                Control::Assign(name.clone(), Projection::Local, self.expression(value))
+                Control::Assign(self.place(name), Projection::Local, self.expression(value))
             }
             Statement::FieldAssign { name, field, value } => Control::Assign(
-                name.clone(),
+                self.place(name),
                 Projection::Field(field.clone()),
                 self.expression(value),
             ),
             Statement::TupleAssign { name, index, value } => Control::Assign(
-                name.clone(),
+                self.place(name),
                 Projection::Tuple(*index),
                 self.expression(value),
             ),
@@ -742,12 +880,12 @@ impl Builder<'_> {
                 index,
                 value,
             } => Control::Assign(
-                name.clone(),
+                self.place(name),
                 Projection::Payload(variant.clone(), *index),
                 self.expression(value),
             ),
             Statement::ArrayAssign { name, index, value } => Control::Assign(
-                name.clone(),
+                self.place(name),
                 Projection::Array(self.expression(index)),
                 self.expression(value),
             ),
@@ -760,12 +898,19 @@ impl Builder<'_> {
                 condition,
                 step,
                 body,
-            } => Control::For(
-                Box::new(self.statement(init)),
-                self.expression(condition),
-                Box::new(self.statement(step)),
-                self.statements(body),
-            ),
+            } => {
+                let saved = self.names.clone();
+                let init = Box::new(self.statement(init));
+                let condition = self.expression(condition);
+                // The checker permits the step to use body declarations.
+                let body = body
+                    .iter()
+                    .map(|statement| self.statement(statement))
+                    .collect();
+                let step = Box::new(self.statement(step));
+                self.names = saved;
+                Control::For(init, condition, step, body)
+            }
             Statement::Labeled { label, statement } => {
                 Control::Labeled(label.clone(), Box::new(self.statement(statement)))
             }

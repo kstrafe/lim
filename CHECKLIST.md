@@ -6,6 +6,15 @@ the checklist is committed alongside the implementation it tracks.
 
 ## Typed representation migration
 
+- [x] **IR-02b: Declare scoped binding identities and assignment roots.**
+  Allocate local IDs at parameter, let, destructuring, let-else, and match
+  pattern declarations, including unused bindings. Resolve uses and local
+  assignment roots to these IDs; distinguish global assignment roots. Preserve
+  block, loop, match-arm, and let-else success/failure scopes. Discard the
+  temporary source-address index after lowering. Retain syntax labels as
+  syntax rather than discovering locals from their first use. Full
+  specialization and projection identity migration remains in IR-02 below.
+
 - [x] **IR-02a: Retain typed body arenas on the normal compilation path.**
   Record checked expression types without another semantic pass; preserve
   source spans, numeric modes, function IDs, local IDs, and structured control

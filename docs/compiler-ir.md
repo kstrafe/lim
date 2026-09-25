@@ -49,19 +49,30 @@ assignments with projections, returns, breaks, and continues). Named-call
 operands remain in declaration order; their spans retain source order.
 Syntax-only nodes such as type operands and patterns have no runtime type.
 
+Local identities are allocated at declarations, including unused destructured
+and match-bound names, rather than inferred from the first variable use.
+Pattern declaration nodes and their uses refer to the same binding ID. Match
+arms, nested blocks, loops, and let-else failure bodies have separate scopes;
+the for-loop step can see declarations in its body, matching current checking
+semantics. Assignment roots distinguish local binding IDs from global names.
+The parser's existing shadow-renaming remains a compatibility aid for the
+legacy backend, not the IR's binding identity scheme.
+
 Native lowering reconstructs its instruction-selector input from these bodies,
 erases unsafe wrappers, and carries retained expression types through to
 emission. The numeric and call identities determine the reconstructed heads.
-Node IDs remain independent of allocation addresses. An internal address index
-bridges the immutable AST and instruction selector; it is not an exported or
-cached identity. `CheckedProgram::dump_typed_ir()` exposes a deterministic
+Node IDs remain independent of allocation addresses. A temporary address index
+connects original syntax to nodes during lowering and is then discarded. The
+legacy instruction selector still uses an emission-local address-to-type
+overlay; it is not an exported or cached identity.
+`CheckedProgram::dump_typed_ir()` exposes a deterministic
 debugging view (not a stable interchange format).
 
 ## Remaining migration
 
 The instruction selector still uses AST-shaped inputs. Compiler-synthesized
 expressions and internal legacy generic specializations retain the old type
-lookup path. Pattern bindings, assignment places, and all specialization
+lookup path. Global and field/variant projection identities and specialization
 provenance still need a fully unified identity scheme before removing that
 path. Ownership analyses still run on the original AST; they have not been
 replaced by typed control-flow dataflow. No SSA optimizer or arbitrary-function
