@@ -1107,3 +1107,57 @@ fn cached_generator_semantic_errors_show_generated_code_and_invocation() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn builtin_generator_errors_show_generated_declaration_and_invocation() {
+    let directory = std::env::temp_dir().join(format!(
+        "lim-ui-builtin-generated-span-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).unwrap();
+    let input = directory.join("input.lim");
+    let output = directory.join("output.s");
+    let source = "(@optional u64 Maybe?)\n(@optional u64 Maybe?)\n";
+    std::fs::write(&input, source).unwrap();
+    for _ in 0..2 {
+        let result = Command::new(env!("CARGO_BIN_EXE_lim"))
+            .args([
+                "--emit-asm",
+                input.to_str().unwrap(),
+                output.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        let stderr = String::from_utf8(result.stderr).unwrap();
+        assert!(stderr.contains("duplicate type name 'Maybe?'"), "{stderr}");
+        assert!(stderr.contains("#enum Maybe?"), "{stderr}");
+        assert!(
+            stderr.contains("generated from this invocation"),
+            "{stderr}"
+        );
+        let invocation_row = stderr
+            .lines()
+            .find(|line| line.contains("(@optional u64 Maybe?)"))
+            .unwrap();
+        let invocation_underline = stderr
+            .lines()
+            .find(|line| line.contains("generated from this invocation"))
+            .unwrap();
+        assert_eq!(
+            invocation_row
+                .split_once("| ")
+                .unwrap()
+                .1
+                .find("(@optional u64 Maybe?)"),
+            invocation_underline
+                .split_once("| ")
+                .unwrap()
+                .1
+                .find("^^^^^^^^^^^^^^^^^^^^^^")
+        );
+        assert!(!output.exists());
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

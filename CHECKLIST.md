@@ -449,8 +449,8 @@ Each item requires documentation and regression coverage before being checked.
     declarations.
   - [x] Preserve user-generator expansion source and invocation provenance;
     cold and cache-hit UI tests independently check both rendered ranges.
-  - [ ] Preserve builtin-generated code and invocation provenance, then verify
-    exact ranges remain stable when diagnostic wording changes.
+  - [x] Preserve builtin-generated declaration source and invocation
+    provenance; UI tests assert exact ranges on cold and cached compilations.
   - [x] Select the generator invocation span structurally when generated
     function body syntax has no retained source nodes. The cached
     generated-error UI test asserts the invocation hunk on cold and warm

@@ -1886,6 +1886,19 @@ fn analysis_diagnostic(
                 diagnostic = diagnostic
                     .with_span(span)
                     .with_source(file.path.display().to_string(), file.source.clone());
+                if let Some(invocation) = program.generated_source_invocations.get(&span.source_id)
+                {
+                    if let Some(invocation_file) =
+                        program.source_files.get(invocation.source_id as usize)
+                    {
+                        diagnostic.labels.push(DiagnosticLabel {
+                            message: "generated from this invocation".into(),
+                            span: *invocation,
+                            source_name: Some(invocation_file.path.display().to_string()),
+                            source_text: Some(invocation_file.source.clone()),
+                        });
+                    }
+                }
             }
         }
     }
@@ -2579,6 +2592,18 @@ fn parse_program_in_directory(
     let mut declaration_spans = HashMap::new();
     let mut declaration_expressions = HashMap::new();
     let mut generated_source_invocations = HashMap::new();
+    let worker_functions = expressions
+        .iter()
+        .filter_map(|expression| {
+            let parsed = parse_item(&normalize_keywords(expression.expr.clone())).ok()?;
+            match parsed {
+                Item::Function(function) if !function.external => {
+                    Some((function.name.clone(), function))
+                }
+                _ => None,
+            }
+        })
+        .collect::<HashMap<_, _>>();
     for mut expression in expressions {
         validate_prefixed_forms(&expression.expr).map_err(|error| {
             attach_span_to_source_error_kind(error, expression.span, &source_files, "parse error: ")
@@ -2631,6 +2656,59 @@ fn parse_program_in_directory(
         let source_expression = expression.clone();
         let mut expression = normalize_keywords(expression.expr);
         normalize_match_cases_expr(&mut expression);
+        let mut generated_declarations = HashMap::new();
+        if let Expr::List(forms) = &expression {
+            if matches!(forms.first(), Some(Expr::At)) {
+                let kind = forms.get(1).and_then(|form| match form {
+                    Expr::Symbol(kind) => Some(kind.as_str()),
+                    _ => None,
+                });
+                if matches!(
+                    kind,
+                    Some("thread-spawn" | "optional" | "result" | "vec" | "vec-alloc" | "vec-sort")
+                ) {
+                    if let Some(generated_text) = kind.and_then(|kind| {
+                        materialize_builtin_generated_source(kind, forms, &worker_functions).ok()
+                    }) {
+                        let source_id = u32::try_from(source_files.len()).map_err(|_| {
+                            "too many source files while tracking builtin output".to_owned()
+                        })?;
+                        let source_path = format!(
+                            "<generated from {}:{}:{}>",
+                            source_files.get(form_span.source_id as usize).map_or_else(
+                                || "<source>".to_owned(),
+                                |file| file.path.display().to_string()
+                            ),
+                            form_span.line,
+                            form_span.column
+                        );
+                        let mut generated_forms = parse(&generated_text)?;
+                        for generated_form in &mut generated_forms {
+                            set_source_id(generated_form, source_id);
+                            normalize_match_case_forms(generated_form)
+                                .map_err(|(error, _)| error)?;
+                            collect_function_statement_spans(
+                                generated_form,
+                                &mut statement_spans,
+                                &mut statement_expressions,
+                            );
+                            let parsed_item =
+                                parse_item(&normalize_keywords(generated_form.expr.clone()));
+                            if let Ok(item) = parsed_item {
+                                for name in item_declared_names(&item) {
+                                    generated_declarations.insert(name, generated_form.clone());
+                                }
+                            }
+                        }
+                        source_files.push(SourceFile {
+                            path: PathBuf::from(source_path),
+                            source: generated_text,
+                        });
+                        generated_source_invocations.insert(source_id, form_span);
+                    }
+                }
+            }
+        }
         let parsed_items = if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
                 parse_generated_items(forms).map_err(|error| {
@@ -2664,7 +2742,13 @@ fn parse_program_in_directory(
         for item in parsed_items {
             for name in item_declared_names(&item) {
                 declaration_spans.insert(name.clone(), form_span);
-                declaration_expressions.insert(name, source_expression.clone());
+                declaration_expressions.insert(
+                    name.clone(),
+                    generated_declarations
+                        .get(&name)
+                        .unwrap_or(&source_expression)
+                        .clone(),
+                );
             }
             items.push(item);
         }
