@@ -411,6 +411,8 @@ Each item requires documentation and regression coverage before being checked.
   must not change the highlighted token.
   - [x] Resolve duplicate named-call parameter spans from retained syntax
     structure instead of recovering the parameter name from diagnostic text.
+  - [x] Verify semantic errors from generated declarations retain the
+    invocation span identically on cold expansion and cache hit.
 
 ### Priority 3: collection ergonomics without implicit behavior
 

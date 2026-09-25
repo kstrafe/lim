@@ -335,17 +335,29 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     for item in &program.items {
         match item {
             Item::Function(function) if function.external => {}
-            Item::Function(function) => check_function(
-                function,
-                &functions,
-                &structs,
-                &enums,
-                &globals,
-                &aliases,
-                &program.statement_spans,
-                &program.statement_expressions,
-                &program.source_files,
-            )?,
+            Item::Function(function) => {
+                if let Err(error) = check_function(
+                    function,
+                    &functions,
+                    &structs,
+                    &enums,
+                    &globals,
+                    &aliases,
+                    &program.statement_spans,
+                    &program.statement_expressions,
+                    &program.source_files,
+                ) {
+                    if !error.contains("source span ") {
+                        if let Some(span) = program.declaration_spans.get(&function.name) {
+                            return Err(format!(
+                                "{error}; source span {}:{}:{}",
+                                span.source_id, span.start, span.end
+                            ));
+                        }
+                    }
+                    return Err(error);
+                }
+            }
             Item::TypeAlias { .. }
             | Item::Struct { .. }
             | Item::Enum { .. }

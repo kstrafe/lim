@@ -8702,6 +8702,45 @@ mod tests {
     }
 
     #[test]
+    fn cached_generator_semantic_errors_keep_the_invocation_span() {
+        let directory = std::env::temp_dir().join(format!(
+            "lim-cached-generator-diagnostic-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let source =
+            "(#generator bad (name) `((#fn ,name () u64 (#return false))))\n(@bad generated)\n";
+        let input = directory.join("input.lim");
+        let assembly = directory.join("output.s");
+        std::fs::write(&input, source).unwrap();
+        let cache = directory.join("cache");
+        let compile = || {
+            compile_source_to_assembly(
+                source,
+                &input,
+                &CompileConfig::default(),
+                &cache,
+                TargetDescription::X86_64_SYSTEM_V,
+            )
+            .unwrap_err()
+        };
+        let first = compile();
+        assert!(first.message.contains("return"), "{}", first.message);
+        let second = compile();
+        let invocation_start = source.find("(@bad generated)").unwrap();
+        assert!(first.span.is_some(), "{first:?}");
+        assert_eq!(first.span, second.span);
+        assert_eq!(first.span.unwrap().start, invocation_start);
+        assert_eq!(
+            first.span.unwrap().end,
+            invocation_start + "(@bad generated)".len()
+        );
+        assert!(!assembly.exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn imported_generator_errors_keep_the_invocation_source_span() {
         let directory =
             std::env::temp_dir().join(format!("lim-import-generator-span-{}", std::process::id()));
