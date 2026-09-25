@@ -1357,3 +1357,11 @@ nix develop --command ./scripts/native-sweep.sh
 
 The sweep compiles and links every example, executes it, and reports ordinary
 successes, intentional traps, and compiler/linker/timeout failures separately.
+# Generated thread calls
+
+Spawn and join are ordinary named calls, including when the compiler derives
+their signatures from a short `#thread-task` declaration. Spawn uses the
+worker's parameter names; join uses `task`. For example, write
+`(#call Task-join (#fn-args (task handle)))`. Generated enum variants in
+`#case` patterns retain their constructor syntax. There is no positional-call
+exception for generated thread functions.

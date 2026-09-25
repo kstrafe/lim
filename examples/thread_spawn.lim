@@ -30,9 +30,9 @@
 (#fn main () u64
   (#let-mut shared SharedValue (#struct-literal SharedValue ((value 42))))
   (#return
-    (#match (ReadValueTask-spawn (#borrow shared))
+    (#match (#call ReadValueTask-spawn (#fn-args (value (#borrow shared))))
       (#case (ReadValueTask-spawn-ok task)
-        (#match (ReadValueTask-join task)
+        (#match (#call ReadValueTask-join (#fn-args (task task)))
           (#case (ReadValueTask-join-ok result) result)
           (#case (ReadValueTask-join-error (#tuple retry-task error-code)) (#panic))))
       (#case (ReadValueTask-spawn-error error) (#panic)))))

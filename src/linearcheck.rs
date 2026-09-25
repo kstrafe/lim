@@ -1206,7 +1206,7 @@ mod tests {
     #[test]
     fn thread_tasks_cannot_be_forgotten_instead_of_joined() {
         let program = parse_program(
-            "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#let result Task-spawn-result (Task-spawn 1u64)) (#forget result) (#return 0u64))",
+            "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#let result Task-spawn-result (#call Task-spawn (#fn-args (value 1u64)))) (#forget result) (#return 0u64))",
         ).unwrap();
         let error = check_types(&program).unwrap_err();
         assert!(

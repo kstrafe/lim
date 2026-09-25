@@ -762,7 +762,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("program.lim");
         let output = directory.join("program");
-        let source = "(#fn increment ((counter (#ref (#atomic u64)))) u64 (#return (#u64.+.wrap (#atomic-fetch-add counter 42u64 #memory-acq-rel) 42u64))) (@thread-spawn AtomicTask increment) (@thread-spawn AtomicTaskTwo increment) (#fn main () u64 (#let-mut counter (#atomic u64) (#atomic-init u64 0u64)) (#let-mut byte (#atomic i8) (#atomic-init i8 -1i8)) (#atomic-fetch-add (#borrow byte) 1i8 #memory-relaxed) (#atomic-store (#borrow byte) 3i8 #memory-seq-cst) (#let first-result u64 (#match (AtomicTask-spawn (#borrow counter)) (#case (AtomicTask-spawn-ok task) (#match (AtomicTask-join task) (#case (AtomicTask-join-ok value) value) (#case (AtomicTask-join-error (#tuple retry error)) (#panic)))) (#case (AtomicTask-spawn-error error) (#panic)))) (#let second-result u64 (#match (AtomicTaskTwo-spawn (#borrow counter)) (#case (AtomicTaskTwo-spawn-ok task) (#match (AtomicTaskTwo-join task) (#case (AtomicTaskTwo-join-ok value) value) (#case (AtomicTaskTwo-join-error (#tuple retry error)) (#panic)))) (#case (AtomicTaskTwo-spawn-error error) (#panic)))) (#let observed u64 (#atomic-load (#borrow counter) #memory-acquire)) (#forget byte) (#forget counter) (#return observed))";
+        let source = "(#fn increment ((counter (#ref (#atomic u64)))) u64 (#return (#u64.+.wrap (#atomic-fetch-add counter 42u64 #memory-acq-rel) 42u64))) (@thread-spawn AtomicTask increment) (@thread-spawn AtomicTaskTwo increment) (#fn main () u64 (#let-mut counter (#atomic u64) (#atomic-init u64 0u64)) (#let-mut byte (#atomic i8) (#atomic-init i8 -1i8)) (#atomic-fetch-add (#borrow byte) 1i8 #memory-relaxed) (#atomic-store (#borrow byte) 3i8 #memory-seq-cst) (#let first-result u64 (#match (#call AtomicTask-spawn (#fn-args (counter (#borrow counter)))) (#case (AtomicTask-spawn-ok task) (#match (#call AtomicTask-join (#fn-args (task task))) (#case (AtomicTask-join-ok value) value) (#case (AtomicTask-join-error (#tuple retry error)) (#panic)))) (#case (AtomicTask-spawn-error error) (#panic)))) (#let second-result u64 (#match (#call AtomicTaskTwo-spawn (#fn-args (counter (#borrow counter)))) (#case (AtomicTaskTwo-spawn-ok task) (#match (#call AtomicTaskTwo-join (#fn-args (task task))) (#case (AtomicTaskTwo-join-ok value) value) (#case (AtomicTaskTwo-join-error (#tuple retry error)) (#panic)))) (#case (AtomicTaskTwo-spawn-error error) (#panic)))) (#let observed u64 (#atomic-load (#borrow counter) #memory-acquire)) (#forget byte) (#forget counter) (#return observed))";
         fs::write(&input, source).unwrap();
         assert_eq!(
             compile(
@@ -849,7 +849,7 @@ mod tests {
         let output = directory.join("thread");
         fs::write(
             &input,
-            "(#fn zero ((value u64)) u64 (#return 0)) (@thread-spawn ZeroTask zero) (#fn main () u64 (#return (#match (ZeroTask-spawn 41) (#case (ZeroTask-spawn-ok task) (#match (ZeroTask-join task) (#case (ZeroTask-join-ok value) (#if (#u64.== value 0) 42 0)) (#case (ZeroTask-join-error (#tuple retry error)) (#panic)))) (#case (ZeroTask-spawn-error error) (#panic)))))",
+            "(#fn zero ((value u64)) u64 (#return 0)) (@thread-spawn ZeroTask zero) (#fn main () u64 (#return (#match (#call ZeroTask-spawn (#fn-args (value 41))) (#case (ZeroTask-spawn-ok task) (#match (#call ZeroTask-join (#fn-args (task task))) (#case (ZeroTask-join-ok value) (#if (#u64.== value 0) 42 0)) (#case (ZeroTask-join-error (#tuple retry error)) (#panic)))) (#case (ZeroTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
 
@@ -879,7 +879,7 @@ mod tests {
         let output = directory.join("thread");
         fs::write(
             &input,
-            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn identity ((value Large)) Large (#return value)) (@thread-spawn LargeTask identity) (#fn main () u64 (#return (#match (LargeTask-spawn (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 42)))) (#case (LargeTask-spawn-ok task) (#match (LargeTask-join task) (#case (LargeTask-join-ok value) (#get value g)) (#case (LargeTask-join-error (#tuple retry error)) (#panic)))) (#case (LargeTask-spawn-error error) (#panic)))))",
+            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn identity ((value Large)) Large (#return value)) (@thread-spawn LargeTask identity) (#fn main () u64 (#return (#match (#call LargeTask-spawn (#fn-args (value (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 42)))))) (#case (LargeTask-spawn-ok task) (#match (#call LargeTask-join (#fn-args (task task))) (#case (LargeTask-join-ok value) (#get value g)) (#case (LargeTask-join-error (#tuple retry error)) (#panic)))) (#case (LargeTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
 
@@ -909,7 +909,7 @@ mod tests {
         let output = directory.join("thread");
         let stub_source = directory.join("pthread-stub.s");
         let stub_object = directory.join("pthread-stub.o");
-        let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (Task-spawn 41) (#case (Task-spawn-ok task) (#panic)) (#case (Task-spawn-error error) (#match error (#case Task-spawn-creation-error 43) (#case Task-spawn-allocation-error 0))))))";
+        let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (#call Task-spawn (#fn-args (value 41))) (#case (Task-spawn-ok task) (#panic)) (#case (Task-spawn-error error) (#match error (#case Task-spawn-creation-error 43) (#case Task-spawn-allocation-error 0))))))";
         fs::write(&input, source).unwrap();
         fs::write(
             &stub_source,
@@ -956,7 +956,7 @@ mod tests {
         let output = directory.join("thread");
         let stub_source = directory.join("malloc-stub.s");
         let stub_object = directory.join("malloc-stub.o");
-        let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (Task-spawn 41) (#case (Task-spawn-ok task) (#panic)) (#case (Task-spawn-error error) (#match error (#case Task-spawn-creation-error 0) (#case Task-spawn-allocation-error 44))))))";
+        let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (#call Task-spawn (#fn-args (value 41))) (#case (Task-spawn-ok task) (#panic)) (#case (Task-spawn-error error) (#match error (#case Task-spawn-creation-error 0) (#case Task-spawn-allocation-error 44))))))";
         fs::write(&input, source).unwrap();
         fs::write(
             &stub_source,
@@ -1003,7 +1003,7 @@ mod tests {
         let output = directory.join("thread");
         let stub_source = directory.join("pthread-stub.s");
         let stub_object = directory.join("pthread-stub.o");
-        let source = "(#extern-fn #abi-c exit ((status i32)) ()) (#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (Task-spawn 41) (#case (Task-spawn-ok task) (#match (Task-join task) (#case (Task-join-ok value) 42) (#case (Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (#call exit (#fn-args (status 43)))) (#panic)))))) (#case (Task-spawn-error error) (#panic)))))";
+        let source = "(#extern-fn #abi-c exit ((status i32)) ()) (#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (#call Task-spawn (#fn-args (value 41))) (#case (Task-spawn-ok task) (#match (#call Task-join (#fn-args (task task))) (#case (Task-join-ok value) 42) (#case (Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (#call exit (#fn-args (status 43)))) (#panic)))))) (#case (Task-spawn-error error) (#panic)))))";
         fs::write(&input, source).unwrap();
         fs::write(
             &stub_source,

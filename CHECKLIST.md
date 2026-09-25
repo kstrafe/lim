@@ -766,7 +766,7 @@ commit, documentation, and focused regression coverage.
   independent moves, preserve conservative dynamic-index conflicts, and cover
   shadowing, reinitialization, cloning, and partial aggregate consumption.
 
-- [ ] **CALL-01: Apply named-call syntax to generated thread entry points.**
+- [x] **CALL-01: Apply named-call syntax to generated thread entry points.**
   `normalize_function_calls` excludes `Item::ThreadTask` from its signature
   table, while `examples/atomic_claim.lim` still invokes spawn/join positionally.
   Include generated spawn/join signatures in canonical call normalization,

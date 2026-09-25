@@ -2235,6 +2235,18 @@ fn synthesize_thread_join_results(
                     attach_span_to_source_error(error, *span, source_files)
                 }));
         }
+        for item in items.iter_mut() {
+            if let Item::ThreadTask {
+                name: task_name,
+                generated_functions,
+                ..
+            } = item
+            {
+                if task_name == &name {
+                    *generated_functions = expected_generated_functions.clone();
+                }
+            }
+        }
         let return_type = worker_function.return_type.clone();
         for expected in thread_task_generated_enums(&name, return_type) {
             let Item::Enum {
@@ -2293,6 +2305,29 @@ fn thread_task_function_signatures(
             return_type: Type::Named(format!("{name}-join-result")),
         },
     ]
+}
+
+#[test]
+fn synthesized_thread_calls_require_named_arguments() {
+    let prefix =
+        "(#fn worker ((left u64) (right u64)) u64 (#return left)) (@thread-spawn Task worker)";
+    let program = |call: &str| {
+        format!(
+            "{prefix} (#fn main () () (#let result Task-spawn-result {call}) (#return (#panic)))"
+        )
+    };
+    assert!(parse_program(&program(
+        "(#call Task-spawn (#fn-args (right 2u64) (left 1u64)))"
+    ))
+    .is_ok());
+    for call in [
+        "(Task-spawn 1u64 2u64)",
+        "(#call Task-spawn (#fn-args (left 1u64)))",
+        "(#call Task-spawn (#fn-args (left 1u64) (left 2u64)))",
+        "(#call Task-spawn (#fn-args (left 1u64) (wrong 2u64)))",
+    ] {
+        assert!(parse_program(&program(call)).is_err(), "{call}");
+    }
 }
 
 fn thread_task_generated_enums(name: &str, return_type: Type) -> Vec<Item> {
@@ -8771,7 +8806,7 @@ mod tests {
         assert!(assembly.contains(".Llim_thread_entry_IncrementTask"));
 
         let api = parse_program(
-            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn IncrementTask increment) (#fn main () u64 (#return (#match (IncrementTask-spawn 41) (#case (IncrementTask-spawn-ok task) (#match (IncrementTask-join task) (#case (IncrementTask-join-ok value) value) (#case (IncrementTask-join-error (#tuple retry error)) (#panic)))) (#case (IncrementTask-spawn-error error) (#panic)))))",
+            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn IncrementTask increment) (#fn main () u64 (#return (#match (#call IncrementTask-spawn (#fn-args (value 41))) (#case (IncrementTask-spawn-ok task) (#match (#call IncrementTask-join (#fn-args (task task))) (#case (IncrementTask-join-ok value) value) (#case (IncrementTask-join-error (#tuple retry error)) (#panic)))) (#case (IncrementTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
         assert!(check_types(&api).is_ok(), "{:?}", check_types(&api));
@@ -8816,7 +8851,7 @@ mod tests {
             .contains("cannot return reference-containing values"));
 
         let forgotten_spawn_result = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (WorkTask-spawn 1)) (#forget result) (#return 0))",
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (#fn-args (value 1)))) (#forget result) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&forgotten_spawn_result)
@@ -8824,7 +8859,7 @@ mod tests {
             .contains("cannot be dropped or forgotten; match and join them"));
 
         let forgotten_nested_spawn_result = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (WorkTask-spawn 1)) (#forget (#tuple (#tuple WorkTask-spawn-result u64) result 0)) (#return 0))",
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (#fn-args (value 1)))) (#forget (#tuple (#tuple WorkTask-spawn-result u64) result 0)) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&forgotten_nested_spawn_result)
@@ -8832,7 +8867,7 @@ mod tests {
             .contains("cannot be dropped or forgotten; match and join them"));
 
         let discarded_spawn_handle = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (WorkTask-spawn 1)) (#return (#match result (#case _ 0))))",
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (#fn-args (value 1)))) (#return (#match result (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&discarded_spawn_handle)
@@ -8840,7 +8875,7 @@ mod tests {
             .contains("must explicitly handle variant 'WorkTask-spawn-ok'"));
 
         let discarded_join_error_handle = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#return (#match (WorkTask-spawn 1) (#case (WorkTask-spawn-ok task) (#match (WorkTask-join task) (#case (WorkTask-join-ok value) value) (#case (WorkTask-join-error (#tuple _ error)) (#panic)))) (#case (WorkTask-spawn-error error) (#panic)))))",
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#return (#match (#call WorkTask-spawn (#fn-args (value 1))) (#case (WorkTask-spawn-ok task) (#match (#call WorkTask-join (#fn-args (task task))) (#case (WorkTask-join-ok value) value) (#case (WorkTask-join-error (#tuple _ error)) (#panic)))) (#case (WorkTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
         assert!(check_types(&discarded_join_error_handle)
@@ -8869,11 +8904,11 @@ mod tests {
 (@thread-spawn ReadTask read)
 (#fn main () u64
   (#let-mut shared Shared (#struct-literal Shared ((value 1))))
-  (#let spawned ReadTask-spawn-result (ReadTask-spawn (#borrow shared)))
+  (#let spawned ReadTask-spawn-result (#call ReadTask-spawn (#fn-args (value (#borrow shared)))))
   (#return
     (#match spawned
       (#case (ReadTask-spawn-ok task)
-        (#match (ReadTask-join task)
+        (#match (#call ReadTask-join (#fn-args (task task)))
           (#case (ReadTask-join-ok value) (#block (#set-field shared value 2) value))
           (#case (ReadTask-join-error (#tuple retry error))
             (#block (#set-field shared value 3) 0))))
@@ -8897,11 +8932,11 @@ mod tests {
 (@thread-spawn MutTask read-mut)
 (#fn main () u64
   (#let-mut shared Shared (#struct-literal Shared ((value 1))))
-  (#let spawned MutTask-spawn-result (MutTask-spawn (#borrow-mut shared)))
+  (#let spawned MutTask-spawn-result (#call MutTask-spawn (#fn-args (value (#borrow-mut shared)))))
   (#return
     (#match spawned
       (#case (MutTask-spawn-ok task)
-        (#match (MutTask-join task)
+        (#match (#call MutTask-join (#fn-args (task task)))
           (#case (MutTask-join-ok value) (#block (#set-field shared value 2) value))
           (#case (MutTask-join-error (#tuple retry error))
             (#block (#let copy Shared shared) 0))))
