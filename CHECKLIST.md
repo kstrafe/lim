@@ -464,6 +464,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Locate unresolved types in thread-worker parameters/returns from their
     signature syntax and remove the unknown-type message fallback; the UI case
     checks the exact identifier.
+  - [x] Locate thread-worker `Send` failures and reference-containing return
+    failures directly at the parameter or return type, and remove their
+    dedicated message-based span recovery; UI tests pin the offending type.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated

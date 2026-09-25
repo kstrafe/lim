@@ -394,6 +394,8 @@ fn check_types_inner(
                 }
             };
             if !send {
+                *diagnostic_span = worker_parameter_span(program, worker, parameter_index);
+                record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                 return Err(format!(
                     "thread worker '{worker}' parameter '{}' does not implement Send",
                     parameter.name
@@ -415,6 +417,8 @@ fn check_types_inner(
                 }
             };
         if !return_send {
+            *diagnostic_span = worker_return_span(program, worker);
+            record_generated_invocation(program, diagnostic_span, diagnostic_labels);
             return Err(format!(
                 "thread worker '{worker}' return type does not implement Send"
             ));
@@ -425,6 +429,8 @@ fn check_types_inner(
             &enums,
             &mut HashSet::new(),
         ) {
+            *diagnostic_span = worker_return_span(program, worker);
+            record_generated_invocation(program, diagnostic_span, diagnostic_labels);
             return Err(format!(
                 "thread worker '{worker}' cannot return reference-containing values"
             ));
@@ -2851,6 +2857,23 @@ fn worker_parameter_type_span(
         .and_then(|ty| first_symbol_span(ty, unknown_type))
 }
 
+fn worker_parameter_span(
+    program: &Program,
+    worker: &str,
+    parameter_index: usize,
+) -> Option<crate::Span> {
+    program
+        .declaration_expressions
+        .get(worker)?
+        .children
+        .get(2)?
+        .children
+        .get(parameter_index)?
+        .children
+        .get(1)
+        .map(|ty| ty.span)
+}
+
 fn worker_return_type_span(
     program: &Program,
     worker: &str,
@@ -2862,6 +2885,15 @@ fn worker_return_type_span(
         .children
         .get(3)
         .and_then(|ty| first_symbol_span(ty, unknown_type))
+}
+
+fn worker_return_span(program: &Program, worker: &str) -> Option<crate::Span> {
+    program
+        .declaration_expressions
+        .get(worker)?
+        .children
+        .get(3)
+        .map(|ty| ty.span)
 }
 
 fn record_generated_invocation(
