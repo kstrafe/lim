@@ -1,12 +1,12 @@
+mod support;
 use std::os::unix::process::ExitStatusExt;
 use std::{
     collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
-    process::{Command, ExitStatus, Stdio},
+    process::{Command, ExitStatus},
     sync::atomic::{AtomicUsize, Ordering},
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 static NEXT_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
@@ -38,29 +38,8 @@ fn run(
     directory: &Path,
     budget: Duration,
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>), String> {
-    let stdout = directory.join("stdout");
-    let stderr = directory.join("stderr");
-    let mut child = command
-        .stdout(Stdio::from(fs::File::create(&stdout).unwrap()))
-        .stderr(Stdio::from(fs::File::create(&stderr).unwrap()))
-        .spawn()
-        .map_err(|error| error.to_string())?;
-    let start = Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
-            return Ok((
-                status,
-                fs::read(&stdout).unwrap(),
-                fs::read(&stderr).unwrap(),
-            ));
-        }
-        if start.elapsed() >= budget {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("timeout after {budget:?}"));
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
+    let _ = directory;
+    support::run(command, budget, 1024 * 1024)
 }
 
 fn outcome_matches(kind: &str, expected: &str, status: ExitStatus) -> bool {

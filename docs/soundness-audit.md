@@ -34,3 +34,13 @@ projection components. Dots in local or field names do not denote projections.
 Unknown array indices conservatively overlap every element; a dynamic write
 does not prove that a previously moved element has been restored. Existing
 borrow loans use a separate internal separator, not dots, for overlap checks.
+
+## Bounded native test processes
+
+The native example and malformed-input suites use a shared Linux runner.
+It drains stdout and stderr concurrently, retains at most one MiB per stream,
+and terminates the child's separate process group on timeout, excess output,
+or parent exit. This closes pipes held by ordinary descendants as well as
+reaping the immediate child. Test programs must not escape that process group;
+this is a regression-test resource guard, not a hostile-program sandbox.
+Scratch directories are exclusively created and removed only by their owner.

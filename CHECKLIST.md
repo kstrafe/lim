@@ -822,7 +822,7 @@ commit, documentation, and focused regression coverage.
 
 ### Priority 3: bounded tooling and inspectability
 
-- [ ] **TEST-02: Bound subprocess output and clean up subprocess trees.**
+- [x] **TEST-02: Bound subprocess output and clean up subprocess trees.**
   `tests/robustness.rs` polls a child before draining piped output, which can
   turn a large diagnostic into a pipe-capacity timeout. The native example
   harness redirects output to files but has no output-size budget and kills

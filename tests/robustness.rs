@@ -1,53 +1,29 @@
-use std::{
-    fs,
-    path::Path,
-    process::{Command, Stdio},
-    thread,
-    time::{Duration, Instant},
-};
+mod support;
+use std::{fs, path::Path, process::Command, time::Duration};
 
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(3);
 
 fn run_bounded(input: &Path, output: &Path) -> (i32, String, String) {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_lim"))
-        .arg("--emit-asm")
-        .arg(input)
-        .arg(output)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn compiler subprocess");
-    let started = Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().expect("poll compiler subprocess") {
-            let result = child.wait_with_output().expect("collect compiler output");
-            return (
-                status.code().unwrap_or(-1),
-                String::from_utf8_lossy(&result.stdout).into_owned(),
-                String::from_utf8_lossy(&result.stderr).into_owned(),
-            );
-        }
-        if started.elapsed() >= PROCESS_TIMEOUT {
-            child.kill().expect("kill timed-out compiler");
-            let _ = child.wait();
-            panic!(
-                "compiler exceeded {PROCESS_TIMEOUT:?} on {}",
-                input.display()
-            );
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
+    let (status, stdout, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg("--emit-asm")
+            .arg(input)
+            .arg(output),
+        PROCESS_TIMEOUT,
+        1024 * 1024,
+    )
+    .expect("bounded compiler");
+    (
+        status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&stdout).into_owned(),
+        String::from_utf8_lossy(&stderr).into_owned(),
+    )
 }
 
 #[test]
 fn seeded_malformed_and_truncated_sources_fail_deterministically_in_bounded_processes() {
-    let directory = std::env::temp_dir().join(format!(
-        "lim-robustness-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("worker")
-    ));
-    let _ = fs::remove_dir_all(&directory);
-    fs::create_dir_all(&directory).unwrap();
+    let scratch = support::Scratch::new("robustness");
+    let directory = scratch.path();
     let input = directory.join("case.lim");
     let output = directory.join("case.s");
     let mut seed = 0x5eed_u64;
@@ -90,5 +66,4 @@ fn seeded_malformed_and_truncated_sources_fail_deterministically_in_bounded_proc
             "retry left an assembly artifact for seed {index}"
         );
     }
-    fs::remove_dir_all(directory).unwrap();
 }
