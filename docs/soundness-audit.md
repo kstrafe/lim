@@ -27,3 +27,10 @@ override allows the opted-in type to satisfy the property. Thread runtime tests
 cover allocation, creation, and join failures; a failed join preserves the
 task packet and returns its handle rather than silently destroying it. These
 tests are regression evidence, not a formal proof of the compiler.
+# Ownership place identity
+
+The linear checker uses opaque, uniquely renamed binding identities and typed
+projection components. Dots in local or field names do not denote projections.
+Unknown array indices conservatively overlap every element; a dynamic write
+does not prove that a previously moved element has been restored. Existing
+borrow loans use a separate internal separator, not dots, for overlap checks.

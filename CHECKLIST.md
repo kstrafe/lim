@@ -741,3 +741,124 @@ and acceptance coverage.
   Acceptance: errors and documentation describe exactly the unsafe promise and
   structural derivation rules, without suggesting user-defined traits exist;
   existing Send/Sync behavior and diagnostic locations remain covered.
+
+## Next audit: ownership identity and runtime consistency
+
+These follow-ups are based on the implementation after the completed audit
+above. They distinguish observed implementation gaps from additional validation
+work; they are not claims that every risk has a demonstrated failing program.
+Keep the existing language constraints and implement each item with its own
+commit, documentation, and focused regression coverage.
+
+### Priority 1: ownership and canonical calls
+
+- [x] **OWN-02: Represent ownership places structurally, not as identifiers
+  joined with punctuation.** `src/linearcheck.rs::place_key`, `place_root`, and
+  `has_move_conflict` encode projections using dots/brackets and string-prefix
+  comparisons. A dot is legal inside an ordinary identifier, so a local named
+  `a.b` must not become indistinguishable from field `b` of local `a`. Introduce
+  binding IDs and typed projection components for fields, tuple positions,
+  enum payloads, constant indices, and unknown indices. Use binding identity
+  across shadowing and scope exit; format paths only when rendering errors.
+  Audit borrow-checker conversions for the same ambiguity without discarding
+  its existing disjoint-loan handling. Acceptance: distinguish dotted locals
+  and dotted field names from projections, reject actual double moves, allow
+  independent moves, preserve conservative dynamic-index conflicts, and cover
+  shadowing, reinitialization, cloning, and partial aggregate consumption.
+
+- [ ] **CALL-01: Apply named-call syntax to generated thread entry points.**
+  `normalize_function_calls` excludes `Item::ThreadTask` from its signature
+  table, while `examples/atomic_claim.lim` still invokes spawn/join positionally.
+  Include generated spawn/join signatures in canonical call normalization,
+  using the inspectable generated declarations as the contract. Require
+  `#call` with `#fn-args` at user call sites, without changing `#case` patterns
+  or turning enum constructors into functions. Acceptance: migrate every
+  affected example and documentation fence; test reordered worker arguments,
+  missing/duplicate/unknown names, unsafe obligations where applicable,
+  imports, and cold/warm generator caches. Native tests must retain explicit
+  spawn failure, successful join, and failed-join handle ownership behavior.
+
+- [ ] **DIAG-04: Remove diagnostic-message parsing from ownership and unsafe
+  analysis.** `precise_unsafe_span` in `src/unsafecheck.rs`, borrow diagnostic
+  recovery in `src/borrowcheck.rs`, and location selection in
+  `src/linearcheck.rs` still extract names or error kinds from English text.
+  Return structured violations with the actual failing node, binding/loan ID,
+  and relevant origin or prior-use node. Carry those identities through
+  lowering; do not replace text parsing with a first-matching-name search.
+  Acceptance: wording replacement leaves primary/secondary ranges unchanged;
+  repeated unsafe operations inside/outside unsafe blocks, shadowed locals,
+  dotted names, reordered arguments, nested branches, and imported/generated
+  code all underline the responsible occurrence. Cold and cached expansions
+  must retain equivalent provenance and borrow-origin labels.
+
+### Priority 2: numeric consistency
+
+- [ ] **CONST-01: Support typed floating-point constant and static values.**
+  `src/codegen.rs::constant_value` returns an integer representation and
+  explicitly rejects floating-point initializers. Introduce typed constant
+  values that preserve f32/f64 bit patterns rather than passing floats through
+  integer numeric conversion. Specify which pure expressions may initialize
+  globals and how width rounding and exceptional values behave; runtime
+  effects must remain forbidden. Acceptance: execute scalar and aggregate
+  initializers containing floats, references to earlier constants, negative
+  zero, and explicitly supported arithmetic. Check f32 rounding and compare
+  equivalent constant/runtime expressions. Reject cycles and nonconstant
+  operations with exact source spans; static access must still require unsafe.
+
+- [ ] **NUM-01: Add differential numeric backend tests across widths.**
+  The exact-outcome sweep recently exposed a typed-float comparison lowering
+  bug; a collection of hand-picked examples is not comprehensive numeric
+  coverage. Build a dependency-free, deterministic test generator with a
+  small independent Rust oracle for documented integer operations. Compare
+  native outputs, constant evaluation where supported, and expected traps.
+  Cover every supported width, signedness, wrap/saturate mode, casts, shift
+  boundaries, division/remainder boundaries, and 128-bit lowering. Add float
+  comparison cases for unordered values, infinities, signed zero, and rounding
+  using explicitly documented semantics rather than assuming bitwise equality
+  for all NaNs. Acceptance: bounded batches run in the Nix shell, failures
+  print a seed and standalone Lim reproducer, and the oracle does not reuse
+  compiler evaluation/lowering helpers. Preserve each discovered bug as a
+  small permanent fixture with an exact outcome.
+
+### Priority 3: bounded tooling and inspectability
+
+- [ ] **TEST-02: Bound subprocess output and clean up subprocess trees.**
+  `tests/robustness.rs` polls a child before draining piped output, which can
+  turn a large diagnostic into a pipe-capacity timeout. The native example
+  harness redirects output to files but has no output-size budget and kills
+  only its direct child on timeout. Share a dependency-free test runner with
+  bounded capture, timeout diagnostics, uniquely owned scratch directories,
+  and process-group cleanup on the supported Linux host. Never target the
+  test runner's own process group. Acceptance: exercise noisy stdout/stderr,
+  output-limit failures, a spawned descendant that would otherwise survive,
+  and timeout cleanup; retain useful truncated diagnostics without hangs or
+  unbounded disk/memory use. Replace predictable temporary-directory removal
+  in robustness tests with exclusive creation and owned cleanup.
+
+- [ ] **CACHE-01: Explain generator cache decisions without inspecting
+  private metadata manually.** The CLI uses `.lim/cache` but does not expose
+  why an invocation hit, missed, or regenerated a damaged artifact. Add an
+  opt-in report identifying the invocation, artifact path, key, and decision:
+  missing entry, changed input/dependency context, incompatible implementation,
+  or failed integrity validation where that distinction is available. Keep
+  sufficient versioned metadata for reported comparisons; do not invent a
+  specific miss reason when no previous entry can be identified. Include
+  builtin and user generators plus reachable `#gn-fn` dependencies. Acceptance:
+  tests distinguish unchanged builds, helper/input/cfg changes, and damaged
+  source; enabling reporting must not alter keys or generated code. Define a
+  machine-readable report channel that does not corrupt JSON diagnostics or
+  emitted assembly, and document that cache digests are not authentication.
+
+- [ ] **BUILD-02: Verify reproducible outputs across fresh processes and
+  relocated workspaces.** Existing cache identity and publication tests do
+  not by themselves prove whole-build reproducibility. Build a representative
+  imported/generated project in two independently created source roots with
+  identical contents, using one pinned Nix toolchain and target. Compare
+  normalized cache metadata, inspectable generated sources, assembly, and
+  native binaries on cold and warm runs. Specify any intentionally variable
+  path/provenance fields separately rather than filtering arbitrary byte
+  differences. Acceptance: output ordering cannot depend on hash-map iteration,
+  temporary paths, process IDs, or cache warmth; comparisons run in fresh
+  compiler processes and failures identify the differing artifact. Keep real
+  source paths available in diagnostics, and scope the guarantee to identical
+  compiler/toolchain/configuration rather than different linker versions.

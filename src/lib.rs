@@ -3103,7 +3103,7 @@ fn fresh_binding(
     next_id: &mut usize,
     globals: &HashSet<String>,
 ) -> String {
-    if !bindings.contains_key(name) && !globals.contains(name) {
+    if !bindings.contains_key(name) && !globals.contains(name) && !used.contains(name) {
         used.insert(name.to_owned());
         return name.to_owned();
     }
@@ -3133,6 +3133,9 @@ fn rename_pattern_bindings(
 ) {
     match pattern {
         Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "literal" | "range" | "range-inclusive")) {
+                return;
+            }
             for item in items.iter_mut().skip(1) {
                 rename_pattern_bindings(
                     item,

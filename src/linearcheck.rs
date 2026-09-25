@@ -2,6 +2,72 @@ use std::collections::HashSet;
 
 use crate::{Expr, Item, Program, Statement, Type};
 
+// Local renaming assigns each binding a unique name before this pass. Keep
+// that opaque identity separate from projections; punctuation is never syntax.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct BindingId(String);
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum Projection {
+    Field(String),
+    Tuple(usize),
+    Variant(String),
+    Index(String),
+    UnknownIndex,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct Place {
+    binding: BindingId,
+    projections: Vec<Projection>,
+}
+
+impl Place {
+    fn root(name: &str) -> Self {
+        Self {
+            binding: BindingId(name.to_owned()),
+            projections: Vec::new(),
+        }
+    }
+
+    fn project(mut self, projection: Projection) -> Self {
+        self.projections.push(projection);
+        self
+    }
+
+    fn covers(&self, other: &Self) -> bool {
+        self.binding == other.binding && other.projections.starts_with(&self.projections)
+    }
+
+    fn conflicts(&self, other: &Self) -> bool {
+        self.binding == other.binding
+            && self
+                .projections
+                .iter()
+                .zip(&other.projections)
+                .all(|(a, b)| {
+                    a == b
+                        || matches!(a, Projection::UnknownIndex)
+                        || matches!(b, Projection::UnknownIndex)
+                })
+    }
+}
+
+impl std::fmt::Display for Place {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(out, "{}", self.binding.0)?;
+        for projection in &self.projections {
+            match projection {
+                Projection::Field(name) | Projection::Variant(name) => write!(out, ".{name}")?,
+                Projection::Tuple(index) => write!(out, ".{index}")?,
+                Projection::Index(index) => write!(out, "[{index}]")?,
+                Projection::UnknownIndex => write!(out, "[*]")?,
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 struct LinearTypes {
     aliases: std::collections::HashMap<String, Type>,
@@ -179,7 +245,7 @@ fn precise_linear_span(expression: &crate::SpannedExpr, error: &str) -> Option<c
 fn check_statements(
     statements: &[Statement],
     bindings: &mut HashSet<String>,
-    moved: &mut HashSet<String>,
+    moved: &mut HashSet<Place>,
     globals: &HashSet<String>,
     types: &LinearTypes,
 ) -> Result<(), String> {
@@ -192,7 +258,7 @@ fn check_statements(
                 if is_linear(ty, types, &mut HashSet::new()) {
                     bindings.insert(name.clone());
                 }
-                moved.remove(name);
+                moved.remove(&Place::root(name));
             }
             Statement::Destructure {
                 pattern, ty, value, ..
@@ -222,25 +288,28 @@ fn check_statements(
             Statement::Assign { name, value } => {
                 check_expr(value, bindings, moved, globals, false)?;
                 if bindings.contains(name) {
-                    if !moved.contains(name) {
+                    if !moved.contains(&Place::root(name)) {
                         return Err(format!("assignment would destroy live linear value '{name}'; consume it explicitly first"));
                     }
-                    moved.remove(name);
+                    moved.remove(&Place::root(name));
                 }
             }
             Statement::ArrayAssign { name, index, value } => {
                 check_expr(index, bindings, moved, globals, false)?;
                 check_expr(value, bindings, moved, globals, false)?;
                 check_expr(&Expr::Symbol(name.clone()), bindings, moved, globals, true)?;
-                moved.retain(|key| !key.starts_with(&format!("{name}[")));
+                if let Some(index) = literal_index(index) {
+                    moved.remove(&Place::root(name).project(Projection::Index(index)));
+                }
+                // A dynamic write cannot prove which moved element it restores.
             }
             Statement::FieldAssign { name, field, value } => {
                 check_expr(value, bindings, moved, globals, false)?;
-                moved.remove(&format!("{name}.{field}"));
+                moved.remove(&Place::root(name).project(Projection::Field(field.clone())));
             }
             Statement::TupleAssign { name, index, value } => {
                 check_expr(value, bindings, moved, globals, false)?;
-                moved.remove(&format!("{name}.{index}"));
+                moved.remove(&Place::root(name).project(Projection::Tuple(*index)));
             }
             Statement::EnumPayloadAssign {
                 name,
@@ -249,13 +318,20 @@ fn check_statements(
                 value,
             } => {
                 check_expr(value, bindings, moved, globals, false)?;
-                moved.remove(&format!("{name}.{variant}.{index}"));
+                moved.remove(
+                    &Place::root(name)
+                        .project(Projection::Variant(variant.clone()))
+                        .project(Projection::Tuple(*index)),
+                );
             }
             Statement::Return(value) => {
                 if let Some(value) = value {
                     check_expr(value, bindings, moved, globals, false)?;
                 }
-                if let Some(name) = bindings.iter().find(|name| !moved.contains(*name)) {
+                if let Some(name) = bindings
+                    .iter()
+                    .find(|name| !moved.contains(&Place::root(name)))
+                {
                     return Err(format!("linear value '{name}' must be consumed before returning; use it, pass it to a destruction function, or explicitly (#forget {name})"));
                 }
             }
@@ -288,7 +364,7 @@ fn check_statements(
                     .cloned()
                     .collect::<HashSet<_>>();
                 for name in &moved_by_body {
-                    if !assigned_before_read(body, name) {
+                    if !assigned_before_read(body, place_root(name)) {
                         return Err(format!("loop body moves '{name}' before the next iteration can restore it; clone the value"));
                     }
                 }
@@ -470,16 +546,16 @@ fn collect_pattern_names(pattern: &Expr, bindings: &mut HashSet<String>) {
 fn check_expr(
     expr: &Expr,
     bindings: &HashSet<String>,
-    moved: &mut HashSet<String>,
+    moved: &mut HashSet<Place>,
     globals: &HashSet<String>,
     place: bool,
 ) -> Result<(), String> {
     match expr {
         Expr::Symbol(name) if bindings.contains(name) && !place => {
-            if has_move_conflict(moved, name) {
+            if has_move_conflict(moved, &Place::root(name)) {
                 return Err(format!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy"));
             }
-            moved.insert(name.clone());
+            moved.insert(Place::root(name));
         }
         Expr::List(items) if !items.is_empty() => {
             let head = match &items[0] {
@@ -493,19 +569,12 @@ fn check_expr(
                 check_clone(&items[1], bindings, moved)?;
             } else if matches!(head, "forget" | "drop") && items.len() == 2 {
                 if let Some(key) = place_key(&items[1]) {
-                    let root = key.split(['.', '[']).next().unwrap_or(&key);
+                    let root = place_root(&key);
                     if bindings.contains(root) {
-                        if moved.iter().any(|existing| {
-                            existing == &key
-                                || key.starts_with(&format!("{existing}."))
-                                || key.starts_with(&format!("{existing}["))
-                        }) {
+                        if moved.iter().any(|existing| existing.covers(&key)) {
                             return Err(format!("linear value '{key}' was already consumed"));
                         }
-                        moved.retain(|existing| {
-                            !(existing.starts_with(&format!("{key}."))
-                                || existing.starts_with(&format!("{key}[")))
-                        });
+                        moved.retain(|existing| !key.covers(existing));
                         moved.insert(key);
                     } else {
                         check_expr(&items[1], bindings, moved, globals, false)?;
@@ -550,10 +619,10 @@ fn check_expr(
                             if bindings.contains(name) {
                                 continue;
                             }
-                            if before_guard.contains(name) {
-                                arm_moved.insert(name.clone());
+                            if before_guard.contains(&Place::root(name)) {
+                                arm_moved.insert(Place::root(name));
                             } else {
-                                arm_moved.remove(name);
+                                arm_moved.remove(&Place::root(name));
                             }
                         }
                         if let Some(body) = parts.get(2) {
@@ -564,7 +633,7 @@ fn check_expr(
                             check_expr(part, &arm_bindings, &mut arm_moved, globals, false)?;
                         }
                     }
-                    arm_moved.retain(|name| bindings.contains(name));
+                    arm_moved.retain(|name| bindings.contains(place_root(name)));
                     exits.push(arm_moved);
                 }
                 if let Some(first) = exits.first() {
@@ -595,7 +664,7 @@ fn check_expr(
                 collect_pattern_names(&items[1], &mut branch_bindings);
                 let mut then_state = moved.clone();
                 check_expr(&items[3], &branch_bindings, &mut then_state, globals, false)?;
-                then_state.retain(|name| bindings.contains(name));
+                then_state.retain(|name| bindings.contains(place_root(name)));
                 let mut else_state = moved.clone();
                 if let Some(otherwise) = items.get(4) {
                     check_expr(otherwise, bindings, &mut else_state, globals, false)?;
@@ -612,67 +681,21 @@ fn check_expr(
                 for arg in items.iter().skip(1) {
                     check_expr(arg, bindings, moved, globals, false)?;
                 }
-            } else if head == "get" && items.len() == 3 {
-                if !place {
-                    if let Some(mut key) = place_key(&items[1]) {
-                        match &items[2] {
-                            Expr::Symbol(field) => key.push_str(&format!(".{field}")),
-                            Expr::Integer(index) => key.push_str(&format!(".{index}")),
-                            _ => key.push_str(".*"),
-                        }
-                        if has_move_conflict(moved, &key) {
-                            return Err(format!("linear projection '{key}' was used more than once; clone it explicitly"));
-                        }
-                        moved.insert(key);
-                    } else {
-                        check_expr(&items[1], bindings, moved, globals, false)?;
-                    }
-                } else {
-                    check_expr(&items[1], bindings, moved, globals, true)?;
+            } else if matches!(head, "get" | "get-payload" | "index") {
+                if head == "index" && items.len() == 3 {
+                    check_expr(&items[2], bindings, moved, globals, false)?;
                 }
-            } else if head == "get-payload" && items.len() == 4 {
                 if !place {
-                    if let Some(mut key) = place_key(&items[1]) {
-                        if let Expr::Symbol(variant) = &items[2] {
-                            key.push_str(&format!(".{variant}"));
-                        } else {
-                            key.push_str(".*");
-                        }
-                        match &items[3] {
-                            index if literal_index(index).is_some() => {
-                                key.push_str(&format!(".{}", literal_index(index).unwrap()))
-                            }
-                            _ => key.push_str(".*"),
-                        }
+                    if let Some(key) = place_key(expr) {
                         if has_move_conflict(moved, &key) {
                             return Err(format!("linear projection '{key}' was used more than once; clone it explicitly"));
                         }
                         moved.insert(key);
-                    } else {
-                        check_expr(&items[1], bindings, moved, globals, false)?;
+                    } else if let Some(base) = items.get(1) {
+                        check_expr(base, bindings, moved, globals, false)?;
                     }
-                } else {
-                    check_expr(&items[1], bindings, moved, globals, true)?;
-                }
-            } else if head == "index" && items.len() == 3 {
-                check_expr(&items[2], bindings, moved, globals, false)?;
-                if !place {
-                    if let Some(mut key) = place_key(&items[1]) {
-                        match &items[2] {
-                            index if literal_index(index).is_some() => {
-                                key.push_str(&format!("[{}]", literal_index(index).unwrap()))
-                            }
-                            _ => key.push_str("[*]"),
-                        }
-                        if has_move_conflict(moved, &key) {
-                            return Err(format!("linear projection '{key}' was used more than once; clone it explicitly"));
-                        }
-                        moved.insert(key);
-                    } else {
-                        check_expr(&items[1], bindings, moved, globals, false)?;
-                    }
-                } else {
-                    check_expr(&items[1], bindings, moved, globals, true)?;
+                } else if let Some(base) = items.get(1) {
+                    check_expr(base, bindings, moved, globals, true)?;
                 }
             } else if head == "slice-mut-split" && items.len() == 3 {
                 check_expr(&items[1], bindings, moved, globals, false)?;
@@ -772,61 +795,45 @@ fn simple_place_name(expr: &Expr) -> Option<&str> {
 fn check_clone(
     expr: &Expr,
     bindings: &HashSet<String>,
-    moved: &HashSet<String>,
+    moved: &HashSet<Place>,
 ) -> Result<(), String> {
     if let Some(key) = place_key(expr) {
-        if bindings.contains(key.split(['.', '[']).next().unwrap_or(&key))
-            && has_move_conflict(moved, &key)
-        {
+        if bindings.contains(place_root(&key)) && has_move_conflict(moved, &key) {
             return Err(format!("cannot clone moved linear value '{key}'"));
         }
     }
     Ok(())
 }
 
-fn place_key(expr: &Expr) -> Option<String> {
+fn place_key(expr: &Expr) -> Option<Place> {
     match expr {
-        Expr::Symbol(name) => Some(name.clone()),
-        Expr::List(items)
-            if (items.len() == 3
-                && matches!(items.first(), Some(Expr::Symbol(head)) if head == "get" || head == "index"))
-                || (items.len() == 4
-                    && matches!(items.first(), Some(Expr::Symbol(head)) if head == "get-payload")) =>
-        {
-            match items.first() {
-                Some(Expr::Symbol(head)) if head == "get" => {
-                    let mut base = place_key(&items[1])?;
-                    match &items[2] {
-                        Expr::Symbol(field) => base.push_str(&format!(".{field}")),
-                        Expr::Integer(index) => base.push_str(&format!(".{index}")),
-                        _ => base.push_str(".*"),
-                    }
-                    Some(base)
-                }
-                Some(Expr::Symbol(head)) if head == "index" => {
-                    let mut base = place_key(&items[1])?;
-                    match &items[2] {
-                        index if literal_index(index).is_some() => {
-                            base.push_str(&format!("[{}]", literal_index(index).unwrap()))
-                        }
-                        _ => base.push_str("[*]"),
-                    }
-                    Some(base)
-                }
-                Some(Expr::Symbol(head)) if head == "get-payload" => {
-                    let mut base = place_key(&items[1])?;
-                    if let Expr::Symbol(variant) = &items[2] {
-                        base.push_str(&format!(".{variant}"));
-                    } else {
-                        base.push_str(".*");
-                    }
-                    match &items[3] {
-                        index if literal_index(index).is_some() => {
-                            base.push_str(&format!(".{}", literal_index(index).unwrap()))
-                        }
-                        _ => base.push_str(".*"),
-                    }
-                    Some(base)
+        Expr::Symbol(name) => Some(Place::root(name)),
+        Expr::List(items) if items.len() >= 3 => {
+            let Expr::Symbol(head) = &items[0] else {
+                return None;
+            };
+            let base = place_key(&items[1])?;
+            match head.as_str() {
+                "get" if items.len() == 3 => Some(base.project(match &items[2] {
+                    Expr::Symbol(field) => Projection::Field(field.clone()),
+                    Expr::Integer(index) => Projection::Tuple((*index).try_into().ok()?),
+                    _ => return None,
+                })),
+                "index" if items.len() == 3 => Some(
+                    base.project(
+                        literal_index(&items[2])
+                            .map(Projection::Index)
+                            .unwrap_or(Projection::UnknownIndex),
+                    ),
+                ),
+                "get-payload" if items.len() == 4 => {
+                    let Expr::Symbol(variant) = &items[2] else {
+                        return None;
+                    };
+                    Some(
+                        base.project(Projection::Variant(variant.clone()))
+                            .project(Projection::Tuple(literal_index(&items[3])?.parse().ok()?)),
+                    )
                 }
                 _ => None,
             }
@@ -850,20 +857,14 @@ fn literal_index(expr: &Expr) -> Option<String> {
     }
 }
 
-fn has_move_conflict(moved: &HashSet<String>, key: &str) -> bool {
-    moved.iter().any(|existing| {
-        existing == key
-            || existing.starts_with(&format!("{key}."))
-            || existing.starts_with(&format!("{key}["))
-            || key.starts_with(&format!("{existing}."))
-            || key.starts_with(&format!("{existing}["))
-    })
+fn has_move_conflict(moved: &HashSet<Place>, key: &Place) -> bool {
+    moved.iter().any(|existing| existing.conflicts(key))
 }
 
 fn check_scoped_statements(
     statements: &[Statement],
     bindings: &mut HashSet<String>,
-    moved: &mut HashSet<String>,
+    moved: &mut HashSet<Place>,
     globals: &HashSet<String>,
     types: &LinearTypes,
 ) -> Result<(), String> {
@@ -871,7 +872,7 @@ fn check_scoped_statements(
     check_statements(statements, bindings, moved, globals, types)?;
     if let Some(name) = bindings
         .iter()
-        .find(|name| !outer.contains(*name) && !moved.contains(*name))
+        .find(|name| !outer.contains(*name) && !moved.contains(&Place::root(name)))
     {
         return Err(format!("linear value '{name}' must be consumed before leaving its scope; use it, pass it to a destruction function, or explicitly (#forget {name})"));
     }
@@ -882,8 +883,8 @@ fn check_scoped_statements(
 
 fn require_same_consumption(
     bindings: &HashSet<String>,
-    left: &HashSet<String>,
-    right: &HashSet<String>,
+    left: &HashSet<Place>,
+    right: &HashSet<Place>,
 ) -> Result<(), String> {
     for binding in bindings {
         let left_places = left
@@ -903,8 +904,8 @@ fn require_same_consumption(
     Ok(())
 }
 
-fn place_root(place: &str) -> &str {
-    place.split(['.', '[']).next().unwrap_or(place)
+fn place_root(place: &Place) -> &str {
+    &place.binding.0
 }
 
 fn assigned_before_read(statements: &[Statement], name: &str) -> bool {
@@ -959,7 +960,7 @@ fn expression_mentions(expression: &Expr, name: &str) -> bool {
 fn check_expr_with_place(
     expr: &Expr,
     bindings: &HashSet<String>,
-    moved: &mut HashSet<String>,
+    moved: &mut HashSet<Place>,
     globals: &HashSet<String>,
     borrowed_place: Option<&str>,
 ) -> Result<(), String> {
@@ -986,7 +987,7 @@ fn check_expr_with_place(
             &LinearTypes::default(),
         ),
         Expr::Symbol(name) if bindings.contains(name) => {
-            if !moved.insert(name.clone()) {
+            if !moved.insert(Place::root(name)) {
                 Err(format!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy"))
             } else {
                 Ok(())
@@ -999,6 +1000,41 @@ fn check_expr_with_place(
 #[cfg(test)]
 mod tests {
     use crate::{check_types, parse_program};
+
+    #[test]
+    fn places_keep_identifier_punctuation_and_dynamic_indices_structural() {
+        use super::{Place, Projection};
+        let dotted = Place::root("a.b");
+        let field = Place::root("a").project(Projection::Field("b".into()));
+        assert!(!dotted.conflicts(&field));
+        let dotted_field = Place::root("a").project(Projection::Field("b.c".into()));
+        let nested = field.clone().project(Projection::Field("c".into()));
+        assert!(!dotted_field.conflicts(&nested));
+        assert!(field.conflicts(&nested));
+        let unknown = Place::root("a").project(Projection::UnknownIndex);
+        let zero = Place::root("a").project(Projection::Index("0".into()));
+        let one = Place::root("a").project(Projection::Index("1".into()));
+        assert!(unknown.conflicts(&zero));
+        assert!(!zero.conflicts(&one));
+        assert!(!unknown.covers(&zero));
+    }
+
+    #[test]
+    fn dotted_bindings_move_independently_of_fields_and_shadowing() {
+        let source = "(#struct R ((b (#cell u64))))
+          (#fn main () u64
+            (#let a R (#struct-literal R ((b (#cell 1u64)))))
+            (#let a.b (#cell u64) (#cell 2u64))
+            (#forget (#get a b)) (#forget a.b) (#forget a)
+            (#let a.b (#cell u64) (#cell 3u64))
+            (#forget a.b) (#return 0u64))";
+        check_types(&parse_program(source).unwrap()).unwrap();
+        let duplicate = source.replace(
+            "(#forget a.b) (#return",
+            "(#forget a.b) (#forget a.b) (#return",
+        );
+        assert!(check_types(&parse_program(&duplicate).unwrap()).is_err());
+    }
 
     #[test]
     fn values_are_linear_and_clone_is_explicit() {
