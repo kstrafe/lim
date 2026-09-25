@@ -413,6 +413,9 @@ Each item requires documentation and regression coverage before being checked.
     structure instead of recovering the parameter name from diagnostic text.
   - [x] Verify semantic errors from generated declarations retain the
     invocation span identically on cold expansion and cache hit.
+  - [x] Assert exact UI source ranges for a shadowed-name type error, a
+    reordered named-argument mismatch, a nested enum `#case` pattern mismatch,
+    imported-source errors, and a generated semantic error on a cache hit.
 
 ### Priority 3: collection ergonomics without implicit behavior
 

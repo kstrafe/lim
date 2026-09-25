@@ -222,6 +222,24 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "shadowed-name-type-error",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#block (#let value bool true) (#call needs-value (#fn-args (input value)))))",
+            line_number: 4,
+        },
+        Case {
+            name: "reordered-named-argument-error",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#call combine (#fn-args (right 1u64) (left 2u64))))",
+            line_number: 3,
+        },
+        Case {
+            name: "nested-case-pattern-error",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#match value (#case (Nested Ready) false) (#case Stop 0u64)))",
+            line_number: 4,
+        },
+        Case {
             name: "positional-call",
             diagnostic_code: "E4000",
             offending_line: "  (#return (add 20u64 22u64)))",
@@ -828,6 +846,9 @@ fn compilation_errors_render_the_offending_source_line() {
             "type-as-constructor" => Some("Point"),
             "aggregate-layout-overflow" => Some("(#fn main ((values (#array (#array u64 18446744073709551615) 2))) () (#return ()))"),
             "atomic-invalid-load-order" => Some("(#atomic-load (#borrow counter) #memory-release)"),
+            "shadowed-name-type-error" => Some("value"),
+            "reordered-named-argument-error" => Some("1u64"),
+            "nested-case-pattern-error" => Some("0u64"),
             "positional-call" => Some("add"),
             "generic-function" => Some("(#fn"),
             "generic-angle-call" => Some("(identity<u64> 42u64)"),
@@ -878,7 +899,8 @@ fn compilation_errors_render_the_offending_source_line() {
                     | "out-of-range-shift-count"
                     | "match-branch-mismatch"
                     | "borrow-conflict-field-name"
-                    | "borrow-conflict-callee-name"
+                | "borrow-conflict-callee-name"
+                | "shadowed-name-type-error"
             ) {
                 source_row.rfind(fragment)
             } else if matches!(
@@ -1011,4 +1033,39 @@ fn compilation_errors_render_the_offending_source_line() {
         }
         let _ = std::fs::remove_file(output);
     }
+}
+
+#[test]
+fn cached_generator_semantic_errors_keep_the_ui_hunk_on_the_invocation() {
+    let directory =
+        std::env::temp_dir().join(format!("lim-ui-generated-span-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).unwrap();
+    let source = include_str!("ui/generator-semantic-error.lim");
+    let input = directory.join("input.lim");
+    let output = directory.join("output.s");
+    std::fs::write(&input, source).unwrap();
+    for _ in 0..2 {
+        let result = Command::new(env!("CARGO_BIN_EXE_lim"))
+            .args([
+                "--emit-asm",
+                input.to_str().unwrap(),
+                output.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        let stderr = String::from_utf8(result.stderr).unwrap();
+        assert!(stderr.contains("error[E4000]"), "{stderr}");
+        assert!(stderr.contains("input.lim:2:"), "{stderr}");
+        assert!(stderr.contains("(@bad generated)"), "{stderr}");
+        let source_row = stderr
+            .lines()
+            .find(|line| line.contains("(@bad generated)"))
+            .unwrap();
+        let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+        assert_eq!(source_row.find("(@bad generated)"), underline_row.find('^'));
+        assert!(!output.exists());
+    }
+    std::fs::remove_dir_all(directory).unwrap();
 }
