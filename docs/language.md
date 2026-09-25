@@ -730,6 +730,15 @@ Aggregate projections can be updated with `#set-index`, `#set-field`, and
 (#set-payload choice Move 0 5i32)
 ```
 
+Mutable slices use a separate type and constructors: `(#slice-mut u64)`,
+`#slice-mut-of` from `(#borrow-mut array)`, `#slice-mut-idx` for exclusive
+element access, and `#slice-mut-split view at` to consume a view and produce
+two disjoint halves. The split point is a checked `usize` index and the halves
+cover `[0, at)` and `[at, len)`. Views are linear: reborrowing or splitting
+suspends the parent, which cannot be used while a derived view remains live.
+These forms are reserved syntax pending implementation and are not accepted by
+the compiler yet.
+
 Local destructuring and `#let-else` support tuples, arrays, structs, and enum
 patterns.  The `else` body must diverge, for example with `#return`,
 `#break`, or `#panic`.

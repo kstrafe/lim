@@ -426,6 +426,12 @@ Each item requires documentation and regression coverage before being checked.
   regions without callbacks, implicit copying, or lifetime annotations.
   Test writes through each half, prohibited overlapping views and parent
   access, nested reborrows, zero-sized elements, and return provenance.
+  - [x] Fix the surface contract: `#slice-mut T` is the mutable-view type,
+    `#slice-mut-of` creates one only from a mutable array reference,
+    `#slice-mut-idx` yields an exclusive element reference, and
+    `#slice-mut-split view at` consumes the view and returns a pair of
+    disjoint mutable views. Bounds are checked at runtime; the parent view is
+    unavailable after reborrow/split until the derived view is consumed.
 - [ ] Establish a safe synchronization foundation for shared allocators and
   other interior-mutable state. Send/Sync classification alone is not a
   synchronization operation. Specify a small explicit atomic API, supported
