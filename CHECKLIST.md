@@ -447,8 +447,10 @@ Each item requires documentation and regression coverage before being checked.
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated
     declarations.
-  - [ ] Preserve expansion and borrow-origin labels where applicable, and
-    verify exact rendered ranges remain stable when diagnostic wording changes.
+  - [x] Preserve user-generator expansion source and invocation provenance;
+    cold and cache-hit UI tests independently check both rendered ranges.
+  - [ ] Preserve builtin-generated code and invocation provenance, then verify
+    exact ranges remain stable when diagnostic wording changes.
   - [x] Select the generator invocation span structurally when generated
     function body syntax has no retained source nodes. The cached
     generated-error UI test asserts the invocation hunk on cold and warm

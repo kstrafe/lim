@@ -1036,7 +1036,7 @@ fn compilation_errors_render_the_offending_source_line() {
 }
 
 #[test]
-fn cached_generator_semantic_errors_keep_the_ui_hunk_on_the_invocation() {
+fn cached_generator_semantic_errors_show_generated_code_and_invocation() {
     let directory =
         std::env::temp_dir().join(format!("lim-ui-generated-span-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&directory);
@@ -1058,13 +1058,51 @@ fn cached_generator_semantic_errors_keep_the_ui_hunk_on_the_invocation() {
         let stderr = String::from_utf8(result.stderr).unwrap();
         assert!(stderr.contains("error[E4000]"), "{stderr}");
         assert!(stderr.contains("input.lim:2:"), "{stderr}");
+        assert!(
+            stderr.contains("(#fn generated () u64 (#return false))"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("generated from this invocation"),
+            "{stderr}"
+        );
         assert!(stderr.contains("(@bad generated)"), "{stderr}");
-        let source_row = stderr
+        let generated_row = stderr
+            .lines()
+            .find(|line| line.contains("#fn generated"))
+            .unwrap();
+        let generated_underline = stderr
+            .lines()
+            .find(|line| line.contains("^^^^^ here"))
+            .unwrap();
+        assert_eq!(
+            generated_row.split_once("| ").unwrap().1.find("false"),
+            generated_underline
+                .split_once("| ")
+                .unwrap()
+                .1
+                .find("^^^^^")
+        );
+        let invocation_row = stderr
             .lines()
             .find(|line| line.contains("(@bad generated)"))
             .unwrap();
-        let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-        assert_eq!(source_row.find("(@bad generated)"), underline_row.find('^'));
+        let invocation_underline = stderr
+            .lines()
+            .find(|line| line.contains("generated from this invocation"))
+            .unwrap();
+        assert_eq!(
+            invocation_row
+                .split_once("| ")
+                .unwrap()
+                .1
+                .find("(@bad generated)"),
+            invocation_underline
+                .split_once("| ")
+                .unwrap()
+                .1
+                .find("^^^^^^^^^^^^^^^^")
+        );
         assert!(!output.exists());
     }
     std::fs::remove_dir_all(directory).unwrap();

@@ -851,6 +851,7 @@ fn monomorphize_program(
         statement_expressions: program.statement_expressions.clone(),
         declaration_spans: program.declaration_spans.clone(),
         declaration_expressions: program.declaration_expressions.clone(),
+        generated_source_invocations: program.generated_source_invocations.clone(),
     })
 }
 

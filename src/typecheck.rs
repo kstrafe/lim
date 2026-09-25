@@ -406,6 +406,13 @@ fn check_types_inner(
                             .then(|| program.declaration_spans.get(&function.name).copied())
                             .flatten()
                     });
+                    if let Some(invocation) = error
+                        .span
+                        .and_then(|span| program.generated_source_invocations.get(&span.source_id))
+                    {
+                        diagnostic_labels
+                            .push((*invocation, "generated from this invocation".into()));
+                    }
                     return Err(error.message);
                 }
             }
@@ -441,6 +448,12 @@ fn check_types_inner(
                     };
                     let source = file.source.as_str();
                     *diagnostic_span = precise_type_error_span(declaration, &error, source);
+                    if let Some(invocation) = diagnostic_span
+                        .and_then(|span| program.generated_source_invocations.get(&span.source_id))
+                    {
+                        diagnostic_labels
+                            .push((*invocation, "generated from this invocation".into()));
+                    }
                     error
                 })?;
             }

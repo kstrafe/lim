@@ -1542,6 +1542,7 @@ pub struct Program {
     pub(crate) statement_expressions: HashMap<(String, usize), SpannedExpr>,
     pub(crate) declaration_spans: HashMap<String, Span>,
     pub(crate) declaration_expressions: HashMap<String, SpannedExpr>,
+    pub(crate) generated_source_invocations: HashMap<u32, Span>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2559,7 +2560,7 @@ fn parse_program_in_directory(
     config: &CompileConfig,
     cache_directory: Option<&Path>,
 ) -> Result<Program, String> {
-    let (loaded, source_files) = load_imports_with_sources(source, base, source_path, config)?;
+    let (loaded, mut source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&loaded, config);
     let expressions = expand_cfg_forms(
         generator::expand_with_generated_cached_with_context(
@@ -2577,6 +2578,7 @@ fn parse_program_in_directory(
     let mut statement_expressions = HashMap::new();
     let mut declaration_spans = HashMap::new();
     let mut declaration_expressions = HashMap::new();
+    let mut generated_source_invocations = HashMap::new();
     for mut expression in expressions {
         validate_prefixed_forms(&expression.expr).map_err(|error| {
             attach_span_to_source_error_kind(error, expression.span, &source_files, "parse error: ")
@@ -2584,12 +2586,48 @@ fn parse_program_in_directory(
         normalize_match_case_forms(&mut expression).map_err(|(error, span)| {
             attach_span_to_source_error_kind(error, span, &source_files, "parse error: ")
         })?;
+        let form_span = expression.span;
+        let invocation_text = source_files
+            .get(form_span.source_id as usize)
+            .and_then(|file| file.source.get(form_span.start..form_span.end))
+            .unwrap_or("")
+            .trim_start();
+        let is_generated_output = expression.children.is_empty()
+            && invocation_text.starts_with("(@")
+            && !matches!(
+                &expression.expr,
+                Expr::List(forms) if matches!(forms.first(), Some(Expr::At))
+            );
+        if is_generated_output {
+            let generated_text = expression_source(&expression.expr)?;
+            let source_id = u32::try_from(source_files.len())
+                .map_err(|_| "too many source files while tracking generator output".to_owned())?;
+            let mut parsed = parse(&generated_text)?;
+            if parsed.len() != 1 {
+                return Err("generator output did not parse as exactly one source form".into());
+            }
+            let mut generated_expression = parsed.remove(0);
+            set_source_id(&mut generated_expression, source_id);
+            source_files.push(SourceFile {
+                path: PathBuf::from(format!(
+                    "<generated from {}:{}:{}>",
+                    source_files.get(form_span.source_id as usize).map_or_else(
+                        || "<source>".to_owned(),
+                        |file| file.path.display().to_string()
+                    ),
+                    form_span.line,
+                    form_span.column
+                )),
+                source: generated_text,
+            });
+            generated_source_invocations.insert(source_id, form_span);
+            expression = generated_expression;
+        }
         collect_function_statement_spans(
             &expression,
             &mut statement_spans,
             &mut statement_expressions,
         );
-        let form_span = expression.span;
         let source_expression = expression.clone();
         let mut expression = normalize_keywords(expression.expr);
         normalize_match_cases_expr(&mut expression);
@@ -2665,6 +2703,7 @@ fn parse_program_in_directory(
         statement_expressions,
         declaration_spans,
         declaration_expressions,
+        generated_source_invocations,
     })
 }
 
@@ -8664,7 +8703,7 @@ mod tests {
     }
 
     #[test]
-    fn cached_generator_semantic_errors_keep_the_invocation_span() {
+    fn cached_generator_semantic_errors_keep_generated_and_invocation_spans() {
         let directory = std::env::temp_dir().join(format!(
             "lim-cached-generator-diagnostic-{}",
             std::process::id()
@@ -8693,11 +8732,24 @@ mod tests {
         let invocation_start = source.find("(@bad generated)").unwrap();
         assert!(first.span.is_some(), "{first:?}");
         assert_eq!(first.span, second.span);
-        assert_eq!(first.span.unwrap().start, invocation_start);
+        let generated_span = first.span.unwrap();
         assert_eq!(
-            first.span.unwrap().end,
+            &first.source_text.as_deref().unwrap()[generated_span.start..generated_span.end],
+            "false"
+        );
+        assert_eq!(first.labels.len(), 1);
+        let invocation = &first.labels[0];
+        assert_eq!(invocation.span.start, invocation_start);
+        assert_eq!(
+            invocation.span.end,
             invocation_start + "(@bad generated)".len()
         );
+        assert_eq!(
+            &invocation.source_text.as_deref().unwrap()[invocation.span.start..invocation.span.end],
+            "(@bad generated)"
+        );
+        assert_eq!(first.span, second.span);
+        assert_eq!(first.labels, second.labels);
         assert!(!assembly.exists());
         std::fs::remove_dir_all(directory).unwrap();
     }
