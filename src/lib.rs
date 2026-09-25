@@ -1839,35 +1839,6 @@ fn analysis_diagnostic(
             });
         }
     }
-    let span_marker = if message.contains("conflicting span ") {
-        "conflicting span "
-    } else {
-        "source span "
-    };
-    if diagnostic.span.is_none() {
-        if let Some((start, end)) = span_after(&message, span_marker) {
-            let source_id = source_id_after(&message, span_marker).unwrap_or(0);
-            if let Some(file) = program.source_files.get(source_id as usize) {
-                if start <= end && file.source.get(start..end).is_some() {
-                    let prefix = &file.source[..start];
-                    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
-                    let column = prefix
-                        .rsplit('\n')
-                        .next()
-                        .map_or(1, |line| line.chars().count() + 1);
-                    diagnostic.span = Some(Span {
-                        start,
-                        end,
-                        line,
-                        column,
-                        source_id,
-                    });
-                    diagnostic = diagnostic
-                        .with_source(file.path.display().to_string(), file.source.clone());
-                }
-            }
-        }
-    }
     if diagnostic.span.is_none() {
         if let Some(span) = unlocated_analysis_span(program, &message) {
             if let Some(file) = program.source_files.get(span.source_id as usize) {
@@ -8673,9 +8644,9 @@ mod tests {
         let root_path = directory.join("root.lim");
         let root_source = "(#import \"module.lim\") (#fn main () u64 (#return 0u64))";
         let program = parse_program_from_path(root_source, &root_path).unwrap();
-        let error = check_types(&program).unwrap_err();
-        let diagnostic =
-            analysis_diagnostic(error, DiagnosticCode::Type, None, Vec::new(), &program);
+        let (message, code, span, labels) = typecheck::check_types_with_span(&program).unwrap_err();
+        assert!(!message.contains("source span "));
+        let diagnostic = analysis_diagnostic(message, code, span, labels, &program);
         let span = diagnostic.span.unwrap();
         assert_eq!(span.source_id, 1);
         assert_eq!(

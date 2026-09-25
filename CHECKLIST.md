@@ -435,6 +435,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Carry a structured semantic diagnostic category into CLI construction;
     `analysis_diagnostic` consumes that category directly instead of
     classifying errors by searching message text.
+  - [x] Stop decoding serialized span markers in `analysis_diagnostic`; the
+    CLI now consumes checker-provided spans or retained syntax provenance.
+    Imported-source and generated-code UI tests pin their rendered locations.
   - [ ] Assign the borrow category at the specific type-check rejection site
     for illegal `#borrow-mut` through immutable references; remove the current
     message comparison when constructing the function-level type error.
