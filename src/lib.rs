@@ -9,6 +9,7 @@ use std::{
 
 mod borrowcheck;
 mod codegen;
+mod diagnostic_json;
 mod generator;
 mod linearcheck;
 mod output;
@@ -18,6 +19,7 @@ mod unsafecheck;
 
 pub use codegen::generate_assembly;
 pub use codegen::generate_assembly_for_target;
+pub use diagnostic_json::render_diagnostic_json;
 pub use output::{reject_source_output_collision, write_output_atomic};
 pub use stack_usage::stack_usage_report;
 pub use typecheck::{check_types, type_has_thread_property, CheckedProgram};
@@ -107,6 +109,7 @@ pub enum DiagnosticCode {
     Unsafe = 4300,
     Codegen = 5000,
     Link = 6000,
+    Cli = 7000,
 }
 
 /// Structured diagnostic data for editor and tooling integrations.
@@ -116,6 +119,7 @@ pub struct Diagnostic {
     pub message: String,
     pub span: Option<Span>,
     pub labels: Vec<DiagnosticLabel>,
+    pub expansion_provenance: Vec<DiagnosticLabel>,
     pub notes: Vec<String>,
     pub source_name: Option<String>,
     pub source_text: Option<String>,
@@ -136,6 +140,7 @@ impl Diagnostic {
             message: message.into(),
             span: None,
             labels: Vec::new(),
+            expansion_provenance: Vec::new(),
             notes: Vec::new(),
             source_name: None,
             source_text: None,
@@ -1814,6 +1819,25 @@ fn analysis_diagnostic(
             });
         }
     }
+    let mut origin = structured_span;
+    let mut seen = HashSet::new();
+    while let Some(invocation) = origin
+        .and_then(|span| program.generated_source_invocations.get(&span.source_id))
+        .copied()
+    {
+        if !seen.insert(invocation.source_id) {
+            break;
+        }
+        if let Some(file) = program.source_files.get(invocation.source_id as usize) {
+            diagnostic.expansion_provenance.push(DiagnosticLabel {
+                message: "generated from this invocation".into(),
+                span: invocation,
+                source_name: Some(file.path.display().to_string()),
+                source_text: Some(file.source.clone()),
+            });
+        }
+        origin = Some(invocation);
+    }
     diagnostic
 }
 
@@ -2133,18 +2157,20 @@ pub fn link_native_binary(
             .arg(&assembly_path)
             .arg("-o")
             .arg(&object_path)
-            .status()
+            .output()
             .map_err(|error| {
                 Diagnostic::new(
                     DiagnosticCode::Link,
                     format!("could not run assembler: {error}"),
                 )
             })?;
-        if !assemble.success() {
+        if !assemble.status.success() {
             return Err(Diagnostic::new(
                 DiagnosticCode::Link,
-                format!("assembler failed with status {assemble}"),
-            ));
+                format!("assembler failed with status {}", assemble.status),
+            )
+            .note(String::from_utf8_lossy(&assemble.stderr).into_owned())
+            .note(String::from_utf8_lossy(&assemble.stdout).into_owned()));
         }
         let dynamic_linker = native_dynamic_linker();
         let mut linker = Command::new("ld");
@@ -2163,17 +2189,19 @@ pub fn link_native_binary(
         for library in libraries {
             linker.arg(format!("-l{library}"));
         }
-        let status = linker.status().map_err(|error| {
+        let status = linker.output().map_err(|error| {
             Diagnostic::new(
                 DiagnosticCode::Link,
                 format!("could not run linker: {error}"),
             )
         })?;
-        if !status.success() {
+        if !status.status.success() {
             return Err(Diagnostic::new(
                 DiagnosticCode::Link,
-                format!("linker failed with status {status}"),
-            ));
+                format!("linker failed with status {}", status.status),
+            )
+            .note(String::from_utf8_lossy(&status.stderr).into_owned())
+            .note(String::from_utf8_lossy(&status.stdout).into_owned()));
         }
         fs::rename(&staged_output, output).map_err(|error| {
             Diagnostic::new(

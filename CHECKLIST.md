@@ -710,7 +710,7 @@ and acceptance coverage.
   positive examples compile through the backend, selected programs run with
   expected results, and negative examples assert their intended diagnostic.
 
-- [ ] **TOOL-01: Offer structured diagnostic output for editors and LLMs.**
+- [x] **TOOL-01: Offer structured diagnostic output for editors and LLMs.**
   Add an opt-in JSON diagnostic mode with a versioned schema, stable category,
   message, source path, byte range, primary/secondary labels, and expansion
   provenance. Specify the relationship between byte offsets and display columns.

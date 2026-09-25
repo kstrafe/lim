@@ -46,6 +46,8 @@ nix develop --command cargo run -- --check-examples examples
 Compile-time configuration is passed with `--cfg key=value`; use
 `--collect-cfgs` to list configuration keys used by a source file and its
 imports. See `cargo run -- --help` for the CLI options.
+Editors can request `--diagnostic-format=json`; the versioned schema is
+described in [docs/diagnostics.md](docs/diagnostics.md).
 
 Run `nix develop --command bash scripts/native-sweep.sh` to compile and run
 every example against `examples/outcomes.txt`. Each entry declares an exact

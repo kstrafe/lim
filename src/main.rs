@@ -4,8 +4,32 @@ use std::{
     process::ExitCode,
 };
 
+static JSON_DIAGNOSTICS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn emit_diagnostic(diagnostic: &lim::Diagnostic, source: &str, filename: &str) {
+    if JSON_DIAGNOSTICS.load(std::sync::atomic::Ordering::Relaxed) {
+        std::eprintln!("{}", lim::render_diagnostic_json(diagnostic, filename));
+    } else {
+        std::eprintln!("{}", lim::render_diagnostic(diagnostic, source, filename));
+    }
+}
+
+// Non-source CLI failures must use the same stream format as source failures.
+macro_rules! eprintln {
+    ($($argument:tt)*) => {{
+        if JSON_DIAGNOSTICS.load(std::sync::atomic::Ordering::Relaxed) {
+            emit_diagnostic(&lim::Diagnostic::new(lim::DiagnosticCode::Cli, format!($($argument)*)), "", "");
+        } else { std::eprintln!($($argument)*); }
+    }};
+}
+
 fn main() -> ExitCode {
-    let arguments: Vec<String> = env::args().skip(1).collect();
+    let mut arguments: Vec<String> = env::args().skip(1).collect();
+    let json = arguments
+        .iter()
+        .any(|arg| arg == "--diagnostic-format=json");
+    JSON_DIAGNOSTICS.store(json, std::sync::atomic::Ordering::Relaxed);
+    arguments.retain(|arg| arg != "--diagnostic-format=json" && arg != "--diagnostic-format=human");
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
         println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]...\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         return ExitCode::SUCCESS;
@@ -270,20 +294,14 @@ fn stack_usage_command(arguments: &[String]) -> ExitCode {
     if let Err(diagnostic) =
         lim::write_generated_sources_diagnostic(&source, input_file, &generated, &config, &cache)
     {
-        eprintln!(
-            "{}",
-            lim::render_diagnostic(&diagnostic, &source, input_path)
-        );
+        emit_diagnostic(&diagnostic, &source, input_path);
         return ExitCode::FAILURE;
     }
     let assembly =
         match lim::compile_source_to_assembly(&source, input_file, &config, &cache, target) {
             Ok(assembly) => assembly,
             Err(diagnostic) => {
-                eprintln!(
-                    "{}",
-                    lim::render_diagnostic(&diagnostic, &source, input_path)
-                );
+                emit_diagnostic(&diagnostic, &source, input_path);
                 return ExitCode::FAILURE;
             }
         };
@@ -579,10 +597,7 @@ fn compile_with_links(
         config,
         &generator_cache_directory,
     ) {
-        eprintln!(
-            "{}",
-            lim::render_diagnostic(&diagnostic, &input, input_path)
-        );
+        emit_diagnostic(&diagnostic, &input, input_path);
         return ExitCode::FAILURE;
     }
     let assembly = match lim::compile_source_to_assembly_for_output(
@@ -595,10 +610,7 @@ fn compile_with_links(
     ) {
         Ok(assembly) => assembly,
         Err(diagnostic) => {
-            eprintln!(
-                "{}",
-                lim::render_diagnostic(&diagnostic, &input, input_path)
-            );
+            emit_diagnostic(&diagnostic, &input, input_path);
             return ExitCode::FAILURE;
         }
     };
@@ -622,10 +634,7 @@ fn compile_with_links(
     ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(diagnostic) => {
-            eprintln!(
-                "{}",
-                lim::render_diagnostic(&diagnostic, &input, input_path)
-            );
+            emit_diagnostic(&diagnostic, &input, input_path);
             ExitCode::FAILURE
         }
     }
