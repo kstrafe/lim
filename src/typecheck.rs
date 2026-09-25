@@ -557,7 +557,7 @@ fn check_types_inner(
             }
         }
     }
-    check_thread_task_ownership(program, &aliases)?;
+    check_thread_task_ownership(program, &aliases, diagnostic_span, diagnostic_labels)?;
     *diagnostic_code = crate::DiagnosticCode::Linear;
     crate::linearcheck::check_program_with_span(program).map_err(|(message, span)| {
         *diagnostic_span = span;
@@ -580,6 +580,8 @@ fn check_types_inner(
 fn check_thread_task_ownership(
     program: &Program,
     aliases: &HashMap<String, Type>,
+    diagnostic_span: &mut Option<crate::Span>,
+    diagnostic_labels: &mut Vec<(crate::Span, String)>,
 ) -> Result<(), String> {
     let tasks = program
         .items
@@ -626,6 +628,8 @@ fn check_thread_task_ownership(
                         &enum_fields,
                         &mut HashSet::new(),
                     ) {
+                        *diagnostic_span = task_type_in_declaration_span(program, name, &tasks);
+                        record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                         return Err(format!(
                             "thread task handles cannot be stored in struct '{name}'"
                         ));
@@ -643,6 +647,8 @@ fn check_thread_task_ownership(
                     })
                 {
                     if !task_result_enums.contains(name) {
+                        *diagnostic_span = task_type_in_declaration_span(program, name, &tasks);
+                        record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                         return Err(format!(
                             "thread task handles cannot be stored in enum '{name}'"
                         ));
@@ -656,6 +662,8 @@ fn check_thread_task_ownership(
                     &enum_fields,
                     &mut HashSet::new(),
                 ) {
+                    *diagnostic_span = task_type_in_declaration_span(program, name, &tasks);
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     return Err(format!(
                         "type alias '{name}' cannot contain a thread task handle"
                     ));
@@ -668,6 +676,8 @@ fn check_thread_task_ownership(
                     &enum_fields,
                     &mut HashSet::new(),
                 ) {
+                    *diagnostic_span = task_type_in_declaration_span(program, name, &tasks);
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     return Err(format!(
                         "global '{name}' cannot contain a thread task handle"
                     ));
@@ -684,6 +694,9 @@ fn check_thread_task_ownership(
                     &enum_fields,
                     &mut HashSet::new(),
                 ) {
+                    *diagnostic_span =
+                        task_type_in_declaration_span(program, &function.name, &tasks);
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     return Err(format!(
                         "function '{}' cannot accept, return, or retain a thread task handle",
                         function.name
@@ -2836,6 +2849,17 @@ fn unsafe_impl_type_span(program: &Program, type_name: &str) -> Option<crate::Sp
         .declaration_expressions
         .get(&format!("$unsafe-impl:{type_name}"))
         .and_then(|expression| first_symbol_span(expression, type_name))
+}
+
+fn task_type_in_declaration_span(
+    program: &Program,
+    declaration: &str,
+    tasks: &HashMap<String, String>,
+) -> Option<crate::Span> {
+    let expression = program.declaration_expressions.get(declaration)?;
+    tasks
+        .keys()
+        .find_map(|task| first_symbol_span(expression, task))
 }
 
 fn first_unresolved_type<'a>(

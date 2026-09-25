@@ -473,6 +473,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Carry duplicate/invalid unsafe auto-trait implementation diagnostics
     from type validation with the implementation's type-name span, and remove
     their message-based fallback; tests pin the repeated implementation name.
+  - [x] Carry thread-task-handle rejection spans from aggregate, alias, global,
+    and function validation; remove those dedicated message-recovery branches
+    and retain generated-invocation provenance. UI coverage remains green.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated

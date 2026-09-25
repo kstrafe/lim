@@ -1865,16 +1865,6 @@ fn analysis_diagnostic(
 }
 
 fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
-    fn symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span> {
-        if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
-            return Some(expression.span);
-        }
-        expression
-            .children
-            .iter()
-            .find_map(|child| symbol_span(child, name))
-    }
-
     fn declared_name_span(expression: &SpannedExpr, name: &str) -> Option<Span> {
         if let Some(child) = expression.children.get(1) {
             if matches!(&child.expr, Expr::Symbol(source_name) if source_name == name) {
@@ -1882,69 +1872,6 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
             }
         }
         None
-    }
-
-    fn task_type_span(expression: &SpannedExpr, program: &Program) -> Option<Span> {
-        for item in &program.items {
-            if let Item::ThreadTask { name, .. } = item {
-                if let Some(span) = symbol_span(expression, name) {
-                    return Some(span);
-                }
-            }
-        }
-        None
-    }
-
-    for aggregate_kind in ["struct", "enum"] {
-        let marker = format!("thread task handles cannot be stored in {aggregate_kind} '");
-        if let Some(aggregate_name) = message
-            .strip_prefix(&marker)
-            .and_then(|rest| rest.split('\'').next())
-        {
-            let task_names = program.items.iter().filter_map(|item| match item {
-                Item::ThreadTask { name, .. } => Some(name.as_str()),
-                _ => None,
-            });
-            if let Some(span) = program
-                .declaration_expressions
-                .get(aggregate_name)
-                .and_then(|expression| {
-                    task_names
-                        .into_iter()
-                        .find_map(|task_name| symbol_span(expression, task_name))
-                })
-            {
-                return Some(span);
-            }
-        }
-    }
-
-    if let Some(alias_name) = message
-        .strip_prefix("type alias '")
-        .and_then(|rest| rest.split('\'').next())
-        .filter(|_| message.contains("cannot contain a thread task handle"))
-    {
-        if let Some(span) = program
-            .declaration_expressions
-            .get(alias_name)
-            .and_then(|expression| task_type_span(expression, program))
-        {
-            return Some(span);
-        }
-    }
-
-    if let Some(function_name) = message
-        .strip_prefix("function '")
-        .and_then(|rest| rest.split('\'').next())
-        .filter(|_| message.contains("cannot accept, return, or retain a thread task handle"))
-    {
-        if let Some(span) = program
-            .declaration_expressions
-            .get(function_name)
-            .and_then(|expression| task_type_span(expression, program))
-        {
-            return Some(span);
-        }
     }
 
     if let Some(function_marker) = message.find("function '") {
