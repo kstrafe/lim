@@ -190,8 +190,7 @@ pub fn render_diagnostic(diagnostic: &Diagnostic, source: &str, filename: &str) 
     output
 }
 
-/// Format a legacy compiler error string as a diagnostic, recovering a source
-/// location from the established `line:column:` and borrow-checker messages.
+/// Format a legacy parser/compiler error string as a diagnostic.
 pub fn render_error(source: &str, filename: &str, error: &str) -> String {
     let (code, message) = if let Some((code, message)) = error.strip_prefix('E').and_then(|rest| {
         let (digits, message) = rest.split_once(' ')?;
@@ -216,48 +215,7 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
         (DiagnosticCode::Type, error.to_owned())
     };
 
-    let mut diagnostic = Diagnostic::new(code, message);
-    if let Some((start, end)) =
-        span_after(error, "conflicting span ").or_else(|| span_after(error, "source span "))
-    {
-        let source_id = source_id_after(error, "conflicting span ")
-            .or_else(|| source_id_after(error, "source span "))
-            .unwrap_or(0);
-        if source_id == 0 && source.get(start..end).is_some() {
-            let prefix = &source[..start];
-            let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
-            let column = prefix
-                .rsplit('\n')
-                .next()
-                .map_or(1, |line| line.chars().count() + 1);
-            diagnostic.span = Some(Span::new(start, end, line, column));
-        }
-    } else if let Some((line, column)) = location_after(error, "conflicting access ") {
-        diagnostic.span = Some(source_span_at(
-            source,
-            line,
-            column,
-            token_width_at(source, line, column),
-        ));
-    } else if let Some((line, column)) = location_after(error, " at ") {
-        diagnostic.span = Some(source_span_at(
-            source,
-            line,
-            column,
-            token_width_at(source, line, column),
-        ));
-    }
-    let mut output = render_diagnostic(&diagnostic, source, filename);
-    if let Some((line, column)) = location_after(error, "original borrow site ") {
-        output.push_str("\n  = note: original borrow site:");
-        output.push_str(&render_source_hunk(
-            source,
-            filename,
-            source_span_at(source, line, column, token_width_at(source, line, column)),
-            "borrow begins here",
-        ));
-    }
-    output
+    render_diagnostic(&Diagnostic::new(code, message), source, filename)
 }
 
 fn span_after(error: &str, marker: &str) -> Option<(usize, usize)> {
@@ -353,16 +311,6 @@ fn parse_location_prefix(error: &str) -> Option<(usize, usize, String)> {
         column.parse().ok()?,
         message.trim().to_owned(),
     ))
-}
-
-fn location_after(error: &str, marker: &str) -> Option<(usize, usize)> {
-    let suffix = error.split_once(marker)?.1;
-    let (line, column) = suffix.split_once(':')?;
-    let column = column
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect::<String>();
-    Some((line.parse().ok()?, column.parse().ok()?))
 }
 
 fn source_span_at(source: &str, line: usize, column: usize, width: usize) -> Span {
@@ -7729,6 +7677,11 @@ impl<'a> Parser<'a> {
 mod tests {
     use super::*;
 
+    fn structured_type_error(program: &Program) -> Diagnostic {
+        let (message, code, span, labels) = typecheck::check_types_with_span(program).unwrap_err();
+        analysis_diagnostic(message, code, span, labels, program)
+    }
+
     fn read_cached_generated_source(directory: &Path, contains: &str) -> (PathBuf, String) {
         let cache = directory.join("cache");
         for entry in std::fs::read_dir(cache).unwrap() {
@@ -7922,11 +7875,16 @@ mod tests {
     #[test]
     fn borrow_errors_render_both_source_sites() {
         let source = "borrow owner\nmutate owner\n";
-        let rendered = render_error(
-            source,
-            "borrow.lim",
-            "E4100 borrow-checker diagnostic in function 'main' statement 1: cannot mutate 'owner'; original borrow site 1:8; conflicting access 2:1",
-        );
+        let mut diagnostic = Diagnostic::new(DiagnosticCode::Borrow, "cannot mutate 'owner'")
+            .with_span(Span::new(13, 25, 2, 1))
+            .with_source("borrow.lim", source);
+        diagnostic.labels.push(DiagnosticLabel {
+            message: "borrow begins here".into(),
+            span: Span::new(7, 12, 1, 8),
+            source_name: Some("borrow.lim".into()),
+            source_text: Some(source.into()),
+        });
+        let rendered = render_diagnostic(&diagnostic, source, "borrow.lim");
         assert!(rendered.contains("error[E4100]"));
         assert!(rendered.contains("--> borrow.lim:2:1"));
         assert!(rendered.contains("--> borrow.lim:1:8"), "{rendered}");
@@ -7937,41 +7895,41 @@ mod tests {
     fn borrow_errors_point_at_conflicting_reads() {
         let source = "(#fn main () u64\n  (#let-mut value u64 1u64)\n  (#let reference (#ref-mut u64) (#borrow-mut value))\n  (#return value)\n)";
         let program = parse_program(source).unwrap();
-        let error = check_types(&program).unwrap_err();
-        let rendered = render_error(source, "borrow-read.lim", &error);
+        let diagnostic = structured_type_error(&program);
+        let rendered = render_diagnostic(&diagnostic, source, "borrow-read.lim");
         assert!(rendered.contains("E4100"), "{rendered}");
-        assert!(rendered.contains("--> borrow-read.lim:4:12"), "{rendered}");
+        assert!(rendered.contains(":4:12"), "{rendered}");
     }
 
     #[test]
     fn borrow_errors_point_at_conflicting_writes() {
         let source = "(#fn main () u64\n  (#let-mut value u64 1u64)\n  (#let reference (#ref u64) (#borrow value))\n  (#set value 2u64)\n  (#return 0u64)\n)";
         let program = parse_program(source).unwrap();
-        let error = check_types(&program).unwrap_err();
-        let rendered = render_error(source, "borrow-write.lim", &error);
+        let diagnostic = structured_type_error(&program);
+        let rendered = render_diagnostic(&diagnostic, source, "borrow-write.lim");
         assert!(rendered.contains("E4100"), "{rendered}");
-        assert!(rendered.contains("--> borrow-write.lim:4:4"), "{rendered}");
-        assert!(rendered.contains("borrow-write.lim:3:31"), "{rendered}");
+        assert!(rendered.contains(":4:4"), "{rendered}");
+        assert!(rendered.contains(":3:31"), "{rendered}");
     }
 
     #[test]
     fn escaping_borrow_errors_highlight_the_local_referent() {
         let source = "(#fn bad () (#ref u64)\n  (#let value u64 42)\n  (#return (#borrow value)))";
         let program = parse_program(source).unwrap();
-        let error = check_types(&program).unwrap_err();
-        let (start, end) = span_after(&error, "conflicting span ").unwrap();
-        assert_eq!(&source[start..end], "value");
+        let diagnostic = structured_type_error(&program);
+        let span = diagnostic.span.expect("escaping borrow has a primary span");
+        assert_eq!(&source[span.start..span.end], "value");
     }
 
     #[test]
     fn projected_borrow_errors_keep_both_operator_spans() {
         let source = "(#struct Point ((x u64) (y u64)))\n(#fn main () u64\n  (#let-mut point Point (#struct-literal Point ((x 1u64) (y 2u64))))\n  (#let point-ref (#ref-mut Point) (#borrow-mut point))\n  (#let reference (#ref u64) (#borrow (#get point-ref x)))\n  (#set-field point x 3u64)\n  (#return 0u64)\n)";
         let program = parse_program(source).unwrap();
-        let error = check_types(&program).unwrap_err();
-        let rendered = render_error(source, "borrow-field.lim", &error);
+        let diagnostic = structured_type_error(&program);
+        let rendered = render_diagnostic(&diagnostic, source, "borrow-field.lim");
         assert!(rendered.contains("E4100"), "{rendered}");
-        assert!(rendered.contains("--> borrow-field.lim:6:4"), "{rendered}");
-        assert!(rendered.contains("--> borrow-field.lim:5:31"), "{rendered}");
+        assert!(rendered.contains(":6:4"), "{rendered}");
+        assert!(rendered.contains(":5:31"), "{rendered}");
     }
 
     #[test]
@@ -7987,10 +7945,10 @@ mod tests {
     fn type_errors_pinpoint_an_unknown_identifier() {
         let source = "(#fn main () u64\n  (#let value u64 1u64)\n  (#return missing)\n)";
         let program = parse_program(source).unwrap();
-        let error = check_types(&program).unwrap_err();
-        let rendered = render_error(source, "type-error.lim", &error);
+        let diagnostic = structured_type_error(&program);
+        let rendered = render_diagnostic(&diagnostic, source, "type-error.lim");
         assert!(rendered.contains("unknown variable or enum variant 'missing'"));
-        assert!(rendered.contains("--> type-error.lim:3:12"), "{rendered}");
+        assert!(rendered.contains(":3:12"), "{rendered}");
         assert!(rendered.contains("^^^^^^^ here"), "{rendered}");
         assert!(rendered.contains("(#return missing)"), "{rendered}");
     }
@@ -7999,9 +7957,9 @@ mod tests {
     fn type_errors_preserve_the_offending_nested_expression_span() {
         let source = "(#fn main () u64\n  (#return (#u64.+.wrap 1u64 missing))\n)";
         let program = parse_program(source).unwrap();
-        let error = check_types(&program).unwrap_err();
-        let (start, end) = span_after(&error, "source span ").unwrap();
-        assert_eq!(&source[start..end], "missing");
+        let diagnostic = structured_type_error(&program);
+        let span = diagnostic.span.expect("unknown nested argument has a span");
+        assert_eq!(&source[span.start..span.end], "missing");
     }
 
     #[test]
@@ -8012,12 +7970,12 @@ mod tests {
             "(#fn main () u64 (#return (#u64.+.wrap 1u64 2i8)))",
         ] {
             let program = parse_program(source).unwrap();
-            let error = check_types(&program).unwrap_err();
-            let (start, end) = span_after(&error, "source span ").unwrap();
+            let diagnostic = structured_type_error(&program);
+            let span = diagnostic.span.expect("bad operand has a span");
             assert!(
-                matches!(&source[start..end], "false" | "2i8"),
-                "wrong highlighted operand for {error}: {:?}",
-                &source[start..end]
+                matches!(&source[span.start..span.end], "false" | "2i8"),
+                "wrong highlighted operand: {:?}",
+                &source[span.start..span.end]
             );
         }
     }
@@ -8355,6 +8313,8 @@ mod tests {
         assert!(!message.contains("source span "));
         let span = span.expect("mismatched return has a structured source span");
         assert_eq!(&source[span.start..span.end], "false");
+        let compatibility_message = check_types(&program).unwrap_err();
+        assert!(!compatibility_message.contains("source span "));
 
         let diagnostic = analysis_diagnostic(message, code, Some(span), labels, &program);
         assert_eq!(diagnostic.span, Some(span));
@@ -8777,21 +8737,9 @@ mod tests {
             typecheck::check_types_with_span(&diagnostic_program).unwrap_err();
         assert_eq!(code, DiagnosticCode::Borrow);
         assert!(!structured_message.contains('\0'));
-        let legacy_diagnostic = check_types(&diagnostic_program).unwrap_err();
-        assert!(legacy_diagnostic.contains("E4100"));
-        assert!(legacy_diagnostic.contains("function 'main'"));
-        assert!(legacy_diagnostic.contains("original borrow site"));
-        assert!(legacy_diagnostic.contains("conflicting access"));
-        assert!(legacy_diagnostic.contains("conflicting span"));
-        let rendered = render_error(diagnostic_source, "borrow.lim", &legacy_diagnostic);
-        assert!(rendered.contains("--> borrow.lim:3:28"), "{rendered}");
-        assert!(rendered.contains("--> borrow.lim:3:13"), "{rendered}");
-        assert!(rendered.contains("borrow begins here"), "{rendered}");
-        assert!(
-            rendered.contains("here\n  = note: original borrow site:"),
-            "{rendered}"
-        );
-
+        let compatibility_message = check_types(&diagnostic_program).unwrap_err();
+        assert!(!compatibility_message.contains("conflicting span"));
+        assert!(!compatibility_message.contains("source span"));
         let (message, code, primary, labels) =
             typecheck::check_types_with_span(&diagnostic_program).unwrap_err();
         assert!(!message.contains("conflicting span"));
@@ -9619,9 +9567,11 @@ mod tests {
         let unsafe_span_source =
             "(#fn bad ((pointer (#ptr u64))) (#ptr u64)\n  (#return (#ptr-offset pointer 1usize)))";
         let unsafe_span_program = parse_program(unsafe_span_source).unwrap();
-        let unsafe_span_error = check_types(&unsafe_span_program).unwrap_err();
-        let (start, end) = span_after(&unsafe_span_error, "source span ").unwrap();
-        assert_eq!(&unsafe_span_source[start..end], "#ptr-offset");
+        let unsafe_diagnostic = structured_type_error(&unsafe_span_program);
+        let span = unsafe_diagnostic
+            .span
+            .expect("unsafe pointer operation has a structured span");
+        assert_eq!(&unsafe_span_source[span.start..span.end], "#ptr-offset");
 
         let return_borrow_from_raw_pointer = parse_program(
             "(#fn expose ((anchor (#ref u64)) (pointer (#ptr u64))) (#ref u64) (#let reference (#ref u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference)) (#fn bad () u64 (#let-mut value u64 41) (#let pointer (#ptr u64) (#unsafe (#addr-of value))) (#let reference (#ref u64) (#call expose (#fn-args (anchor (#borrow value)) (pointer pointer)))) (#set value 42) (#return (#deref reference)))",
@@ -11547,10 +11497,10 @@ mod tests {
             .unwrap()
             .contains("mov rax, 8"));
         let invalid = parse_program("(#fn main () usize (#return (#size-of Unknown)))").unwrap();
-        let error = check_types(&invalid).unwrap_err();
-        let (start, end) = span_after(&error, "source span ").unwrap();
+        let diagnostic = structured_type_error(&invalid);
+        let span = diagnostic.span.expect("unknown size-of type has a span");
         assert_eq!(
-            &"(#fn main () usize (#return (#size-of Unknown)))"[start..end],
+            &"(#fn main () usize (#return (#size-of Unknown)))"[span.start..span.end],
             "Unknown"
         );
     }

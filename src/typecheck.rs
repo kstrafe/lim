@@ -23,31 +23,7 @@ struct Signature {
 }
 
 pub fn check_types(program: &Program) -> Result<(), String> {
-    check_types_with_span(program).map_err(|(message, _, span, labels)| {
-        let mut error = span.map_or(message.clone(), |span| {
-            format!(
-                "{message}; source span {}:{}:{}",
-                span.source_id, span.start, span.end
-            )
-        });
-        if let Some((origin, _)) = labels.first() {
-            error.push_str(&format!(
-                "; original borrow site {}:{}",
-                origin.line, origin.column
-            ));
-            if let Some(conflict) = span {
-                error.push_str(&format!(
-                    "; conflicting access {}:{}",
-                    conflict.line, conflict.column
-                ));
-                error.push_str(&format!(
-                    "; conflicting span {}:{}:{}",
-                    conflict.source_id, conflict.start, conflict.end
-                ));
-            }
-        }
-        error
-    })
+    check_types_with_span(program).map_err(|(message, _, _, _)| message)
 }
 
 pub(crate) fn check_types_with_span(

@@ -401,7 +401,7 @@ Each item requires documentation and regression coverage before being checked.
   Use the effective compilation target/configuration rather than assuming host
   settings. Test builtin and user-generator hits, helper-only changes, cfg
   changes, and identical reproducible builds without timestamps or local paths.
-- [ ] Carry diagnostic identity and exact spans through semantic lowering.
+- [x] Carry diagnostic identity and exact spans through semantic lowering.
   Replace message-text/name-based span recovery in `src/lib.rs` incrementally
   with node IDs, structured error variants, and retained source ranges.
   Preserve expansion provenance so errors can label both the generated code
@@ -416,9 +416,12 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Assert exact UI source ranges for a shadowed-name type error, a
     reordered named-argument mismatch, a nested enum `#case` pattern mismatch,
     imported-source errors, and a generated semantic error on a cache hit.
-  - [ ] Replace `"source span …"` and `"conflicting span …"` string metadata
+  - [x] Replace `"source span …"` and `"conflicting span …"` string metadata
     with structured semantic errors carrying a stable diagnostic category,
-    source ID, and byte range from type checking through CLI rendering.
+    source ID, and byte range from type checking through CLI rendering. The
+    checker compatibility API now returns message text only; spans and borrow
+    origins stay in structured fields, with regression assertions that neither
+    marker appears in its message.
   - [x] Carry function-body and top-level-initializer type-error ranges as
     `Span` data to the CLI diagnostic constructor; retain the string-returning
     checker API as a compatibility wrapper. Unit and UI tests assert exact

@@ -1088,20 +1088,20 @@ mod tests {
     fn repeated_linear_field_move_highlights_the_repeated_projection() {
         let source = "(#struct Resource ((value (#cell u64))))\n(#struct Pair ((item Resource) (other u64)))\n(#fn main () u64\n  (#let pair Pair (#struct-literal Pair ((item (#struct-literal Resource ((value (#cell 1u64))))) (other 0u64))))\n  (#let first Resource (#get pair item))\n  (#let second Resource (#get pair item))\n  (#forget first)\n  (#forget second)\n  (#forget pair)\n  (#return 0u64))";
         let program = parse_program(source).unwrap();
-        let error = check_types(&program).unwrap_err();
+        let (error, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
         assert!(error.contains("linear projection 'pair.item' was used more than once"));
-        let (start, end) = crate::span_after(&error, "source span ").unwrap();
-        assert_eq!(&source[start..end], "(#get pair item)");
+        let span = span.expect("repeated projection has a structured span");
+        assert_eq!(&source[span.start..span.end], "(#get pair item)");
     }
 
     #[test]
     fn repeated_linear_array_move_highlights_the_repeated_index() {
         let source = "(#fn main () u64\n  (#let values (#array (#cell u64) 2) (#array (#array (#cell u64) 2) (#cell 1u64) (#cell 2u64)))\n  (#let first (#cell u64) (#index values 0))\n  (#let second (#cell u64) (#index values 0))\n  (#forget first)\n  (#forget second)\n  (#forget values)\n  (#return 0u64))";
         let program = parse_program(source).unwrap();
-        let error = check_types(&program).unwrap_err();
+        let (error, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
         assert!(error.contains("linear projection 'values[0]' was used more than once"));
-        let (start, end) = crate::span_after(&error, "source span ").unwrap();
-        assert_eq!(&source[start..end], "(#index values 0)");
+        let span = span.expect("repeated index has a structured span");
+        assert_eq!(&source[span.start..span.end], "(#index values 0)");
     }
 
     #[test]
@@ -1127,9 +1127,9 @@ mod tests {
     fn linearity_diagnostics_point_to_the_exact_binding() {
         let source = "(#struct Resource ((value (#cell u64))))\n(#fn main () u64\n  (#let resource Resource (#struct-literal Resource ((value (#cell 1u64)))))\n  (#return 0u64))";
         let program = parse_program(source).unwrap();
-        let error = check_types(&program).unwrap_err();
-        let (start, end) = crate::span_after(&error, "source span ").unwrap();
-        assert_eq!(&source[start..end], "resource");
+        let (_, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
+        let span = span.expect("unconsumed local has a structured span");
+        assert_eq!(&source[span.start..span.end], "resource");
     }
 
     #[test]
