@@ -1947,20 +1947,6 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
         }
     }
 
-    if let Some(rest) = message.strip_prefix("thread task '") {
-        if let Some((task_name, rest)) = rest.split_once("' refers to unknown worker function '") {
-            if let Some(worker_name) = rest.split('\'').next() {
-                if let Some(span) = program
-                    .declaration_expressions
-                    .get(task_name)
-                    .and_then(|expression| symbol_span(expression, worker_name))
-                {
-                    return Some(span);
-                }
-            }
-        }
-    }
-
     if let Some(rest) = message.strip_prefix("thread worker '") {
         let (worker_name, details) = rest.split_once('\'')?;
         let declaration = program.declaration_expressions.get(worker_name)?;

@@ -455,6 +455,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Locate out-of-range `#repr-c` enum discriminants during declaration
     validation and remove the corresponding message-parsing span fallback;
     the UI fixture checks the offending discriminant.
+  - [x] Locate missing thread-worker names at `#thread-task` validation time
+    and remove the dedicated error-message recovery branch; the UI test pins
+    the worker identifier.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated

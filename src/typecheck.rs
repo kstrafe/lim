@@ -341,6 +341,15 @@ fn check_types_inner(
             _ => None,
         });
         let Some(worker_item) = worker_item else {
+            *diagnostic_span = program
+                .declaration_expressions
+                .get(name)
+                .and_then(|declaration| first_symbol_span(declaration, worker));
+            if let Some(invocation) = diagnostic_span
+                .and_then(|span| program.generated_source_invocations.get(&span.source_id))
+            {
+                diagnostic_labels.push((*invocation, "generated from this invocation".into()));
+            }
             return Err(format!(
                 "thread task '{name}' refers to unknown worker function '{worker}'"
             ));
