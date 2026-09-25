@@ -351,7 +351,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                         .declaration_expressions
                         .get(&function.name)
                         .is_some_and(|expression| expression.children.is_empty());
-                    if !error.contains("source span ") && missing_generated_body_spans {
+                    if missing_generated_body_spans {
                         if let Some(span) = program.declaration_spans.get(&function.name) {
                             return Err(format!(
                                 "{error}; source span {}:{}:{}",

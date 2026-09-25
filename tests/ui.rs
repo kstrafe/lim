@@ -899,8 +899,8 @@ fn compilation_errors_render_the_offending_source_line() {
                     | "out-of-range-shift-count"
                     | "match-branch-mismatch"
                     | "borrow-conflict-field-name"
-                | "borrow-conflict-callee-name"
-                | "shadowed-name-type-error"
+                    | "borrow-conflict-callee-name"
+                    | "shadowed-name-type-error"
             ) {
                 source_row.rfind(fragment)
             } else if matches!(

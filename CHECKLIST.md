@@ -416,6 +416,19 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Assert exact UI source ranges for a shadowed-name type error, a
     reordered named-argument mismatch, a nested enum `#case` pattern mismatch,
     imported-source errors, and a generated semantic error on a cache hit.
+  - [ ] Replace `"source span …"` and `"conflicting span …"` string metadata
+    with structured semantic errors carrying a stable diagnostic category,
+    source ID, and byte range from type checking through CLI rendering.
+  - [ ] Remove message-text/name-based fallback span selection from
+    `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
+    identity or explicit provenance for repeated identifiers and generated
+    declarations.
+  - [ ] Preserve expansion and borrow-origin labels where applicable, and
+    verify exact rendered ranges remain stable when diagnostic wording changes.
+  - [x] Select the generator invocation span structurally when generated
+    function body syntax has no retained source nodes. The cached
+    generated-error UI test asserts the invocation hunk on cold and warm
+    compilations.
 
 ### Priority 3: collection ergonomics without implicit behavior
 
