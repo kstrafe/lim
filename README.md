@@ -47,6 +47,13 @@ Compile-time configuration is passed with `--cfg key=value`; use
 `--collect-cfgs` to list configuration keys used by a source file and its
 imports. See `cargo run -- --help` for the CLI options.
 
+Run `nix develop --command bash scripts/native-sweep.sh` to compile and run
+every example against `examples/outcomes.txt`. Each entry declares an exact
+exit code, intentional signal, or compile-only module, plus stdout/stderr
+fixtures (`-` means empty). Missing entries, unexpected signals, wrong output,
+compiler/linker failures, and timeouts fail the suite. Exit codes above 128
+are not treated as signals. New examples must declare their expected outcome.
+
 ## A small Lim program
 
 ```lisp

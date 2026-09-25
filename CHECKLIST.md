@@ -615,7 +615,7 @@ and acceptance coverage.
   unknown external-call bounds. Include a regression using `.L` labels rather
   than only hand-written labels that avoid the parser issue.
 
-- [ ] **TEST-01: Give every executable example an expected outcome.**
+- [x] **TEST-01: Give every executable example an expected outcome.**
   `scripts/native-sweep.sh` currently counts every exit below 128 as successful
   and every exit at or above 128 as a trap without checking expectations. Add
   a dependency-free expectation manifest distinguishing runnable examples,

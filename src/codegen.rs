@@ -12844,6 +12844,9 @@ impl FunctionContext {
                         .cloned()
                 }),
             Expr::List(items) => match items.first() {
+                Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "literal" | "as") => {
+                    self.expression_type(expression).filter(is_float_type)
+                }
                 Some(Expr::Symbol(operator))
                     if matches!(
                         operator_base(operator.as_str()),

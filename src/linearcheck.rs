@@ -455,7 +455,11 @@ fn collect_pattern_names(pattern: &Expr, bindings: &mut HashSet<String>) {
             bindings.insert(name.clone());
         }
         Expr::List(items) => {
-            for item in items {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "literal" | "range" | "range-inclusive"))
+            {
+                return;
+            }
+            for item in items.iter().skip(1) {
                 collect_pattern_names(item, bindings);
             }
         }
