@@ -423,6 +423,9 @@ Each item requires documentation and regression coverage before being checked.
     `Span` data to the CLI diagnostic constructor; retain the string-returning
     checker API as a compatibility wrapper. Unit and UI tests assert exact
     source excerpts and verify these errors need no span text in the message.
+  - [x] Carry unsafe-checker source locations as structured spans into the CLI
+    diagnostic path; the unsafe-static UI case and semantic unit test pin the
+    accessed static without serializing its range into the error message.
   - [x] Resolve duplicate-parameter diagnostics at parameter validation time
     from the retained function declaration tree, and remove the corresponding
     message-parsing branch from `unlocated_analysis_span`; the UI test asserts

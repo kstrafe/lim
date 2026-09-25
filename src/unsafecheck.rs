@@ -1,6 +1,8 @@
 use crate::{Expr, Item, Program, Statement};
 
-pub(crate) fn check_program(program: &Program) -> Result<(), String> {
+pub(crate) fn check_program_with_span(
+    program: &Program,
+) -> Result<(), (String, Option<crate::Span>)> {
     let statics = program
         .items
         .iter()
@@ -23,28 +25,22 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                 continue;
             }
             for (index, statement) in function.body.iter().enumerate() {
-                check_statement(statement, false, &statics, &external_functions).map_err(
-                    |error| {
-                        let key = (function.name.clone(), index);
-                        let span = program
-                            .statement_expressions
-                            .get(&key)
-                            .and_then(|expression| precise_unsafe_span(expression, &error))
-                            .or_else(|| {
-                                program
-                                    .statement_expressions
-                                    .get(&key)
-                                    .map(crate::source_value_span)
-                            })
-                            .or_else(|| program.statement_spans.get(&key).copied());
-                        span.map_or(error.clone(), |span| {
-                            format!(
-                                "{error}; source span {}:{}:{}",
-                                span.source_id, span.start, span.end
-                            )
+                if let Err(error) = check_statement(statement, false, &statics, &external_functions)
+                {
+                    let key = (function.name.clone(), index);
+                    let span = program
+                        .statement_expressions
+                        .get(&key)
+                        .and_then(|expression| precise_unsafe_span(expression, &error))
+                        .or_else(|| {
+                            program
+                                .statement_expressions
+                                .get(&key)
+                                .map(crate::source_value_span)
                         })
-                    },
-                )?;
+                        .or_else(|| program.statement_spans.get(&key).copied());
+                    return Err((error, span));
+                }
             }
         }
     }

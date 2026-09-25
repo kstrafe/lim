@@ -8564,6 +8564,13 @@ mod tests {
         assert!(!message.contains("source span "));
         let span = span.expect("mismatched global initializer has a structured span");
         assert_eq!(&global_source[span.start..span.end], "false");
+
+        let unsafe_source = "(#static VALUE u64 1u64) (#fn main () u64 (#return VALUE))";
+        let unsafe_program = parse_program(unsafe_source).unwrap();
+        let (message, span) = typecheck::check_types_with_span(&unsafe_program).unwrap_err();
+        assert!(!message.contains("source span "));
+        let span = span.expect("unsafe static access has a structured span");
+        assert_eq!(&unsafe_source[span.start..span.end], "VALUE");
     }
 
     #[test]

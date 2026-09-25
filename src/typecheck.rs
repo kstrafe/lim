@@ -429,7 +429,10 @@ fn check_types_inner(
     check_thread_task_ownership(program, &aliases)?;
     crate::linearcheck::check_program(program)?;
     crate::borrowcheck::check_program(program)?;
-    crate::unsafecheck::check_program(program)?;
+    crate::unsafecheck::check_program_with_span(program).map_err(|(message, span)| {
+        *diagnostic_span = span;
+        message
+    })?;
     Ok(())
 }
 
