@@ -6,6 +6,15 @@ the checklist is committed alongside the implementation it tracks.
 
 ## Typed representation migration
 
+- [x] **IR-02a: Retain typed body arenas on the normal compilation path.**
+  Record checked expression types without another semantic pass; preserve
+  source spans, numeric modes, function IDs, local IDs, and structured control
+  flow. Reconstruct instruction-selector input from these arenas and carry
+  expression types across unsafe erasure. Expose a deterministic library debug
+  dump. Test contextual literals, reordered arguments, mutation/control-flow
+  round trips, native examples, and numeric differential behavior. IR-02/03
+  below remain open for complete removal of legacy lowering paths.
+
 - [x] **IR-01: Retain resolved declarations after validation.** Preserve
   checked function signatures, struct fields, enum payloads, and global types
   in `CheckedProgram`; have native emission consume them. Assign deterministic
@@ -37,7 +46,50 @@ the checklist is committed alongside the implementation it tracks.
   Acceptance: existing borrow/linearity tests and exact UI spans remain valid;
   add branch/loop aliasing and aggregate-reference propagation regressions.
 
-## Previously completed foundation
+## Collections and initial async facilities
+
+- [x] **COL-01: Freeze keyed syntax collections before generation.** Collect
+  active imported contributions, sort by key, deduplicate identical entries,
+  reject conflicts/unknown collections, and prohibit generated registration.
+  Explicit collection parameters receive literal list snapshots included in
+  invocation/cache identity. Keep helpers pure and add `#gn-length` for lists.
+- [x] **COL-02: Generate static registries and concrete error enums.** Provide
+  user-defined generators in `library/collections.lim`, with inspectable cached
+  output, inline payloads, static arrays, and native examples across imports.
+  Correct slice indexing/ranges/splitting to preserve ascending static or
+  raw-backed layout as well as descending tagged stack layout. Preserve the
+  address and direction when reading/writing multiword referents. Cover
+  references crossing function calls and multiword slice elements with native
+  regression tests.
+- [x] **TASK-01: Add explicit linear task states and bounded cooperative
+  execution.** `#linear` opts concrete structs/enums out of structural Copy.
+  Task generators emit linear states and concrete Pending/Ready results; the
+  executor owns a fixed heterogeneous set of slots and uses direct polling.
+- [x] **TASK-02: Add explicit awaiting-state composition and cancellation.**
+  `@async` builds named child-task states with `#await` and named continuations;
+  `@task-cancel` requires exhaustive, consuming cleanup handlers. Test borrow
+  escape, outstanding borrows, duplicate use, missing cleanup cases, and actual
+  cleanup side effects. Fix native unit-valued returns skipping evaluation.
+- [x] **TASK-03: Run fixed executors on explicit OS workers.** Compose the
+  executor generator with existing thread spawn/join support, retaining
+  structural Send/Sync checks, mandatory joins, and explicit spawn errors.
+  This is thread-owned execution, not a migrating worker-pool scheduler.
+- [ ] **ASYNC-01: Suspend arbitrary ordinary function bodies.** Complete the
+  typed ownership/control-flow migration, then calculate live values and loans
+  at suspension points. Define source syntax, borrowing across suspension, and
+  immovable storage before accepting self-referential frames. Preserve exact
+  source diagnostics and explicit cleanup for each suspended state.
+- [ ] **ASYNC-02: Add non-busy waiting and safe asynchronous I/O.** Define a
+  bounded ready queue and explicit wake handles (no callbacks), readiness or
+  completion registration, and OS-operation ownership. Cancellation must not
+  release buffers until completion/cancellation is acknowledged. Test stale
+  wake handles, lost wakeups, capacity exhaustion, shutdown, and cancellation.
+- [ ] **ASYNC-03: Add a bounded multithreaded task scheduler.** Keep task
+  transfer gated on Send, shared state on Sync, and capacity/error behavior
+  explicit. Define wake ordering, shutdown, and task migration rules; do not
+  claim these semantics for the current thread-owned busy-polling executor.
+
+## Earlier completed foundation
 
 - [x] S-expression lexer and parser with comments, strings, characters, and
   numeric literals.

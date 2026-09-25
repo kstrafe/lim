@@ -1,0 +1,118 @@
+;; A task's poll function consumes its state and returns either a new pending
+;; state or its final result. There is no implicit cancellation or allocation.
+;; Names: (Task Poll Pending Ready). States: ordinary enum variants.
+(#gn-fn task-second (values) (#gn-first (#gn-rest values)))
+(#gn-fn task-third (values) (#gn-call task-second (#gn-rest values)))
+(#gn-fn task-fourth (values) (#gn-call task-third (#gn-rest values)))
+(#gn-fn task-fifth (values) (#gn-call task-fourth (#gn-rest values)))
+(#gn-fn task-sixth (values) (#gn-call task-fifth (#gn-rest values)))
+(#gn-fn task-seventh (values) (#gn-call task-sixth (#gn-rest values)))
+
+(#generator task (names result states)
+  `((#enum ,(#gn-first names) ,states)
+    (#linear ,(#gn-first names))
+    (#enum ,(#gn-call task-second names)
+      ((,(#gn-call task-third names) ,(#gn-first names))
+       (,(#gn-call task-fourth names) ,result)))))
+
+;; Jobs: (name Task Poll Pending Ready poll-function Result).
+;; Capacity is precisely the number of jobs; every slot has a concrete type.
+(#gn-fn executor-name (job)
+  (#gn-if (#gn-equal (#gn-first job) lim.executor.waiting)
+    (#gn-error "executor slot name conflicts with lim.executor.waiting")
+    (#gn-first job)))
+
+(#gn-fn executor-parameter (job)
+  `(,(#gn-call executor-name job) ,(#gn-call task-second job)))
+
+(#gn-fn executor-field (job)
+  `(,(#gn-call executor-name job) ,(#gn-call task-seventh job)))
+
+(#gn-fn executor-initialize (job)
+  `(#let-mut ,(#gn-call executor-name job) ,(#gn-call task-third job)
+     (,(#gn-call task-fourth job) ,(#gn-call executor-name job))))
+
+(#gn-fn executor-poll (job)
+  `(#set ,(#gn-call executor-name job)
+     (#match ,(#gn-call executor-name job)
+       (#case (,(#gn-call task-fourth job) lim.executor.task)
+         (#block
+           (#set lim.executor.waiting true)
+           (#call ,(#gn-call task-sixth job)
+             (#fn-args (task lim.executor.task)))))
+       (#case (,(#gn-call task-fifth job) lim.executor.value)
+         (,(#gn-call task-fifth job) lim.executor.value)))))
+
+(#gn-fn executor-result (job)
+  `(,(#gn-call executor-name job)
+     (#match ,(#gn-call executor-name job)
+       (#case (,(#gn-call task-fifth job) lim.executor.value)
+         lim.executor.value)
+       (#case (,(#gn-call task-fourth job) lim.executor.task)
+         (#block (#forget lim.executor.task) (#unreachable))))))
+
+(#generator executor (run result (jobs #syntax-collection))
+  `((#struct ,result ,(#gn-for-each job jobs (#gn-call executor-field job)))
+    (#fn ,run ,(#gn-for-each job jobs (#gn-call executor-parameter job)) ,result
+      ,@(#gn-for-each job jobs (#gn-call executor-initialize job))
+      (#let-mut lim.executor.waiting bool true)
+      (#while lim.executor.waiting
+        (#set lim.executor.waiting false)
+        ,@(#gn-for-each job jobs (#gn-call executor-poll job)))
+      (#return (#struct-literal ,result
+        ,(#gn-for-each job jobs (#gn-call executor-result job)))))))
+
+;; Explicit async composition. Names: (Task Poll Pending Ready poll-function).
+;; Each stage is (State (#await ChildTask Pending Ready poll) continuation).
+;; A continuation is (#then NextState start-next) or (#return).
+;; start-next takes a named `value` argument and returns the next child task.
+(#gn-fn async-state (stage)
+  `(,(#gn-first stage) ,(#gn-call task-second (#gn-call task-second stage))))
+
+(#gn-fn async-complete (names continuation)
+  (#gn-if (#gn-equal (#gn-first continuation) #return)
+    (#gn-if (#gn-equal (#gn-rest continuation) ())
+      `(,(#gn-call task-fourth names) lim.async.value)
+      (#gn-error "async #return continuation takes no arguments"))
+    (#gn-if (#gn-equal (#gn-first continuation) #then)
+      `(,(#gn-call task-third names)
+         (,(#gn-call task-second continuation)
+           (#call ,(#gn-call task-third continuation)
+             (#fn-args (value lim.async.value)))))
+      (#gn-error "async continuation must be (#return) or (#then State function)"))))
+
+(#gn-fn async-poll-case (names stage)
+  (#gn-if (#gn-equal (#gn-first (#gn-call task-second stage)) #await)
+    `(#case (,(#gn-first stage) lim.async.task)
+       (#match
+         (#call ,(#gn-call task-fifth (#gn-call task-second stage))
+           (#fn-args (task lim.async.task)))
+         (#case (,(#gn-call task-third (#gn-call task-second stage)) lim.async.task)
+           (,(#gn-call task-third names) (,(#gn-first stage) lim.async.task)))
+         (#case (,(#gn-call task-fourth (#gn-call task-second stage)) lim.async.value)
+           ,(#gn-call async-complete names (#gn-call task-third stage)))))
+    (#gn-error "async stage requires (#await Task Pending Ready poll-function)")))
+
+(#generator async (names result stages)
+  `((@task ,names ,result ,(#gn-for-each stage stages (#gn-call async-state stage)))
+    (#fn ,(#gn-call task-fifth names) ((task ,(#gn-first names))) ,(#gn-call task-second names)
+      (#return (#match task
+        ,@(#gn-for-each stage stages (#gn-call async-poll-case names stage)))))))
+
+;; Cancellation is opt-in and explicit. Each state has one payload; every
+;; handler consumes it. A handler must finish cancelling any external operation
+;; before returning and releasing the state's retained borrows.
+(#gn-fn task-cancel-case (entry)
+  `(#case (,(#gn-first entry) lim.cancel.task)
+     (#call ,(#gn-call task-second entry) (#fn-args (task lim.cancel.task)))))
+
+(#generator task-cancel (cancel task states)
+  `((#fn ,cancel ((task ,task)) ()
+      (#return (#match task
+        ,@(#gn-for-each entry states (#gn-call task-cancel-case entry)))))))
+
+;; One explicit OS worker owns this executor and its fixed set of task slots.
+;; Existing @thread-spawn Send checks, errors, and mandatory joining apply.
+(#generator threaded-executor (run result (jobs #syntax-collection) thread)
+  `((@executor ,run ,result ,jobs)
+    (@thread-spawn ,thread ,run)))

@@ -1,0 +1,8 @@
+(#generator error-enum ((variants #syntax-collection) name)
+  `((#enum ,name ,variants)))
+
+;; The registry is a statically sized homogeneous array in the binary.
+;; Borrow it with #slice-of inside #unsafe, as for every static in Lim.
+(#generator distributed-slice ((elements #syntax-collection) name element)
+  `((#static ,name (#array ,element ,(#gn-length elements))
+      (#array-of (#array ,element ,(#gn-length elements)) ,@elements))))

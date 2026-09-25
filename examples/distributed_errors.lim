@@ -1,0 +1,13 @@
+(#import "modules/file_errors.lim")
+(#import "modules/parse_errors.lim")
+
+(@error-enum ApplicationErrors ApplicationError)
+
+(#fn code ((error ApplicationError)) u64
+  (#return
+    (#match error
+      (#case (FileFailure number) (#as number u64))
+      (#case (ParseFailure number) number))))
+
+(#fn main () u64
+  (#return (#call code (#fn-args (error (FileFailure 42u32))))))

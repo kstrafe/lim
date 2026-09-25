@@ -21,6 +21,7 @@ static CACHE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 struct GeneratorParameter {
     name: String,
     capabilities: Vec<String>,
+    collection: bool,
 }
 
 #[derive(Clone)]
@@ -147,6 +148,7 @@ fn expand_with_generated_cached_and_hits(
     cache_dir: Option<&Path>,
     dependency_context: &str,
 ) -> Result<ExpandedFormsWithHits, crate::source_error::SourceError> {
+    let (expressions, collections) = crate::syntax_collection::freeze(expressions)?;
     let mut generators = HashMap::new();
     let mut functions = HashMap::new();
     let mut capabilities: Capabilities = HashMap::new();
@@ -335,6 +337,7 @@ fn expand_with_generated_cached_and_hits(
     let function_hashes = generator_function_hashes(&functions, interpreter_hash)?;
     let generator_hashes = generator_hashes(&generators, &function_hashes, interpreter_hash);
     let mut context = ExpansionContext {
+        collections: &collections,
         generators: &generators,
         functions: &functions,
         capabilities: &capabilities,
@@ -411,13 +414,25 @@ fn parse_generator_function(
     if items.len() != 4 {
         return Err("#gn-fn requires a name, parameter list, and body".into());
     }
-    parse_generator(items, source).map_err(|mut error| {
+    let generator = parse_generator(items, source).map_err(|mut error| {
         error.message = error
             .message
             .replace("#generator", "#gn-fn")
             .replace("generator '", "generator function '");
         error
-    })
+    })?;
+    if generator
+        .parameters
+        .iter()
+        .any(|parameter| parameter.collection)
+    {
+        return Err(at_span(
+            "#gn-fn parameters consume syntax values, not collection names",
+            source.span,
+            "generator function",
+        ));
+    }
+    Ok(generator)
 }
 
 fn parse_generator(
@@ -434,12 +449,20 @@ fn parse_generator(
     };
     let mut names = Vec::with_capacity(parameters.len());
     for (parameter_index, parameter) in parameters.iter().enumerate() {
+        let mut collection = false;
         let (name, capabilities) = match parameter {
             Expr::Symbol(name) => (name.as_str(), Vec::new()),
             Expr::List(items) if !items.is_empty() => {
                 let name = symbol(items.first(), "generator parameter name")?;
                 let mut required = Vec::new();
                 for capability in &items[1..] {
+                    if matches!(capability, Expr::Symbol(name) if name == "#syntax-collection") {
+                        if items.len() != 2 {
+                            return Err("#syntax-collection must be the only annotation on a generator parameter".into());
+                        }
+                        collection = true;
+                        continue;
+                    }
                     let capability = symbol(Some(capability), "generator parameter capability")?;
                     if capability.starts_with('#') || capability.starts_with('@') {
                         return Err(format!("invalid generator capability '{capability}'").into());
@@ -477,6 +500,7 @@ fn parse_generator(
         names.push(GeneratorParameter {
             name: name.to_owned(),
             capabilities,
+            collection,
         });
     }
     Ok(Generator {
@@ -507,6 +531,7 @@ struct Budget {
 }
 
 struct ExpansionContext<'a> {
+    collections: &'a HashMap<String, Expr>,
     generators: &'a HashMap<String, Generator>,
     functions: &'a HashMap<String, GeneratorFunction>,
     capabilities: &'a Capabilities,
@@ -526,6 +551,10 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     let Expr::List(items) = &expression else {
         return Ok(vec![expression]);
     };
+    if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#syntax-collection" || head == "#syntax-contribute")
+    {
+        return Err("syntax collections are frozen before generation; generators cannot declare or contribute to them".into());
+    }
     if !matches!(items.first(), Some(Expr::At)) {
         return Ok(vec![expression]);
     }
@@ -601,19 +630,28 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             "generator expansion exceeds maximum depth of {MAX_EXPANSION_DEPTH}"
         ));
     }
-    let invocation_key = format!("{name}:{:?}", &items[2..]);
+    let arguments = generator.parameters.iter().zip(&items[2..]).map(|(parameter, argument)| {
+        if !parameter.collection { return Ok(argument.clone()); }
+        match argument {
+            Expr::Symbol(collection) => context.collections.get(collection).cloned()
+                .ok_or_else(|| format!("@{name} parameter '{}' references unknown syntax collection '{collection}'", parameter.name)),
+            Expr::List(_) => Ok(argument.clone()),
+            _ => Err(format!("@{name} parameter '{}' requires a collection name or frozen syntax list", parameter.name)),
+        }
+    }).collect::<Result<Vec<_>, String>>()?;
+    let invocation_key = format!("{name}:{arguments:?}");
     if !context.seen_invocations.insert(invocation_key) {
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v7\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
+        "lim-generator-cache-v8\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,
         context.capability_hash,
         context.generator_fingerprints[name].hash,
         context.generator_fingerprints[name].material,
-        &items[2..],
+        &arguments,
     );
     let cached = context
         .cache_dir
@@ -644,7 +682,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
                 .parameters
                 .iter()
                 .map(|parameter| parameter.name.clone())
-                .zip(items[2..].iter().cloned())
+                .zip(arguments.iter().cloned())
                 .collect();
             let result = match evaluate(&generator.body, &environment, context) {
                 Ok(result) => result,
@@ -883,7 +921,8 @@ fn collect_generator_function_calls(expression: &Expr, calls: &mut Vec<String>) 
                     }
                 }
                 "#gn-if" | "#gn-equal" | "#gn-symbol?" | "#gn-list?" | "#gn-symbol"
-                | "#gn-list" | "#gn-first" | "#gn-rest" | "#gn-for-each" | "#gn-error" => {
+                | "#gn-length" | "#gn-list" | "#gn-first" | "#gn-rest" | "#gn-for-each"
+                | "#gn-error" => {
                     for argument in items.iter().skip(1) {
                         collect_generator_function_calls(argument, calls);
                     }
@@ -1241,6 +1280,14 @@ fn evaluate(
                 values.push(syntax(evaluate(item, environment, context)?, operator)?);
             }
             Ok(Value::Syntax(Expr::List(values)))
+        }
+        "#gn-length" => {
+            arity(operator, items, 2)?;
+            let value = syntax(evaluate(&items[1], environment, context)?, operator)?;
+            let Expr::List(values) = value else {
+                return Err("#gn-length requires list syntax".into());
+            };
+            Ok(Value::Syntax(Expr::Integer(values.len() as i128)))
         }
         "#gn-first" | "#gn-rest" => {
             arity(operator, items, 2)?;
@@ -1607,6 +1654,7 @@ mod tests {
             &expression,
             &Environment::new(),
             &mut ExpansionContext {
+                collections: &HashMap::new(),
                 generators: &HashMap::new(),
                 functions: &HashMap::new(),
                 capabilities: &HashMap::new(),
@@ -1708,6 +1756,46 @@ mod tests {
         assert_eq!(changed_hits, 1, "only the dependent invocation should miss");
         assert_ne!(changed, second);
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn collection_contents_are_explicit_cache_inputs() {
+        let directory = loop {
+            let sequence = CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "lim-collection-cache-{}-{sequence}",
+                std::process::id()
+            ));
+            match fs::create_dir(&path) {
+                Ok(()) => break path,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("create collection cache directory: {error}"),
+            }
+        };
+        let source = "(#syntax-collection Errors)
+          (#syntax-contribute Errors second (Second u32))
+          (#syntax-contribute Errors first (First u64))
+          (#generator errors ((entries #syntax-collection) name) `((#enum ,name ,entries)))
+          (@errors Errors Error)";
+        let expand = |source: &str| {
+            expand_with_generated_cached_and_hits(
+                crate::parse(source).unwrap(),
+                Some(&directory),
+                "",
+            )
+            .unwrap()
+        };
+        let ((first, _), _) = expand(source);
+        let ((warm, _), hits) = expand(source);
+        assert_eq!(hits, 1);
+        assert_eq!(first, warm);
+        let changed = source.replace("Second u32", "Second u16");
+        let ((changed_forms, _), hits) = expand(&changed);
+        assert_eq!(hits, 0);
+        assert_ne!(first, changed_forms);
+        let sorted = format!("{:?}", first[0].expr);
+        assert!(sorted.find("First").unwrap() < sorted.find("Second").unwrap());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

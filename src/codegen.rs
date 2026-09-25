@@ -855,7 +855,10 @@ fn monomorphize_program(
     })
 }
 
-fn erase_unsafe_blocks(program: &Program) -> Program {
+fn erase_unsafe_blocks(
+    program: &Program,
+    bodies: &HashMap<String, crate::typed_body::Body>,
+) -> Program {
     fn expr(value: &Expr) -> Expr {
         if let Expr::List(items) = value {
             if items.len() == 2
@@ -986,7 +989,10 @@ fn erase_unsafe_blocks(program: &Program) -> Program {
     for item in &mut result.items {
         match item {
             Item::Function(function) if !function.external => {
-                function.body = function.body.iter().map(statement).collect();
+                function.body = bodies
+                    .get(&function.name)
+                    .expect("checked function has a typed body")
+                    .statements(&bodies[&function.name].instructions, true);
             }
             Item::Let { value, .. } | Item::Static { value, .. } => *value = expr(value),
             _ => {}
@@ -1019,7 +1025,7 @@ pub(crate) fn generate_checked_assembly(
         return Err("native backend has no implementation for the selected target".into());
     }
     let program = checked.program();
-    let program = erase_unsafe_blocks(program);
+    let program = erase_unsafe_blocks(program, &checked.declarations().bodies);
     let declarations = checked.declarations();
     let aliases = &declarations.aliases;
     let program = monomorphize_program(&program, aliases)?;
@@ -1377,6 +1383,12 @@ pub(crate) fn generate_checked_assembly(
                 &functions,
                 &program.statement_spans,
                 &program.statement_expressions,
+                declarations
+                    .bodies
+                    .get(&function.name)
+                    .map(|body| body.emission_types(function))
+                    .transpose()?
+                    .unwrap_or_default(),
             )
             .map_err(|error| {
                 program
@@ -1389,7 +1401,7 @@ pub(crate) fn generate_checked_assembly(
             Item::Enum { .. } => {}
             Item::TypeAlias { .. } => {}
             Item::Let { .. } | Item::Static { .. } => {}
-            Item::UnsafeThreadAnnotation { .. } => {}
+            Item::UnsafeThreadAnnotation { .. } | Item::LinearAnnotation { .. } => {}
             Item::ThreadTask { name, worker, .. } => generate_thread_task(
                 name,
                 worker,
@@ -1826,6 +1838,7 @@ fn generate_function(
     functions: &HashMap<String, FunctionAbi>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
     statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
+    expression_types: HashMap<usize, Type>,
 ) -> Result<(), crate::source_error::SourceError> {
     let abi = functions
         .get(&function.name)
@@ -2127,6 +2140,7 @@ fn generate_function(
 
     let return_label = format!(".Lreturn_{}", asm_symbol(&function.name));
     let mut context = FunctionContext {
+        expression_types,
         locals,
         structs: structs.clone(),
         enums: enums.clone(),
@@ -4925,6 +4939,7 @@ fn normalize_global_integer(value: i128, ty: &Type) -> i128 {
 }
 
 struct FunctionContext {
+    expression_types: HashMap<usize, Type>,
     locals: HashMap<String, Storage>,
     structs: HashMap<String, Vec<Field>>,
     enums: HashMap<String, Vec<EnumVariant>>,
@@ -4954,6 +4969,14 @@ struct FunctionContext {
 }
 
 impl FunctionContext {
+    /// Tagged local references grow toward lower addresses; untagged static
+    /// and raw-backed references grow toward higher addresses. Keep the tag
+    /// intact while projecting a slice, just as aggregate projections do.
+    fn offset_slice_pointer(&mut self, pointer: &str, bytes: &str) {
+        let descending = self.label("slice_descending");
+        let done = self.label("slice_offset_done");
+        self.output.push_str(&format!("    test {pointer}, 1\n    jnz {descending}\n    add {pointer}, {bytes}\n    jmp {done}\n{descending}:\n    sub {pointer}, {bytes}\n{done}:\n"));
+    }
     fn clone_operand(&self, expression: &Expr) -> Expr {
         let Expr::List(items) = expression else {
             return expression.clone();
@@ -5954,6 +5977,12 @@ impl FunctionContext {
     }
 
     fn expression_type(&self, expression: &Expr) -> Option<Type> {
+        if let Some(ty) = self
+            .expression_types
+            .get(&(std::ptr::from_ref(expression) as usize))
+        {
+            return Some(ty.clone());
+        }
         match expression {
             Expr::Integer(_) => Some(Type::I64),
             Expr::UnsignedInteger(_) => Some(Type::U128),
@@ -6494,7 +6523,9 @@ impl FunctionContext {
 
     fn return_value(&mut self, value: &Expr) -> Result<(), String> {
         if matches!(self.return_type, Type::Unit) {
-            return Ok(());
+            // Unit has no payload, but computing it can run cleanup, I/O, or
+            // control flow. Never discard a unit-valued return expression.
+            return self.expression(value);
         }
         if self.return_pointer_slot.is_some()
             && self.is_aggregate_type(&self.return_type)
@@ -8152,7 +8183,8 @@ impl FunctionContext {
                 .push_str(&format!("    lea rax, [rbp-{}]\n", slot * 8));
             if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut"))
                 && self.local_types.get(owner).is_some_and(
-                    |ty| matches!(ty, Type::Named(name) if self.structs.contains_key(name) || self.enums.contains_key(name)),
+                    |ty| matches!(ty, Type::Array(..) | Type::Tuple(..) | Type::I128 | Type::U128)
+                        || matches!(ty, Type::Named(name) if self.structs.contains_key(name) || self.enums.contains_key(name)),
                 )
             {
                 self.output.push_str("    or rax, 1\n");
@@ -8423,7 +8455,13 @@ impl FunctionContext {
             let fail = self.label("slice_bounds_fail");
             let done = self.label("slice_bounds_done");
             let stride = storage_word_count(&element_type, &self.structs, &self.enums)? * 8;
-            self.output.push_str(&format!("    cmp rax, rdx\n    jae {fail}\n    imul rax, {stride}\n    sub rcx, rax\n    mov rax, rcx\n    jmp {done}\n{fail}:\n    ud2\n{done}:\n"));
+            self.output.push_str(&format!(
+                "    cmp rax, rdx\n    jae {fail}\n    imul rax, {stride}\n"
+            ));
+            self.offset_slice_pointer("rcx", "rax");
+            self.output.push_str(&format!(
+                "    mov rax, rcx\n    jmp {done}\n{fail}:\n    ud2\n{done}:\n"
+            ));
             return Ok(());
         }
         if operator == "slice-mut-split" {
@@ -8455,7 +8493,11 @@ impl FunctionContext {
             let fail = self.label("slice_mut_split_bounds_fail");
             let done = self.label("slice_mut_split_bounds_done");
             let stride = storage_word_count(&element_type, &self.structs, &self.enums)? * 8;
-            self.output.push_str(&format!("    cmp rax, rdx\n    ja {fail}\n    mov r9, rax\n    mov r8, rdx\n    mov rax, rcx\n    mov rdx, r9\n    mov rcx, rax\n    imul r9, {stride}\n    sub rcx, r9\n    sub r8, rdx\n    jmp {done}\n{fail}:\n    ud2\n{done}:\n"));
+            self.output.push_str(&format!("    cmp rax, rdx\n    ja {fail}\n    mov r9, rax\n    mov r8, rdx\n    mov rax, rcx\n    mov rdx, r9\n    mov rcx, rax\n    imul r9, {stride}\n"));
+            self.offset_slice_pointer("rcx", "r9");
+            self.output.push_str(&format!(
+                "    sub r8, rdx\n    jmp {done}\n{fail}:\n    ud2\n{done}:\n"
+            ));
             return Ok(());
         }
         if operator == "slice-range" {
@@ -8495,8 +8537,8 @@ impl FunctionContext {
                 "    cmp rcx, r8\n    ja {fail}\n    cmp r8, rdx\n    ja {fail}\n    sub r8, rcx\n"
             ));
             if stride != 0 {
-                self.output
-                    .push_str(&format!("    imul rcx, {stride}\n    sub rax, rcx\n"));
+                self.output.push_str(&format!("    imul rcx, {stride}\n"));
+                self.offset_slice_pointer("rax", "rcx");
             }
             self.output.push_str(&format!(
                 "    mov rdx, r8\n    jmp {done}\n{fail}:\n    ud2\n{done}:\n"
@@ -8666,14 +8708,14 @@ impl FunctionContext {
                         let global_layout = self.label("aggregate_reference_global_layout");
                         let done = self.label("aggregate_reference_done");
                         self.output.push_str(&format!(
-                            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+                            "    mov r11, rax\n    and r11, -2\n    test al, 1\n    jz {global_layout}\n"
                         ));
                         for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
                             let offset = index * 8;
                             let address = if offset == 0 {
-                                "rax".to_owned()
+                                "r11".to_owned()
                             } else {
-                                format!("rax-{offset}")
+                                format!("r11-{offset}")
                             };
                             self.output
                                 .push_str(&format!("    mov {register}, QWORD PTR [{address}]\n"));
@@ -8682,7 +8724,7 @@ impl FunctionContext {
                             .push_str(&format!("    jmp {done}\n{global_layout}:\n"));
                         for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
                             self.output.push_str(&format!(
-                                "    mov {register}, QWORD PTR [rax+{}]\n",
+                                "    mov {register}, QWORD PTR [r11+{}]\n",
                                 index * 8
                             ));
                         }
@@ -8706,7 +8748,6 @@ impl FunctionContext {
                     })
                     .ok_or_else(|| "deref-set requires a mutable reference".to_owned())?;
                 self.expression(&items[1])?;
-                self.output.push_str("    and rax, -2\n");
                 self.output.push_str("    push rax\n");
                 self.stack_depth += 1;
                 let words = storage_word_count(&target, &self.structs, &self.enums)?;
@@ -8715,14 +8756,28 @@ impl FunctionContext {
                 }
                 if words > 1 {
                     self.expression_as_expected(&items[2], &target)?;
-                    self.output.push_str("    pop rcx\n");
+                    self.output.push_str("    pop r11\n");
                     self.stack_depth -= 1;
+                    let ascending = self.label("deref_set_ascending");
+                    let done = self.label("deref_set_done");
+                    self.output.push_str(&format!(
+                        "    test r11, 1\n    jz {ascending}\n    and r11, -2\n"
+                    ));
                     for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
                         self.output.push_str(&format!(
-                            "    mov QWORD PTR [rcx+{}], {register}\n",
+                            "    mov QWORD PTR [r11-{}], {register}\n",
                             index * 8
                         ));
                     }
+                    self.output
+                        .push_str(&format!("    jmp {done}\n{ascending}:\n"));
+                    for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
+                        self.output.push_str(&format!(
+                            "    mov QWORD PTR [r11+{}], {register}\n",
+                            index * 8
+                        ));
+                    }
+                    self.output.push_str(&format!("{done}:\n"));
                     return Ok(());
                 }
                 if is_float_type(&target) {
@@ -8730,7 +8785,7 @@ impl FunctionContext {
                 } else {
                     self.expression(&items[2])?;
                 }
-                self.output.push_str("    pop rcx\n");
+                self.output.push_str("    pop rcx\n    and rcx, -2\n");
                 self.stack_depth -= 1;
                 match target {
                     Type::F32 => self.output.push_str("    movd DWORD PTR [rcx], xmm0\n"),

@@ -1,0 +1,22 @@
+(#import "../library/tasks.lim")
+
+(@task (CountTask CountPoll CountPending CountReady) u64
+  ((Counting u64)))
+
+(#fn count-poll ((task CountTask)) CountPoll
+  (#return
+    (#match task
+      (#case (Counting remaining)
+        (#if (#u64.== (#clone remaining) 0u64)
+          (#block (#forget remaining) (CountReady 21u64))
+          (CountPending (Counting (#u64.-.wrap remaining 1u64))))))))
+
+(@executor run-counts Counts
+  ((first CountTask CountPoll CountPending CountReady count-poll u64)
+   (second CountTask CountPoll CountPending CountReady count-poll u64)))
+
+(#fn main () u64
+  (#let results Counts
+    (#call run-counts
+      (#fn-args (first (Counting 2u64)) (second (Counting 3u64)))))
+  (#return (#u64.+.wrap (#get results first) (#get results second))))

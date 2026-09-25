@@ -14,7 +14,7 @@ pub(crate) struct Signature {
 
 /// Dense identities are deterministic within a checked program. They are not
 /// persistent cache keys and do not encode addresses of AST allocations.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct FunctionId(usize);
 
 pub(crate) struct FunctionDeclaration {
@@ -23,6 +23,7 @@ pub(crate) struct FunctionDeclaration {
 }
 
 pub(crate) struct Declarations {
+    pub bodies: HashMap<String, crate::typed_body::Body>,
     pub aliases: HashMap<String, Type>,
     pub structs: HashMap<String, Vec<Field>>,
     pub enums: HashMap<String, Vec<EnumVariant>>,
@@ -55,6 +56,7 @@ impl Declarations {
             })
             .collect();
         Self {
+            bodies: HashMap::new(),
             aliases,
             structs,
             enums,
@@ -70,6 +72,25 @@ impl Declarations {
 
     pub fn function(&self, id: FunctionId) -> &FunctionDeclaration {
         &self.functions[id.0]
+    }
+
+    pub fn lower_bodies(
+        &mut self,
+        program: &crate::Program,
+        types: &HashMap<usize, Type>,
+        spans: &HashMap<usize, Span>,
+    ) {
+        self.bodies = program
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                crate::Item::Function(function) if !function.external => Some((
+                    function.name.clone(),
+                    crate::typed_body::Body::lower(function, self, types, spans),
+                )),
+                _ => None,
+            })
+            .collect();
     }
 }
 

@@ -1,0 +1,2 @@
+(#import "../../library/collections.lim")
+(#syntax-collection ApplicationErrors)

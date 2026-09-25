@@ -20,6 +20,10 @@ in [docs/allocator.md](docs/allocator.md).
 The internal typed-representation migration is documented in
 [docs/compiler-ir.md](docs/compiler-ir.md).
 
+Frozen syntax collections, allocation-free error enums, and the initial
+cooperative task API are documented in
+[docs/collections-and-tasks.md](docs/collections-and-tasks.md).
+
 ## Build the compiler
 
 The repository's Nix development shell provides Rust and the native build

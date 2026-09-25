@@ -17,7 +17,9 @@ mod linearcheck;
 mod output;
 mod source_error;
 mod stack_usage;
+mod syntax_collection;
 mod typecheck;
+mod typed_body;
 mod typed_ir;
 mod unsafecheck;
 use source_error::SourceError;
@@ -1458,6 +1460,9 @@ pub enum Item {
         property: ThreadProperty,
         type_name: String,
     },
+    LinearAnnotation {
+        type_name: String,
+    },
     ThreadTask {
         name: String,
         worker: String,
@@ -2187,6 +2192,7 @@ fn parse_program_in_directory(
 
 fn item_declared_names(item: &Item) -> Vec<String> {
     match item {
+        Item::LinearAnnotation { type_name } => vec![format!("$linear:{type_name}")],
         Item::Function(function) => vec![function.name.clone()],
         Item::Struct { name, .. }
         | Item::Enum { name, .. }
@@ -3604,6 +3610,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "const"
             | "static"
             | "unsafe-impl"
+            | "linear"
             | "thread-task"
             | "thread-task-spawn"
             | "thread-task-join"
@@ -5446,7 +5453,7 @@ fn specialize_generic_types(
                         &mut generated,
                     )?;
                 }
-                Item::UnsafeThreadAnnotation { .. } => {}
+                Item::UnsafeThreadAnnotation { .. } | Item::LinearAnnotation { .. } => {}
                 Item::ThreadTask { .. } => {}
             }
             Ok(())
@@ -5585,6 +5592,14 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
                 name: expect_symbol(items.get(1), "static name")?.to_owned(),
                 ty: parse_type(items.get(2))?,
                 value: lower_expr(&items[3])?,
+            })
+        }
+        "linear" => {
+            if items.len() != 2 {
+                return Err("#linear requires one struct or enum type name".into());
+            }
+            Ok(Item::LinearAnnotation {
+                type_name: expect_symbol(items.get(1), "linear type name")?.to_owned(),
             })
         }
         "unsafe-impl" => {

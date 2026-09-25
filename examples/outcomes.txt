@@ -10,6 +10,15 @@ exit 12 aggregate_loop.lim - -
 exit 20 aggregate_match_return.lim - -
 exit 42 aggregate_or_pattern.lim - -
 exit 42 alias.lim - -
+exit 42 distributed_errors.lim - -
+exit 42 distributed_slice.lim - -
+exit 42 cooperative_tasks.lim - -
+exit 42 async_pipeline.lim - -
+exit 42 threaded_tasks.lim - -
+exit 42 task_cancellation.lim - -
+module - modules/error_collection.lim - -
+module - modules/file_errors.lim - -
+module - modules/parse_errors.lim - -
 exit 42 nested_aliases.lim - -
 exit 42 allocator_state.lim - -
 exit 37 array_constructor_function.lim - -

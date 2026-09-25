@@ -100,6 +100,27 @@ fn borrow_error(message: &str) -> SemanticError {
 
 use crate::typed_ir::{Declarations, Signature};
 
+#[derive(Default)]
+struct FunctionTable {
+    signatures: HashMap<String, Signature>,
+    expression_types: std::cell::RefCell<HashMap<usize, Type>>,
+    source_spans: std::cell::RefCell<HashMap<usize, crate::Span>>,
+    collecting_sources: std::cell::Cell<bool>,
+}
+
+impl std::ops::Deref for FunctionTable {
+    type Target = HashMap<String, Signature>;
+    fn deref(&self) -> &Self::Target {
+        &self.signatures
+    }
+}
+
+impl std::ops::DerefMut for FunctionTable {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.signatures
+    }
+}
+
 pub fn check_types(program: &Program) -> Result<(), String> {
     check_types_with_span(program).map_err(|(message, _, _, _)| message)
 }
@@ -136,6 +157,17 @@ impl<'a> CheckedProgram<'a> {
 
     pub(crate) fn declarations(&self) -> &Declarations {
         &self.declarations
+    }
+
+    /// Inspect the retained body representation. This is a compiler debugging
+    /// format, not a stable interchange format.
+    pub fn dump_typed_ir(&self) -> String {
+        let mut names: Vec<_> = self.declarations.bodies.keys().collect();
+        names.sort();
+        names
+            .into_iter()
+            .map(|name| format!("function {name}\n{}", self.declarations.bodies[name].dump()))
+            .collect()
     }
 
     /// Emit a previously validated, immutably borrowed program.
@@ -329,6 +361,34 @@ fn check_types_inner(
             _ => {}
         }
     }
+    let mut linear_annotations = HashSet::new();
+    for item in &program.items {
+        let Item::LinearAnnotation { type_name } = item else {
+            continue;
+        };
+        let key = format!("$linear:{type_name}");
+        let occurrence = usize::from(linear_annotations.contains(type_name));
+        *diagnostic_span = program
+            .declaration_occurrences
+            .get(&key)
+            .and_then(|sources| sources.get(occurrence))
+            .or_else(|| program.declaration_expressions.get(&key))
+            .and_then(|source| source.children.get(1))
+            .map(|source| source.span);
+        if !program.items.iter().any(|item| {
+            matches!(item,
+            Item::Struct { name, type_parameters, .. } | Item::Enum { name, type_parameters, .. }
+                if name == type_name && type_parameters.is_empty())
+        }) {
+            return Err(format!(
+                "#linear requires a concrete struct or enum, got '{type_name}'"
+            ));
+        }
+        if !linear_annotations.insert(type_name) {
+            return Err(format!("duplicate #linear annotation for '{type_name}'"));
+        }
+    }
+    *diagnostic_span = None;
     let mut unsafe_thread_properties = HashSet::new();
     for item in &program.items {
         let Item::UnsafeThreadAnnotation {
@@ -507,7 +567,7 @@ fn check_types_inner(
             }
         }
     }
-    let mut functions = HashMap::new();
+    let mut functions = FunctionTable::default();
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;
@@ -714,6 +774,7 @@ fn check_types_inner(
             | Item::Struct { .. }
             | Item::Enum { .. }
             | Item::UnsafeThreadAnnotation { .. }
+            | Item::LinearAnnotation { .. }
             | Item::ThreadTask { .. } => {}
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
                 let ty = globals.get(name).expect("global type collected");
@@ -780,14 +841,55 @@ fn check_types_inner(
         *diagnostic_span = span;
         message
     })?;
-    Ok(Declarations::new(
+    functions.collecting_sources.set(true);
+    for item in &program.items {
+        match item {
+            Item::Function(function) => {
+                for (index, statement) in function.body.iter().enumerate() {
+                    if let Some(source) = program
+                        .statement_expressions
+                        .get(&(function.name.clone(), index))
+                    {
+                        semantic_statement_source(
+                            statement,
+                            source,
+                            Some(usize::MAX),
+                            false,
+                            &functions,
+                            &structs,
+                        );
+                    }
+                }
+            }
+            Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
+                if let Some(source) = program.declaration_expressions.get(name) {
+                    semantic_expression_source(
+                        value,
+                        crate::source_value_expression(source),
+                        Some(usize::MAX),
+                        false,
+                        &functions,
+                        &structs,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut declarations = Declarations::new(
         aliases,
         structs,
         enums,
         globals,
-        functions,
+        functions.signatures,
         &program.declaration_spans,
-    ))
+    );
+    declarations.lower_bodies(
+        program,
+        &functions.expression_types.into_inner(),
+        &functions.source_spans.into_inner(),
+    );
+    Ok(declarations)
 }
 
 fn check_thread_task_ownership(
@@ -964,7 +1066,9 @@ fn check_thread_task_ownership(
                 // rejected above). This also permits a failed join's returned
                 // handle to be retried without ending its captured borrows.
             }
-            Item::UnsafeThreadAnnotation { .. } | Item::ThreadTask { .. } => {}
+            Item::UnsafeThreadAnnotation { .. }
+            | Item::LinearAnnotation { .. }
+            | Item::ThreadTask { .. } => {}
         }
     }
     Ok(())
@@ -1941,7 +2045,7 @@ fn type_has_thread_property_inner(
 
 fn reject_recursive_calls(
     program: &Program,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
 ) -> Result<(), FunctionTypeError> {
     let names = functions.keys().cloned().collect::<HashSet<_>>();
     let mut edges = HashMap::<String, HashSet<String>>::new();
@@ -2250,7 +2354,7 @@ fn global_enum_member_span(
 
 fn check_function(
     function: &Function,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     globals: &HashMap<String, Type>,
@@ -2425,7 +2529,7 @@ pub(crate) fn analysis_node_source(
     node: usize,
     statement: bool,
 ) -> Option<&crate::SpannedExpr> {
-    let mut functions = HashMap::new();
+    let mut functions = FunctionTable::default();
     let mut structs = HashMap::new();
     for item in &program.items {
         match item {
@@ -2499,9 +2603,15 @@ fn semantic_statement_source<'a>(
     source: &'a crate::SpannedExpr,
     origin: Option<usize>,
     statement_origin: bool,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Option<&'a crate::SpannedExpr> {
+    if functions.collecting_sources.get() {
+        functions
+            .source_spans
+            .borrow_mut()
+            .insert(std::ptr::from_ref(statement) as usize, source.span);
+    }
     if statement_origin && origin == Some(std::ptr::from_ref(statement) as usize) {
         return Some(source);
     }
@@ -2638,10 +2748,16 @@ fn semantic_expression_source<'a>(
     source: &'a crate::SpannedExpr,
     origin: Option<usize>,
     statement_origin: bool,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Option<&'a crate::SpannedExpr> {
     let origin = origin?;
+    if functions.collecting_sources.get() {
+        functions
+            .source_spans
+            .borrow_mut()
+            .insert(std::ptr::from_ref(value) as usize, source.span);
+    }
     if !statement_origin && std::ptr::from_ref(value) as usize == origin {
         return Some(source);
     }
@@ -2655,6 +2771,22 @@ fn semantic_expression_source<'a>(
                 Expr::Symbol(head) => Some(head),
                 _ => None,
             });
+            // External imports prefix semantic identifiers but preserve the
+            // original source labels. Recover that known prefix from the
+            // callee/type head, never from diagnostic wording or token search.
+            let label_matches = |label: &str, name: &str| {
+                if label == name {
+                    return true;
+                }
+                let original_head = source.children.get(1).and_then(|child| match &child.expr {
+                    Expr::Symbol(name) => Some(name.as_str()),
+                    _ => None,
+                });
+                target_head
+                    .zip(original_head)
+                    .and_then(|(target, original)| target.strip_suffix(original))
+                    .is_some_and(|prefix| name.strip_prefix(prefix) == Some(label))
+            };
             for (index, child) in items.iter().enumerate() {
                 let corresponding = match (source_head, target_head) {
                     (Some("case"), _) => source.children.get(index + 1),
@@ -2664,7 +2796,7 @@ fn semantic_expression_source<'a>(
                         } else {
                             let name = functions.get(function)?.parameter_names.get(index - 1)?;
                             source.children.get(2)?.children.iter().skip(1).find_map(|argument| {
-                                matches!(&argument.children.first()?.expr, Expr::Symbol(label) if label == name)
+                                matches!(&argument.children.first()?.expr, Expr::Symbol(label) if label_matches(label, name))
                                     .then(|| argument.children.get(1)).flatten()
                             })
                         }
@@ -2675,7 +2807,7 @@ fn semantic_expression_source<'a>(
                         } else {
                             let name = &structs.get(structure)?.get(index - 1)?.name;
                             source.children.get(2)?.children.iter().find_map(|field| {
-                                matches!(&field.children.first()?.expr, Expr::Symbol(label) if label == name)
+                                matches!(&field.children.first()?.expr, Expr::Symbol(label) if label_matches(label, name))
                                     .then(|| field.children.get(1)).flatten()
                             })
                         }
@@ -3579,7 +3711,7 @@ fn statement_type(
     statement: &Statement,
     variables: &mut HashMap<String, Type>,
     mutable: &mut HashSet<String>,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     return_type: &Type,
@@ -4259,7 +4391,7 @@ fn check_let_else_pattern(
 fn expression(
     expr: &Expr,
     variables: &HashMap<String, Type>,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
@@ -4269,6 +4401,12 @@ fn expression(
     expression_inner(
         expr, variables, functions, structs, enums, mutable, aliases, expected,
     )
+    .inspect(|ty| {
+        functions
+            .expression_types
+            .borrow_mut()
+            .insert(std::ptr::from_ref(expr) as usize, ty.clone());
+    })
     .map_err(|mut error| {
         if error.scope.is_none() {
             error.scope = Some(Box::new(expr.clone()));
@@ -4281,7 +4419,7 @@ fn expression(
 fn expression_inner(
     value: &Expr,
     variables: &HashMap<String, Type>,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
@@ -4513,7 +4651,7 @@ fn expression_has_value_break(expression: &Expr) -> bool {
 
 fn type_contains_thread_task_value(
     ty: &Type,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     enums: &HashMap<String, Vec<EnumVariant>>,
     aliases: &HashMap<String, Type>,
     seen: &mut HashSet<String>,
@@ -4550,7 +4688,7 @@ fn type_contains_thread_task_value(
 fn list_expression(
     items: &[Expr],
     variables: &HashMap<String, Type>,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
@@ -6147,7 +6285,7 @@ fn check_scalar_match(
     items: &[Expr],
     scrutinee: &Type,
     variables: &HashMap<String, Type>,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
@@ -6507,7 +6645,7 @@ fn check_tuple_match(
     items: &[Expr],
     scrutinee: &Type,
     variables: &HashMap<String, Type>,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
@@ -6722,7 +6860,7 @@ fn check_array_match(
     items: &[Expr],
     scrutinee: &Type,
     variables: &HashMap<String, Type>,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
@@ -6888,7 +7026,7 @@ fn check_struct_match(
     items: &[Expr],
     struct_name: &str,
     variables: &HashMap<String, Type>,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
@@ -7155,7 +7293,7 @@ fn check_index(
     index: &Expr,
     length: usize,
     variables: &HashMap<String, Type>,
-    functions: &HashMap<String, Signature>,
+    functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,

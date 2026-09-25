@@ -124,6 +124,7 @@ impl Moves {
 
 #[derive(Default)]
 struct LinearTypes {
+    explicitly_linear: HashSet<String>,
     binding_sites: std::cell::RefCell<std::collections::HashMap<String, Site>>,
     aliases: std::collections::HashMap<String, Type>,
     structs: std::collections::HashMap<String, Vec<Type>>,
@@ -138,6 +139,9 @@ pub(crate) fn check_program_with_span(
     let mut types = LinearTypes::default();
     for item in &program.items {
         match item {
+            Item::LinearAnnotation { type_name } => {
+                types.explicitly_linear.insert(type_name.clone());
+            }
             Item::TypeAlias { name, target, .. } => {
                 types.aliases.insert(name.clone(), target.clone());
             }
@@ -412,6 +416,9 @@ fn is_linear(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool
         Type::Tuple(items) => items.iter().any(|item| is_linear(item, types, seen)),
         Type::Array(element, _) => is_linear(element, types, seen),
         Type::Named(name) => {
+            if types.explicitly_linear.contains(name) {
+                return true;
+            }
             if let Some(alias) = types.aliases.get(name) {
                 if !seen.insert(name.clone()) {
                     return true;

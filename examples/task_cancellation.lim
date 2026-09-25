@@ -1,0 +1,13 @@
+(#import "../library/tasks.lim")
+(#struct Flag ((released (#cell u64))))
+(@task (Held HeldPoll HeldPending HeldReady) u64 ((Holding (#ref Flag))))
+(#fn release ((task (#ref Flag))) ()
+  (#cell-set (#get task released) 42u64)
+  (#return ()))
+(@task-cancel cancel Held ((Holding release)))
+(#fn main () u64
+  (#let flag Flag (#struct-literal Flag ((released (#cell 0u64)))))
+  (#call cancel (#fn-args (task (Holding (#borrow flag)))))
+  (#let result u64 (#cell-get (#get flag released)))
+  (#forget flag)
+  (#return result))

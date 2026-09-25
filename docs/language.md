@@ -435,7 +435,7 @@ forms are generator-only; they do not evaluate Lim code or add runtime values.
 The lower-level `#gn-list` and `#gn-symbol` operations remain available.
 
 The initial generator builtins are `#gn-if`, `#gn-equal`, `#gn-symbol?`,
-`#gn-list?`, `#gn-symbol`, `#gn-list`, `#gn-first`, `#gn-rest`,
+`#gn-list?`, `#gn-symbol`, `#gn-list`, `#gn-length`, `#gn-first`, `#gn-rest`,
 `#gn-for-each`, `#gn-call`, and `#gn-error`. `#gn-for-each` is the only iteration
 construct; there are no general loops or mutable generator values. `#gn-error`
 fails expansion with the supplied message. Generators cannot perform IO or
@@ -454,6 +454,16 @@ Generators should use distinct explicit names when different invocations are
 intended to declare distinct items.
 
 ## Imports
+
+Compile-time collections (`#syntax-collection`, `#syntax-contribute`) are
+frozen after active imports and before generators. Generator parameters marked
+`#syntax-collection` receive their deterministic snapshots. See
+[collections and tasks](collections-and-tasks.md) for the user-defined
+distributed-slice, error-enum, and cooperative async generators.
+
+`(#linear Type)` makes a concrete struct or enum non-Copy even when every
+field is plain data. Generated task state types use this annotation; Send/Sync
+and layout are unaffected.
 
 Imports load Lim source relative to the importing file. Internal imports keep
 identifiers unchanged. External imports prefix user identifiers from the
