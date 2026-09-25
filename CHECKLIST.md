@@ -356,7 +356,7 @@ Each item requires documentation and regression coverage before being checked.
   referents remain alive; reject escaped locals, duplicated mutable loans,
   and parent access during a derived mutable borrow. Cover both let-else
   branches and explicit consumption of remaining linear fields.
-- [ ] Remove register-count limits from otherwise legal aggregate projections.
+- [x] Remove register-count limits from otherwise legal aggregate projections.
   `src/codegen.rs` still rejects large fields projected through references and
   large enum payload projections. Reuse indirect aggregate destinations rather
   than requiring every projected value to fit `VALUE_REGISTERS`. Test nested

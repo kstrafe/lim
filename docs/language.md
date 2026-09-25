@@ -1018,6 +1018,11 @@ aggregates use compiler-generated caller storage at the ABI boundary and are
 copied as value data. Aggregate operations do not implicitly expose their
 storage addresses or permit layout reinterpretation; raw pointers remain
 explicit values handled by the unsafe pointer operations described above.
+Large struct-field and enum-payload projections copy directly into aggregate
+storage, so the source value does not need to fit in the native value
+registers. Enum payload reads check the active discriminant before copying.
+References to local enums retain the stack-layout tag used to distinguish
+their downward-growing storage from upward-growing static storage.
 
 Zero-sized values such as `()` and empty structs/arrays occupy no value words.
 The compiler computes each function’s maximum call depth after type checking.

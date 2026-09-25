@@ -8020,7 +8020,7 @@ impl FunctionContext {
                 .push_str(&format!("    lea rax, [rbp-{}]\n", slot * 8));
             if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut"))
                 && self.local_types.get(owner).is_some_and(
-                    |ty| matches!(ty, Type::Named(name) if self.structs.contains_key(name)),
+                    |ty| matches!(ty, Type::Named(name) if self.structs.contains_key(name) || self.enums.contains_key(name)),
                 )
             {
                 self.output.push_str("    or rax, 1\n");
@@ -12698,6 +12698,16 @@ impl FunctionContext {
                     self.copy_reference_field_to_slots(value, slots)?;
                     return Ok(());
                 }
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get-payload")
+                    && items.len() == 4
+                    && matches!(
+                        self.expression_type(&items[1]),
+                        Some(Type::Reference { .. })
+                    )
+                {
+                    self.copy_reference_payload_to_slots(value, slots)?;
+                    return Ok(());
+                }
             }
         }
         if words > VALUE_REGISTERS.len()
@@ -13282,6 +13292,93 @@ impl FunctionContext {
             ));
         }
         self.output.push_str(&format!("{done}:\n"));
+        Ok(())
+    }
+
+    fn copy_reference_payload_to_slots(
+        &mut self,
+        value: &Expr,
+        slots: &[usize],
+    ) -> Result<(), String> {
+        let Expr::List(items) = value else {
+            return Err("large enum payload projection must be a get-payload expression".into());
+        };
+        let Type::Reference { target, .. } = self
+            .expression_type(&items[1])
+            .ok_or_else(|| "large enum payload projection has no reference type".to_owned())?
+        else {
+            return Err("large enum payload projection requires an enum reference".into());
+        };
+        let Type::Named(enum_name) = *target else {
+            return Err("large enum payload projection requires an enum reference".into());
+        };
+        let Expr::Symbol(variant_name) = &items[2] else {
+            return Err("get-payload requires a variant name".into());
+        };
+        let index =
+            match &items[3] {
+                Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
+                    .map_err(|_| "enum payload index is too large".to_owned())?,
+                Expr::UnsignedInteger(index) => usize::try_from(*index)
+                    .map_err(|_| "enum payload index is too large".to_owned())?,
+                _ => return Err("get-payload requires a non-negative integer index".into()),
+            };
+        let variant = self
+            .enums
+            .get(&enum_name)
+            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
+            .iter()
+            .find(|variant| variant.name == *variant_name)
+            .cloned()
+            .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
+        let field_type = variant.fields.get(index).ok_or_else(|| {
+            format!("variant '{variant_name}' has no payload field at index {index}")
+        })?;
+        let field_words = storage_word_count(field_type, &self.structs, &self.enums)?;
+        if slots.len() != field_words {
+            return Err("large enum payload destination has an inconsistent layout".into());
+        }
+        let payload_offset = 1usize
+            .checked_add(
+                variant.fields[..index]
+                    .iter()
+                    .map(|field| storage_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .try_fold(0usize, usize::checked_add)
+                    .ok_or_else(|| "enum payload offset overflowed usize".to_owned())?,
+            )
+            .ok_or_else(|| "enum payload offset overflowed usize".to_owned())?;
+        let inactive = self.label("inactive_large_enum_payload_projection");
+        let global_layout = self.label("large_enum_payload_global_layout");
+        let done = self.label("large_enum_payload_projection_done");
+        self.expression(&items[1])?;
+        self.output.push_str(&format!(
+            "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
+            variant.discriminant
+        ));
+        self.emit_reference_field_address(&items[1], payload_offset, true)?;
+        self.output.push_str(&format!(
+            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+        ));
+        for (index, slot) in slots.iter().enumerate() {
+            self.output.push_str(&format!(
+                "    mov rcx, QWORD PTR [rax-{}]\n    mov QWORD PTR [rbp-{}], rcx\n",
+                index * 8,
+                slot * 8
+            ));
+        }
+        self.output
+            .push_str(&format!("    jmp {done}\n{global_layout}:\n"));
+        for (index, slot) in slots.iter().enumerate() {
+            self.output.push_str(&format!(
+                "    mov rcx, QWORD PTR [rax+{}]\n    mov QWORD PTR [rbp-{}], rcx\n",
+                index * 8,
+                slot * 8
+            ));
+        }
+        self.output
+            .push_str(&format!("    jmp {done}\n{inactive}:\n    ud2\n{done}:\n"));
         Ok(())
     }
 

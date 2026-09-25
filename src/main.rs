@@ -599,6 +599,38 @@ mod tests {
     }
 
     #[test]
+    fn large_reference_projections_run_with_indirect_storage() {
+        let directory = env::temp_dir().join(format!(
+            "lim-large-reference-projections-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("program.lim");
+        let output = directory.join("program");
+        fs::write(
+            &input,
+            include_str!("../examples/large_reference_projections.lim"),
+        )
+        .unwrap();
+
+        let config = lim::CompileConfig::default();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &config,
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        let status = Command::new(&output).status().unwrap();
+        assert_eq!(status.code(), Some(42));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn thread_spawn_and_join_results_run_with_native_enum_layout() {
         let directory = env::temp_dir().join(format!("lim-thread-results-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);

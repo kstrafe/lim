@@ -12069,6 +12069,15 @@ mod tests {
     }
 
     #[test]
+    fn large_enum_payload_reference_checks_the_active_variant_before_copying() {
+        let program =
+            parse_program(include_str!("../examples/large_reference_projections.lim")).unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("inactive_large_enum_payload_projection"));
+        assert!(assembly.contains("ud2"));
+    }
+
+    #[test]
     fn returns_large_arrays_with_nested_wide_elements() {
         let program = parse_program(
             "(#fn make () (#array (#tuple u128 u64) 4) (#return (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64)))) (#fn main () u64 (#let values (#array (#tuple u128 u64) 4) (#call make (#fn-args ))) (#let item (#tuple u128 u64) (#index values 3u64)) (#let direct-item (#tuple u128 u64) (#index (#call make (#fn-args )) 3u64)) (#return (#u64.+.wrap (#get item 1) (#get direct-item 1))))",
