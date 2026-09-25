@@ -4228,8 +4228,10 @@ fn constant_value(
                 target,
             )?;
             if operator == "-"
-                && (matches!(qualifier.map(Type::from_name), Some(Type::U128))
-                    || matches!(target, Some(Type::U128)))
+                && matches!(
+                    qualifier.map(Type::from_name).or_else(|| target.cloned()),
+                    Some(Type::U128)
+                )
             {
                 if mode == Some("saturate") {
                     return Ok(0);
@@ -4266,13 +4268,18 @@ fn constant_value(
                     }
                 }
             }
-            match operator {
+            let result = match operator {
                 "-" => value
                     .checked_neg()
-                    .ok_or_else(|| "constant negation overflowed".into()),
+                    .ok_or_else(|| "constant negation overflowed".to_owned()),
                 "!" => Ok(!value),
                 _ => Err("global initializer is not constant".into()),
-            }
+            }?;
+            Ok(qualifier
+                .map(Type::from_name)
+                .or_else(|| target.cloned())
+                .as_ref()
+                .map_or(result, |ty| normalize_global_integer(result, ty)))
         }
         Expr::List(items) if items.len() == 3 => {
             let operator = match &items[0] {
@@ -4529,12 +4536,15 @@ fn constant_value(
             }?;
             if mode == Some("saturate") {
                 let operation_type = operation_type
+                    .as_ref()
                     .ok_or_else(|| "saturating constant requires a typed operand".to_owned())?;
                 if let Some((minimum, maximum)) = integer_bounds(&operation_type) {
                     return Ok(result.clamp(minimum, maximum));
                 }
             }
-            Ok(result)
+            Ok(operation_type
+                .as_ref()
+                .map_or(result, |ty| normalize_global_integer(result, ty)))
         }
         _ => Err("global initializer is not constant".into()),
     }
@@ -11250,11 +11260,12 @@ impl FunctionContext {
                     let done = self.label("saturating_negate_done");
                     let normal = self.label("saturating_negate_normal");
                     self.output.push_str(&format!(
-                        "    cmp rdx, 0x8000000000000000\n    jne {normal}\n    test rax, rax\n    jne {normal}\n    mov rax, 0xffffffffffffffff\n    mov rdx, 0x7fffffffffffffff\n    jmp {done}\n{normal}:\n    neg rax\n    sbb rdx, 0\n{done}:\n"
+                        "    mov r8, 0x8000000000000000\n    cmp rdx, r8\n    jne {normal}\n    test rax, rax\n    jne {normal}\n    mov rax, 0xffffffffffffffff\n    mov rdx, 0x7fffffffffffffff\n    jmp {done}\n{normal}:\n    neg rax\n    adc rdx, 0\n    neg rdx\n{done}:\n"
                     ));
                 }
             } else {
-                self.output.push_str("    neg rax\n    sbb rdx, 0\n");
+                self.output
+                    .push_str("    neg rax\n    adc rdx, 0\n    neg rdx\n");
             }
             return Ok(());
         }
@@ -11934,6 +11945,13 @@ impl FunctionContext {
             self.output.push_str("    xor eax, 1\n");
         } else {
             self.output.push_str("    not rax\n");
+            if self
+                .expression_type(&items[1])
+                .as_ref()
+                .is_some_and(is_wide_integer)
+            {
+                self.output.push_str("    not rdx\n");
+            }
             if let Some(ty) = self.expression_type(&items[1]) {
                 if is_narrow_integer(&ty) {
                     self.normalize_integer(&ty)?;
@@ -12293,6 +12311,17 @@ impl FunctionContext {
         } else {
             None
         };
+        if operator == "*"
+            && mode == Some("saturate")
+            && matches!(native_operand_type, Some(Type::I64 | Type::Isize))
+        {
+            let done = self.label("signed_mul_saturate_done");
+            let low = self.label("signed_mul_saturate_low");
+            self.output.push_str(&format!(
+                "    imul rcx\n    mov r8, rax\n    sar r8, 63\n    cmp rdx, r8\n    je {done}\n    test rdx, rdx\n    js {low}\n    mov rax, 0x7fffffffffffffff\n    jmp {done}\n{low}:\n    mov rax, 0x8000000000000000\n{done}:\n"
+            ));
+            return Ok(());
+        }
         match operator {
             "+" => self.output.push_str("    add rax, rcx\n"),
             "-" => self.output.push_str("    sub rax, rcx\n"),
@@ -12385,6 +12414,15 @@ impl FunctionContext {
         };
         let minimum = asm_integer_bound(minimum, &ty);
         let maximum = asm_integer_bound(maximum, &ty);
+        let compare_bound = |bound: &str| {
+            if bound.parse::<i32>().is_ok() {
+                format!("cmp rax, {bound}")
+            } else {
+                format!("mov r11, {bound}\n    cmp rax, r11")
+            }
+        };
+        let compare_maximum = compare_bound(&maximum);
+        let compare_minimum = compare_bound(&minimum);
         let high = self.label("saturate_high");
         let low = self.label("saturate_low");
         let overflow = self.label("saturate_overflow");
@@ -12399,11 +12437,11 @@ impl FunctionContext {
                 self.output.push_str(&format!("    jc {overflow}\n"));
             }
             self.output.push_str(&format!(
-                "    cmp rax, {maximum}\n    ja {high}\n    jmp {done}\n{high}:\n    mov rax, {maximum}\n    jmp {done}\n{low}:\n    xor eax, eax\n{done}:\n"
+                "    {compare_maximum}\n    ja {high}\n    jmp {done}\n{high}:\n    mov rax, {maximum}\n    jmp {done}\n{low}:\n    xor eax, eax\n{done}:\n"
             ));
         } else {
             self.output.push_str(&format!(
-                "    jo {overflow}\n    cmp rax, {maximum}\n    jg {high}\n    cmp rax, {minimum}\n    jl {low}\n    jmp {done}\n{overflow}:\n    js {high}\n    jmp {low}\n{high}:\n    mov rax, {maximum}\n    jmp {done}\n{low}:\n    mov rax, {minimum}\n{done}:\n"
+                "    jo {overflow}\n    {compare_maximum}\n    jg {high}\n    {compare_minimum}\n    jl {low}\n    jmp {done}\n{overflow}:\n    js {high}\n    jmp {low}\n{high}:\n    mov rax, {maximum}\n    jmp {done}\n{low}:\n    mov rax, {minimum}\n{done}:\n"
             ));
         }
         Ok(())
@@ -12456,7 +12494,7 @@ impl FunctionContext {
             let high = self.label("wide_shift_high");
             let done = self.label("wide_shift_done");
             self.output.push_str(&format!(
-                "    cmp rcx, 128\n    jae {failure}\n    cmp rcx, 64\n    jae {high}\n"
+                "    test r8, r8\n    jne {failure}\n    cmp rcx, 128\n    jae {failure}\n    cmp rcx, 64\n    jae {high}\n"
             ));
             if operator == "<<" {
                 self.output

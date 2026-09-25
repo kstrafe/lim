@@ -112,3 +112,18 @@ emission is sorted by symbol so randomized map order does not affect layout.
 This guarantee assumes identical compiler, Nix toolchain, target, and cfg;
 it does not promise identical bytes across different linker versions.
 Diagnostic paths remain real source paths and are not rewritten for builds.
+## Numeric differential regression coverage
+
+`tests/numeric_differential.rs` uses a fixed seed and Rust scalar operations
+as an independent oracle for all twelve integer types, including i128/u128.
+Bounded native batches compare both global evaluation and emitted operations
+against wrap/saturate, bitwise, division/remainder, and shift expectations.
+Additional cases exercise casts, invalid shifts, division traps, and float
+unordered comparisons. Failures print the seed and a standalone source batch.
+These are correctness checks, not timing gates. `saturation_bounds.lim` keeps
+minimal regressions for large-bound x86 comparisons and signed 64-bit
+multiplication overflow direction.
+`wide_shift_count_trap.lim` verifies that a dynamic 128-bit shift count with
+nonzero high bits is rejected instead of being truncated to its low word.
+`nested_wrapping_constant.lim` checks width normalization between constant
+operations, including wrapping negation and bitwise inversion.

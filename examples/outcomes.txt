@@ -256,3 +256,6 @@ exit 42 wide_tuple_pattern.lim - -
 exit 42 wrapping_division.lim - -
 exit 42 wrapping_i128_constant_division.lim - -
 exit 42 wrapping_i128_shift.lim - -
+exit 42 saturation_bounds.lim - -
+signal 4 wide_shift_count_trap.lim - -
+exit 42 nested_wrapping_constant.lim - -

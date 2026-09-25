@@ -805,7 +805,7 @@ commit, documentation, and focused regression coverage.
   equivalent constant/runtime expressions. Reject cycles and nonconstant
   operations with exact source spans; static access must still require unsafe.
 
-- [ ] **NUM-01: Add differential numeric backend tests across widths.**
+- [x] **NUM-01: Add differential numeric backend tests across widths.**
   The exact-outcome sweep recently exposed a typed-float comparison lowering
   bug; a collection of hand-picked examples is not comprehensive numeric
   coverage. Build a dependency-free, deterministic test generator with a
