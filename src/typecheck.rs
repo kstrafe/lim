@@ -367,6 +367,7 @@ fn check_types_inner(
                     &program.statement_spans,
                     &program.statement_expressions,
                     &program.source_files,
+                    program.declaration_expressions.get(&function.name),
                 ) {
                     let missing_generated_body_spans = program
                         .declaration_expressions
@@ -1758,6 +1759,7 @@ fn check_function(
     statement_spans: &HashMap<(String, usize), crate::Span>,
     statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
     source_files: &[crate::SourceFile],
+    declaration_expression: Option<&crate::SpannedExpr>,
 ) -> Result<(), FunctionTypeError> {
     let mut variables = globals.clone();
     let mut mutable = HashSet::new();
@@ -1765,12 +1767,25 @@ fn check_function(
     let return_type = resolve_type(&function.return_type, aliases)?;
     for parameter in &function.parameters {
         if !parameter_names.insert(parameter.name.clone()) {
+            let span = declaration_expression
+                .and_then(|declaration| declaration.children.get(2))
+                .and_then(|parameters| {
+                    parameters
+                        .children
+                        .iter()
+                        .filter_map(|parameter| parameter.children.first())
+                        .filter(|name| {
+                            matches!(&name.expr, Expr::Symbol(name) if name == &parameter.name)
+                        })
+                        .nth(1)
+                        .map(|name| name.span)
+                });
             return Err(FunctionTypeError {
                 message: format!(
                     "duplicate parameter '{}' in function '{}'",
                     parameter.name, function.name
                 ),
-                span: None,
+                span,
             });
         }
         variables.insert(

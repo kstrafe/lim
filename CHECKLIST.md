@@ -423,6 +423,10 @@ Each item requires documentation and regression coverage before being checked.
     `Span` data to the CLI diagnostic constructor; retain the string-returning
     checker API as a compatibility wrapper. Unit and UI tests assert exact
     source excerpts and verify these errors need no span text in the message.
+  - [x] Resolve duplicate-parameter diagnostics at parameter validation time
+    from the retained function declaration tree, and remove the corresponding
+    message-parsing branch from `unlocated_analysis_span`; the UI test asserts
+    that the second duplicate name is underlined.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated

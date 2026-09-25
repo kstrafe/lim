@@ -2137,31 +2137,6 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
         }
     }
 
-    if let Some((parameter, function)) = message
-        .strip_prefix("duplicate parameter '")
-        .and_then(|rest| rest.split_once("' in function '"))
-        .and_then(|(parameter, rest)| {
-            rest.strip_suffix('\'')
-                .map(|function| (parameter, function))
-        })
-    {
-        if let Some(declaration) = program.declaration_expressions.get(function) {
-            if let Some(parameters) = declaration.children.get(2) {
-                let mut matches = Vec::new();
-                for parameter_form in &parameters.children {
-                    if let Some(name) = parameter_form.children.first() {
-                        if matches!(&name.expr, Expr::Symbol(name) if name == parameter) {
-                            matches.push(name.span);
-                        }
-                    }
-                }
-                if let Some(span) = matches.get(1) {
-                    return Some(*span);
-                }
-            }
-        }
-    }
-
     if let Some(cycle) = message.strip_prefix("recursive calls are not allowed: ") {
         let mut names = cycle.split(" -> ");
         let (caller, callee) = (names.next()?, names.next()?);
