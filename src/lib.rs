@@ -1786,12 +1786,17 @@ pub fn compile_source_to_assembly(
     let program =
         parse_program_from_path_with_config_and_cache(source, source_path, config, cache_directory)
             .map_err(|message| generator_diagnostic(message, source_path, source))?;
-    check_types(&program).map_err(|message| analysis_diagnostic(message, &program))?;
+    typecheck::check_types_with_span(&program)
+        .map_err(|(message, span)| analysis_diagnostic(message, span, &program))?;
     generate_assembly_for_target(&program, target)
         .map_err(|message| codegen_diagnostic(message, &program))
 }
 
-fn analysis_diagnostic(message: String, program: &Program) -> Diagnostic {
+fn analysis_diagnostic(
+    message: String,
+    structured_span: Option<Span>,
+    program: &Program,
+) -> Diagnostic {
     let code = if message.starts_with("E4100") || message.contains("borrow") {
         DiagnosticCode::Borrow
     } else if message.contains("unsafe") || message.contains("#unsafe") {
@@ -1807,30 +1812,39 @@ fn analysis_diagnostic(message: String, program: &Program) -> Diagnostic {
         DiagnosticCode::Type
     };
     let mut diagnostic = Diagnostic::new(code, message.clone());
+    if let Some(span) = structured_span {
+        if let Some(file) = program.source_files.get(span.source_id as usize) {
+            diagnostic = diagnostic
+                .with_span(span)
+                .with_source(file.path.display().to_string(), file.source.clone());
+        }
+    }
     let span_marker = if message.contains("conflicting span ") {
         "conflicting span "
     } else {
         "source span "
     };
-    if let Some((start, end)) = span_after(&message, span_marker) {
-        let source_id = source_id_after(&message, span_marker).unwrap_or(0);
-        if let Some(file) = program.source_files.get(source_id as usize) {
-            if start <= end && file.source.get(start..end).is_some() {
-                let prefix = &file.source[..start];
-                let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
-                let column = prefix
-                    .rsplit('\n')
-                    .next()
-                    .map_or(1, |line| line.chars().count() + 1);
-                diagnostic.span = Some(Span {
-                    start,
-                    end,
-                    line,
-                    column,
-                    source_id,
-                });
-                diagnostic =
-                    diagnostic.with_source(file.path.display().to_string(), file.source.clone());
+    if diagnostic.span.is_none() {
+        if let Some((start, end)) = span_after(&message, span_marker) {
+            let source_id = source_id_after(&message, span_marker).unwrap_or(0);
+            if let Some(file) = program.source_files.get(source_id as usize) {
+                if start <= end && file.source.get(start..end).is_some() {
+                    let prefix = &file.source[..start];
+                    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+                    let column = prefix
+                        .rsplit('\n')
+                        .next()
+                        .map_or(1, |line| line.chars().count() + 1);
+                    diagnostic.span = Some(Span {
+                        start,
+                        end,
+                        line,
+                        column,
+                        source_id,
+                    });
+                    diagnostic = diagnostic
+                        .with_source(file.path.display().to_string(), file.source.clone());
+                }
             }
         }
     }
@@ -8652,7 +8666,7 @@ mod tests {
         let root_source = "(#import \"module.lim\") (#fn main () u64 (#return 0u64))";
         let program = parse_program_from_path(root_source, &root_path).unwrap();
         let error = check_types(&program).unwrap_err();
-        let diagnostic = analysis_diagnostic(error, &program);
+        let diagnostic = analysis_diagnostic(error, None, &program);
         let span = diagnostic.span.unwrap();
         assert_eq!(span.source_id, 1);
         assert_eq!(
@@ -8663,6 +8677,27 @@ mod tests {
         assert!(rendered.contains("--> "));
         assert!(rendered.contains("module.lim:2:12"), "{rendered}");
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn function_type_diagnostics_carry_the_span_without_message_metadata() {
+        let source = "(#fn main () u64 (#return false))";
+        let program = parse_program(source).unwrap();
+        let (message, span) = typecheck::check_types_with_span(&program).unwrap_err();
+        assert!(!message.contains("source span "));
+        let span = span.expect("mismatched return has a structured source span");
+        assert_eq!(&source[span.start..span.end], "false");
+
+        let diagnostic = analysis_diagnostic(message, Some(span), &program);
+        assert_eq!(diagnostic.span, Some(span));
+        assert_eq!(diagnostic.code, DiagnosticCode::Type);
+
+        let global_source = "(#let total u64 false)";
+        let global_program = parse_program(global_source).unwrap();
+        let (message, span) = typecheck::check_types_with_span(&global_program).unwrap_err();
+        assert!(!message.contains("source span "));
+        let span = span.expect("mismatched global initializer has a structured span");
+        assert_eq!(&global_source[span.start..span.end], "false");
     }
 
     #[test]

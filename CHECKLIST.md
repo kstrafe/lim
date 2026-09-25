@@ -419,6 +419,10 @@ Each item requires documentation and regression coverage before being checked.
   - [ ] Replace `"source span …"` and `"conflicting span …"` string metadata
     with structured semantic errors carrying a stable diagnostic category,
     source ID, and byte range from type checking through CLI rendering.
+  - [x] Carry function-body and top-level-initializer type-error ranges as
+    `Span` data to the CLI diagnostic constructor; retain the string-returning
+    checker API as a compatibility wrapper. Unit and UI tests assert exact
+    source excerpts and verify these errors need no span text in the message.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated

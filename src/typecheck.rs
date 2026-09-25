@@ -18,6 +18,27 @@ struct Signature {
 }
 
 pub fn check_types(program: &Program) -> Result<(), String> {
+    check_types_with_span(program).map_err(|(message, span)| {
+        span.map_or(message.clone(), |span| {
+            format!(
+                "{message}; source span {}:{}:{}",
+                span.source_id, span.start, span.end
+            )
+        })
+    })
+}
+
+pub(crate) fn check_types_with_span(
+    program: &Program,
+) -> Result<(), (String, Option<crate::Span>)> {
+    let mut diagnostic_span = None;
+    check_types_inner(program, &mut diagnostic_span).map_err(|message| (message, diagnostic_span))
+}
+
+fn check_types_inner(
+    program: &Program,
+    diagnostic_span: &mut Option<crate::Span>,
+) -> Result<(), String> {
     for item in &program.items {
         match item {
             Item::Function(function)
@@ -351,15 +372,12 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                         .declaration_expressions
                         .get(&function.name)
                         .is_some_and(|expression| expression.children.is_empty());
-                    if missing_generated_body_spans {
-                        if let Some(span) = program.declaration_spans.get(&function.name) {
-                            return Err(format!(
-                                "{error}; source span {}:{}:{}",
-                                span.source_id, span.start, span.end
-                            ));
-                        }
-                    }
-                    return Err(error);
+                    *diagnostic_span = error.span.or_else(|| {
+                        missing_generated_body_spans
+                            .then(|| program.declaration_spans.get(&function.name).copied())
+                            .flatten()
+                    });
+                    return Err(error.message);
                 }
             }
             Item::TypeAlias { .. }
@@ -393,15 +411,8 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                         return error;
                     };
                     let source = file.source.as_str();
-                    precise_type_error_span(declaration, &error, source).map_or(
-                        error.clone(),
-                        |span| {
-                            format!(
-                                "{error}; source span {}:{}:{}",
-                                span.source_id, span.start, span.end
-                            )
-                        },
-                    )
+                    *diagnostic_span = precise_type_error_span(declaration, &error, source);
+                    error
                 })?;
             }
         }
@@ -1747,17 +1758,20 @@ fn check_function(
     statement_spans: &HashMap<(String, usize), crate::Span>,
     statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
     source_files: &[crate::SourceFile],
-) -> Result<(), String> {
+) -> Result<(), FunctionTypeError> {
     let mut variables = globals.clone();
     let mut mutable = HashSet::new();
     let mut parameter_names = HashSet::new();
     let return_type = resolve_type(&function.return_type, aliases)?;
     for parameter in &function.parameters {
         if !parameter_names.insert(parameter.name.clone()) {
-            return Err(format!(
-                "duplicate parameter '{}' in function '{}'",
-                parameter.name, function.name
-            ));
+            return Err(FunctionTypeError {
+                message: format!(
+                    "duplicate parameter '{}' in function '{}'",
+                    parameter.name, function.name
+                ),
+                span: None,
+            });
         }
         variables.insert(
             parameter.name.clone(),
@@ -1823,12 +1837,10 @@ fn check_function(
                 })
                 .or_else(|| source_expression.map(crate::source_value_span))
                 .or(statement_span);
-            precise_span.map_or(error.clone(), |span| {
-                format!(
-                    "{error}; source span {}:{}:{}",
-                    span.source_id, span.start, span.end
-                )
-            })
+            FunctionTypeError {
+                message: error,
+                span: precise_span,
+            }
         })?;
     }
     require_type(
@@ -1837,27 +1849,35 @@ fn check_function(
         &format!("return of function '{}'", function.name),
     )
     .map_err(|error| {
-        function
-            .body
-            .len()
-            .checked_sub(1)
-            .and_then(|index| {
-                statement_expressions
-                    .get(&(function.name.clone(), index))
-                    .map(|expression| expression_value_span(expression))
-                    .or_else(|| {
-                        statement_spans
-                            .get(&(function.name.clone(), index))
-                            .copied()
-                    })
-            })
-            .map_or(error.clone(), |span| {
-                format!(
-                    "{error}; source span {}:{}:{}",
-                    span.source_id, span.start, span.end
-                )
-            })
+        let span = function.body.len().checked_sub(1).and_then(|index| {
+            statement_expressions
+                .get(&(function.name.clone(), index))
+                .map(|expression| expression_value_span(expression))
+                .or_else(|| {
+                    statement_spans
+                        .get(&(function.name.clone(), index))
+                        .copied()
+                })
+        });
+        FunctionTypeError {
+            message: error,
+            span,
+        }
     })
+}
+
+struct FunctionTypeError {
+    message: String,
+    span: Option<crate::Span>,
+}
+
+impl From<String> for FunctionTypeError {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            span: None,
+        }
+    }
 }
 
 fn precise_type_error_span(
