@@ -373,6 +373,8 @@ Each item requires documentation and regression coverage before being checked.
   an explicit trusted bound is supplied; do not claim no overflow merely
   because recursion is forbidden. Test nested large calls, repeated loops
   without stack growth, checked size arithmetic, and thread stack budgets.
+  - [x] State accurately that finite call depth alone does not prove a byte
+    bound or prevent stack overflow, especially across external calls.
 
 ### Priority 2: trustworthy generated artifacts and diagnostics
 

@@ -1030,7 +1030,10 @@ their downward-growing storage from upward-growing static storage.
 
 Zero-sized values such as `()` and empty structs/arrays occupy no value words.
 The compiler computes each function’s maximum call depth after type checking.
-Because recursion is forbidden, this gives a finite static stack requirement.
+This is not yet a byte-level stack bound: it does not account for all frames,
+temporaries, outgoing arguments, generated helpers, or external callees. A
+finite call depth therefore does not prove that execution cannot overflow its
+stack. External-call stack usage is currently unknown.
 
 Division by zero, invalid dynamic shifts, failed assertions, `#panic`, and
 `#unreachable` lower to runtime traps.  Intentional trap examples are kept
