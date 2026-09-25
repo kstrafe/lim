@@ -1,4 +1,4 @@
-# Initial compiler performance baseline
+# Compiler performance baselines
 
 Run the dependency-free benchmark harness from the Nix development shell:
 
@@ -8,8 +8,8 @@ nix develop --command cargo bench --bench compiler -- --iterations 20
 
 Use the same machine, Nix shell, release profile, and iteration count when
 comparing changes. The harness reports lexing, parsing, import/cfg/frontend
-processing, semantic checks, native assembly emission, cold and warm generator
-caches, and clang linking separately for small and large synthetic projects.
+processing, semantic checks, checked native assembly emission, cold and warm
+generator caches, and production assembler/linker work separately.
 It also runs the allocator-backed vector and large aggregate projection
 examples, checks their exit values, and reports assembly/binary sizes. Timings
 are informational; ordinary correctness tests deliberately have no timing
@@ -17,7 +17,50 @@ thresholds. On Linux, the harness prints its process high-water RSS from
 `/proc/self/status` when available. The printed peak covers the whole harness,
 not a per-phase memory profile.
 
-## Recorded sample
+## Production pipeline sample (2026-09-25)
+
+Five iterations, Nix release profile, Intel i7-13700KF, Linux 7.2.6 x86-64,
+rustc 1.99.0-nightly (89c61a754 2026-07-23), GNU binutils 2.46. The target is
+x86_64-sysv. Small/large sources remain 174/9,798 bytes. Peak RSS: 11,684 KiB.
+
+| Phase (mean ms) | Small | Large |
+| --- | ---: | ---: |
+| Lex | 0.004 | 0.131 |
+| Parse (includes lexing) | 0.009 | 0.410 |
+| Imports/cfg/frontend | 0.127 | 2.025 |
+| Semantic checks | 0.013 | 9.479 |
+| Checked native emission | 0.043 | 8.837 |
+| Compile end-to-end, without link | 0.186 | 20.592 |
+| Production assembly/link/publication | 813.664 | 255.850 |
+| Generator cold cache | 0.221 | 5.665 |
+| Generator warm cache | 0.148 | 1.421 |
+
+Small/large assembly sizes: 1,743/74,715 B; binary sizes: 13,616/26,936 B.
+The checked-program API excludes semantic checking from emission; compile
+end-to-end includes lexing, parsing, imports, expansion, validation, and
+emission. Link timing includes `as`, dynamic-linker discovery, `ld`, and
+atomic publication. Build timings below also include cache preparation,
+inspectable generated source writing, compilation, linking, and one checked
+execution. Cold means the generator cache is removed before each build;
+it does not flush the OS filesystem cache.
+
+| Workload | Cold build ms | Warm build ms | Assembly B | Binary B | Exit |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Reference aggregates | 835.688 | 262.851 | 9,254 | 13,600 | 42 |
+| Allocator vector | 823.312 | 811.085 | 50,735 | 19,088 | 4 |
+| 64-function branch/call chain | 256.708 | 852.506 | 28,400 | 15,728 | 42 |
+| 256 generated aliases | 567.147 | 249.909 | 318 | 13,432 | 42 |
+
+These are noisy wall-clock samples, not speedup claims: the reversed cold/
+warm ordering in the call-chain workload demonstrates process scheduling
+and wrapper overhead. The old emission number included a second semantic
+pass, and the old linker used Clang, so neither is directly comparable.
+The old generator benchmark only wrote generated text; compiling that text
+exposed an extra list layer, now corrected. A removed semantic pass is
+verified by a test counter; its cost on this large workload is represented
+by the separate 9.479 ms semantic measurement, not an assumed timing gain.
+
+## Historical Clang sample
 
 Recorded with five iterations on 2026-09-24 in the repository's Nix shell:
 

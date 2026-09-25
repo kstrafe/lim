@@ -28,7 +28,7 @@ pub fn check_types(program: &Program) -> Result<(), String> {
 
 /// An immutable program whose semantic validation has succeeded. The private
 /// field prevents emission callers from constructing or invalidating this proof.
-pub(crate) struct CheckedProgram<'a>(&'a Program);
+pub struct CheckedProgram<'a>(&'a Program);
 
 pub(crate) type AnalysisError = (
     String,
@@ -42,13 +42,18 @@ impl<'a> CheckedProgram<'a> {
         check_types_with_span(program)?;
         Ok(Self(program))
     }
-    pub(crate) fn validate(program: &'a Program) -> Result<Self, String> {
+    pub fn validate(program: &'a Program) -> Result<Self, String> {
         check_types(program)?;
         Ok(Self(program))
     }
 
     pub(crate) fn program(&self) -> &'a Program {
         self.0
+    }
+
+    /// Emit a previously validated, immutably borrowed program.
+    pub fn generate_assembly(&self, target: crate::TargetDescription) -> Result<String, String> {
+        crate::codegen::generate_checked_assembly(self, target)
     }
 }
 

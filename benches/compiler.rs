@@ -3,7 +3,6 @@ use std::{
     hint::black_box,
     path::{Path, PathBuf},
     process::Command,
-    process::Stdio,
     time::{Duration, Instant},
 };
 
@@ -39,7 +38,7 @@ fn generated_program(functions: usize) -> String {
 
 fn generator_program(aliases: usize) -> String {
     let mut source = String::from(
-        "(#generator aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair))))))\n(@aliases (",
+        "(#generator aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair)))))\n(@aliases (",
     );
     for index in 0..aliases {
         source.push_str(&format!("(Generated{index} u64) "));
@@ -68,14 +67,14 @@ fn compile_and_link(source: &str, source_path: &Path, directory: &Path) -> (Stri
     let assembly_path = directory.join("program.s");
     fs::write(&assembly_path, &assembly).unwrap();
     let binary = directory.join("program");
-    let status = Command::new("clang")
-        .arg(&assembly_path)
-        .arg("-o")
-        .arg(&binary)
-        .stderr(Stdio::null())
-        .status()
-        .expect("run clang linker");
-    assert!(status.success(), "clang failed to link benchmark input");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_or_else(|error| panic!("production link failed: {}", error.message));
     (assembly, binary)
 }
 
@@ -92,7 +91,7 @@ fn main() {
     let small = generated_program(4);
     let large = generated_program(256);
     println!(
-        "lim={} target=x86_64-sysv arch={} os={} rustc={} clang={} machine={}",
+        "lim={} target=x86_64-sysv arch={} os={} rustc={} ld={} machine={}",
         env!("CARGO_PKG_VERSION"),
         env::consts::ARCH,
         env::consts::OS,
@@ -101,7 +100,7 @@ fn main() {
             .output()
             .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
             .unwrap_or_else(|_| "unavailable".into()),
-        Command::new("clang")
+        Command::new("ld")
             .arg("--version")
             .output()
             .map(|output| String::from_utf8_lossy(&output.stdout)
@@ -168,23 +167,48 @@ fn main() {
         measure(&format!("{label}.semantic"), iterations, || {
             lim::check_types(black_box(&program)).unwrap();
         });
-        measure(&format!("{label}.native-emission"), iterations, || {
-            black_box(lim::generate_assembly(black_box(&program)).unwrap());
+        let checked = lim::CheckedProgram::validate(&program).unwrap();
+        measure(
+            &format!("{label}.checked-native-emission"),
+            iterations,
+            || {
+                black_box(
+                    checked
+                        .generate_assembly(lim::TargetDescription::X86_64_SYSTEM_V)
+                        .unwrap(),
+                );
+            },
+        );
+        measure(&format!("{label}.compile-end-to-end"), iterations, || {
+            black_box(
+                lim::compile_source_to_assembly(
+                    &project_source,
+                    &path,
+                    &project_config,
+                    &frontend_cache,
+                    lim::TargetDescription::X86_64_SYSTEM_V,
+                )
+                .unwrap(),
+            );
         });
         let assembly = lim::generate_assembly(&program).unwrap();
         let assembly_path = root.join(format!("{label}-link.s"));
         let binary_path = root.join(format!("{label}-link"));
         fs::write(&assembly_path, &assembly).unwrap();
         measure(&format!("{label}.link"), iterations, || {
-            let status = Command::new("clang")
-                .arg(&assembly_path)
-                .arg("-o")
-                .arg(&binary_path)
-                .stderr(Stdio::null())
-                .status()
-                .unwrap();
-            assert!(status.success());
+            lim::link_native_binary(
+                &assembly,
+                &binary_path,
+                &[],
+                &[],
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            )
+            .unwrap();
         });
+        assert_eq!(
+            Command::new(&binary_path).status().unwrap().code(),
+            Some(42)
+        );
         println!(
             "{label}.artifacts assembly_bytes={} binary_bytes={}",
             fs::metadata(&assembly_path).unwrap().len(),
@@ -238,18 +262,49 @@ fn main() {
         }
     }
 
-    for (name, expected) in [("large_reference_projections", 42), ("vec_allocator", 4)] {
-        let source = match name {
-            "large_reference_projections" => {
-                include_str!("../examples/large_reference_projections.lim")
-            }
-            _ => include_str!("../examples/vec_allocator.lim"),
-        };
+    let mut chain = String::from("(#fn step-0 () u64 (#return 42u64))\n");
+    for index in 1..64 {
+        chain.push_str(&format!(
+            "(#fn step-{index} () u64 (#return (#if true (#call step-{} (#fn-args)) 0u64)))\n",
+            index - 1
+        ));
+    }
+    chain.push_str("(#fn main () u64 (#return (#call step-63 (#fn-args))))");
+    let generated = generator_program(256);
+    for (name, source, expected) in [
+        (
+            "large_reference_projections",
+            include_str!("../examples/large_reference_projections.lim"),
+            42,
+        ),
+        (
+            "vec_allocator",
+            include_str!("../examples/vec_allocator.lim"),
+            4,
+        ),
+        ("branch_call_chain", chain.as_str(), 42),
+        ("generator_heavy", generated.as_str(), 42),
+    ] {
         let directory = root.join(name);
         fs::create_dir_all(&directory).unwrap();
         let path = directory.join("workload.lim");
         fs::write(&path, source).unwrap();
-        let (_, binary) = compile_and_link(source, &path, &directory);
+        for temperature in ["cold", "warm"] {
+            measure(&format!("{name}.build-{temperature}"), iterations, || {
+                if temperature == "cold" {
+                    let cache = directory.join(".lim/cache");
+                    if cache.exists() {
+                        fs::remove_dir_all(cache).unwrap();
+                    }
+                }
+                let (_, binary) = compile_and_link(source, &path, &directory);
+                assert_eq!(
+                    Command::new(binary).status().unwrap().code(),
+                    Some(expected)
+                );
+            });
+        }
+        let binary = directory.join("program");
         let start = Instant::now();
         let status = Command::new(&binary).status().expect("run native workload");
         let elapsed = start.elapsed();

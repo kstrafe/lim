@@ -676,7 +676,7 @@ and acceptance coverage.
   native output and diagnostics before/after. Measure effects on large projects
   rather than assuming a speedup.
 
-- [ ] **PERF-01: Benchmark the production compiler and linker accurately.**
+- [x] **PERF-01: Benchmark the production compiler and linker accurately.**
   `benches/compiler.rs` links using Clang while production uses `as`/`ld`, and
   its assembly-emission measurement includes another semantic check. Benchmark
   the production APIs with clearly separated and end-to-end timings; describe

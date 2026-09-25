@@ -20,7 +20,7 @@ pub use codegen::generate_assembly;
 pub use codegen::generate_assembly_for_target;
 pub use output::{reject_source_output_collision, write_output_atomic};
 pub use stack_usage::stack_usage_report;
-pub use typecheck::{check_types, type_has_thread_property};
+pub use typecheck::{check_types, type_has_thread_property, CheckedProgram};
 
 /// CPU architecture descriptions understood by the native backend.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
