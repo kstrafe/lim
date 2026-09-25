@@ -793,9 +793,9 @@ commit, documentation, and focused regression coverage.
 
 ### Priority 2: numeric consistency
 
-- [ ] **CONST-01: Support typed floating-point constant and static values.**
-  `src/codegen.rs::constant_value` returns an integer representation and
-  explicitly rejects floating-point initializers. Introduce typed constant
+- [x] **CONST-01: Support typed floating-point constant and static values.**
+  Audit correction: float globals already had a separate evaluator; the
+  integer evaluator's rejection did not mean they were unsupported. Use typed constant
   values that preserve f32/f64 bit patterns rather than passing floats through
   integer numeric conversion. Specify which pure expressions may initialize
   globals and how width rounding and exceptional values behave; runtime

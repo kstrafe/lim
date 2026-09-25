@@ -1278,9 +1278,9 @@ pub(crate) fn generate_checked_assembly(
                             &constant_initializers,
                             &mut evaluating_float_constants,
                             true,
-                        )? as f32;
+                        )?.value() as f32;
                         if matches!(item, Item::Let { .. }) {
-                            float_constants.insert(name.clone(), value as f64);
+                            float_constants.insert(name.clone(), FloatConstant::F32(value.to_bits()));
                         }
                         GlobalValue::F32(value.to_bits())
                     }
@@ -1296,7 +1296,7 @@ pub(crate) fn generate_checked_assembly(
                         if matches!(item, Item::Let { .. }) {
                             float_constants.insert(name.clone(), value);
                         }
-                        GlobalValue::F64(value.to_bits())
+                        GlobalValue::F64(value.value().to_bits())
                     }
                     _ if ensure_scalar_type(&ty, &enums).is_ok() => {
                         let normalized = normalize_global_integer(
@@ -4540,10 +4540,48 @@ fn constant_value(
     }
 }
 
+#[derive(Clone, Copy)]
+enum FloatConstant {
+    F32(u32),
+    F64(u64),
+}
+
+impl FloatConstant {
+    fn value(self) -> f64 {
+        match self {
+            Self::F32(bits) => f32::from_bits(bits) as f64,
+            Self::F64(bits) => f64::from_bits(bits),
+        }
+    }
+}
+
 fn constant_float_value(
     expression: &Expr,
     integer_constants: &HashMap<String, i128>,
-    constants: &HashMap<String, f64>,
+    constants: &HashMap<String, FloatConstant>,
+    initializers: &HashMap<String, Expr>,
+    evaluating: &mut HashSet<String>,
+    single_precision: bool,
+) -> Result<FloatConstant, String> {
+    let value = constant_float_number(
+        expression,
+        integer_constants,
+        constants,
+        initializers,
+        evaluating,
+        single_precision,
+    )?;
+    Ok(if single_precision {
+        FloatConstant::F32((value as f32).to_bits())
+    } else {
+        FloatConstant::F64(value.to_bits())
+    })
+}
+
+fn constant_float_number(
+    expression: &Expr,
+    integer_constants: &HashMap<String, i128>,
+    constants: &HashMap<String, FloatConstant>,
     initializers: &HashMap<String, Expr>,
     evaluating: &mut HashSet<String>,
     single_precision: bool,
@@ -4554,24 +4592,23 @@ fn constant_float_value(
         } else {
             value
         };
-        if value.is_finite() {
-            Ok(value)
-        } else {
-            Err("floating-point constant is not finite".into())
-        }
+        Ok(value)
     };
     match expression {
         Expr::Float(value) => normalize(
-            value
-                .parse::<f64>()
-                .map_err(|_| format!("invalid floating-point literal '{value}'"))?,
+            if single_precision {
+                value.parse::<f32>().map(|value| value as f64)
+            } else {
+                value.parse::<f64>()
+            }
+            .map_err(|_| format!("invalid floating-point literal '{value}'"))?,
         ),
-        Expr::Symbol(name) if constants.contains_key(name) => Ok(constants[name]),
+        Expr::Symbol(name) if constants.contains_key(name) => Ok(constants[name].value()),
         Expr::Symbol(name) if initializers.contains_key(name) => {
             if !evaluating.insert(name.clone()) {
                 return Err(format!("constant '{name}' is recursive"));
             }
-            let result = constant_float_value(
+            let result = constant_float_number(
                 &initializers[name],
                 integer_constants,
                 constants,
@@ -4592,7 +4629,7 @@ fn constant_float_value(
                 Type::F64 => false,
                 _ => return Err("typed floating literal requires f32 or f64".into()),
             };
-            constant_float_value(
+            constant_float_number(
                 &items[2],
                 integer_constants,
                 constants,
@@ -4613,7 +4650,7 @@ fn constant_float_value(
                 }
                 _ => return Err("floating-point constant condition must be constant".into()),
             };
-            constant_float_value(
+            constant_float_number(
                 if condition { &items[2] } else { &items[3] },
                 integer_constants,
                 constants,
@@ -4628,7 +4665,7 @@ fn constant_float_value(
                 _ => return Err("floating-point global initializer is not constant".into()),
             };
             let operator = operator_base(operator);
-            let value = constant_float_value(
+            let value = constant_float_number(
                 &items[1],
                 integer_constants,
                 constants,
@@ -4647,7 +4684,7 @@ fn constant_float_value(
                 _ => return Err("floating-point global initializer is not constant".into()),
             };
             let operator = operator_base(operator);
-            let left = constant_float_value(
+            let left = constant_float_number(
                 &items[1],
                 integer_constants,
                 constants,
@@ -4655,7 +4692,7 @@ fn constant_float_value(
                 evaluating,
                 single_precision,
             )?;
-            let right = constant_float_value(
+            let right = constant_float_number(
                 &items[2],
                 integer_constants,
                 constants,
@@ -4664,11 +4701,31 @@ fn constant_float_value(
                 single_precision,
             )?;
             match operator {
-                "+" => normalize(left + right),
-                "-" => normalize(left - right),
-                "*" => normalize(left * right),
-                "/" => normalize(left / right),
-                "%" => normalize(left % right),
+                "+" => normalize(if single_precision {
+                    ((left as f32) + (right as f32)) as f64
+                } else {
+                    left + right
+                }),
+                "-" => normalize(if single_precision {
+                    ((left as f32) - (right as f32)) as f64
+                } else {
+                    left - right
+                }),
+                "*" => normalize(if single_precision {
+                    ((left as f32) * (right as f32)) as f64
+                } else {
+                    left * right
+                }),
+                "/" => normalize(if single_precision {
+                    ((left as f32) / (right as f32)) as f64
+                } else {
+                    left / right
+                }),
+                "%" => normalize(if single_precision {
+                    ((left as f32) % (right as f32)) as f64
+                } else {
+                    left % right
+                }),
                 _ => Err("floating-point global initializer is not constant".into()),
             }
         }
@@ -4682,7 +4739,7 @@ fn constant_aggregate_words(
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     constants: &HashMap<String, i128>,
-    float_constants: &HashMap<String, f64>,
+    float_constants: &HashMap<String, FloatConstant>,
     initializers: &HashMap<String, Expr>,
     evaluating_constants: &mut HashSet<String>,
     evaluating_float_constants: &mut HashSet<String>,
@@ -4701,9 +4758,9 @@ fn constant_aggregate_words(
                 matches!(ty, Type::F32),
             )?;
             return Ok(if matches!(ty, Type::F32) {
-                (number as f32).to_bits() as u64
+                (number.value() as f32).to_bits() as u64
             } else {
-                number.to_bits()
+                number.value().to_bits()
             });
         }
         Ok(normalize_global_integer(

@@ -1365,3 +1365,15 @@ worker's parameter names; join uses `task`. For example, write
 `(#call Task-join (#fn-args (task handle)))`. Generated enum variants in
 `#case` patterns retain their constructor syntax. There is no positional-call
 exception for generated thread functions.
+# Floating-point global evaluation
+
+Float constants and static aggregate fields retain their declared f32/f64
+bit representation. Each arithmetic operation rounds at its operand width,
+including intermediate f32 results; it is not an integer conversion or a
+single rounding at the end of an expression. Literal tokens must be finite,
+but pure arithmetic can produce infinities and NaNs, as at runtime. Signed
+zero is preserved. NaN payload bits are not a portable equality contract.
+Pure float arithmetic, named constants, and supported constant conditionals
+may initialize globals; calls and runtime effects remain forbidden, and
+constant dependency cycles are errors. Reading or writing statics still
+requires `#unsafe`.
