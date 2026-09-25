@@ -1,0 +1,17 @@
+(#struct InnerView ((left (#ref-mut u64)) (right (#ref-mut u64))))
+(#struct OuterView ((inner InnerView)))
+
+(#fn main () u64
+  (#let-mut left-value u64 20u64)
+  (#let-mut right-value u64 22u64)
+  (#let outer OuterView
+    (#struct-literal OuterView
+      ((inner
+        (#struct-literal InnerView
+          ((left (#borrow-mut left-value))
+           (right (#borrow-mut right-value))))))))
+  (#let (OuterView inner) OuterView outer)
+  (#let (InnerView left right) InnerView inner)
+  (#deref-set left 21u64)
+  (#deref-set right 23u64)
+  (#return (#u64.+.wrap (#deref left) (#deref right))))

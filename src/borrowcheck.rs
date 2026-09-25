@@ -6,7 +6,10 @@
 //! of `body`, and two-expression borrows retain provenance in the surrounding
 //! context for the lifetime of their binding.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use crate::{Expr, Function, Item, Program, Statement};
 
@@ -34,6 +37,8 @@ struct Context {
     scoped_mutable_owners: HashSet<String>,
     reference_origins: HashMap<String, HashSet<String>>,
     reference_loans: HashMap<String, Vec<(String, String)>>,
+    reference_fields:
+        HashMap<String, HashMap<Vec<usize>, (HashSet<String>, Vec<(String, String)>)>>,
     reference_parents: HashMap<String, String>,
     allow_local_reference: bool,
     reference_types: HashSet<String>,
@@ -45,6 +50,7 @@ struct Context {
     thread_exclusive_owners: HashMap<String, usize>,
     return_contains_references: bool,
     mutable_reference_types: HashSet<String>,
+    program_items: Arc<Vec<Item>>,
 }
 
 impl Loans {
@@ -210,7 +216,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
         .filter_map(|item| match item {
             Item::Struct { name, fields, .. }
                 if fields.iter().any(|field| {
-                    type_contains_reference(&field.ty, program, &mut HashSet::new())
+                    type_contains_reference(&field.ty, &program.items, &mut HashSet::new())
                 }) =>
             {
                 Some(name.clone())
@@ -219,7 +225,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                 if variants
                     .iter()
                     .flat_map(|variant| &variant.fields)
-                    .any(|ty| type_contains_reference(ty, program, &mut HashSet::new())) =>
+                    .any(|ty| type_contains_reference(ty, &program.items, &mut HashSet::new())) =>
             {
                 Some(name.clone())
             }
@@ -233,7 +239,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
             Item::Struct { name, .. } | Item::Enum { name, .. }
                 if type_contains_mutable_reference(
                     &crate::Type::Named(name.clone()),
-                    program,
+                    &program.items,
                     &mut HashSet::new(),
                 ) =>
             {
@@ -293,6 +299,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
             if !function.external {
                 check_function(
                     function,
+                    program,
                     &globals,
                     &reference_types,
                     &mutable_reference_types,
@@ -311,6 +318,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
 
 fn check_function(
     function: &Function,
+    program: &Program,
     globals: &std::collections::HashSet<String>,
     reference_types: &HashSet<String>,
     mutable_reference_types: &HashSet<String>,
@@ -354,6 +362,7 @@ fn check_function(
         scoped_mutable_owners: HashSet::new(),
         reference_origins,
         reference_loans: HashMap::new(),
+        reference_fields: HashMap::new(),
         reference_parents: HashMap::new(),
         allow_local_reference: false,
         reference_types: reference_types.clone(),
@@ -365,6 +374,7 @@ fn check_function(
         thread_task_loans: HashMap::new(),
         thread_exclusive_owners: HashMap::new(),
         return_contains_references: contains_reference_type(&function.return_type, reference_types),
+        program_items: Arc::new(program.items.clone()),
     };
     for parameter in &function.parameters {
         if contains_reference_type(&parameter.ty, reference_types) {
@@ -669,6 +679,16 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
                 &context.mutable_reference_types,
             );
             let is_reference_binding = matches!(ty, crate::Type::Reference { .. });
+            let mut reference_fields = HashMap::new();
+            if contains_references {
+                collect_reference_fields(
+                    ty,
+                    value,
+                    context,
+                    &mut Vec::new(),
+                    &mut reference_fields,
+                );
+            }
             let task_loans = thread_spawn_origins(value, context);
             context.allow_local_reference = true;
             let checked = check_expression(value, context);
@@ -704,10 +724,18 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
                     }
                 }
                 let mut loans = if contains_references {
-                    borrow_place_loans(value, context)
+                    let mut paths = reference_fields.keys().collect::<Vec<_>>();
+                    paths.sort();
+                    paths
+                        .into_iter()
+                        .flat_map(|path| reference_fields[path].1.iter().cloned())
+                        .collect::<Vec<_>>()
                 } else {
                     Vec::new()
                 };
+                if loans.is_empty() && contains_references {
+                    loans = borrow_place_loans(value, context);
+                }
                 if loans.is_empty() {
                     loans = origins
                         .iter()
@@ -762,12 +790,31 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
             if is_reference_binding {
                 context.reference_bindings.insert(name.clone());
             }
-        }
-        Statement::Destructure { value, .. } | Statement::LetElse { value, .. } => {
-            if !reference_origins(value, context, true).is_empty() {
-                return Err("destructuring values that retain references is not supported".into());
+            if !reference_fields.is_empty() {
+                context
+                    .reference_fields
+                    .insert(name.clone(), reference_fields);
             }
+        }
+        Statement::Destructure {
+            pattern,
+            ty,
+            value,
+            mutable,
+        } => {
             check_expression(value, context)?;
+            bind_pattern_references(pattern, ty, value, context)?;
+            if *mutable {
+                let mut names = Vec::new();
+                pattern_names(pattern, &mut names);
+                context.mutable.extend(names);
+            }
+        }
+        Statement::LetElse {
+            pattern, ty, value, ..
+        } => {
+            check_expression(value, context)?;
+            bind_pattern_references(pattern, ty, value, context)?;
         }
         Statement::Assign { name, value } => {
             if matches!(statement, Statement::Assign { .. })
@@ -855,6 +902,302 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
     }
     if let Statement::LetElse { else_body, .. } = statement {
         check_statements(else_body, context)?;
+    }
+    Ok(())
+}
+
+fn pattern_names(pattern: &Expr, names: &mut Vec<String>) {
+    match pattern {
+        Expr::Symbol(name) if name != "_" => names.push(name.clone()),
+        Expr::List(items) => {
+            for child in items.iter().skip(1) {
+                pattern_names(child, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn bind_pattern_references(
+    pattern: &Expr,
+    ty: &crate::Type,
+    value: &Expr,
+    context: &mut Context,
+) -> Result<(), String> {
+    let inherited_origins = reference_origins(value, context, true);
+    let inherited_fields = match value {
+        Expr::Symbol(name) => context
+            .reference_fields
+            .get(name)
+            .cloned()
+            .unwrap_or_default(),
+        _ => HashMap::new(),
+    };
+    let inherited_loans = match value {
+        Expr::Symbol(name) => context
+            .reference_loans
+            .get(name)
+            .cloned()
+            .unwrap_or_default(),
+        _ => borrow_place_loans(value, context),
+    };
+    if matches!(value, Expr::Symbol(_)) {
+        release_dropped_value(value, context);
+    }
+    if let Expr::Symbol(name) = value {
+        context.reference_fields.remove(name);
+    }
+    bind_pattern_reference_fields(
+        pattern,
+        ty,
+        value,
+        context,
+        &inherited_origins,
+        &inherited_loans,
+        &inherited_fields,
+        &mut Vec::new(),
+    )
+}
+
+fn collect_reference_fields(
+    ty: &crate::Type,
+    value: &Expr,
+    context: &Context,
+    path: &mut Vec<usize>,
+    result: &mut HashMap<Vec<usize>, (HashSet<String>, Vec<(String, String)>)>,
+) {
+    if !type_contains_reference(ty, &context.program_items, &mut HashSet::new()) {
+        return;
+    }
+    if let Expr::Symbol(name) = value {
+        if let Some(existing) = context
+            .reference_fields
+            .get(name)
+            .and_then(|fields| fields.get(path))
+        {
+            result.insert(path.clone(), existing.clone());
+            return;
+        }
+    }
+    let children = match ty {
+        crate::Type::Tuple(fields) => fields.clone(),
+        crate::Type::Array(element, count) => {
+            std::iter::repeat_n((**element).clone(), *count).collect()
+        }
+        crate::Type::Named(name) => context
+            .program_items
+            .iter()
+            .find_map(|item| match item {
+                Item::Struct {
+                    name: struct_name,
+                    fields,
+                    ..
+                } if struct_name == name => Some(
+                    fields
+                        .iter()
+                        .map(|field| field.ty.clone())
+                        .collect::<Vec<_>>(),
+                ),
+                Item::Enum {
+                    name: enum_name,
+                    variants,
+                    ..
+                } if enum_name == name => {
+                    let variant_name = match value {
+                        Expr::List(items) => items.first().and_then(|head| match head {
+                            Expr::Symbol(name) => Some(name.as_str()),
+                            _ => None,
+                        }),
+                        _ => None,
+                    }?;
+                    variants
+                        .iter()
+                        .find(|variant| variant.name == variant_name)
+                        .map(|variant| variant.fields.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    if !children.is_empty() {
+        if let Expr::List(items) = value {
+            let value_start = match ty {
+                crate::Type::Array(_, _) => 2,
+                crate::Type::Tuple(_) if items.len() == children.len() + 2 => 2,
+                _ => 1,
+            };
+            for (index, child_type) in children.iter().enumerate() {
+                if let Some(child_value) = items.get(index + value_start) {
+                    path.push(index);
+                    collect_reference_fields(child_type, child_value, context, path, result);
+                    path.pop();
+                }
+            }
+            return;
+        }
+    }
+    let origins = reference_origins(value, context, true);
+    if origins.is_empty() {
+        return;
+    }
+    let mut loans = borrow_place_loans(value, context);
+    if loans.is_empty() {
+        if let Expr::Symbol(name) = value {
+            loans = context
+                .reference_loans
+                .get(name)
+                .cloned()
+                .unwrap_or_default();
+        }
+    }
+    if loans.is_empty() {
+        loans.extend(origins.iter().cloned().map(|owner| (owner.clone(), owner)));
+    }
+    result.insert(path.clone(), (origins, loans));
+}
+
+fn bind_pattern_reference_fields(
+    pattern: &Expr,
+    ty: &crate::Type,
+    value: &Expr,
+    context: &mut Context,
+    inherited_origins: &HashSet<String>,
+    inherited_loans: &[(String, String)],
+    inherited_fields: &HashMap<Vec<usize>, (HashSet<String>, Vec<(String, String)>)>,
+    path: &mut Vec<usize>,
+) -> Result<(), String> {
+    if let Expr::Symbol(name) = pattern {
+        if name == "_" || !type_contains_reference(ty, &context.program_items, &mut HashSet::new())
+        {
+            return Ok(());
+        }
+        let mut origins = reference_origins(value, context, true);
+        if origins.is_empty() {
+            origins.clone_from(inherited_origins);
+        }
+        let mut loans = borrow_place_loans(value, context);
+        if let Some((field_origins, field_loans)) = inherited_fields.get(path) {
+            origins.clone_from(field_origins);
+            loans.clone_from(field_loans);
+        }
+        if loans.is_empty() {
+            loans.extend_from_slice(inherited_loans);
+        }
+        if loans.is_empty() {
+            loans.extend(origins.iter().cloned().map(|owner| (owner.clone(), owner)));
+        }
+        let mutable =
+            type_contains_mutable_reference(ty, &context.program_items, &mut HashSet::new());
+        let kind = if mutable {
+            LoanKind::Mutable
+        } else {
+            LoanKind::Shared(1)
+        };
+        for (owner, loan) in &loans {
+            context
+                .loans
+                .borrow(loan, kind)
+                .map_err(|error| format!("cannot destructure reference into '{name}': {error}"))?;
+            if mutable && loan != owner {
+                context.loans.active.remove(owner);
+            }
+        }
+        context.reference_origins.insert(name.clone(), origins);
+        context.reference_loans.insert(name.clone(), loans);
+        if matches!(ty, crate::Type::Reference { .. } | crate::Type::Slice(_)) {
+            context.reference_bindings.insert(name.clone());
+        }
+        if mutable {
+            context.mutable_references.insert(name.clone());
+        }
+        let nested_fields = inherited_fields
+            .iter()
+            .filter_map(|(field_path, state)| {
+                field_path
+                    .strip_prefix(path.as_slice())
+                    .filter(|suffix| !suffix.is_empty())
+                    .map(|suffix| (suffix.to_vec(), state.clone()))
+            })
+            .collect::<HashMap<_, _>>();
+        if !nested_fields.is_empty() {
+            context.reference_fields.insert(name.clone(), nested_fields);
+        }
+        return Ok(());
+    }
+
+    let Expr::List(pattern_items) = pattern else {
+        return Ok(());
+    };
+    let Some(Expr::Symbol(pattern_head)) = pattern_items.first() else {
+        return Ok(());
+    };
+    let value_items = match value {
+        Expr::List(items) => Some(items),
+        _ => None,
+    };
+    let pattern_children = &pattern_items[1..];
+    let mut child_types = Vec::new();
+    match ty {
+        crate::Type::Tuple(fields) => child_types.extend(fields.iter().cloned()),
+        crate::Type::Array(element, count) => {
+            child_types.extend(std::iter::repeat_n((**element).clone(), *count));
+        }
+        crate::Type::Named(name) => {
+            for item in context.program_items.iter() {
+                match item {
+                    Item::Struct {
+                        name: struct_name,
+                        fields,
+                        ..
+                    } if struct_name == name && pattern_head == name => {
+                        child_types.extend(fields.iter().map(|field| field.ty.clone()));
+                    }
+                    Item::Enum {
+                        name: enum_name,
+                        variants,
+                        ..
+                    } if enum_name == name => {
+                        if let Some(variant) = variants
+                            .iter()
+                            .find(|variant| variant.name == *pattern_head)
+                        {
+                            child_types.extend(variant.fields.iter().cloned());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    let value_start = match ty {
+        crate::Type::Array(_, _) => 2,
+        crate::Type::Tuple(_)
+            if value_items.is_some_and(|items| items.len() == child_types.len() + 2) =>
+        {
+            2
+        }
+        _ => 1,
+    };
+    for (index, (child_pattern, child_type)) in
+        pattern_children.iter().zip(child_types.iter()).enumerate()
+    {
+        let child_value = value_items
+            .and_then(|items| items.get(index + value_start))
+            .unwrap_or(value);
+        path.push(index);
+        bind_pattern_reference_fields(
+            child_pattern,
+            child_type,
+            child_value,
+            context,
+            inherited_origins,
+            inherited_loans,
+            inherited_fields,
+            path,
+        )?;
+        path.pop();
     }
     Ok(())
 }
@@ -1146,6 +1489,14 @@ fn merge_branch_context(context: &mut Context, branches: &[Context]) {
                     .or_insert_with(|| loans.clone());
             }
         }
+        for (name, fields) in &branch.reference_fields {
+            if base.reference_fields.contains_key(name) {
+                merged
+                    .reference_fields
+                    .entry(name.clone())
+                    .or_insert_with(|| fields.clone());
+            }
+        }
         for (name, parent) in &branch.reference_parents {
             if base.reference_parents.contains_key(name) {
                 merged
@@ -1180,6 +1531,7 @@ fn release_dropped_value(expression: &Expr, context: &mut Context) {
         context.suspended_references.remove(&parent);
     }
     let origins = context.reference_origins.remove(&name).unwrap_or_default();
+    context.reference_fields.remove(&name);
     if let Some(loans) = context.reference_loans.remove(&name) {
         for (owner, loan) in loans {
             context.loans.end(&loan);
@@ -1664,28 +2016,24 @@ fn reference_origins(
     }
 }
 
-fn type_contains_reference(
-    ty: &crate::Type,
-    program: &Program,
-    seen: &mut HashSet<String>,
-) -> bool {
+fn type_contains_reference(ty: &crate::Type, items: &[Item], seen: &mut HashSet<String>) -> bool {
     match ty {
         crate::Type::Reference { .. } | crate::Type::Slice(_) => true,
         crate::Type::Array(element, _) | crate::Type::Cell(element) => {
-            type_contains_reference(element, program, seen)
+            type_contains_reference(element, items, seen)
         }
         crate::Type::Tuple(fields) => fields
             .iter()
-            .any(|field| type_contains_reference(field, program, seen)),
+            .any(|field| type_contains_reference(field, items, seen)),
         crate::Type::Named(name) if seen.insert(name.clone()) => {
-            let result = program.items.iter().any(|item| match item {
+            let result = items.iter().any(|item| match item {
                 Item::Struct {
                     name: struct_name,
                     fields,
                     ..
                 } if struct_name == name => fields
                     .iter()
-                    .any(|field| type_contains_reference(&field.ty, program, seen)),
+                    .any(|field| type_contains_reference(&field.ty, items, seen)),
                 Item::Enum {
                     name: enum_name,
                     variants,
@@ -1693,7 +2041,7 @@ fn type_contains_reference(
                 } if enum_name == name => variants
                     .iter()
                     .flat_map(|variant| &variant.fields)
-                    .any(|field| type_contains_reference(field, program, seen)),
+                    .any(|field| type_contains_reference(field, items, seen)),
                 _ => false,
             });
             seen.remove(name);
@@ -1705,7 +2053,7 @@ fn type_contains_reference(
 
 fn type_contains_mutable_reference(
     ty: &crate::Type,
-    program: &Program,
+    items: &[Item],
     seen: &mut HashSet<String>,
 ) -> bool {
     match ty {
@@ -1713,20 +2061,20 @@ fn type_contains_mutable_reference(
         crate::Type::Slice(_) => false,
         crate::Type::Reference { mutable: false, .. } | crate::Type::RawPointer { .. } => false,
         crate::Type::Array(element, _) | crate::Type::Cell(element) => {
-            type_contains_mutable_reference(element, program, seen)
+            type_contains_mutable_reference(element, items, seen)
         }
         crate::Type::Tuple(fields) => fields
             .iter()
-            .any(|field| type_contains_mutable_reference(field, program, seen)),
+            .any(|field| type_contains_mutable_reference(field, items, seen)),
         crate::Type::Named(name) if seen.insert(name.clone()) => {
-            let result = program.items.iter().any(|item| match item {
+            let result = items.iter().any(|item| match item {
                 Item::Struct {
                     name: struct_name,
                     fields,
                     ..
                 } if struct_name == name => fields
                     .iter()
-                    .any(|field| type_contains_mutable_reference(&field.ty, program, seen)),
+                    .any(|field| type_contains_mutable_reference(&field.ty, items, seen)),
                 Item::Enum {
                     name: enum_name,
                     variants,
@@ -1734,7 +2082,7 @@ fn type_contains_mutable_reference(
                 } if enum_name == name => variants
                     .iter()
                     .flat_map(|variant| &variant.fields)
-                    .any(|field| type_contains_mutable_reference(field, program, seen)),
+                    .any(|field| type_contains_mutable_reference(field, items, seen)),
                 _ => false,
             });
             seen.remove(name);

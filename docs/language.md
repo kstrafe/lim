@@ -713,6 +713,11 @@ Aggregate projections can be updated with `#set-index`, `#set-field`, and
 Local destructuring and `#let-else` support tuples, arrays, structs, and enum
 patterns.  The `else` body must diverge, for example with `#return`,
 `#break`, or `#panic`.
+Destructuring consumes the aggregate and transfers each reference field's
+borrow provenance to its corresponding binding. Nested struct, tuple, array,
+and enum payload bindings retain their source loans; mutable fields cannot
+alias an already active mutable loan. Returning a destructured reference is
+allowed only when its origin outlives the function.
 
 ### Linear values and explicit cloning
 

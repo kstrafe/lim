@@ -9082,6 +9082,76 @@ mod tests {
         );
         assert!(generate_assembly(&mutable_reference_struct).is_ok());
 
+        let destructured_mutable_reference = parse_program(
+            "(#struct MutView ((data (#ref-mut u64)))) (#fn main () u64 (#let-mut value u64 40) (#let view MutView (#struct-literal MutView ((data (#borrow-mut value))))) (#let (MutView reference) MutView view) (#deref-set reference 42) (#return (#deref reference)))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&destructured_mutable_reference).is_ok(),
+            "{:?}",
+            check_types(&destructured_mutable_reference)
+        );
+        assert!(generate_assembly(&destructured_mutable_reference).is_ok());
+
+        let destructured_disjoint_mutable_references = parse_program(
+            "(#struct Pair ((left (#ref-mut u64)) (right (#ref-mut u64)))) (#fn main () u64 (#let-mut left-value u64 20) (#let-mut right-value u64 22) (#let pair Pair (#struct-literal Pair ((left (#borrow-mut left-value)) (right (#borrow-mut right-value))))) (#let (Pair left right) Pair pair) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&destructured_disjoint_mutable_references).is_ok(),
+            "{:?}",
+            check_types(&destructured_disjoint_mutable_references)
+        );
+        assert!(generate_assembly(&destructured_disjoint_mutable_references).is_ok());
+
+        let duplicate_mutable_reference_fields = parse_program(
+            "(#struct Pair ((left (#ref-mut u64)) (right (#ref-mut u64)))) (#fn main () u64 (#let-mut value u64 20) (#let pair Pair (#struct-literal Pair ((left (#borrow-mut value)) (right (#borrow-mut value))))) (#return 0u64))",
+        )
+        .unwrap();
+        assert!(check_types(&duplicate_mutable_reference_fields)
+            .unwrap_err()
+            .contains("already borrowed mutably"));
+
+        let destructured_enum_payload_references = parse_program(
+            "(#enum PairOrEmpty ((Pair (#ref-mut u64) (#ref-mut u64)) Empty)) (#fn main () u64 (#let-mut left-value u64 20) (#let-mut right-value u64 22) (#let choice PairOrEmpty (Pair (#borrow-mut left-value) (#borrow-mut right-value))) (#let-else (Pair left right) PairOrEmpty choice (#return 0u64)) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
+        )
+        .unwrap();
+        assert!(
+            check_types(&destructured_enum_payload_references).is_ok(),
+            "{:?}",
+            check_types(&destructured_enum_payload_references)
+        );
+        assert!(generate_assembly(&destructured_enum_payload_references).is_ok());
+
+        let destructured_array_references = parse_program(
+            "(#fn main () u64 (#let-mut left-value u64 20) (#let-mut right-value u64 22) (#let references (#array (#ref-mut u64) 2) (#array (#array (#ref-mut u64) 2) (#borrow-mut left-value) (#borrow-mut right-value))) (#let (#array left right) (#array (#ref-mut u64) 2) references) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
+        )
+        .unwrap();
+        assert!(check_types(&destructured_array_references).is_ok());
+        assert!(generate_assembly(&destructured_array_references).is_ok());
+
+        let destructured_tuple_references = parse_program(
+            "(#fn main () u64 (#let-mut left-value u64 20) (#let-mut right-value u64 22) (#let references (#tuple (#ref-mut u64) (#ref-mut u64)) (#tuple (#tuple (#ref-mut u64) (#ref-mut u64)) (#borrow-mut left-value) (#borrow-mut right-value))) (#let (#tuple left right) (#tuple (#ref-mut u64) (#ref-mut u64)) references) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
+        )
+        .unwrap();
+        assert!(check_types(&destructured_tuple_references).is_ok());
+        assert!(generate_assembly(&destructured_tuple_references).is_ok());
+
+        let destructured_returnable_reference = parse_program(
+            "(#struct View ((data (#ref u64)))) (#fn wrap ((source (#ref u64))) View (#return (#struct-literal View ((data source))))) (#fn unwrap ((source (#ref u64))) (#ref u64) (#let view View (#call wrap (#fn-args (source source)))) (#let (View reference) View view) (#return reference))",
+        )
+        .unwrap();
+        assert!(check_types(&destructured_returnable_reference).is_ok());
+        assert!(generate_assembly(&destructured_returnable_reference).is_ok());
+
+        let destructured_reference_escape = parse_program(
+            "(#struct View ((data (#ref u64)))) (#fn bad () (#ref u64) (#let value u64 40) (#let view View (#struct-literal View ((data (#borrow value))))) (#let (View reference) View view) (#return reference))",
+        )
+        .unwrap();
+        assert!(check_types(&destructured_reference_escape)
+            .unwrap_err()
+            .contains("cannot return a value retaining a reference to local 'value'"));
+
         let mutable_reference_struct_escape = parse_program(
             "(#struct MutView ((data (#ref-mut u64)))) (#fn make ((data (#ref-mut u64))) MutView (#return (#struct-literal MutView ((data data))))) (#fn bad () MutView (#let-mut value u64 40) (#return (#call make (#fn-args (data (#borrow-mut value))))))",
         )

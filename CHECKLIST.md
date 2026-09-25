@@ -348,7 +348,7 @@ Each item requires documentation and regression coverage before being checked.
   rule to struct field initializers. Test reordered arguments/fields with
   observable side effects, traps, moves, and conflicting borrows; ensure
   borrow checking and native execution use the same order.
-- [ ] Support destructuring aggregates that retain references.
+- [x] Support destructuring aggregates that retain references.
   `Statement::Destructure` and `Statement::LetElse` in `src/borrowcheck.rs`
   currently reject these values wholesale. Transfer field-specific origins,
   loans, and mutable-reference ownership to pattern bindings, including
