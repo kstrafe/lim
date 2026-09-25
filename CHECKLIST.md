@@ -461,6 +461,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Validate recursive type aliases in source declaration order, retain
     the alias target span at detection, and remove the alias-recursion message
     parsing branch; the UI case checks the target identifier.
+  - [x] Locate unresolved types in thread-worker parameters/returns from their
+    signature syntax and remove the unknown-type message fallback; the UI case
+    checks the exact identifier.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated

@@ -376,23 +376,45 @@ fn check_types_inner(
             .get(worker)
             .expect("worker signature collected")
             .clone();
-        for (parameter, ty) in worker_item
+        for (parameter_index, (parameter, ty)) in worker_item
             .parameters
             .iter()
             .zip(&worker_signature.parameters)
+            .enumerate()
         {
-            if !type_has_auto_trait(program, ty, AutoTrait::Send)
-                .map_err(|error| format!("{error} while checking thread worker '{worker}'"))?
-            {
+            let send = match type_has_auto_trait(program, ty, AutoTrait::Send) {
+                Ok(send) => send,
+                Err(error) => {
+                    *diagnostic_span = first_unresolved_type(ty, &declared_types, &aliases)
+                        .and_then(|unknown| {
+                            worker_parameter_type_span(program, worker, parameter_index, &unknown)
+                        });
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                    return Err(format!("{error} while checking thread worker '{worker}'"));
+                }
+            };
+            if !send {
                 return Err(format!(
                     "thread worker '{worker}' parameter '{}' does not implement Send",
                     parameter.name
                 ));
             }
         }
-        if !type_has_auto_trait(program, &worker_signature.return_type, AutoTrait::Send)
-            .map_err(|error| format!("{error} while checking thread worker '{worker}'"))?
-        {
+        let return_send =
+            match type_has_auto_trait(program, &worker_signature.return_type, AutoTrait::Send) {
+                Ok(send) => send,
+                Err(error) => {
+                    *diagnostic_span = first_unresolved_type(
+                        &worker_signature.return_type,
+                        &declared_types,
+                        &aliases,
+                    )
+                    .and_then(|unknown| worker_return_type_span(program, worker, &unknown));
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                    return Err(format!("{error} while checking thread worker '{worker}'"));
+                }
+            };
+        if !return_send {
             return Err(format!(
                 "thread worker '{worker}' return type does not implement Send"
             ));
@@ -2786,6 +2808,72 @@ fn first_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<cr
         .iter()
         .skip(start)
         .find_map(|child| first_symbol_span(child, target))
+}
+
+fn first_unresolved_type<'a>(
+    ty: &'a Type,
+    declared_types: &HashSet<&String>,
+    aliases: &HashMap<String, Type>,
+) -> Option<&'a str> {
+    match ty {
+        Type::Named(name) if !declared_types.contains(name) && !aliases.contains_key(name) => {
+            Some(name)
+        }
+        Type::Reference { target, .. }
+        | Type::RawPointer { target, .. }
+        | Type::Cell(target)
+        | Type::Slice(target)
+        | Type::MutableSlice(target)
+        | Type::Atomic(target)
+        | Type::Array(target, _) => first_unresolved_type(target, declared_types, aliases),
+        Type::Tuple(fields) => fields
+            .iter()
+            .find_map(|field| first_unresolved_type(field, declared_types, aliases)),
+        _ => None,
+    }
+}
+
+fn worker_parameter_type_span(
+    program: &Program,
+    worker: &str,
+    parameter_index: usize,
+    unknown_type: &str,
+) -> Option<crate::Span> {
+    program
+        .declaration_expressions
+        .get(worker)?
+        .children
+        .get(2)?
+        .children
+        .get(parameter_index)?
+        .children
+        .get(1)
+        .and_then(|ty| first_symbol_span(ty, unknown_type))
+}
+
+fn worker_return_type_span(
+    program: &Program,
+    worker: &str,
+    unknown_type: &str,
+) -> Option<crate::Span> {
+    program
+        .declaration_expressions
+        .get(worker)?
+        .children
+        .get(3)
+        .and_then(|ty| first_symbol_span(ty, unknown_type))
+}
+
+fn record_generated_invocation(
+    program: &Program,
+    diagnostic_span: &Option<crate::Span>,
+    diagnostic_labels: &mut Vec<(crate::Span, String)>,
+) {
+    if let Some(invocation) =
+        diagnostic_span.and_then(|span| program.generated_source_invocations.get(&span.source_id))
+    {
+        diagnostic_labels.push((*invocation, "generated from this invocation".into()));
+    }
 }
 
 fn declared_type_span(statement: &crate::SpannedExpr, target: &str) -> Option<crate::Span> {

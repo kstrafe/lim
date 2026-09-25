@@ -1895,44 +1895,6 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
         None
     }
 
-    if let Some(name) = message
-        .strip_prefix("unknown type '")
-        .and_then(|rest| rest.split('\'').next())
-    {
-        let worker_span = message
-            .split_once("while checking thread worker '")
-            .and_then(|(_, rest)| rest.split('\'').next())
-            .and_then(|worker_name| program.declaration_expressions.get(worker_name))
-            .and_then(|declaration| {
-                declaration
-                    .children
-                    .get(2)
-                    .into_iter()
-                    .flat_map(|parameters| parameters.children.iter())
-                    .filter_map(|parameter| parameter.children.get(1))
-                    .find_map(|ty| symbol_span(ty, name))
-                    .or_else(|| {
-                        declaration
-                            .children
-                            .get(3)
-                            .and_then(|return_type| symbol_span(return_type, name))
-                    })
-            });
-        if worker_span.is_some() {
-            return worker_span;
-        }
-
-        let span = program
-            .declaration_expressions
-            .values()
-            .chain(program.statement_expressions.values())
-            .filter_map(|expression| symbol_span(expression, name))
-            .min_by_key(|span| (span.source_id, span.start));
-        if span.is_some() {
-            return span;
-        }
-    }
-
     if let Some(rest) = message.strip_prefix("thread worker '") {
         let (worker_name, details) = rest.split_once('\'')?;
         let declaration = program.declaration_expressions.get(worker_name)?;
