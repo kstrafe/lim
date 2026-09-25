@@ -234,7 +234,11 @@ nix develop --command cargo run -- examples/fibonacci.lim -o /tmp/fibonacci
 echo $? # 55 for the Fibonacci example
 nix develop --command cargo run -- --check-examples examples
 nix develop --command cargo run -- examples/fibonacci.lim --target x86_64-sysv
+nix develop --command cargo run -- --format examples/fibonacci.lim
 ```
+
+`--format` retains comments in their surrounding syntax, including nested
+forms and generator templates. Formatting is idempotent.
 
 Native compilation carries an explicit target description. The supported
 target/ABI matrix currently has one entry:

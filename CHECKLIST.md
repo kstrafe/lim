@@ -437,10 +437,10 @@ Each item requires documentation and regression coverage before being checked.
 
 ### Priority 4: tooling and implementation quality
 
-- [ ] Format commented source instead of returning the entire file unchanged.
-  `format_source` in `src/lib.rs` currently bypasses formatting when any line
-  contains a semicolon, including semicolons inside strings. Retain token
-  trivia/comment attachment and format declarations, calls, `#case` arms, and
+- [x] Format commented source instead of returning the entire file unchanged.
+  `format_source` in `src/lib.rs` retains source spans for line comments and
+  attaches them to surrounding syntax while formatting declarations, calls,
+  `#case` arms, and
   generator quasiquotes without dropping or moving comments to the wrong
   form. Test leading/trailing comments, strings with semicolons, empty lists,
   and formatting idempotence; parsed semantics must remain unchanged.

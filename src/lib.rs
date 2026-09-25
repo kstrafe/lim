@@ -947,42 +947,244 @@ pub fn parse(source: &str) -> Result<Vec<SpannedExpr>, String> {
 
 /// Format canonical Lim source using the parsed S-expression structure.
 pub fn format_source(source: &str) -> Result<String, String> {
-    // Comments are intentionally not represented in the syntax tree. Until
-    // they have trivia ownership in the parser, preserve commented files
-    // verbatim rather than dropping or relocating user annotations.
-    if source_has_comments(source) {
-        parse(source)?;
-        return Ok(source.to_owned());
+    let expressions = parse(source)?;
+    let comments = source_comments(source);
+    let mut output = String::new();
+    let mut comment_index = 0;
+    let mut cursor = 0;
+    for (index, expression) in expressions.iter().enumerate() {
+        while let Some(comment) = comments.get(comment_index) {
+            if comment.span.end > expression.span.start {
+                break;
+            }
+            if comment.span.start >= cursor {
+                if !output.is_empty() && !output.ends_with('\n') {
+                    output.push('\n');
+                }
+                output.push_str(&comment.text);
+                output.push('\n');
+            }
+            cursor = comment.span.end;
+            comment_index += 1;
+        }
+        if !output.is_empty() && !output.ends_with('\n') {
+            output.push('\n');
+        }
+        output.push_str(&pretty_spanned_expression(expression, source, &comments, 0));
+        cursor = expression.span.end;
+        let next_start = expressions
+            .get(index + 1)
+            .map_or(source.len(), |next| next.span.start);
+        while let Some(comment) = comments.get(comment_index) {
+            if comment.span.start < expression.span.end || comment.span.start >= next_start {
+                break;
+            }
+            if comment.span.line == source_line_at(source, expression.span.end) {
+                output.push(' ');
+                output.push_str(&comment.text);
+                output.push('\n');
+            } else {
+                if !output.ends_with('\n') {
+                    output.push('\n');
+                }
+                output.push_str(&comment.text);
+                output.push('\n');
+            }
+            cursor = comment.span.end;
+            comment_index += 1;
+        }
     }
-    parse(source).map(|expressions| {
-        expressions
-            .iter()
-            .map(|expression| pretty_expression(&expression.expr, 0))
-            .collect::<Vec<_>>()
-            .join("\n")
-            + "\n"
-    })
+    while let Some(comment) = comments.get(comment_index) {
+        if comment.span.start >= cursor {
+            if !output.is_empty() && !output.ends_with('\n') {
+                output.push('\n');
+            }
+            output.push_str(&comment.text);
+            output.push('\n');
+        }
+        comment_index += 1;
+    }
+    if output.is_empty() || !output.ends_with('\n') {
+        output.push('\n');
+    }
+    Ok(output)
 }
 
-fn source_has_comments(source: &str) -> bool {
+#[derive(Clone)]
+struct SourceComment {
+    span: Span,
+    text: String,
+}
+
+fn source_comments(source: &str) -> Vec<SourceComment> {
     let mut in_string = false;
     let mut escaped = false;
-    for byte in source.bytes() {
+    let mut offset = 0;
+    let mut line = 1;
+    let mut column = 1;
+    let mut comments = Vec::new();
+    while offset < source.len() {
+        let character = source[offset..].chars().next().unwrap();
+        let width = character.len_utf8();
         if in_string {
             if escaped {
                 escaped = false;
-            } else if byte == b'\\' {
+            } else if character == '\\' {
                 escaped = true;
-            } else if byte == b'"' {
+            } else if character == '"' {
                 in_string = false;
             }
-        } else if byte == b'"' {
+        } else if character == '#' && source.as_bytes().get(offset + 1) == Some(&b'\\') {
+            offset += 2;
+            column += 2;
+            while offset < source.len() {
+                let current = source[offset..].chars().next().unwrap();
+                if current.is_whitespace()
+                    || matches!(current, '(' | ')' | '\'' | '"' | '@' | '#' | ';')
+                {
+                    break;
+                }
+                offset += current.len_utf8();
+                column += 1;
+            }
+            continue;
+        } else if character == '"' {
             in_string = true;
-        } else if byte == b';' {
-            return true;
+        } else if character == ';' || (character == '#' && !is_hash_atom_start(source, offset)) {
+            let start = offset;
+            let start_line = line;
+            let start_column = column;
+            while offset < source.len() {
+                let current = source[offset..].chars().next().unwrap();
+                if current == '\n' {
+                    break;
+                }
+                offset += current.len_utf8();
+                column += 1;
+            }
+            comments.push(SourceComment {
+                span: Span::new(start, offset, start_line, start_column),
+                text: source[start..offset].to_owned(),
+            });
+            continue;
+        }
+        offset += width;
+        if character == '\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
         }
     }
-    false
+    comments
+}
+
+fn source_line_at(source: &str, offset: usize) -> usize {
+    source[..offset.min(source.len())]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1
+}
+
+fn is_hash_atom_start(source: &str, offset: usize) -> bool {
+    source.as_bytes().get(offset + 1).is_some_and(|next| {
+        next.is_ascii_alphabetic()
+            || *next == b'_'
+            || matches!(next, b'!' | b'+' | b'-' | b'*' | b'/' | b'%')
+            || matches!(next, b'&' | b'|' | b'^' | b'<' | b'>' | b'=')
+    })
+}
+
+fn pretty_spanned_expression(
+    expression: &SpannedExpr,
+    source: &str,
+    comments: &[SourceComment],
+    indent: usize,
+) -> String {
+    let has_comments = comments.iter().any(|comment| {
+        comment.span.start > expression.span.start && comment.span.end < expression.span.end
+    });
+    if !has_comments {
+        return pretty_expression(&expression.expr, indent);
+    }
+    match &expression.expr {
+        Expr::List(items) => {
+            if items.is_empty() {
+                return "()".into();
+            }
+            let mut rendered = String::from("(");
+            let mut cursor = expression.span.start + 1;
+            for child in &expression.children {
+                let gap_comments = comments
+                    .iter()
+                    .filter(|comment| {
+                        comment.span.start >= cursor && comment.span.end <= child.span.start
+                    })
+                    .collect::<Vec<_>>();
+                for comment in gap_comments {
+                    if rendered == "(" || !rendered.ends_with('\n') {
+                        rendered.push('\n');
+                    }
+                    if comment.span.start > expression.span.start + 1 {
+                        rendered.push_str(&" ".repeat(indent + 2));
+                    }
+                    rendered.push_str(&comment.text);
+                    rendered.push('\n');
+                }
+                if rendered == "(" || !rendered.ends_with('\n') {
+                    rendered.push('\n');
+                }
+                rendered.push_str(&" ".repeat(indent + 2));
+                rendered.push_str(&pretty_spanned_expression(
+                    child,
+                    source,
+                    comments,
+                    indent + 2,
+                ));
+                cursor = child.span.end;
+            }
+            for comment in comments.iter().filter(|comment| {
+                comment.span.start >= cursor && comment.span.end < expression.span.end
+            }) {
+                if comment.span.line
+                    == expression
+                        .children
+                        .last()
+                        .map_or(0, |child| source_line_at(source, child.span.end))
+                {
+                    rendered.push(' ');
+                } else {
+                    rendered.push('\n');
+                    rendered.push_str(&" ".repeat(indent + 2));
+                }
+                rendered.push_str(&comment.text);
+                rendered.push('\n');
+            }
+            rendered.push_str(&" ".repeat(indent));
+            rendered.push(')');
+            rendered
+        }
+        Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::Unquote(_) | Expr::UnquoteSplicing(_) => {
+            let prefix = match expression.expr {
+                Expr::Quote(_) => "'",
+                Expr::QuasiQuote(_) => "`",
+                Expr::Unquote(_) => ",",
+                Expr::UnquoteSplicing(_) => ",@",
+                _ => unreachable!(),
+            };
+            format!(
+                "{prefix}{}",
+                expression
+                    .children
+                    .first()
+                    .map_or_else(String::new, |child| {
+                        pretty_spanned_expression(child, source, comments, indent)
+                    })
+            )
+        }
+        _ => source[expression.span.start..expression.span.end].to_owned(),
+    }
 }
 
 fn pretty_expression(expression: &Expr, indent: usize) -> String {
@@ -8016,12 +8218,23 @@ mod tests {
 
     #[test]
     fn formatter_preserves_comments_and_is_idempotent_for_generator_templates() {
-        let commented = "; module note\n(#fn main () u64 (#return 0u64)) ; trailing note\n";
-        assert_eq!(format_source(commented).unwrap(), commented);
+        let commented = "; module note\n(#fn main () u64\n  (#let value u64 0u64)\n  ; return the named value\n  (#return value)) ; trailing note\n";
+        let formatted = format_source(commented).unwrap();
+        assert_ne!(formatted, commented);
+        assert!(formatted.contains("; module note\n"));
+        assert!(formatted.contains("; return the named value\n"));
+        assert!(formatted.contains("; trailing note\n"), "{formatted}");
+        let original_program = parse_program(commented).unwrap();
+        let formatted_program = parse_program(&formatted).unwrap();
+        assert!(check_types(&original_program).is_ok());
+        assert!(check_types(&formatted_program).is_ok());
+        assert_eq!(format_source(&formatted).unwrap(), formatted);
 
-        let template = "(@generator make ((name syntax)) (gn-emit `(#type ,name u64)))";
+        let template = "(@generator make ((name syntax))\n  ; keep generated type readable\n  (gn-emit `(#type ,name u64)))\n(#fn empty () () (#return ()))";
         let formatted = format_source(template).unwrap();
+        assert!(formatted.contains("; keep generated type readable"));
         assert!(formatted.contains("`(#type ,name u64)"));
+        assert!(formatted.contains("()"));
         assert_eq!(format_source(&formatted).unwrap(), formatted);
     }
 
