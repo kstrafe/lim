@@ -461,7 +461,7 @@ Each item requires documentation and regression coverage before being checked.
     prefixed repeats), and cumulative source bytes; report the import site.
   - [x] Exercise seeded malformed/truncated inputs in timeout-bounded compiler
     subprocesses; require deterministic diagnostics and no partial assembly.
-- [ ] Establish reproducible compile-time and generated-code performance
+- [x] Establish reproducible compile-time and generated-code performance
   baselines before optimizing the compiler. Measure lex/parse, import/cfg,
   generation (cold and warm cache), semantic checks, native emission, and
   linking separately on small and large generated projects. Record time,

@@ -12,6 +12,11 @@ path = "src/lib.rs"
 name = "lim"
 path = "src/main.rs"
 
+[[bench]]
+name = "compiler"
+path = "benches/compiler.rs"
+harness = false
+
 [profile.release]
 codegen-units = 1
 lto = "fat"
