@@ -370,6 +370,7 @@ fn is_linear(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool
         | Type::Reference { .. }
         | Type::RawPointer { .. }
         | Type::Slice(_) => false,
+        Type::MutableSlice(_) => true,
         Type::Tuple(items) => items.iter().any(|item| is_linear(item, types, seen)),
         Type::Array(element, _) => is_linear(element, types, seen),
         Type::Named(name) => {
@@ -673,6 +674,14 @@ fn check_expr(
                 } else {
                     check_expr(&items[1], bindings, moved, globals, true)?;
                 }
+            } else if head == "slice-mut-split" && items.len() == 3 {
+                check_expr(&items[1], bindings, moved, globals, false)?;
+                check_expr(&items[2], bindings, moved, globals, false)?;
+            } else if head == "slice-mut-idx" && items.len() == 3 {
+                check_expr(&items[1], bindings, moved, globals, true)?;
+                check_expr(&items[2], bindings, moved, globals, false)?;
+            } else if head == "slice-mut-len" && items.len() == 2 {
+                check_expr(&items[1], bindings, moved, globals, true)?;
             } else if head == "cell-get" {
                 for arg in items.iter().skip(1) {
                     check_expr(arg, bindings, moved, globals, true)?;

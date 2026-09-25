@@ -731,13 +731,27 @@ Aggregate projections can be updated with `#set-index`, `#set-field`, and
 ```
 
 Mutable slices use a separate type and constructors: `(#slice-mut u64)`,
-`#slice-mut-of` from `(#borrow-mut array)`, `#slice-mut-idx` for exclusive
+`#slice-mut-of` from a mutable array reference, `#slice-mut-idx` for exclusive
 element access, and `#slice-mut-split view at` to consume a view and produce
-two disjoint halves. The split point is a checked `usize` index and the halves
-cover `[0, at)` and `[at, len)`. Views are linear: reborrowing or splitting
-suspends the parent, which cannot be used while a derived view remains live.
-These forms are reserved syntax pending implementation and are not accepted by
-the compiler yet.
+two disjoint halves. The split point is a checked `usize` index; an index
+greater than the length traps, and the halves cover `[0, at)` and `[at, len)`.
+Views are linear: splitting consumes the parent, and overlapping mutable loans
+or access through the original array are rejected while a view is live. Each
+half must itself be consumed (for example, passed to a function or explicitly
+`#forget`-ted). Mutable slices can be returned when their inferred provenance
+comes from a function argument; a view of a local array cannot escape.
+
+```lisp
+(#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64))
+(#let whole (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
+(#let (#tuple left right)
+  (#tuple (#slice-mut u64) (#slice-mut u64))
+  (#slice-mut-split whole 2usize))
+(#deref-set (#slice-mut-idx left 0usize) 17u64)
+(#deref-set (#slice-mut-idx right 0usize) 25u64)
+(#forget left)
+(#forget right)
+```
 
 Local destructuring and `#let-else` support tuples, arrays, structs, and enum
 patterns.  The `else` body must diverge, for example with `#return`,

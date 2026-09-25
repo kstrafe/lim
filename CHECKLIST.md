@@ -420,7 +420,7 @@ Each item requires documentation and regression coverage before being checked.
   and retain the original referent's lifetime through nested slices and
   function returns. Test empty and end-boundary ranges, reversed/out-of-bounds
   ranges, overflow, zero-sized elements, and attempted escape from a local.
-- [ ] Add mutable slices and an explicit disjoint-split operation. Specify
+- [x] Add mutable slices and an explicit disjoint-split operation. Specify
   exclusive reborrowing, parent suspension, and linear handling of mutable
   views before implementing syntax. A checked split must establish disjoint
   regions without callbacks, implicit copying, or lifetime annotations.

@@ -1304,6 +1304,8 @@ pub enum Type {
     Cell(Box<Type>),
     /// Immutable, borrowed, dynamically-sized view of elements.
     Slice(Box<Type>),
+    /// Exclusive, borrowed, dynamically-sized view of elements.
+    MutableSlice(Box<Type>),
     Generic(String),
     Tuple(Vec<Type>),
     Array(Box<Type>, usize),
@@ -4126,6 +4128,16 @@ fn is_builtin_form(name: &str) -> bool {
             | "as"
             | "array"
             | "array-repeat"
+            | "slice"
+            | "slice-mut"
+            | "slice-of"
+            | "slice-mut-of"
+            | "slice-len"
+            | "slice-mut-len"
+            | "slice-idx"
+            | "slice-mut-idx"
+            | "slice-range"
+            | "slice-mut-split"
             | "tuple"
             | "index"
             | "get"
@@ -5244,6 +5256,7 @@ fn type_source(ty: &Type) -> String {
         ),
         Type::Cell(target) => format!("(#cell {})", type_source(target)),
         Type::Slice(target) => format!("(#slice {})", type_source(target)),
+        Type::MutableSlice(target) => format!("(#slice-mut {})", type_source(target)),
         Type::Generic(name) => name.clone(),
         Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
@@ -7712,6 +7725,9 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
         }
         if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "slice") {
             return Ok(Type::Slice(Box::new(parse_type(items.get(1))?)));
+        }
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "slice-mut") {
+            return Ok(Type::MutableSlice(Box::new(parse_type(items.get(1))?)));
         }
         if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "ptr") {
             return Ok(Type::RawPointer {
@@ -12718,6 +12734,50 @@ mod tests {
     fn ranged_slice_cannot_outlive_its_array() {
         let source = "(#fn bad () (#slice u64) (#let values (#array u64 2) (#array (#array u64 2) 1u64 2u64)) (#let all (#slice u64) (#slice-of (#borrow values))) (#return (#slice-range all 0usize 1usize)))";
         let program = parse_program(source).unwrap();
+        assert!(check_types(&program).is_err());
+    }
+
+    #[test]
+    fn mutable_slice_split_produces_writable_disjoint_views() {
+        let source = "(#fn main () u64 (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64)) (#slice-mut-split view 2usize)) (#deref-set (#slice-mut-idx left 0usize) 17u64) (#deref-set (#slice-mut-idx right 0usize) 25u64) (#let-mut result u64 (#u64.+.wrap (#deref (#slice-mut-idx left 0usize)) (#deref (#slice-mut-idx right 0usize)))) (#forget left) (#forget right) (#return result))";
+        let program = parse_program(source).unwrap();
+        check_types(&program).unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("slice_mut_split_bounds_fail"));
+    }
+
+    #[test]
+    fn mutable_slice_split_rejects_parent_use_and_overlapping_mutable_borrow() {
+        let parent_use = "(#fn main () () (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64)) (#slice-mut-split view 2usize)) (#let again (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#return ()))";
+        let program = parse_program(parent_use).unwrap();
+        assert!(check_types(&program).is_err());
+
+        let overlapping = "(#fn main () () (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let first (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let second (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#return ()))";
+        let program = parse_program(overlapping).unwrap();
+        assert!(check_types(&program).is_err());
+    }
+
+    #[test]
+    fn mutable_slice_supports_nested_splits_and_zero_sized_elements() {
+        let nested = "(#fn main () usize (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let root (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64)) (#slice-mut-split root 3usize)) (#let (#tuple first second) (#tuple (#slice-mut u64) (#slice-mut u64)) (#slice-mut-split left 1usize)) (#let-mut result usize (#slice-mut-len second)) (#forget first) (#forget second) (#forget right) (#return result))";
+        let program = parse_program(nested).unwrap();
+        check_types(&program).unwrap();
+        generate_assembly(&program).unwrap();
+
+        let zero_sized = "(#fn split-zero-sized ((root (#slice-mut ()))) () (#let (#tuple left right) (#tuple (#slice-mut ()) (#slice-mut ())) (#slice-mut-split root 1usize)) (#forget left) (#forget right) (#return ())) (#fn main () () (#return ()))";
+        let program = parse_program(zero_sized).unwrap();
+        check_types(&program).unwrap();
+        generate_assembly(&program).unwrap();
+    }
+
+    #[test]
+    fn mutable_slice_return_preserves_source_provenance() {
+        let valid = "(#fn identity-slice ((source (#slice-mut u64))) (#slice-mut u64) (#return source)) (#fn main () usize (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let returned (#slice-mut u64) (#call identity-slice (#fn-args (source view)))) (#let result usize (#slice-mut-len returned)) (#forget returned) (#return result))";
+        let program = parse_program(valid).unwrap();
+        check_types(&program).unwrap();
+
+        let invalid = "(#fn bad () (#slice-mut u64) (#let-mut values (#array u64 2) (#array (#array u64 2) 1u64 2u64)) (#let root (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#return root))";
+        let program = parse_program(invalid).unwrap();
         assert!(check_types(&program).is_err());
     }
 

@@ -300,6 +300,7 @@ fn specialized_type_name(ty: &Type) -> String {
         ),
         Type::Cell(target) => format!("cell_{}", specialized_type_name(target)),
         Type::Slice(target) => format!("slice_{}", specialized_type_name(target)),
+        Type::MutableSlice(target) => format!("slice_mut_{}", specialized_type_name(target)),
         Type::Generic(name) | Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
             "tuple{}",
@@ -325,6 +326,9 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
             Type::Array(Box::new(substitute_type(element, substitutions)), *length)
         }
         Type::Slice(element) => Type::Slice(Box::new(substitute_type(element, substitutions))),
+        Type::MutableSlice(element) => {
+            Type::MutableSlice(Box::new(substitute_type(element, substitutions)))
+        }
         Type::Tuple(fields) => Type::Tuple(
             fields
                 .iter()
@@ -3485,7 +3489,7 @@ fn add_local(
             length: *length,
             element_words,
         }
-    } else if matches!(&ty, Type::Tuple(_) | Type::Slice(_)) {
+    } else if matches!(&ty, Type::Tuple(_) | Type::Slice(_) | Type::MutableSlice(_)) {
         let base = *next_slot;
         let words = storage_word_count(&ty, structs, enums)?;
         *next_slot += words;
@@ -3548,7 +3552,7 @@ pub(crate) fn storage_word_count(
         Type::Array(element, length) => storage_word_count(element, structs, enums)?
             .checked_mul(*length)
             .ok_or_else(|| "aggregate storage word count overflowed usize".to_owned()),
-        Type::Slice(_) => Ok(2),
+        Type::Slice(_) | Type::MutableSlice(_) => Ok(2),
         Type::Tuple(fields) => checked_storage_word_sum(
             fields
                 .iter()
@@ -3714,7 +3718,7 @@ fn value_word_count(
             return Ok(total);
         }
     }
-    if matches!(ty, Type::Slice(_)) {
+    if matches!(ty, Type::Slice(_) | Type::MutableSlice(_)) {
         return Ok(2);
     }
     Err(format!("native ABI does not support value type {ty:?}"))
@@ -4016,7 +4020,7 @@ fn is_flat_native_value(
     if matches!(ty, Type::Unit | Type::Never) {
         return true;
     }
-    if matches!(ty, Type::Slice(_)) {
+    if matches!(ty, Type::Slice(_) | Type::MutableSlice(_)) {
         return true;
     }
     if ensure_scalar_type(ty, enums).is_ok() || is_wide_integer(ty) {
@@ -4980,7 +4984,7 @@ impl FunctionContext {
                     self.store_array(name, value)?;
                 } else if matches!(ty, Type::Tuple(_)) {
                     self.store_tuple(name, value)?;
-                } else if matches!(ty, Type::Slice(_)) {
+                } else if matches!(ty, Type::Slice(_) | Type::MutableSlice(_)) {
                     let slots = local_slots(&self.locals, name)?;
                     self.store_value_words(value, &ty, &slots)?;
                 } else if is_wide_integer(&ty) {
@@ -5956,6 +5960,15 @@ impl FunctionContext {
                     };
                     Some(Type::Slice(element))
                 }
+                Some(Expr::Symbol(operator)) if operator == "slice-mut-of" && items.len() == 2 => {
+                    let Type::Reference { target, .. } = self.expression_type(&items[1])? else {
+                        return None;
+                    };
+                    let Type::Array(element, _) = *target else {
+                        return None;
+                    };
+                    Some(Type::MutableSlice(element))
+                }
                 Some(Expr::Symbol(operator)) if operator == "slice-len" => Some(Type::Usize),
                 Some(Expr::Symbol(operator)) if operator == "slice-range" && items.len() == 4 => {
                     match self.expression_type(&items[1])? {
@@ -5969,6 +5982,26 @@ impl FunctionContext {
                             mutable: false,
                             target: element,
                         }),
+                        _ => None,
+                    }
+                }
+                Some(Expr::Symbol(operator)) if operator == "slice-mut-idx" && items.len() == 3 => {
+                    match self.expression_type(&items[1])? {
+                        Type::MutableSlice(element) => Some(Type::Reference {
+                            mutable: true,
+                            target: element,
+                        }),
+                        _ => None,
+                    }
+                }
+                Some(Expr::Symbol(operator))
+                    if operator == "slice-mut-split" && items.len() == 3 =>
+                {
+                    match self.expression_type(&items[1])? {
+                        Type::MutableSlice(element) => Some(Type::Tuple(vec![
+                            Type::MutableSlice(element.clone()),
+                            Type::MutableSlice(element),
+                        ])),
                         _ => None,
                     }
                 }
@@ -7202,7 +7235,10 @@ impl FunctionContext {
     }
 
     fn is_aggregate_type(&self, ty: &Type) -> bool {
-        if matches!(ty, Type::Array(_, _) | Type::Tuple(_) | Type::Slice(_)) {
+        if matches!(
+            ty,
+            Type::Array(_, _) | Type::Tuple(_) | Type::Slice(_) | Type::MutableSlice(_)
+        ) {
             return true;
         }
         let Type::Named(name) = ty else { return false };
@@ -8117,7 +8153,28 @@ impl FunctionContext {
             self.output.push_str(&format!("    mov rdx, {length}\n"));
             return Ok(());
         }
-        if operator == "slice-len" {
+        if operator == "slice-mut-of" {
+            if items.len() != 2 {
+                return Err("slice-mut-of requires a mutable array reference".into());
+            }
+            let source_type = self
+                .expression_type(&items[1])
+                .ok_or_else(|| "cannot determine mutable slice source type".to_owned())?;
+            let Type::Reference {
+                mutable: true,
+                target,
+            } = source_type
+            else {
+                return Err("slice-mut-of requires a mutable array reference".into());
+            };
+            let Type::Array(_, length) = *target else {
+                return Err("slice-mut-of requires a mutable array reference".into());
+            };
+            self.expression(&items[1])?;
+            self.output.push_str(&format!("    mov rdx, {length}\n"));
+            return Ok(());
+        }
+        if operator == "slice-len" || operator == "slice-mut-len" {
             if items.len() != 2 {
                 return Err("slice-len requires a slice".into());
             }
@@ -8132,12 +8189,12 @@ impl FunctionContext {
             self.output.push_str("    mov rax, rdx\n");
             return Ok(());
         }
-        if operator == "slice-idx" {
+        if operator == "slice-idx" || operator == "slice-mut-idx" {
             if items.len() != 3 {
                 return Err("slice-idx requires a slice and usize index".into());
             }
             let element_type = match self.expression_type(&items[1]) {
-                Some(Type::Slice(element)) => *element,
+                Some(Type::Slice(element)) | Some(Type::MutableSlice(element)) => *element,
                 _ => return Err("slice-idx requires a slice".into()),
             };
             if let Expr::Symbol(name) = &items[1] {
@@ -8162,6 +8219,38 @@ impl FunctionContext {
             let done = self.label("slice_bounds_done");
             let stride = storage_word_count(&element_type, &self.structs, &self.enums)? * 8;
             self.output.push_str(&format!("    cmp rax, rdx\n    jae {fail}\n    imul rax, {stride}\n    sub rcx, rax\n    mov rax, rcx\n    jmp {done}\n{fail}:\n    ud2\n{done}:\n"));
+            return Ok(());
+        }
+        if operator == "slice-mut-split" {
+            if items.len() != 3 {
+                return Err("slice-mut-split requires a mutable slice and split index".into());
+            }
+            let element_type = match self.expression_type(&items[1]) {
+                Some(Type::MutableSlice(element)) => *element,
+                _ => return Err("slice-mut-split requires a mutable slice".into()),
+            };
+            if let Expr::Symbol(name) = &items[1] {
+                if let Some(Storage::Tuple(slots)) = self.locals.get(name).cloned() {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
+                        slots[0] * 8,
+                        slots[1] * 8
+                    ));
+                } else {
+                    self.expression(&items[1])?;
+                }
+            } else {
+                self.expression(&items[1])?;
+            }
+            self.output.push_str("    push rax\n    push rdx\n");
+            self.stack_depth += 2;
+            self.expression(&items[2])?;
+            self.output.push_str("    pop rdx\n    pop rcx\n");
+            self.stack_depth -= 2;
+            let fail = self.label("slice_mut_split_bounds_fail");
+            let done = self.label("slice_mut_split_bounds_done");
+            let stride = storage_word_count(&element_type, &self.structs, &self.enums)? * 8;
+            self.output.push_str(&format!("    cmp rax, rdx\n    ja {fail}\n    mov r9, rax\n    mov r8, rdx\n    mov rax, rcx\n    mov rdx, r9\n    mov rcx, rax\n    imul r9, {stride}\n    sub rcx, r9\n    sub r8, rdx\n    jmp {done}\n{fail}:\n    ud2\n{done}:\n"));
             return Ok(());
         }
         if operator == "slice-range" {
@@ -11710,7 +11799,7 @@ impl FunctionContext {
         match ty {
             Type::Unit | Type::Never => Ok(0),
             Type::I128 | Type::U128 => Ok(16),
-            Type::Slice(_) => Ok(16),
+            Type::Slice(_) | Type::MutableSlice(_) => Ok(16),
             Type::Array(element, length) => self
                 .native_type_size(element)?
                 .checked_mul(*length)
@@ -14098,7 +14187,7 @@ impl FunctionContext {
             }
             return Ok(());
         }
-        if matches!(ty, Type::Slice(_)) {
+        if matches!(ty, Type::Slice(_) | Type::MutableSlice(_)) {
             if let Expr::Symbol(local) = value {
                 let Some(Storage::Tuple(slots)) = self.locals.get(local) else {
                     return Err(format!("'{local}' is not a slice local"));

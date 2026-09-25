@@ -925,7 +925,7 @@ fn bind_pattern_references(
     context: &mut Context,
 ) -> Result<(), String> {
     let inherited_origins = reference_origins(value, context, true);
-    let inherited_fields = match value {
+    let mut inherited_fields = match value {
         Expr::Symbol(name) => context
             .reference_fields
             .get(name)
@@ -933,7 +933,7 @@ fn bind_pattern_references(
             .unwrap_or_default(),
         _ => HashMap::new(),
     };
-    let inherited_loans = match value {
+    let mut inherited_loans = match value {
         Expr::Symbol(name) => context
             .reference_loans
             .get(name)
@@ -941,6 +941,36 @@ fn bind_pattern_references(
             .unwrap_or_default(),
         _ => borrow_place_loans(value, context),
     };
+    if let Expr::List(items) = value {
+        if matches!(items.first(), Some(Expr::Symbol(op)) if op == "slice-mut-split")
+            && items.len() == 3
+        {
+            if let Expr::Symbol(parent) = &items[1] {
+                if let Some(parent_loans) = context.reference_loans.get(parent) {
+                    inherited_loans.clone_from(parent_loans);
+                }
+                release_dropped_value(&items[1], context);
+            }
+            if inherited_loans.is_empty() {
+                inherited_loans = reference_origins(value, context, true)
+                    .into_iter()
+                    .map(|owner| (owner.clone(), owner))
+                    .collect();
+            }
+            let left = inherited_loans
+                .iter()
+                .map(|(owner, loan)| (owner.clone(), format!("{loan}{PLACE_SEPARATOR}split-left")))
+                .collect::<Vec<_>>();
+            let right = inherited_loans
+                .iter()
+                .map(|(owner, loan)| (owner.clone(), format!("{loan}{PLACE_SEPARATOR}split-right")))
+                .collect::<Vec<_>>();
+            let origins = reference_origins(value, context, true);
+            inherited_fields.insert(vec![0], (origins.clone(), left));
+            inherited_fields.insert(vec![1], (origins, right));
+            inherited_loans.clear();
+        }
+    }
     if matches!(value, Expr::Symbol(_)) {
         release_dropped_value(value, context);
     }
@@ -1105,7 +1135,10 @@ fn bind_pattern_reference_fields(
         }
         context.reference_origins.insert(name.clone(), origins);
         context.reference_loans.insert(name.clone(), loans);
-        if matches!(ty, crate::Type::Reference { .. } | crate::Type::Slice(_)) {
+        if matches!(
+            ty,
+            crate::Type::Reference { .. } | crate::Type::Slice(_) | crate::Type::MutableSlice(_)
+        ) {
             context.reference_bindings.insert(name.clone());
         }
         if mutable {
@@ -1935,8 +1968,15 @@ fn reference_origins(
             if matches!(operator.as_str(), "borrow" | "borrow-mut") && items.len() == 2 {
                 return borrow_place_origins(&items[1], context);
             }
-            if matches!(operator.as_str(), "slice-of" | "slice-idx" | "slice-range")
-                && items.len() >= 2
+            if matches!(
+                operator.as_str(),
+                "slice-of"
+                    | "slice-idx"
+                    | "slice-range"
+                    | "slice-mut-of"
+                    | "slice-mut-idx"
+                    | "slice-mut-split"
+            ) && items.len() >= 2
             {
                 return reference_origins(&items[1], context, true);
             }
@@ -2020,7 +2060,9 @@ fn reference_origins(
 
 fn type_contains_reference(ty: &crate::Type, items: &[Item], seen: &mut HashSet<String>) -> bool {
     match ty {
-        crate::Type::Reference { .. } | crate::Type::Slice(_) => true,
+        crate::Type::Reference { .. } | crate::Type::Slice(_) | crate::Type::MutableSlice(_) => {
+            true
+        }
         crate::Type::Array(element, _) | crate::Type::Cell(element) => {
             type_contains_reference(element, items, seen)
         }
@@ -2061,6 +2103,7 @@ fn type_contains_mutable_reference(
     match ty {
         crate::Type::Reference { mutable: true, .. } => true,
         crate::Type::Slice(_) => false,
+        crate::Type::MutableSlice(_) => true,
         crate::Type::Reference { mutable: false, .. } | crate::Type::RawPointer { .. } => false,
         crate::Type::Array(element, _) | crate::Type::Cell(element) => {
             type_contains_mutable_reference(element, items, seen)
@@ -2096,7 +2139,9 @@ fn type_contains_mutable_reference(
 
 fn contains_reference_type(ty: &crate::Type, reference_types: &HashSet<String>) -> bool {
     match ty {
-        crate::Type::Reference { .. } | crate::Type::Slice(_) => true,
+        crate::Type::Reference { .. } | crate::Type::Slice(_) | crate::Type::MutableSlice(_) => {
+            true
+        }
         crate::Type::Array(element, _) | crate::Type::Cell(element) => {
             contains_reference_type(element, reference_types)
         }

@@ -1463,6 +1463,17 @@ fn type_has_auto_trait_inner(
         Type::Slice(target) => {
             type_has_auto_trait_inner(target, AutoTrait::Sync, structs, enums, overrides, active)
         }
+        Type::MutableSlice(target) => match trait_kind {
+            AutoTrait::Send => type_has_auto_trait_inner(
+                target,
+                AutoTrait::Send,
+                structs,
+                enums,
+                overrides,
+                active,
+            ),
+            AutoTrait::Sync => Ok(false),
+        },
         Type::Tuple(fields) => all(fields.iter().collect(), active),
         Type::Array(element, _) => {
             type_has_auto_trait_inner(element, trait_kind, structs, enums, overrides, active)
@@ -3935,6 +3946,22 @@ fn list_expression(
             };
             Ok(Type::Slice(element))
         }
+        "slice-mut-of" => {
+            require_arity(operator, items, 2)?;
+            let Type::Reference {
+                mutable: true,
+                target,
+            } = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?
+            else {
+                return Err("slice-mut-of requires a mutable reference to an array".into());
+            };
+            let Type::Array(element, _) = *target else {
+                return Err("slice-mut-of requires a mutable reference to an array".into());
+            };
+            Ok(Type::MutableSlice(element))
+        }
         "slice-len" => {
             require_arity(operator, items, 2)?;
             if !matches!(
@@ -3993,6 +4020,45 @@ fn list_expression(
                 require_type(&ty, &Type::Usize, "slice range bound")?;
             }
             Ok(Type::Slice(element))
+        }
+        "slice-mut-len" | "slice-mut-idx" | "slice-mut-split" => {
+            let expected_arity = match operator {
+                "slice-mut-len" => 2,
+                "slice-mut-idx" | "slice-mut-split" => 3,
+                _ => unreachable!(),
+            };
+            require_arity(operator, items, expected_arity)?;
+            let Type::MutableSlice(element) = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?
+            else {
+                return Err(format!("{operator} requires a mutable slice"));
+            };
+            if operator == "slice-mut-len" {
+                return Ok(Type::Usize);
+            }
+            let index = expression(
+                &items[2],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&Type::Usize),
+            )?;
+            require_type(&index, &Type::Usize, "mutable slice index")?;
+            if operator == "slice-mut-idx" {
+                Ok(Type::Reference {
+                    mutable: true,
+                    target: element,
+                })
+            } else {
+                Ok(Type::Tuple(vec![
+                    Type::MutableSlice(element.clone()),
+                    Type::MutableSlice(element),
+                ]))
+            }
         }
         "borrow" | "borrow-mut" => {
             if items.len() == 2 {
@@ -5795,6 +5861,12 @@ fn resolve_type_with_seen(
             Box::new(resolve_type_with_seen(element, aliases, seen)?),
             *length,
         )),
+        Type::Slice(element) => Ok(Type::Slice(Box::new(resolve_type_with_seen(
+            element, aliases, seen,
+        )?))),
+        Type::MutableSlice(element) => Ok(Type::MutableSlice(Box::new(resolve_type_with_seen(
+            element, aliases, seen,
+        )?))),
         Type::Tuple(fields) => Ok(Type::Tuple(
             fields
                 .iter()
@@ -5834,7 +5906,7 @@ fn validate_layout_type(
             .flat_map(|variant| variant.fields.iter())
             .try_for_each(|field| validate_layout_type(field, structs, enums)),
         Type::Named(name) => Err(format!("unknown type '{name}' in size-of")),
-        Type::Array(element, _) | Type::Slice(element) => {
+        Type::Array(element, _) | Type::Slice(element) | Type::MutableSlice(element) => {
             validate_layout_type(element, structs, enums)
         }
         Type::Tuple(fields) => fields
@@ -5963,7 +6035,7 @@ fn contains_reference_type(
     seen: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        Type::Reference { .. } | Type::Slice(_) => true,
+        Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_) => true,
         Type::Array(element, _) | Type::Cell(element) => {
             contains_reference_type(element, structs, enums, seen)
         }
@@ -5996,6 +6068,7 @@ fn type_contains_mutable_reference(
 ) -> bool {
     match ty {
         Type::Reference { mutable: true, .. } => true,
+        Type::MutableSlice(_) => true,
         Type::Reference { mutable: false, .. } | Type::RawPointer { .. } => false,
         Type::Array(element, _) | Type::Cell(element) => {
             type_contains_mutable_reference(element, structs, enums, seen)
@@ -6043,6 +6116,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::F64 => "f64",
         Type::Reference { .. } => "reference",
         Type::Slice(_) => "slice",
+        Type::MutableSlice(_) => "mutable slice",
         Type::RawPointer { .. } => "raw pointer",
         Type::Cell(_) => "interior mutable cell",
         Type::Generic(name) | Type::Named(name) => name,

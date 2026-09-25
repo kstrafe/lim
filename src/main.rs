@@ -715,6 +715,29 @@ mod tests {
     }
 
     #[test]
+    fn mutable_slice_split_runs_with_disjoint_mutations() {
+        let directory =
+            env::temp_dir().join(format!("lim-mutable-slice-split-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("program.lim");
+        let output = directory.join("program");
+        fs::write(&input, "(#fn main () u64 (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64)) (#slice-mut-split view 2usize)) (#deref-set (#slice-mut-idx left 0usize) 17u64) (#deref-set (#slice-mut-idx right 0usize) 25u64) (#let-mut result u64 (#u64.+.wrap (#deref (#slice-mut-idx left 0usize)) (#deref (#slice-mut-idx right 0usize)))) (#forget left) (#forget right) (#return result))").unwrap();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &lim::CompileConfig::default(),
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        assert_eq!(Command::new(&output).status().unwrap().code(), Some(42));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn nested_destructured_mutable_references_run_natively() {
         let directory =
             env::temp_dir().join(format!("lim-destructure-references-{}", std::process::id()));
