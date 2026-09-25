@@ -635,132 +635,134 @@ fn compilation_errors_render_the_offending_source_line() {
         },
     ];
 
+    let mut failures = Vec::new();
     for case in cases {
-        let source_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ui/");
-        let input = format!("{source_path}{}.lim", case.name);
-        let output = std::env::temp_dir().join(format!(
-            "lim-ui-{}-{}-{}.s",
-            std::process::id(),
-            case.name,
-            case.line_number
-        ));
-        let result = Command::new(env!("CARGO_BIN_EXE_lim"))
-            .args(["--emit-asm", &input, output.to_str().unwrap()])
-            .output()
-            .unwrap_or_else(|error| panic!("failed to run Lim UI case {}: {error}", case.name));
+        let result = std::panic::catch_unwind(|| {
+            let source_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ui/");
+            let input = format!("{source_path}{}.lim", case.name);
+            let output = std::env::temp_dir().join(format!(
+                "lim-ui-{}-{}-{}.s",
+                std::process::id(),
+                case.name,
+                case.line_number
+            ));
+            let result = Command::new(env!("CARGO_BIN_EXE_lim"))
+                .args(["--emit-asm", &input, output.to_str().unwrap()])
+                .output()
+                .unwrap_or_else(|error| panic!("failed to run Lim UI case {}: {error}", case.name));
 
-        assert!(
-            !result.status.success(),
-            "UI case {} unexpectedly compiled",
-            case.name
-        );
-        let stderr = String::from_utf8(result.stderr).expect("compiler stderr is UTF-8");
-        assert!(
-            stderr.contains(&format!("error[{}]", case.diagnostic_code)),
-            "UI case {} had the wrong diagnostic category:\n{stderr}",
-            case.name
-        );
-        let expected_source = match case.name {
-            "imported" => format!("{source_path}imported/broken-module.lim"),
-            "cycle-a" => format!("{source_path}cycle-b.lim"),
-            "generator-imported" => {
-                format!("{source_path}generator-imported/module.lim")
-            }
-            _ => input.clone(),
-        };
-        assert!(
-            stderr.contains(&format!("--> {expected_source}:{}:", case.line_number)),
-            "UI case {} did not point to line {}:\n{stderr}",
-            case.name,
-            case.line_number
-        );
-        assert!(
-            stderr.contains(case.offending_line),
-            "UI case {} did not show its offending source line:\n{stderr}",
-            case.name
-        );
-        assert!(
-            stderr.lines().any(|line| line.contains('^')),
-            "UI case {} did not underline the source:\n{stderr}",
-            case.name
-        );
-        if case.name == "mismatched-let" {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
-                source_row.find("count"),
-                underline_row.find('^'),
-                "type mismatch underline is not aligned under the offending value:\n{stderr}"
+            assert!(
+                !result.status.success(),
+                "UI case {} unexpectedly compiled",
+                case.name
             );
-        }
-        if case.name == "top-level-mismatch" {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
+            let stderr = String::from_utf8(result.stderr).expect("compiler stderr is UTF-8");
+            assert!(
+                stderr.contains(&format!("error[{}]", case.diagnostic_code)),
+                "UI case {} had the wrong diagnostic category:\n{stderr}",
+                case.name
+            );
+            let expected_source = match case.name {
+                "imported" => format!("{source_path}imported/broken-module.lim"),
+                "cycle-a" => format!("{source_path}cycle-b.lim"),
+                "generator-imported" => {
+                    format!("{source_path}generator-imported/module.lim")
+                }
+                _ => input.clone(),
+            };
+            assert!(
+                stderr.contains(&format!("--> {expected_source}:{}:", case.line_number)),
+                "UI case {} did not point to line {}:\n{stderr}",
+                case.name,
+                case.line_number
+            );
+            assert!(
+                stderr.contains(case.offending_line),
+                "UI case {} did not show its offending source line:\n{stderr}",
+                case.name
+            );
+            assert!(
+                stderr.lines().any(|line| line.contains('^')),
+                "UI case {} did not underline the source:\n{stderr}",
+                case.name
+            );
+            if case.name == "mismatched-let" {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
+                    source_row.find("count"),
+                    underline_row.find('^'),
+                    "type mismatch underline is not aligned under the offending value:\n{stderr}"
+                );
+            }
+            if case.name == "top-level-mismatch" {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
                 source_row.find("true"),
                 underline_row.find('^'),
                 "top-level type mismatch underline is not aligned under the incompatible initializer:\n{stderr}"
             );
-        }
-        if case.name == "nested-mismatch" {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
+            }
+            if case.name == "nested-mismatch" {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
                 source_row.find("false"),
                 underline_row.find('^'),
                 "nested type mismatch underline is not aligned under its incompatible operand:\n{stderr}"
             );
-        }
-        if matches!(
-            case.name,
-            "thread-worker-unknown-type" | "unknown-local-type"
-        ) {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
+            }
+            if matches!(
+                case.name,
+                "thread-worker-unknown-type" | "unknown-local-type"
+            ) {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
                 source_row.find("Missing"),
                 underline_row.find('^'),
                 "unknown type diagnostic is not aligned under the unknown type name for {}:\n{stderr}",
                 case.name
             );
-        }
-        if case.name == "call-duplicate-argument" {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
-                source_row.rfind("value"),
-                underline_row.find('^'),
-                "duplicate argument underline does not select its second occurrence:\n{stderr}"
-            );
-        }
-        if case.name == "struct-literal-duplicate-field" {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
+            }
+            if case.name == "call-duplicate-argument" {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
+                    source_row.rfind("value"),
+                    underline_row.find('^'),
+                    "duplicate argument underline does not select its second occurrence:\n{stderr}"
+                );
+            }
+            if case.name == "struct-literal-duplicate-field" {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
                 source_row.rfind("x"),
                 underline_row.find('^'),
                 "duplicate struct field underline does not select its second occurrence:\n{stderr}"
             );
-        }
-        let precise_fragment = match case.name {
+            }
+            let precise_fragment = match case.name {
             "lex" => Some("\"unterminated)"),
             "type" => Some("missing"),
             "return-type-mismatch" => Some("false"),
@@ -857,182 +859,187 @@ fn compilation_errors_render_the_offending_source_line() {
             "enum-payload-type-mismatch" => Some("false"),
             _ => None,
         };
-        let has_custom_alignment = matches!(
-            case.name,
-            "parse"
-                | "mismatched-let"
-                | "nested-mismatch"
-                | "top-level-mismatch"
-                | "struct-literal-duplicate-field"
-                | "call-duplicate-argument"
-                | "thread-worker-unknown-type"
-        );
-        assert!(
-            precise_fragment.is_some() || has_custom_alignment,
-            "UI case {} must assert an exact source fragment or custom alignment",
-            case.name
-        );
-        if let Some(fragment) = precise_fragment {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            let expected_column = if case.name == "parse" {
-                Some(source_row.len())
-            } else if case.name == "duplicate-parameter" {
-                source_row
-                    .match_indices(fragment)
-                    .nth(1)
-                    .map(|(column, _)| column)
-            } else if matches!(
+            let has_custom_alignment = matches!(
                 case.name,
-                "generator-capability-duplicate-operation" | "duplicate-generator-parameter"
-            ) {
-                source_row
-                    .match_indices(fragment)
-                    .nth(1)
-                    .map(|(column, _)| column)
-            } else if matches!(
-                case.name,
-                "destructure-type-mismatch"
-                    | "out-of-range-shift-count"
-                    | "match-branch-mismatch"
-                    | "borrow-conflict-field-name"
-                    | "borrow-conflict-callee-name"
-                    | "shadowed-name-type-error"
-            ) {
-                source_row.rfind(fragment)
-            } else if matches!(
-                case.name,
-                "thread-worker-reference-result"
-                    | "thread-task-type-alias"
-                    | "duplicate-field"
-                    | "duplicate-variant"
-                    | "duplicate-function"
-                    | "duplicate-enum-match-pattern"
-                    | "duplicate-wildcard-match-pattern"
-                    | "duplicate-match-integer"
-                    | "duplicate-character-match-pattern"
-            ) {
-                source_row.rfind(fragment)
-            } else {
-                source_row.find(fragment)
-            };
-            assert_eq!(
-                expected_column,
-                underline_row.find('^'),
-                "{} underline is not aligned under {fragment:?}:\n{stderr}",
+                "parse"
+                    | "mismatched-let"
+                    | "nested-mismatch"
+                    | "top-level-mismatch"
+                    | "struct-literal-duplicate-field"
+                    | "call-duplicate-argument"
+                    | "thread-worker-unknown-type"
+            );
+            assert!(
+                precise_fragment.is_some() || has_custom_alignment,
+                "UI case {} must assert an exact source fragment or custom alignment",
                 case.name
             );
-            let caret_width = underline_row
-                .chars()
-                .skip_while(|character| *character != '^')
-                .take_while(|character| *character == '^')
-                .count();
-            let expected_width = if case.name == "aggregate-layout-overflow" {
-                fragment.chars().count().min(80)
-            } else {
-                fragment.chars().count()
-            };
-            assert_eq!(
+            if let Some(fragment) = precise_fragment {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                let expected_column = if case.name == "parse" {
+                    Some(source_row.len())
+                } else if case.name == "duplicate-parameter" {
+                    source_row
+                        .match_indices(fragment)
+                        .nth(1)
+                        .map(|(column, _)| column)
+                } else if matches!(
+                    case.name,
+                    "generator-capability-duplicate-operation" | "duplicate-generator-parameter"
+                ) {
+                    source_row
+                        .match_indices(fragment)
+                        .nth(1)
+                        .map(|(column, _)| column)
+                } else if matches!(
+                    case.name,
+                    "destructure-type-mismatch"
+                        | "out-of-range-shift-count"
+                        | "match-branch-mismatch"
+                        | "borrow-conflict-field-name"
+                        | "borrow-conflict-callee-name"
+                        | "shadowed-name-type-error"
+                ) {
+                    source_row.rfind(fragment)
+                } else if matches!(
+                    case.name,
+                    "thread-worker-reference-result"
+                        | "thread-task-type-alias"
+                        | "duplicate-field"
+                        | "duplicate-variant"
+                        | "duplicate-function"
+                        | "duplicate-enum-match-pattern"
+                        | "duplicate-wildcard-match-pattern"
+                        | "duplicate-match-integer"
+                        | "duplicate-character-match-pattern"
+                ) {
+                    source_row.rfind(fragment)
+                } else {
+                    source_row.find(fragment)
+                };
+                assert_eq!(
+                    expected_column,
+                    underline_row.find('^'),
+                    "{} underline is not aligned under {fragment:?}:\n{stderr}",
+                    case.name
+                );
+                let caret_width = underline_row
+                    .chars()
+                    .skip_while(|character| *character != '^')
+                    .take_while(|character| *character == '^')
+                    .count();
+                let expected_width = if case.name == "aggregate-layout-overflow" {
+                    fragment.chars().count().min(80)
+                } else {
+                    fragment.chars().count()
+                };
+                assert_eq!(
                 caret_width,
                 expected_width,
                 "{} underline width does not match the declared source fragment {fragment:?}:\n{stderr}",
                 case.name
             );
-        }
-        if case.name == "codegen" {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
-                source_row.find("Second"),
-                underline_row.find('^'),
-                "codegen underline is not aligned under the offending symbol:\n{stderr}"
-            );
-        }
-        if case.name == "recursive-call" {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
-                source_row.find("worker"),
-                underline_row.find('^'),
-                "recursive-call underline is not aligned under the recursive callee:\n{stderr}"
-            );
-        }
-        if case.name == "generator-imported" {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
-                source_row.find("(@fail)"),
-                underline_row.find('^'),
-                "imported generator underline is not aligned under its invocation:\n{stderr}"
-            );
-        }
-        if case.name == "type" {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
-                source_row.find("missing"),
-                underline_row.find('^'),
-                "nested type error is not aligned under its offending identifier:\n{stderr}"
-            );
-        }
-        if case.name == "nonconstant-static" {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            assert_eq!(
+            }
+            if case.name == "codegen" {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
+                    source_row.find("Second"),
+                    underline_row.find('^'),
+                    "codegen underline is not aligned under the offending symbol:\n{stderr}"
+                );
+            }
+            if case.name == "recursive-call" {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
+                    source_row.find("worker"),
+                    underline_row.find('^'),
+                    "recursive-call underline is not aligned under the recursive callee:\n{stderr}"
+                );
+            }
+            if case.name == "generator-imported" {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
+                    source_row.find("(@fail)"),
+                    underline_row.find('^'),
+                    "imported generator underline is not aligned under its invocation:\n{stderr}"
+                );
+            }
+            if case.name == "type" {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
+                    source_row.find("missing"),
+                    underline_row.find('^'),
+                    "nested type error is not aligned under its offending identifier:\n{stderr}"
+                );
+            }
+            if case.name == "nonconstant-static" {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                assert_eq!(
                 source_row.find("(#call"),
                 underline_row.find('^'),
                 "non-constant initializer underline is not aligned under its expression:\n{stderr}"
             );
-        }
-        if matches!(
-            case.name,
-            "duplicate-parameter"
-                | "duplicate-field"
-                | "duplicate-variant"
-                | "duplicate-variant-global"
-        ) {
-            let source_row = stderr
-                .lines()
-                .find(|line| line.contains(case.offending_line))
-                .unwrap();
-            let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
-            let duplicated_name = match case.name {
-                "duplicate-parameter" => "value",
-                "duplicate-field" => "x",
-                _ => "Open",
-            };
-            let occurrence_index = usize::from(case.name != "duplicate-variant-global");
-            let second_value = source_row
-                .match_indices(duplicated_name)
-                .nth(occurrence_index)
-                .unwrap()
-                .0;
-            assert_eq!(
+            }
+            if matches!(
+                case.name,
+                "duplicate-parameter"
+                    | "duplicate-field"
+                    | "duplicate-variant"
+                    | "duplicate-variant-global"
+            ) {
+                let source_row = stderr
+                    .lines()
+                    .find(|line| line.contains(case.offending_line))
+                    .unwrap();
+                let underline_row = stderr.lines().find(|line| line.contains('^')).unwrap();
+                let duplicated_name = match case.name {
+                    "duplicate-parameter" => "value",
+                    "duplicate-field" => "x",
+                    _ => "Open",
+                };
+                let occurrence_index = usize::from(case.name != "duplicate-variant-global");
+                let second_value = source_row
+                    .match_indices(duplicated_name)
+                    .nth(occurrence_index)
+                    .unwrap()
+                    .0;
+                assert_eq!(
                 Some(second_value),
                 underline_row.find('^'),
                 "duplicate declaration underline is not aligned under the second name:\n{stderr}"
             );
+            }
+            let _ = std::fs::remove_file(output);
+        });
+        if result.is_err() {
+            failures.push(case.name);
         }
-        let _ = std::fs::remove_file(output);
     }
+    assert!(failures.is_empty(), "failed UI cases: {failures:?}");
 }
 
 #[test]

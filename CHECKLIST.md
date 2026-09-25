@@ -642,7 +642,7 @@ and acceptance coverage.
 
 ### Compiler architecture and diagnostics
 
-- [ ] **DIAG-02: Remove message parsing inside semantic error producers.**
+- [x] **DIAG-02: Remove message parsing inside semantic error producers.**
   `src/typecheck.rs::precise_type_error_span` still extracts tuple indices,
   payload positions, field names, and other details from English messages.
   `BORROW_ERROR_MARKER` also embeds diagnostic identity in a string. Replace

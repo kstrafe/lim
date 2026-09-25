@@ -8,10 +8,94 @@ use crate::{
 };
 
 const LOOP_VALUE_CONTEXT: &str = "\0lim-loop-value";
-const BORROW_ERROR_MARKER: &str = "\0lim-borrow-error\0";
+#[derive(Clone, Debug)]
+enum ErrorSite {
+    Value,
+    Symbol(String),
+    DeclaredType(String),
+    Operator(String),
+    Argument(String, usize),
+    TupleElement(usize),
+    ArrayElement(usize),
+    ConstructorArity(&'static str, usize),
+    Payload(String, usize),
+    Field(String),
+    NamedArgument(String, String),
+    PatternSymbol(String),
+    PatternInteger(u128),
+    PatternCharacter,
+    PatternRange(bool),
+    Mismatch(Type, Option<Type>),
+    BranchMismatch(Type),
+}
 
-fn borrow_error(message: &str) -> String {
-    format!("{BORROW_ERROR_MARKER}{message}")
+#[derive(Clone, Debug)]
+struct SemanticError {
+    message: String,
+    code: crate::DiagnosticCode,
+    site: Box<ErrorSite>,
+    scope: Option<Box<Expr>>,
+    origin: Option<usize>,
+}
+impl SemanticError {
+    fn at(mut self, site: ErrorSite) -> Self {
+        self.site = Box::new(site);
+        self
+    }
+}
+impl From<String> for SemanticError {
+    fn from(message: String) -> Self {
+        #[cfg(test)]
+        let message = if REWORD_ERRORS.with(|flag| flag.get()) {
+            "wording deliberately replaced".into()
+        } else {
+            message
+        };
+        Self {
+            message,
+            code: crate::DiagnosticCode::Type,
+            site: Box::new(ErrorSite::Value),
+            scope: None,
+            origin: None,
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! { static REWORD_ERRORS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+impl From<&str> for SemanticError {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+impl From<SemanticError> for String {
+    fn from(error: SemanticError) -> Self {
+        error.message
+    }
+}
+impl std::ops::Deref for SemanticError {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.message
+    }
+}
+impl std::fmt::Display for SemanticError {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output.write_str(&self.message)
+    }
+}
+
+macro_rules! semantic_format {
+    ($($args:tt)*) => { format!($($args)*).into() };
+}
+macro_rules! semantic_at {
+    ($site:expr, $($args:tt)*) => { SemanticError::from(format!($($args)*)).at($site) };
+}
+
+fn borrow_error(message: &str) -> SemanticError {
+    let mut error = SemanticError::from(message).at(ErrorSite::Argument("borrow-mut".into(), 1));
+    error.code = crate::DiagnosticCode::Borrow;
+    error
 }
 
 #[derive(Clone)]
@@ -65,6 +149,55 @@ thread_local! {
 #[cfg(test)]
 mod checked_program_tests {
     use super::*;
+
+    #[test]
+    fn semantic_locations_do_not_depend_on_rendered_wording() {
+        let cases = [
+            ("(#fn main () u64 (#let value u64 (#u64.+.wrap 1u64 false)) (#return value))", "false"),
+            ("(#fn main () u64 (#let value u64 1u64) (#let value bool false) (#return (#u64.+.wrap 2u64 value)))", "value"),
+            ("(#fn add ((first u64) (second u64)) u64 (#return (#u64.+.wrap first second))) (#fn main () u64 (#return (#call add (#fn-args (second false) (first 1u64)))))", "false"),
+            ("(#struct Inner ((value u64))) (#struct Outer ((first Inner) (second Inner))) (#fn main () Outer (#return (#struct-literal Outer ((first (#struct-literal Inner ((value 1u64)))) (second (#struct-literal Inner ((value false))))))))", "false"),
+            ("(#fn main () u64 (#let-mut value u64 0u64) (#let shared (#ref u64) (#borrow value)) (#let mutable (#ref-mut u64) (#borrow-mut shared)) (#return 0u64))", "shared"),
+            ("(#fn main () u64 (#return (#get (#tuple (#tuple u64 u64) 1u64 false) 0)))", "false"),
+            ("(#fn main () u64 (#return (#u64.+.wrap (#if false 1u64 2u64) false)))", "false"),
+            ("(#fn choose ((flag bool) (value u64)) u64 (#return value)) (#fn main () u64 (#return (#call choose (#fn-args (value false) (flag false)))))", "false"),
+            ("(#struct Point ((value u64))) (#fn main () u64 (#let-mut owner Point (#struct-literal Point ((value 1u64)))) (#let shared (#ref Point) (#borrow owner)) (#let exclusive (#ref-mut u64) (#borrow-mut (#get shared value))) (#return 0u64))", "(#get shared value)"),
+            ("(#fn main () u64 (#return (#block (#let value u64 1u64) (#u64.+.wrap value 2u64) (#let value bool false) (#u64.+.wrap value 2u64))))", "value"),
+        ];
+        for (source, offending) in cases {
+            let program = crate::parse_program(source).unwrap();
+            let normal = check_types_with_span(&program).unwrap_err();
+            REWORD_ERRORS.with(|flag| flag.set(true));
+            let changed = check_types_with_span(&program).unwrap_err();
+            REWORD_ERRORS.with(|flag| flag.set(false));
+            assert_eq!(normal.1, changed.1);
+            assert_eq!(normal.2, changed.2, "{source}");
+            assert_eq!(normal.3, changed.3);
+            assert_ne!(
+                normal.0, changed.0,
+                "producer did not use the structured error path: {source}"
+            );
+            let span = normal.2.unwrap();
+            assert_eq!(
+                &source[span.start..span.end],
+                offending,
+                "{}: {source}",
+                normal.0
+            );
+            if source.contains("(#if false") {
+                assert_eq!(span.start, source.rfind("false").unwrap());
+            }
+            if source.contains("(#fn choose") {
+                assert_eq!(
+                    span.start,
+                    source.find("(value false)").unwrap() + "(value ".len()
+                );
+            }
+            if source.contains("(#return (#block") {
+                assert_eq!(span.start, source.rfind("value").unwrap());
+            }
+        }
+    }
 
     #[test]
     fn normal_compilation_checks_once_and_unchecked_emission_still_validates() {
@@ -131,7 +264,7 @@ fn check_types_inner(
                 if function.external != (function.calling_convention == CallingConvention::C) =>
             {
                 *diagnostic_span = function_name_span(program, &function.name);
-                return Err(format!(
+                return Err(semantic_format!(
                     "function '{}' has an inconsistent calling convention",
                     function.name
                 ));
@@ -166,7 +299,7 @@ fn check_types_inner(
                                         .map(|value| value.span)
                                 })
                         });
-                return Err(format!(
+                return Err(semantic_format!(
                     "#repr-c enum '{name}' discriminants must fit in signed 32-bit C int"
                 ));
             }
@@ -184,7 +317,7 @@ fn check_types_inner(
             {
                 *diagnostic_span = declaration_name_span(program, name);
                 record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                return Err(format!("duplicate type name '{name}'"));
+                return Err(semantic_format!("duplicate type name '{name}'"));
             }
             _ => {}
         }
@@ -200,7 +333,7 @@ fn check_types_inner(
         };
         if !declared_types.contains(type_name) {
             *diagnostic_span = unsafe_impl_type_span(program, type_name, *property, 0);
-            return Err(format!(
+            return Err(semantic_format!(
                 "unsafe {:?} annotation refers to undeclared type '{type_name}'",
                 property
             ));
@@ -225,14 +358,14 @@ fn check_types_inner(
         });
         if generic {
             *diagnostic_span = unsafe_impl_type_span(program, type_name, *property, 0);
-            return Err(format!(
+            return Err(semantic_format!(
                 "unsafe {:?} annotation for generic type '{type_name}' is not supported",
                 property
             ));
         }
         if !unsafe_thread_properties.insert((type_name.clone(), *property)) {
             *diagnostic_span = unsafe_impl_type_span(program, type_name, *property, 1);
-            return Err(format!(
+            return Err(semantic_format!(
                 "duplicate unsafe {:?} annotation for '{type_name}'",
                 property
             ));
@@ -242,7 +375,7 @@ fn check_types_inner(
     for item in &program.items {
         if let Item::TypeAlias { name, target, .. } = item {
             if aliases.insert(name.clone(), target.clone()).is_some() {
-                return Err(format!("duplicate type alias '{name}'"));
+                return Err(semantic_format!("duplicate type alias '{name}'"));
             }
         }
     }
@@ -256,7 +389,7 @@ fn check_types_inner(
                 .get(name)
                 .and_then(|declaration| declaration.children.get(2))
                 .map(|target| target.span);
-            return Err(error);
+            return Err(error.into());
         }
     }
     let mut globals = HashMap::new();
@@ -270,7 +403,9 @@ fn check_types_inner(
         };
         {
             if mutable {
-                return Err(format!("top-level binding '{name}' cannot be mutable"));
+                return Err(semantic_format!(
+                    "top-level binding '{name}' cannot be mutable"
+                ));
             }
             if globals
                 .insert(name.clone(), resolve_type(ty, &aliases)?)
@@ -278,7 +413,7 @@ fn check_types_inner(
             {
                 *diagnostic_span = declaration_name_span(program, name);
                 record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                return Err(format!("duplicate global '{name}'"));
+                return Err(semantic_format!("duplicate global '{name}'"));
             }
         }
     }
@@ -292,7 +427,7 @@ fn check_types_inner(
                     if !field_names.insert(field.name.clone()) {
                         *diagnostic_span =
                             declaration_member_span(program, name, 2, &field.name, 1);
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "duplicate field '{}' in struct '{name}'",
                             field.name
                         ));
@@ -302,9 +437,9 @@ fn check_types_inner(
                         ty: resolve_type(&field.ty, &aliases)?,
                     })
                 })
-                .collect::<Result<Vec<_>, String>>()?;
+                .collect::<Result<Vec<_>, SemanticError>>()?;
             if structs.insert(name.clone(), fields).is_some() {
-                return Err(format!("duplicate struct '{name}'"));
+                return Err(semantic_format!("duplicate struct '{name}'"));
             }
         }
         if let Item::ThreadTask { name, .. } = item {
@@ -321,7 +456,7 @@ fn check_types_inner(
                 )
                 .is_some()
             {
-                return Err(format!("duplicate thread task type '{name}'"));
+                return Err(semantic_format!("duplicate thread task type '{name}'"));
             }
         }
     }
@@ -336,7 +471,7 @@ fn check_types_inner(
                     if !local_variant_names.insert(variant.name.clone()) {
                         *diagnostic_span =
                             declaration_member_span(program, name, 2, &variant.name, 1);
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "duplicate variant '{}' in enum '{name}'",
                             variant.name
                         ));
@@ -344,7 +479,7 @@ fn check_types_inner(
                     if let Some(previous) = variant_names.insert(variant.name.clone(), name.clone())
                     {
                         *diagnostic_span = global_enum_member_span(program, &variant.name, 1);
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "variant '{}' is already defined in enum '{previous}'",
                             variant.name
                         ));
@@ -359,9 +494,9 @@ fn check_types_inner(
                         discriminant: variant.discriminant,
                     })
                 })
-                .collect::<Result<Vec<_>, String>>()?;
+                .collect::<Result<Vec<_>, SemanticError>>()?;
             if enums.insert(name.clone(), variants).is_some() {
-                return Err(format!("duplicate enum '{name}'"));
+                return Err(semantic_format!("duplicate enum '{name}'"));
             }
         }
     }
@@ -372,7 +507,7 @@ fn check_types_inner(
         };
         if function.external && !function.type_parameters.is_empty() {
             *diagnostic_span = function_name_span(program, &function.name);
-            return Err(format!(
+            return Err(semantic_format!(
                 "external function '{}' cannot be generic",
                 function.name
             ));
@@ -391,14 +526,14 @@ fn check_types_inner(
                         .parameters
                         .iter()
                         .map(|parameter| resolve_type(&parameter.ty, &aliases))
-                        .collect::<Result<Vec<_>, String>>()?,
+                        .collect::<Result<Vec<_>, SemanticError>>()?,
                     return_type: resolve_type(&function.return_type, &aliases)?,
                 },
             )
             .is_some()
         {
             *diagnostic_span = function_name_span(program, &function.name);
-            return Err(format!("duplicate function '{}'", function.name));
+            return Err(semantic_format!("duplicate function '{}'", function.name));
         }
     }
     for item in &program.items {
@@ -419,12 +554,12 @@ fn check_types_inner(
             {
                 diagnostic_labels.push((*invocation, "generated from this invocation".into()));
             }
-            return Err(format!(
+            return Err(semantic_format!(
                 "thread task '{name}' refers to unknown worker function '{worker}'"
             ));
         };
         if !worker_item.type_parameters.is_empty() {
-            return Err(format!(
+            return Err(semantic_format!(
                 "thread worker '{worker}' must be monomorphic; specialize it before spawning"
             ));
         }
@@ -446,13 +581,15 @@ fn check_types_inner(
                             worker_parameter_type_span(program, worker, parameter_index, &unknown)
                         });
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                    return Err(format!("{error} while checking thread worker '{worker}'"));
+                    return Err(semantic_format!(
+                        "{error} while checking thread worker '{worker}'"
+                    ));
                 }
             };
             if !send {
                 *diagnostic_span = worker_parameter_span(program, worker, parameter_index);
                 record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                return Err(format!(
+                return Err(semantic_format!(
                     "thread worker '{worker}' parameter '{}' does not implement Send",
                     parameter.name
                 ));
@@ -469,13 +606,15 @@ fn check_types_inner(
                     first_unresolved_type(&worker_signature.return_type, &declared_types, &aliases)
                         .and_then(|unknown| worker_return_type_span(program, worker, &unknown));
                 record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                return Err(format!("{error} while checking thread worker '{worker}'"));
+                return Err(semantic_format!(
+                    "{error} while checking thread worker '{worker}'"
+                ));
             }
         };
         if !return_send {
             *diagnostic_span = worker_return_span(program, worker);
             record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-            return Err(format!(
+            return Err(semantic_format!(
                 "thread worker '{worker}' return type does not implement Send"
             ));
         }
@@ -487,7 +626,7 @@ fn check_types_inner(
         ) {
             *diagnostic_span = worker_return_span(program, worker);
             record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-            return Err(format!(
+            return Err(semantic_format!(
                 "thread worker '{worker}' cannot return reference-containing values"
             ));
         }
@@ -518,7 +657,7 @@ fn check_types_inner(
                 .insert(generated_name.clone(), signature)
                 .is_some()
             {
-                return Err(format!(
+                return Err(semantic_format!(
                     "generated thread function '{generated_name}' conflicts with an existing function"
                 ));
             }
@@ -584,7 +723,7 @@ fn check_types_inner(
                     )?;
                     require_type(&actual, ty, &format!("top-level let '{name}'"))
                 })();
-                result.map_err(|error: String| {
+                result.map_err(|error: SemanticError| {
                     let Some(declaration) = program.declaration_expressions.get(name) else {
                         return error;
                     };
@@ -595,7 +734,15 @@ fn check_types_inner(
                         return error;
                     };
                     let source = file.source.as_str();
-                    *diagnostic_span = precise_type_error_span(declaration, &error, source);
+                    let origin = semantic_expression_source(
+                        value,
+                        crate::source_value_expression(declaration),
+                        error.origin,
+                        &functions,
+                        &structs,
+                    );
+                    *diagnostic_span =
+                        semantic_error_span(origin.unwrap_or(declaration), &error, source);
                     if let Some(invocation) = diagnostic_span
                         .and_then(|span| program.generated_source_invocations.get(&span.source_id))
                     {
@@ -686,7 +833,7 @@ fn check_thread_task_ownership(
                             &enum_fields,
                         );
                         record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "thread task handles cannot be stored in struct '{name}'"
                         ));
                     }
@@ -711,7 +858,7 @@ fn check_thread_task_ownership(
                             &enum_fields,
                         );
                         record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "thread task handles cannot be stored in enum '{name}'"
                         ));
                     }
@@ -727,7 +874,7 @@ fn check_thread_task_ownership(
                     *diagnostic_span =
                         task_type_in_declaration_span(program, name, &tasks, aliases, &enum_fields);
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "type alias '{name}' cannot contain a thread task handle"
                     ));
                 }
@@ -742,7 +889,7 @@ fn check_thread_task_ownership(
                     *diagnostic_span =
                         task_type_in_declaration_span(program, name, &tasks, aliases, &enum_fields);
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "global '{name}' cannot contain a thread task handle"
                     ));
                 }
@@ -766,7 +913,7 @@ fn check_thread_task_ownership(
                         &enum_fields,
                     );
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "function '{}' cannot accept, return, or retain a thread task handle",
                         function.name
                     ));
@@ -1032,7 +1179,7 @@ fn validate_task_match_expression(
                                     .then_some(pattern)
                             });
                             let Some(pattern) = required_arm else {
-                                return Err(format!(
+                                return Err(semantic_format!(
                                     "thread result match must explicitly handle variant '{}' and its task handle",
                                     variant.name
                                 ));
@@ -1135,7 +1282,7 @@ fn validate_task_variant_pattern(
             continue;
         }
         if !task_payload_pattern_is_bound(ty, payload_pattern, tasks, enum_fields, aliases) {
-            return Err(format!(
+            return Err(semantic_format!(
                 "thread result variant '{}' must bind its task handle instead of discarding it",
                 variant.name
             ));
@@ -1199,13 +1346,13 @@ fn check_function_task_uses(
                 mutable,
             } if tasks.contains_key(task_type) => {
                 if *mutable {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "thread task handle '{name}' must be immutable and consumed by join"
                     ));
                 }
                 let expected_spawn = format!("{task_type}-spawn");
                 if !is_direct_thread_call(value, &expected_spawn) {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "thread task '{name}' must be initialized directly by '{expected_spawn}'"
                     ));
                 }
@@ -1214,7 +1361,7 @@ fn check_function_task_uses(
                 };
                 check_task_expression_children(&items[1..], &handles, tasks)?;
                 if handles.insert(name.clone(), task_type.clone()).is_some() {
-                    return Err(format!("duplicate thread task binding '{name}'"));
+                    return Err(semantic_format!("duplicate thread task binding '{name}'"));
                 }
                 pending.insert(name.clone());
             }
@@ -1259,7 +1406,7 @@ fn check_function_task_uses(
                 } else {
                     check_task_statement_expr(value, &handles, tasks)?;
                     if !pending.is_empty() {
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "function '{}' may return while thread task '{}' is still running",
                             function.name,
                             pending.iter().next().unwrap()
@@ -1269,7 +1416,7 @@ fn check_function_task_uses(
             }
             Statement::Return(None) => {
                 if !pending.is_empty() {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "function '{}' may return while thread task '{}' is still running",
                         function.name,
                         pending.iter().next().unwrap()
@@ -1279,7 +1426,7 @@ fn check_function_task_uses(
             _ => {
                 check_task_statement(statement, &handles, tasks)?;
                 if !pending.is_empty() && is_control_statement(statement) {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "thread task handles cannot cross control flow; join '{}' before this statement",
                         pending.iter().next().unwrap()
                     ));
@@ -1288,12 +1435,12 @@ fn check_function_task_uses(
         }
     }
     if let Some(handle) = pending.iter().next() {
-        return Err(format!(
+        return Err(semantic_format!(
             "thread task handle '{handle}' is not joined exactly once"
         ));
     }
     if let Some(handle) = handles.keys().find(|handle| !consumed.contains(*handle)) {
-        return Err(format!(
+        return Err(semantic_format!(
             "thread task handle '{handle}' is not joined exactly once"
         ));
     }
@@ -1305,7 +1452,7 @@ fn reject_thread_control_flow_while_pending(
     pending: &HashSet<String>,
 ) -> Result<(), String> {
     if !pending.is_empty() && expression_has_control_flow(expression) {
-        return Err(format!(
+        return Err(semantic_format!(
             "thread task handles cannot cross control flow; join '{}' first",
             pending.iter().next().unwrap()
         ));
@@ -1384,11 +1531,13 @@ fn consume_thread_handle(
             consumed.insert(handle.to_owned());
             Ok(())
         }
-        Some(_) if consumed.contains(handle) => Err(format!(
+        Some(_) if consumed.contains(handle) => Err(semantic_format!(
             "thread task handle '{handle}' was joined more than once"
         )),
-        Some(_) => Err(format!("thread task handle '{handle}' is not active")),
-        None => Err(format!("'{handle}' is not a thread task handle")),
+        Some(_) => Err(semantic_format!(
+            "thread task handle '{handle}' is not active"
+        )),
+        None => Err(semantic_format!("'{handle}' is not a thread task handle")),
     }
 }
 
@@ -1438,14 +1587,14 @@ fn check_task_expression_children(
     for expression in expressions {
         match expression {
             Expr::Symbol(name) if handles.contains_key(name) => {
-                return Err(format!(
+                return Err(semantic_format!(
                     "thread task handle '{name}' may only be used once as the direct argument to join"
                 ));
             }
             Expr::List(items) => {
                 if let Some(Expr::Symbol(name)) = items.first() {
                     if tasks.contains_key(name) && items.len() > 1 {
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "thread task type '{name}' is opaque and cannot be constructed directly"
                         ));
                     }
@@ -1603,7 +1752,7 @@ pub fn type_has_thread_property(
                 fields
                     .iter()
                     .map(|field| Ok((field.name.clone(), resolve_type(&field.ty, &aliases)?)))
-                    .collect::<Result<Vec<_>, String>>(),
+                    .collect::<Result<Vec<_>, SemanticError>>(),
             )),
             Item::ThreadTask { name, .. } => Some((
                 name.clone(),
@@ -1634,7 +1783,7 @@ pub fn type_has_thread_property(
                             .map(|ty| resolve_type(ty, &aliases))
                             .collect::<Result<Vec<_>, _>>()
                     })
-                    .collect::<Result<Vec<_>, String>>(),
+                    .collect::<Result<Vec<_>, SemanticError>>(),
             )),
             _ => None,
         })
@@ -1764,7 +1913,9 @@ fn type_has_thread_property_inner(
                     active,
                 )?
             } else {
-                return Err(format!("unknown type '{name}' while checking {property:?}"));
+                return Err(semantic_format!(
+                    "unknown type '{name}' while checking {property:?}"
+                ));
             };
             active.remove(name);
             Ok(result)
@@ -2171,12 +2322,8 @@ fn check_function(
                 )
             }
         })();
-        last_type = result.map_err(|error: String| {
-            let (error, code) = if let Some(message) = error.strip_prefix(BORROW_ERROR_MARKER) {
-                (message.to_owned(), crate::DiagnosticCode::Borrow)
-            } else {
-                (error, crate::DiagnosticCode::Type)
-            };
+        last_type = result.map_err(|error: SemanticError| {
+            let code = error.code;
             let statement_span = statement_spans
                 .get(&(function.name.clone(), index))
                 .copied();
@@ -2186,12 +2333,19 @@ fn check_function(
                     let source = source_files
                         .get(expression.span.source_id as usize)
                         .map(|file| file.source.as_str())?;
-                    precise_type_error_span(expression, &error, source)
+                    let origin = semantic_statement_source(
+                        statement,
+                        expression,
+                        error.origin,
+                        functions,
+                        structs,
+                    );
+                    semantic_error_span(origin.unwrap_or(expression), &error, source)
                 })
                 .or_else(|| source_expression.map(crate::source_value_span))
                 .or(statement_span);
             FunctionTypeError {
-                message: error,
+                message: error.message,
                 span: precise_span,
                 code,
             }
@@ -2214,7 +2368,7 @@ fn check_function(
                 })
         });
         FunctionTypeError {
-            message: error,
+            message: error.message,
             span,
             code: crate::DiagnosticCode::Type,
         }
@@ -2237,259 +2391,249 @@ impl From<String> for FunctionTypeError {
     }
 }
 
-fn precise_type_error_span(
+impl From<SemanticError> for FunctionTypeError {
+    fn from(error: SemanticError) -> Self {
+        Self {
+            message: error.message,
+            span: None,
+            code: error.code,
+        }
+    }
+}
+
+// Addresses are used only as identities while this immutable AST is borrowed;
+// they are never dereferenced or retained beyond the diagnostic construction.
+fn semantic_statement_source<'a>(
+    statement: &Statement,
+    source: &'a crate::SpannedExpr,
+    origin: Option<usize>,
+    functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Option<&'a crate::SpannedExpr> {
+    let locate = |value: &Expr, source: &'a crate::SpannedExpr| {
+        semantic_expression_source(value, source, origin, functions, structs)
+    };
+    match statement {
+        Statement::Let { value, .. }
+        | Statement::Destructure { value, .. }
+        | Statement::LetElse { value, .. } => locate(value, source.children.get(3)?),
+        Statement::Return(Some(value)) | Statement::BreakValue(value) => {
+            locate(value, source.children.get(1)?)
+        }
+        Statement::Assign { value, .. } => locate(value, source.children.get(2)?),
+        Statement::Expr(value) => locate(value, source),
+        Statement::ArrayAssign { index, value, .. } => locate(index, source.children.get(2)?)
+            .or_else(|| {
+                source
+                    .children
+                    .get(3)
+                    .and_then(|source| locate(value, source))
+            }),
+        Statement::FieldAssign { value, .. } | Statement::TupleAssign { value, .. } => {
+            locate(value, source.children.get(3)?)
+        }
+        Statement::EnumPayloadAssign { value, .. } => locate(value, source.children.get(4)?),
+        Statement::While { condition, body } => {
+            locate(condition, source.children.get(1)?).or_else(|| {
+                body.iter()
+                    .zip(source.children.iter().skip(2))
+                    .find_map(|(statement, source)| {
+                        semantic_statement_source(statement, source, origin, functions, structs)
+                    })
+            })
+        }
+        Statement::Loop { body } => {
+            body.iter()
+                .zip(source.children.iter().skip(1))
+                .find_map(|(statement, source)| {
+                    semantic_statement_source(statement, source, origin, functions, structs)
+                })
+        }
+        _ => None,
+    }
+}
+
+fn semantic_expression_source<'a>(
+    value: &Expr,
+    source: &'a crate::SpannedExpr,
+    origin: Option<usize>,
+    functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
+) -> Option<&'a crate::SpannedExpr> {
+    let origin = origin?;
+    if std::ptr::from_ref(value) as usize == origin {
+        return Some(source);
+    }
+    match value {
+        Expr::List(items) => {
+            let source_head = source.children.first().and_then(|head| match &head.expr {
+                Expr::Symbol(head) => Some(head.trim_start_matches('#')),
+                _ => None,
+            });
+            let target_head = items.first().and_then(|head| match head {
+                Expr::Symbol(head) => Some(head),
+                _ => None,
+            });
+            for (index, child) in items.iter().enumerate() {
+                let corresponding = match (source_head, target_head) {
+                    (Some("call"), Some(function)) => {
+                        if index == 0 {
+                            source.children.get(1)
+                        } else {
+                            let name = functions.get(function)?.parameter_names.get(index - 1)?;
+                            source.children.get(2)?.children.iter().skip(1).find_map(|argument| {
+                                matches!(&argument.children.first()?.expr, Expr::Symbol(label) if label == name)
+                                    .then(|| argument.children.get(1)).flatten()
+                            })
+                        }
+                    }
+                    (Some("struct-literal"), Some(structure)) => {
+                        if index == 0 {
+                            source.children.get(1)
+                        } else {
+                            let name = &structs.get(structure)?.get(index - 1)?.name;
+                            source.children.get(2)?.children.iter().find_map(|field| {
+                                matches!(&field.children.first()?.expr, Expr::Symbol(label) if label == name)
+                                    .then(|| field.children.get(1)).flatten()
+                            })
+                        }
+                    }
+                    _ => source.children.get(index),
+                };
+                if let Some(found) = corresponding.and_then(|source| {
+                    semantic_expression_source(child, source, Some(origin), functions, structs)
+                }) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => statements
+            .iter()
+            .zip(source.children.iter().skip(1))
+            .find_map(|(statement, source)| {
+                semantic_statement_source(statement, source, Some(origin), functions, structs)
+            }),
+        _ => None,
+    }
+}
+
+fn semantic_error_span(
     statement: &crate::SpannedExpr,
-    error: &str,
+    error: &SemanticError,
     source: &str,
 ) -> Option<crate::Span> {
+    fn find_scope<'a>(
+        node: &'a crate::SpannedExpr,
+        scope: &Expr,
+    ) -> Option<&'a crate::SpannedExpr> {
+        let normalized = crate::normalize_keywords(node.expr.clone());
+        if &normalized == scope {
+            return Some(node);
+        }
+        if let (Expr::List(source), Expr::List(target)) = (&normalized, scope) {
+            let actual = match source.first() {
+                Some(Expr::Symbol(head)) if head == "call" => {
+                    if source.get(1) == target.first() {
+                        source.get(2).and_then(|args| match args {
+                            Expr::List(args) => Some(
+                                args.iter()
+                                    .skip(1)
+                                    .filter_map(|arg| match arg {
+                                        Expr::List(pair) => pair.get(1).cloned(),
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>(),
+                            ),
+                            _ => None,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                Some(Expr::Symbol(head)) if head == "struct-literal" => {
+                    if source.get(1) == target.first() {
+                        source.get(2).and_then(|fields| match fields {
+                            Expr::List(fields) => Some(
+                                fields
+                                    .iter()
+                                    .filter_map(|field| match field {
+                                        Expr::List(pair) => pair.get(1).cloned(),
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>(),
+                            ),
+                            _ => None,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(mut actual) = actual {
+                let mut matched = actual.len() + 1 == target.len();
+                for value in target.iter().skip(1) {
+                    if let Some(index) = actual.iter().position(|candidate| candidate == value) {
+                        actual.remove(index);
+                    } else {
+                        matched = false;
+                        break;
+                    }
+                }
+                if matched {
+                    return Some(node);
+                }
+            }
+        }
+        node.children
+            .iter()
+            .find_map(|child| find_scope(child, scope))
+    }
+    let statement = error
+        .scope
+        .as_ref()
+        .and_then(|scope| find_scope(statement, scope))
+        .unwrap_or(statement);
     let value = crate::source_value_expression(statement);
-    if let Some(index) = error
-        .strip_prefix("tuple element ")
-        .and_then(|rest| rest.split_whitespace().next())
-        .and_then(|index| index.parse::<usize>().ok())
-    {
-        if let Some(span) = tuple_element_span(value, index) {
-            return Some(span);
+    let span = match error.site.as_ref() {
+        ErrorSite::Value => None,
+        ErrorSite::Symbol(name) => first_symbol_span(statement, name),
+        ErrorSite::DeclaredType(name) => {
+            declared_type_span(statement, name).or_else(|| first_symbol_span(statement, name))
         }
-    }
-    if let Some(index) = error
-        .strip_prefix("array element ")
-        .and_then(|rest| rest.split_whitespace().next())
-        .and_then(|index| index.parse::<usize>().ok())
-    {
-        if let Some(span) = array_element_span(value, index) {
-            return Some(span);
+        ErrorSite::Operator(name) => source_operator_span(statement, name),
+        ErrorSite::Argument(operator, index) => {
+            find_operator_argument(value, &[operator.as_str()], *index)
         }
-    }
-    for (prefix, operator) in [
-        ("tuple constructor expects ", "#tuple"),
-        ("array constructor expects ", "#array"),
-    ] {
-        if let Some(expected) = error
-            .strip_prefix(prefix)
-            .and_then(|rest| rest.split_whitespace().next())
-            .and_then(|count| count.parse::<usize>().ok())
-        {
-            if let Some(span) = constructor_arity_span(value, operator, expected) {
-                return Some(span);
+        ErrorSite::TupleElement(index) => tuple_element_span(value, *index),
+        ErrorSite::ArrayElement(index) => array_element_span(value, *index),
+        ErrorSite::ConstructorArity(operator, count) => {
+            constructor_arity_span(value, operator, *count)
+        }
+        ErrorSite::Payload(variant, index) => enum_constructor_payload_span(value, variant, *index),
+        ErrorSite::Field(field) => struct_literal_field_value_span(value, field),
+        ErrorSite::NamedArgument(function, parameter) => {
+            named_call_argument_span(statement, function, parameter)
+        }
+        ErrorSite::PatternSymbol(name) => last_match_pattern_symbol_span(statement, name)
+            .or_else(|| type_pattern_symbol_span(statement, name)),
+        ErrorSite::PatternInteger(number) => last_match_pattern_integer_span(statement, *number),
+        ErrorSite::PatternCharacter => last_match_pattern_char_span(statement),
+        ErrorSite::PatternRange(upper) => match_range_pattern_span(statement, *upper),
+        ErrorSite::BranchMismatch(actual) => {
+            control_flow_mismatch_span(value, &format!("{actual:?}"), source)
+        }
+        ErrorSite::Mismatch(actual, expected) => {
+            if let Some(Type::Named(name)) = expected {
+                if let Some(span) = declared_type_span(statement, name) {
+                    return Some(span);
+                }
             }
+            expression_with_type_hint(value, &format!("{actual:?}"), source)
         }
-    }
-    if let Some((payload_index, variant_name)) = error
-        .strip_prefix("payload ")
-        .and_then(|rest| {
-            rest.split_once(" of variant '")
-                .map(|(index, rest)| (index, rest))
-        })
-        .and_then(|(index, rest)| {
-            let index = index.parse::<usize>().ok()?;
-            let variant = rest.split_once('\'')?.0;
-            Some((index, variant))
-        })
-    {
-        if let Some(span) = enum_constructor_payload_span(value, variant_name, payload_index) {
-            return Some(span);
-        }
-    }
-    if let Some(field_name) = error
-        .strip_prefix("field '")
-        .and_then(|rest| rest.split_once("' of '").map(|(field, _)| field))
-    {
-        if let Some(span) = struct_literal_field_value_span(value, field_name) {
-            return Some(span);
-        }
-    }
-    let name = error
-        .strip_prefix("unknown variable or enum variant '")
-        .and_then(|tail| tail.split('\'').next());
-    if let Some(name) = name {
-        return first_symbol_span(value, name).or(Some(value.span));
-    }
-    let unknown_type = error
-        .strip_prefix("unknown type '")
-        .and_then(|tail| tail.split('\'').next());
-    if let Some(name) = unknown_type {
-        return declared_type_span(statement, name)
-            .or_else(|| first_symbol_span(statement, name))
-            .or_else(|| first_symbol_span(value, name))
-            .or(Some(value.span));
-    }
-    let named_target = [
-        "cannot assign to immutable variable '",
-        "cannot replace '",
-        "cannot replace reference-containing elements of '",
-        "cannot mutate immutable variable '",
-        "cannot mutably borrow immutable variable '",
-        "unknown variable '",
-    ]
-    .iter()
-    .find_map(|prefix| error.strip_prefix(prefix)?.split('\'').next());
-    let named_target = named_target.or_else(|| {
-        let rest = error.strip_prefix('\'')?;
-        let (name, suffix) = rest.split_once('\'')?;
-        [
-            " is not an array",
-            " is not a struct",
-            " is not an enum",
-            " is not a tuple",
-        ]
-        .contains(&suffix)
-        .then_some(name)
-    });
-    let named_target = named_target.or_else(|| {
-        error
-            .strip_prefix("unknown enum variant '")
-            .or_else(|| error.strip_prefix("unknown variant '"))
-            .or_else(|| error.strip_prefix("variant '"))
-            .and_then(|rest| rest.split('\'').next())
-    });
-    let named_target = named_target.or_else(|| {
-        error
-            .strip_prefix('\'')?
-            .split_once("' is not a variant of '")
-            .map(|(name, _)| name)
-    });
-    let duplicate_pattern = if error == "duplicate wildcard match pattern" {
-        Some("_")
-    } else {
-        error
-            .strip_prefix("duplicate boolean match pattern '")
-            .or_else(|| error.strip_prefix("duplicate enum match pattern '"))
-            .and_then(|rest| rest.split('\'').next())
     };
-    if let Some(pattern) = duplicate_pattern {
-        if let Some(span) = last_match_pattern_symbol_span(statement, pattern) {
-            return Some(span);
-        }
-    }
-    if error.starts_with("duplicate character match pattern") {
-        if let Some(span) = last_match_pattern_char_span(statement) {
-            return Some(span);
-        }
-    }
-    let integer_pattern = error
-        .strip_prefix("integer match pattern ")
-        .or_else(|| error.strip_prefix("unsigned integer match pattern "))
-        .or_else(|| error.strip_prefix("duplicate integer match pattern "))
-        .and_then(|rest| {
-            rest.split_once(" does not fit")
-                .map_or(rest, |(value, _)| value)
-                .parse::<u128>()
-                .ok()
-        });
-    if let Some(value) = integer_pattern {
-        if let Some(span) = last_match_pattern_integer_span(statement, value) {
-            return Some(span);
-        }
-    }
-    if error.contains("range pattern") || error.starts_with("range patterns require") {
-        if let Some(span) = match_range_pattern_span(statement, error) {
-            return Some(span);
-        }
-    }
-    let enum_pattern_target = error
-        .strip_prefix('\'')
-        .and_then(|rest| {
-            rest.split_once("' is not a variant of '")
-                .map(|(name, _)| name)
-        })
-        .or_else(|| {
-            error
-                .strip_prefix("unknown enum variant '")
-                .and_then(|rest| rest.split('\'').next())
-        })
-        .or_else(|| {
-            error
-                .strip_prefix("variant '")
-                .and_then(|rest| rest.split('\'').next())
-        });
-    if let Some(name) = enum_pattern_target {
-        if let Some(span) = type_pattern_symbol_span(statement, name) {
-            return Some(span);
-        }
-    }
-    if let Some(name) = named_target {
-        if let Some(span) = first_symbol_span(statement, name) {
-            return Some(span);
-        }
-    }
-    if let Some(span) = type_error_argument_span(value, error) {
-        return Some(span);
-    }
-    if error.starts_with("operator '")
-        || error.starts_with("function '")
-        || error.starts_with("unknown function '")
-    {
-        if let Some(operator) = error.split('\'').nth(1) {
-            if let Some(span) = source_operator_span(statement, operator) {
-                return Some(span);
-            }
-        }
-    }
-    if error.contains("match is not exhaustive") {
-        if let Some(span) = source_operator_span(statement, "match") {
-            return Some(span);
-        }
-    }
-    if let Some(name) = error
-        .split_once("expected Named(\"")
-        .and_then(|(_, rest)| rest.split_once('\"').map(|(name, _)| name))
-    {
-        if let Some(span) = declared_type_span(statement, name) {
-            return Some(span);
-        }
-        if let Some(span) = first_symbol_span(statement, name) {
-            return Some(span);
-        }
-    }
-    if let Some((parameter_name, function_name)) = error
-        .strip_prefix("argument '")
-        .and_then(|rest| {
-            rest.split_once("' to '")
-                .map(|(parameter, rest)| (parameter, rest))
-        })
-        .and_then(|(parameter, rest)| {
-            rest.split_once('\'')
-                .map(|(function, _)| (parameter, function))
-        })
-    {
-        if let Some(span) = named_call_argument_span(statement, function_name, parameter_name) {
-            return Some(span);
-        }
-    }
-
-    let mismatch_type = error
-        .split_once("mismatched types ")
-        .and_then(|(context, types)| {
-            let (left, right) = types.split_once(" and ")?;
-            let right = right.split(';').next().unwrap_or(right);
-            let operator_type = typed_operator_qualifier(
-                value,
-                context.trim().split_whitespace().next().unwrap_or_default(),
-            );
-            Some(match operator_type {
-                Some(qualifier) if qualifier.eq_ignore_ascii_case(left) => right,
-                Some(qualifier) if qualifier.eq_ignore_ascii_case(right) => left,
-                _ => right,
-            })
-        })
-        .or_else(|| {
-            error
-                .split_once(" has type ")
-                .and_then(|(_, rest)| rest.split_once(", expected ").map(|(actual, _)| actual))
-        })
-        .or_else(|| error.split_once(", got ").map(|(_, actual)| actual));
-    if let Some(mismatch_type) = mismatch_type {
-        if error.starts_with("if branches has mismatched types")
-            || error.starts_with("match arms has mismatched types")
-        {
-            return control_flow_mismatch_span(value, mismatch_type, source).or(Some(value.span));
-        }
-        if let Some(span) = expression_with_type_hint(value, mismatch_type, source) {
-            return Some(span);
-        }
-    }
-    Some(value.span)
+    span.or(Some(value.span))
 }
 
 fn tuple_element_span(expression: &crate::SpannedExpr, index: usize) -> Option<crate::Span> {
@@ -2497,7 +2641,8 @@ fn tuple_element_span(expression: &crate::SpannedExpr, index: usize) -> Option<c
         if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#tuple" || head == "tuple")
         {
             let value_start = usize::from(items.get(1).is_some_and(|item| {
-                parse_type(Some(item)).is_ok_and(|ty| matches!(ty, Type::Tuple(_)))
+                parse_type(Some(&crate::normalize_keywords(item.clone())))
+                    .is_ok_and(|ty| matches!(ty, Type::Tuple(_)))
             })) + 1;
             if let Some(value) = expression.children.get(value_start + index) {
                 return Some(value.span);
@@ -2515,7 +2660,8 @@ fn array_element_span(expression: &crate::SpannedExpr, index: usize) -> Option<c
         if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#array" || head == "array")
         {
             let value_start = usize::from(items.get(1).is_some_and(|item| {
-                parse_type(Some(item)).is_ok_and(|ty| matches!(ty, Type::Array(_, _)))
+                parse_type(Some(&crate::normalize_keywords(item.clone())))
+                    .is_ok_and(|ty| matches!(ty, Type::Array(_, _)))
             })) + 1;
             if let Some(value) = expression.children.get(value_start + index) {
                 return Some(value.span);
@@ -2676,53 +2822,6 @@ fn named_call_argument_span(
         .find_map(|child| named_call_argument_span(child, function_name, parameter_name))
 }
 
-fn type_error_argument_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
-    let (operators, argument) = if error == "index requires an array" {
-        (&["index"][..], 1)
-    } else if error == "array index must be an integer"
-        || error.starts_with("array index ") && error.contains(" is out of bounds")
-    {
-        (&["index"][..], 2)
-    } else if error.starts_with("if condition has type ") {
-        (&["if"][..], 1)
-    } else if error.starts_with("while condition has type ") {
-        (&["while"][..], 1)
-    } else if error.starts_with("for condition has type ") {
-        (&["for"][..], 2)
-    } else if error.starts_with("shift count ") {
-        (&["<<", ">>"][..], 2)
-    } else if error == "unary '-' requires a numeric operand" {
-        (&["-"][..], 1)
-    } else if error.starts_with("slice requires ")
-        || error == "slice-len requires a slice"
-        || error == "slice-idx requires a slice"
-    {
-        let operators: &[&str] = if error.starts_with("slice requires ") {
-            &["slice-of"]
-        } else if error == "slice-len requires a slice" {
-            &["slice-len"]
-        } else {
-            &["slice-idx"]
-        };
-        return find_operator_argument(expression, operators, 1);
-    } else if error == "get requires a struct or tuple value" {
-        (&["get"][..], 1)
-    } else if error == "get-payload requires an enum value" {
-        (&["get-payload"][..], 1)
-    } else if error.contains(" has no field '") {
-        (&["get"][..], 2)
-    } else if error.contains(" has no variant '") {
-        (&["get-payload"][..], 2)
-    } else if error == "deref-set requires a mutable reference" {
-        (&["deref-set"][..], 1)
-    } else if error == "cannot mutably borrow through an immutable reference" {
-        (&["borrow-mut"][..], 1)
-    } else {
-        return None;
-    };
-    find_operator_argument(expression, operators, argument)
-}
-
 fn find_operator_argument(
     expression: &crate::SpannedExpr,
     operators: &[&str],
@@ -2765,27 +2864,6 @@ fn source_operator_span(expression: &crate::SpannedExpr, target: &str) -> Option
         .children
         .iter()
         .find_map(|child| source_operator_span(child, target))
-}
-
-fn typed_operator_qualifier<'a>(
-    expression: &'a crate::SpannedExpr,
-    operator: &str,
-) -> Option<&'a str> {
-    if let Expr::List(items) = &expression.expr {
-        if let Some(Expr::Symbol(head)) = items.first() {
-            if let Some(qualified) = head.strip_prefix('#') {
-                if let Some((qualifier, operation)) = qualified.split_once('.') {
-                    if operation.split('.').next() == Some(operator) {
-                        return Some(qualifier);
-                    }
-                }
-            }
-        }
-    }
-    expression
-        .children
-        .iter()
-        .find_map(|child| typed_operator_qualifier(child, operator))
 }
 
 fn expression_with_type_hint(
@@ -3257,12 +3335,12 @@ fn last_match_pattern_char_span(expression: &crate::SpannedExpr) -> Option<crate
     spans.into_iter().max_by_key(|span| span.start)
 }
 
-fn match_range_pattern_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
-    fn collect(expression: &crate::SpannedExpr, error: &str, spans: &mut Vec<crate::Span>) {
+fn match_range_pattern_span(expression: &crate::SpannedExpr, upper: bool) -> Option<crate::Span> {
+    fn collect(expression: &crate::SpannedExpr, upper: bool, spans: &mut Vec<crate::Span>) {
         if let Expr::List(items) = &expression.expr {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator.strip_prefix('#').unwrap_or(operator) == "range")
             {
-                let span = if error.contains("lower bound exceeds upper bound") {
+                let span = if upper {
                     expression
                         .children
                         .get(2)
@@ -3274,11 +3352,11 @@ fn match_range_pattern_span(expression: &crate::SpannedExpr, error: &str) -> Opt
             }
         }
         for child in &expression.children {
-            collect(child, error, spans);
+            collect(child, upper, spans);
         }
     }
     let mut spans = Vec::new();
-    collect(expression, error, &mut spans);
+    collect(expression, upper, &mut spans);
     spans.into_iter().min_by_key(|span| span.start)
 }
 
@@ -3292,7 +3370,7 @@ fn statement_type(
     return_type: &Type,
     aliases: &HashMap<String, Type>,
     in_loop: bool,
-) -> Result<Type, String> {
+) -> Result<Type, SemanticError> {
     match statement {
         Statement::Let {
             name,
@@ -3301,7 +3379,7 @@ fn statement_type(
             mutable: is_mutable,
         } => {
             if variables.contains_key(name) {
-                return Err(format!("duplicate local '{name}'"));
+                return Err(semantic_format!("duplicate local '{name}'"));
             }
             let binding_type = resolve_type(ty, aliases)?;
             let actual = expression(
@@ -3324,7 +3402,7 @@ fn statement_type(
         Statement::Labeled { label, statement } => {
             let marker = format!("\0lim-label:{label}");
             if mutable.contains(&marker) {
-                return Err(format!("duplicate loop label '{label}'"));
+                return Err(semantic_format!("duplicate loop label '{label}'"));
             }
             let mut labeled_mutable = mutable.clone();
             labeled_mutable.insert(marker);
@@ -3360,7 +3438,7 @@ fn statement_type(
             require_type(&actual, &binding_type, "destructuring let")?;
             for (name, field_type) in check_destructure_pattern(pattern, &binding_type, structs)? {
                 if variables.contains_key(&name) {
-                    return Err(format!("duplicate local '{name}'"));
+                    return Err(semantic_format!("duplicate local '{name}'"));
                 }
                 variables.insert(name.clone(), field_type);
                 if *is_mutable {
@@ -3412,7 +3490,7 @@ fn statement_type(
                 check_let_else_pattern(pattern, &binding_type, variables, structs, enums)?
             {
                 if variables.contains_key(&name) {
-                    return Err(format!("duplicate local '{name}'"));
+                    return Err(semantic_format!("duplicate local '{name}'"));
                 }
                 variables.insert(name, field_type);
             }
@@ -3421,13 +3499,18 @@ fn statement_type(
         Statement::Assign { name, value } => {
             let ty = variables
                 .get(name)
-                .ok_or_else(|| format!("unknown variable '{name}'"))?
+                .ok_or_else(|| {
+                    semantic_at!(ErrorSite::Symbol(name.clone()), "unknown variable '{name}'")
+                })?
                 .clone();
             if !mutable.contains(name) {
-                return Err(format!("cannot assign to immutable variable '{name}'"));
+                return Err(semantic_at!(
+                    ErrorSite::Symbol(name.clone()),
+                    "cannot assign to immutable variable '{name}'"
+                ));
             }
             if contains_reference_type(&ty, structs, enums, &mut HashSet::new()) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "cannot replace '{name}' because its type retains references"
                 ));
             }
@@ -3447,16 +3530,24 @@ fn statement_type(
         Statement::ArrayAssign { name, index, value } => {
             let ty = variables
                 .get(name)
-                .ok_or_else(|| format!("unknown variable '{name}'"))?
+                .ok_or_else(|| {
+                    semantic_at!(ErrorSite::Symbol(name.clone()), "unknown variable '{name}'")
+                })?
                 .clone();
             if !mutable.contains(name) {
-                return Err(format!("cannot assign to immutable variable '{name}'"));
+                return Err(semantic_at!(
+                    ErrorSite::Symbol(name.clone()),
+                    "cannot assign to immutable variable '{name}'"
+                ));
             }
             let Type::Array(element, length) = ty else {
-                return Err(format!("'{name}' is not an array"));
+                return Err(semantic_at!(
+                    ErrorSite::Symbol(name.clone()),
+                    "'{name}' is not an array"
+                ));
             };
             if contains_reference_type(&element, structs, enums, &mut HashSet::new()) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "cannot replace reference-containing elements of '{name}'"
                 ));
             }
@@ -3479,13 +3570,21 @@ fn statement_type(
         Statement::FieldAssign { name, field, value } => {
             let ty = variables
                 .get(name)
-                .ok_or_else(|| format!("unknown variable '{name}'"))?
+                .ok_or_else(|| {
+                    semantic_at!(ErrorSite::Symbol(name.clone()), "unknown variable '{name}'")
+                })?
                 .clone();
             if !mutable.contains(name) {
-                return Err(format!("cannot assign to immutable variable '{name}'"));
+                return Err(semantic_at!(
+                    ErrorSite::Symbol(name.clone()),
+                    "cannot assign to immutable variable '{name}'"
+                ));
             }
             let Type::Named(struct_name) = ty else {
-                return Err(format!("'{name}' is not a struct"));
+                return Err(semantic_at!(
+                    ErrorSite::Symbol(name.clone()),
+                    "'{name}' is not a struct"
+                ));
             };
             let fields = structs
                 .get(&struct_name)
@@ -3496,7 +3595,7 @@ fn statement_type(
                 .map(|field_info| field_info.ty.clone())
                 .ok_or_else(|| format!("struct '{struct_name}' has no field '{field}'"))?;
             if contains_reference_type(&field_type, structs, enums, &mut HashSet::new()) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "reference field '{field}' in '{struct_name}' cannot be replaced"
                 ));
             }
@@ -3525,13 +3624,21 @@ fn statement_type(
         } => {
             let ty = variables
                 .get(name)
-                .ok_or_else(|| format!("unknown variable '{name}'"))?
+                .ok_or_else(|| {
+                    semantic_at!(ErrorSite::Symbol(name.clone()), "unknown variable '{name}'")
+                })?
                 .clone();
             if !mutable.contains(name) {
-                return Err(format!("cannot assign to immutable variable '{name}'"));
+                return Err(semantic_at!(
+                    ErrorSite::Symbol(name.clone()),
+                    "cannot assign to immutable variable '{name}'"
+                ));
             }
             let Type::Named(enum_name) = ty else {
-                return Err(format!("'{name}' is not an enum"));
+                return Err(semantic_at!(
+                    ErrorSite::Symbol(name.clone()),
+                    "'{name}' is not an enum"
+                ));
             };
             let variants = enums
                 .get(&enum_name)
@@ -3544,7 +3651,7 @@ fn statement_type(
                 format!("variant '{variant}' has no payload field at index {index}")
             })?;
             if contains_reference_type(field_type, structs, enums, &mut HashSet::new()) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "reference payload '{variant}[{index}]' cannot be replaced"
                 ));
             }
@@ -3568,19 +3675,27 @@ fn statement_type(
         Statement::TupleAssign { name, index, value } => {
             let ty = variables
                 .get(name)
-                .ok_or_else(|| format!("unknown variable '{name}'"))?
+                .ok_or_else(|| {
+                    semantic_at!(ErrorSite::Symbol(name.clone()), "unknown variable '{name}'")
+                })?
                 .clone();
             if !mutable.contains(name) {
-                return Err(format!("cannot assign to immutable variable '{name}'"));
+                return Err(semantic_at!(
+                    ErrorSite::Symbol(name.clone()),
+                    "cannot assign to immutable variable '{name}'"
+                ));
             }
             let Type::Tuple(fields) = ty else {
-                return Err(format!("'{name}' is not a tuple"));
+                return Err(semantic_at!(
+                    ErrorSite::Symbol(name.clone()),
+                    "'{name}' is not a tuple"
+                ));
             };
             let field_type = fields
                 .get(*index)
                 .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?;
             if contains_reference_type(field_type, structs, enums, &mut HashSet::new()) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "cannot replace reference-containing tuple field {index}"
                 ));
             }
@@ -3723,7 +3838,7 @@ fn statement_type(
         }
         Statement::BreakToValue { label, value } => {
             if !mutable.contains(&format!("\0lim-value-label:{label}")) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "value break used with inactive or non-value label '{label}'"
                 ));
             }
@@ -3735,7 +3850,7 @@ fn statement_type(
             if mutable.contains(&format!("\0lim-label:{label}")) {
                 Ok(Type::Unit)
             } else {
-                Err(format!("unknown or inactive loop label '{label}'"))
+                Err(semantic_format!("unknown or inactive loop label '{label}'"))
             }
         }
         Statement::Break | Statement::Continue => {
@@ -3784,7 +3899,7 @@ fn check_destructure_pattern(
     pattern: &Expr,
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
-) -> Result<Vec<(String, Type)>, String> {
+) -> Result<Vec<(String, Type)>, SemanticError> {
     let Expr::List(items) = pattern else {
         return Err("destructuring pattern must be a tuple or struct constructor".into());
     };
@@ -3805,7 +3920,7 @@ fn check_destructure_pattern(
         _ => return Err("destructuring pattern does not match its declared type".into()),
     };
     if items.len() - 1 != fields.len() {
-        return Err(format!(
+        return Err(semantic_format!(
             "destructuring pattern expects {} fields",
             fields.len()
         ));
@@ -3830,7 +3945,7 @@ fn check_let_else_pattern(
     variables: &HashMap<String, Type>,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
-) -> Result<Vec<(String, Type)>, String> {
+) -> Result<Vec<(String, Type)>, SemanticError> {
     let mut bindings = variables.clone();
     if let Type::Named(enum_name) = ty {
         if let Some(variants) = enums.get(enum_name) {
@@ -3853,12 +3968,13 @@ fn check_let_else_pattern(
                         };
                         let Some(variant) = variants.iter().find(|variant| variant.name == name)
                         else {
-                            return Err(format!("unknown enum variant '{name}'"));
+                            return Err(semantic_format!("unknown enum variant '{name}'"));
                         };
                         if !payload_patterns.is_empty()
                             && payload_patterns.len() != variant.fields.len()
                         {
-                            return Err(format!(
+                            return Err(semantic_at!(
+                                ErrorSite::PatternSymbol(name.to_string()),
                                 "variant '{name}' expects {} payload patterns",
                                 variant.fields.len()
                             ));
@@ -3896,9 +4012,15 @@ fn check_let_else_pattern(
             let variant = variants
                 .iter()
                 .find(|variant| variant.name == variant_name)
-                .ok_or_else(|| format!("'{variant_name}' is not a variant of '{enum_name}'"))?;
+                .ok_or_else(|| {
+                    semantic_at!(
+                        ErrorSite::PatternSymbol(variant_name.to_string()),
+                        "'{variant_name}' is not a variant of '{enum_name}'"
+                    )
+                })?;
             if payload_patterns.len() != variant.fields.len() {
-                return Err(format!(
+                return Err(semantic_at!(
+                    ErrorSite::PatternSymbol(variant_name.to_string()),
                     "variant '{variant_name}' expects {} payload patterns",
                     variant.fields.len()
                 ));
@@ -3920,6 +4042,28 @@ fn check_let_else_pattern(
 }
 
 fn expression(
+    expr: &Expr,
+    variables: &HashMap<String, Type>,
+    functions: &HashMap<String, Signature>,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    mutable: &HashSet<String>,
+    aliases: &HashMap<String, Type>,
+    expected: Option<&Type>,
+) -> Result<Type, SemanticError> {
+    expression_inner(
+        expr, variables, functions, structs, enums, mutable, aliases, expected,
+    )
+    .map_err(|mut error| {
+        if error.scope.is_none() {
+            error.scope = Some(Box::new(expr.clone()));
+            error.origin = Some(std::ptr::from_ref(expr) as usize);
+        }
+        error
+    })
+}
+
+fn expression_inner(
     value: &Expr,
     variables: &HashMap<String, Type>,
     functions: &HashMap<String, Signature>,
@@ -3928,7 +4072,7 @@ fn expression(
     mutable: &HashSet<String>,
     aliases: &HashMap<String, Type>,
     expected: Option<&Type>,
-) -> Result<Type, String> {
+) -> Result<Type, SemanticError> {
     match value {
         Expr::Integer(value) => {
             let ty = expected
@@ -3936,7 +4080,9 @@ fn expression(
                 .cloned()
                 .unwrap_or(Type::I64);
             if !fits_integer(*value, &ty) {
-                return Err(format!("integer literal {value} does not fit in {ty:?}"));
+                return Err(semantic_format!(
+                    "integer literal {value} does not fit in {ty:?}"
+                ));
             }
             Ok(ty)
         }
@@ -3946,7 +4092,9 @@ fn expression(
                 .cloned()
                 .unwrap_or(Type::U128);
             if !fits_unsigned_integer(*value, &ty) {
-                return Err(format!("integer literal {value} does not fit in {ty:?}"));
+                return Err(semantic_format!(
+                    "integer literal {value} does not fit in {ty:?}"
+                ));
             }
             Ok(ty)
         }
@@ -3967,7 +4115,7 @@ fn expression(
                     .is_finite()
             };
             if !finite {
-                return Err(format!(
+                return Err(semantic_format!(
                     "floating-point literal '{value}' is not finite for {ty:?}"
                 ));
             }
@@ -3979,7 +4127,10 @@ fn expression(
             .get(name)
             .cloned()
             .or_else(|| enum_variant_type(name, enums))
-            .ok_or_else(|| format!("unknown variable or enum variant '{name}'")),
+            .ok_or_else(|| {
+                SemanticError::from(format!("unknown variable or enum variant '{name}'"))
+                    .at(ErrorSite::Symbol(name.clone()))
+            }),
         Expr::String(value) => Ok(Type::Array(Box::new(Type::Char), value.chars().count())),
         Expr::Block(statements) => {
             let mut block_variables = variables.clone();
@@ -4084,7 +4235,7 @@ fn expression(
             }
             let marker = format!("\0lim-label:{label}");
             if mutable.contains(&marker) {
-                return Err(format!("duplicate loop label '{label}'"));
+                return Err(semantic_format!("duplicate loop label '{label}'"));
             }
             let mut labeled_mutable = mutable.clone();
             labeled_mutable.insert(marker);
@@ -4190,7 +4341,7 @@ fn list_expression(
     mutable: &HashSet<String>,
     aliases: &HashMap<String, Type>,
     expected: Option<&Type>,
-) -> Result<Type, String> {
+) -> Result<Type, SemanticError> {
     if items.is_empty() {
         return Ok(Type::Unit);
     }
@@ -4226,11 +4377,11 @@ fn list_expression(
             }
             if let Type::Named(name) = &cloned {
                 if functions.contains_key(&format!("{name}-join")) {
-                    return Err(format!("thread task '{name}' cannot be cloned"));
+                    return Err(semantic_format!("thread task '{name}' cannot be cloned"));
                 }
                 if let Some(signature) = functions.get(&format!("{name}-clone")) {
                     if signature.parameters != [cloned.clone()] || signature.return_type != cloned {
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "'{name}-clone' must take and return exactly one '{name}' value"
                         ));
                     }
@@ -4256,7 +4407,7 @@ fn list_expression(
             }
             if let Type::Named(name) = &forgotten {
                 if functions.contains_key(&format!("{name}-join")) {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "thread task '{name}' must be joined; it cannot be dropped or forgotten"
                     ));
                 }
@@ -4266,7 +4417,7 @@ fn list_expression(
                 if thread_result_task
                     .is_some_and(|task| functions.contains_key(&format!("{task}-spawn")))
                 {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "thread result '{name}' must be matched so any task handle is joined"
                     ));
                 }
@@ -4290,7 +4441,9 @@ fn list_expression(
                 expected_inner,
             )?;
             if !is_cell_value_type(&inner, enums) {
-                return Err(format!("cell does not support values of type {inner:?}"));
+                return Err(semantic_format!(
+                    "cell does not support values of type {inner:?}"
+                ));
             }
             Ok(Type::Cell(Box::new(inner)))
         }
@@ -4329,7 +4482,10 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, expected,
             )?;
             if !is_numeric(&actual) {
-                return Err("unary '-' requires a numeric operand".into());
+                return Err(semantic_at!(
+                    ErrorSite::Argument("-".into(), 1),
+                    "unary '-' requires a numeric operand"
+                ));
             }
             if let Some(qualifier) = qualifier {
                 require_operator_type(qualifier, &actual, raw_operator)?;
@@ -4359,7 +4515,16 @@ fn list_expression(
                 aliases,
                 Some(&left),
             )?;
-            require_same(&left, &right, operator)?;
+            require_same(&left, &right, operator).map_err(|error| {
+                error.at(ErrorSite::Argument(
+                    raw_operator.into(),
+                    if operator_type.as_ref() == Some(&right) {
+                        1
+                    } else {
+                        2
+                    },
+                ))
+            })?;
             if let Some(qualifier) = qualifier {
                 require_operator_type(qualifier, &left, raw_operator)?;
                 require_arithmetic_mode(operator, mode, raw_operator, &left)?;
@@ -4371,14 +4536,17 @@ fn list_expression(
                 is_numeric(&left)
             };
             if !valid {
-                return Err(format!(
+                return Err(semantic_format!(
                     "operator '{operator}' requires integer or boolean operands"
                 ));
             }
             if matches!(operator, "<<" | ">>") {
                 if let Expr::Integer(count) = &items[2] {
                     if *count < 0 || integer_width(&left).is_some_and(|width| *count >= width) {
-                        return Err(format!("shift count {count} is out of range for {left:?}"));
+                        return Err(semantic_at!(
+                            ErrorSite::Argument(operator.into(), 2),
+                            "shift count {count} is out of range for {left:?}"
+                        ));
                     }
                 }
             }
@@ -4406,12 +4574,21 @@ fn list_expression(
                 aliases,
                 Some(&left),
             )?;
-            require_same(&left, &right, operator)?;
+            require_same(&left, &right, operator).map_err(|error| {
+                error.at(ErrorSite::Argument(
+                    raw_operator.into(),
+                    if operator_type.as_ref() == Some(&right) {
+                        1
+                    } else {
+                        2
+                    },
+                ))
+            })?;
             if let Some(qualifier) = qualifier {
                 require_operator_type(qualifier, &left, raw_operator)?;
             }
             if !is_numeric(&left) && !matches!(left, Type::Bool | Type::Char) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "comparison operator '{operator}' requires scalar operands"
                 ));
             }
@@ -4467,6 +4644,7 @@ fn list_expression(
                 },
             )?;
             merge_types(&then_type, &else_type, "if branches")
+                .map_err(|error| error.at(ErrorSite::BranchMismatch(else_type.clone())))
         }
         "as" => {
             require_arity(operator, items, 3)?;
@@ -4549,12 +4727,12 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?
             else {
-                return Err(format!(
+                return Err(semantic_format!(
                     "{operator} requires a shared reference to an atomic scalar"
                 ));
             };
             let Type::Atomic(scalar) = *target else {
-                return Err(format!(
+                return Err(semantic_format!(
                     "{operator} requires a reference to an atomic scalar"
                 ));
             };
@@ -4632,10 +4810,16 @@ fn list_expression(
                 target,
             } = source
             else {
-                return Err("slice requires an immutable reference to an array".into());
+                return Err(semantic_at!(
+                    ErrorSite::Argument("slice-of".into(), 1),
+                    "slice requires an immutable reference to an array"
+                ));
             };
             let Type::Array(element, _) = *target else {
-                return Err("slice requires a reference to an array".into());
+                return Err(semantic_at!(
+                    ErrorSite::Argument("slice-of".into(), 1),
+                    "slice requires a reference to an array"
+                ));
             };
             Ok(Type::Slice(element))
         }
@@ -4663,7 +4847,10 @@ fn list_expression(
                 )?,
                 Type::Slice(_)
             ) {
-                return Err("slice-len requires a slice".into());
+                return Err(semantic_at!(
+                    ErrorSite::Argument("slice-len".into(), 1),
+                    "slice-len requires a slice"
+                ));
             }
             Ok(Type::Usize)
         }
@@ -4673,7 +4860,10 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?
             else {
-                return Err("slice-idx requires a slice".into());
+                return Err(semantic_at!(
+                    ErrorSite::Argument("slice-idx".into(), 1),
+                    "slice-idx requires a slice"
+                ));
             };
             let index = expression(
                 &items[2],
@@ -4725,7 +4915,7 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?
             else {
-                return Err(format!("{operator} requires a mutable slice"));
+                return Err(semantic_format!("{operator} requires a mutable slice"));
             };
             if operator == "slice-mut-len" {
                 return Ok(Type::Usize);
@@ -4761,7 +4951,7 @@ fn list_expression(
                             format!("{operator} refers to unknown variable '{name}'")
                         })?;
                         if matches!(owner_type, Type::Reference { .. }) {
-                            return Err(format!(
+                            return Err(semantic_at!(ErrorSite::Argument(operator.into(), 1),
                                 "{operator} cannot borrow a reference variable directly; borrow one of its fields"
                             ));
                         }
@@ -4784,7 +4974,7 @@ fn list_expression(
                             target,
                         } = base_type
                         else {
-                            return Err(format!(
+                            return Err(semantic_format!(
                                 "{operator} projection borrowing requires a reference"
                             ));
                         };
@@ -4795,7 +4985,7 @@ fn list_expression(
                         (field_type, reference_mutable)
                     }
                     _ => {
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "{operator} requires a variable or a struct field through a reference"
                         ))
                     }
@@ -4806,7 +4996,9 @@ fn list_expression(
                     ));
                 }
                 if !is_reference_target(&target) {
-                    return Err(format!("{operator} cannot borrow a unit or never value"));
+                    return Err(semantic_format!(
+                        "{operator} cannot borrow a unit or never value"
+                    ));
                 }
                 return Ok(Type::Reference {
                     mutable: operator == "borrow-mut",
@@ -4817,10 +5009,12 @@ fn list_expression(
             match &items[1] {
                 Expr::Symbol(owner) => {
                     if !variables.contains_key(owner) {
-                        return Err(format!("{operator} refers to unknown variable '{owner}'"));
+                        return Err(semantic_format!(
+                            "{operator} refers to unknown variable '{owner}'"
+                        ));
                     }
                     if operator == "borrow-mut" && !mutable.contains(owner) {
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "cannot mutably borrow immutable variable '{owner}'"
                         ));
                     }
@@ -4841,7 +5035,7 @@ fn list_expression(
                         root, variables, functions, structs, enums, mutable, aliases, None,
                     )?
                     else {
-                        return Err(format!(
+                        return Err(semantic_format!(
                             "{operator} projection borrowing requires a reference"
                         ));
                     };
@@ -4855,7 +5049,7 @@ fn list_expression(
                     )?;
                 }
                 _ => {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "{operator} requires a variable or a struct field through a reference"
                     ))
                 }
@@ -4884,7 +5078,10 @@ fn list_expression(
                 target,
             } = reference_type
             else {
-                return Err("deref-set requires a mutable reference".into());
+                return Err(semantic_at!(
+                    ErrorSite::Argument("deref-set".into(), 1),
+                    "deref-set requires a mutable reference"
+                ));
             };
             let actual = expression(
                 &items[2],
@@ -4909,16 +5106,18 @@ fn list_expression(
             require_arity(operator, items, 2)?;
             let owner = match &items[1] {
                 Expr::Symbol(name) => name,
-                _ => return Err(format!("{operator} requires a variable name")),
+                _ => return Err(semantic_format!("{operator} requires a variable name")),
             };
             let owner_type = variables
                 .get(owner)
                 .ok_or_else(|| format!("{operator} refers to unknown variable '{owner}'"))?;
             if !is_scalar_reference_target(owner_type, enums) {
-                return Err(format!("{operator} currently supports scalar values only"));
+                return Err(semantic_format!(
+                    "{operator} currently supports scalar values only"
+                ));
             }
             if operator == "addr-of-mut" && !mutable.contains(owner) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "cannot take a mutable pointer to immutable variable '{owner}'"
                 ));
             }
@@ -4953,7 +5152,9 @@ fn list_expression(
                 ..
             } = owner
             else {
-                return Err(format!("{operator} requires a reference lifetime anchor"));
+                return Err(semantic_format!(
+                    "{operator} requires a reference lifetime anchor"
+                ));
             };
             let pointer = expression(
                 &items[2], variables, functions, structs, enums, mutable, aliases, None,
@@ -4963,7 +5164,7 @@ fn list_expression(
                 target,
             } = pointer
             else {
-                return Err(format!("{operator} requires a raw pointer"));
+                return Err(semantic_format!("{operator} requires a raw pointer"));
             };
             let borrowed_mutable = operator == "ptr-borrow-mut";
             if borrowed_mutable && (!owner_mutable || !pointer_mutable) {
@@ -5090,7 +5291,10 @@ fn list_expression(
                 }
             };
             if items.len() - value_start != length {
-                return Err(format!("array constructor expects {length} elements"));
+                return Err(semantic_at!(
+                    ErrorSite::ConstructorArity("#array", length),
+                    "array constructor expects {length} elements"
+                ));
             }
             for (index, value) in items[value_start..].iter().enumerate() {
                 let actual = expression(
@@ -5103,7 +5307,8 @@ fn list_expression(
                     aliases,
                     Some(element.as_ref()),
                 )?;
-                require_type(&actual, element.as_ref(), &format!("array element {index}"))?;
+                require_type(&actual, element.as_ref(), &format!("array element {index}"))
+                    .map_err(|error| error.at(ErrorSite::ArrayElement(index)))?;
             }
             Ok(Type::Array(element, length))
         }
@@ -5175,7 +5380,8 @@ fn list_expression(
                 }
             };
             if items.len() - value_start != fields.len() {
-                return Err(format!(
+                return Err(semantic_at!(
+                    ErrorSite::ConstructorArity("#tuple", fields.len()),
                     "tuple constructor expects {} elements",
                     fields.len()
                 ));
@@ -5193,7 +5399,8 @@ fn list_expression(
                     aliases,
                     Some(field),
                 )?;
-                require_type(&actual, field, &format!("tuple element {index}"))?;
+                require_type(&actual, field, &format!("tuple element {index}"))
+                    .map_err(|error| error.at(ErrorSite::TupleElement(index)))?;
             }
             Ok(Type::Tuple(fields))
         }
@@ -5209,7 +5416,10 @@ fn list_expression(
                 other => other,
             };
             let Type::Array(element, length) = array_type else {
-                return Err("index requires an array".into());
+                return Err(semantic_at!(
+                    ErrorSite::Argument("index".into(), 1),
+                    "index requires an array"
+                ));
             };
             check_index(
                 &items[2], length, variables, functions, structs, enums, mutable, aliases,
@@ -5289,17 +5499,16 @@ fn list_expression(
                                 Expr::List(items) if !items.is_empty() => {
                                     let Expr::Symbol(name) = &items[0] else {
                                         return Err(
-                                            "enum or-pattern alternatives must be variants"
-                                                .to_owned(),
+                                            "enum or-pattern alternatives must be variants".into(),
                                         );
                                     };
                                     Ok((name.as_str(), items[1..].iter().collect()))
                                 }
-                                _ => {
-                                    Err("enum or-pattern alternatives must be variants".to_owned())
-                                }
+                                _ => Err(SemanticError::from(
+                                    "enum or-pattern alternatives must be variants",
+                                )),
                             })
-                            .collect::<Result<Vec<(&str, Vec<&Expr>)>, String>>()?;
+                            .collect::<Result<Vec<(&str, Vec<&Expr>)>, SemanticError>>()?;
                         ("", Vec::new(), alternatives)
                     }
                     Expr::List(pattern) if !pattern.is_empty() => {
@@ -5317,14 +5526,16 @@ fn list_expression(
                         let Some(variant) =
                             variants.iter().find(|variant| variant.name == alternative)
                         else {
-                            return Err(format!(
+                            return Err(semantic_at!(
+                                ErrorSite::PatternSymbol(alternative.to_string()),
                                 "'{alternative}' is not a variant of '{enum_name}'"
                             ));
                         };
                         if !alternative_payloads.is_empty()
                             && alternative_payloads.len() != variant.fields.len()
                         {
-                            return Err(format!(
+                            return Err(semantic_at!(
+                                ErrorSite::PatternSymbol(alternative.to_string()),
                                 "variant '{alternative}' expects {} payload patterns",
                                 variant.fields.len()
                             ));
@@ -5353,7 +5564,10 @@ fn list_expression(
                         return Err("wildcard pattern cannot have a payload".into());
                     }
                     if guard.is_none() && wildcard {
-                        return Err("duplicate wildcard match pattern".into());
+                        return Err(semantic_at!(
+                            ErrorSite::PatternSymbol("_".into()),
+                            "duplicate wildcard match pattern"
+                        ));
                     }
                     if guard.is_none() {
                         wildcard = true;
@@ -5361,18 +5575,25 @@ fn list_expression(
                 } else {
                     let Some(variant) = variants.iter().find(|variant| variant.name == pattern)
                     else {
-                        return Err(format!("'{pattern}' is not a variant of '{enum_name}'"));
+                        return Err(semantic_at!(
+                            ErrorSite::PatternSymbol(pattern.to_string()),
+                            "'{pattern}' is not a variant of '{enum_name}'"
+                        ));
                     };
                     if !payload_patterns.is_empty()
                         && payload_patterns.len() != variant.fields.len()
                     {
-                        return Err(format!(
+                        return Err(semantic_at!(
+                            ErrorSite::PatternSymbol(pattern.to_string()),
                             "variant '{pattern}' expects {} payload patterns",
                             variant.fields.len()
                         ));
                     }
                     if guard.is_none() && seen.contains(&pattern) {
-                        return Err(format!("duplicate enum match pattern '{pattern}'"));
+                        return Err(semantic_at!(
+                            ErrorSite::PatternSymbol(pattern.to_string()),
+                            "duplicate enum match pattern '{pattern}'"
+                        ));
                     }
                     if guard.is_none() {
                         seen.push(pattern);
@@ -5421,13 +5642,20 @@ fn list_expression(
                         .or(expected),
                 )?;
                 if let Some(previous) = &result_type {
-                    result_type = Some(merge_types(previous, &arm_type, "match arms")?);
+                    result_type = Some(
+                        merge_types(previous, &arm_type, "match arms").map_err(|error| {
+                            error.at(ErrorSite::BranchMismatch(arm_type.clone()))
+                        })?,
+                    );
                 } else {
                     result_type = Some(arm_type);
                 }
             }
             if !wildcard && seen.len() != variants.len() {
-                return Err("match is not exhaustive; add '_' arm".into());
+                return Err(semantic_at!(
+                    ErrorSite::Operator("match".into()),
+                    "match is not exhaustive; add '_' arm"
+                ));
             }
             Ok(result_type.unwrap_or(Type::Unit))
         }
@@ -5495,13 +5723,16 @@ fn list_expression(
                         .map_err(|_| "tuple field index is too large".to_owned())?,
                     _ => return Err("tuple get requires a non-negative integer index".into()),
                 };
-                return fields
-                    .get(index)
-                    .cloned()
-                    .ok_or_else(|| format!("tuple field index {index} is out of bounds"));
+                return fields.get(index).cloned().ok_or_else(|| {
+                    SemanticError::from(format!("tuple field index {index} is out of bounds"))
+                        .at(ErrorSite::Argument("get".into(), 2))
+                });
             }
             let Type::Named(struct_name) = value_type else {
-                return Err("get requires a struct or tuple value".into());
+                return Err(semantic_at!(
+                    ErrorSite::Argument("get".into(), 1),
+                    "get requires a struct or tuple value"
+                ));
             };
             let field_name = match &items[2] {
                 Expr::Symbol(name) => name,
@@ -5514,7 +5745,12 @@ fn list_expression(
                 .iter()
                 .find(|field| field.name == *field_name)
                 .map(|field| field.ty.clone())
-                .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))
+                .ok_or_else(|| {
+                    SemanticError::from(format!(
+                        "struct '{struct_name}' has no field '{field_name}'"
+                    ))
+                    .at(ErrorSite::Argument("get".into(), 2))
+                })
         }
         "get-payload" => {
             if items.len() != 4 {
@@ -5530,7 +5766,10 @@ fn list_expression(
                 other => other,
             };
             let Type::Named(enum_name) = value_type else {
-                return Err("get-payload requires an enum value".into());
+                return Err(semantic_at!(
+                    ErrorSite::Argument("get-payload".into(), 1),
+                    "get-payload requires an enum value"
+                ));
             };
             let Expr::Symbol(variant_name) = &items[2] else {
                 return Err("get-payload requires a variant name".into());
@@ -5548,15 +5787,23 @@ fn list_expression(
             let variant = variants
                 .iter()
                 .find(|variant| variant.name == *variant_name)
-                .ok_or_else(|| format!("enum '{enum_name}' has no variant '{variant_name}'"))?;
+                .ok_or_else(|| {
+                    SemanticError::from(format!(
+                        "enum '{enum_name}' has no variant '{variant_name}'"
+                    ))
+                    .at(ErrorSite::Argument("get-payload".into(), 2))
+                })?;
             variant.fields.get(index).cloned().ok_or_else(|| {
-                format!("variant '{variant_name}' has no payload field at index {index}")
+                SemanticError::from(format!(
+                    "variant '{variant_name}' has no payload field at index {index}"
+                ))
+                .at(ErrorSite::Argument("get-payload".into(), 3))
             })
         }
         _ => {
             if let Some(fields) = structs.get(operator) {
                 if items.len() - 1 != fields.len() {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "constructor '{operator}' expects {} fields",
                         fields.len()
                     ));
@@ -5576,7 +5823,8 @@ fn list_expression(
                         &actual,
                         &field.ty,
                         &format!("field '{}' of '{operator}'", field.name),
-                    )?;
+                    )
+                    .map_err(|error| error.at(ErrorSite::Field(field.name.clone())))?;
                 }
                 return Ok(Type::Named(operator.to_owned()));
             }
@@ -5586,7 +5834,7 @@ fn list_expression(
                     continue;
                 };
                 if items.len() - 1 != variant.fields.len() {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "variant '{operator}' expects {} payloads",
                         variant.fields.len()
                     ));
@@ -5608,14 +5856,20 @@ fn list_expression(
                         &actual,
                         field_type,
                         &format!("payload {payload_index} of variant '{operator}'"),
-                    )?;
+                    )
+                    .map_err(|error| {
+                        error.at(ErrorSite::Payload(operator.into(), payload_index))
+                    })?;
                 }
                 return Ok(Type::Named(enum_name.clone()));
             }
             let (function_name, type_arguments) = split_generic_call(operator)?;
-            let signature = functions
-                .get(&function_name)
-                .ok_or_else(|| format!("unknown function '{operator}'"))?;
+            let signature = functions.get(&function_name).ok_or_else(|| {
+                semantic_at!(
+                    ErrorSite::Operator(operator.into()),
+                    "unknown function '{operator}'"
+                )
+            })?;
             let substitutions = generic_substitutions(signature, &type_arguments, aliases)?;
             let parameter_types = signature
                 .parameters
@@ -5624,7 +5878,8 @@ fn list_expression(
                 .collect::<Vec<_>>();
             let return_type = substitute_type(&signature.return_type, &substitutions);
             if items.len() - 1 != signature.parameters.len() {
-                return Err(format!(
+                return Err(semantic_at!(
+                    ErrorSite::Operator(operator.into()),
                     "function '{operator}' expects {} arguments",
                     parameter_types.len()
                 ));
@@ -5648,7 +5903,10 @@ fn list_expression(
                     &actual,
                     parameter_type,
                     &format!("argument '{parameter}' to '{operator}'"),
-                )?;
+                )
+                .map_err(|error| {
+                    error.at(ErrorSite::NamedArgument(operator.into(), parameter.clone()))
+                })?;
             }
             Ok(return_type)
         }
@@ -5680,7 +5938,7 @@ fn check_scalar_match(
     mutable: &HashSet<String>,
     aliases: &HashMap<String, Type>,
     expected: Option<&Type>,
-) -> Result<Type, String> {
+) -> Result<Type, SemanticError> {
     let mut wildcard = false;
     let mut seen_bool = [false, false];
     let mut seen_integers = HashSet::new();
@@ -5712,7 +5970,10 @@ fn check_scalar_match(
                         {
                             let index = usize::from(name == "true");
                             if seen_bool[index] {
-                                return Err(format!("duplicate boolean match pattern '{name}'"));
+                                return Err(semantic_at!(
+                                    ErrorSite::PatternSymbol(name.to_string()),
+                                    "duplicate boolean match pattern '{name}'"
+                                ));
                             }
                             seen_bool[index] = true;
                         }
@@ -5727,7 +5988,10 @@ fn check_scalar_match(
             }
             Expr::Symbol(pattern) if pattern == "_" => {
                 if guard.is_none() && wildcard {
-                    return Err("duplicate wildcard match pattern".into());
+                    return Err(semantic_at!(
+                        ErrorSite::PatternSymbol("_".into()),
+                        "duplicate wildcard match pattern"
+                    ));
                 }
                 if guard.is_none() {
                     wildcard = true;
@@ -5740,33 +6004,47 @@ fn check_scalar_match(
                     _ => return Err("boolean match pattern must be true, false, or _".into()),
                 };
                 if seen_bool[index] {
-                    return Err(format!("duplicate boolean match pattern '{pattern}'"));
+                    return Err(semantic_at!(
+                        ErrorSite::PatternSymbol(pattern.to_string()),
+                        "duplicate boolean match pattern '{pattern}'"
+                    ));
                 }
                 seen_bool[index] = true;
             }
             Expr::Integer(value) if is_integer(scrutinee) => {
                 if !fits_integer(*value, scrutinee) {
-                    return Err(format!(
+                    return Err(semantic_at!(
+                        ErrorSite::PatternInteger(*value as u128),
                         "integer match pattern {value} does not fit in {scrutinee:?}"
                     ));
                 }
                 if !seen_integers.insert(*value) {
-                    return Err(format!("duplicate integer match pattern {value}"));
+                    return Err(semantic_at!(
+                        ErrorSite::PatternInteger(*value as u128),
+                        "duplicate integer match pattern {value}"
+                    ));
                 }
             }
             Expr::UnsignedInteger(value) if is_integer(scrutinee) => {
                 if !fits_unsigned_integer(*value, scrutinee) {
-                    return Err(format!(
+                    return Err(semantic_at!(
+                        ErrorSite::PatternInteger(*value as u128),
                         "unsigned integer match pattern {value} does not fit in {scrutinee:?}"
                     ));
                 }
                 if !seen_unsigned_integers.insert(*value) {
-                    return Err(format!("duplicate integer match pattern {value}"));
+                    return Err(semantic_at!(
+                        ErrorSite::PatternInteger(*value as u128),
+                        "duplicate integer match pattern {value}"
+                    ));
                 }
             }
             Expr::Char(value) if matches!(scrutinee, Type::Char) => {
                 if !seen_chars.insert(*value) {
-                    return Err(format!("duplicate character match pattern {value:?}"));
+                    return Err(semantic_at!(
+                        ErrorSite::PatternCharacter,
+                        "duplicate character match pattern {value:?}"
+                    ));
                 }
             }
             _ => return Err("scalar match pattern does not match the scrutinee type".into()),
@@ -5798,18 +6076,24 @@ fn check_scalar_match(
                 .or(expected),
         )?;
         if let Some(previous) = &result_type {
-            result_type = Some(merge_types(previous, &arm_type, "match arms")?);
+            result_type = Some(
+                merge_types(previous, &arm_type, "match arms")
+                    .map_err(|error| error.at(ErrorSite::BranchMismatch(arm_type.clone())))?,
+            );
         } else {
             result_type = Some(arm_type);
         }
     }
     if !wildcard && !(matches!(scrutinee, Type::Bool) && seen_bool.iter().all(|seen| *seen)) {
-        return Err("match is not exhaustive; add '_' arm".into());
+        return Err(semantic_at!(
+            ErrorSite::Operator("match".into()),
+            "match is not exhaustive; add '_' arm"
+        ));
     }
     Ok(result_type.unwrap_or(Type::Unit))
 }
 
-fn check_scalar_pattern(pattern: &Expr, scrutinee: &Type) -> Result<(), String> {
+fn check_scalar_pattern(pattern: &Expr, scrutinee: &Type) -> Result<(), SemanticError> {
     if let Some(value) = typed_integer_pattern_value(pattern, scrutinee)? {
         return check_scalar_pattern(value, scrutinee);
     }
@@ -5845,7 +6129,7 @@ fn check_scalar_pattern(pattern: &Expr, scrutinee: &Type) -> Result<(), String> 
     }
 }
 
-fn check_scalar_range_pattern(parts: &[Expr], scrutinee: &Type) -> Result<(), String> {
+fn check_scalar_range_pattern(parts: &[Expr], scrutinee: &Type) -> Result<(), SemanticError> {
     if is_integer(scrutinee) {
         let signed = matches!(
             scrutinee,
@@ -5857,10 +6141,16 @@ fn check_scalar_range_pattern(parts: &[Expr], scrutinee: &Type) -> Result<(), St
             let lower = signed_range_bound(lower_expression)?;
             let upper = signed_range_bound(upper_expression)?;
             if !fits_integer(lower, scrutinee) || !fits_integer(upper, scrutinee) {
-                return Err("integer range pattern does not fit its scrutinee type".into());
+                return Err(semantic_at!(
+                    ErrorSite::PatternRange(false),
+                    "integer range pattern does not fit its scrutinee type"
+                ));
             }
             if lower > upper {
-                return Err("integer range pattern lower bound exceeds upper bound".into());
+                return Err(semantic_at!(
+                    ErrorSite::PatternRange(true),
+                    "integer range pattern lower bound exceeds upper bound"
+                ));
             }
         } else {
             let lower_expression = range_bound_expression(&parts[1], scrutinee)?;
@@ -5869,27 +6159,45 @@ fn check_scalar_range_pattern(parts: &[Expr], scrutinee: &Type) -> Result<(), St
             let upper = unsigned_range_bound(upper_expression)?;
             if !fits_unsigned_integer(lower, scrutinee) || !fits_unsigned_integer(upper, scrutinee)
             {
-                return Err("unsigned range pattern does not fit its scrutinee type".into());
+                return Err(semantic_at!(
+                    ErrorSite::PatternRange(false),
+                    "unsigned range pattern does not fit its scrutinee type"
+                ));
             }
             if lower > upper {
-                return Err("unsigned range pattern lower bound exceeds upper bound".into());
+                return Err(semantic_at!(
+                    ErrorSite::PatternRange(true),
+                    "unsigned range pattern lower bound exceeds upper bound"
+                ));
             }
         }
         return Ok(());
     }
     if matches!(scrutinee, Type::Char) {
         let Expr::Char(lower) = parts[1] else {
-            return Err("character range patterns require character bounds".into());
+            return Err(semantic_at!(
+                ErrorSite::PatternRange(false),
+                "character range patterns require character bounds"
+            ));
         };
         let Expr::Char(upper) = parts[2] else {
-            return Err("character range patterns require character bounds".into());
+            return Err(semantic_at!(
+                ErrorSite::PatternRange(false),
+                "character range patterns require character bounds"
+            ));
         };
         if lower > upper {
-            return Err("character range pattern lower bound exceeds upper bound".into());
+            return Err(semantic_at!(
+                ErrorSite::PatternRange(true),
+                "character range pattern lower bound exceeds upper bound"
+            ));
         }
         return Ok(());
     }
-    Err("range patterns require an integer or char scrutinee".into())
+    Err(semantic_at!(
+        ErrorSite::PatternRange(false),
+        "range patterns require an integer or char scrutinee"
+    ))
 }
 
 fn is_typed_integer_pattern(pattern: &Expr) -> bool {
@@ -5904,7 +6212,7 @@ fn is_typed_integer_pattern(pattern: &Expr) -> bool {
 fn typed_integer_pattern_value<'a>(
     pattern: &'a Expr,
     scrutinee: &Type,
-) -> Result<Option<&'a Expr>, String> {
+) -> Result<Option<&'a Expr>, SemanticError> {
     let Expr::List(items) = pattern else {
         return Ok(None);
     };
@@ -5913,7 +6221,7 @@ fn typed_integer_pattern_value<'a>(
     }
     let literal_type = parse_type(items.get(1))?;
     if literal_type != *scrutinee || !is_integer(&literal_type) {
-        return Err(format!(
+        return Err(semantic_format!(
             "typed integer pattern has type {literal_type:?}, expected {scrutinee:?}"
         ));
     }
@@ -5923,7 +6231,10 @@ fn typed_integer_pattern_value<'a>(
     Ok(Some(&items[2]))
 }
 
-fn range_bound_expression<'a>(expression: &'a Expr, scrutinee: &Type) -> Result<&'a Expr, String> {
+fn range_bound_expression<'a>(
+    expression: &'a Expr,
+    scrutinee: &Type,
+) -> Result<&'a Expr, SemanticError> {
     let Expr::List(items) = expression else {
         return Ok(expression);
     };
@@ -5932,24 +6243,24 @@ fn range_bound_expression<'a>(expression: &'a Expr, scrutinee: &Type) -> Result<
     }
     let literal_type = parse_type(items.get(1))?;
     if &literal_type != scrutinee {
-        return Err(format!(
+        return Err(semantic_format!(
             "typed range bound has type {literal_type:?}, expected {scrutinee:?}"
         ));
     }
     Ok(&items[2])
 }
 
-fn signed_range_bound(expression: &Expr) -> Result<i128, String> {
+fn signed_range_bound(expression: &Expr) -> Result<i128, SemanticError> {
     match expression {
         Expr::Integer(value) => Ok(*value),
         Expr::UnsignedInteger(value) => {
-            i128::try_from(*value).map_err(|_| "signed range bound is too large".to_owned())
+            i128::try_from(*value).map_err(|_| "signed range bound is too large".into())
         }
         _ => Err("integer range patterns require integer bounds".into()),
     }
 }
 
-fn unsigned_range_bound(expression: &Expr) -> Result<u128, String> {
+fn unsigned_range_bound(expression: &Expr) -> Result<u128, SemanticError> {
     match expression {
         Expr::Integer(value) if *value >= 0 => Ok(*value as u128),
         Expr::Integer(_) => Err("unsigned range bounds cannot be negative".into()),
@@ -5958,7 +6269,7 @@ fn unsigned_range_bound(expression: &Expr) -> Result<u128, String> {
     }
 }
 
-fn match_arm_parts(arm: &Expr) -> Result<(&Expr, Option<&Expr>, &Expr), String> {
+fn match_arm_parts(arm: &Expr) -> Result<(&Expr, Option<&Expr>, &Expr), SemanticError> {
     let Expr::List(arm) = arm else {
         return Err("match arms must have the form (pattern expression)".into());
     };
@@ -5987,7 +6298,7 @@ fn check_tuple_match(
     mutable: &HashSet<String>,
     aliases: &HashMap<String, Type>,
     expected: Option<&Type>,
-) -> Result<Type, String> {
+) -> Result<Type, SemanticError> {
     let Type::Tuple(fields) = scrutinee else {
         unreachable!()
     };
@@ -5999,7 +6310,10 @@ fn check_tuple_match(
         match pattern {
             Expr::Symbol(pattern) if pattern == "_" => {
                 if guard.is_none() && wildcard {
-                    return Err("duplicate wildcard match pattern".into());
+                    return Err(semantic_at!(
+                        ErrorSite::PatternSymbol("_".into()),
+                        "duplicate wildcard match pattern"
+                    ));
                 }
                 if guard.is_none() {
                     wildcard = true;
@@ -6016,7 +6330,7 @@ fn check_tuple_match(
             Expr::List(pattern) if matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "tuple") =>
             {
                 if pattern.len() - 1 != fields.len() {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "tuple match pattern expects {} elements",
                         fields.len()
                     ));
@@ -6060,13 +6374,19 @@ fn check_tuple_match(
                 .or(expected),
         )?;
         if let Some(previous) = &result_type {
-            result_type = Some(merge_types(previous, &arm_type, "match arms")?);
+            result_type = Some(
+                merge_types(previous, &arm_type, "match arms")
+                    .map_err(|error| error.at(ErrorSite::BranchMismatch(arm_type.clone())))?,
+            );
         } else {
             result_type = Some(arm_type);
         }
     }
     if !wildcard {
-        return Err("tuple match is not exhaustive; add '_' arm".into());
+        return Err(semantic_at!(
+            ErrorSite::Operator("match".into()),
+            "tuple match is not exhaustive; add '_' arm"
+        ));
     }
     Ok(result_type.unwrap_or(Type::Unit))
 }
@@ -6077,7 +6397,7 @@ fn check_aggregate_pattern(
     arm_variables: &mut HashMap<String, Type>,
     variables: &HashMap<String, Type>,
     structs: &HashMap<String, Vec<Field>>,
-) -> Result<(), String> {
+) -> Result<(), SemanticError> {
     if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
         return check_aggregate_pattern(value, ty, arm_variables, variables, structs);
     }
@@ -6104,14 +6424,15 @@ fn check_aggregate_pattern(
         }
         Expr::Symbol(name) => {
             if variables.contains_key(name) || arm_variables.contains_key(name) {
-                return Err(format!("duplicate match binding '{name}'"));
+                return Err(semantic_format!("duplicate match binding '{name}'"));
             }
             arm_variables.insert(name.clone(), ty.clone());
             Ok(())
         }
         Expr::Integer(value) if is_integer(ty) => {
             if !fits_integer(*value, ty) {
-                return Err(format!(
+                return Err(semantic_at!(
+                    ErrorSite::PatternInteger(*value as u128),
                     "integer match pattern {value} does not fit in {ty:?}"
                 ));
             }
@@ -6119,7 +6440,8 @@ fn check_aggregate_pattern(
         }
         Expr::UnsignedInteger(value) if is_integer(ty) => {
             if !fits_unsigned_integer(*value, ty) {
-                return Err(format!(
+                return Err(semantic_at!(
+                    ErrorSite::PatternInteger(*value as u128),
                     "unsigned integer match pattern {value} does not fit in {ty:?}"
                 ));
             }
@@ -6148,7 +6470,10 @@ fn check_aggregate_pattern(
                 }
             };
             if items.len() - 1 != fields.len() {
-                return Err(format!("aggregate pattern expects {} fields", fields.len()));
+                return Err(semantic_format!(
+                    "aggregate pattern expects {} fields",
+                    fields.len()
+                ));
             }
             for (nested, field) in items[1..].iter().zip(fields) {
                 check_aggregate_pattern(nested, &field, arm_variables, variables, structs)?;
@@ -6163,7 +6488,7 @@ fn check_aggregate_or_pattern(
     pattern: &[Expr],
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
-) -> Result<bool, String> {
+) -> Result<bool, SemanticError> {
     let mut wildcard = false;
     for alternative in &pattern[1..] {
         if matches!(alternative, Expr::Symbol(name) if name == "_") {
@@ -6188,7 +6513,7 @@ fn check_array_match(
     mutable: &HashSet<String>,
     aliases: &HashMap<String, Type>,
     expected: Option<&Type>,
-) -> Result<Type, String> {
+) -> Result<Type, SemanticError> {
     let Type::Array(element, length) = scrutinee else {
         unreachable!()
     };
@@ -6201,7 +6526,10 @@ fn check_array_match(
         match pattern {
             Expr::Symbol(pattern) if pattern == "_" => {
                 if guard.is_none() && wildcard {
-                    return Err("duplicate wildcard match pattern".into());
+                    return Err(semantic_at!(
+                        ErrorSite::PatternSymbol("_".into()),
+                        "duplicate wildcard match pattern"
+                    ));
                 }
                 if guard.is_none() {
                     wildcard = true;
@@ -6218,7 +6546,10 @@ fn check_array_match(
             Expr::List(pattern) if matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "array") =>
             {
                 if pattern.len() - 1 != *length {
-                    return Err(format!("array match pattern expects {} elements", length));
+                    return Err(semantic_format!(
+                        "array match pattern expects {} elements",
+                        length
+                    ));
                 }
                 for (pattern, field) in pattern[1..].iter().zip(&fields) {
                     check_aggregate_pattern(
@@ -6259,13 +6590,19 @@ fn check_array_match(
                 .or(expected),
         )?;
         if let Some(previous) = &result_type {
-            result_type = Some(merge_types(previous, &arm_type, "match arms")?);
+            result_type = Some(
+                merge_types(previous, &arm_type, "match arms")
+                    .map_err(|error| error.at(ErrorSite::BranchMismatch(arm_type.clone())))?,
+            );
         } else {
             result_type = Some(arm_type);
         }
     }
     if !wildcard {
-        return Err("array match is not exhaustive; add '_' arm".into());
+        return Err(semantic_at!(
+            ErrorSite::Operator("match".into()),
+            "array match is not exhaustive; add '_' arm"
+        ));
     }
     Ok(result_type.unwrap_or(Type::Unit))
 }
@@ -6276,7 +6613,7 @@ fn check_enum_payload_pattern(
     arm_variables: &mut HashMap<String, Type>,
     variables: &HashMap<String, Type>,
     structs: &HashMap<String, Vec<Field>>,
-) -> Result<(), String> {
+) -> Result<(), SemanticError> {
     if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
         return check_enum_payload_pattern(value, ty, arm_variables, variables, structs);
     }
@@ -6296,7 +6633,7 @@ fn check_enum_payload_pattern(
         }
         Expr::Symbol(name) => {
             if variables.contains_key(name) || arm_variables.contains_key(name) {
-                return Err(format!("duplicate match binding '{name}'"));
+                return Err(semantic_format!("duplicate match binding '{name}'"));
             }
             arm_variables.insert(name.clone(), ty.clone());
             Ok(())
@@ -6312,7 +6649,7 @@ fn check_enum_payload_pattern(
         }
         Expr::Integer(value) if is_integer(ty) => {
             if !fits_integer(*value, ty) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "integer enum payload pattern {value} does not fit in {ty:?}"
                 ));
             }
@@ -6320,7 +6657,7 @@ fn check_enum_payload_pattern(
         }
         Expr::UnsignedInteger(value) if is_integer(ty) => {
             if !fits_unsigned_integer(*value, ty) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "unsigned enum payload pattern {value} does not fit in {ty:?}"
                 ));
             }
@@ -6342,7 +6679,7 @@ fn check_struct_match(
     mutable: &HashSet<String>,
     aliases: &HashMap<String, Type>,
     expected: Option<&Type>,
-) -> Result<Type, String> {
+) -> Result<Type, SemanticError> {
     let fields = structs
         .get(struct_name)
         .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
@@ -6354,7 +6691,10 @@ fn check_struct_match(
         match pattern {
             Expr::Symbol(pattern) if pattern == "_" => {
                 if guard.is_none() && wildcard {
-                    return Err("duplicate wildcard match pattern".into());
+                    return Err(semantic_at!(
+                        ErrorSite::PatternSymbol("_".into()),
+                        "duplicate wildcard match pattern"
+                    ));
                 }
                 if guard.is_none() {
                     wildcard = true;
@@ -6376,7 +6716,7 @@ fn check_struct_match(
             Expr::List(pattern) if matches!(pattern.first(), Some(Expr::Symbol(name)) if name == struct_name) =>
             {
                 if pattern.len() - 1 != fields.len() {
-                    return Err(format!(
+                    return Err(semantic_format!(
                         "struct match pattern expects {} fields",
                         fields.len()
                     ));
@@ -6392,7 +6732,7 @@ fn check_struct_match(
                 }
             }
             _ => {
-                return Err(format!(
+                return Err(semantic_format!(
                     "struct match pattern must be _ or ({struct_name} field-pattern ...)"
                 ))
             }
@@ -6424,20 +6764,27 @@ fn check_struct_match(
                 .or(expected),
         )?;
         if let Some(previous) = &result_type {
-            result_type = Some(merge_types(previous, &arm_type, "match arms")?);
+            result_type = Some(
+                merge_types(previous, &arm_type, "match arms")
+                    .map_err(|error| error.at(ErrorSite::BranchMismatch(arm_type.clone())))?,
+            );
         } else {
             result_type = Some(arm_type);
         }
     }
     if !wildcard {
-        return Err("struct match is not exhaustive; add '_' arm".into());
+        return Err(semantic_at!(
+            ErrorSite::Operator("match".into()),
+            "struct match is not exhaustive; add '_' arm"
+        ));
     }
     Ok(result_type.unwrap_or(Type::Unit))
 }
 
-fn require_arity(operator: &str, items: &[Expr], expected: usize) -> Result<(), String> {
+fn require_arity(operator: &str, items: &[Expr], expected: usize) -> Result<(), SemanticError> {
     if items.len() != expected {
-        Err(format!(
+        Err(semantic_at!(
+            ErrorSite::Operator(operator.into()),
             "operator '{operator}' expects {} operands",
             expected - 1
         ))
@@ -6446,28 +6793,30 @@ fn require_arity(operator: &str, items: &[Expr], expected: usize) -> Result<(), 
     }
 }
 
-fn split_generic_call(operator: &str) -> Result<(String, Vec<String>), String> {
+fn split_generic_call(operator: &str) -> Result<(String, Vec<String>), SemanticError> {
     let Some(open) = operator.find('<') else {
         return Ok((operator.to_owned(), Vec::new()));
     };
     if !operator.ends_with('>') || open == 0 {
-        return Err(format!("malformed generic call '{operator}'"));
+        return Err(semantic_format!("malformed generic call '{operator}'"));
     }
     let name = operator[..open].to_owned();
     let arguments = &operator[open + 1..operator.len() - 1];
     if arguments.is_empty() {
-        return Err(format!("generic call '{operator}' has no type arguments"));
+        return Err(semantic_format!(
+            "generic call '{operator}' has no type arguments"
+        ));
     }
     let arguments = arguments
         .split(',')
         .map(str::trim)
         .map(|argument| {
             if argument.is_empty() {
-                Err(format!(
+                Err(semantic_format!(
                     "generic call '{operator}' has an empty type argument"
                 ))
             } else {
-                Ok(argument.to_owned())
+                Ok::<_, SemanticError>(argument.to_owned())
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -6478,12 +6827,12 @@ fn generic_substitutions(
     signature: &Signature,
     arguments: &[String],
     aliases: &HashMap<String, Type>,
-) -> Result<HashMap<String, Type>, String> {
+) -> Result<HashMap<String, Type>, SemanticError> {
     if signature.type_parameters.len() != arguments.len() {
         if signature.type_parameters.is_empty() && arguments.is_empty() {
             return Ok(HashMap::new());
         }
-        return Err(format!(
+        return Err(semantic_format!(
             "generic function expects {} type arguments, got {}",
             signature.type_parameters.len(),
             arguments.len()
@@ -6496,7 +6845,7 @@ fn generic_substitutions(
         .map(|(parameter, argument)| {
             let ty = resolve_type(&Type::from_name(argument), aliases)?;
             if matches!(ty, Type::Generic(_)) {
-                return Err(format!(
+                return Err(semantic_format!(
                     "generic type argument '{argument}' is not concrete"
                 ));
             }
@@ -6538,7 +6887,7 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
     }
 }
 
-fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, String> {
+fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, SemanticError> {
     resolve_type_with_seen(ty, aliases, &mut HashSet::new())
 }
 
@@ -6546,14 +6895,14 @@ fn resolve_type_with_seen(
     ty: &Type,
     aliases: &HashMap<String, Type>,
     seen: &mut HashSet<String>,
-) -> Result<Type, String> {
+) -> Result<Type, SemanticError> {
     match ty {
         Type::Named(name) => {
             let Some(target) = aliases.get(name) else {
                 return Ok(ty.clone());
             };
             if !seen.insert(name.clone()) {
-                return Err(format!("type alias '{name}' is recursive"));
+                return Err(semantic_format!("type alias '{name}' is recursive"));
             }
             let result = resolve_type_with_seen(target, aliases, seen);
             seen.remove(name);
@@ -6597,7 +6946,7 @@ fn validate_layout_type(
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
-) -> Result<(), String> {
+) -> Result<(), SemanticError> {
     match ty {
         Type::Atomic(target) if is_atomic_scalar(target) => Ok(()),
         Type::Atomic(_) => Err("atomic type requires a supported integer scalar".into()),
@@ -6612,14 +6961,19 @@ fn validate_layout_type(
             .flat_map(|variants| variants.iter())
             .flat_map(|variant| variant.fields.iter())
             .try_for_each(|field| validate_layout_type(field, structs, enums)),
-        Type::Named(name) => Err(format!("unknown type '{name}' in size-of")),
+        Type::Named(name) => Err(semantic_at!(
+            ErrorSite::DeclaredType(name.clone()),
+            "unknown type '{name}' in size-of"
+        )),
         Type::Array(element, _) | Type::Slice(element) | Type::MutableSlice(element) => {
             validate_layout_type(element, structs, enums)
         }
         Type::Tuple(fields) => fields
             .iter()
             .try_for_each(|field| validate_layout_type(field, structs, enums)),
-        Type::Generic(name) => Err(format!("generic type '{name}' has no concrete size")),
+        Type::Generic(name) => Err(semantic_format!(
+            "generic type '{name}' has no concrete size"
+        )),
         _ => Ok(()),
     }
 }
@@ -6642,16 +6996,19 @@ fn check_index(
     enums: &HashMap<String, Vec<EnumVariant>>,
     mutable: &HashSet<String>,
     aliases: &HashMap<String, Type>,
-) -> Result<(), String> {
+) -> Result<(), SemanticError> {
     let actual = expression(
         index, variables, functions, structs, enums, mutable, aliases, None,
     )?;
     if !is_integer(&actual) {
-        return Err("array index must be an integer".into());
+        return Err(semantic_at!(
+            ErrorSite::Argument("index".into(), 2),
+            "array index must be an integer"
+        ));
     }
     if let Expr::Integer(value) = index {
         if *value < 0 || *value >= length as i128 {
-            return Err(format!(
+            return Err(semantic_format!(
                 "array index {value} is out of bounds for length {length}"
             ));
         }
@@ -6659,17 +7016,18 @@ fn check_index(
     Ok(())
 }
 
-fn require_type(actual: &Type, expected: &Type, context: &str) -> Result<(), String> {
+fn require_type(actual: &Type, expected: &Type, context: &str) -> Result<(), SemanticError> {
     if actual == expected || matches!(actual, Type::Never) {
         Ok(())
     } else {
-        Err(format!(
+        Err(SemanticError::from(format!(
             "{context} has type {actual:?}, expected {expected:?}"
         ))
+        .at(ErrorSite::Mismatch(actual.clone(), Some(expected.clone()))))
     }
 }
 
-fn merge_types(left: &Type, right: &Type, context: &str) -> Result<Type, String> {
+fn merge_types(left: &Type, right: &Type, context: &str) -> Result<Type, SemanticError> {
     if matches!(left, Type::Never) {
         return Ok(right.clone());
     }
@@ -6680,13 +7038,14 @@ fn merge_types(left: &Type, right: &Type, context: &str) -> Result<Type, String>
     Ok(left.clone())
 }
 
-fn require_same(left: &Type, right: &Type, context: &str) -> Result<(), String> {
+fn require_same(left: &Type, right: &Type, context: &str) -> Result<(), SemanticError> {
     if left == right {
         Ok(())
     } else {
-        Err(format!(
+        Err(SemanticError::from(format!(
             "{context} has mismatched types {left:?} and {right:?}"
         ))
+        .at(ErrorSite::Mismatch(right.clone(), Some(left.clone()))))
     }
 }
 
@@ -6801,7 +7160,7 @@ fn type_contains_mutable_reference(
     }
 }
 
-fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(), String> {
+fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(), SemanticError> {
     let expected = match ty {
         Type::Unit => "()",
         Type::Never => "!",
@@ -6829,7 +7188,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::Cell(_) => "interior mutable cell",
         Type::Generic(name) | Type::Named(name) => name,
         Type::Array(_, _) | Type::Tuple(_) => {
-            return Err(format!(
+            return Err(semantic_format!(
                 "operator '{operator}' has an unsupported operand type {ty:?}"
             ))
         }
@@ -6837,7 +7196,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
     if qualifier == expected {
         Ok(())
     } else {
-        Err(format!(
+        Err(semantic_format!(
             "operator '{operator}' is qualified for '{qualifier}', but its operand type is '{expected}'"
         ))
     }
@@ -6930,10 +7289,10 @@ fn require_arithmetic_mode(
     mode: Option<&str>,
     operator: &str,
     ty: &Type,
-) -> Result<(), String> {
+) -> Result<(), SemanticError> {
     if !matches!(operation, "+" | "-" | "*" | "/" | "%") {
         if mode.is_some() {
-            return Err(format!(
+            return Err(semantic_format!(
                 "non-arithmetic operator '{operator}' cannot have a wrapping mode"
             ));
         }
@@ -6941,7 +7300,7 @@ fn require_arithmetic_mode(
     }
     if matches!(ty, Type::F32 | Type::F64) {
         if mode.is_some() {
-            return Err(format!(
+            return Err(semantic_format!(
                 "floating-point operator '{operator}' cannot have a wrapping mode"
             ));
         }
@@ -6951,12 +7310,12 @@ fn require_arithmetic_mode(
         return Ok(());
     }
     let Some(mode) = mode else {
-        return Err(format!(
+        return Err(semantic_format!(
             "arithmetic operator '{operator}' requires '.wrap' or '.saturate'"
         ));
     };
     if !matches!(mode, "wrap" | "saturate") {
-        return Err(format!(
+        return Err(semantic_format!(
             "arithmetic operator '{operator}' has unknown mode '.{mode}'"
         ));
     }
