@@ -1,7 +1,7 @@
 use crate::{Diagnostic, DiagnosticCode, Span};
 use std::fmt::Write;
 
-fn quoted(value: &str) -> String {
+pub(crate) fn quoted(value: &str) -> String {
     let mut output = String::from("\"");
     for ch in value.chars() {
         match ch {

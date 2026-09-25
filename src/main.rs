@@ -34,7 +34,10 @@ fn main() -> ExitCode {
         println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]...\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         return ExitCode::SUCCESS;
     }
-    if arguments.first().map(String::as_str) == Some("--stack-usage") {
+    if matches!(
+        arguments.first().map(String::as_str),
+        Some("--stack-usage" | "--explain-cache")
+    ) {
         return stack_usage_command(&arguments);
     }
     if arguments.first().map(String::as_str) == Some("--format") {
@@ -291,6 +294,23 @@ fn stack_usage_command(arguments: &[String]) -> ExitCode {
         .unwrap_or_else(|| Path::new("."))
         .join(".lim");
     let cache = generated.join("cache");
+    if arguments.first().map(String::as_str) == Some("--explain-cache") {
+        let (result, report) = lim::with_cache_report(|| {
+            lim::write_generated_sources_diagnostic(
+                &source, input_file, &generated, &config, &cache,
+            )?;
+            lim::compile_source_to_assembly(&source, input_file, &config, &cache, target)?;
+            Ok::<(), lim::Diagnostic>(())
+        });
+        println!("{report}");
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                emit_diagnostic(&error, &source, input_path);
+                ExitCode::FAILURE
+            }
+        };
+    }
     if let Err(diagnostic) =
         lim::write_generated_sources_diagnostic(&source, input_file, &generated, &config, &cache)
     {

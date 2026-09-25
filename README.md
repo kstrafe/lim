@@ -76,3 +76,20 @@ An explicit type mismatch is rejected (this example is tested as `E4000`):
   (#let answer u64 false)
   (#return answer))
 ```
+### Explaining generated-code reuse
+
+Run `lim --explain-cache INPUT [--cfg KEY=VALUE]...` to check the program and
+print a versioned JSON cache report to stdout without linking a binary. Errors
+stay on stderr; `--diagnostic-format=json` still applies to errors only. Each
+event identifies a syntax or inspectable-source artifact, its key digest,
+full key material (including invocation/dependency inputs), and `hit`,
+`missing-entry`, `invalid-entry`, or `key-collision` decision.
+
+A changed helper, input, cfg, or compiler normally creates a different key.
+The report deliberately says `missing-entry` when that key has no artifact:
+it does not guess which previous invocation it replaced. Comparing retained
+reports reveals changed key material. Damaged existing entries report
+`invalid-entry`. One command can show a miss followed by a hit because
+materialization and checking share the cache. Reports are opt-in and can
+contain source code; they do not alter cache keys or add metadata files.
+Checksums detect damage, not an attacker rewriting cache data and metadata.

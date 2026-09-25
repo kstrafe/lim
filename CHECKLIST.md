@@ -835,7 +835,7 @@ commit, documentation, and focused regression coverage.
   unbounded disk/memory use. Replace predictable temporary-directory removal
   in robustness tests with exclusive creation and owned cleanup.
 
-- [ ] **CACHE-01: Explain generator cache decisions without inspecting
+- [x] **CACHE-01: Explain generator cache decisions without inspecting
   private metadata manually.** The CLI uses `.lim/cache` but does not expose
   why an invocation hit, missed, or regenerated a damaged artifact. Add an
   opt-in report identifying the invocation, artifact path, key, and decision:

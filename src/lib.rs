@@ -8,6 +8,7 @@ use std::{
 };
 
 mod borrowcheck;
+mod cache_report;
 mod codegen;
 mod diagnostic_json;
 mod generator;
@@ -19,6 +20,7 @@ mod typecheck;
 mod unsafecheck;
 use source_error::SourceError;
 
+pub use cache_report::with_cache_report;
 pub use codegen::generate_assembly;
 pub use codegen::generate_assembly_for_target;
 pub use diagnostic_json::render_diagnostic_json;
@@ -3168,7 +3170,8 @@ fn rename_pattern_bindings(
 ) {
     match pattern {
         Expr::List(items) => {
-            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "literal" | "range" | "range-inclusive")) {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "literal" | "range" | "range-inclusive"))
+            {
                 return;
             }
             for item in items.iter_mut().skip(1) {

@@ -618,6 +618,21 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     let cached = context
         .cache_dir
         .and_then(|directory| read_cached_expansion(directory, &cache_key));
+    if let Some(directory) = context.cache_dir {
+        let path = cache_path(directory, &cache_key);
+        crate::cache_report::record(
+            "syntax",
+            &path,
+            &cache_key,
+            if cached.is_some() {
+                "hit"
+            } else if path.exists() {
+                "invalid-entry"
+            } else {
+                "missing-entry"
+            },
+        );
+    }
     if cached.is_some() {
         context.cache_hits = context.cache_hits.saturating_add(1);
     }
@@ -940,6 +955,7 @@ pub(crate) fn cached_generated_source(
     cleanup_abandoned_staging(directory);
     if let Some(existing_key) = read_bounded_cache_text(&key_path) {
         if existing_key != key {
+            crate::cache_report::record("source", &path, key, "key-collision");
             return Err(format!(
                 "generated-source cache hash collision at {}",
                 path.display()
@@ -952,11 +968,22 @@ pub(crate) fn cached_generated_source(
             if expected_digest == generated_source_digest(key, &source)
                 && crate::parse(&source).is_ok()
             {
+                crate::cache_report::record("source", &path, key, "hit");
                 return Ok(source);
             }
         }
     }
 
+    crate::cache_report::record(
+        "source",
+        &path,
+        key,
+        if path.exists() || key_path.exists() || digest_path.exists() {
+            "invalid-entry"
+        } else {
+            "missing-entry"
+        },
+    );
     let source = generate()?;
     fs::create_dir_all(directory)
         .map_err(|error| format!("cannot create generated-source cache: {error}"))?;
@@ -1033,7 +1060,7 @@ fn cleanup_abandoned_staging(directory: &Path) {
     }
 }
 
-fn stable_hash(bytes: &[u8]) -> u128 {
+pub(crate) fn stable_hash(bytes: &[u8]) -> u128 {
     let mut hash = 0x6c62272e07bb014262b821756295c58du128;
     for byte in bytes {
         hash ^= u128::from(*byte);
