@@ -476,10 +476,11 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Carry thread-task-handle rejection spans from aggregate, alias, global,
     and function validation; remove those dedicated message-recovery branches
     and retain generated-invocation provenance. UI coverage remains green.
-  - [ ] Remove message-text/name-based fallback span selection from
-    `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
-    identity or explicit provenance for repeated identifiers and generated
-    declarations.
+  - [x] Remove message-text/name-based fallback span selection from
+    `analysis_diagnostic` and delete `unlocated_analysis_span`; duplicate
+    type/global declarations now supply their second-occurrence name spans
+    directly, and generated diagnostics keep invocation provenance. Full tests
+    pass with diagnostics using only structured spans.
   - [x] Preserve user-generator expansion source and invocation provenance;
     cold and cache-hit UI tests independently check both rendered ranges.
   - [x] Preserve builtin-generated declaration source and invocation

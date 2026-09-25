@@ -136,6 +136,8 @@ fn check_types_inner(
             | Item::ThreadTask { name, .. }
                 if !declared_types.insert(name) =>
             {
+                *diagnostic_span = declaration_name_span(program, name);
+                record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                 return Err(format!("duplicate type name '{name}'"));
             }
             _ => {}
@@ -228,6 +230,8 @@ fn check_types_inner(
                 .insert(name.clone(), resolve_type(ty, &aliases)?)
                 .is_some()
             {
+                *diagnostic_span = declaration_name_span(program, name);
+                record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                 return Err(format!("duplicate global '{name}'"));
             }
         }
@@ -2836,6 +2840,15 @@ fn first_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<cr
 }
 
 fn function_name_span(program: &Program, name: &str) -> Option<crate::Span> {
+    program
+        .declaration_expressions
+        .get(name)?
+        .children
+        .get(1)
+        .map(|expression| expression.span)
+}
+
+fn declaration_name_span(program: &Program, name: &str) -> Option<crate::Span> {
     program
         .declaration_expressions
         .get(name)?
