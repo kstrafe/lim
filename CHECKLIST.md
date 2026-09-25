@@ -442,6 +442,11 @@ Each item requires documentation and regression coverage before being checked.
   obligations explicit. Test cross-thread publication and counter updates,
   reject invalid orderings, and document which target guarantees are relied
   upon; stress tests alone are not a memory-model proof.
+  - [x] Fix the API contract: `(#atomic T)` wraps supported integer scalars;
+    `#atomic-init` initializes one; `#atomic-load`, `#atomic-store`, and
+    `#atomic-fetch-add` take an explicit shared reference plus an explicit
+    `#memory-*` order. Load/store order restrictions follow Rust's rules;
+    atomics are Send+Sync only when their scalar width is supported.
 
 ### Priority 4: tooling and implementation quality
 

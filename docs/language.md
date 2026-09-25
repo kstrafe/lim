@@ -65,6 +65,27 @@ references may be stored in structs and enum payloads; they retain an
 exclusive borrow of their source and cannot be cloned. `#cell` is not
 thread-safe and provides no synchronization.
 
+For shared mutable state, use an explicit atomic scalar rather than `#cell`.
+The initial atomic API supports `i8/i16/i32/i64`, `u8/u16/u32/u64`, and
+`usize`, with natural alignment in the native representation:
+
+```lisp
+(#let-mut counter (#atomic u64) (#atomic-init u64 0u64))
+(#atomic-fetch-add (#borrow counter) 1u64 #memory-acq-rel)
+(#let observed u64 (#atomic-load (#borrow counter) #memory-acquire))
+(#atomic-store (#borrow counter) observed #memory-release)
+```
+
+Loads accept `#memory-relaxed`, `#memory-acquire`, or `#memory-seq-cst`;
+stores accept `#memory-relaxed`, `#memory-release`, or `#memory-seq-cst`.
+Fetch-add accepts any of those plus `#memory-acq-rel`. Invalid order/operation
+combinations are compile-time errors. The native `x86_64-sysv` backend relies
+on aligned 8-bit, 16-bit, 32-bit, and 64-bit x86 atomic accesses; acquire and
+release loads/stores use x86 TSO ordering, seq-cst stores use an exchanging
+instruction, and read-modify-write uses a locked instruction. This API is not
+available for `i128` or `u128`. Unsafe `#send`/`#sync` overrides remain the
+author's soundness promise and do not replace atomic operations.
+
 Borrows of struct fields are tracked as places. While `point.x` is borrowed,
 an access to `point.y` is allowed, but an access to `point.x` or to the whole
 `point` is rejected. A field reference derived through a mutable reference
