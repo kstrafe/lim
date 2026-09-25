@@ -1,3 +1,5 @@
+use crate::analysis_error::{failure, Error, Site};
+
 use crate::{Expr, Item, Program, Statement};
 
 pub(crate) fn check_program_with_span(
@@ -28,18 +30,11 @@ pub(crate) fn check_program_with_span(
                 if let Err(error) = check_statement(statement, false, &statics, &external_functions)
                 {
                     let key = (function.name.clone(), index);
-                    let span = program
-                        .statement_expressions
-                        .get(&key)
-                        .and_then(|expression| precise_unsafe_span(expression, &error))
-                        .or_else(|| {
-                            program
-                                .statement_expressions
-                                .get(&key)
-                                .map(crate::source_value_span)
-                        })
+                    let span = error
+                        .site
+                        .and_then(|site| site.span(program))
                         .or_else(|| program.statement_spans.get(&key).copied());
-                    return Err((error, span));
+                    return Err((error.message, span));
                 }
             }
         }
@@ -47,58 +42,13 @@ pub(crate) fn check_program_with_span(
     Ok(())
 }
 
-fn precise_unsafe_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
-    fn visit(
-        expression: &crate::SpannedExpr,
-        target: &str,
-        static_access: bool,
-    ) -> Option<crate::Span> {
-        if static_access && matches!(&expression.expr, Expr::Symbol(name) if name == target) {
-            return Some(expression.span);
-        }
-        if let Expr::List(items) = &expression.expr {
-            if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "#call" | "call"))
-                && matches!(items.get(1), Some(Expr::Symbol(callee)) if callee == target)
-            {
-                return expression.children.get(1).map(|callee| callee.span);
-            }
-            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == target || operator.strip_prefix('#') == Some(target))
-            {
-                return expression.children.first().map(|head| head.span);
-            }
-        }
-        expression
-            .children
-            .iter()
-            .find_map(|child| visit(child, target, static_access))
-    }
-
-    if let Some(target) = error
-        .strip_prefix("unsafe operation '")
-        .and_then(|tail| tail.split('\'').next())
-        .or_else(|| {
-            error
-                .strip_prefix("call to external function '")
-                .and_then(|tail| tail.split('\'').next())
-        })
-    {
-        return visit(expression, target, false);
-    }
-    if let Some(target) = error
-        .strip_prefix("access to static '")
-        .and_then(|tail| tail.split('\'').next())
-    {
-        return visit(expression, target, true);
-    }
-    None
-}
-
 fn check_statement(
     statement: &Statement,
     unsafe_context: bool,
     statics: &std::collections::HashSet<&str>,
     external_functions: &std::collections::HashSet<&str>,
-) -> Result<(), String> {
+) -> Result<(), Error> {
+    let _site = Site::statement(statement).enter();
     match statement {
         Statement::Let { value, .. }
         | Statement::Destructure { value, .. }
@@ -157,7 +107,7 @@ fn check_statements(
     unsafe_context: bool,
     statics: &std::collections::HashSet<&str>,
     external_functions: &std::collections::HashSet<&str>,
-) -> Result<(), String> {
+) -> Result<(), Error> {
     for statement in statements {
         check_statement(statement, unsafe_context, statics, external_functions)?;
     }
@@ -169,7 +119,8 @@ fn check_expression(
     unsafe_context: bool,
     statics: &std::collections::HashSet<&str>,
     external_functions: &std::collections::HashSet<&str>,
-) -> Result<(), String> {
+) -> Result<(), Error> {
+    let _site = Site::expression(expression).enter();
     match expression {
         Expr::List(items) => {
             let operator = items.first().and_then(|item| match item {
@@ -179,16 +130,17 @@ fn check_expression(
             let nested_unsafe = operator == Some("unsafe");
             if let Some(operator) = operator {
                 if external_functions.contains(operator) && !unsafe_context && !nested_unsafe {
-                    return Err(format!(
+                    return Err(failure!(
                         "call to external function '{operator}' requires an enclosing (#unsafe ...) block"
-                    ));
+                    ).child(0));
                 }
             }
             if let Some(Expr::Symbol(name)) = items.get(1) {
                 if statics.contains(name.as_str()) && !unsafe_context && !nested_unsafe {
-                    return Err(format!(
+                    return Err(failure!(
                         "access to static '{name}' requires an enclosing (#unsafe ...) block"
-                    ));
+                    )
+                    .child(1));
                 }
             }
             if matches!(
@@ -204,10 +156,11 @@ fn check_expression(
                 )
             ) && !unsafe_context
             {
-                return Err(format!(
+                return Err(failure!(
                     "unsafe operation '{}' requires an enclosing (#unsafe ...) block",
                     operator.unwrap()
-                ));
+                )
+                .child(0));
             }
             for item in items.iter().skip(1) {
                 check_expression(
@@ -222,7 +175,7 @@ fn check_expression(
             check_statements(statements, unsafe_context, statics, external_functions)?
         }
         Expr::Symbol(name) if statics.contains(name.as_str()) && !unsafe_context => {
-            return Err(format!(
+            return Err(failure!(
                 "access to static '{name}' requires an enclosing (#unsafe ...) block"
             ));
         }

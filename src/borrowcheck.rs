@@ -11,6 +11,8 @@ use std::{
     sync::Arc,
 };
 
+use crate::analysis_error::{failure, Error, Site};
+
 use crate::{Expr, Function, Item, Program, Statement};
 
 const PLACE_SEPARATOR: char = '\u{1f}';
@@ -23,7 +25,8 @@ enum LoanKind {
 
 #[derive(Clone, Default)]
 struct Loans {
-    active: HashMap<String, LoanKind>,
+    active: std::collections::BTreeMap<String, LoanKind>,
+    origins: HashMap<String, Site>,
 }
 
 #[derive(Clone)]
@@ -54,7 +57,7 @@ struct Context {
 }
 
 impl Loans {
-    fn borrow(&mut self, place: &str, kind: LoanKind) -> Result<(), String> {
+    fn borrow(&mut self, place: &str, kind: LoanKind) -> Result<(), Error> {
         if let Some(active) = self.active.iter().find_map(|(active, active_kind)| {
             (active.as_str() != place
                 && places_conflict(active, place)
@@ -64,15 +67,19 @@ impl Loans {
                 ))
             .then_some(active.clone())
         }) {
-            return Err(format!(
+            return Err(failure!(
                 "cannot borrow '{}' because '{}' is already borrowed",
                 display_place(place),
                 display_place(&active)
-            ));
+            )
+            .related(self.origins.get(&active).copied()));
         }
         match (self.active.get(place).copied(), kind) {
             (None, kind) => {
                 self.active.insert(place.to_owned(), kind);
+                if let Some(site) = Site::current() {
+                    self.origins.insert(place.to_owned(), site);
+                }
                 Ok(())
             }
             (Some(LoanKind::Shared(count)), LoanKind::Shared(_)) => {
@@ -80,18 +87,21 @@ impl Loans {
                     .insert(place.to_owned(), LoanKind::Shared(count + 1));
                 Ok(())
             }
-            (Some(LoanKind::Shared(_)), LoanKind::Mutable) => Err(format!(
+            (Some(LoanKind::Shared(_)), LoanKind::Mutable) => Err(failure!(
                 "cannot borrow '{}' mutably because it is already borrowed",
                 display_place(place)
-            )),
-            (Some(LoanKind::Mutable), LoanKind::Shared(_)) => Err(format!(
+            )
+            .related(self.origins.get(place).copied())),
+            (Some(LoanKind::Mutable), LoanKind::Shared(_)) => Err(failure!(
                 "cannot borrow '{}' because it is already borrowed mutably",
                 display_place(place)
-            )),
-            (Some(LoanKind::Mutable), LoanKind::Mutable) => Err(format!(
+            )
+            .related(self.origins.get(place).copied())),
+            (Some(LoanKind::Mutable), LoanKind::Mutable) => Err(failure!(
                 "cannot borrow '{}' mutably because it is already borrowed mutably",
                 display_place(place)
-            )),
+            )
+            .related(self.origins.get(place).copied())),
         }
     }
 
@@ -100,6 +110,7 @@ impl Loans {
             Some(LoanKind::Shared(count)) if *count > 1 => *count -= 1,
             Some(_) => {
                 self.active.remove(place);
+                self.origins.remove(place);
             }
             None => {}
         }
@@ -128,13 +139,13 @@ fn has_child_loan(loans: &Loans, owner: &str) -> bool {
 }
 
 impl Context {
-    fn write(&self, owner: &str) -> Result<(), String> {
+    fn write(&self, owner: &str) -> Result<(), Error> {
         self.write_place(owner, None)
     }
 
-    fn write_place(&self, owner: &str, field: Option<&str>) -> Result<(), String> {
+    fn write_place(&self, owner: &str, field: Option<&str>) -> Result<(), Error> {
         if self.thread_exclusive_owners.contains_key(owner) {
-            return Err(format!(
+            return Err(failure!(
                 "cannot mutate '{owner}' while it is mutably borrowed by a running thread"
             ));
         }
@@ -147,24 +158,26 @@ impl Context {
                 continue;
             }
             if matches!(kind, LoanKind::Shared(_)) {
-                return Err(format!(
+                return Err(failure!(
                     "cannot mutate '{}' while it is immutably borrowed",
                     if loan == owner {
                         owner.to_owned()
                     } else {
                         display_place(&place)
                     }
-                ));
+                )
+                .related(self.loans.origins.get(loan).copied()));
             }
             if !self.scoped_mutable_owners.contains(owner) {
-                return Err(format!(
+                return Err(failure!(
                     "cannot mutate '{}' while it is mutably borrowed",
                     if loan == owner {
                         owner.to_owned()
                     } else {
                         display_place(&place)
                     }
-                ));
+                )
+                .related(self.loans.origins.get(loan).copied()));
             }
         }
         Ok(())
@@ -175,9 +188,9 @@ impl Context {
         owner: &str,
         field: Option<&str>,
         through_mutable_reference: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), Error> {
         if self.thread_exclusive_owners.contains_key(owner) {
-            return Err(format!(
+            return Err(failure!(
                 "cannot access '{owner}' while it is mutably borrowed by a running thread"
             ));
         }
@@ -191,10 +204,11 @@ impl Context {
                 && (!through_mutable_reference || loan != owner)
                 && (!self.scoped_mutable_owners.contains(owner) || loan != owner)
             {
-                return Err(format!(
+                return Err(failure!(
                     "cannot access '{}' while it is mutably borrowed",
                     display_place(&place)
-                ));
+                )
+                .related(self.loans.origins.get(loan).copied()));
             }
         }
         Ok(())
@@ -343,7 +357,7 @@ fn check_function(
     thread_spawn_functions: &HashMap<String, Vec<crate::Type>>,
     thread_join_functions: &HashSet<String>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
-    statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
+    _statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
 ) -> Result<(), BorrowDiagnostic> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
@@ -403,262 +417,38 @@ fn check_function(
             } else {
                 LoanKind::Shared(1)
             };
-            context.loans.borrow(&parameter.name, kind)?;
+            context
+                .loans
+                .borrow(&parameter.name, kind)
+                .map_err(|error| BorrowDiagnostic::from(error.message))?;
         }
     }
     for (statement_index, statement) in function.body.iter().enumerate() {
         if let Err(error) = check_statement(statement, &mut context) {
-            return Err(format_borrow_diagnostic(
-                error,
-                function,
-                statement_index,
-                statement_spans
-                    .get(&(function.name.clone(), statement_index))
-                    .copied(),
-                statement_expressions.get(&(function.name.clone(), statement_index)),
-                statement_expressions,
-            ));
+            return Err(BorrowDiagnostic {
+                message: format!(
+                    "E4100 borrow-checker diagnostic in function '{}' statement {}: {}",
+                    function.name, statement_index, error.message
+                ),
+                span: error.site.and_then(|site| site.span(program)).or_else(|| {
+                    statement_spans
+                        .get(&(function.name.clone(), statement_index))
+                        .copied()
+                }),
+                labels: error
+                    .related
+                    .into_iter()
+                    .filter_map(|site| site.span(program))
+                    .map(|span| (span, "borrow begins here".into()))
+                    .collect(),
+            });
         }
     }
     Ok(())
 }
 
-fn format_borrow_diagnostic(
-    error: String,
-    function: &Function,
-    statement_index: usize,
-    exact_conflict_span: Option<crate::Span>,
-    statement_expression: Option<&crate::SpannedExpr>,
-    function_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
-) -> BorrowDiagnostic {
-    let owner = error
-        .split('\'')
-        .nth(1)
-        .filter(|name| !name.is_empty())
-        .unwrap_or("<unknown>");
-    let exact_conflict_span = exact_conflict_span.and_then(|statement_span| {
-        statement_expression
-            .and_then(|expression| conflict_operator_source_span(expression, owner, &error))
-            .or_else(|| {
-                statement_expression.and_then(|expression| {
-                    find_accessed_source_symbol(expression, &place_name_candidates(owner))
-                })
-            })
-            .or_else(|| statement_expression.map(crate::source_value_span))
-            .or(Some(statement_span))
-    });
-    let spans = source_spans(
-        function_expressions,
-        &function.name,
-        owner,
-        exact_conflict_span,
-    );
-    BorrowDiagnostic {
-        message: format!(
-            "E4100 borrow-checker diagnostic in function '{}' statement {}: {}",
-            function.name, statement_index, error
-        ),
-        span: exact_conflict_span,
-        labels: spans
-            .into_iter()
-            .map(|span| (span, "borrow begins here".to_owned()))
-            .collect(),
-    }
-}
-
-fn find_accessed_source_symbol(
-    expression: &crate::SpannedExpr,
-    names: &[&str],
-) -> Option<crate::Span> {
-    if matches!(&expression.expr, Expr::Symbol(name) if names.contains(&name.as_str())) {
-        return Some(expression.span);
-    }
-    let Expr::List(items) = &expression.expr else {
-        return expression
-            .children
-            .iter()
-            .find_map(|child| find_accessed_source_symbol(child, names));
-    };
-    let head = match items.first() {
-        Some(Expr::Symbol(name)) => name.as_str(),
-        _ => "",
-    };
-    match head {
-        "#get" | "get" | "#get-payload" | "get-payload" => expression
-            .children
-            .get(1)
-            .and_then(|base| find_accessed_source_symbol(base, names)),
-        "#call" | "call" => expression
-            .children
-            .get(2)
-            .and_then(|arguments| find_accessed_source_symbol(arguments, names)),
-        "#struct-literal" | "struct-literal" => expression
-            .children
-            .get(2)
-            .into_iter()
-            .flat_map(|fields| &fields.children)
-            .filter_map(|field| field.children.get(1))
-            .find_map(|value| find_accessed_source_symbol(value, names)),
-        _ => expression
-            .children
-            .iter()
-            .skip(1)
-            .find_map(|child| find_accessed_source_symbol(child, names)),
-    }
-}
-
-fn source_spans(
-    expressions: &HashMap<(String, usize), crate::SpannedExpr>,
-    function_name: &str,
-    needle: &str,
-    conflict: Option<crate::Span>,
-) -> Vec<crate::Span> {
-    let full_path = needle.trim_end_matches(".*").split('.').collect::<Vec<_>>();
-    let mut statements = expressions
-        .iter()
-        .filter(|((name, _), _)| name == function_name)
-        .collect::<Vec<_>>();
-    statements.sort_by_key(|((_, index), _)| *index);
-
-    let mut aliases = HashMap::<String, HashSet<String>>::new();
-    let mut sites = Vec::new();
-    for (_, statement) in statements {
-        if conflict.is_some_and(|span| statement.span.start >= span.start) {
-            break;
-        }
-        if let Expr::List(items) = &statement.expr {
-            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
-            {
-                if let (Some(Expr::Symbol(binding)), Some(value)) =
-                    (items.get(1), statement.children.get(3))
-                {
-                    let mut borrow_forms = Vec::new();
-                    collect_borrow_forms(value, &mut borrow_forms);
-                    let mut origins = HashSet::new();
-                    for form in borrow_forms {
-                        if let Some(argument) = form.children.get(1) {
-                            collect_source_symbols(argument, &mut origins);
-                        }
-                    }
-                    if !origins.is_empty() {
-                        aliases.insert(binding.clone(), origins);
-                    }
-                }
-            }
-        }
-        let mut borrow_forms = Vec::new();
-        collect_borrow_forms(statement, &mut borrow_forms);
-        for form in borrow_forms {
-            let Some(operator) = form.children.first() else {
-                continue;
-            };
-            if conflict.is_some_and(|span| operator.span.start >= span.start) {
-                continue;
-            }
-            let Some(argument) = form.children.get(1) else {
-                continue;
-            };
-            let mut names = HashSet::new();
-            collect_source_symbols(argument, &mut names);
-            let mut expanded = names.clone();
-            for name in &names {
-                if let Some(origins) = aliases.get(name) {
-                    expanded.extend(origins.iter().cloned());
-                }
-            }
-            if names.contains(needle) || full_path.iter().all(|part| expanded.contains(*part)) {
-                sites.push(operator.span);
-            }
-        }
-    }
-    sites
-        .into_iter()
-        .max_by_key(|span| span.start)
-        .map(|span| vec![span])
-        .unwrap_or_default()
-}
-
-fn collect_borrow_forms<'a>(
-    expression: &'a crate::SpannedExpr,
-    forms: &mut Vec<&'a crate::SpannedExpr>,
-) {
-    if let Expr::List(items) = &expression.expr {
-        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#borrow" | "#borrow-mut"))
-        {
-            forms.push(expression);
-        }
-    }
-    for child in &expression.children {
-        collect_borrow_forms(child, forms);
-    }
-}
-
-fn collect_source_symbols(expression: &crate::SpannedExpr, names: &mut HashSet<String>) {
-    if let Expr::Symbol(name) = &expression.expr {
-        names.insert(name.clone());
-    }
-    for child in &expression.children {
-        collect_source_symbols(child, names);
-    }
-}
-
-fn conflict_operator_source_span(
-    expression: &crate::SpannedExpr,
-    owner: &str,
-    error: &str,
-) -> Option<crate::Span> {
-    let owner_names = place_name_candidates(owner);
-    if error.starts_with("cannot access") {
-        return find_accessed_source_symbol(expression, &owner_names);
-    }
-    fn visit(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
-        let Expr::List(items) = &expression.expr else {
-            return None;
-        };
-        let operator = match items.first() {
-            Some(Expr::Symbol(name)) => name.as_str(),
-            _ => "",
-        };
-        let matches_operator = if error.starts_with("cannot borrow") {
-            matches!(operator, "#borrow" | "#borrow-mut")
-        } else if error.starts_with("cannot mutate") || error.starts_with("cannot write") {
-            operator.starts_with("#set") || operator == "#deref-set"
-        } else {
-            false
-        };
-        let own = matches_operator
-            .then(|| expression.children.first().map(|head| head.span))
-            .flatten();
-        let nested = expression
-            .children
-            .iter()
-            .filter_map(|child| visit(child, error))
-            .max_by_key(|span| span.start);
-        match (own, nested) {
-            (Some(own), Some(nested)) => Some(if own.start > nested.start {
-                own
-            } else {
-                nested
-            }),
-            (Some(span), None) | (None, Some(span)) => Some(span),
-            (None, None) => None,
-        }
-    }
-    visit(expression, error)
-}
-
-fn place_name_candidates(place: &str) -> Vec<&str> {
-    let mut candidates = vec![place];
-    if let Some((root, _)) = place.split_once('.') {
-        candidates.push(root);
-    }
-    if let Some((root, _)) = place.split_once('[') {
-        candidates.push(root);
-    }
-    candidates
-}
-
-fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), String> {
+fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), Error> {
+    let _site = Site::statement(statement).enter();
     match statement {
         Statement::Let {
             name,
@@ -666,6 +456,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
             value,
             mutable,
         } => {
+            let _origin = Site::expression(value).enter();
             let contains_references = contains_reference_type(ty, &context.reference_types);
             let origins = reference_origins(value, context, contains_references);
             let derived_parent = borrowed_field_parent(value);
@@ -816,7 +607,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
             if matches!(statement, Statement::Assign { .. })
                 && context.reference_origins.contains_key(name)
             {
-                return Err(format!(
+                return Err(failure!(
                     "cannot replace '{name}' while it retains references"
                 ));
             }
@@ -872,7 +663,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), S
             check_expression(value, context)?;
             for owner in reference_origins(value, context, context.return_contains_references) {
                 if !context.returnable.contains(&owner) {
-                    return Err(format!(
+                    return Err(failure!(
                         "cannot return a value retaining a reference to local '{owner}'"
                     ));
                 }
@@ -919,7 +710,7 @@ fn bind_pattern_references(
     ty: &crate::Type,
     value: &Expr,
     context: &mut Context,
-) -> Result<(), String> {
+) -> Result<(), Error> {
     let inherited_origins = reference_origins(value, context, true);
     let mut inherited_fields = match value {
         Expr::Symbol(name) => context
@@ -1092,7 +883,7 @@ fn bind_pattern_reference_fields(
     inherited_loans: &[(String, String)],
     inherited_fields: &HashMap<Vec<usize>, (HashSet<String>, Vec<(String, String)>)>,
     path: &mut Vec<usize>,
-) -> Result<(), String> {
+) -> Result<(), Error> {
     if let Expr::Symbol(name) = pattern {
         if name == "_" || !type_contains_reference(ty, &context.program_items, &mut HashSet::new())
         {
@@ -1121,10 +912,13 @@ fn bind_pattern_reference_fields(
             LoanKind::Shared(1)
         };
         for (owner, loan) in &loans {
-            context
-                .loans
-                .borrow(loan, kind)
-                .map_err(|error| format!("cannot destructure reference into '{name}': {error}"))?;
+            context.loans.borrow(loan, kind).map_err(|mut error| {
+                error.message = format!(
+                    "cannot destructure reference into '{name}': {}",
+                    error.message
+                );
+                error
+            })?;
             if mutable && loan != owner {
                 context.loans.active.remove(owner);
             }
@@ -1231,20 +1025,20 @@ fn bind_pattern_reference_fields(
     Ok(())
 }
 
-fn check_statements(statements: &[Statement], context: &mut Context) -> Result<(), String> {
+fn check_statements(statements: &[Statement], context: &mut Context) -> Result<(), Error> {
     for statement in statements {
         check_statement(statement, context)?;
     }
     Ok(())
 }
 
-fn check_loop_iteration(statements: &[Statement], context: &Context) -> Result<(), String> {
+fn check_loop_iteration(statements: &[Statement], context: &Context) -> Result<(), Error> {
     let mut iteration = context.clone();
     check_statements(statements, &mut iteration)?;
     ensure_loop_thread_state(context, &iteration)
 }
 
-fn ensure_loop_thread_state(before: &Context, after: &Context) -> Result<(), String> {
+fn ensure_loop_thread_state(before: &Context, after: &Context) -> Result<(), Error> {
     if before.thread_task_loans != after.thread_task_loans
         || before.thread_exclusive_owners != after.thread_exclusive_owners
     {
@@ -1255,7 +1049,8 @@ fn ensure_loop_thread_state(before: &Context, after: &Context) -> Result<(), Str
     Ok(())
 }
 
-fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), String> {
+fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Error> {
+    let _site = Site::expression(expression).enter();
     match expression {
         Expr::List(items) => {
             if let Some(Expr::Symbol(operator)) = items.first() {
@@ -1321,16 +1116,17 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                         if items.len() == 2 {
                             let origins = borrow_place_origins(&items[1], context);
                             if origins.is_empty() {
-                                return Err(format!("{operator} place has no tracked owner"));
+                                return Err(failure!("{operator} place has no tracked owner"));
                             }
                             if !context.allow_local_reference {
                                 if let Some(owner) = origins
                                     .iter()
                                     .find(|owner| !context.returnable.contains(*owner))
                                 {
-                                    return Err(format!(
+                                    return Err(failure!(
                                         "cannot return a reference to local variable '{owner}'"
-                                    ));
+                                    )
+                                    .child(1));
                                 }
                             }
                             if let Some((base, path)) = projection_path(&items[1]) {
@@ -1344,13 +1140,13 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                             }
                             return Ok(());
                         }
-                        return Err(format!(
+                        return Err(failure!(
                             "{operator} requires a place, with an optional body"
                         ));
                     }
                     let origins = borrow_place_origins(&items[1], context);
                     if origins.is_empty() {
-                        return Err(format!("{operator} place has no tracked owner"));
+                        return Err(failure!("{operator} place has no tracked owner"));
                     }
                     let loans = borrow_place_loans(&items[1], context);
                     let kind = if operator == "borrow" {
@@ -1472,7 +1268,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
         }
         Expr::Symbol(name) => {
             if context.suspended_references.contains(name) {
-                return Err(format!(
+                return Err(failure!(
                     "cannot use reference '{name}' while a derived field reference is active"
                 ));
             }
@@ -1480,12 +1276,12 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                 && !context.scoped_mutable_owners.contains(name)
                 && !context.reference_bindings.contains(name)
             {
-                return Err(format!(
+                return Err(failure!(
                     "cannot access '{name}' while it is mutably borrowed"
                 ));
             }
             if context.thread_exclusive_owners.contains_key(name) {
-                return Err(format!(
+                return Err(failure!(
                     "cannot access '{name}' while it is mutably borrowed by a running thread"
                 ));
             }
@@ -1662,7 +1458,7 @@ fn apply_thread_match_arm(
     pattern: &Expr,
     guarded: bool,
     context: &mut Context,
-) -> Result<(), String> {
+) -> Result<(), Error> {
     if guarded {
         return Err("thread result matches cannot use guarded arms".into());
     }
@@ -1714,7 +1510,7 @@ fn start_thread_task_loans(
     destination: &str,
     loans: &[(String, LoanKind)],
     context: &mut Context,
-) -> Result<(), String> {
+) -> Result<(), Error> {
     for (owner, kind) in loans {
         context.loans.borrow(owner, *kind)?;
         if *kind == LoanKind::Mutable {
@@ -1829,7 +1625,7 @@ fn static_index_segment(expression: &Expr) -> Option<String> {
     }
 }
 
-fn check_projection_base(base: &Expr, context: &mut Context) -> Result<(), String> {
+fn check_projection_base(base: &Expr, context: &mut Context) -> Result<(), Error> {
     if matches!(base, Expr::Symbol(name) if context.suspended_references.contains(name)) {
         Ok(())
     } else {

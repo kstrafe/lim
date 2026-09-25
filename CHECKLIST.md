@@ -778,7 +778,7 @@ commit, documentation, and focused regression coverage.
   imports, and cold/warm generator caches. Native tests must retain explicit
   spawn failure, successful join, and failed-join handle ownership behavior.
 
-- [ ] **DIAG-04: Remove diagnostic-message parsing from ownership and unsafe
+- [x] **DIAG-04: Remove diagnostic-message parsing from ownership and unsafe
   analysis.** `precise_unsafe_span` in `src/unsafecheck.rs`, borrow diagnostic
   recovery in `src/borrowcheck.rs`, and location selection in
   `src/linearcheck.rs` still extract names or error kinds from English text.

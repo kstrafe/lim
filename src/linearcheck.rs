@@ -1,13 +1,15 @@
 use std::collections::HashSet;
 
+use crate::analysis_error::{failure, Error, Site};
+
 use crate::{Expr, Item, Program, Statement, Type};
 
 // Local renaming assigns each binding a unique name before this pass. Keep
 // that opaque identity separate from projections; punctuation is never syntax.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
 struct BindingId(String);
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
 enum Projection {
     Field(String),
     Tuple(usize),
@@ -16,7 +18,7 @@ enum Projection {
     UnknownIndex,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
 struct Place {
     binding: BindingId,
     projections: Vec<Projection>,
@@ -68,8 +70,61 @@ impl std::fmt::Display for Place {
     }
 }
 
+#[derive(Clone, Default)]
+struct Moves {
+    places: HashSet<Place>,
+    sites: std::collections::HashMap<Place, Site>,
+}
+impl PartialEq for Moves {
+    fn eq(&self, other: &Self) -> bool {
+        self.places == other.places
+    }
+}
+impl std::ops::Deref for Moves {
+    type Target = HashSet<Place>;
+    fn deref(&self) -> &Self::Target {
+        &self.places
+    }
+}
+impl std::ops::DerefMut for Moves {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.places
+    }
+}
+impl Moves {
+    fn insert(&mut self, place: Place) -> bool {
+        if self.places.insert(place.clone()) {
+            if let Some(site) = Site::current() {
+                self.sites.insert(place, site);
+            }
+            true
+        } else {
+            false
+        }
+    }
+    fn prior(&self, place: &Place) -> Option<Site> {
+        self.places
+            .iter()
+            .filter(|prior| prior.conflicts(place))
+            .min()
+            .and_then(|prior| self.sites.get(prior).copied())
+    }
+    fn merged(&self, other: &Self) -> Self {
+        let mut result = self.clone();
+        result.places.extend(other.places.iter().cloned());
+        result.sites.extend(
+            other
+                .sites
+                .iter()
+                .map(|(place, site)| (place.clone(), *site)),
+        );
+        result
+    }
+}
+
 #[derive(Default)]
 struct LinearTypes {
+    binding_sites: std::cell::RefCell<std::collections::HashMap<String, Site>>,
     aliases: std::collections::HashMap<String, Type>,
     structs: std::collections::HashMap<String, Vec<Type>>,
     enums: std::collections::HashMap<String, std::collections::HashMap<String, Vec<Type>>>,
@@ -79,7 +134,7 @@ struct LinearTypes {
 /// once; Copy values and references do not create an ownership obligation.
 pub(crate) fn check_program_with_span(
     program: &Program,
-) -> Result<(), (String, Option<crate::Span>)> {
+) -> Result<(), (String, Option<crate::Span>, Vec<(crate::Span, String)>)> {
     let mut types = LinearTypes::default();
     for item in &program.items {
         match item {
@@ -117,7 +172,7 @@ pub(crate) fn check_program_with_span(
             .filter(|parameter| is_linear(&parameter.ty, &types, &mut HashSet::new()))
             .map(|p| p.name.clone())
             .collect::<HashSet<_>>();
-        let mut moved = HashSet::new();
+        let mut moved = Moves::default();
         for (index, statement) in function.body.iter().enumerate() {
             if let Err(error) = check_statements(
                 std::slice::from_ref(statement),
@@ -127,129 +182,32 @@ pub(crate) fn check_program_with_span(
                 &types,
             ) {
                 let key = (function.name.clone(), index);
-                let precise = program
-                    .statement_expressions
-                    .get(&key)
-                    .and_then(|expression| precise_linear_span(expression, &error))
-                    .or_else(|| {
-                        error.contains("must be consumed").then(|| {
-                            function.body.iter().enumerate().find_map(|(index, _)| {
-                                let expression = program
-                                    .statement_expressions
-                                    .get(&(function.name.clone(), index))?;
-                                let Expr::List(items) = &expression.expr else {
-                                    return None;
-                                };
-                                if !matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
-                                {
-                                    return None;
-                                }
-                                match (items.get(1), expression.children.get(1)) {
-                                    (Some(Expr::Symbol(binding)), Some(binding_span))
-                                        if binding == error.split('\'').nth(1)? =>
-                                    {
-                                        Some(binding_span.span)
-                                    }
-                                    _ => None,
-                                }
-                            })
-                        })
-                        .flatten()
-                    });
-                let span = precise
-                    .or_else(|| {
-                        program
-                            .statement_expressions
-                            .get(&key)
-                            .map(crate::source_value_span)
-                    })
+                let span = error
+                    .site
+                    .and_then(|site| site.span(program))
                     .or_else(|| program.statement_spans.get(&key).copied());
-                return Err((error, span));
+                let labels = error
+                    .related
+                    .into_iter()
+                    .filter_map(|site| site.span(program))
+                    .map(|span| (span, "value consumed here".into()))
+                    .collect();
+                return Err((error.message, span, labels));
             }
         }
     }
     Ok(())
 }
 
-fn precise_linear_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
-    let name = error.split('\'').nth(1)?;
-    fn source_place_key(expression: &crate::SpannedExpr) -> Option<String> {
-        match &expression.expr {
-            Expr::Symbol(name) => Some(name.clone()),
-            Expr::List(items) if items.len() == 3 => {
-                let head = match items.first()? {
-                    Expr::Symbol(head) => head.strip_prefix('#').unwrap_or(head),
-                    _ => return None,
-                };
-                let mut base = source_place_key(expression.children.get(1)?)?;
-                match head {
-                    "get" => match &items[2] {
-                        Expr::Symbol(field) => base.push_str(&format!(".{field}")),
-                        Expr::Integer(index) => base.push_str(&format!(".{index}")),
-                        _ => base.push_str(".*"),
-                    },
-                    "index" => match literal_index(&items[2]) {
-                        Some(index) => base.push_str(&format!("[{index}]")),
-                        None => base.push_str("[*]"),
-                    },
-                    _ => return None,
-                }
-                Some(base)
-            }
-            Expr::List(items) if items.len() == 4 => {
-                let head = match items.first()? {
-                    Expr::Symbol(head) => head.strip_prefix('#').unwrap_or(head),
-                    _ => return None,
-                };
-                if head != "get-payload" {
-                    return None;
-                }
-                let mut base = source_place_key(expression.children.get(1)?)?;
-                if let Expr::Symbol(variant) = &items[2] {
-                    base.push_str(&format!(".{variant}"));
-                } else {
-                    base.push_str(".*");
-                }
-                match literal_index(&items[3]) {
-                    Some(index) => base.push_str(&format!(".{index}")),
-                    None => base.push_str(".*"),
-                }
-                Some(base)
-            }
-            _ => None,
-        }
-    }
-    fn occurrences<'a>(
-        expression: &'a crate::SpannedExpr,
-        name: &str,
-        spans: &mut Vec<crate::Span>,
-    ) {
-        if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name)
-            || source_place_key(expression).as_deref() == Some(name)
-        {
-            spans.push(expression.span);
-        }
-        for child in &expression.children {
-            occurrences(child, name, spans);
-        }
-    }
-    let mut spans = Vec::new();
-    occurrences(expression, name, &mut spans);
-    if error.contains("was used more than once") {
-        spans.into_iter().max_by_key(|span| span.start)
-    } else {
-        spans.into_iter().next()
-    }
-}
-
 fn check_statements(
     statements: &[Statement],
     bindings: &mut HashSet<String>,
-    moved: &mut HashSet<Place>,
+    moved: &mut Moves,
     globals: &HashSet<String>,
     types: &LinearTypes,
-) -> Result<(), String> {
+) -> Result<(), Error> {
     for statement in statements {
+        let _site = Site::statement(statement).enter();
         match statement {
             Statement::Let {
                 name, ty, value, ..
@@ -257,6 +215,10 @@ fn check_statements(
                 check_expr(value, bindings, moved, globals, false)?;
                 if is_linear(ty, types, &mut HashSet::new()) {
                     bindings.insert(name.clone());
+                    types
+                        .binding_sites
+                        .borrow_mut()
+                        .insert(name.clone(), Site::statement(statement));
                 }
                 moved.remove(&Place::root(name));
             }
@@ -289,7 +251,7 @@ fn check_statements(
                 check_expr(value, bindings, moved, globals, false)?;
                 if bindings.contains(name) {
                     if !moved.contains(&Place::root(name)) {
-                        return Err(format!("assignment would destroy live linear value '{name}'; consume it explicitly first"));
+                        return Err(failure!("assignment would destroy live linear value '{name}'; consume it explicitly first"));
                     }
                     moved.remove(&Place::root(name));
                 }
@@ -332,7 +294,11 @@ fn check_statements(
                     .iter()
                     .find(|name| !moved.contains(&Place::root(name)))
                 {
-                    return Err(format!("linear value '{name}' must be consumed before returning; use it, pass it to a destruction function, or explicitly (#forget {name})"));
+                    let mut error = failure!("linear value '{name}' must be consumed before returning; use it, pass it to a destruction function, or explicitly (#forget {name})");
+                    if let Some(site) = types.binding_sites.borrow().get(name) {
+                        error = error.at(*site);
+                    }
+                    return Err(error);
                 }
             }
             Statement::Expr(expr) | Statement::BreakValue(expr) => {
@@ -365,10 +331,10 @@ fn check_statements(
                     .collect::<HashSet<_>>();
                 for name in &moved_by_body {
                     if !assigned_before_read(body, place_root(name)) {
-                        return Err(format!("loop body moves '{name}' before the next iteration can restore it; clone the value"));
+                        return Err(failure!("loop body moves '{name}' before the next iteration can restore it; clone the value"));
                     }
                 }
-                moved.extend(body_moved);
+                *moved = moved.merged(&body_moved);
             }
             Statement::Loop { body } => {
                 let mut body_moved = moved.clone();
@@ -546,14 +512,15 @@ fn collect_pattern_names(pattern: &Expr, bindings: &mut HashSet<String>) {
 fn check_expr(
     expr: &Expr,
     bindings: &HashSet<String>,
-    moved: &mut HashSet<Place>,
+    moved: &mut Moves,
     globals: &HashSet<String>,
     place: bool,
-) -> Result<(), String> {
+) -> Result<(), Error> {
+    let _site = Site::expression(expr).enter();
     match expr {
         Expr::Symbol(name) if bindings.contains(name) && !place => {
             if has_move_conflict(moved, &Place::root(name)) {
-                return Err(format!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy"));
+                return Err(failure!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy").related(moved.prior(&Place::root(name))));
             }
             moved.insert(Place::root(name));
         }
@@ -572,7 +539,8 @@ fn check_expr(
                     let root = place_root(&key);
                     if bindings.contains(root) {
                         if moved.iter().any(|existing| existing.covers(&key)) {
-                            return Err(format!("linear value '{key}' was already consumed"));
+                            return Err(failure!("linear value '{key}' was already consumed")
+                                .related(moved.prior(&key)));
                         }
                         moved.retain(|existing| !key.covers(existing));
                         moved.insert(key);
@@ -591,7 +559,7 @@ fn check_expr(
                 require_same_consumption(bindings, &left, &right)?;
                 // Both branches have consumed exactly the same outer places,
                 // so the union now also represents definite consumption.
-                *moved = left.union(&right).cloned().collect();
+                *moved = left.merged(&right);
             } else if head == "match" && items.len() >= 3 {
                 check_expr(&items[1], bindings, moved, globals, false)?;
                 let after_scrutinee = moved.clone();
@@ -642,7 +610,7 @@ fn check_expr(
                     }
                     *moved = exits
                         .into_iter()
-                        .reduce(|a, b| a.union(&b).cloned().collect())
+                        .reduce(|a, b| a.merged(&b))
                         .unwrap_or_default();
                 }
             } else if head == "while-let" && items.len() >= 4 {
@@ -670,13 +638,13 @@ fn check_expr(
                     check_expr(otherwise, bindings, &mut else_state, globals, false)?;
                 }
                 require_same_consumption(bindings, &then_state, &else_state)?;
-                *moved = then_state.union(&else_state).cloned().collect();
+                *moved = then_state.merged(&else_state);
             } else if matches!(head, "&&" | "||") && items.len() == 3 {
                 check_expr(&items[1], bindings, moved, globals, false)?;
                 let mut taken = moved.clone();
                 check_expr(&items[2], bindings, &mut taken, globals, false)?;
                 require_same_consumption(bindings, moved, &taken)?;
-                *moved = moved.union(&taken).cloned().collect();
+                *moved = moved.merged(&taken);
             } else if head == "unsafe" || head == "block" {
                 for arg in items.iter().skip(1) {
                     check_expr(arg, bindings, moved, globals, false)?;
@@ -688,7 +656,7 @@ fn check_expr(
                 if !place {
                     if let Some(key) = place_key(expr) {
                         if has_move_conflict(moved, &key) {
-                            return Err(format!("linear projection '{key}' was used more than once; clone it explicitly"));
+                            return Err(failure!("linear projection '{key}' was used more than once; clone it explicitly").related(moved.prior(&key)));
                         }
                         moved.insert(key);
                     } else if let Some(base) = items.get(1) {
@@ -792,14 +760,12 @@ fn simple_place_name(expr: &Expr) -> Option<&str> {
     }
 }
 
-fn check_clone(
-    expr: &Expr,
-    bindings: &HashSet<String>,
-    moved: &HashSet<Place>,
-) -> Result<(), String> {
+fn check_clone(expr: &Expr, bindings: &HashSet<String>, moved: &Moves) -> Result<(), Error> {
     if let Some(key) = place_key(expr) {
         if bindings.contains(place_root(&key)) && has_move_conflict(moved, &key) {
-            return Err(format!("cannot clone moved linear value '{key}'"));
+            return Err(
+                failure!("cannot clone moved linear value '{key}'").related(moved.prior(&key))
+            );
         }
     }
     Ok(())
@@ -857,24 +823,24 @@ fn literal_index(expr: &Expr) -> Option<String> {
     }
 }
 
-fn has_move_conflict(moved: &HashSet<Place>, key: &Place) -> bool {
+fn has_move_conflict(moved: &Moves, key: &Place) -> bool {
     moved.iter().any(|existing| existing.conflicts(key))
 }
 
 fn check_scoped_statements(
     statements: &[Statement],
     bindings: &mut HashSet<String>,
-    moved: &mut HashSet<Place>,
+    moved: &mut Moves,
     globals: &HashSet<String>,
     types: &LinearTypes,
-) -> Result<(), String> {
+) -> Result<(), Error> {
     let outer = bindings.clone();
     check_statements(statements, bindings, moved, globals, types)?;
     if let Some(name) = bindings
         .iter()
         .find(|name| !outer.contains(*name) && !moved.contains(&Place::root(name)))
     {
-        return Err(format!("linear value '{name}' must be consumed before leaving its scope; use it, pass it to a destruction function, or explicitly (#forget {name})"));
+        return Err(failure!("linear value '{name}' must be consumed before leaving its scope; use it, pass it to a destruction function, or explicitly (#forget {name})"));
     }
     bindings.retain(|name| outer.contains(name));
     moved.retain(|name| outer.contains(place_root(name)));
@@ -883,9 +849,9 @@ fn check_scoped_statements(
 
 fn require_same_consumption(
     bindings: &HashSet<String>,
-    left: &HashSet<Place>,
-    right: &HashSet<Place>,
-) -> Result<(), String> {
+    left: &Moves,
+    right: &Moves,
+) -> Result<(), Error> {
     for binding in bindings {
         let left_places = left
             .iter()
@@ -896,7 +862,7 @@ fn require_same_consumption(
             .filter(|place| place_root(place) == binding)
             .collect::<HashSet<_>>();
         if left_places != right_places {
-            return Err(format!(
+            return Err(failure!(
                 "linear value '{binding}' must be consumed consistently on every control-flow path"
             ));
         }
@@ -960,10 +926,11 @@ fn expression_mentions(expression: &Expr, name: &str) -> bool {
 fn check_expr_with_place(
     expr: &Expr,
     bindings: &HashSet<String>,
-    moved: &mut HashSet<Place>,
+    moved: &mut Moves,
     globals: &HashSet<String>,
     borrowed_place: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), Error> {
+    let _site = Site::expression(expr).enter();
     if let (Expr::Symbol(name), Some(place)) = (expr, borrowed_place) {
         if name == place {
             return Ok(());
@@ -988,7 +955,7 @@ fn check_expr_with_place(
         ),
         Expr::Symbol(name) if bindings.contains(name) => {
             if !moved.insert(Place::root(name)) {
-                Err(format!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy"))
+                Err(failure!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy"))
             } else {
                 Ok(())
             }

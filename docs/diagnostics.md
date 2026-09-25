@@ -31,3 +31,16 @@ rendering separately accounts for tabs and displayed character widths.
 Imported and generated sources keep their own paths and ranges. Cold and
 cached semantic expansion failures carry the same invocation provenance.
 CLI/IO failures can lack a source range; consumers must handle null locations.
+## Ownership and unsafe source identity
+
+Borrow, linear, and unsafe violations carry the failing AST node identity
+and a structural focus (operand, operation, or binding). The immutable
+analysis pass resolves these identities through named-call reordering,
+aggregate lowering, shadowing, and nested statement forms into source spans.
+English diagnostic messages are not searched for names or error kinds.
+Loans retain their creation site and moved places retain their consuming
+site; conflicts can label those sites separately from the failing access.
+Diagnostic-only scope guards restore the active site on return or unwinding
+and isolate concurrent compiler calls. No AST address escapes into the public
+diagnostic or cache. Regression tests replace error wording while checking
+the exact primary and secondary ranges.

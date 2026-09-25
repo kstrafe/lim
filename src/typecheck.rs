@@ -738,6 +738,7 @@ fn check_types_inner(
                         value,
                         crate::source_value_expression(declaration),
                         error.origin,
+                        false,
                         &functions,
                         &structs,
                     );
@@ -756,8 +757,9 @@ fn check_types_inner(
     }
     check_thread_task_ownership(program, &aliases, diagnostic_span, diagnostic_labels)?;
     *diagnostic_code = crate::DiagnosticCode::Linear;
-    crate::linearcheck::check_program_with_span(program).map_err(|(message, span)| {
+    crate::linearcheck::check_program_with_span(program).map_err(|(message, span, labels)| {
         *diagnostic_span = span;
+        *diagnostic_labels = labels;
         message
     })?;
     *diagnostic_code = crate::DiagnosticCode::Borrow;
@@ -2337,6 +2339,7 @@ fn check_function(
                         statement,
                         expression,
                         error.origin,
+                        false,
                         functions,
                         structs,
                     );
@@ -2403,23 +2406,172 @@ impl From<SemanticError> for FunctionTypeError {
 
 // Addresses are used only as identities while this immutable AST is borrowed;
 // they are never dereferenced or retained beyond the diagnostic construction.
+pub(crate) fn analysis_node_source(
+    program: &Program,
+    node: usize,
+    statement: bool,
+) -> Option<&crate::SpannedExpr> {
+    let mut functions = HashMap::new();
+    let mut structs = HashMap::new();
+    for item in &program.items {
+        match item {
+            Item::Function(function) => {
+                functions.insert(
+                    function.name.clone(),
+                    Signature {
+                        type_parameters: Vec::new(),
+                        parameters: Vec::new(),
+                        parameter_names: function
+                            .parameters
+                            .iter()
+                            .map(|p| p.name.clone())
+                            .collect(),
+                        return_type: Type::Unit,
+                    },
+                );
+            }
+            Item::ThreadTask {
+                generated_functions,
+                ..
+            } => {
+                for function in generated_functions {
+                    functions.insert(
+                        function.name.clone(),
+                        Signature {
+                            type_parameters: Vec::new(),
+                            parameters: Vec::new(),
+                            parameter_names: function
+                                .parameters
+                                .iter()
+                                .map(|p| p.name.clone())
+                                .collect(),
+                            return_type: Type::Unit,
+                        },
+                    );
+                }
+            }
+            Item::Struct { name, fields, .. } => {
+                structs.insert(name.clone(), fields.clone());
+            }
+            _ => {}
+        }
+    }
+    for item in &program.items {
+        if let Item::Function(function) = item {
+            for (index, value) in function.body.iter().enumerate() {
+                if let Some(source) = program
+                    .statement_expressions
+                    .get(&(function.name.clone(), index))
+                {
+                    if let Some(found) = semantic_statement_source(
+                        value,
+                        source,
+                        Some(node),
+                        statement,
+                        &functions,
+                        &structs,
+                    ) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 fn semantic_statement_source<'a>(
     statement: &Statement,
     source: &'a crate::SpannedExpr,
     origin: Option<usize>,
+    statement_origin: bool,
     functions: &HashMap<String, Signature>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Option<&'a crate::SpannedExpr> {
+    if statement_origin && origin == Some(std::ptr::from_ref(statement) as usize) {
+        return Some(source);
+    }
     let locate = |value: &Expr, source: &'a crate::SpannedExpr| {
-        semantic_expression_source(value, source, origin, functions, structs)
+        semantic_expression_source(value, source, origin, statement_origin, functions, structs)
     };
     match statement {
-        Statement::Let { value, .. }
-        | Statement::Destructure { value, .. }
-        | Statement::LetElse { value, .. } => locate(value, source.children.get(3)?),
+        Statement::Let { value, .. } | Statement::Destructure { value, .. } => {
+            locate(value, source.children.get(3)?)
+        }
+        Statement::LetElse {
+            value, else_body, ..
+        } => locate(value, source.children.get(3)?).or_else(|| {
+            else_body
+                .iter()
+                .zip(source.children.iter().skip(4))
+                .find_map(|(statement, source)| {
+                    semantic_statement_source(
+                        statement,
+                        source,
+                        origin,
+                        statement_origin,
+                        functions,
+                        structs,
+                    )
+                })
+        }),
         Statement::Return(Some(value)) | Statement::BreakValue(value) => {
             locate(value, source.children.get(1)?)
         }
+        Statement::BreakToValue { value, .. } => locate(value, source.children.get(2)?),
+        Statement::Labeled { statement, .. } => semantic_statement_source(
+            statement,
+            source.children.get(2)?,
+            origin,
+            statement_origin,
+            functions,
+            structs,
+        ),
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => semantic_statement_source(
+            init,
+            source.children.get(1)?,
+            origin,
+            statement_origin,
+            functions,
+            structs,
+        )
+        .or_else(|| {
+            source
+                .children
+                .get(2)
+                .and_then(|source| locate(condition, source))
+        })
+        .or_else(|| {
+            source.children.get(3).and_then(|source| {
+                semantic_statement_source(
+                    step,
+                    source,
+                    origin,
+                    statement_origin,
+                    functions,
+                    structs,
+                )
+            })
+        })
+        .or_else(|| {
+            body.iter()
+                .zip(source.children.iter().skip(4))
+                .find_map(|(statement, source)| {
+                    semantic_statement_source(
+                        statement,
+                        source,
+                        origin,
+                        statement_origin,
+                        functions,
+                        structs,
+                    )
+                })
+        }),
         Statement::Assign { value, .. } => locate(value, source.children.get(2)?),
         Statement::Expr(value) => locate(value, source),
         Statement::ArrayAssign { index, value, .. } => locate(index, source.children.get(2)?)
@@ -2438,7 +2590,14 @@ fn semantic_statement_source<'a>(
                 body.iter()
                     .zip(source.children.iter().skip(2))
                     .find_map(|(statement, source)| {
-                        semantic_statement_source(statement, source, origin, functions, structs)
+                        semantic_statement_source(
+                            statement,
+                            source,
+                            origin,
+                            statement_origin,
+                            functions,
+                            structs,
+                        )
                     })
             })
         }
@@ -2446,7 +2605,14 @@ fn semantic_statement_source<'a>(
             body.iter()
                 .zip(source.children.iter().skip(1))
                 .find_map(|(statement, source)| {
-                    semantic_statement_source(statement, source, origin, functions, structs)
+                    semantic_statement_source(
+                        statement,
+                        source,
+                        origin,
+                        statement_origin,
+                        functions,
+                        structs,
+                    )
                 })
         }
         _ => None,
@@ -2457,11 +2623,12 @@ fn semantic_expression_source<'a>(
     value: &Expr,
     source: &'a crate::SpannedExpr,
     origin: Option<usize>,
+    statement_origin: bool,
     functions: &HashMap<String, Signature>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Option<&'a crate::SpannedExpr> {
     let origin = origin?;
-    if std::ptr::from_ref(value) as usize == origin {
+    if !statement_origin && std::ptr::from_ref(value) as usize == origin {
         return Some(source);
     }
     match value {
@@ -2476,6 +2643,7 @@ fn semantic_expression_source<'a>(
             });
             for (index, child) in items.iter().enumerate() {
                 let corresponding = match (source_head, target_head) {
+                    (Some("case"), _) => source.children.get(index + 1),
                     (Some("call"), Some(function)) => {
                         if index == 0 {
                             source.children.get(1)
@@ -2501,7 +2669,14 @@ fn semantic_expression_source<'a>(
                     _ => source.children.get(index),
                 };
                 if let Some(found) = corresponding.and_then(|source| {
-                    semantic_expression_source(child, source, Some(origin), functions, structs)
+                    semantic_expression_source(
+                        child,
+                        source,
+                        Some(origin),
+                        statement_origin,
+                        functions,
+                        structs,
+                    )
                 }) {
                     return Some(found);
                 }
@@ -2512,8 +2687,34 @@ fn semantic_expression_source<'a>(
             .iter()
             .zip(source.children.iter().skip(1))
             .find_map(|(statement, source)| {
-                semantic_statement_source(statement, source, Some(origin), functions, structs)
+                semantic_statement_source(
+                    statement,
+                    source,
+                    Some(origin),
+                    statement_origin,
+                    functions,
+                    structs,
+                )
             }),
+        Expr::Labeled { expression, .. } => semantic_expression_source(
+            expression,
+            source.children.get(2)?,
+            Some(origin),
+            statement_origin,
+            functions,
+            structs,
+        ),
+        Expr::Quote(expression)
+        | Expr::QuasiQuote(expression)
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => semantic_expression_source(
+            expression,
+            source.children.first()?,
+            Some(origin),
+            statement_origin,
+            functions,
+            structs,
+        ),
         _ => None,
     }
 }

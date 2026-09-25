@@ -7,6 +7,7 @@ use std::{
     process::Command,
 };
 
+mod analysis_error;
 mod borrowcheck;
 mod cache_report;
 mod codegen;
