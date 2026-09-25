@@ -1,5 +1,13 @@
 # Lim language reference
 
+Lim code fences carry explicit test metadata: `run=N` compiles and runs with
+exit code N; `library` compiles through native emission; `fragment=NAME` uses
+the named function wrapper in `tests/language_docs.rs`; `error=CODE` must
+fail with that diagnostic. `syntax` marks schematic forms or signatures
+with intentionally undefined placeholders; these are parsed, not type-checked.
+The documentation tests cover this reference, README, allocator notes, and
+the soundness audit, and reject unclassified Lim fences.
+
 Lim is a compiled, statically typed Lisp.  Its syntax is made of
 S-expressions, but its type and evaluation rules are deliberately explicit.
 The compiler currently targets native x86-64 assembly for the host system and
@@ -47,7 +55,7 @@ current value, and `#cell-set` replaces that value. A cell never returns a
 reference to its contents, so allocator state may be shared immutably while a
 cursor changes through the cell:
 
-```lisp
+```lisp library
 (#struct Arena ((cursor (#cell u64))))
 (#struct VecU64Arena ((allocator (#ref Arena)) (length u64)))
 
@@ -70,7 +78,7 @@ The initial atomic API supports `i8/i16/i32/i64`, `u8/u16/u32/u64`, and
 `usize`. Each operation uses the width's naturally aligned x86 memory access;
 Lim's current local and aggregate storage is at least eight-byte aligned:
 
-```lisp
+```lisp fragment=atomics
 (#let-mut counter (#atomic u64) (#atomic-init u64 0u64))
 (#atomic-fetch-add (#borrow counter) 1u64 #memory-acq-rel)
 (#let observed u64 (#atomic-load (#borrow counter) #memory-acquire))
@@ -111,7 +119,7 @@ derives both properties recursively for structs, enums, tuples, and arrays:
 
 Unsafe native or opaque types may opt in explicitly:
 
-```lisp
+```lisp library
 (#struct NativeResource ((handle (#ptr u8))))
 (#unsafe-impl #send NativeResource)
 (#unsafe-impl #sync NativeResource)
@@ -158,20 +166,20 @@ must ensure the underlying resource remains sound under concurrent access.
 Lim's initial borrow model checks lexical borrow scopes without lifetime
 annotations. A shared borrow is written as:
 
-```lisp
+```lisp syntax
 (#borrow value (#u64.+.wrap value 2))
 ```
 
 and a mutable borrow as:
 
-```lisp
+```lisp syntax
 (#borrow-mut value (#block (#set value 42) value))
 ```
 
 The three-expression form borrows the owner for the duration of the body.
 The two-expression form produces a reference:
 
-```lisp
+```lisp library
 (#fn first ((value (#ref u64))) (#ref u64)
   (#return value))
 ```
@@ -193,7 +201,7 @@ Reference-valued fields may be projected through nested aggregates; their
 original source borrow remains active for as long as the containing aggregate
 is live.
 
-```lisp
+```lisp run=42
 (#struct Point ((x u64) (y u64)))
 (#fn main () u64
   (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
@@ -210,7 +218,7 @@ immutable raw pointer and `(#ptr-mut T)` is a mutable raw pointer. Taking an
 address and reading or writing through a raw pointer must occur inside an
 `#unsafe` block:
 
-```lisp
+```lisp run=42
 (#fn main () u64
   (#let-mut value u64 40)
   (#return
@@ -310,7 +318,7 @@ generators to run and materialized entries to be recreated.
 from `#cfg-is`, `#cfg-not`, `#cfg-and`, and `#cfg-or`; branches contain forms
 directly, with an optional final `#cfg-else` branch:
 
-```lisp
+```lisp library
 (#cfg-if (#cfg-and (#cfg-is #platform linux) (#cfg-is #feature fast))
   (#fn selected () u64 (#return 1u64))
   (#cfg-else
@@ -347,7 +355,7 @@ which are expanded before ordinary Lim parsing and type checking.
 Capabilities are explicit declarations for generator requirements. A concrete
 type opts in with `#capability`, and a generator parameter can require one:
 
-```lisp
+```lisp library
 (#fn u64-less ((left (#ref u64)) (right (#ref u64))) bool
   (#return (#u64.< (#deref left) (#deref right))))
 (#capability sortable u64
@@ -366,7 +374,7 @@ generator. Capability definitions are part of the generated-code cache key, so
 changing an operation contract cannot reuse expansions made under an older
 contract.
 
-```lisp
+```lisp library
 (#generator aliases (pairs)
   (#gn-for-each pair pairs
     (#gn-list
@@ -382,7 +390,7 @@ They take and return only syntax values (symbols, literals, or lists), so
 predicate booleans remain internal to conditionals. Helpers may call other
 helpers, but direct or indirect recursive calls are rejected. For example:
 
-```lisp
+```lisp library
 (#gn-fn make-alias (name target)
   `(#type ,name ,target))
 
@@ -426,7 +434,7 @@ identifiers unchanged. External imports prefix user identifiers from the
 imported source (including types, functions, fields, variants, and local
 bindings); builtin forms and primitive types are unchanged:
 
-```lisp
+```lisp syntax
 (#import "shared.lim")
 (#import-external "compat.lim" compat-)
 ```
@@ -489,7 +497,7 @@ The lexer recognizes:
 operator.  `-` is also an ordinary symbol character.  Thus these are single
 identifiers:
 
-```lisp
+```lisp syntax
 math.add.one
 my-value
 Maybe?-unwrap-or
@@ -497,7 +505,7 @@ Maybe?-unwrap-or
 
 Builtin forms are distinguished by their `#` prefix:
 
-```lisp
+```lisp run=42
 (#fn main () u64
   (#return 42u64))
 ```
@@ -508,7 +516,7 @@ Unicode escapes use `#\u{03bb}`.  Strings support `\n`, `\r`, `\t`, `\\`,
 
 Integer literals may use binary, octal, hexadecimal, and underscores:
 
-```lisp
+```lisp syntax
 42u32  -1i8  0b1010u16  0o77u8  0xffffu128
 ```
 
@@ -530,7 +538,7 @@ The builtin scalar types are:
 
 Fixed aggregates are written explicitly:
 
-```lisp
+```lisp syntax
 (#tuple u64 bool char)
 (#array u32 4)
 ```
@@ -538,7 +546,7 @@ Fixed aggregates are written explicitly:
 Construct a fixed-size array value with `#array-of`, keeping it visually
 distinct from the `#array` type form:
 
-```lisp
+```lisp fragment=array
 (#let values (#array u32 3)
   (#array-of (#array u32 3) 10u32 20u32 30u32))
 ```
@@ -577,7 +585,7 @@ must not reach a normal return.  A void function returns explicitly with
 Functions are always free-standing; Lim has no methods or `impl` blocks.
 The canonical form is:
 
-```lisp
+```lisp library
 (#fn add ((left u32) (right u32)) u32
   (#let total u32 (#u32.+.wrap left right))
   (#return total))
@@ -586,7 +594,7 @@ The canonical form is:
 The parameter list is a list of `(name Type)` pairs.  Parameters may be
 marked mutable:
 
-```lisp
+```lisp library
 (#fn increment ((#mut value u64)) u64
   (#set value (#u64.+.wrap value 1u64))
   (#return value))
@@ -595,7 +603,7 @@ marked mutable:
 Function calls also name every argument explicitly. Use `#call` with a
 `#fn-args` list; each argument label must match a parameter in the declaration:
 
-```lisp
+```lisp syntax
 (#call add (#fn-args (left 20u32) (right 22u32)))
 ```
 
@@ -618,7 +626,7 @@ the target's C ABI; external signatures currently accept scalar values and raw
 pointers only. By-value aggregate FFI signatures remain rejected. Calls are unsafe FFI boundaries and must be enclosed in
 `#unsafe`:
 
-```lisp
+```lisp run=42
 (#extern-fn #abi-c abs ((value i32)) i32)
 (#fn main () u64
   (#return (#as (#unsafe (#call abs (#fn-args (value -42i32)))) u64)))
@@ -649,10 +657,10 @@ rejected. Only the native x86-64 System V target is currently supported.
 
 ### Type aliases
 
-```lisp
+```lisp library
 (#type UserId u64)
-(#type Pair (tuple u64 bool))
-(#type Matrix (array f32 4))
+(#type Pair (#tuple u64 bool))
+(#type Matrix (#array f32 4))
 ```
 
 Aliases are concrete.  Recursive aliases are rejected.
@@ -661,7 +669,7 @@ Aliases are concrete.  Recursive aliases are rejected.
 
 Structs are value types with named fields:
 
-```lisp
+```lisp run=9
 (#struct Point ((x u64) (y u64)))
 
 (#fn main () u64
@@ -676,7 +684,7 @@ structs is needed.
 
 Variants may be fieldless or carry one or more values:
 
-```lisp
+```lisp library
 (#enum Message
   (Quit
    (Move i32 i32)
@@ -694,7 +702,7 @@ creates immutable read-only storage and is useful for aggregate data. Every
 read of a static must occur inside `#unsafe`, including reads used to create a
 reference to it:
 
-```lisp
+```lisp library
 (#const Answer u64 42u64)
 (#static Values (#array u64 3)
   (#array (#array u64 3) 10u64 20u64 30u64))
@@ -711,7 +719,7 @@ values are supported.  Cyclic constant references are rejected.
 
 Local bindings always state their type:
 
-```lisp
+```lisp fragment=bindings
 (#let count u32 0u32)
 (#let-mut total u64 0u64)
 ```
@@ -720,7 +728,7 @@ Local bindings always state their type:
 may shadow earlier bindings lexically.  `#set` assigns a mutable scalar or
 aggregate local:
 
-```lisp
+```lisp syntax
 (#set total (#u64.+.wrap total 1u64))
 ```
 
@@ -729,7 +737,7 @@ write a named free-standing constructor function that returns one. Every field
 must be supplied exactly once; fields may appear in any order, and omitted
 fields are not defaulted:
 
-```lisp
+```lisp library
 (#struct Point ((x u64) (y u64)))
 (#let point Point
   (#struct-literal Point
@@ -747,7 +755,7 @@ angle-bracket generic call syntax in `tests/ui/positional-call.lim`,
 Aggregate projections can be updated with `#set-index`, `#set-field`, and
 `#set-payload`:
 
-```lisp
+```lisp syntax
 (#set-index values 0u64 10u64)
 (#set-field point x 11u64)
 (#set-field pair 1 12u64)
@@ -765,7 +773,7 @@ half must itself be consumed (for example, passed to a function or explicitly
 `#forget`-ted). Mutable slices can be returned when their inferred provenance
 comes from a function argument; a view of a local array cannot escape.
 
-```lisp
+```lisp fragment=slices
 (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64))
 (#let whole (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
 (#let (#tuple left right)
@@ -796,7 +804,7 @@ aggregates remain linear and must be consumed exactly once. A moved value
 cannot be read or cloned again. Use `#clone` at the point where an additional
 value is intended:
 
-```lisp
+```lisp fragment=bindings
 (#let count u64 40u64)
 (#let total u64 (#u64.+.wrap (#clone count) count))
 ```
@@ -805,7 +813,7 @@ Assignments reinitialize mutable bindings only after the previous linear value
 has been consumed. A common update pattern moves the old value into the update
 and installs the replacement:
 
-```lisp
+```lisp fragment=bindings
 (#let-mut count u64 0u64)
 (#set count (#u64.+.wrap count 1u64))
 ```
@@ -823,7 +831,7 @@ with `#forget`. `#forget` does not run cleanup; it is intended for use after a
 user-written destruction function has released a value's resources. For
 example:
 
-```lisp
+```lisp syntax
 (#struct Buffer ((allocation Allocation)))
 (#fn Buffer-destroy ((buffer Buffer)) ()
   (Allocation-release (#get buffer allocation))
@@ -859,7 +867,7 @@ Numeric operators are never unqualified in canonical syntax.  The operand
 type is part of the identifier, and integer arithmetic must also specify its
 overflow mode:
 
-```lisp
+```lisp syntax
 (#u64.+.wrap left right)
 (#i32.-.saturate left right)
 (#u128.*.wrap left right)
@@ -879,7 +887,7 @@ rejected because they omit the overflow mode.
 Floating-point arithmetic uses the type-qualified operator without an
 overflow mode:
 
-```lisp
+```lisp syntax
 (#f64.+ left right)
 (#f32./ numerator denominator)
 (#f64.% left right)
@@ -896,7 +904,7 @@ Unary negation is written, for example, as `#i128.-.wrap value`.
 
 All conversions are explicit with `#as`:
 
-```lisp
+```lisp syntax
 (#as value u64)
 ```
 
@@ -939,7 +947,7 @@ The following forms are currently implemented:
 An `#if` without an else branch must have unit type.  Value-producing
 conditionals require both branches:
 
-```lisp
+```lisp syntax
 (#return (#if (#u64.>.wrap value 0u64)
               value
               0u64))
@@ -952,14 +960,14 @@ is its value; a block used only for side effects has unit type.
 
 Statement loops use `#break` without a value:
 
-```lisp
+```lisp syntax
 (#while (#u64.< i 10u64)
   (#set i (#u64.+.wrap i 1u64)))
 ```
 
 A loop expression has a value only when a reachable break supplies one:
 
-```lisp
+```lisp syntax
 (#let result u64
   (#loop
     (#if done
@@ -969,7 +977,7 @@ A loop expression has a value only when a reachable break supplies one:
 
 The explicit `#for` form is:
 
-```lisp
+```lisp syntax
 (#for (#let-mut i u64 0u64)
       (#u64.< i 10u64)
       (#set i (#u64.+.wrap i 1u64))
@@ -979,7 +987,7 @@ The explicit `#for` form is:
 `#for-range` is shorthand with a typed binding, start, and end.  Its bounds
 are explicit and the range is half-open:
 
-```lisp
+```lisp syntax
 (#for-range (i u64) 0u64 10u64
   (#set total (#u64.+.wrap total i)))
 ```
@@ -987,7 +995,7 @@ are explicit and the range is half-open:
 Labels wrap statement loops with `#label`, and value-loop breaks can target an
 outer value loop:
 
-```lisp
+```lisp syntax
 (#label outer
   (#while condition
     (#if done
@@ -1003,7 +1011,7 @@ Recursive calls are rejected.  Mutual recursion is rejected as well.
 Every arm must be explicitly introduced with `#case`. Enum payloads are
 written as constructor patterns:
 
-```lisp
+```lisp syntax
 (#match value
   (#case (Some payload) payload)
   (#case None 0u64))
@@ -1012,7 +1020,7 @@ written as constructor patterns:
 Tuple, struct, array, scalar, range, typed-literal, and `#or` patterns are
 supported. Guards are placed between the pattern and body, using `#when`:
 
-```lisp
+```lisp syntax
 (#match value
   (#case (Some payload) (#when (#u64.>.wrap payload 40u64)) payload)
   (#case (Some _) 0u64)
@@ -1021,7 +1029,7 @@ supported. Guards are placed between the pattern and body, using `#when`:
 
 Destructuring uses the same aggregate pattern shapes:
 
-```lisp
+```lisp syntax
 (#let (#tuple left right) (#tuple u64 u64) pair)
 ```
 
@@ -1033,7 +1041,7 @@ are not inferred.
 `@` marks a generated declaration.  The built-in generated forms are
 top-level `@optional` and `@result`.
 
-```lisp
+```lisp library
 (@optional u64 Maybe?)
 (@result u64 u32 Result)
 ```

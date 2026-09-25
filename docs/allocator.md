@@ -9,7 +9,8 @@ pointers, closures, methods, or implicit allocators.
 An allocator is an ordinary user-defined value with a stable concrete type.
 Collections store an immutable reference to that value:
 
-```lisp
+```lisp library
+(#struct AllocatorU64 ((cursor (#cell usize))))
 (#struct VecU64 ((allocator (#ref AllocatorU64))
                  (pointer (#ptr-mut u64))
                  (length usize)
@@ -31,7 +32,7 @@ ownership rule.
 
 The concrete representation is declared first:
 
-```lisp
+```lisp syntax
 (@vec ElementType AllocatorType ConcreteVecType)
 ```
 
@@ -39,7 +40,7 @@ It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
 `capacity` fields, plus `ConcreteVecType-new-with-storage`, `-len`, and
 `-capacity`. The allocator-backed API is then generated separately:
 
-```lisp
+```lisp syntax
 (@vec-alloc ElementType AllocatorType ConcreteVecType
   AllocResult AllocError alloc-name grow-name dealloc-name destroy-name)
 ```
@@ -66,7 +67,7 @@ logical elements are still destroyed individually.
 Sorting is generated separately and takes a comparator name as a literal
 input:
 
-```lisp
+```lisp syntax
 (@vec-sort ElementType ConcreteVecType comparator-name)
 ```
 
@@ -83,7 +84,7 @@ The compiler recognizes the following allocator operation signatures when a
 collection generator requests them. They are ordinary free-standing functions
 whose names are supplied as literal generator arguments:
 
-```lisp
+```lisp syntax
 (#enum AllocError (OutOfMemory))
 (@result (#ptr-mut u8) AllocError AllocResult)
 

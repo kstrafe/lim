@@ -700,7 +700,7 @@ and acceptance coverage.
   expose partial output, executable permissions survive publication, and source
   files cannot be accidentally replaced by build artifacts.
 
-- [ ] **DOC-01: Make executable documentation coverage explicit.**
+- [x] **DOC-01: Make executable documentation coverage explicit.**
   `tests/language_docs.rs` checks one document and uses the substring
   `(#fn main` to decide whether a fence is a complete program. Define explicit
   fence metadata or a fixture index for runnable programs, checked libraries,

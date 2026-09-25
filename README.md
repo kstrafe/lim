@@ -56,7 +56,7 @@ are not treated as signals. New examples must declare their expected outcome.
 
 ## A small Lim program
 
-```lisp
+```lisp run=42
 (#fn main () u64
   (#let answer u64 (#u64.+.wrap 40u64 2u64))
   (#return answer))
@@ -66,3 +66,11 @@ Builtins and special forms are prefixed with `#`; numeric operators are
 qualified by type and explicitly select wrapping or saturation behavior.
 Bindings declare their types, and every function exit uses `#return` (including
 `(#return ())` for unit-returning functions).
+
+An explicit type mismatch is rejected (this example is tested as `E4000`):
+
+```lisp error=E4000
+(#fn main () u64
+  (#let answer u64 false)
+  (#return answer))
+```
