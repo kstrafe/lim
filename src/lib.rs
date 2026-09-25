@@ -2066,44 +2066,6 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
         }
     }
 
-    if let Some(cycle) = message.strip_prefix("recursive calls are not allowed: ") {
-        let mut names = cycle.split(" -> ");
-        let (caller, callee) = (names.next()?, names.next()?);
-        fn called_function(expression: &SpannedExpr, callee: &str) -> Option<Span> {
-            if let Expr::List(items) = &expression.expr {
-                let target_index = if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#call" || name == "call")
-                {
-                    1
-                } else if matches!(items.first(), Some(Expr::Symbol(name)) if name == callee) {
-                    return expression.children.first().map(|head| head.span);
-                } else {
-                    usize::MAX
-                };
-                if target_index != usize::MAX
-                    && matches!(items.get(target_index), Some(Expr::Symbol(name)) if name == callee)
-                {
-                    return expression
-                        .children
-                        .get(target_index)
-                        .map(|target| target.span);
-                }
-            }
-            expression
-                .children
-                .iter()
-                .find_map(|child| called_function(child, callee))
-        }
-        if let Some(span) = program
-            .statement_expressions
-            .iter()
-            .filter(|((function, _), _)| function == caller)
-            .filter_map(|(_, expression)| called_function(expression, callee))
-            .min_by_key(|span| span.start)
-        {
-            return Some(span);
-        }
-    }
-
     if message.contains("unsafe") && message.contains("implementation") {
         if let Some(type_name) = message.split('\'').nth(1) {
             let key = format!("$unsafe-impl:{type_name}");

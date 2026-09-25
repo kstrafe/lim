@@ -431,6 +431,9 @@ Each item requires documentation and regression coverage before being checked.
     declarations, including variants duplicated across enums, and remove their
     diagnostic-message span-recovery branches. UI fixtures pin the second
     declaration occurrence.
+  - [x] Carry the recursive call edge's source span from call-graph cycle
+    detection, and remove cycle parsing/call-name span recovery from
+    `unlocated_analysis_span`; the recursive-call UI assertion pins the callee.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated

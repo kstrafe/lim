@@ -357,7 +357,10 @@ fn check_types_inner(
             }
         }
     }
-    reject_recursive_calls(program, &functions)?;
+    reject_recursive_calls(program, &functions).map_err(|error| {
+        *diagnostic_span = error.span;
+        error.message
+    })?;
     for item in &program.items {
         match item {
             Item::Function(function) if function.external => {}
@@ -1540,7 +1543,7 @@ fn type_has_auto_trait_inner(
 fn reject_recursive_calls(
     program: &Program,
     functions: &HashMap<String, Signature>,
-) -> Result<(), String> {
+) -> Result<(), FunctionTypeError> {
     let names = functions.keys().cloned().collect::<HashSet<_>>();
     let mut edges = HashMap::<String, HashSet<String>>::new();
     for item in &program.items {
@@ -1561,9 +1564,46 @@ fn reject_recursive_calls(
     let mut ordered_names = names.into_iter().collect::<Vec<_>>();
     ordered_names.sort();
     for name in ordered_names {
-        visit_call_graph(&name, &edges, &mut state, &mut path)?;
+        visit_call_graph(program, &name, &edges, &mut state, &mut path)?;
     }
     Ok(())
+}
+
+fn recursive_call_span(program: &Program, caller: &str, callee: &str) -> Option<crate::Span> {
+    fn find_call(expression: &crate::SpannedExpr, callee: &str) -> Option<crate::Span> {
+        if let Expr::List(items) = &expression.expr {
+            let target_index = if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#call" || head == "call")
+            {
+                1
+            } else if matches!(items.first(), Some(Expr::Symbol(head)) if head == callee) {
+                return expression.children.first().map(|head| head.span);
+            } else {
+                usize::MAX
+            };
+            if target_index != usize::MAX
+                && matches!(items.get(target_index), Some(Expr::Symbol(name)) if name == callee)
+            {
+                return expression
+                    .children
+                    .get(target_index)
+                    .map(|target| target.span);
+            }
+        }
+        expression
+            .children
+            .iter()
+            .find_map(|child| find_call(child, callee))
+    }
+
+    let mut expressions = program
+        .statement_expressions
+        .iter()
+        .filter(|((function, _), _)| function == caller)
+        .collect::<Vec<_>>();
+    expressions.sort_by_key(|((_, index), _)| *index);
+    expressions
+        .into_iter()
+        .find_map(|(_, expression)| find_call(expression, callee))
 }
 
 pub(crate) fn function_call_depths(program: &Program) -> HashMap<String, usize> {
@@ -1614,19 +1654,25 @@ fn call_depth(
 }
 
 fn visit_call_graph(
+    program: &Program,
     name: &str,
     edges: &HashMap<String, HashSet<String>>,
     state: &mut HashMap<String, bool>,
     path: &mut Vec<String>,
-) -> Result<(), String> {
+) -> Result<(), FunctionTypeError> {
     if state.get(name) == Some(&true) {
         let start = path.iter().position(|item| item == name).unwrap_or(0);
         let mut cycle = path[start..].to_vec();
         cycle.push(name.to_owned());
-        return Err(format!(
-            "recursive calls are not allowed: {}",
-            cycle.join(" -> ")
-        ));
+        let caller = cycle.first().map(String::as_str);
+        let callee = cycle.get(1).map(String::as_str);
+        let span = caller
+            .zip(callee)
+            .and_then(|(caller, callee)| recursive_call_span(program, caller, callee));
+        return Err(FunctionTypeError {
+            message: format!("recursive calls are not allowed: {}", cycle.join(" -> ")),
+            span,
+        });
     }
     if state.get(name) == Some(&false) {
         return Ok(());
@@ -1637,7 +1683,7 @@ fn visit_call_graph(
         let mut ordered_calls = calls.iter().collect::<Vec<_>>();
         ordered_calls.sort();
         for called in ordered_calls {
-            visit_call_graph(called, edges, state, path)?;
+            visit_call_graph(program, called, edges, state, path)?;
         }
     }
     path.pop();
