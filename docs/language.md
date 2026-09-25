@@ -1228,6 +1228,15 @@ reconstructing a one-character range from line and column.
 UI regression tests verify exact caret columns for unknown identifiers,
 recursive calls, and code-generation failures, including highlighted widths, as
 well as checking their lines.
+The UI rejection fixtures also pin type-as-constructor, positional-call,
+generic declaration/call, missing-`#case`, and aggregate-layout-overflow
+diagnostics (`tests/ui/{type-as-constructor,positional-call,generic-function,
+generic-angle-call,match-missing-case,aggregate-layout-overflow}.lim`). The
+aggregate overflow diagnostic covers the declaration and caps its underline
+at the renderer's documented 80-column limit. Complete positive examples in
+this reference are compiled through native assembly generation by
+`tests/language_docs.rs`; stack-bound examples are additionally checked by the
+stack-usage report tests, including the external-callee unknown-bound case.
 Repeated moves of linear fields and array elements identify their repeated
 `#get` or `#index` projections.
 The UI tests also verify full unterminated-string spans and zero-width EOF

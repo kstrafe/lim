@@ -2482,6 +2482,35 @@ fn codegen_diagnostic(message: String, program: &Program) -> Diagnostic {
             referenced_names
                 .iter()
                 .find_map(|name| program.declaration_spans.get(*name).copied())
+        })
+        .or_else(|| {
+            if !message.contains("word count overflowed") {
+                return None;
+            }
+            fn has_array(ty: &Type) -> bool {
+                match ty {
+                    Type::Array(_, _) => true,
+                    Type::Tuple(fields) => fields.iter().any(has_array),
+                    Type::Reference { target, .. }
+                    | Type::RawPointer { target, .. }
+                    | Type::Cell(target)
+                    | Type::Slice(target)
+                    | Type::MutableSlice(target) => has_array(target),
+                    _ => false,
+                }
+            }
+            program.items.iter().find_map(|item| match item {
+                Item::Function(function)
+                    if function
+                        .parameters
+                        .iter()
+                        .any(|parameter| has_array(&parameter.ty))
+                        || has_array(&function.return_type) =>
+                {
+                    program.declaration_spans.get(&function.name).copied()
+                }
+                _ => None,
+            })
         });
     let (span, source_id) = if let Some(((start, end), source_id)) = explicit_span {
         (

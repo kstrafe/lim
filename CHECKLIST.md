@@ -489,3 +489,8 @@ Each item requires documentation and regression coverage before being checked.
   syntax fragment or depends on a stated backend limitation.
   - [x] Add exact-span UI rejection fixtures for type names in constructor
     position, positional calls, generic declarations, and angle-bracket calls.
+  - [x] Compile every complete fenced positive program through assembly
+    generation; the dependency-free `tests/language_docs.rs` harness does so.
+  - [x] Pin the documented `#case`, aggregate-overflow, and stack-bound
+    rejection/limitation behavior with UI or report tests and cross-reference
+    those fixtures in the reference.

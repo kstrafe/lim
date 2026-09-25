@@ -209,6 +209,13 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "aggregate-layout-overflow",
+            diagnostic_code: "E5000",
+            offending_line:
+                "(#fn main ((values (#array (#array u64 18446744073709551615) 2))) () (#return ()))",
+            line_number: 1,
+        },
+        Case {
             name: "positional-call",
             diagnostic_code: "E4000",
             offending_line: "  (#return (add 20u64 22u64)))",
@@ -813,6 +820,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "call-argument-type-mismatch" => Some("false"),
             "call-missing-argument" => Some("#fn-args"),
             "type-as-constructor" => Some("Point"),
+            "aggregate-layout-overflow" => Some("(#fn main ((values (#array (#array u64 18446744073709551615) 2))) () (#return ()))"),
             "positional-call" => Some("add"),
             "generic-function" => Some("(#fn"),
             "generic-angle-call" => Some("(identity<u64> 42u64)"),
@@ -893,9 +901,14 @@ fn compilation_errors_render_the_offending_source_line() {
                 .skip_while(|character| *character != '^')
                 .take_while(|character| *character == '^')
                 .count();
+            let expected_width = if case.name == "aggregate-layout-overflow" {
+                fragment.chars().count().min(80)
+            } else {
+                fragment.chars().count()
+            };
             assert_eq!(
                 caret_width,
-                fragment.chars().count(),
+                expected_width,
                 "{} underline width does not match the declared source fragment {fragment:?}:\n{stderr}",
                 case.name
             );
