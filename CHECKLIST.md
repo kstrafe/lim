@@ -449,6 +449,8 @@ Each item requires documentation and regression coverage before being checked.
   generated inputs and malformed/truncated files in bounded subprocesses.
   Require deterministic diagnostics instead of panics, hangs, or partially
   published outputs; keep minimal reproducers for every discovered failure.
+  - [x] Reject aggregate storage/value word-count overflow instead of
+    saturating or wrapping layout arithmetic; cover arrays and nested layouts.
 - [ ] Establish reproducible compile-time and generated-code performance
   baselines before optimizing the compiler. Measure lex/parse, import/cfg,
   generation (cold and warm cache), semantic checks, native emission, and

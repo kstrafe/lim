@@ -12226,4 +12226,12 @@ mod tests {
         let program = parse_program(source).unwrap();
         assert!(check_types(&program).is_err());
     }
+
+    #[test]
+    fn aggregate_layout_word_counts_reject_overflow() {
+        let oversized = Type::Array(Box::new(Type::Array(Box::new(Type::U64), usize::MAX)), 2);
+        let error =
+            codegen::storage_word_count(&oversized, &HashMap::new(), &HashMap::new()).unwrap_err();
+        assert!(error.contains("word count overflowed"), "{error}");
+    }
 }

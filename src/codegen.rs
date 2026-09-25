@@ -3530,7 +3530,7 @@ fn flat_slots(base: usize, words: usize) -> Vec<usize> {
     (base..base + words).collect()
 }
 
-fn storage_word_count(
+pub(crate) fn storage_word_count(
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
@@ -3545,36 +3545,50 @@ fn storage_word_count(
         return Ok(1);
     }
     match ty {
-        Type::Array(element, length) => {
-            Ok(storage_word_count(element, structs, enums)?.saturating_mul(*length))
-        }
+        Type::Array(element, length) => storage_word_count(element, structs, enums)?
+            .checked_mul(*length)
+            .ok_or_else(|| "aggregate storage word count overflowed usize".to_owned()),
         Type::Slice(_) => Ok(2),
-        Type::Tuple(fields) => fields
-            .iter()
-            .map(|field| storage_word_count(field, structs, enums))
-            .sum(),
-        Type::Named(name) if structs.contains_key(name) => structs[name]
-            .iter()
-            .map(|field| storage_word_count(&field.ty, structs, enums))
-            .sum(),
+        Type::Tuple(fields) => checked_storage_word_sum(
+            fields
+                .iter()
+                .map(|field| storage_word_count(field, structs, enums)),
+        ),
+        Type::Named(name) if structs.contains_key(name) => checked_storage_word_sum(
+            structs[name]
+                .iter()
+                .map(|field| storage_word_count(&field.ty, structs, enums)),
+        ),
         Type::Named(name) if enums.contains_key(name) => {
             let payload_words = enums[name]
                 .iter()
                 .map(|variant| {
-                    variant
-                        .fields
-                        .iter()
-                        .map(|field| storage_word_count(field, structs, enums))
-                        .sum::<Result<usize, String>>()
+                    variant.fields.iter().try_fold(0usize, |sum, field| {
+                        sum.checked_add(storage_word_count(field, structs, enums)?)
+                            .ok_or_else(|| {
+                                "aggregate storage word count overflowed usize".to_owned()
+                            })
+                    })
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
                 .max()
                 .unwrap_or(0);
-            Ok(1 + payload_words)
+            payload_words
+                .checked_add(1)
+                .ok_or_else(|| "aggregate storage word count overflowed usize".to_owned())
         }
         _ => Err(format!("native backend does not support local type {ty:?}")),
     }
+}
+
+fn checked_storage_word_sum(
+    words: impl IntoIterator<Item = Result<usize, String>>,
+) -> Result<usize, String> {
+    words.into_iter().try_fold(0usize, |sum, word| {
+        sum.checked_add(word?)
+            .ok_or_else(|| "aggregate storage word count overflowed usize".to_owned())
+    })
 }
 
 fn supports_indirect_return_type(
@@ -3648,7 +3662,7 @@ fn value_word_count(
                 .iter()
                 .map(|field| storage_word_count(&field.ty, structs, enums))
                 .collect::<Result<Vec<_>, _>>()?;
-            let total = words.into_iter().sum::<usize>();
+            let total = checked_storage_word_sum(words.into_iter().map(Ok))?;
             if total <= VALUE_REGISTERS.len() {
                 return Ok(total);
             }
@@ -3663,24 +3677,29 @@ fn value_word_count(
                             .iter()
                             .map(|field| storage_word_count(field, structs, enums))
                             .collect::<Result<Vec<_>, _>>()
-                            .map(|words| words.into_iter().sum::<usize>())
+                            .and_then(|words| checked_storage_word_sum(words.into_iter().map(Ok)))
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .into_iter()
                     .max()
                     .unwrap_or(0);
-                if payload_words + 1 > VALUE_REGISTERS.len() {
+                let total_words = payload_words
+                    .checked_add(1)
+                    .ok_or_else(|| "aggregate value word count overflowed usize".to_owned())?;
+                if total_words > VALUE_REGISTERS.len() {
                     return Err(format!(
                         "native ABI does not support enum value type {ty:?}"
                     ));
                 }
-                return Ok(1 + payload_words);
+                return Ok(total_words);
             }
         }
     }
     if let Type::Array(element, length) = ty {
         let element_words = storage_word_count(element, structs, enums)?;
-        let total = element_words.saturating_mul(*length);
+        let total = element_words
+            .checked_mul(*length)
+            .ok_or_else(|| "aggregate value word count overflowed usize".to_owned())?;
         if total <= VALUE_REGISTERS.len() {
             return Ok(total);
         }
@@ -3690,7 +3709,7 @@ fn value_word_count(
             .iter()
             .map(|field| storage_word_count(field, structs, enums))
             .collect::<Result<Vec<_>, _>>()?;
-        let total = words.into_iter().sum::<usize>();
+        let total = checked_storage_word_sum(words.into_iter().map(Ok))?;
         if total <= VALUE_REGISTERS.len() {
             return Ok(total);
         }
