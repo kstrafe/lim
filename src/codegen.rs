@@ -10,9 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::typecheck::function_call_depths;
-use crate::{
-    check_types, parse_type, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type,
-};
+use crate::{parse_type, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
 
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 const VALUE_REGISTERS: [&str; 6] = ["rax", "rdx", "rcx", "r8", "r9", "rdi"];
@@ -1007,7 +1005,18 @@ pub fn generate_assembly_for_target(
     if target != crate::TargetDescription::X86_64_SYSTEM_V {
         return Err("native backend has no implementation for the selected target".into());
     }
-    check_types(program)?;
+    let checked = crate::typecheck::CheckedProgram::validate(program)?;
+    generate_checked_assembly(&checked, target)
+}
+
+pub(crate) fn generate_checked_assembly(
+    checked: &crate::typecheck::CheckedProgram<'_>,
+    target: crate::TargetDescription,
+) -> Result<String, String> {
+    if target != crate::TargetDescription::X86_64_SYSTEM_V {
+        return Err("native backend has no implementation for the selected target".into());
+    }
+    let program = checked.program();
     let program = erase_unsafe_blocks(program);
     let aliases: HashMap<String, Type> = program
         .items

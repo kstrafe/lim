@@ -1755,10 +1755,10 @@ pub fn compile_source_to_assembly(
     let program =
         parse_program_from_path_with_config_and_cache(source, source_path, config, cache_directory)
             .map_err(|message| generator_diagnostic(message, source_path, source))?;
-    typecheck::check_types_with_span(&program).map_err(|(message, code, span, labels)| {
-        analysis_diagnostic(message, code, span, labels, &program)
-    })?;
-    generate_assembly_for_target(&program, target)
+    let checked = typecheck::CheckedProgram::validate_with_span(&program).map_err(
+        |(message, code, span, labels)| analysis_diagnostic(message, code, span, labels, &program),
+    )?;
+    codegen::generate_checked_assembly(&checked, target)
         .map_err(|message| codegen_diagnostic(message, &program))
 }
 

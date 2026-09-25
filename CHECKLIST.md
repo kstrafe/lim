@@ -665,7 +665,7 @@ and acceptance coverage.
   resembling metadata must remain ordinary text and must never select a file
   or location. Cold and cached expansions must report equivalent provenance.
 
-- [ ] **COMP-01: Validate once and pass a checked program into emission.**
+- [x] **COMP-01: Validate once and pass a checked program into emission.**
   `compile_source_to_assembly` runs semantic checks, then
   `generate_assembly_for_target` calls `check_types` again. Introduce an internal
   checked-program boundary so emission can reuse resolved types, validated

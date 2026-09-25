@@ -26,6 +26,69 @@ pub fn check_types(program: &Program) -> Result<(), String> {
     check_types_with_span(program).map_err(|(message, _, _, _)| message)
 }
 
+/// An immutable program whose semantic validation has succeeded. The private
+/// field prevents emission callers from constructing or invalidating this proof.
+pub(crate) struct CheckedProgram<'a>(&'a Program);
+
+pub(crate) type AnalysisError = (
+    String,
+    crate::DiagnosticCode,
+    Option<crate::Span>,
+    Vec<(crate::Span, String)>,
+);
+
+impl<'a> CheckedProgram<'a> {
+    pub(crate) fn validate_with_span(program: &'a Program) -> Result<Self, AnalysisError> {
+        check_types_with_span(program)?;
+        Ok(Self(program))
+    }
+    pub(crate) fn validate(program: &'a Program) -> Result<Self, String> {
+        check_types(program)?;
+        Ok(Self(program))
+    }
+
+    pub(crate) fn program(&self) -> &'a Program {
+        self.0
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SEMANTIC_PASSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+mod checked_program_tests {
+    use super::*;
+
+    #[test]
+    fn normal_compilation_checks_once_and_unchecked_emission_still_validates() {
+        let source = "(#fn main () u64 (#return 42u64))";
+        let directory = std::env::temp_dir().join(format!("lim-checked-{}", std::process::id()));
+        SEMANTIC_PASSES.with(|passes| passes.set(0));
+        crate::compile_source_to_assembly(
+            source,
+            &directory.join("input.lim"),
+            &crate::CompileConfig::default(),
+            &directory.join("cache"),
+            crate::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+        SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 1));
+        let mut program = crate::parse_program(source).unwrap();
+        let Item::Function(function) = &mut program.items[0] else {
+            panic!()
+        };
+        function.return_type = Type::Bool;
+        assert!(crate::generate_assembly_for_target(
+            &program,
+            crate::TargetDescription::X86_64_SYSTEM_V
+        )
+        .is_err());
+        SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 2));
+    }
+}
+
 pub(crate) fn check_types_with_span(
     program: &Program,
 ) -> Result<
@@ -55,6 +118,8 @@ fn check_types_inner(
     diagnostic_span: &mut Option<crate::Span>,
     diagnostic_labels: &mut Vec<(crate::Span, String)>,
 ) -> Result<(), String> {
+    #[cfg(test)]
+    SEMANTIC_PASSES.with(|passes| passes.set(passes.get() + 1));
     for item in &program.items {
         match item {
             Item::Function(function)
