@@ -438,9 +438,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Stop decoding serialized span markers in `analysis_diagnostic`; the
     CLI now consumes checker-provided spans or retained syntax provenance.
     Imported-source and generated-code UI tests pin their rendered locations.
-  - [ ] Assign the borrow category at the specific type-check rejection site
-    for illegal `#borrow-mut` through immutable references; remove the current
-    message comparison when constructing the function-level type error.
+  - [x] Assign the borrow category at the `#borrow-mut` immutable-reference
+    rejection site using an internal diagnostic identity tag; unit and UI tests
+    verify the structured category and rendered E4100 without exposing the tag.
   - [x] Resolve duplicate-parameter diagnostics at parameter validation time
     from the retained function declaration tree, and remove the corresponding
     message-parsing branch from `unlocated_analysis_span`; the UI test asserts

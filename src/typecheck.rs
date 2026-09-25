@@ -8,6 +8,11 @@ use crate::{
 };
 
 const LOOP_VALUE_CONTEXT: &str = "\0lim-loop-value";
+const BORROW_ERROR_MARKER: &str = "\0lim-borrow-error\0";
+
+fn borrow_error(message: &str) -> String {
+    format!("{BORROW_ERROR_MARKER}{message}")
+}
 
 #[derive(Clone)]
 struct Signature {
@@ -2002,6 +2007,11 @@ fn check_function(
             }
         })();
         last_type = result.map_err(|error: String| {
+            let (error, code) = if let Some(message) = error.strip_prefix(BORROW_ERROR_MARKER) {
+                (message.to_owned(), crate::DiagnosticCode::Borrow)
+            } else {
+                (error, crate::DiagnosticCode::Type)
+            };
             let statement_span = statement_spans
                 .get(&(function.name.clone(), index))
                 .copied();
@@ -2015,11 +2025,6 @@ fn check_function(
                 })
                 .or_else(|| source_expression.map(crate::source_value_span))
                 .or(statement_span);
-            let code = if error == "cannot mutably borrow through an immutable reference" {
-                crate::DiagnosticCode::Borrow
-            } else {
-                crate::DiagnosticCode::Type
-            };
             FunctionTypeError {
                 message: error,
                 span: precise_span,
@@ -4398,7 +4403,9 @@ fn list_expression(
                     }
                 };
                 if operator == "borrow-mut" && !base_mutable {
-                    return Err("cannot mutably borrow through an immutable reference".into());
+                    return Err(borrow_error(
+                        "cannot mutably borrow through an immutable reference",
+                    ));
                 }
                 if !is_reference_target(&target) {
                     return Err(format!("{operator} cannot borrow a unit or never value"));
@@ -4441,7 +4448,9 @@ fn list_expression(
                         ));
                     };
                     if operator == "borrow-mut" && !reference_mutable {
-                        return Err("cannot mutably borrow through an immutable reference".into());
+                        return Err(borrow_error(
+                            "cannot mutably borrow through an immutable reference",
+                        ));
                     }
                     expression(
                         &items[1], variables, functions, structs, enums, mutable, aliases, None,

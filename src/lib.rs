@@ -9067,6 +9067,10 @@ mod tests {
 
         let diagnostic_source = "(#fn main () u64\n  (#let-mut value u64 40)\n  (#return (#borrow value (#borrow-mut value value))))";
         let diagnostic_program = parse_program(diagnostic_source).unwrap();
+        let (structured_message, code, _, _) =
+            typecheck::check_types_with_span(&diagnostic_program).unwrap_err();
+        assert_eq!(code, DiagnosticCode::Borrow);
+        assert!(!structured_message.contains('\0'));
         let legacy_diagnostic = check_types(&diagnostic_program).unwrap_err();
         assert!(legacy_diagnostic.contains("E4100"));
         assert!(legacy_diagnostic.contains("function 'main'"));
