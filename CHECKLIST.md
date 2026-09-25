@@ -427,6 +427,10 @@ Each item requires documentation and regression coverage before being checked.
     from the retained function declaration tree, and remove the corresponding
     message-parsing branch from `unlocated_analysis_span`; the UI test asserts
     that the second duplicate name is underlined.
+  - [x] Resolve duplicate struct-field and enum-variant spans while validating
+    declarations, including variants duplicated across enums, and remove their
+    diagnostic-message span-recovery branches. UI fixtures pin the second
+    declaration occurrence.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated

@@ -162,6 +162,8 @@ fn check_types_inner(
                 .iter()
                 .map(|field| {
                     if !field_names.insert(field.name.clone()) {
+                        *diagnostic_span =
+                            declaration_member_span(program, name, 2, &field.name, 1);
                         return Err(format!(
                             "duplicate field '{}' in struct '{name}'",
                             field.name
@@ -204,6 +206,8 @@ fn check_types_inner(
                 .iter()
                 .map(|variant| {
                     if !local_variant_names.insert(variant.name.clone()) {
+                        *diagnostic_span =
+                            declaration_member_span(program, name, 2, &variant.name, 1);
                         return Err(format!(
                             "duplicate variant '{}' in enum '{name}'",
                             variant.name
@@ -211,6 +215,7 @@ fn check_types_inner(
                     }
                     if let Some(previous) = variant_names.insert(variant.name.clone(), name.clone())
                     {
+                        *diagnostic_span = global_enum_member_span(program, &variant.name, 1);
                         return Err(format!(
                             "variant '{}' is already defined in enum '{previous}'",
                             variant.name
@@ -1747,6 +1752,54 @@ fn collect_expression_calls(
         | Expr::String(_)
         | Expr::At => {}
     }
+}
+
+fn member_name(form: &crate::SpannedExpr) -> Option<&crate::SpannedExpr> {
+    match &form.expr {
+        Expr::Symbol(_) => Some(form),
+        Expr::List(_) => form.children.first(),
+        _ => None,
+    }
+}
+
+fn declaration_member_span(
+    program: &Program,
+    declaration_name: &str,
+    members_child: usize,
+    wanted_name: &str,
+    occurrence: usize,
+) -> Option<crate::Span> {
+    let declaration = program.declaration_expressions.get(declaration_name)?;
+    let members = declaration.children.get(members_child)?;
+    members
+        .children
+        .iter()
+        .filter_map(member_name)
+        .filter(|name| matches!(&name.expr, Expr::Symbol(name) if name == wanted_name))
+        .nth(occurrence)
+        .map(|name| name.span)
+}
+
+fn global_enum_member_span(
+    program: &Program,
+    wanted: &str,
+    occurrence: usize,
+) -> Option<crate::Span> {
+    let mut spans = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Enum { name, .. } => program.declaration_expressions.get(name),
+            _ => None,
+        })
+        .filter_map(|declaration| declaration.children.get(2))
+        .flat_map(|variants| variants.children.iter())
+        .filter_map(member_name)
+        .filter(|name| matches!(&name.expr, Expr::Symbol(name) if name == wanted))
+        .map(|name| name.span)
+        .collect::<Vec<_>>();
+    spans.sort_by_key(|span| (span.source_id, span.start));
+    spans.get(occurrence).copied()
 }
 
 fn check_function(
