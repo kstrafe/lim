@@ -455,11 +455,13 @@ Each item requires documentation and regression coverage before being checked.
   details. Include runtime collection and aggregate workloads with checked
   outputs; use results to prioritize work without flaky timing assertions in
   ordinary correctness tests.
-- [ ] Reconcile the language reference with executable examples and accepted
-  syntax. Known documentation drift includes the claim that Lim source
-  exposes no pointers in the value-representation section, despite explicit
-  pointer operations. Audit canonical type-versus-constructor forms, named
-  calls, `#case`, aggregate limits, and actual stack guarantees. Compile every
-  positive documentation example and assert every negative example's intended
-  diagnostic; intentional backend limitations must be stated rather than
-  hidden by a passing parser-only test.
+- [x] Add a dependency-free regression test that parses every fenced Lim
+  example in the language reference and fully compiles every complete example
+  containing `main`. Fix stale examples found by the test and describe
+  aggregate pointer exposure consistently with the explicit raw-pointer API.
+- [ ] Audit the remaining language reference against the compiler for canonical
+  type-versus-constructor forms, named calls, `#case`, aggregate limits, stack
+  bounds, and deliberate negative examples. Compile complete positive examples
+  through the backend, and pair each documented rejection with a UI fixture
+  asserting its intended diagnostic; document any example that is only a
+  syntax fragment or depends on a stated backend limitation.

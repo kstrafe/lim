@@ -581,7 +581,7 @@ pointers only. By-value aggregate FFI signatures remain rejected. Calls are unsa
 ```lisp
 (#extern-fn #abi-c abs ((value i32)) i32)
 (#fn main () u64
-  (#return (#as (#unsafe (abs -42i32)) u64)))
+  (#return (#as (#unsafe (#call abs (#fn-args (value -42i32)))) u64)))
 ```
 
 Binary compilation always links libc and pthread. Additional native link inputs
@@ -1010,7 +1010,9 @@ purpose registers; `f32` and `f64` values use SSE registers.  `i128` and
 Tuples, arrays, structs, and enums remain value types.  Small aggregates can
 be flattened through the native argument and result registers.  Larger
 aggregates use compiler-generated caller storage at the ABI boundary and are
-copied as value data; Lim source still exposes no pointers.
+copied as value data. Aggregate operations do not implicitly expose their
+storage addresses or permit layout reinterpretation; raw pointers remain
+explicit values handled by the unsafe pointer operations described above.
 
 Zero-sized values such as `()` and empty structs/arrays occupy no value words.
 The compiler computes each function’s maximum call depth after type checking.
