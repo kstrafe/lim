@@ -484,7 +484,7 @@ Each item requires documentation and regression coverage before being checked.
   example in the language reference and fully compiles every complete example
   containing `main`. Fix stale examples found by the test and describe
   aggregate pointer exposure consistently with the explicit raw-pointer API.
-- [ ] Audit the remaining language reference against the compiler for canonical
+- [x] Audit the remaining language reference against the compiler for canonical
   type-versus-constructor forms, named calls, `#case`, aggregate limits, stack
   bounds, and deliberate negative examples. Compile complete positive examples
   through the backend, and pair each documented rejection with a UI fixture
