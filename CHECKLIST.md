@@ -6,14 +6,24 @@ the checklist is committed alongside the implementation it tracks.
 
 ## Typed representation migration
 
+- [x] **IR-02c: Resolve concrete declaration and member identities.** Assign
+  deterministic program-local IDs to globals and aggregate types. Identify
+  fields and enum variants by owner ID and declaration index; resolve aliases
+  and references before selecting members. Retain these identities in reads,
+  writes, constructors, and patterns, including enum alternatives, and use
+  them when reconstructing backend input. Preserve existing source spans and
+  keep syntax labels separate from values. Test same-named fields on different
+  owners, global/local shadowing, imported spans, declaration-order stability,
+  and native projection/mutation behavior. Specialization remains open below.
+
 - [x] **IR-02b: Declare scoped binding identities and assignment roots.**
   Allocate local IDs at parameter, let, destructuring, let-else, and match
   pattern declarations, including unused bindings. Resolve uses and local
   assignment roots to these IDs; distinguish global assignment roots. Preserve
   block, loop, match-arm, and let-else success/failure scopes. Discard the
   temporary source-address index after lowering. Retain syntax labels as
-  syntax rather than discovering locals from their first use. Full
-  specialization and projection identity migration remains in IR-02 below.
+  syntax rather than discovering locals from their first use. Member identities
+  are covered by IR-02c; full specialization remains in IR-02 below.
 
 - [x] **IR-02a: Retain typed body arenas on the normal compilation path.**
   Record checked expression types without another semantic pass; preserve
@@ -54,6 +64,14 @@ the checklist is committed alongside the implementation it tracks.
   returns, and unreachable paths. Retain loan and consumption origin spans.
   Acceptance: existing borrow/linearity tests and exact UI spans remain valid;
   add branch/loop aliasing and aggregate-reference propagation regressions.
+
+- [ ] **SAFE-01: Resolve static access by identity, not spelling.** The current
+  unsafe checker also flags a parameter that shadows a static of the same
+  name. Use resolved global/local identities (or equivalent scoped resolution)
+  so only actual static accesses require `#unsafe`. Acceptance: shadowing
+  parameters, locals, and pattern bindings work without unnecessary unsafe
+  blocks; genuine static reads/borrows still require unsafe and retain exact
+  diagnostic spans, including imported and generated code.
 
 ## Collections and initial async facilities
 

@@ -31,6 +31,12 @@ specialized signatures during lowering.
 Function declarations have dense `FunctionId` identities, assigned in sorted
 name order, and retain their source spans when source metadata is available.
 IDs are local to a checked program, not persistent identities or cache keys.
+Globals and aggregate types also have dense IDs assigned by sorted name.
+Field and enum-variant IDs pair their owner's aggregate ID with their index
+in declaration order. Thus identically named fields on different structs are
+distinct, while an alias or reference resolves to the underlying owner's ID.
+Resolved declaration metadata remains accessible through these IDs. Adding a
+declaration may renumber IDs; they must not be stored as generator cache keys.
 The immutable borrow of the original program prevents invalidating checked
 information before emission. Repeated emission does not rerun validation.
 
@@ -54,9 +60,18 @@ and match-bound names, rather than inferred from the first variable use.
 Pattern declaration nodes and their uses refer to the same binding ID. Match
 arms, nested blocks, loops, and let-else failure bodies have separate scopes;
 the for-loop step can see declarations in its body, matching current checking
-semantics. Assignment roots distinguish local binding IDs from global names.
+semantics. Assignment roots distinguish local binding IDs from global IDs.
 The parser's existing shadow-renaming remains a compatibility aid for the
 legacy backend, not the IR's binding identity scheme.
+
+Global reads and borrows, named field/payload projections, concrete aggregate
+and variant constructors, and pattern constructors retain declaration IDs.
+Named assignment projections retain field/variant IDs rather than names.
+Replacing a symbol with its resolved identity preserves the node's source
+span. Per-body debug dumps include a deterministic name table for referenced
+declarations; they do not enumerate every unused declaration in the program.
+The compatibility reconstruction step obtains these spellings from the ID
+table, without resolving the original spelling again.
 
 Native lowering reconstructs its instruction-selector input from these bodies,
 erases unsafe wrappers, and carries retained expression types through to
@@ -72,8 +87,8 @@ debugging view (not a stable interchange format).
 
 The instruction selector still uses AST-shaped inputs. Compiler-synthesized
 expressions and internal legacy generic specializations retain the old type
-lookup path. Global and field/variant projection identities and specialization
-provenance still need a fully unified identity scheme before removing that
+lookup path. Specialization provenance and a uniform ownership-place model
+still need a fully unified identity scheme before removing that
 path. Ownership analyses still run on the original AST; they have not been
 replaced by typed control-flow dataflow. No SSA optimizer or arbitrary-function
 async transformation is implemented.

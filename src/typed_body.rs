@@ -108,7 +108,9 @@ mod tests {
     }
 }
 
-use crate::typed_ir::{resolve_type, Declarations, FunctionId};
+use crate::typed_ir::{
+    resolve_type, DeclarationId, Declarations, FieldId, FunctionId, GlobalId, VariantId,
+};
 use crate::{Expr, Function, Span, Statement, Type};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -222,6 +224,7 @@ impl NumericOperation {
 
 #[derive(Clone, Debug)]
 pub(crate) enum NodeKind {
+    Declaration(DeclarationId),
     Symbol {
         name: String,
         binding: Option<BindingId>,
@@ -278,16 +281,16 @@ pub(crate) enum Control {
 #[derive(Clone, Debug)]
 pub(crate) enum PlaceRoot {
     Local(BindingId),
-    Global(String),
+    Global(GlobalId),
 }
 
 #[derive(Clone, Debug)]
 pub(crate) enum Projection {
     Local,
     Array(NodeId),
-    Field(String),
+    Field(FieldId),
     Tuple(usize),
-    Payload(String, usize),
+    Payload(VariantId, usize),
 }
 
 #[derive(Clone, Debug)]
@@ -303,6 +306,7 @@ pub(crate) struct Body {
     pub instructions: Vec<Instruction>,
     emission_nodes: Vec<NodeId>,
     callees: HashMap<FunctionId, String>,
+    declaration_names: HashMap<DeclarationId, String>,
 }
 
 impl Body {
@@ -331,6 +335,7 @@ impl Body {
     }
     pub fn syntax(&self, id: NodeId, erase_unsafe: bool) -> Expr {
         match &self.nodes[id.0].kind {
+            NodeKind::Declaration(id) => Expr::Symbol(self.declaration_names[id].clone()),
             NodeKind::Symbol { name, binding } => Expr::Symbol(
                 binding
                     .map(|id| self.bindings[id.0].name.clone())
@@ -427,7 +432,9 @@ impl Body {
             Control::Assign(root, projection, value) => {
                 let name = match root {
                     PlaceRoot::Local(id) => self.bindings[id.0].name.clone(),
-                    PlaceRoot::Global(name) => name.clone(),
+                    PlaceRoot::Global(id) => {
+                        self.declaration_names[&DeclarationId::Global(*id)].clone()
+                    }
                 };
                 let value = expr(*value);
                 match projection {
@@ -440,7 +447,7 @@ impl Body {
                     Projection::Field(field) => Statement::FieldAssign {
                         name,
                         value,
-                        field: field.clone(),
+                        field: self.declaration_names[&DeclarationId::Field(*field)].clone(),
                     },
                     Projection::Tuple(index) => Statement::TupleAssign {
                         name,
@@ -450,7 +457,7 @@ impl Body {
                     Projection::Payload(variant, index) => Statement::EnumPayloadAssign {
                         name,
                         value,
-                        variant: variant.clone(),
+                        variant: self.declaration_names[&DeclarationId::Variant(*variant)].clone(),
                         index: *index,
                     },
                 }
@@ -489,6 +496,11 @@ impl Body {
     pub fn dump(&self) -> String {
         use std::fmt::Write;
         let mut output = String::new();
+        let mut declarations: Vec<_> = self.declaration_names.iter().collect();
+        declarations.sort_by_key(|(id, _)| **id);
+        for (id, name) in declarations {
+            writeln!(output, "  declaration {id:?}: {name}").unwrap();
+        }
         for (id, binding) in self.bindings.iter().enumerate() {
             writeln!(output, "  binding {id}: {} {:?}", binding.name, binding.ty).unwrap();
         }
@@ -639,15 +651,53 @@ impl Builder<'_> {
         id
     }
 
-    fn place(&self, name: &str) -> PlaceRoot {
+    fn declaration(&mut self, id: DeclarationId) -> NodeKind {
+        self.body
+            .declaration_names
+            .entry(id)
+            .or_insert_with(|| self.declarations.declaration_name(id).to_owned());
+        NodeKind::Declaration(id)
+    }
+
+    fn resolve_node(&mut self, node: NodeId, id: DeclarationId) {
+        self.body.nodes[node.0].kind = self.declaration(id);
+    }
+
+    fn place_type(&self, name: &str) -> &Type {
+        match self.names.get(name) {
+            Some(id) => &self.body.bindings[id.0].ty,
+            None => &self.declarations.globals[name],
+        }
+    }
+
+    fn field_projection(&mut self, name: &str, field: &str) -> Projection {
+        let id = self
+            .declarations
+            .field_id(self.place_type(name), field)
+            .expect("checked struct field assignment");
+        self.declaration(DeclarationId::Field(id));
+        Projection::Field(id)
+    }
+
+    fn payload_projection(&mut self, name: &str, variant: &str, index: usize) -> Projection {
+        let id = self
+            .declarations
+            .variant_id(self.place_type(name), variant)
+            .expect("checked enum payload assignment");
+        self.declaration(DeclarationId::Variant(id));
+        Projection::Payload(id, index)
+    }
+
+    fn place(&mut self, name: &str) -> PlaceRoot {
         if let Some(id) = self.names.get(name) {
             PlaceRoot::Local(*id)
         } else {
-            assert!(
-                self.declarations.globals.contains_key(name),
-                "checked assignment target: {name}"
-            );
-            PlaceRoot::Global(name.into())
+            let id = self
+                .declarations
+                .global_id(name)
+                .expect("checked global assignment target");
+            self.declaration(DeclarationId::Global(id));
+            PlaceRoot::Global(id)
         }
     }
 
@@ -658,15 +708,27 @@ impl Builder<'_> {
         let ty = resolve_type(ty, &self.declarations.aliases).expect("checked pattern type");
         if enum_pattern {
             if let Type::Named(name) = &ty {
-                if let Some(variants) = self.declarations.enums.get(name) {
+                if self.declarations.enums.contains_key(name) {
                     if let Expr::List(items) = pattern {
                         if let Some(Expr::Symbol(head)) = items.first() {
-                            if let Some(variant) = variants.iter().find(|v| v.name == *head) {
-                                let fields = variant.fields.clone();
+                            if head == "or" {
+                                for alternative in &items[1..] {
+                                    self.pattern_bindings(alternative, &ty, true);
+                                }
+                            } else if let Some(id) = self.declarations.variant_id(&ty, head) {
+                                let fields = self.declarations.variant(id).fields.clone();
+                                let node =
+                                    self.by_address[&(std::ptr::from_ref(&items[0]) as usize)];
+                                self.resolve_node(node, DeclarationId::Variant(id));
                                 for (child, field) in items[1..].iter().zip(fields) {
                                     self.pattern_bindings(child, &field, false);
                                 }
                             }
+                        }
+                    } else if let Expr::Symbol(head) = pattern {
+                        if let Some(id) = self.declarations.variant_id(&ty, head) {
+                            let node = self.by_address[&(std::ptr::from_ref(pattern) as usize)];
+                            self.resolve_node(node, DeclarationId::Variant(id));
                         }
                     }
                     return;
@@ -699,6 +761,10 @@ impl Builder<'_> {
                         .unwrap_or_default(),
                     _ => return, // Literal, range, and or patterns bind nothing.
                 };
+                if let Some(id) = self.declarations.aggregate_id(&ty) {
+                    let node = self.by_address[&(std::ptr::from_ref(&items[0]) as usize)];
+                    self.resolve_node(node, DeclarationId::Aggregate(id));
+                }
                 for (child, field) in items[1..].iter().zip(fields) {
                     self.pattern_bindings(child, &field, false);
                 }
@@ -720,6 +786,44 @@ impl Builder<'_> {
         self.record(arm, NodeKind::Syntax(children))
     }
 
+    fn resolve_form(&mut self, items: &[Expr], children: &[NodeId], ty: Option<&Type>) {
+        let Some(Expr::Symbol(head)) = items.first() else {
+            return;
+        };
+        // Only runtime forms have checked result types. A syntax constructor
+        // or pattern with the same spelling must not be treated as a call.
+        let Some(ty) = ty else {
+            return;
+        };
+        if matches!(head.as_str(), "get" | "get-payload") {
+            if let (Some(owner), Some(Expr::Symbol(name))) =
+                (self.body.nodes[children[1].0].ty.as_ref(), items.get(2))
+            {
+                let id = if head == "get" {
+                    self.declarations
+                        .field_id(owner, name)
+                        .map(DeclarationId::Field)
+                } else {
+                    self.declarations
+                        .variant_id(owner, name)
+                        .map(DeclarationId::Variant)
+                }
+                .expect("checked named projection");
+                self.resolve_node(children[2], id);
+            }
+        } else if let Some(id) = self.declarations.variant_id(ty, head) {
+            self.resolve_node(children[0], DeclarationId::Variant(id));
+        } else if matches!(ty, Type::Named(name) if name == head)
+            && self.declarations.structs.contains_key(head)
+        {
+            let id = self
+                .declarations
+                .aggregate_id(ty)
+                .expect("checked constructor");
+            self.resolve_node(children[0], DeclarationId::Aggregate(id));
+        }
+    }
+
     fn expression(&mut self, expression: &Expr) -> NodeId {
         let address = std::ptr::from_ref(expression) as usize;
         let kind = match expression {
@@ -729,9 +833,26 @@ impl Builder<'_> {
                     .contains_key(&address)
                     .then(|| self.names.get(name).copied())
                     .flatten();
-                NodeKind::Symbol {
-                    name: name.clone(),
-                    binding,
+                let declaration = if binding.is_none() {
+                    self.types.get(&address).and_then(|ty| {
+                        self.declarations
+                            .global_id(name)
+                            .map(DeclarationId::Global)
+                            .or_else(|| {
+                                self.declarations
+                                    .variant_id(ty, name)
+                                    .map(DeclarationId::Variant)
+                            })
+                    })
+                } else {
+                    None
+                };
+                match declaration {
+                    Some(id) => self.declaration(id),
+                    None => NodeKind::Symbol {
+                        name: name.clone(),
+                        binding,
+                    },
                 }
             }
             Expr::List(items) => {
@@ -757,9 +878,15 @@ impl Builder<'_> {
                                 };
                                 self.body.nodes[children[1].0].ty =
                                     Some(self.body.bindings[binding.0].ty.clone());
+                            } else if let Some(id) = self.declarations.global_id(name) {
+                                self.resolve_node(children[1], DeclarationId::Global(id));
+                                self.body.nodes[children[1].0].ty =
+                                    Some(self.declarations.global_type(id).clone());
                             }
                         }
                     }
+                    let ty = self.types.get(&address).cloned();
+                    self.resolve_form(items, &children, ty.as_ref());
                     if let Some(callee) = self.declarations.function_id(head) {
                         self.body.callees.insert(callee, head.clone());
                     }
@@ -866,7 +993,7 @@ impl Builder<'_> {
             }
             Statement::FieldAssign { name, field, value } => Control::Assign(
                 self.place(name),
-                Projection::Field(field.clone()),
+                self.field_projection(name, field),
                 self.expression(value),
             ),
             Statement::TupleAssign { name, index, value } => Control::Assign(
@@ -881,7 +1008,7 @@ impl Builder<'_> {
                 value,
             } => Control::Assign(
                 self.place(name),
-                Projection::Payload(variant.clone(), *index),
+                self.payload_projection(name, variant, *index),
                 self.expression(value),
             ),
             Statement::ArrayAssign { name, index, value } => Control::Assign(

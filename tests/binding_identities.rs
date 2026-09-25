@@ -134,7 +134,7 @@ fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate(
         "local assignment lacks binding identity: {dump}"
     );
     assert!(
-        dump.contains("Symbol { name: \"TOTAL\", binding: None }"),
+        dump.contains("Declaration(Global(GlobalId(0)))"),
         "static reference lacks global identity: {dump}"
     );
 }

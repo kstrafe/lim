@@ -17,6 +17,32 @@ pub(crate) struct Signature {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct FunctionId(usize);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub(crate) struct GlobalId(usize);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub(crate) struct AggregateId(usize);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub(crate) struct FieldId {
+    pub owner: AggregateId,
+    pub index: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub(crate) struct VariantId {
+    pub owner: AggregateId,
+    pub index: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub(crate) enum DeclarationId {
+    Global(GlobalId),
+    Aggregate(AggregateId),
+    Field(FieldId),
+    Variant(VariantId),
+}
+
 pub(crate) struct FunctionDeclaration {
     pub signature: Signature,
     pub span: Option<Span>,
@@ -30,6 +56,10 @@ pub(crate) struct Declarations {
     pub globals: HashMap<String, Type>,
     functions: Vec<FunctionDeclaration>,
     function_ids: HashMap<String, FunctionId>,
+    global_names: Vec<String>,
+    global_ids: HashMap<String, GlobalId>,
+    aggregate_names: Vec<String>,
+    aggregate_ids: HashMap<String, AggregateId>,
 }
 
 impl Declarations {
@@ -41,6 +71,20 @@ impl Declarations {
         functions: HashMap<String, Signature>,
         spans: &HashMap<String, Span>,
     ) -> Self {
+        let mut global_names: Vec<_> = globals.keys().cloned().collect();
+        global_names.sort();
+        let global_ids = global_names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| (name.clone(), GlobalId(index)))
+            .collect();
+        let mut aggregate_names: Vec<_> = structs.keys().chain(enums.keys()).cloned().collect();
+        aggregate_names.sort();
+        let aggregate_ids = aggregate_names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| (name.clone(), AggregateId(index)))
+            .collect();
         let mut functions: Vec<_> = functions.into_iter().collect();
         functions.sort_by(|a, b| a.0.cmp(&b.0));
         let function_ids = functions
@@ -63,7 +107,67 @@ impl Declarations {
             globals,
             functions,
             function_ids,
+            global_names,
+            global_ids,
+            aggregate_names,
+            aggregate_ids,
         }
+    }
+
+    pub fn global_id(&self, name: &str) -> Option<GlobalId> {
+        self.global_ids.get(name).copied()
+    }
+
+    pub fn aggregate_id(&self, ty: &Type) -> Option<AggregateId> {
+        let mut ty = resolve_type(ty, &self.aliases).ok()?;
+        while let Type::Reference { target, .. } = ty {
+            ty = *target;
+        }
+        let Type::Named(name) = ty else {
+            return None;
+        };
+        self.aggregate_ids.get(&name).copied()
+    }
+
+    pub fn field_id(&self, ty: &Type, name: &str) -> Option<FieldId> {
+        let owner = self.aggregate_id(ty)?;
+        let index = self
+            .structs
+            .get(&self.aggregate_names[owner.0])?
+            .iter()
+            .position(|field| field.name == name)?;
+        Some(FieldId { owner, index })
+    }
+
+    pub fn variant_id(&self, ty: &Type, name: &str) -> Option<VariantId> {
+        let owner = self.aggregate_id(ty)?;
+        let index = self
+            .enums
+            .get(&self.aggregate_names[owner.0])?
+            .iter()
+            .position(|variant| variant.name == name)?;
+        Some(VariantId { owner, index })
+    }
+
+    pub fn declaration_name(&self, id: DeclarationId) -> &str {
+        match id {
+            DeclarationId::Global(id) => &self.global_names[id.0],
+            DeclarationId::Aggregate(id) => &self.aggregate_names[id.0],
+            DeclarationId::Field(id) => &self.field(id).name,
+            DeclarationId::Variant(id) => &self.variant(id).name,
+        }
+    }
+
+    pub fn global_type(&self, id: GlobalId) -> &Type {
+        &self.globals[&self.global_names[id.0]]
+    }
+
+    pub fn field(&self, id: FieldId) -> &Field {
+        &self.structs[&self.aggregate_names[id.owner.0]][id.index]
+    }
+
+    pub fn variant(&self, id: VariantId) -> &EnumVariant {
+        &self.enums[&self.aggregate_names[id.owner.0]][id.index]
     }
 
     pub fn function_id(&self, name: &str) -> Option<FunctionId> {
@@ -146,6 +250,67 @@ pub(crate) fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn declaration_ids_resolve_metadata_and_ignore_top_level_declaration_order() {
+        let forms = [
+            "(#struct Z ((z u64) (a u32)))",
+            "(#struct A.Type ((a u8)))",
+            "(#enum M ((Second u16) First))",
+            "(#const Zed u64 7u64)",
+            "(#const Alpha.answer u64 42u64)",
+            "(#type ZAlias Z)",
+        ];
+        for forms in [forms.to_vec(), forms.into_iter().rev().collect()] {
+            let source = format!(
+                "{} (#fn main () u64 (#return Alpha.answer))",
+                forms.join(" ")
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let declarations = checked.declarations();
+            assert_eq!(declarations.global_id("Alpha.answer"), Some(GlobalId(0)));
+            assert_eq!(declarations.global_id("Zed"), Some(GlobalId(1)));
+            assert_eq!(declarations.global_type(GlobalId(0)), &Type::U64);
+            let alias = Type::Reference {
+                mutable: true,
+                target: Box::new(Type::Named("ZAlias".into())),
+            };
+            let field = declarations.field_id(&alias, "a").unwrap();
+            assert_eq!(
+                field,
+                FieldId {
+                    owner: AggregateId(2),
+                    index: 1
+                }
+            );
+            assert_eq!(declarations.field(field).ty, Type::U32);
+            assert_eq!(
+                declarations.declaration_name(DeclarationId::Field(field)),
+                "a"
+            );
+            let other = declarations
+                .field_id(&Type::Named("A.Type".into()), "a")
+                .unwrap();
+            assert_ne!(field, other);
+            assert_eq!(declarations.field(other).ty, Type::U8);
+            let variant = declarations
+                .variant_id(&Type::Named("M".into()), "Second")
+                .unwrap();
+            assert_eq!(
+                variant,
+                VariantId {
+                    owner: AggregateId(1),
+                    index: 0
+                }
+            );
+            assert_eq!(declarations.variant(variant).fields, vec![Type::U16]);
+            assert_eq!(
+                declarations.declaration_name(DeclarationId::Variant(variant)),
+                "Second"
+            );
+        }
+    }
 
     fn containers(ty: Type) -> Vec<Type> {
         vec![
