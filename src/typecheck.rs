@@ -18,7 +18,7 @@ struct Signature {
 }
 
 pub fn check_types(program: &Program) -> Result<(), String> {
-    check_types_with_span(program).map_err(|(message, span, labels)| {
+    check_types_with_span(program).map_err(|(message, _, span, labels)| {
         let mut error = span.map_or(message.clone(), |span| {
             format!(
                 "{message}; source span {}:{}:{}",
@@ -47,15 +47,30 @@ pub fn check_types(program: &Program) -> Result<(), String> {
 
 pub(crate) fn check_types_with_span(
     program: &Program,
-) -> Result<(), (String, Option<crate::Span>, Vec<(crate::Span, String)>)> {
+) -> Result<
+    (),
+    (
+        String,
+        crate::DiagnosticCode,
+        Option<crate::Span>,
+        Vec<(crate::Span, String)>,
+    ),
+> {
     let mut diagnostic_span = None;
+    let mut diagnostic_code = crate::DiagnosticCode::Type;
     let mut diagnostic_labels = Vec::new();
-    check_types_inner(program, &mut diagnostic_span, &mut diagnostic_labels)
-        .map_err(|message| (message, diagnostic_span, diagnostic_labels))
+    check_types_inner(
+        program,
+        &mut diagnostic_code,
+        &mut diagnostic_span,
+        &mut diagnostic_labels,
+    )
+    .map_err(|message| (message, diagnostic_code, diagnostic_span, diagnostic_labels))
 }
 
 fn check_types_inner(
     program: &Program,
+    diagnostic_code: &mut crate::DiagnosticCode,
     diagnostic_span: &mut Option<crate::Span>,
     diagnostic_labels: &mut Vec<(crate::Span, String)>,
 ) -> Result<(), String> {
@@ -413,6 +428,7 @@ fn check_types_inner(
                         diagnostic_labels
                             .push((*invocation, "generated from this invocation".into()));
                     }
+                    *diagnostic_code = error.code;
                     return Err(error.message);
                 }
             }
@@ -460,15 +476,18 @@ fn check_types_inner(
         }
     }
     check_thread_task_ownership(program, &aliases)?;
+    *diagnostic_code = crate::DiagnosticCode::Linear;
     crate::linearcheck::check_program_with_span(program).map_err(|(message, span)| {
         *diagnostic_span = span;
         message
     })?;
+    *diagnostic_code = crate::DiagnosticCode::Borrow;
     crate::borrowcheck::check_program(program).map_err(|error| {
         *diagnostic_span = error.span;
         *diagnostic_labels = error.labels;
         error.message
     })?;
+    *diagnostic_code = crate::DiagnosticCode::Unsafe;
     crate::unsafecheck::check_program_with_span(program).map_err(|(message, span)| {
         *diagnostic_span = span;
         message
@@ -1715,6 +1734,7 @@ fn visit_call_graph(
         return Err(FunctionTypeError {
             message: format!("recursive calls are not allowed: {}", cycle.join(" -> ")),
             span,
+            code: crate::DiagnosticCode::Type,
         });
     }
     if state.get(name) == Some(&false) {
@@ -1928,6 +1948,7 @@ fn check_function(
                     parameter.name, function.name
                 ),
                 span,
+                code: crate::DiagnosticCode::Type,
             });
         }
         variables.insert(
@@ -1994,9 +2015,15 @@ fn check_function(
                 })
                 .or_else(|| source_expression.map(crate::source_value_span))
                 .or(statement_span);
+            let code = if error == "cannot mutably borrow through an immutable reference" {
+                crate::DiagnosticCode::Borrow
+            } else {
+                crate::DiagnosticCode::Type
+            };
             FunctionTypeError {
                 message: error,
                 span: precise_span,
+                code,
             }
         })?;
     }
@@ -2019,6 +2046,7 @@ fn check_function(
         FunctionTypeError {
             message: error,
             span,
+            code: crate::DiagnosticCode::Type,
         }
     })
 }
@@ -2026,6 +2054,7 @@ fn check_function(
 struct FunctionTypeError {
     message: String,
     span: Option<crate::Span>,
+    code: crate::DiagnosticCode,
 }
 
 impl From<String> for FunctionTypeError {
@@ -2033,6 +2062,7 @@ impl From<String> for FunctionTypeError {
         Self {
             message,
             span: None,
+            code: crate::DiagnosticCode::Type,
         }
     }
 }

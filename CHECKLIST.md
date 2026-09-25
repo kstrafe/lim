@@ -432,6 +432,12 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Preserve borrow conflicts and their origin as structured primary and
     secondary spans through CLI rendering; tests assert both exact source
     tokens and distinct rendered hunks without span-marker text.
+  - [x] Carry a structured semantic diagnostic category into CLI construction;
+    `analysis_diagnostic` consumes that category directly instead of
+    classifying errors by searching message text.
+  - [ ] Assign the borrow category at the specific type-check rejection site
+    for illegal `#borrow-mut` through immutable references; remove the current
+    message comparison when constructing the function-level type error.
   - [x] Resolve duplicate-parameter diagnostics at parameter validation time
     from the retained function declaration tree, and remove the corresponding
     message-parsing branch from `unlocated_analysis_span`; the UI test asserts

@@ -1807,32 +1807,20 @@ pub fn compile_source_to_assembly(
     let program =
         parse_program_from_path_with_config_and_cache(source, source_path, config, cache_directory)
             .map_err(|message| generator_diagnostic(message, source_path, source))?;
-    typecheck::check_types_with_span(&program)
-        .map_err(|(message, span, labels)| analysis_diagnostic(message, span, labels, &program))?;
+    typecheck::check_types_with_span(&program).map_err(|(message, code, span, labels)| {
+        analysis_diagnostic(message, code, span, labels, &program)
+    })?;
     generate_assembly_for_target(&program, target)
         .map_err(|message| codegen_diagnostic(message, &program))
 }
 
 fn analysis_diagnostic(
     message: String,
+    code: DiagnosticCode,
     structured_span: Option<Span>,
     structured_labels: Vec<(Span, String)>,
     program: &Program,
 ) -> Diagnostic {
-    let code = if message.starts_with("E4100") || message.contains("borrow") {
-        DiagnosticCode::Borrow
-    } else if message.contains("unsafe") || message.contains("#unsafe") {
-        DiagnosticCode::Unsafe
-    } else if message.contains("linear")
-        || message.contains("must be consumed")
-        || message.contains("must be moved")
-        || message.contains("must be joined")
-        || message.contains("is not consumed")
-    {
-        DiagnosticCode::Linear
-    } else {
-        DiagnosticCode::Type
-    };
     let mut diagnostic = Diagnostic::new(code, message.clone());
     if let Some(span) = structured_span {
         if let Some(file) = program.source_files.get(span.source_id as usize) {
@@ -8686,7 +8674,8 @@ mod tests {
         let root_source = "(#import \"module.lim\") (#fn main () u64 (#return 0u64))";
         let program = parse_program_from_path(root_source, &root_path).unwrap();
         let error = check_types(&program).unwrap_err();
-        let diagnostic = analysis_diagnostic(error, None, Vec::new(), &program);
+        let diagnostic =
+            analysis_diagnostic(error, DiagnosticCode::Type, None, Vec::new(), &program);
         let span = diagnostic.span.unwrap();
         assert_eq!(span.source_id, 1);
         assert_eq!(
@@ -8703,32 +8692,32 @@ mod tests {
     fn function_type_diagnostics_carry_the_span_without_message_metadata() {
         let source = "(#fn main () u64 (#return false))";
         let program = parse_program(source).unwrap();
-        let (message, span, labels) = typecheck::check_types_with_span(&program).unwrap_err();
+        let (message, code, span, labels) = typecheck::check_types_with_span(&program).unwrap_err();
         assert!(!message.contains("source span "));
         let span = span.expect("mismatched return has a structured source span");
         assert_eq!(&source[span.start..span.end], "false");
 
-        let diagnostic = analysis_diagnostic(message, Some(span), labels, &program);
+        let diagnostic = analysis_diagnostic(message, code, Some(span), labels, &program);
         assert_eq!(diagnostic.span, Some(span));
         assert_eq!(diagnostic.code, DiagnosticCode::Type);
 
         let global_source = "(#let total u64 false)";
         let global_program = parse_program(global_source).unwrap();
-        let (message, span, _) = typecheck::check_types_with_span(&global_program).unwrap_err();
+        let (message, _, span, _) = typecheck::check_types_with_span(&global_program).unwrap_err();
         assert!(!message.contains("source span "));
         let span = span.expect("mismatched global initializer has a structured span");
         assert_eq!(&global_source[span.start..span.end], "false");
 
         let unsafe_source = "(#static VALUE u64 1u64) (#fn main () u64 (#return VALUE))";
         let unsafe_program = parse_program(unsafe_source).unwrap();
-        let (message, span, _) = typecheck::check_types_with_span(&unsafe_program).unwrap_err();
+        let (message, _, span, _) = typecheck::check_types_with_span(&unsafe_program).unwrap_err();
         assert!(!message.contains("source span "));
         let span = span.expect("unsafe static access has a structured span");
         assert_eq!(&unsafe_source[span.start..span.end], "VALUE");
 
         let linear_source = "(#struct Resource ((value (#cell u64)))) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value (#cell 1u64))))) (#return 0u64))";
         let linear_program = parse_program(linear_source).unwrap();
-        let (message, span, _) = typecheck::check_types_with_span(&linear_program).unwrap_err();
+        let (message, _, span, _) = typecheck::check_types_with_span(&linear_program).unwrap_err();
         assert!(!message.contains("source span "));
         let span = span.expect("unconsumed linear local has a structured span");
         assert_eq!(&linear_source[span.start..span.end], "resource");
@@ -9122,7 +9111,7 @@ mod tests {
             "{rendered}"
         );
 
-        let (message, primary, labels) =
+        let (message, code, primary, labels) =
             typecheck::check_types_with_span(&diagnostic_program).unwrap_err();
         assert!(!message.contains("conflicting span"));
         let primary = primary.expect("borrow conflict has a structured primary span");
@@ -9136,7 +9125,7 @@ mod tests {
             "#borrow"
         );
         let structured_diagnostic =
-            analysis_diagnostic(message, Some(primary), labels, &diagnostic_program);
+            analysis_diagnostic(message, code, Some(primary), labels, &diagnostic_program);
         let rendered = render_diagnostic(&structured_diagnostic, diagnostic_source, "borrow.lim");
         assert!(rendered.contains("borrow begins here"), "{rendered}");
         assert_eq!(rendered.matches("\n  --> ").count(), 2, "{rendered}");
