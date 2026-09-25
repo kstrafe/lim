@@ -1103,6 +1103,14 @@ portion and the unresolved callees. Runtime startup and external-library stack
 use are excluded, so finite Lim call depth alone is not a guarantee against
 stack overflow.
 
+The report recognizes local assembly labels and follows both edges of each
+conditional branch, including early returns and generated thread error paths.
+It tracks frame-pointer save/restore operations and includes return-address
+space for external calls in the known portion. Unsupported stack-pointer
+updates or inconsistent frame-pointer states produce an analysis error instead
+of a numeric bound. This analysis describes the emitted assembly; it does not
+measure the operating system's available stack.
+
 Division by zero, invalid dynamic shifts, failed assertions, `#panic`, and
 `#unreachable` lower to runtime traps.  Intentional trap examples are kept
 separate by the repository’s native sweep.

@@ -14,14 +14,29 @@ struct Block {
 #[derive(Default)]
 struct Instruction {
     stack_delta: i64,
+    frame: Option<FrameAction>,
     call: Option<String>,
     terminator: Option<Terminator>,
+}
+
+enum FrameAction {
+    Save,
+    Restore,
+    Leave,
+    Pop,
+}
+
+#[derive(Clone, Copy)]
+struct StackState {
+    depth: usize,
+    frame: Option<usize>,
 }
 
 enum Terminator {
     Jump(String),
     Branch(String),
     Stop,
+    Return,
 }
 
 struct LocalUsage {
@@ -111,7 +126,7 @@ fn parse_functions(assembly: &str) -> Result<HashMap<String, Function>, String> 
         let Some(function_name) = current.as_ref() else {
             continue;
         };
-        if line.is_empty() || line.starts_with('.') || line.starts_with('#') {
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
         if let Some(label) = line.strip_suffix(':') {
@@ -128,10 +143,26 @@ fn parse_functions(assembly: &str) -> Result<HashMap<String, Function>, String> 
             }
             continue;
         }
+        if line.starts_with('.') {
+            continue;
+        }
         let instruction = parse_instruction(line)?;
-        functions
+        let function = functions
             .get_mut(function_name)
-            .expect("current function exists")
+            .expect("current function exists");
+        if function.blocks.last().is_some_and(|block| {
+            block
+                .instructions
+                .last()
+                .is_some_and(|instruction| instruction.terminator.is_some())
+        }) {
+            function.blocks.push(Block {
+                // Not a valid assembly identifier, so it cannot collide with a label.
+                label: format!("<fallthrough {}>", function.blocks.len()),
+                instructions: Vec::new(),
+            });
+        }
+        function
             .blocks
             .last_mut()
             .expect("function has an entry block")
@@ -144,18 +175,36 @@ fn parse_functions(assembly: &str) -> Result<HashMap<String, Function>, String> 
 fn parse_instruction(line: &str) -> Result<Instruction, String> {
     let (opcode, operands) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
     let operands = operands.trim();
+    let arguments = operands.split(',').map(str::trim).collect::<Vec<_>>();
+    let destination = arguments.first().copied().unwrap_or("");
     let mut instruction = Instruction::default();
     match opcode {
         "push" => instruction.stack_delta = 8,
-        "pop" => instruction.stack_delta = -8,
-        "sub" | "add" if operands.starts_with("rsp,") => {
-            let amount = operands[4..]
-                .trim()
+        "pop" if destination != "rsp" && destination != "esp" && destination != "sp" => {
+            instruction.stack_delta = -8;
+            if destination == "rbp" {
+                instruction.frame = Some(FrameAction::Pop);
+            }
+        }
+        "sub" | "add" if destination == "rsp" => {
+            let amount = arguments
+                .get(1)
+                .ok_or_else(|| format!("missing stack adjustment in '{line}'"))?
                 .parse::<i64>()
                 .map_err(|_| format!("cannot determine stack adjustment in '{line}'"))?;
-            instruction.stack_delta = if opcode == "sub" { amount } else { -amount };
+            instruction.stack_delta = if opcode == "sub" {
+                amount
+            } else {
+                amount
+                    .checked_neg()
+                    .ok_or_else(|| format!("stack adjustment overflow in '{line}'"))?
+            };
         }
-        "leave" | "ret" | "ud2" => instruction.terminator = Some(Terminator::Stop),
+        "mov" if arguments == ["rbp", "rsp"] => instruction.frame = Some(FrameAction::Save),
+        "mov" if arguments == ["rsp", "rbp"] => instruction.frame = Some(FrameAction::Restore),
+        "leave" => instruction.frame = Some(FrameAction::Leave),
+        "ret" if operands.is_empty() => instruction.terminator = Some(Terminator::Return),
+        "ud2" => instruction.terminator = Some(Terminator::Stop),
         "jmp" => {
             instruction.terminator = Some(Terminator::Jump(operands.to_owned()));
         }
@@ -163,7 +212,23 @@ fn parse_instruction(line: &str) -> Result<Instruction, String> {
             instruction.terminator = Some(Terminator::Branch(operands.to_owned()));
         }
         "call" => instruction.call = Some(operands.to_owned()),
-        _ => {}
+        _ => {
+            let frame_register = |operand: &str| {
+                matches!(
+                    operand,
+                    "rsp" | "esp" | "sp" | "spl" | "rbp" | "ebp" | "bp" | "bpl"
+                )
+            };
+            if matches!(
+                opcode,
+                "enter" | "ret" | "iret" | "iretq" | "pushf" | "pushfq" | "popf" | "popfq"
+            ) || (!matches!(opcode, "cmp" | "test") && frame_register(destination))
+                || (matches!(opcode, "xchg" | "xadd")
+                    && arguments.iter().any(|arg| frame_register(arg)))
+            {
+                return Err(format!("cannot determine stack effect of '{line}'"));
+            }
+        }
     }
     Ok(instruction)
 }
@@ -175,9 +240,12 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
         .enumerate()
         .map(|(index, block)| (block.label.as_str(), index))
         .collect::<HashMap<_, _>>();
-    let mut entries = vec![None::<usize>; function.blocks.len()];
+    let mut entries = vec![None::<StackState>; function.blocks.len()];
     let mut peaks = vec![0usize; function.blocks.len()];
-    entries[0] = Some(0);
+    entries[0] = Some(StackState {
+        depth: 0,
+        frame: None,
+    });
     let mut calls = Vec::new();
     let count = function.blocks.len();
     for iteration in 0..=count {
@@ -186,12 +254,35 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
             let Some(start) = entries[index] else {
                 continue;
             };
-            let mut depth = i64::try_from(start).map_err(|_| "stack depth exceeds i64")?;
-            let mut peak = start;
+            let mut depth = i64::try_from(start.depth).map_err(|_| "stack depth exceeds i64")?;
+            let mut frame = start.frame;
+            let mut peak = start.depth;
             let mut last_terminator = None;
             for instruction in &block.instructions {
+                match instruction.frame {
+                    Some(FrameAction::Save) => {
+                        frame = Some(usize::try_from(depth).map_err(|_| "invalid frame depth")?)
+                    }
+                    Some(FrameAction::Restore | FrameAction::Leave) => {
+                        depth =
+                            i64::try_from(frame.ok_or("cannot restore an unknown frame pointer")?)
+                                .map_err(|_| "frame depth exceeds i64")?;
+                        if matches!(instruction.frame, Some(FrameAction::Leave)) {
+                            depth -= 8;
+                            frame = None;
+                        }
+                    }
+                    Some(FrameAction::Pop) => frame = None,
+                    None => {}
+                }
                 if let Some(target) = &instruction.call {
                     calls.push((target.clone(), usize::try_from(depth).unwrap_or(usize::MAX)));
+                    peak = peak.max(
+                        usize::try_from(depth)
+                            .map_err(|_| "invalid call depth")?
+                            .checked_add(8)
+                            .ok_or("call return address overflows stack depth")?,
+                    );
                 }
                 depth = depth
                     .checked_add(instruction.stack_delta)
@@ -205,12 +296,18 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
                 peak = peak.max(usize::try_from(depth).map_err(|_| "stack depth exceeds usize")?);
                 if instruction.terminator.is_some() {
                     last_terminator = instruction.terminator.as_ref();
+                    break;
                 }
             }
             peaks[index] = peaks[index].max(peak);
             let mut successors = Vec::new();
             match last_terminator {
                 Some(Terminator::Stop) => {}
+                Some(Terminator::Return) => {
+                    if depth != 0 {
+                        return Err(format!("unbalanced stack at return in '{}'", block.label));
+                    }
+                }
                 Some(Terminator::Jump(target)) => successors.push(
                     *labels
                         .get(target.as_str())
@@ -230,11 +327,21 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
                 None => {}
             }
             for successor in successors {
+                if entries[successor].is_some_and(|previous| previous.frame != frame) {
+                    return Err(format!(
+                        "inconsistent frame pointer at '{}'",
+                        function.blocks[successor].label
+                    ));
+                }
                 match entries[successor] {
-                    Some(previous) if previous >= usize::try_from(depth).unwrap_or(usize::MAX) => {}
+                    Some(previous)
+                        if previous.depth >= usize::try_from(depth).unwrap_or(usize::MAX) => {}
                     _ => {
-                        entries[successor] =
-                            Some(usize::try_from(depth).map_err(|_| "stack depth exceeds usize")?);
+                        entries[successor] = Some(StackState {
+                            depth: usize::try_from(depth)
+                                .map_err(|_| "stack depth exceeds usize")?,
+                            frame,
+                        });
                         changed = true;
                     }
                 }
@@ -318,7 +425,9 @@ mod tests {
     fn reports_internal_call_chain_and_marks_external_usage_unknown() {
         let assembly = ".type main, @function\nmain:\n push rbp\n mov rbp, rsp\n sub rsp, 16\n call work\n leave\n ret\n.size main, .-main\n.type work, @function\nwork:\n push rbp\n mov rbp, rsp\n sub rsp, 32\n call write\n leave\n ret\n.size work, .-work\n";
         let report = stack_usage_report(assembly).unwrap();
-        assert!(report.contains("main: at most 72 bytes"), "{report}");
+        // main: 24, internal call return address: 8, work: 40,
+        // external call return address: 8. External frames remain unknown.
+        assert!(report.contains("main: at most 80 bytes"), "{report}");
         assert!(report.contains("main -> work"), "{report}");
         assert!(
             report.contains("external/indirect callee 'write'"),
@@ -329,9 +438,60 @@ mod tests {
     #[test]
     fn detects_positive_stack_growth_loops() {
         let assembly =
-            ".type main, @function\nmain:\nloop:\n push rax\n jmp loop\n.size main, .-main\n";
+            ".type main, @function\nmain:\n.Lloop:\n push rax\n jmp .Lloop\n.size main, .-main\n";
         assert!(stack_usage_report(assembly)
             .unwrap_err()
             .contains("unbounded stack growth"));
+    }
+
+    #[test]
+    fn local_branches_keep_asymmetric_peaks_and_ignore_unreachable_code() {
+        // The two paths use 8 + 16 and 8 + 64 bytes, not their sum.
+        let assembly = ".type main, @function\nmain:\n push rbp\n mov rbp, rsp\n test eax, eax\n je .Llarge\n sub rsp, 16\n leave\n ret\n sub rsp, 4096\n call unreachable_external\n.Llarge:\n sub rsp, 64\n mov rsp, rbp\n pop rbp\n ret\n.size main, .-main\n";
+        let report = stack_usage_report(assembly).unwrap();
+        assert!(report.contains("main: at most 72 bytes"), "{report}");
+        assert!(!report.contains("unknown"), "{report}");
+    }
+
+    #[test]
+    fn conditional_fallthrough_and_nested_loops_preserve_calls() {
+        let assembly = ".type main, @function\nmain:\n push rbp\n mov rbp, rsp\n.Louter:\n test eax, eax\n je .Ldone\n.Linner:\n sub rsp, 32\n call external_work\n add rsp, 32\n jne .Linner\n jmp .Louter\n.Ldone:\n leave\n ret\n.size main, .-main\n";
+        let report = stack_usage_report(assembly).unwrap();
+        assert!(report.contains("at most 48 bytes"), "{report}");
+        assert!(report.contains("external_work"), "{report}");
+    }
+
+    #[test]
+    fn unsupported_stack_writes_and_unknown_epilogues_are_rejected() {
+        for instruction in [
+            "and rsp, -16",
+            "lea rsp, [rax]",
+            "mov esp, eax",
+            "pop rsp",
+            "xchg rax, rsp",
+            "enter 8, 0",
+            "leave",
+        ] {
+            let assembly =
+                format!(".type main, @function\nmain:\n {instruction}\n ret\n.size main, .-main\n");
+            assert!(stack_usage_report(&assembly).is_err(), "{instruction}");
+        }
+    }
+
+    #[test]
+    fn generated_branches_loops_and_large_calls_have_bounded_frames() {
+        for source in [
+            include_str!("../examples/loop.lim"),
+            include_str!("../examples/large_aggregate_parameters.lim"),
+            include_str!("../examples/aggregate_loop_conditional.lim"),
+            include_str!("../examples/nested_loop_break_scope.lim"),
+            "(#fn leaf () u64 (#return 7u64)) (#fn main () u64 (#return (#if true (#call leaf (#fn-args)) 2u64)) (#return 3u64))",
+        ] {
+            let program = crate::parse_program(source).unwrap();
+            let assembly = crate::generate_assembly(&program).unwrap();
+            let report = stack_usage_report(&assembly).unwrap_or_else(|error| panic!("{error}\n{assembly}"));
+            assert!(report.contains("main: at most"), "{report}");
+            assert!(!report.contains("unknown"), "{report}");
+        }
     }
 }

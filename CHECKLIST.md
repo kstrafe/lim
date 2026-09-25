@@ -589,3 +589,155 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Pin the documented `#case`, aggregate-overflow, and stack-bound
     rejection/limitation behavior with UI or report tests and cross-reference
     those fixtures in the reference.
+
+## Follow-up audit (2026-09-25)
+
+These items come from inspecting the current implementation and its tests.
+Earlier diagnostic work made the checker-to-renderer boundary structured;
+message parsing still occurs inside some passes and at other phase boundaries.
+Existing passing tests do not establish the stronger guarantees below. Keep
+explicit types, explicit destruction, concrete generators, and free-standing
+functions. Each item should have its own implementation commit, documentation,
+and acceptance coverage.
+
+### Correctness and reliable verification
+
+- [x] **STACK-01: Analyze the actual emitted control-flow graph.**
+  `src/stack_usage.rs::parse_functions` skips lines beginning with `.` before
+  recognizing labels, including emitted `.L...:` labels. Instruction analysis
+  also retains only the last terminator in a block. Recognize local labels,
+  split blocks after conditional/unconditional branches and returns, and
+  model epilogues and stack adjustments explicitly. Unsupported writes to RSP
+  must produce an unknown-bound result or a diagnostic, never a guessed bound.
+  Acceptance: analyze real compiler output for asymmetric branches, nested
+  loops, early returns, and calls with large temporary arguments. Independently
+  verify expected byte bounds, reject positive-growth cycles, and retain
+  unknown external-call bounds. Include a regression using `.L` labels rather
+  than only hand-written labels that avoid the parser issue.
+
+- [ ] **TEST-01: Give every executable example an expected outcome.**
+  `scripts/native-sweep.sh` currently counts every exit below 128 as successful
+  and every exit at or above 128 as a trap without checking expectations. Add
+  a dependency-free expectation manifest distinguishing runnable examples,
+  support modules, expected compilation errors, and intentional runtime traps.
+  Compile through the production binary linker and assert exact exit status,
+  stdout/stderr where relevant, and the expected signal for trap cases.
+  Acceptance: an unexpected segfault, wrong numeric result, linker failure,
+  timeout, or missing expectation fails the sweep; intentional trap examples
+  pass only with their declared outcome. Keep compiler/linker stderr available
+  on failure and use uniquely created temporary directories.
+
+- [ ] **DIAG-01: Select declaration errors by occurrence and source order.**
+  Declaration span maps are keyed by names, and
+  `task_type_in_declaration_span` searches `HashMap` task keys. These are
+  insufficient to guarantee the responsible occurrence when several names
+  repeat or several invalid task types appear. Retain declaration/member IDs
+  or direct syntax references at validation sites; choose errors in documented
+  source order, independent of hash iteration. Keep generated invocation labels.
+  Acceptance: three duplicate declarations underline the second declaration;
+  mixed Send/Sync annotations underline the actual invalid annotation; fields
+  with multiple task types and same-named selectors identify the rejected type
+  occurrence. Repeat tests in fresh processes, through imports, and on cache
+  hits to verify deterministic primary and secondary spans.
+
+### Compiler architecture and diagnostics
+
+- [ ] **DIAG-02: Remove message parsing inside semantic error producers.**
+  `src/typecheck.rs::precise_type_error_span` still extracts tuple indices,
+  payload positions, field names, and other details from English messages.
+  `BORROW_ERROR_MARKER` also embeds diagnostic identity in a string. Replace
+  these with structured error variants carrying operand/node identity and a
+  category at the failure site; preserve that identity through named-argument
+  reordering and aggregate lowering. Acceptance: eliminate these string
+  protocols, and verify that changing the rendered wording leaves exact source
+  ranges unchanged for repeated operands, shadowing, nested constructors,
+  reordered calls, and mutable-borrow failures. Preserve existing UI coverage.
+
+- [ ] **DIAG-03: Extend structured errors across cfg, generation, and codegen.**
+  `generator_diagnostic`, `codegen_diagnostic`, and source-error helpers in
+  `src/lib.rs` still parse or create `source span`/`source file` strings;
+  `src/codegen.rs` also serializes spans into messages. Carry source IDs,
+  primary/secondary ranges, and phase/category data directly across those
+  boundaries. Use string-returning compatibility wrappers only at public API
+  edges. Acceptance: remove metadata serialization and quoted-name recovery
+  from these paths; test imported paths containing spaces/colons, nested
+  generated failures, cfg errors, and nonconstant initializers. Diagnostic text
+  resembling metadata must remain ordinary text and must never select a file
+  or location. Cold and cached expansions must report equivalent provenance.
+
+- [ ] **COMP-01: Validate once and pass a checked program into emission.**
+  `compile_source_to_assembly` runs semantic checks, then
+  `generate_assembly_for_target` calls `check_types` again. Introduce an internal
+  checked-program boundary so emission can reuse resolved types, validated
+  calls, and source identities. Retain validation for public APIs that accept
+  unchecked programs, and prevent mutation from invalidating the checked state.
+  Acceptance: instrument tests to show one semantic pass per normal compile,
+  keep public unchecked entry points rejecting invalid programs, and compare
+  native output and diagnostics before/after. Measure effects on large projects
+  rather than assuming a speedup.
+
+- [ ] **PERF-01: Benchmark the production compiler and linker accurately.**
+  `benches/compiler.rs` links using Clang while production uses `as`/`ld`, and
+  its assembly-emission measurement includes another semantic check. Benchmark
+  the production APIs with clearly separated and end-to-end timings; describe
+  any phases that deliberately include earlier work. Add call-chain, branch,
+  reference-aggregate, and generator-heavy workloads beyond independent leaf
+  functions. Acceptance: record a new machine/toolchain-qualified baseline for
+  cold/warm runs, compare against the old sample with its limitations stated,
+  and check runtime outputs and artifact sizes without timing gates in ordinary
+  tests. Keep Nix and dependency-free Rust tooling.
+
+### Build outputs and developer tooling
+
+- [ ] **BUILD-01: Publish final outputs only after successful compilation.**
+  The CLI writes assembly directly to its destination, and `link_native_binary`
+  passes the requested output path directly to `ld`. Stage output in a uniquely
+  created file in the destination directory and rename it after success; clean
+  up owned temporary files on failure. Reject input/output collisions before
+  overwriting source, including canonical path aliases. Apply the same policy
+  to explicit formatter output. Acceptance: failed assembly/linking and write
+  failures preserve an existing artifact byte-for-byte, concurrent builds never
+  expose partial output, executable permissions survive publication, and source
+  files cannot be accidentally replaced by build artifacts.
+
+- [ ] **DOC-01: Make executable documentation coverage explicit.**
+  `tests/language_docs.rs` checks one document and uses the substring
+  `(#fn main` to decide whether a fence is a complete program. Define explicit
+  fence metadata or a fixture index for runnable programs, checked libraries,
+  fragments with a prelude, and intended errors. Cover README, language,
+  allocator, and soundness documentation as applicable. Acceptance: multiline
+  function declarations and comments containing `main` are classified correctly;
+  positive examples compile through the backend, selected programs run with
+  expected results, and negative examples assert their intended diagnostic.
+
+- [ ] **TOOL-01: Offer structured diagnostic output for editors and LLMs.**
+  Add an opt-in JSON diagnostic mode with a versioned schema, stable category,
+  message, source path, byte range, primary/secondary labels, and expansion
+  provenance. Specify the relationship between byte offsets and display columns.
+  Implement correct JSON escaping without external libraries. Acceptance:
+  lexical through linker failures use the schema, Unicode and quoted paths
+  remain valid, imported/generated spans are retained, and human prose or raw
+  subprocess stderr does not corrupt the diagnostic stream. Preserve the
+  existing human-readable mode.
+
+### Explicit concurrency and language terminology
+
+- [ ] **SYNC-01: Add atomic compare-exchange and exchange.**
+  The current atomic API has load/store/fetch-add, but no operation that can
+  conditionally claim shared state for an allocator or lock. Specify explicit
+  strong/weak compare-exchange forms, expected/desired values, separate success
+  and failure orders, and an explicit success/observed-value result. Add exchange
+  with an explicit order. Acceptance: reject invalid ordering combinations,
+  type-check every supported integer width, test successful/failed comparisons
+  and observed values, and run competing workers that safely claim shared state.
+  Document the generated x86 instructions, ordering guarantees, and fairness
+  limitations; do not introduce callbacks, methods, or implicit dispatch.
+
+- [ ] **LANG-01: Use Send/Sync annotation terminology consistently.**
+  `AutoTrait`, `UnsafeAutoTraitImpl`, diagnostics, and the soundness document
+  still borrow trait terminology despite traits being a documented non-goal.
+  Rename internal concepts and user-facing wording to Send/Sync properties and
+  unsafe annotations while preserving the established `#unsafe-impl` syntax.
+  Acceptance: errors and documentation describe exactly the unsafe promise and
+  structural derivation rules, without suggesting user-defined traits exist;
+  existing Send/Sync behavior and diagnostic locations remain covered.
