@@ -22,6 +22,7 @@ exit 20 array_return_index.lim - -
 exit 30 array-of.lim - -
 exit 41 array.lim - -
 exit 42 assert.lim - -
+exit 42 atomic_claim.lim - -
 exit 42 bitwise_not.lim - -
 exit 40 block.lim - -
 exit 42 bool_bitwise.lim - -

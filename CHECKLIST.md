@@ -722,7 +722,7 @@ and acceptance coverage.
 
 ### Explicit concurrency and language terminology
 
-- [ ] **SYNC-01: Add atomic compare-exchange and exchange.**
+- [x] **SYNC-01: Add atomic compare-exchange and exchange.**
   The current atomic API has load/store/fetch-add, but no operation that can
   conditionally claim shared state for an allocator or lock. Specify explicit
   strong/weak compare-exchange forms, expected/desired values, separate success

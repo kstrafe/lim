@@ -85,6 +85,32 @@ Lim's current local and aggregate storage is at least eight-byte aligned:
 (#atomic-store (#borrow counter) observed #memory-release)
 ```
 
+`(#atomic-exchange reference desired #memory-order)` replaces the value and
+returns the old scalar. Compare-exchange has these explicit forms:
+
+```lisp syntax
+(#atomic-compare-exchange reference expected desired #memory-acq-rel #memory-acquire)
+(#atomic-compare-exchange-weak reference expected desired #memory-release #memory-relaxed)
+```
+
+Both return `(#tuple bool ScalarType)`: success followed by the observed
+old value. On failure memory is unchanged; the observed value can be used
+for an explicit retry. Expected and desired must match the atomic scalar.
+Success accepts every `#memory-*` order; failure accepts relaxed, acquire,
+or seq-cst, and cannot be stronger than success. In particular, release
+success permits only relaxed failure; acquire failure requires acquire,
+acq-rel, or seq-cst success. Release/acq-rel failure orders are invalid.
+
+The x86-64 backend emits memory `xchg` for exchange (implicitly locked),
+and `lock cmpxchg` for both compare-exchange forms. Narrow observed values
+are sign- or zero-extended according to the scalar type. These instructions
+provide stronger hardware ordering than relaxed operations require. Weak
+compare-exchange is currently implemented without spurious failure; callers
+must still allow spurious failure for future backends. Atomic operations
+provide no scheduling fairness or starvation guarantee. See
+`examples/atomic_claim.lim` for two workers claiming the same state; both
+tasks are spawned before either is joined.
+
 Loads accept `#memory-relaxed`, `#memory-acquire`, or `#memory-seq-cst`;
 stores accept `#memory-relaxed`, `#memory-release`, or `#memory-seq-cst`.
 Fetch-add accepts any of those plus `#memory-acq-rel`. Invalid order/operation

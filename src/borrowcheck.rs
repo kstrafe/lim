@@ -1300,7 +1300,12 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                     merge_branch_context(context, &branches);
                 } else if matches!(
                     operator.as_str(),
-                    "atomic-load" | "atomic-store" | "atomic-fetch-add"
+                    "atomic-load"
+                        | "atomic-store"
+                        | "atomic-fetch-add"
+                        | "atomic-exchange"
+                        | "atomic-compare-exchange"
+                        | "atomic-compare-exchange-weak"
                 ) && items.len() >= 3
                 {
                     let previous = context.allow_local_reference;

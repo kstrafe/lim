@@ -1,0 +1,34 @@
+(#fn claim ((state (#ref (#atomic u64)))) u64
+  (#let (#tuple won observed) (#tuple bool u64)
+    (#atomic-compare-exchange state 0u64 42u64 #memory-acq-rel #memory-acquire))
+  (#return (#if won 1u64 0u64)))
+
+(@thread-spawn FirstClaim claim)
+(@thread-spawn SecondClaim claim)
+
+(#fn main () u64
+  (#let-mut state (#atomic u64) (#atomic-init u64 0u64))
+  (#let winners u64
+    (#match (FirstClaim-spawn (#borrow state))
+      (#case (FirstClaim-spawn-ok first)
+        (#match (SecondClaim-spawn (#borrow state))
+          (#case (SecondClaim-spawn-ok second)
+            (#block
+              (#let a u64
+                (#match (FirstClaim-join first)
+                  (#case (FirstClaim-join-ok result) result)
+                  (#case (FirstClaim-join-error (#tuple retry error)) (#panic))))
+              (#let b u64
+                (#match (SecondClaim-join second)
+                  (#case (SecondClaim-join-ok result) result)
+                  (#case (SecondClaim-join-error (#tuple retry error)) (#panic))))
+              (#u64.+.wrap a b)))
+          (#case (SecondClaim-spawn-error _)
+            (#match (FirstClaim-join first)
+              (#case (FirstClaim-join-ok _) (#panic))
+              (#case (FirstClaim-join-error (#tuple retry error)) (#panic))))))
+      (#case (FirstClaim-spawn-error _) (#panic))))
+  (#assert (#u64.== winners 1u64))
+  (#let value u64 (#atomic-load (#borrow state) #memory-acquire))
+  (#forget state)
+  (#return value))

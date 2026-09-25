@@ -6009,7 +6009,8 @@ impl FunctionContext {
                     }
                 }
                 Some(Expr::Symbol(operator))
-                    if operator == "atomic-fetch-add" && items.len() == 4 =>
+                    if matches!(operator.as_str(), "atomic-fetch-add" | "atomic-exchange")
+                        && items.len() == 4 =>
                 {
                     match self.expression_type(&items[1])? {
                         Type::Reference { target, .. } => match *target {
@@ -6021,6 +6022,20 @@ impl FunctionContext {
                 }
                 Some(Expr::Symbol(operator)) if operator == "atomic-store" && items.len() == 4 => {
                     Some(Type::Unit)
+                }
+                Some(Expr::Symbol(operator))
+                    if matches!(
+                        operator.as_str(),
+                        "atomic-compare-exchange" | "atomic-compare-exchange-weak"
+                    ) && items.len() == 6 =>
+                {
+                    match self.expression_type(&items[1])? {
+                        Type::Reference { target, .. } => match *target {
+                            Type::Atomic(inner) => Some(Type::Tuple(vec![Type::Bool, *inner])),
+                            _ => None,
+                        },
+                        _ => None,
+                    }
                 }
                 Some(Expr::Symbol(operator)) if operator == "slice-of" && items.len() == 2 => {
                     let Type::Reference { target, .. } = self.expression_type(&items[1])? else {
@@ -8216,9 +8231,24 @@ impl FunctionContext {
         }
         if matches!(
             operator,
-            "atomic-load" | "atomic-store" | "atomic-fetch-add"
+            "atomic-load"
+                | "atomic-store"
+                | "atomic-fetch-add"
+                | "atomic-exchange"
+                | "atomic-compare-exchange"
+                | "atomic-compare-exchange-weak"
         ) {
-            let expected = if operator == "atomic-load" { 3 } else { 4 };
+            let compare = matches!(
+                operator,
+                "atomic-compare-exchange" | "atomic-compare-exchange-weak"
+            );
+            let expected = if compare {
+                6
+            } else if operator == "atomic-load" {
+                3
+            } else {
+                4
+            };
             if items.len() != expected {
                 return Err(format!("{operator} has invalid arity"));
             }
@@ -8256,6 +8286,32 @@ impl FunctionContext {
             self.output.push_str("    push rax\n");
             self.stack_depth += 1;
             self.expression(&items[2])?;
+            if compare {
+                self.output.push_str("    push rax\n");
+                self.stack_depth += 1;
+                self.expression(&items[3])?;
+                self.output
+                    .push_str("    mov r8, rax\n    pop rax\n    pop rcx\n");
+                self.stack_depth -= 2;
+                let desired = match bytes {
+                    1 => "r8b",
+                    2 => "r8w",
+                    4 => "r8d",
+                    8 => "r8",
+                    _ => unreachable!(),
+                };
+                self.output.push_str(&format!("    lock cmpxchg {} PTR [rcx], {desired}\n    mov rdx, rax\n    sete al\n    movzx eax, al\n", atomic_width_name(bytes)));
+                match (bytes, signed) {
+                    (1, true) => self.output.push_str("    movsx rdx, dl\n"),
+                    (1, false) => self.output.push_str("    movzx edx, dl\n"),
+                    (2, true) => self.output.push_str("    movsx rdx, dx\n"),
+                    (2, false) => self.output.push_str("    movzx edx, dx\n"),
+                    (4, true) => self.output.push_str("    movsxd rdx, edx\n"),
+                    (4, false) => self.output.push_str("    mov edx, edx\n"),
+                    _ => {}
+                }
+                return Ok(());
+            }
             self.output.push_str("    pop rcx\n");
             self.stack_depth -= 1;
             let value_register = match bytes {
@@ -8280,8 +8336,13 @@ impl FunctionContext {
                     width = atomic_width_name(bytes)
                 ));
             } else {
+                let instruction = if operator == "atomic-exchange" {
+                    "xchg"
+                } else {
+                    "lock xadd"
+                };
                 self.output.push_str(&format!(
-                    "    lock xadd {width} PTR [rcx], {value_register}\n",
+                    "    {instruction} {width} PTR [rcx], {value_register}\n",
                     width = atomic_width_name(bytes)
                 ));
                 match (bytes, signed) {

@@ -4527,8 +4527,23 @@ fn list_expression(
             require_type(&actual, &scalar, "atomic initializer")?;
             Ok(Type::Atomic(Box::new(scalar)))
         }
-        "atomic-load" | "atomic-store" | "atomic-fetch-add" => {
-            let expected = if operator == "atomic-load" { 3 } else { 4 };
+        "atomic-load"
+        | "atomic-store"
+        | "atomic-fetch-add"
+        | "atomic-exchange"
+        | "atomic-compare-exchange"
+        | "atomic-compare-exchange-weak" => {
+            let compare = matches!(
+                operator,
+                "atomic-compare-exchange" | "atomic-compare-exchange-weak"
+            );
+            let expected = if compare {
+                6
+            } else if operator == "atomic-load" {
+                3
+            } else {
+                4
+            };
             require_arity(operator, items, expected)?;
             let Type::Reference { target, .. } = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
@@ -4543,7 +4558,13 @@ fn list_expression(
                     "{operator} requires a reference to an atomic scalar"
                 ));
             };
-            let order_index = if operator == "atomic-load" { 2 } else { 3 };
+            let order_index = if compare {
+                4
+            } else if operator == "atomic-load" {
+                2
+            } else {
+                3
+            };
             let order = atomic_memory_order(items.get(order_index))
                 .ok_or_else(|| format!("{operator} requires an explicit #memory-* ordering"))?;
             match operator {
@@ -4554,6 +4575,31 @@ fn list_expression(
                     return Err("atomic-store ordering must be relaxed, release, or seq-cst".into());
                 }
                 _ => {}
+            }
+            if compare {
+                let failure = atomic_memory_order(items.get(5)).ok_or_else(|| {
+                    format!("{operator} requires an explicit failure #memory-* ordering")
+                })?;
+                let allowed = match failure {
+                    "relaxed" => true,
+                    "acquire" => matches!(order, "acquire" | "acq-rel" | "seq-cst"),
+                    "seq-cst" => order == "seq-cst",
+                    _ => false,
+                };
+                if !allowed {
+                    return Err("compare-exchange failure ordering must be relaxed, acquire, or seq-cst and no stronger than success ordering".into());
+                }
+                let desired = expression(
+                    &items[3],
+                    variables,
+                    functions,
+                    structs,
+                    enums,
+                    mutable,
+                    aliases,
+                    Some(&scalar),
+                )?;
+                require_type(&desired, &scalar, "atomic desired operand")?;
             }
             if operator != "atomic-load" {
                 let actual = expression(
@@ -4568,7 +4614,9 @@ fn list_expression(
                 )?;
                 require_type(&actual, &scalar, "atomic operand")?;
             }
-            if operator == "atomic-store" {
+            if compare {
+                Ok(Type::Tuple(vec![Type::Bool, *scalar]))
+            } else if operator == "atomic-store" {
                 Ok(Type::Unit)
             } else {
                 Ok(*scalar)
