@@ -714,7 +714,11 @@ fields are not defaulted:
 
 Unknown, duplicate, or missing fields are compile-time errors. A type name in
 call position, such as `(Point 20u64 22u64)`, is rejected; give constructor
-functions distinct names such as `make-point`.
+functions distinct names such as `make-point`. The UI suite covers this
+rejection in `tests/ui/type-as-constructor.lim`; it also pins the diagnostic
+spans for positional calls, generic function declarations, and
+angle-bracket generic call syntax in `tests/ui/positional-call.lim`,
+`tests/ui/generic-function.lim`, and `tests/ui/generic-angle-call.lim`.
 
 Aggregate projections can be updated with `#set-index`, `#set-field`, and
 `#set-payload`:

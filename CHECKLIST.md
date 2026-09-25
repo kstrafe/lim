@@ -481,3 +481,5 @@ Each item requires documentation and regression coverage before being checked.
   through the backend, and pair each documented rejection with a UI fixture
   asserting its intended diagnostic; document any example that is only a
   syntax fragment or depends on a stated backend limitation.
+  - [x] Add exact-span UI rejection fixtures for type names in constructor
+    position, positional calls, generic declarations, and angle-bracket calls.
