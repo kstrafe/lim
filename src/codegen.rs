@@ -1007,13 +1007,13 @@ pub fn generate_assembly_for_target(
         return Err("native backend has no implementation for the selected target".into());
     }
     let checked = crate::typecheck::CheckedProgram::validate(program)?;
-    generate_checked_assembly(&checked, target)
+    generate_checked_assembly(&checked, target).map_err(String::from)
 }
 
 pub(crate) fn generate_checked_assembly(
     checked: &crate::typecheck::CheckedProgram<'_>,
     target: crate::TargetDescription,
-) -> Result<String, String> {
+) -> Result<String, crate::source_error::SourceError> {
     if target != crate::TargetDescription::X86_64_SYSTEM_V {
         return Err("native backend has no implementation for the selected target".into());
     }
@@ -1119,7 +1119,8 @@ pub(crate) fn generate_checked_assembly(
             return Err(format!(
                 "external function '{}' must use directly passed scalar values",
                 function.name
-            ));
+            )
+            .into());
         }
         if function.external
             && parameters
@@ -1130,14 +1131,26 @@ pub(crate) fn generate_checked_assembly(
             return Err(format!(
                 "external function '{}' uses an enum without an explicit #repr-c layout",
                 function.name
-            ));
+            ).into());
         }
         for parameter in &parameters {
             if !supports_indirect_return_type(parameter, &structs, &enums) {
-                ensure_parameter_type(parameter, &enums, &structs)?;
+                ensure_parameter_type(parameter, &enums, &structs).map_err(|error| {
+                    let error = crate::source_error::SourceError::from(error);
+                    program
+                        .declaration_spans
+                        .get(&function.name)
+                        .map_or(error.clone(), |span| error.at(*span))
+                })?;
             }
         }
-        ensure_return_type(&return_type, &enums, &structs)?;
+        ensure_return_type(&return_type, &enums, &structs).map_err(|error| {
+            let error = crate::source_error::SourceError::from(error);
+            program
+                .declaration_spans
+                .get(&function.name)
+                .map_or(error.clone(), |span| error.at(*span))
+        })?;
         functions.insert(
             function.name.clone(),
             FunctionAbi {
@@ -1189,7 +1202,8 @@ pub(crate) fn generate_checked_assembly(
             if functions.insert(function_name.clone(), abi).is_some() {
                 return Err(format!(
                     "generated thread function '{function_name}' conflicts with another function"
-                ));
+                )
+                .into());
             }
         }
     }
@@ -1220,7 +1234,7 @@ pub(crate) fn generate_checked_assembly(
         };
         {
             if mutable {
-                return Err(format!("top-level binding '{name}' cannot be mutable"));
+                return Err(format!("top-level binding '{name}' cannot be mutable").into());
             }
             let ty = resolve_type(ty, &aliases)?;
             let global = (|| -> Result<GlobalValue, String> {
@@ -1315,7 +1329,22 @@ pub(crate) fn generate_checked_assembly(
                 };
                 Ok(global)
             })()
-            .map_err(|error| format!("{error} in global initializer '{name}'"))?;
+            .map_err(|error| {
+                let error = crate::source_error::SourceError::new(
+                    format!("{error} in global initializer '{name}'"), crate::DiagnosticCode::Codegen);
+                let Some(declaration) = program.declaration_expressions.get(name) else { return error; };
+                let Some(value) = declaration.children.get(3) else { return error.at(declaration.span); };
+                fn locate(node: &crate::SpannedExpr, fails: &impl Fn(&Expr) -> bool) -> Option<crate::Span> {
+                    if matches!(&node.expr, Expr::Symbol(_)) && fails(&node.expr) { return Some(node.span); }
+                    if matches!(&node.expr, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#call")) { return Some(node.span); }
+                    node.children.iter().skip(1).find_map(|child| locate(child, fails))
+                }
+                let span = locate(value, &|expression| {
+                    matches!(expression, Expr::Symbol(symbol) if constant_initializers.contains_key(symbol)) &&
+                    constant_value(expression, &enums, &constants, &constant_initializers, &mut HashSet::new(), Some(&ty)).is_err()
+                }).unwrap_or(value.span);
+                error.at(span)
+            })?;
             global_types.insert(name.clone(), ty);
             globals.insert(name.clone(), global);
         }
@@ -1381,18 +1410,10 @@ pub(crate) fn generate_checked_assembly(
                 &program.statement_expressions,
             )
             .map_err(|error| {
-                if error.contains("source span ") {
-                    return error;
-                }
                 program
                     .declaration_spans
                     .get(&function.name)
-                    .map_or(error.clone(), |span| {
-                        format!(
-                            "{error}; source span {}:{}:{}",
-                            span.source_id, span.start, span.end
-                        )
-                    })
+                    .map_or(error.clone(), |span| error.at(*span))
             })?,
             Item::Function(_) => {}
             Item::Struct { .. } => {}
@@ -1410,15 +1431,11 @@ pub(crate) fn generate_checked_assembly(
                 &functions,
             )
             .map_err(|error| {
+                let error = crate::source_error::SourceError::from(error);
                 program
                     .declaration_spans
                     .get(name)
-                    .map_or(error.clone(), |span| {
-                        format!(
-                            "{error}; source span {}:{}:{}",
-                            span.source_id, span.start, span.end
-                        )
-                    })
+                    .map_or(error.clone(), |span| error.at(*span))
             })?,
         }
     }
@@ -1840,7 +1857,7 @@ fn generate_function(
     functions: &HashMap<String, FunctionAbi>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
     statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
-) -> Result<(), String> {
+) -> Result<(), crate::source_error::SourceError> {
     let return_type = resolve_type(&function.return_type, aliases)?;
     ensure_return_type(&return_type, enums, structs)?;
     let indirect_parameters = functions
@@ -2177,25 +2194,18 @@ fn generate_function(
     };
     for (index, statement) in function.body.iter().enumerate() {
         context.statement(statement).map_err(|error| {
-            let source_expression = statement_expressions.get(&(function.name.clone(), index));
-            source_expression
-                .and_then(|expression| codegen_expression_span(expression, &error))
-                .or_else(|| {
-                    statement_expressions
-                        .get(&(function.name.clone(), index))
-                        .map(crate::source_value_span)
-                })
-                .or_else(|| {
-                    statement_spans
-                        .get(&(function.name.clone(), index))
-                        .copied()
-                })
-                .map_or(error.clone(), |span| {
-                    format!(
-                        "{error}; source span {}:{}:{}",
-                        span.source_id, span.start, span.end
-                    )
-                })
+            let error = crate::source_error::SourceError::from(error);
+            {
+                statement_expressions
+                    .get(&(function.name.clone(), index))
+                    .map(crate::source_value_span)
+            }
+            .or_else(|| {
+                statement_spans
+                    .get(&(function.name.clone(), index))
+                    .copied()
+            })
+            .map_or(error.clone(), |span| error.at(span))
         })?;
     }
     if function.body.is_empty() {
@@ -2205,25 +2215,6 @@ fn generate_function(
     output.push_str(&format!("{return_label}:\n"));
     output.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
     Ok(())
-}
-
-fn codegen_expression_span(expression: &crate::SpannedExpr, error: &str) -> Option<crate::Span> {
-    let target = error.split('\'').nth(1)?;
-    fn collect(expression: &crate::SpannedExpr, target: &str, spans: &mut Vec<crate::Span>) {
-        if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == target) {
-            spans.push(expression.span);
-        }
-        for child in &expression.children {
-            collect(child, target, spans);
-        }
-    }
-    let mut spans = Vec::new();
-    collect(expression, target, &mut spans);
-    if error.contains("used more than once") {
-        spans.into_iter().max_by_key(|span| span.start)
-    } else {
-        spans.into_iter().next()
-    }
 }
 
 fn collect_local_types(

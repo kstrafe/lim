@@ -653,7 +653,7 @@ and acceptance coverage.
   ranges unchanged for repeated operands, shadowing, nested constructors,
   reordered calls, and mutable-borrow failures. Preserve existing UI coverage.
 
-- [ ] **DIAG-03: Extend structured errors across cfg, generation, and codegen.**
+- [x] **DIAG-03: Extend structured errors across cfg, generation, and codegen.**
   `generator_diagnostic`, `codegen_diagnostic`, and source-error helpers in
   `src/lib.rs` still parse or create `source span`/`source file` strings;
   `src/codegen.rs` also serializes spans into messages. Carry source IDs,

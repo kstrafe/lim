@@ -53,7 +53,7 @@ impl<'a> CheckedProgram<'a> {
 
     /// Emit a previously validated, immutably borrowed program.
     pub fn generate_assembly(&self, target: crate::TargetDescription) -> Result<String, String> {
-        crate::codegen::generate_checked_assembly(self, target)
+        crate::codegen::generate_checked_assembly(self, target).map_err(String::from)
     }
 }
 

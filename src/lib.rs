@@ -13,9 +13,11 @@ mod diagnostic_json;
 mod generator;
 mod linearcheck;
 mod output;
+mod source_error;
 mod stack_usage;
 mod typecheck;
 mod unsafecheck;
+use source_error::SourceError;
 
 pub use codegen::generate_assembly;
 pub use codegen::generate_assembly_for_target;
@@ -222,34 +224,6 @@ pub fn render_error(source: &str, filename: &str, error: &str) -> String {
     };
 
     render_diagnostic(&Diagnostic::new(code, message), source, filename)
-}
-
-fn span_after(error: &str, marker: &str) -> Option<(usize, usize)> {
-    let suffix = error.split_once(marker)?.1;
-    let values = suffix
-        .split(':')
-        .take(3)
-        .map(|part| {
-            part.chars()
-                .take_while(char::is_ascii_digit)
-                .collect::<String>()
-                .parse::<usize>()
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
-    match values.as_slice() {
-        [start, end] => Some((*start, *end)),
-        [_, start, end] => Some((*start, *end)),
-        _ => None,
-    }
-}
-
-fn source_id_after(error: &str, marker: &str) -> Option<u32> {
-    let suffix = error.split_once(marker)?.1;
-    let pieces = suffix.split(':').take(3).collect::<Vec<_>>();
-    (pieces.len() == 3)
-        .then(|| pieces[0].parse().ok())
-        .flatten()
 }
 
 fn token_width_at(source: &str, line: usize, column: usize) -> usize {
@@ -1694,13 +1668,14 @@ pub fn parse_program(source: &str) -> Result<Program, String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
     parse_program_in_directory(source, &base, None, &CompileConfig::default(), None)
+        .map_err(String::from)
 }
 
 /// Parse a Lim program using explicit compile-time configuration values.
 pub fn parse_program_with_config(source: &str, config: &CompileConfig) -> Result<Program, String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
-    parse_program_in_directory(source, &base, None, config, None)
+    parse_program_in_directory(source, &base, None, config, None).map_err(String::from)
 }
 
 /// Parse a Lim program while resolving file imports relative to `source_path`.
@@ -1713,6 +1688,7 @@ pub fn parse_program_from_path(source: &str, source_path: &Path) -> Result<Progr
         &CompileConfig::default(),
         None,
     )
+    .map_err(String::from)
 }
 
 /// Parse a Lim program while resolving imports and evaluating cfg forms using `config`.
@@ -1722,7 +1698,7 @@ pub fn parse_program_from_path_with_config(
     config: &CompileConfig,
 ) -> Result<Program, String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    parse_program_in_directory(source, base, Some(source_path), config, None)
+    parse_program_in_directory(source, base, Some(source_path), config, None).map_err(String::from)
 }
 
 /// Parse a source file using cfg settings and a persistent generator cache.
@@ -1740,6 +1716,7 @@ pub fn parse_program_from_path_with_config_and_cache(
         config,
         Some(cache_directory),
     )
+    .map_err(String::from)
 }
 
 /// Compile a Lim source file to native assembly with recoverable diagnostics.
@@ -1776,9 +1753,14 @@ pub fn compile_source_to_assembly_for_output(
         Diagnostic::new(DiagnosticCode::Parse, error.message).with_span(error.span)
     })?;
 
-    let program =
-        parse_program_from_path_with_config_and_cache(source, source_path, config, cache_directory)
-            .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    let program = parse_program_in_directory(
+        source,
+        source_path.parent().unwrap_or(Path::new(".")),
+        Some(source_path),
+        config,
+        Some(cache_directory),
+    )
+    .map_err(|message| generator_diagnostic(message, source_path, source))?;
     let checked = typecheck::CheckedProgram::validate_with_span(&program).map_err(
         |(message, code, span, labels)| analysis_diagnostic(message, code, span, labels, &program),
     )?;
@@ -1841,283 +1823,27 @@ fn analysis_diagnostic(
     diagnostic
 }
 
-fn attach_generator_source(mut message: String, source_files: &[SourceFile]) -> String {
-    if message.contains("; source file ") {
-        return message;
-    }
-    let Some(source_id) = source_id_after(&message, "source span ") else {
-        return message;
-    };
-    if let Some(file) = source_files.get(source_id as usize) {
-        message.push_str(&format!("; source file {}", file.path.display()));
-    }
-    message
+fn attach_generator_source(error: SourceError, source_files: &[SourceFile]) -> SourceError {
+    error.attach(source_files)
 }
 
-fn generator_diagnostic(message: String, root_path: &Path, root_source: &str) -> Diagnostic {
-    // The general S-expression parser reports `path: line:column: message`.
-    // Imports use the same format, so retain their own source excerpt too.
-    for (separator, _) in message.match_indices(": ") {
-        let suffix = &message[separator + 2..];
-        let Some((line, column, parse_message)) = parse_location_prefix(suffix) else {
-            continue;
-        };
-        let path = &message[..separator];
-        let root_directory = root_path.parent().unwrap_or_else(|| Path::new("."));
-        let (source_name, source) =
-            if Path::new(path) == root_path || Path::new(path) == root_directory {
-                (root_path.display().to_string(), root_source.to_owned())
-            } else if let Ok(source) = fs::read_to_string(path) {
-                (path.to_owned(), source)
-            } else {
-                continue;
-            };
-        let span = source_span_at(&source, line, column, token_width_at(&source, line, column));
-        let code = diagnostic_code_for_positioned_message(&parse_message);
-        return Diagnostic::new(code, parse_message)
-            .with_span(span)
-            .with_source(source_name, source);
+fn generator_diagnostic(error: SourceError, root_path: &Path, root_source: &str) -> Diagnostic {
+    let mut diagnostic = error.diagnostic();
+    if diagnostic.source_name.is_none() {
+        diagnostic.source_name = Some(root_path.display().to_string());
+        diagnostic.source_text = Some(root_source.to_owned());
     }
-
-    let root_directory = root_path.parent().unwrap_or_else(|| Path::new("."));
-    for prefix in [root_path, root_directory] {
-        let Some(location) = message.strip_prefix(prefix.to_str().unwrap_or_default()) else {
-            continue;
-        };
-        let Some(location) = location.strip_prefix(':') else {
-            continue;
-        };
-        let mut parts = location.splitn(3, ':');
-        let (Some(line), Some(column), Some(error_message)) =
-            (parts.next(), parts.next(), parts.next())
-        else {
-            continue;
-        };
-        if let (Ok(line), Ok(column)) = (line.parse::<usize>(), column.parse::<usize>()) {
-            let code = diagnostic_code_for_positioned_message(error_message);
-            return Diagnostic::new(code, error_message.trim_start())
-                .with_span(source_span_at(
-                    root_source,
-                    line,
-                    column,
-                    token_width_at(root_source, line, column),
-                ))
-                .with_source(root_path.display().to_string(), root_source.to_owned());
-        }
-    }
-
-    // Import resolution errors use `directory:line:column: message` rather
-    // than the parser's `directory: line:column: message` spelling.
-    if let Some((location, parse_message)) = message.rsplit_once(": ") {
-        if let Some((line_column, path)) = location.rsplit_once(':') {
-            if let Some((line, column)) = line_column.rsplit_once(':') {
-                if let (Ok(line), Ok(column)) = (line.parse::<usize>(), column.parse::<usize>()) {
-                    let root_directory = root_path.parent().unwrap_or_else(|| Path::new("."));
-                    let (source_name, source) =
-                        if Path::new(path) == root_path || Path::new(path) == root_directory {
-                            (root_path.display().to_string(), root_source.to_owned())
-                        } else if let Ok(source) = fs::read_to_string(path) {
-                            (path.to_owned(), source)
-                        } else {
-                            (String::new(), String::new())
-                        };
-                    if !source_name.is_empty() {
-                        let code = diagnostic_code_for_positioned_message(parse_message);
-                        return Diagnostic::new(code, parse_message)
-                            .with_span(source_span_at(
-                                &source,
-                                line,
-                                column,
-                                token_width_at(&source, line, column),
-                            ))
-                            .with_source(source_name, source);
-                    }
-                }
-            }
-        }
-    }
-
-    let (code, display_message) = if let Some(message) = message.strip_prefix("type error: ") {
-        (DiagnosticCode::Type, message)
-    } else if let Some(message) = message.strip_prefix("parse error: ") {
-        (DiagnosticCode::Parse, message)
-    } else if let Some(message) = message.strip_prefix("lex error: ") {
-        (DiagnosticCode::Lex, message)
-    } else if let Some(message) = message.strip_prefix("generator error: ") {
-        (DiagnosticCode::Generator, message)
-    } else {
-        (DiagnosticCode::Generator, message.as_str())
-    };
-    let mut diagnostic = Diagnostic::new(code, display_message);
-    let Some((start, end)) = span_after(&message, "source span ") else {
-        return diagnostic;
-    };
-    let source_id = source_id_after(&message, "source span ").unwrap_or(0);
-    let path = message
-        .rsplit_once("source file ")
-        .map(|(_, path)| path.trim());
-    let (path, source) = if let Some(path) = path {
-        if source_id == 0 {
-            (root_path.display().to_string(), root_source.to_owned())
-        } else if Path::new(path) == root_path {
-            (path.to_owned(), root_source.to_owned())
-        } else if let Ok(source) = fs::read_to_string(path) {
-            (path.to_owned(), source)
-        } else {
-            return diagnostic;
-        }
-    } else if source_id == 0 {
-        (root_path.display().to_string(), root_source.to_owned())
-    } else {
-        return diagnostic;
-    };
-    if start > end || source.get(start..end).is_none() {
-        return diagnostic;
-    }
-    let prefix = &source[..start];
-    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let column = prefix
-        .rsplit('\n')
-        .next()
-        .map_or(1, |line| line.chars().count() + 1);
-    diagnostic.span = Some(Span {
-        start,
-        end,
-        line,
-        column,
-        source_id,
-    });
-    diagnostic.with_source(path, source)
+    diagnostic
 }
 
-fn codegen_diagnostic(message: String, program: &Program) -> Diagnostic {
-    let mut diagnostic = Diagnostic::new(DiagnosticCode::Codegen, message.clone());
-    let marked_span = (
-        span_after(&message, "source span "),
-        source_id_after(&message, "source span "),
-    );
-    let explicit_span = marked_span.0.zip(marked_span.1);
-    let referenced_names = message.split('\'').skip(1).step_by(2).collect::<Vec<_>>();
-    fn collect_named_spans(expression: &SpannedExpr, name: &str, spans: &mut Vec<Span>) {
-        if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
-            spans.push(expression.span);
-        }
-        for child in &expression.children {
-            collect_named_spans(child, name, spans);
-        }
-    }
-    fn nonconstant_call_span(expression: &SpannedExpr) -> Option<Span> {
-        if let Expr::List(items) = &expression.expr {
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#call") {
-                return Some(expression.span);
-            }
-        }
-        expression.children.iter().find_map(nonconstant_call_span)
-    }
-    let mut referenced_spans = Vec::new();
-    for name in &referenced_names {
-        for expression in program.declaration_expressions.values() {
-            if let Some(children) = expression.children.get(2..) {
-                for child in children {
-                    collect_named_spans(child, name, &mut referenced_spans);
-                }
-            }
-        }
-    }
-    let initializer_name = message
-        .rsplit_once(" in global initializer '")
-        .and_then(|(_, name)| name.strip_suffix('\''));
-    let initializer_expression_span = initializer_name.and_then(|name| {
-        let expression = program.declaration_expressions.get(name)?;
-        let value = expression.children.get(3)?;
-        (message
-            .contains("not constant")
-            .then(|| nonconstant_call_span(value))
-            .flatten())
-        .or_else(|| {
-            referenced_names
-                .iter()
-                .filter(|referenced| **referenced != name)
-                .find_map(|referenced| {
-                    let mut spans = Vec::new();
-                    collect_named_spans(value, referenced, &mut spans);
-                    spans.into_iter().next()
-                })
-        })
-        .or(Some(value.span))
-    });
-    let initializer_declaration =
-        initializer_name.and_then(|name| program.declaration_spans.get(name).copied());
-    let declaration_span = initializer_expression_span
-        .or(initializer_declaration)
-        .or_else(|| referenced_spans.into_iter().max_by_key(|span| span.start))
-        .or_else(|| {
-            referenced_names
-                .iter()
-                .find_map(|name| program.declaration_spans.get(*name).copied())
-        })
-        .or_else(|| {
-            if !message.contains("word count overflowed") {
-                return None;
-            }
-            fn has_array(ty: &Type) -> bool {
-                match ty {
-                    Type::Array(_, _) => true,
-                    Type::Tuple(fields) => fields.iter().any(has_array),
-                    Type::Reference { target, .. }
-                    | Type::RawPointer { target, .. }
-                    | Type::Cell(target)
-                    | Type::Slice(target)
-                    | Type::MutableSlice(target) => has_array(target),
-                    _ => false,
-                }
-            }
-            program.items.iter().find_map(|item| match item {
-                Item::Function(function)
-                    if function
-                        .parameters
-                        .iter()
-                        .any(|parameter| has_array(&parameter.ty))
-                        || has_array(&function.return_type) =>
-                {
-                    program.declaration_spans.get(&function.name).copied()
-                }
-                _ => None,
-            })
-        });
-    let (span, source_id) = if let Some(((start, end), source_id)) = explicit_span {
-        (
-            Span {
-                start,
-                end,
-                source_id,
-                ..Span::new(start, end, 1, 1)
-            },
-            source_id,
-        )
-    } else if let Some(span) = declaration_span {
-        (span, span.source_id)
-    } else {
-        return diagnostic;
-    };
-    let Some(file) = program.source_files.get(source_id as usize) else {
-        return diagnostic;
-    };
-    if span.start > span.end || file.source.get(span.start..span.end).is_none() {
-        return diagnostic;
-    }
-    let prefix = &file.source[..span.start];
-    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let column = prefix
-        .rsplit('\n')
-        .next()
-        .map_or(1, |line| line.chars().count() + 1);
-    diagnostic.span = Some(Span {
-        line,
-        column,
-        ..span
-    });
-    diagnostic.with_source(file.path.display().to_string(), file.source.clone())
+fn codegen_diagnostic(error: SourceError, program: &Program) -> Diagnostic {
+    analysis_diagnostic(
+        error.message,
+        DiagnosticCode::Codegen,
+        error.span,
+        Vec::new(),
+        program,
+    )
 }
 
 /// Assemble and link native output, returning a structured link diagnostic on
@@ -2232,7 +1958,7 @@ fn parse_program_in_directory(
     source_path: Option<&Path>,
     config: &CompileConfig,
     cache_directory: Option<&Path>,
-) -> Result<Program, String> {
+) -> Result<Program, SourceError> {
     let (loaded, mut source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&loaded, config);
     let expressions = expand_cfg_forms(
@@ -2477,7 +2203,7 @@ fn synthesize_thread_join_results(
     items: &mut Vec<Item>,
     declaration_spans: &HashMap<String, Span>,
     source_files: &[SourceFile],
-) -> Result<(), String> {
+) -> Result<(), SourceError> {
     let tasks = items
         .iter()
         .filter_map(|item| match item {
@@ -2503,9 +2229,11 @@ fn synthesize_thread_join_results(
             let error = format!(
                 "generated function signatures for '#thread-task {name}' do not match worker '{worker}'"
             );
-            return Err(declaration_spans.get(&name).map_or(error.clone(), |span| {
-                attach_span_to_source_error(error, *span, source_files)
-            }));
+            return Err(declaration_spans
+                .get(&name)
+                .map_or(error.clone().into(), |span| {
+                    attach_span_to_source_error(error, *span, source_files)
+                }));
         }
         let return_type = worker_function.return_type.clone();
         for expected in thread_task_generated_enums(&name, return_type) {
@@ -2524,7 +2252,7 @@ fn synthesize_thread_join_results(
                         "explicit generated thread type '{}' does not match its #thread-task declaration",
                         generated_name
                     );
-                    return Err(declaration_spans.get(&name).map_or(error.clone(), |span| {
+                    return Err(declaration_spans.get(&name).map_or(error.clone().into(), |span| {
                         attach_span_to_source_error(error, *span, source_files)
                     }));
                 }
@@ -2710,7 +2438,7 @@ fn normalize_function_calls(
     declaration_spans: &HashMap<String, Span>,
     declaration_expressions: &HashMap<String, SpannedExpr>,
     source_files: &[SourceFile],
-) -> Result<(), String> {
+) -> Result<(), SourceError> {
     let signatures = items
         .iter()
         .filter_map(|item| match item {
@@ -2755,7 +2483,7 @@ fn normalize_function_calls(
                             .get(&key)
                             .map(|expression| call_normalization_span(expression, &error))
                             .or_else(|| statement_spans.get(&key).copied())
-                            .map_or(error.clone(), |span| {
+                            .map_or(error.clone().into(), |span| {
                                 attach_span_to_source_error(error, span, source_files)
                             })
                     })?;
@@ -2767,7 +2495,7 @@ fn normalize_function_calls(
                         .get(name)
                         .map(|expression| call_normalization_span(expression, &error))
                         .or_else(|| declaration_spans.get(name).copied())
-                        .map_or(error.clone(), |span| {
+                        .map_or(error.clone().into(), |span| {
                             attach_span_to_source_error(error, span, source_files)
                         })
                 })?;
@@ -2895,7 +2623,11 @@ fn duplicate_call_parameter_span(expression: &SpannedExpr) -> Option<Span> {
         .find_map(duplicate_call_parameter_span)
 }
 
-fn attach_span_to_source_error(error: String, span: Span, source_files: &[SourceFile]) -> String {
+fn attach_span_to_source_error(
+    error: String,
+    span: Span,
+    source_files: &[SourceFile],
+) -> SourceError {
     attach_span_to_source_error_kind(error, span, source_files, "type error: ")
 }
 
@@ -2904,15 +2636,13 @@ fn attach_span_to_source_error_kind(
     span: Span,
     source_files: &[SourceFile],
     prefix: &str,
-) -> String {
-    let source_file = source_files
-        .get(span.source_id as usize)
-        .map(|file| format!("; source file {}", file.path.display()))
-        .unwrap_or_default();
-    format!(
-        "{prefix}{error}; source span {}:{}:{}{}",
-        span.source_id, span.start, span.end, source_file
-    )
+) -> SourceError {
+    let code = match prefix {
+        "lex error: " => DiagnosticCode::Lex,
+        "parse error: " => DiagnosticCode::Parse,
+        _ => DiagnosticCode::Type,
+    };
+    SourceError::new(error, code).at(span).attach(source_files)
 }
 
 fn normalize_call_statement(
@@ -3089,7 +2819,7 @@ fn normalize_struct_literals(
     declaration_spans: &HashMap<String, Span>,
     declaration_expressions: &HashMap<String, SpannedExpr>,
     source_files: &[SourceFile],
-) -> Result<(), String> {
+) -> Result<(), SourceError> {
     let structs = items
         .iter()
         .filter_map(|item| match item {
@@ -3108,7 +2838,7 @@ fn normalize_struct_literals(
                             .get(&key)
                             .map(|expression| struct_normalization_span(expression, &error))
                             .or_else(|| statement_spans.get(&key).copied())
-                            .map_or(error.clone(), |span| {
+                            .map_or(error.clone().into(), |span| {
                                 attach_span_to_source_error(error, span, source_files)
                             })
                     })?;
@@ -3120,7 +2850,7 @@ fn normalize_struct_literals(
                         .get(name)
                         .map(|expression| struct_normalization_span(expression, &error))
                         .or_else(|| declaration_spans.get(name).copied())
-                        .map_or(error.clone(), |span| {
+                        .map_or(error.clone().into(), |span| {
                             attach_span_to_source_error(error, span, source_files)
                         })
                 })?;
@@ -4023,7 +3753,7 @@ fn load_imports_with_sources(
     base: &Path,
     source_path: Option<&Path>,
     config: &CompileConfig,
-) -> Result<(Vec<SpannedExpr>, Vec<SourceFile>), String> {
+) -> Result<(Vec<SpannedExpr>, Vec<SourceFile>), SourceError> {
     let mut active = Vec::new();
     let mut loaded = HashSet::new();
     let root_path = source_path.map_or_else(
@@ -4039,7 +3769,8 @@ fn load_imports_with_sources(
     if source.len() > MAX_IMPORTED_SOURCE_BYTES {
         return Err(format!(
             "compilation sources exceed maximum total size of {MAX_IMPORTED_SOURCE_BYTES} bytes"
-        ));
+        )
+        .into());
     }
     let mut budget = ImportBudget {
         import_count: 0,
@@ -4080,52 +3811,66 @@ fn cfg_value(expression: &Expr) -> Result<String, String> {
     }
 }
 
-fn eval_cfg(expression: &Expr, config: &CompileConfig) -> Result<bool, String> {
-    let Expr::List(items) = expression else {
-        return Err("cfg condition must be a (#cfg-...) form".into());
+fn eval_cfg(expression: &SpannedExpr, config: &CompileConfig) -> Result<bool, SourceError> {
+    let at = |message: String, index: Option<usize>| {
+        SourceError::new(message, DiagnosticCode::Type).at(index
+            .and_then(|index| expression.children.get(index))
+            .map_or(expression.span, |child| child.span))
+    };
+    let Expr::List(items) = &expression.expr else {
+        return Err(at("cfg condition must be a (#cfg-...) form".into(), None));
     };
     let Some(Expr::Symbol(operator)) = items.first() else {
-        return Err("cfg condition must start with a #cfg-* operator".into());
+        return Err(at(
+            "cfg condition must start with a #cfg-* operator".into(),
+            Some(0),
+        ));
     };
     match operator.as_str() {
         "#cfg-is" if items.len() == 3 => {
             let Expr::Symbol(key) = &items[1] else {
-                return Err("#cfg-is key must be a keyword such as #platform".into());
+                return Err(at(
+                    "#cfg-is key must be a keyword such as #platform".into(),
+                    Some(1),
+                ));
             };
             let key = key.strip_prefix('#').unwrap_or(key);
             let actual = config
                 .values
                 .get(key)
-                .ok_or_else(|| format!("unknown cfg key '#{key}'"))?;
-            Ok(actual == &cfg_value(&items[2])?)
+                .ok_or_else(|| at(format!("unknown cfg key '#{key}'"), Some(1)))?;
+            Ok(actual == &cfg_value(&items[2]).map_err(|error| at(error, Some(2)))?)
         }
-        "#cfg-and" if items.len() >= 2 => items[1..]
+        "#cfg-and" if items.len() >= 2 => expression.children[1..]
             .iter()
             .try_fold(true, |result, item| Ok(result && eval_cfg(item, config)?)),
-        "#cfg-or" if items.len() >= 2 => items[1..]
+        "#cfg-or" if items.len() >= 2 => expression.children[1..]
             .iter()
             .try_fold(false, |result, item| Ok(result || eval_cfg(item, config)?)),
-        "#cfg-not" if items.len() == 2 => Ok(!eval_cfg(&items[1], config)?),
-        "#cfg-is" => Err("#cfg-is requires a key and a value".into()),
-        "#cfg-and" | "#cfg-or" => Err(format!("{operator} requires at least one condition")),
-        "#cfg-not" => Err("#cfg-not requires exactly one condition".into()),
-        _ => Err(format!("unsupported cfg condition '{operator}'")),
+        "#cfg-not" if items.len() == 2 => Ok(!eval_cfg(&expression.children[1], config)?),
+        "#cfg-is" => Err(at("#cfg-is requires a key and a value".into(), Some(0))),
+        "#cfg-and" | "#cfg-or" => Err(at(
+            format!("{operator} requires at least one condition"),
+            Some(0),
+        )),
+        "#cfg-not" => Err(at(
+            "#cfg-not requires exactly one condition".into(),
+            Some(0),
+        )),
+        _ => Err(at(
+            format!("unsupported cfg condition '{operator}'"),
+            Some(0),
+        )),
     }
 }
 
 fn expand_cfg_forms(
     forms: Vec<SpannedExpr>,
     config: &CompileConfig,
-) -> Result<Vec<SpannedExpr>, String> {
+) -> Result<Vec<SpannedExpr>, SourceError> {
     let mut expanded = Vec::new();
     for form in forms {
-        let at_form = |error: String| {
-            let span = cfg_error_span(&form, &error).unwrap_or(form.span);
-            format!(
-                "type error: {error}; source span {}:{}:{}",
-                span.source_id, span.start, span.end
-            )
-        };
+        let at_form = |error: SourceError| error.at(form.span);
         let Expr::List(items) = &form.expr else {
             expanded.push(form);
             continue;
@@ -4144,7 +3889,7 @@ fn expand_cfg_forms(
                 "#cfg-if requires a condition and at least one form".into(),
             ));
         }
-        let condition = eval_cfg(&items[1], config).map_err(&at_form)?;
+        let condition = eval_cfg(&form.children[1], config)?;
         let mut else_forms = None;
         let mut then_forms = Vec::new();
         for branch in &items[2..] {
@@ -4182,27 +3927,6 @@ fn expand_cfg_forms(
     Ok(expanded)
 }
 
-fn cfg_error_span(form: &SpannedExpr, error: &str) -> Option<Span> {
-    let key = error
-        .strip_prefix("unknown cfg key '#")?
-        .split('\'')
-        .next()?;
-    fn find_key(expression: &SpannedExpr, key: &str) -> Option<Span> {
-        if let Expr::List(items) = &expression.expr {
-            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "#cfg-is")
-                && matches!(items.get(1), Some(Expr::Symbol(name)) if name.strip_prefix('#').unwrap_or(name) == key)
-            {
-                return expression.children.get(1).map(|name| name.span);
-            }
-        }
-        expression
-            .children
-            .iter()
-            .find_map(|child| find_key(child, key))
-    }
-    find_key(form, key)
-}
-
 fn load_imports_inner(
     source: &str,
     base: &Path,
@@ -4213,7 +3937,7 @@ fn load_imports_inner(
     source_files: &mut Vec<SourceFile>,
     budget: &mut ImportBudget,
     config: &CompileConfig,
-) -> Result<Vec<SpannedExpr>, String> {
+) -> Result<Vec<SpannedExpr>, SourceError> {
     let tokens = lex(source).map_err(|error| {
         let mut span = error.span;
         span.source_id = source_id;
@@ -4675,14 +4399,14 @@ fn is_unprefixed_builtin_name(name: &str) -> bool {
 pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
-    write_generated_sources_in_directory(
+    Ok(write_generated_sources_in_directory(
         source,
         &base,
         None,
         directory,
         &CompileConfig::default(),
         None,
-    )
+    )?)
 }
 
 /// Materialize generated source while resolving imports relative to `source_path`.
@@ -4692,14 +4416,14 @@ pub fn write_generated_sources_from_path(
     directory: &Path,
 ) -> Result<(), String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    write_generated_sources_in_directory(
+    Ok(write_generated_sources_in_directory(
         source,
         base,
         Some(source_path),
         directory,
         &CompileConfig::default(),
         None,
-    )
+    )?)
 }
 
 /// Materialize generated source using the same cfg values as compilation.
@@ -4711,6 +4435,7 @@ pub fn write_generated_sources_from_path_with_config(
 ) -> Result<(), String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
     write_generated_sources_in_directory(source, base, Some(source_path), directory, config, None)
+        .map_err(String::from)
 }
 
 /// Materialize generated source using cfg values and a persistent generator cache.
@@ -4722,14 +4447,14 @@ pub fn write_generated_sources_from_path_with_config_and_cache(
     cache_directory: &Path,
 ) -> Result<(), String> {
     let base = source_path.parent().unwrap_or_else(|| Path::new("."));
-    write_generated_sources_in_directory(
+    Ok(write_generated_sources_in_directory(
         source,
         base,
         Some(source_path),
         directory,
         config,
         Some(cache_directory),
-    )
+    )?)
 }
 
 /// Diagnostic-returning variant of generated-source materialization.
@@ -4740,29 +4465,15 @@ pub fn write_generated_sources_diagnostic(
     config: &CompileConfig,
     cache_directory: &Path,
 ) -> Result<(), Diagnostic> {
-    write_generated_sources_from_path_with_config_and_cache(
+    write_generated_sources_in_directory(
         source,
-        source_path,
+        source_path.parent().unwrap_or(Path::new(".")),
+        Some(source_path),
         directory,
         config,
-        cache_directory,
+        Some(cache_directory),
     )
-    .map_err(|message| {
-        if !message.contains("generator error") {
-            if let Some((line, column, parse_message)) = parse_location_prefix(&message) {
-                let code = diagnostic_code_for_positioned_message(&parse_message);
-                return Diagnostic::new(code, parse_message)
-                    .with_span(source_span_at(
-                        source,
-                        line,
-                        column,
-                        token_width_at(source, line, column),
-                    ))
-                    .with_source(source_path.display().to_string(), source.to_owned());
-            }
-        }
-        generator_diagnostic(message, source_path, source)
-    })
+    .map_err(|error| generator_diagnostic(error, source_path, source))
 }
 
 fn write_generated_sources_in_directory(
@@ -4772,7 +4483,7 @@ fn write_generated_sources_in_directory(
     directory: &Path,
     config: &CompileConfig,
     cache_directory: Option<&Path>,
-) -> Result<(), String> {
+) -> Result<(), SourceError> {
     let (expressions, source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&expressions, config);
     let (expanded, user_generated) = generator::expand_with_generated_cached_with_context(
@@ -5469,7 +5180,7 @@ fn specialize_generic_types(
     declaration_spans: &HashMap<String, Span>,
     declaration_expressions: &HashMap<String, SpannedExpr>,
     source_files: &[SourceFile],
-) -> Result<Vec<Item>, String> {
+) -> Result<Vec<Item>, SourceError> {
     for item in &items {
         let Item::UnsafeThreadAnnotation {
             property,
@@ -5495,7 +5206,7 @@ fn specialize_generic_types(
                 .and_then(|expression| source_symbol_span(expression, type_name, false));
             return Err(precise
                 .or_else(|| declaration_spans.get(&key).copied())
-                .map_or(error.clone(), |span| {
+                .map_or(error.clone().into(), |span| {
                     attach_span_to_source_error(error, span, source_files)
                 }));
         };
@@ -5522,7 +5233,7 @@ fn specialize_generic_types(
                 .and_then(|expression| source_symbol_span(expression, type_name, false));
             return Err(precise
                 .or_else(|| declaration_spans.get(&key).copied())
-                .map_or(error.clone(), |span| {
+                .map_or(error.clone().into(), |span| {
                     attach_span_to_source_error(error, span, source_files)
                 }));
         }
@@ -5537,7 +5248,7 @@ fn specialize_generic_types(
                 .and_then(|expression| source_symbol_span(expression, type_name, false));
             return Err(precise
                 .or_else(|| declaration_spans.get(&key).copied())
-                .map_or(error.clone(), |span| {
+                .map_or(error.clone().into(), |span| {
                     attach_span_to_source_error(error, span, source_files)
                 }));
         }
@@ -5629,7 +5340,7 @@ fn specialize_generic_types(
                                             .or_else(|| Some(source_value_span(expression)))
                                     })
                                     .or_else(|| statement_spans.get(&key).copied())
-                                    .map_or(error.clone(), |span| {
+                                    .map_or(error.clone().into(), |span| {
                                         attach_span_to_source_error(error, span, source_files)
                                     })
                             })
@@ -5706,7 +5417,7 @@ fn specialize_generic_types(
                         .and_then(|expression| specialization_error_span(expression, &error))
                         .or_else(|| declaration_spans.get(name).copied())
                 })
-                .map_or(error.clone(), |span| {
+                .map_or(error.clone().into(), |span| {
                     attach_span_to_source_error(error, span, source_files)
                 })
         })?;

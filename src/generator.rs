@@ -59,7 +59,7 @@ type ExpandedFormsWithHits = (ExpandedForms, usize);
 
 fn declared_lim_function_signatures(
     expressions: &[SpannedExpr],
-) -> Result<HashMap<String, String>, String> {
+) -> Result<HashMap<String, String>, crate::source_error::SourceError> {
     let mut signatures = HashMap::new();
     for expression in expressions {
         let normalized = crate::normalize_keywords(expression.expr.clone());
@@ -74,8 +74,16 @@ fn declared_lim_function_signatures(
             "extern-fn" => true,
             _ => continue,
         };
-        let function = crate::parse_function(items, external)
-            .map_err(|error| at_span(error, expression.span, "capability operation signature"))?;
+        let function = crate::parse_function(items, external).map_err(|error| {
+            let span = Span {
+                end: expression
+                    .children
+                    .first()
+                    .map_or(expression.span.end, |head| head.span.end),
+                ..expression.span
+            };
+            crate::source_error::SourceError::new(error, crate::DiagnosticCode::Parse).at(span)
+        })?;
         let arguments = function
             .parameters
             .iter()
@@ -129,7 +137,7 @@ pub(crate) fn expand_with_generated_cached_with_context(
     expressions: Vec<SpannedExpr>,
     cache_dir: Option<&Path>,
     dependency_context: &str,
-) -> Result<(Vec<SpannedExpr>, Vec<Expr>), String> {
+) -> Result<(Vec<SpannedExpr>, Vec<Expr>), crate::source_error::SourceError> {
     expand_with_generated_cached_and_hits(expressions, cache_dir, dependency_context)
         .map(|(result, _)| result)
 }
@@ -138,7 +146,7 @@ fn expand_with_generated_cached_and_hits(
     expressions: Vec<SpannedExpr>,
     cache_dir: Option<&Path>,
     dependency_context: &str,
-) -> Result<ExpandedFormsWithHits, String> {
+) -> Result<ExpandedFormsWithHits, crate::source_error::SourceError> {
     let mut generators = HashMap::new();
     let mut functions = HashMap::new();
     let mut capabilities: Capabilities = HashMap::new();
@@ -155,8 +163,7 @@ fn expand_with_generated_cached_and_hits(
                     .to_owned();
                 if items.len() != 4 || capability.starts_with('#') || type_name.starts_with('#') {
                     return Err(at_span(
-                        "#capability requires a name, concrete type, and operation contracts"
-                            .into(),
+                        "#capability requires a name, concrete type, and operation contracts",
                         expression.span,
                         "capability declaration",
                     ));
@@ -166,7 +173,7 @@ fn expand_with_generated_cached_and_hits(
                     Some(Expr::List(forms)) if !forms.is_empty() => forms,
                     _ => {
                         return Err(at_span(
-                            "#capability operation contracts must be a non-empty list".into(),
+                            "#capability operation contracts must be a non-empty list",
                             expression.span,
                             "capability declaration",
                         ))
@@ -181,14 +188,14 @@ fn expand_with_generated_cached_and_hits(
                         .map_or(expression.span, |name| name.span);
                     let Expr::List(parts) = operation else {
                         return Err(at_span(
-                            "capability operations have the form (function (ArgumentType ...) ReturnType)".into(),
+                            "capability operations have the form (function (ArgumentType ...) ReturnType)",
                             expression.span,
                             "capability declaration",
                         ));
                     };
                     if parts.len() != 3 {
                         return Err(at_span(
-                            "capability operations have the form (function (ArgumentType ...) ReturnType)".into(),
+                            "capability operations have the form (function (ArgumentType ...) ReturnType)",
                             expression.span,
                             "capability declaration",
                         ));
@@ -209,7 +216,7 @@ fn expand_with_generated_cached_and_hits(
                             })?,
                         _ => {
                             return Err(at_span(
-                                "capability operation argument types must be a list".into(),
+                                "capability operation argument types must be a list",
                                 expression.span,
                                 "capability declaration",
                             ))
@@ -265,7 +272,7 @@ fn expand_with_generated_cached_and_hits(
             }
             if is_operator(items.first(), "#generator") {
                 let generator = parse_generator(items, &expression).map_err(|error| {
-                    if error.contains("source span ") {
+                    if error.span.is_some() {
                         error
                     } else {
                         at_span(error, expression.span, "generator declaration")
@@ -325,38 +332,7 @@ fn expand_with_generated_cached_and_hits(
 
     let interpreter_hash = stable_hash(include_bytes!("generator.rs"));
     let capability_hash = hash_capability_definitions(&capabilities);
-    let function_hashes =
-        generator_function_hashes(&functions, interpreter_hash).map_err(|error| {
-            let responsible_function = error
-                .strip_prefix("recursive generator function calls are not allowed: ")
-                .and_then(|cycle| {
-                    let names = cycle.split(" -> ").collect::<Vec<_>>();
-                    names.get(names.len().saturating_sub(2)).copied()
-                })
-                .or_else(|| {
-                    error
-                        .split_once(" called from generator function '")
-                        .and_then(|(_, rest)| rest.strip_suffix('\'').or(Some(rest)))
-                });
-            responsible_function
-                .and_then(|name| functions.get(name))
-                .map_or(error.clone(), |function| {
-                    let callee = error
-                        .strip_prefix("recursive generator function calls are not allowed: ")
-                        .and_then(|cycle| cycle.split(" -> ").last());
-                    let call_span = callee.and_then(|callee| {
-                        function
-                            .source_body
-                            .as_ref()
-                            .and_then(|body| generator_call_span(body, callee))
-                    });
-                    at_span(
-                        error,
-                        call_span.unwrap_or(function.span),
-                        "generator function",
-                    )
-                })
-        })?;
+    let function_hashes = generator_function_hashes(&functions, interpreter_hash)?;
     let generator_hashes = generator_hashes(&generators, &function_hashes, interpreter_hash);
     let mut context = ExpansionContext {
         generators: &generators,
@@ -431,25 +407,30 @@ fn expand_with_generated_cached_and_hits(
 fn parse_generator_function(
     items: &[Expr],
     source: &SpannedExpr,
-) -> Result<GeneratorFunction, String> {
+) -> Result<GeneratorFunction, crate::source_error::SourceError> {
     if items.len() != 4 {
         return Err("#gn-fn requires a name, parameter list, and body".into());
     }
-    parse_generator(items, source).map_err(|error| {
-        error
+    parse_generator(items, source).map_err(|mut error| {
+        error.message = error
+            .message
             .replace("#generator", "#gn-fn")
-            .replace("generator '", "generator function '")
+            .replace("generator '", "generator function '");
+        error
     })
 }
 
-fn parse_generator(items: &[Expr], source: &SpannedExpr) -> Result<Generator, String> {
+fn parse_generator(
+    items: &[Expr],
+    source: &SpannedExpr,
+) -> Result<Generator, crate::source_error::SourceError> {
     if items.len() != 4 {
         return Err("#generator requires a name, parameter list, and body".into());
     }
     let name = symbol(items.get(1), "generator name")?;
     let parameters = match items.get(2) {
         Some(Expr::List(parameters)) => parameters,
-        _ => return Err(format!("generator '{name}' parameters must be a list")),
+        _ => return Err(format!("generator '{name}' parameters must be a list").into()),
     };
     let mut names = Vec::with_capacity(parameters.len());
     for (parameter_index, parameter) in parameters.iter().enumerate() {
@@ -461,7 +442,7 @@ fn parse_generator(items: &[Expr], source: &SpannedExpr) -> Result<Generator, St
                 for capability in &items[1..] {
                     let capability = symbol(Some(capability), "generator parameter capability")?;
                     if capability.starts_with('#') || capability.starts_with('@') {
-                        return Err(format!("invalid generator capability '{capability}'"));
+                        return Err(format!("invalid generator capability '{capability}'").into());
                     }
                     required.push(capability.to_owned());
                 }
@@ -472,7 +453,7 @@ fn parse_generator(items: &[Expr], source: &SpannedExpr) -> Result<Generator, St
             }
         };
         if name.starts_with('#') || name.starts_with('@') {
-            return Err(format!("invalid generator parameter '{name}'"));
+            return Err(format!("invalid generator parameter '{name}'").into());
         }
         if names
             .iter()
@@ -729,7 +710,7 @@ fn invocation_description(
 fn generator_function_hashes(
     functions: &HashMap<String, GeneratorFunction>,
     interpreter_hash: u128,
-) -> Result<HashMap<String, GeneratorFingerprint>, String> {
+) -> Result<HashMap<String, GeneratorFingerprint>, crate::source_error::SourceError> {
     let mut hashes = HashMap::new();
     let mut active = Vec::new();
     let mut names = functions.keys().collect::<Vec<_>>();
@@ -746,7 +727,7 @@ fn hash_generator_function(
     interpreter_hash: u128,
     hashes: &mut HashMap<String, GeneratorFingerprint>,
     active: &mut Vec<String>,
-) -> Result<GeneratorFingerprint, String> {
+) -> Result<GeneratorFingerprint, crate::source_error::SourceError> {
     if let Some(hash) = hashes.get(name) {
         return Ok(hash.clone());
     }
@@ -756,9 +737,18 @@ fn hash_generator_function(
             chain.push_str(" -> ");
         }
         chain.push_str(name);
-        return Err(format!(
-            "recursive generator function calls are not allowed: {chain}"
-        ));
+        let message = format!("recursive generator function calls are not allowed: {chain}");
+        let error =
+            crate::source_error::SourceError::new(message, crate::DiagnosticCode::Generator);
+        let caller = active.last().and_then(|caller| functions.get(caller));
+        return Err(caller.map_or(error.clone(), |caller| {
+            let span = caller
+                .source_body
+                .as_ref()
+                .and_then(|body| generator_call_span(body, name))
+                .unwrap_or(caller.span);
+            at_span(error, span, "generator function")
+        }));
     }
     let function = functions.get(name).ok_or_else(|| {
         active.last().map_or_else(
@@ -1410,11 +1400,15 @@ fn is_operator(expression: Option<&Expr>, expected: &str) -> bool {
     matches!(expression, Some(Expr::Symbol(name)) if name == expected)
 }
 
-fn at_span(message: String, span: Span, context: &str) -> String {
-    format!(
-        "{}:{}: {context}: {message}; source span {}:{}:{}",
-        span.line, span.column, span.source_id, span.start, span.end
-    )
+fn at_span(
+    message: impl Into<crate::source_error::SourceError>,
+    span: Span,
+    context: &str,
+) -> crate::source_error::SourceError {
+    let mut error = message.into();
+    error.message = format!("{context}: {}", error.message);
+    error.code = crate::DiagnosticCode::Generator;
+    error.at(span)
 }
 
 fn expression_nodes(expression: &Expr) -> usize {
