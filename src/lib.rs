@@ -374,19 +374,25 @@ fn render_source_hunk(source: &str, filename: &str, span: Span, label: &str) -> 
         .unwrap_or("");
     let prefix = line_text.chars().take(span.column.saturating_sub(1));
     let start_display = prefix.fold(0, |column, ch| advance_display_column(column, ch));
-    let rendered_line = expand_tabs(line_text);
     let selected = source.get(span.start..span.end).unwrap_or("");
-    let width = selected
+    let selected_width = selected
         .chars()
+        .take(80)
         .take_while(|ch| *ch != '\n' && *ch != '\r')
-        .fold(start_display, advance_display_column)
-        .saturating_sub(start_display)
+        .fold(0, advance_display_column)
+        .min(80)
         .max(1);
+    let (rendered_line, marker_start) = diagnostic_line_excerpt(
+        line_text,
+        span.column.saturating_sub(1),
+        start_display,
+        selected_width,
+    );
     let line_number_width = span.line.to_string().len();
     let marker = format!(
         "{}{}{}",
-        " ".repeat(start_display),
-        "^".repeat(width),
+        " ".repeat(marker_start),
+        "^".repeat(selected_width),
         if label.is_empty() {
             String::new()
         } else {
@@ -402,6 +408,68 @@ fn render_source_hunk(source: &str, filename: &str, span: Span, label: &str) -> 
         marker = marker,
         line_number_width = line_number_width,
     )
+}
+
+fn diagnostic_line_excerpt(
+    line: &str,
+    start_character: usize,
+    start_display: usize,
+    selection_width: usize,
+) -> (String, usize) {
+    const MAX_LINE_CHARS: usize = 240;
+    const CONTEXT_CHARS: usize = 80;
+    let line_characters = line.chars().count();
+    if line_characters <= MAX_LINE_CHARS {
+        return (expand_tabs(line), start_display);
+    }
+    let window_start = start_character.saturating_sub(CONTEXT_CHARS);
+    let window_end = line_characters.min(
+        start_character
+            .saturating_add(selection_width.min(80))
+            .saturating_add(CONTEXT_CHARS),
+    );
+    let has_left_ellipsis = window_start > 0;
+    let has_right_ellipsis = window_end < line_characters;
+    let prefix_display = line
+        .chars()
+        .take(window_start)
+        .fold(0, advance_display_column);
+    let mut absolute_column = prefix_display;
+    let mut within_prefix_display = 0;
+    for character in line
+        .chars()
+        .skip(window_start)
+        .take(start_character.saturating_sub(window_start))
+    {
+        let next = advance_display_column(absolute_column, character);
+        within_prefix_display += next - absolute_column;
+        absolute_column = next;
+    }
+    let marker_start = usize::from(has_left_ellipsis) + within_prefix_display;
+
+    let mut rendered = String::new();
+    if has_left_ellipsis {
+        rendered.push('…');
+    }
+    absolute_column = prefix_display;
+    for character in line
+        .chars()
+        .skip(window_start)
+        .take(window_end - window_start)
+    {
+        if character == '\t' {
+            let spaces = 4 - absolute_column % 4;
+            rendered.push_str(&" ".repeat(spaces));
+            absolute_column += spaces;
+        } else {
+            rendered.push(character);
+            absolute_column = advance_display_column(absolute_column, character);
+        }
+    }
+    if has_right_ellipsis {
+        rendered.push('…');
+    }
+    (rendered, marker_start)
 }
 
 fn expand_tabs(text: &str) -> String {
@@ -8061,6 +8129,27 @@ mod tests {
         let rendered = render_diagnostic(&diagnostic, source, "tabs.lim");
         assert!(rendered.contains("1 | a   b"), "{rendered}");
         assert!(rendered.contains("1 | a   b\n  |     ^ here"), "{rendered}");
+    }
+
+    #[test]
+    fn diagnostic_renderer_bounds_extremely_long_source_lines() {
+        let prefix = "a".repeat(200_000);
+        let source = format!("{prefix}TARGET{}\n", "z".repeat(200_000));
+        let start = prefix.len();
+        let diagnostic = Diagnostic::new(DiagnosticCode::Type, "invalid token")
+            .with_span(Span::new(start, start + 6, 1, prefix.chars().count() + 1));
+        let rendered = render_diagnostic(&diagnostic, &source, "large.lim");
+        assert!(rendered.len() < 2_000, "rendered {} bytes", rendered.len());
+        let source_row = rendered
+            .lines()
+            .find(|line| line.contains("TARGET"))
+            .unwrap();
+        let underline_row = rendered.lines().find(|line| line.contains('^')).unwrap();
+        assert_eq!(
+            source_row.chars().position(|character| character == 'T'),
+            underline_row.chars().position(|character| character == '^')
+        );
+        assert!(source_row.contains('…'));
     }
 
     #[test]

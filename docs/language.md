@@ -1191,6 +1191,8 @@ Diagnostic source hunks expand tabs at four-column stops before aligning the
 underline, and account for common wide and combining Unicode characters, so
 the displayed code and caret use the same columns. Lexer column positions count
 Unicode scalar values rather than UTF-8 bytes.
+Extremely long source lines are rendered as a bounded excerpt with ellipses;
+the underline stays aligned to the original source column.
 When a global constant expression contains a function call, its codegen
 diagnostic highlights the nested `#call` form rather than the whole initializer.
 Imported-source parsing retains lexer and parser spans directly, including

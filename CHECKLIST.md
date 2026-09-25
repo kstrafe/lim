@@ -459,6 +459,8 @@ Each item requires documentation and regression coverage before being checked.
     saturating or wrapping layout arithmetic; cover arrays and nested layouts.
   - [x] Bound recursive import depth, import count (including differently
     prefixed repeats), and cumulative source bytes; report the import site.
+  - [x] Bound diagnostic excerpts and underline construction for very long
+    source lines while preserving source-column alignment.
   - [x] Exercise seeded malformed/truncated inputs in timeout-bounded compiler
     subprocesses; require deterministic diagnostics and no partial assembly.
 - [x] Establish reproducible compile-time and generated-code performance
