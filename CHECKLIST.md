@@ -689,7 +689,7 @@ and acceptance coverage.
 
 ### Build outputs and developer tooling
 
-- [ ] **BUILD-01: Publish final outputs only after successful compilation.**
+- [x] **BUILD-01: Publish final outputs only after successful compilation.**
   The CLI writes assembly directly to its destination, and `link_native_binary`
   passes the requested output path directly to `ld`. Stage output in a uniquely
   created file in the destination directory and rename it after success; clean

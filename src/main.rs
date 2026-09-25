@@ -37,13 +37,17 @@ fn main() -> ExitCode {
             }
         };
         return match arguments.get(2) {
-            Some(output) => match fs::write(output, formatted) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(error) => {
-                    eprintln!("lim: {output}: {error}");
-                    ExitCode::FAILURE
+            Some(output) => {
+                match lim::reject_source_output_collision(Path::new(input), Path::new(output))
+                    .and_then(|()| lim::write_output_atomic(Path::new(output), formatted))
+                {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(error) => {
+                        eprintln!("lim: {output}: {error}");
+                        ExitCode::FAILURE
+                    }
                 }
-            },
+            }
             None => {
                 print!("{formatted}");
                 ExitCode::SUCCESS
@@ -542,6 +546,10 @@ fn compile_with_links(
     target: lim::TargetDescription,
     links: &LinkOptions,
 ) -> ExitCode {
+    if let Err(error) = lim::reject_source_output_collision(Path::new(input_path), output_path) {
+        eprintln!("lim: {error}");
+        return ExitCode::FAILURE;
+    }
     if let Some(parent) = output_path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -577,12 +585,13 @@ fn compile_with_links(
         );
         return ExitCode::FAILURE;
     }
-    let assembly = match lim::compile_source_to_assembly(
+    let assembly = match lim::compile_source_to_assembly_for_output(
         &input,
         input_file,
         config,
         &generator_cache_directory,
         target,
+        Some(output_path),
     ) {
         Ok(assembly) => assembly,
         Err(diagnostic) => {
@@ -595,7 +604,7 @@ fn compile_with_links(
     };
 
     if emit_assembly {
-        return match fs::write(output_path, assembly) {
+        return match lim::write_output_atomic(output_path, assembly) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("lim: {}: {error}", output_path.display());

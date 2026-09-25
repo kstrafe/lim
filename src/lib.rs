@@ -5,19 +5,20 @@ use std::{
     env, fmt, fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
 mod borrowcheck;
 mod codegen;
 mod generator;
 mod linearcheck;
+mod output;
 mod stack_usage;
 mod typecheck;
 mod unsafecheck;
 
 pub use codegen::generate_assembly;
 pub use codegen::generate_assembly_for_target;
+pub use output::{reject_source_output_collision, write_output_atomic};
 pub use stack_usage::stack_usage_report;
 pub use typecheck::{check_types, type_has_auto_trait};
 
@@ -1735,8 +1736,6 @@ pub fn parse_program_from_path_with_config_and_cache(
     )
 }
 
-static NEXT_NATIVE_LINK_ID: AtomicUsize = AtomicUsize::new(0);
-
 /// Compile a Lim source file to native assembly with recoverable diagnostics.
 pub fn compile_source_to_assembly(
     source: &str,
@@ -1744,6 +1743,25 @@ pub fn compile_source_to_assembly(
     config: &CompileConfig,
     cache_directory: &Path,
     target: TargetDescription,
+) -> Result<String, Diagnostic> {
+    compile_source_to_assembly_for_output(
+        source,
+        source_path,
+        config,
+        cache_directory,
+        target,
+        None,
+    )
+}
+
+/// As above, also protect every resolved source from output replacement.
+pub fn compile_source_to_assembly_for_output(
+    source: &str,
+    source_path: &Path,
+    config: &CompileConfig,
+    cache_directory: &Path,
+    target: TargetDescription,
+    output: Option<&Path>,
 ) -> Result<String, Diagnostic> {
     let tokens = lex(source).map_err(|error| {
         Diagnostic::new(DiagnosticCode::Lex, error.message).with_span(error.span)
@@ -1758,6 +1776,14 @@ pub fn compile_source_to_assembly(
     let checked = typecheck::CheckedProgram::validate_with_span(&program).map_err(
         |(message, code, span, labels)| analysis_diagnostic(message, code, span, labels, &program),
     )?;
+    if let Some(output) = output {
+        for file in &program.source_files {
+            if file.path.exists() {
+                reject_source_output_collision(&file.path, output)
+                    .map_err(|error| Diagnostic::new(DiagnosticCode::Link, error.to_string()))?;
+            }
+        }
+    }
     codegen::generate_checked_assembly(&checked, target)
         .map_err(|message| codegen_diagnostic(message, &program))
 }
@@ -2084,10 +2110,15 @@ pub fn link_native_binary(
             "native linker has no implementation for the selected target",
         ));
     }
-    let link_id = NEXT_NATIVE_LINK_ID.fetch_add(1, Ordering::Relaxed);
-    let assembly_path =
-        env::temp_dir().join(format!("lim-{}-{link_id}-link.s", std::process::id()));
-    let object_path = env::temp_dir().join(format!("lim-{}-{link_id}-link.o", std::process::id()));
+    let directory = output::StagingDirectory::beside(output).map_err(|error| {
+        Diagnostic::new(
+            DiagnosticCode::Link,
+            format!("cannot stage output: {error}"),
+        )
+    })?;
+    let assembly_path = directory.0.join("input.s");
+    let object_path = directory.0.join("input.o");
+    let staged_output = directory.0.join("binary");
     let entry = "\n.section .text\n.globl _start\n.type _start, @function\n_start:\n    xor ebp, ebp\n    and rsp, -16\n    call main\n    mov edi, eax\n    mov eax, 60\n    syscall\n    ud2\n.size _start, .-_start\n";
     let result = (|| {
         fs::write(&assembly_path, format!("{assembly}{entry}")).map_err(|error| {
@@ -2118,7 +2149,7 @@ pub fn link_native_binary(
         let mut linker = Command::new("ld");
         linker
             .arg("-o")
-            .arg(output)
+            .arg(&staged_output)
             .arg("-e")
             .arg("_start")
             .arg("--dynamic-linker")
@@ -2143,7 +2174,12 @@ pub fn link_native_binary(
                 format!("linker failed with status {status}"),
             ));
         }
-        Ok(())
+        fs::rename(&staged_output, output).map_err(|error| {
+            Diagnostic::new(
+                DiagnosticCode::Link,
+                format!("cannot publish output: {error}"),
+            )
+        })
     })();
     let _ = fs::remove_file(&assembly_path);
     let _ = fs::remove_file(&object_path);
