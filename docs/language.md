@@ -254,6 +254,9 @@ every `.lim` file under the selected directory. It reports each source file
 individually and returns failure if any example fails.
 
 `--emit-asm INPUT OUTPUT` remains available to inspect backend output.
+`--stack-usage INPUT` compiles the project through code generation, then
+reports generated-code stack bounds without invoking the native linker. It
+accepts `--target`, `--cfg`, and `--module-path` options just like compilation.
 Every generated `@` expansion is materialized as a readable, content-addressed
 `.lim` entry under `.lim/cache/`, regardless of whether it uses a built-in or a
 user-defined generator. The digest is derived from the normalized invocation,
@@ -1035,10 +1038,15 @@ their downward-growing storage from upward-growing static storage.
 
 Zero-sized values such as `()` and empty structs/arrays occupy no value words.
 The compiler computes each function’s maximum call depth after type checking.
-This is not yet a byte-level stack bound: it does not account for all frames,
-temporaries, outgoing arguments, generated helpers, or external callees. A
-finite call depth therefore does not prove that execution cannot overflow its
-stack. External-call stack usage is currently unknown.
+Use `lim --stack-usage INPUT` to inspect a static upper bound for generated
+code from `main` and each thread entry point, including frames, stack
+temporaries, outgoing arguments, alignment, generated helpers, and the
+limiting internal call chain. The analysis follows emitted control flow and
+reports positive stack-growth loops as unbounded. Any reachable external or
+indirect callee makes the total unknown; the report shows the known generated
+portion and the unresolved callees. Runtime startup and external-library stack
+use are excluded, so finite Lim call depth alone is not a guarantee against
+stack overflow.
 
 Division by zero, invalid dynamic shifts, failed assertions, `#panic`, and
 `#unreachable` lower to runtime traps.  Intentional trap examples are kept

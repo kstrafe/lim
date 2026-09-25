@@ -7,8 +7,11 @@ use std::{
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]...\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]...\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         return ExitCode::SUCCESS;
+    }
+    if arguments.first().map(String::as_str) == Some("--stack-usage") {
+        return stack_usage_command(&arguments);
     }
     if arguments.first().map(String::as_str) == Some("--format") {
         let Some(input) = arguments.get(1) else {
@@ -169,6 +172,127 @@ fn main() -> ExitCode {
         }
     };
     compile_with_links(&input_path, &output_path, false, &config, target, &links)
+}
+
+fn stack_usage_command(arguments: &[String]) -> ExitCode {
+    let Some(input_path) = arguments.get(1) else {
+        eprintln!("usage: lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...");
+        return ExitCode::FAILURE;
+    };
+    let mut config = lim::CompileConfig::default();
+    let mut target = match lim::TargetDescription::host() {
+        Ok(target) => target,
+        Err(error) => {
+            eprintln!("lim: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut target_explicit = false;
+    let mut index = 2;
+    while index < arguments.len() {
+        match arguments[index].as_str() {
+            "--target" => {
+                index += 1;
+                let Some(value) = arguments.get(index) else {
+                    eprintln!("lim: --target requires a target name");
+                    return ExitCode::FAILURE;
+                };
+                target = match lim::TargetDescription::parse(value) {
+                    Ok(target) => target,
+                    Err(error) => {
+                        eprintln!("lim: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                target_explicit = true;
+            }
+            "--cfg" => {
+                index += 1;
+                let Some(value) = arguments.get(index) else {
+                    eprintln!("lim: --cfg requires KEY=VALUE");
+                    return ExitCode::FAILURE;
+                };
+                if let Err(error) = apply_cfg_argument(&mut config, value) {
+                    eprintln!("lim: {error}");
+                    return ExitCode::FAILURE;
+                }
+            }
+            "--module-path" => {
+                index += 1;
+                let Some(value) = arguments.get(index) else {
+                    eprintln!("lim: --module-path requires a directory");
+                    return ExitCode::FAILURE;
+                };
+                config.add_module_path(value);
+            }
+            other => {
+                eprintln!("lim: unexpected --stack-usage argument '{other}'");
+                return ExitCode::FAILURE;
+            }
+        }
+        index += 1;
+    }
+    match project_for_input(input_path) {
+        Ok(Some(metadata)) => {
+            config.add_module_path(&metadata.source_root);
+            for path in metadata.module_paths {
+                config.add_module_path(path);
+            }
+            if !target_explicit {
+                if let Some(project_target) = metadata.target {
+                    target = project_target;
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("lim: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
+    let source = match fs::read_to_string(input_path) {
+        Ok(source) => source,
+        Err(error) => {
+            eprintln!("lim: {input_path}: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let input_file = Path::new(input_path);
+    let generated = input_file
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(".lim");
+    let cache = generated.join("cache");
+    if let Err(diagnostic) =
+        lim::write_generated_sources_diagnostic(&source, input_file, &generated, &config, &cache)
+    {
+        eprintln!(
+            "{}",
+            lim::render_diagnostic(&diagnostic, &source, input_path)
+        );
+        return ExitCode::FAILURE;
+    }
+    let assembly =
+        match lim::compile_source_to_assembly(&source, input_file, &config, &cache, target) {
+            Ok(assembly) => assembly,
+            Err(diagnostic) => {
+                eprintln!(
+                    "{}",
+                    lim::render_diagnostic(&diagnostic, &source, input_path)
+                );
+                return ExitCode::FAILURE;
+            }
+        };
+    match lim::stack_usage_report(&assembly) {
+        Ok(report) => {
+            print!("{report}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("lim: stack analysis failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn check_examples(directory: &Path) -> ExitCode {

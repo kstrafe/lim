@@ -12,11 +12,13 @@ mod borrowcheck;
 mod codegen;
 mod generator;
 mod linearcheck;
+mod stack_usage;
 mod typecheck;
 mod unsafecheck;
 
 pub use codegen::generate_assembly;
 pub use codegen::generate_assembly_for_target;
+pub use stack_usage::stack_usage_report;
 pub use typecheck::{check_types, type_has_auto_trait};
 
 /// CPU architecture descriptions understood by the native backend.
@@ -12385,5 +12387,34 @@ mod tests {
         let error =
             codegen::storage_word_count(&oversized, &HashMap::new(), &HashMap::new()).unwrap_err();
         assert!(error.contains("word count overflowed"), "{error}");
+    }
+
+    #[test]
+    fn stack_usage_report_analyzes_generated_call_paths() {
+        let program = parse_program(
+            "(#fn leaf () u64 (#return 4u64)) (#fn main () u64 (#let value u64 (#call leaf (#fn-args))) (#return value))",
+        )
+        .unwrap();
+        check_types(&program).unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        let report = stack_usage_report(&assembly).unwrap();
+        assert!(report.contains("main: at most"), "{report}");
+        assert!(report.contains("main -> leaf"), "{report}");
+        assert!(!report.contains("total is unknown"), "{report}");
+    }
+
+    #[test]
+    fn stack_usage_report_includes_thread_entries_and_external_unknowns() {
+        let program = parse_program(include_str!("../examples/thread_spawn.lim")).unwrap();
+        check_types(&program).unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        let report = stack_usage_report(&assembly).unwrap();
+        assert!(
+            report.contains(".Llim_thread_entry_ReadValueTask: at most"),
+            "{report}"
+        );
+        assert!(report.contains("main: at most"), "{report}");
+        assert!(report.contains("total is unknown"), "{report}");
+        assert!(report.contains("pthread_create"), "{report}");
     }
 }

@@ -364,7 +364,7 @@ Each item requires documentation and regression coverage before being checked.
   local/global referents, and inactive enum variants. Preserve the distinction
   between copying a Copy value and illegally moving a linear value out of a
   reference; these tests must execute natively, not only pass type checking.
-- [ ] Report a conservative stack bound in bytes, not only call depth.
+- [x] Report a conservative stack bound in bytes, not only call depth.
   The backend documentation currently connects finite call depth to a static
   stack requirement. Account for frames, expression temporaries, outgoing
   arguments, indirect aggregate storage, alignment, and generated helpers
