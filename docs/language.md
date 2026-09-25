@@ -406,6 +406,11 @@ imports of the same canonical path with the same mode and prefix are
 deduplicated; cycles are rejected. Imported declarations participate in the
 same compilation and duplicate-name checks as declarations in the root file.
 See `examples/imports.lim`.
+To bound compiler resource use, a project is limited to 128 simultaneously
+nested source files, 4096 non-deduplicated imports, and 64 MiB of cumulative
+source text (including the root file). Import-limit errors identify the import
+that crosses the limit; an oversized root file is rejected before import
+traversal.
 
 The compiler first resolves an import relative to the importing file, then
 searches module roots added with `CompileConfig::add_module_path` or the

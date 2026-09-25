@@ -3972,14 +3972,24 @@ fn load_imports_with_sources(
         || base.join("<memory>"),
         |path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
     );
-    if source_path.is_some() {
-        active.push(root_path.clone());
-    }
+    active.push(root_path.clone());
     let mut source_ids = HashMap::from([(root_path.clone(), 0u32)]);
     let mut source_files = vec![SourceFile {
         path: root_path,
         source: source.to_owned(),
     }];
+    if source.len() > MAX_IMPORTED_SOURCE_BYTES {
+        return Err(format!(
+            "compilation sources exceed maximum total size of {MAX_IMPORTED_SOURCE_BYTES} bytes"
+        ));
+    }
+    let mut budget = ImportBudget {
+        import_count: 0,
+        total_source_bytes: source.len(),
+        max_import_count: MAX_IMPORT_COUNT,
+        max_total_source_bytes: MAX_IMPORTED_SOURCE_BYTES,
+        max_import_depth: MAX_IMPORT_DEPTH,
+    };
     let forms = load_imports_inner(
         source,
         base,
@@ -3988,9 +3998,18 @@ fn load_imports_with_sources(
         &mut loaded,
         &mut source_ids,
         &mut source_files,
+        &mut budget,
         config,
     )?;
     Ok((forms, source_files))
+}
+
+struct ImportBudget {
+    import_count: usize,
+    total_source_bytes: usize,
+    max_import_count: usize,
+    max_total_source_bytes: usize,
+    max_import_depth: usize,
 }
 
 fn cfg_value(expression: &Expr) -> Result<String, String> {
@@ -4134,6 +4153,7 @@ fn load_imports_inner(
     loaded: &mut HashSet<String>,
     source_ids: &mut HashMap<PathBuf, u32>,
     source_files: &mut Vec<SourceFile>,
+    budget: &mut ImportBudget,
     config: &CompileConfig,
 ) -> Result<Vec<SpannedExpr>, String> {
     let tokens = lex(source).map_err(|error| {
@@ -4206,6 +4226,20 @@ fn load_imports_inner(
                 source_files,
             ));
         }
+        let path_span = expression
+            .children
+            .get(1)
+            .map_or(expression.span, |path| path.span);
+        if active.len() >= budget.max_import_depth {
+            return Err(attach_span_to_source_error(
+                format!(
+                    "import nesting exceeds maximum depth of {}",
+                    budget.max_import_depth
+                ),
+                path_span,
+                source_files,
+            ));
+        }
         let key = format!(
             "{}:{}:{}",
             path.display(),
@@ -4219,6 +4253,34 @@ fn load_imports_inner(
         if !loaded.insert(key) {
             continue;
         }
+        if budget.import_count >= budget.max_import_count {
+            return Err(attach_span_to_source_error(
+                format!(
+                    "project exceeds maximum of {} imports",
+                    budget.max_import_count
+                ),
+                path_span,
+                source_files,
+            ));
+        }
+        let source_size = fs::metadata(&path)
+            .map_err(|error| format!("cannot inspect import '{}': {error}", path.display()))?
+            .len();
+        let source_size = usize::try_from(source_size).unwrap_or(usize::MAX);
+        let next_total = budget
+            .total_source_bytes
+            .checked_add(source_size)
+            .filter(|total| *total <= budget.max_total_source_bytes)
+            .ok_or_else(|| {
+                attach_span_to_source_error(
+                    format!(
+                        "compilation sources exceed maximum total size of {} bytes",
+                        budget.max_total_source_bytes
+                    ),
+                    path_span,
+                    source_files,
+                )
+            })?;
         let imported_source = fs::read_to_string(&path).map_err(|error| {
             attach_span_to_source_error(
                 format!("cannot read import '{}': {error}", path.display()),
@@ -4226,6 +4288,8 @@ fn load_imports_inner(
                 source_files,
             )
         })?;
+        budget.import_count += 1;
+        budget.total_source_bytes = next_total;
         let imported_source_id = *source_ids.entry(path.clone()).or_insert_with(|| {
             let id = source_files.len() as u32;
             source_files.push(SourceFile {
@@ -4243,6 +4307,7 @@ fn load_imports_inner(
             loaded,
             source_ids,
             source_files,
+            budget,
             config,
         )?;
         active.pop();
@@ -7394,6 +7459,9 @@ struct Parser<'a> {
 }
 
 const MAX_PARSE_NESTING: usize = 256;
+const MAX_IMPORT_DEPTH: usize = 128;
+const MAX_IMPORT_COUNT: usize = 4096;
+const MAX_IMPORTED_SOURCE_BYTES: usize = 64 * 1024 * 1024;
 
 impl<'a> Parser<'a> {
     fn new(tokens: &'a [Token]) -> Self {
@@ -8397,6 +8465,61 @@ mod tests {
             parse_program_from_path("(#import \"b.lim\")", &directory.join("a.lim")).unwrap_err();
         assert!(error.contains("import cycle"));
         assert!(parse_program("(#import-external \"module.lim\")").is_err());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn import_loader_enforces_depth_count_and_source_byte_budgets() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-import-budgets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let root = directory.join("root.lim");
+        let root_source = "(#import \"m0.lim\")";
+        std::fs::write(&root, root_source).unwrap();
+        std::fs::write(directory.join("m0.lim"), "(#import \"m1.lim\")").unwrap();
+        std::fs::write(directory.join("m1.lim"), "(#import \"m2.lim\")").unwrap();
+        std::fs::write(directory.join("m2.lim"), "(#fn helper () () (#return ()))").unwrap();
+
+        let load_with_budget = |max_depth, max_import_count, max_total_source_bytes| {
+            let canonical_root = std::fs::canonicalize(&root).unwrap();
+            let mut active = vec![canonical_root.clone()];
+            let mut loaded = HashSet::new();
+            let mut source_ids = HashMap::from([(canonical_root.clone(), 0u32)]);
+            let mut source_files = vec![SourceFile {
+                path: canonical_root,
+                source: root_source.to_owned(),
+            }];
+            let mut budget = ImportBudget {
+                import_count: 0,
+                total_source_bytes: root_source.len(),
+                max_import_count,
+                max_total_source_bytes,
+                max_import_depth: max_depth,
+            };
+            load_imports_inner(
+                root_source,
+                &directory,
+                0,
+                &mut active,
+                &mut loaded,
+                &mut source_ids,
+                &mut source_files,
+                &mut budget,
+                &CompileConfig::default(),
+            )
+        };
+        assert!(load_with_budget(2, usize::MAX, usize::MAX)
+            .unwrap_err()
+            .contains("maximum depth of 2"));
+        assert!(load_with_budget(usize::MAX, 1, usize::MAX)
+            .unwrap_err()
+            .contains("maximum of 1 imports"));
+        assert!(
+            load_with_budget(usize::MAX, usize::MAX, root_source.len() + 1)
+                .unwrap_err()
+                .contains("maximum total size")
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 

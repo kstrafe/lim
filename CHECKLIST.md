@@ -455,6 +455,8 @@ Each item requires documentation and regression coverage before being checked.
   published outputs; keep minimal reproducers for every discovered failure.
   - [x] Reject aggregate storage/value word-count overflow instead of
     saturating or wrapping layout arithmetic; cover arrays and nested layouts.
+  - [x] Bound recursive import depth, import count (including differently
+    prefixed repeats), and cumulative source bytes; report the import site.
 - [ ] Establish reproducible compile-time and generated-code performance
   baselines before optimizing the compiler. Measure lex/parse, import/cfg,
   generation (cold and warm cache), semantic checks, native emission, and
