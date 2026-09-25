@@ -434,7 +434,7 @@ Each item requires documentation and regression coverage before being checked.
     `#slice-mut-split view at` consumes the view and returns a pair of
     disjoint mutable views. Bounds are checked at runtime; the parent view is
     unavailable after reborrow/split until the derived view is consumed.
-- [ ] Establish a safe synchronization foundation for shared allocators and
+- [x] Establish a safe synchronization foundation for shared allocators and
   other interior-mutable state. Send/Sync classification alone is not a
   synchronization operation. Specify a small explicit atomic API, supported
   scalar widths/alignment, memory-order arguments, and invalid-order errors;
@@ -447,6 +447,12 @@ Each item requires documentation and regression coverage before being checked.
     `#atomic-fetch-add` take an explicit shared reference plus an explicit
     `#memory-*` order. Load/store order restrictions follow Rust's rules;
     atomics are Send+Sync only when their scalar width is supported.
+  - [x] Implement checked load/store/fetch-add operations with operation-specific
+    memory-order validation and x86-64 lowering; exercise signed and unsigned
+    widths and ensure oversized atomics are rejected.
+  - [x] Run two native workers against one shared atomic counter, join both,
+    and verify the combined update; test rejected load/store orderings in the
+    compiler and document the supported x86-64 memory-model mapping.
 
 ### Priority 4: tooling and implementation quality
 

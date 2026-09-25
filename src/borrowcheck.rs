@@ -1302,6 +1302,19 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Stri
                         branches.push(branch);
                     }
                     merge_branch_context(context, &branches);
+                } else if matches!(
+                    operator.as_str(),
+                    "atomic-load" | "atomic-store" | "atomic-fetch-add"
+                ) && items.len() >= 3
+                {
+                    let previous = context.allow_local_reference;
+                    context.allow_local_reference = true;
+                    let reference_result = check_expression(&items[1], context);
+                    context.allow_local_reference = previous;
+                    reference_result?;
+                    for argument in items.iter().skip(2).take(items.len() - 3) {
+                        check_expression(argument, context)?;
+                    }
                 } else if matches!(operator.as_str(), "borrow" | "borrow-mut") {
                     if items.len() != 3 {
                         if items.len() == 2 {

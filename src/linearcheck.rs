@@ -370,7 +370,7 @@ fn is_linear(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool
         | Type::Reference { .. }
         | Type::RawPointer { .. }
         | Type::Slice(_) => false,
-        Type::MutableSlice(_) => true,
+        Type::MutableSlice(_) | Type::Atomic(_) => true,
         Type::Tuple(items) => items.iter().any(|item| is_linear(item, types, seen)),
         Type::Array(element, _) => is_linear(element, types, seen),
         Type::Named(name) => {

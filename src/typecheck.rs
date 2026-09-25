@@ -347,7 +347,11 @@ pub fn check_types(program: &Program) -> Result<(), String> {
                     &program.statement_expressions,
                     &program.source_files,
                 ) {
-                    if !error.contains("source span ") {
+                    let missing_generated_body_spans = program
+                        .declaration_expressions
+                        .get(&function.name)
+                        .is_some_and(|expression| expression.children.is_empty());
+                    if !error.contains("source span ") && missing_generated_body_spans {
                         if let Some(span) = program.declaration_spans.get(&function.name) {
                             return Err(format!(
                                 "{error}; source span {}:{}:{}",
@@ -1486,6 +1490,7 @@ fn type_has_auto_trait_inner(
             ),
             AutoTrait::Sync => Ok(false),
         },
+        Type::Atomic(target) => Ok(is_atomic_scalar(target)),
         Type::Tuple(fields) => all(fields.iter().collect(), active),
         Type::Array(element, _) => {
             type_has_auto_trait_inner(element, trait_kind, structs, enums, overrides, active)
@@ -3941,6 +3946,72 @@ fn list_expression(
             require_type(&actual, &ty, "typed literal")?;
             Ok(ty)
         }
+        "atomic-init" => {
+            require_arity(operator, items, 3)?;
+            let scalar = resolve_type(&parse_type(items.get(1))?, aliases)?;
+            if !is_atomic_scalar(&scalar) {
+                return Err("atomic-init supports only i8/i16/i32/i64/u8/u16/u32/u64/usize".into());
+            }
+            let actual = expression(
+                &items[2],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&scalar),
+            )?;
+            require_type(&actual, &scalar, "atomic initializer")?;
+            Ok(Type::Atomic(Box::new(scalar)))
+        }
+        "atomic-load" | "atomic-store" | "atomic-fetch-add" => {
+            let expected = if operator == "atomic-load" { 3 } else { 4 };
+            require_arity(operator, items, expected)?;
+            let Type::Reference { target, .. } = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?
+            else {
+                return Err(format!(
+                    "{operator} requires a shared reference to an atomic scalar"
+                ));
+            };
+            let Type::Atomic(scalar) = *target else {
+                return Err(format!(
+                    "{operator} requires a reference to an atomic scalar"
+                ));
+            };
+            let order_index = if operator == "atomic-load" { 2 } else { 3 };
+            let order = atomic_memory_order(items.get(order_index))
+                .ok_or_else(|| format!("{operator} requires an explicit #memory-* ordering"))?;
+            match operator {
+                "atomic-load" if !matches!(order, "relaxed" | "acquire" | "seq-cst") => {
+                    return Err("atomic-load ordering must be relaxed, acquire, or seq-cst".into());
+                }
+                "atomic-store" if !matches!(order, "relaxed" | "release" | "seq-cst") => {
+                    return Err("atomic-store ordering must be relaxed, release, or seq-cst".into());
+                }
+                _ => {}
+            }
+            if operator != "atomic-load" {
+                let actual = expression(
+                    &items[2],
+                    variables,
+                    functions,
+                    structs,
+                    enums,
+                    mutable,
+                    aliases,
+                    Some(&scalar),
+                )?;
+                require_type(&actual, &scalar, "atomic operand")?;
+            }
+            if operator == "atomic-store" {
+                Ok(Type::Unit)
+            } else {
+                Ok(*scalar)
+            }
+        }
         "slice-of" => {
             require_arity(operator, items, 2)?;
             let source = expression(
@@ -5829,6 +5900,10 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
         Type::Array(element, length) => {
             Type::Array(Box::new(substitute_type(element, substitutions)), *length)
         }
+        Type::Slice(element) => Type::Slice(Box::new(substitute_type(element, substitutions))),
+        Type::MutableSlice(element) => {
+            Type::MutableSlice(Box::new(substitute_type(element, substitutions)))
+        }
         Type::Tuple(fields) => Type::Tuple(
             fields
                 .iter()
@@ -5844,6 +5919,7 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
             target: Box::new(substitute_type(target, substitutions)),
         },
         Type::Cell(target) => Type::Cell(Box::new(substitute_type(target, substitutions))),
+        Type::Atomic(target) => Type::Atomic(Box::new(substitute_type(target, substitutions))),
         _ => ty.clone(),
     }
 }
@@ -5879,6 +5955,9 @@ fn resolve_type_with_seen(
         Type::MutableSlice(element) => Ok(Type::MutableSlice(Box::new(resolve_type_with_seen(
             element, aliases, seen,
         )?))),
+        Type::Atomic(element) => Ok(Type::Atomic(Box::new(resolve_type_with_seen(
+            element, aliases, seen,
+        )?))),
         Type::Tuple(fields) => Ok(Type::Tuple(
             fields
                 .iter()
@@ -5906,6 +5985,8 @@ fn validate_layout_type(
     enums: &HashMap<String, Vec<EnumVariant>>,
 ) -> Result<(), String> {
     match ty {
+        Type::Atomic(target) if is_atomic_scalar(target) => Ok(()),
+        Type::Atomic(_) => Err("atomic type requires a supported integer scalar".into()),
         Type::Named(name) if structs.contains_key(name) => structs
             .get(name)
             .into_iter()
@@ -6129,6 +6210,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::Reference { .. } => "reference",
         Type::Slice(_) => "slice",
         Type::MutableSlice(_) => "mutable slice",
+        Type::Atomic(_) => "atomic",
         Type::RawPointer { .. } => "raw pointer",
         Type::Cell(_) => "interior mutable cell",
         Type::Generic(name) | Type::Named(name) => name,
@@ -6145,6 +6227,29 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
             "operator '{operator}' is qualified for '{qualifier}', but its operand type is '{expected}'"
         ))
     }
+}
+
+fn is_atomic_scalar(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::I8
+            | Type::I16
+            | Type::I32
+            | Type::I64
+            | Type::U8
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::Usize
+    )
+}
+
+fn atomic_memory_order(expression: Option<&Expr>) -> Option<&str> {
+    let Expr::Symbol(name) = expression? else {
+        return None;
+    };
+    name.strip_prefix("#memory-")
+        .or_else(|| name.strip_prefix("memory-"))
 }
 
 fn typed_operator_parts(operator: &str) -> (Option<&str>, &str, Option<&str>) {

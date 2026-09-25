@@ -216,6 +216,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 1,
         },
         Case {
+            name: "atomic-invalid-load-order",
+            diagnostic_code: "E4000",
+            offending_line: "  (#atomic-load (#borrow counter) #memory-release)",
+            line_number: 3,
+        },
+        Case {
             name: "positional-call",
             diagnostic_code: "E4000",
             offending_line: "  (#return (add 20u64 22u64)))",
@@ -821,6 +827,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "call-missing-argument" => Some("#fn-args"),
             "type-as-constructor" => Some("Point"),
             "aggregate-layout-overflow" => Some("(#fn main ((values (#array (#array u64 18446744073709551615) 2))) () (#return ()))"),
+            "atomic-invalid-load-order" => Some("(#atomic-load (#borrow counter) #memory-release)"),
             "positional-call" => Some("add"),
             "generic-function" => Some("(#fn"),
             "generic-angle-call" => Some("(identity<u64> 42u64)"),

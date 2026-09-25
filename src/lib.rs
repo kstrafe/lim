@@ -1306,6 +1306,8 @@ pub enum Type {
     Slice(Box<Type>),
     /// Exclusive, borrowed, dynamically-sized view of elements.
     MutableSlice(Box<Type>),
+    /// Naturally aligned atomic scalar storage.
+    Atomic(Box<Type>),
     Generic(String),
     Tuple(Vec<Type>),
     Array(Box<Type>, usize),
@@ -4167,6 +4169,16 @@ fn is_builtin_form(name: &str) -> bool {
             | "slice-mut-idx"
             | "slice-range"
             | "slice-mut-split"
+            | "atomic"
+            | "atomic-init"
+            | "atomic-load"
+            | "atomic-store"
+            | "atomic-fetch-add"
+            | "memory-relaxed"
+            | "memory-acquire"
+            | "memory-release"
+            | "memory-acq-rel"
+            | "memory-seq-cst"
             | "tuple"
             | "index"
             | "get"
@@ -5286,6 +5298,7 @@ fn type_source(ty: &Type) -> String {
         Type::Cell(target) => format!("(#cell {})", type_source(target)),
         Type::Slice(target) => format!("(#slice {})", type_source(target)),
         Type::MutableSlice(target) => format!("(#slice-mut {})", type_source(target)),
+        Type::Atomic(target) => format!("(#atomic {})", type_source(target)),
         Type::Generic(name) => name.clone(),
         Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
@@ -7757,6 +7770,9 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
         }
         if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "slice-mut") {
             return Ok(Type::MutableSlice(Box::new(parse_type(items.get(1))?)));
+        }
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "atomic") {
+            return Ok(Type::Atomic(Box::new(parse_type(items.get(1))?)));
         }
         if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "ptr") {
             return Ok(Type::RawPointer {
@@ -12847,6 +12863,33 @@ mod tests {
         let invalid = "(#fn bad () (#slice-mut u64) (#let-mut values (#array u64 2) (#array (#array u64 2) 1u64 2u64)) (#let root (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#return root))";
         let program = parse_program(invalid).unwrap();
         assert!(check_types(&program).is_err());
+    }
+
+    #[test]
+    fn atomics_typecheck_explicit_orders_and_reject_invalid_operations() {
+        let valid = "(#fn main () u64 (#let-mut counter (#atomic u64) (#atomic-init u64 0u64)) (#atomic-fetch-add (#borrow counter) 1u64 #memory-acq-rel) (#let observed u64 (#atomic-load (#borrow counter) #memory-acquire)) (#atomic-store (#borrow counter) observed #memory-release) (#forget counter) (#return observed))";
+        let program = parse_program(valid).unwrap();
+        check_types(&program).unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("lock xadd QWORD PTR"));
+        assert!(assembly.contains("mov rax, QWORD PTR [rax]"));
+
+        for invalid in [
+            "(#fn main () () (#let-mut counter (#atomic u64) (#atomic-init u64 0u64)) (#atomic-load (#borrow counter) #memory-release) (#forget counter) (#return ()))",
+            "(#fn main () () (#let-mut counter (#atomic u64) (#atomic-init u64 0u64)) (#atomic-store (#borrow counter) 1u64 #memory-acquire) (#forget counter) (#return ()))",
+            "(#fn main () () (#let-mut counter (#atomic u128) (#atomic-init u128 0u128)) (#forget counter) (#return ()))",
+        ] {
+            let program = parse_program(invalid).unwrap();
+            assert!(check_types(&program).is_err());
+        }
+
+        let narrow = "(#fn main () u64 (#let-mut byte (#atomic i8) (#atomic-init i8 -1i8)) (#atomic-fetch-add (#borrow byte) 1i8 #memory-relaxed) (#let-mut half (#atomic u16) (#atomic-init u16 0u16)) (#atomic-store (#borrow half) 3u16 #memory-seq-cst) (#forget byte) (#forget half) (#return 42u64))";
+        let program = parse_program(narrow).unwrap();
+        check_types(&program).unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("lock xadd BYTE PTR"));
+        assert!(assembly.contains("movsx rax, al"));
+        assert!(assembly.contains("xchg WORD PTR"));
     }
 
     #[test]

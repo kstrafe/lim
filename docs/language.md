@@ -67,7 +67,8 @@ thread-safe and provides no synchronization.
 
 For shared mutable state, use an explicit atomic scalar rather than `#cell`.
 The initial atomic API supports `i8/i16/i32/i64`, `u8/u16/u32/u64`, and
-`usize`, with natural alignment in the native representation:
+`usize`. Each operation uses the width's naturally aligned x86 memory access;
+Lim's current local and aggregate storage is at least eight-byte aligned:
 
 ```lisp
 (#let-mut counter (#atomic u64) (#atomic-init u64 0u64))
@@ -101,6 +102,8 @@ derives both properties recursively for structs, enums, tuples, and arrays:
 - Scalar types are `Send + Sync`.
 - Raw pointers are neither `Send` nor `Sync`.
 - `(#cell T)` is `Send` when `T` is `Send`, but is never `Sync`.
+- `(#atomic T)` is both `Send` and `Sync` only for the supported atomic integer
+  widths listed below.
 - `(#ref T)` is `Send` when `T` is `Sync`, and is `Sync` when `T` is `Sync`.
 - `(#ref-mut T)` is `Send` when `T` is `Send`, and `Sync` when `T` is `Sync`.
 - An aggregate has a property only when all of its stored fields/payloads

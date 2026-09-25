@@ -738,6 +738,29 @@ mod tests {
     }
 
     #[test]
+    fn atomics_publish_updates_across_a_thread_spawn_and_join() {
+        let directory = env::temp_dir().join(format!("lim-atomic-thread-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("program.lim");
+        let output = directory.join("program");
+        let source = "(#fn increment ((counter (#ref (#atomic u64)))) u64 (#return (#u64.+.wrap (#atomic-fetch-add counter 42u64 #memory-acq-rel) 42u64))) (@thread-spawn AtomicTask increment) (@thread-spawn AtomicTaskTwo increment) (#fn main () u64 (#let-mut counter (#atomic u64) (#atomic-init u64 0u64)) (#let-mut byte (#atomic i8) (#atomic-init i8 -1i8)) (#atomic-fetch-add (#borrow byte) 1i8 #memory-relaxed) (#atomic-store (#borrow byte) 3i8 #memory-seq-cst) (#let first-result u64 (#match (AtomicTask-spawn (#borrow counter)) (#case (AtomicTask-spawn-ok task) (#match (AtomicTask-join task) (#case (AtomicTask-join-ok value) value) (#case (AtomicTask-join-error (#tuple retry error)) (#panic)))) (#case (AtomicTask-spawn-error error) (#panic)))) (#let second-result u64 (#match (AtomicTaskTwo-spawn (#borrow counter)) (#case (AtomicTaskTwo-spawn-ok task) (#match (AtomicTaskTwo-join task) (#case (AtomicTaskTwo-join-ok value) value) (#case (AtomicTaskTwo-join-error (#tuple retry error)) (#panic)))) (#case (AtomicTaskTwo-spawn-error error) (#panic)))) (#let observed u64 (#atomic-load (#borrow counter) #memory-acquire)) (#forget byte) (#forget counter) (#return observed))";
+        fs::write(&input, source).unwrap();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &lim::CompileConfig::default(),
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            ),
+            ExitCode::SUCCESS
+        );
+        assert_eq!(Command::new(&output).status().unwrap().code(), Some(84));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn nested_destructured_mutable_references_run_natively() {
         let directory =
             env::temp_dir().join(format!("lim-destructure-references-{}", std::process::id()));

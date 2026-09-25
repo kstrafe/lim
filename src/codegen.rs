@@ -301,6 +301,7 @@ fn specialized_type_name(ty: &Type) -> String {
         Type::Cell(target) => format!("cell_{}", specialized_type_name(target)),
         Type::Slice(target) => format!("slice_{}", specialized_type_name(target)),
         Type::MutableSlice(target) => format!("slice_mut_{}", specialized_type_name(target)),
+        Type::Atomic(target) => format!("atomic_{}", specialized_type_name(target)),
         Type::Generic(name) | Type::Named(name) => name.clone(),
         Type::Tuple(fields) => format!(
             "tuple{}",
@@ -329,6 +330,7 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
         Type::MutableSlice(element) => {
             Type::MutableSlice(Box::new(substitute_type(element, substitutions)))
         }
+        Type::Atomic(element) => Type::Atomic(Box::new(substitute_type(element, substitutions))),
         Type::Tuple(fields) => Type::Tuple(
             fields
                 .iter()
@@ -3471,7 +3473,7 @@ fn add_local(
         } else {
             return Err(format!("unknown named local type '{enum_name}'"));
         }
-    } else if ensure_scalar_type(&ty, enums).is_ok() {
+    } else if ensure_scalar_type(&ty, enums).is_ok() || matches!(ty, Type::Atomic(_)) {
         let slot = *next_slot;
         *next_slot += 1;
         Storage::Scalar(slot)
@@ -3541,6 +3543,9 @@ pub(crate) fn storage_word_count(
 ) -> Result<usize, String> {
     if matches!(ty, Type::Unit | Type::Never) {
         return Ok(0);
+    }
+    if matches!(ty, Type::Atomic(_)) {
+        return Ok(1);
     }
     if is_wide_integer(ty) {
         return Ok(2);
@@ -3653,6 +3658,9 @@ fn value_word_count(
 ) -> Result<usize, String> {
     if matches!(ty, Type::Unit | Type::Never) {
         return Ok(0);
+    }
+    if matches!(ty, Type::Atomic(_)) {
+        return Ok(1);
     }
     if is_wide_integer(ty) {
         return Ok(2);
@@ -3873,6 +3881,30 @@ fn typed_integer_pattern_value<'a>(
 
 fn is_wide_integer(ty: &Type) -> bool {
     matches!(ty, Type::I128 | Type::U128)
+}
+
+fn atomic_scalar_info(ty: &Type) -> Option<(usize, bool)> {
+    match ty {
+        Type::I8 => Some((1, true)),
+        Type::U8 => Some((1, false)),
+        Type::I16 => Some((2, true)),
+        Type::U16 => Some((2, false)),
+        Type::I32 => Some((4, true)),
+        Type::U32 => Some((4, false)),
+        Type::I64 => Some((8, true)),
+        Type::U64 | Type::Usize => Some((8, false)),
+        _ => None,
+    }
+}
+
+fn atomic_width_name(bytes: usize) -> &'static str {
+    match bytes {
+        1 => "BYTE",
+        2 => "WORD",
+        4 => "DWORD",
+        8 => "QWORD",
+        _ => unreachable!(),
+    }
 }
 
 fn is_scalar_pattern_type(ty: &Type) -> bool {
@@ -5951,6 +5983,34 @@ impl FunctionContext {
                 _ => Some(Type::Unit),
             }),
             Expr::List(items) => match items.first() {
+                Some(Expr::Symbol(operator)) if operator == "atomic-init" && items.len() == 3 => {
+                    let declared = parse_type(items.get(1)).ok()?;
+                    let scalar = resolve_type(&declared, &self.aliases).ok()?;
+                    Some(Type::Atomic(Box::new(scalar)))
+                }
+                Some(Expr::Symbol(operator)) if operator == "atomic-load" && items.len() == 3 => {
+                    match self.expression_type(&items[1])? {
+                        Type::Reference { target, .. } => match *target {
+                            Type::Atomic(inner) => Some(*inner),
+                            _ => None,
+                        },
+                        _ => None,
+                    }
+                }
+                Some(Expr::Symbol(operator))
+                    if operator == "atomic-fetch-add" && items.len() == 4 =>
+                {
+                    match self.expression_type(&items[1])? {
+                        Type::Reference { target, .. } => match *target {
+                            Type::Atomic(inner) => Some(*inner),
+                            _ => None,
+                        },
+                        _ => None,
+                    }
+                }
+                Some(Expr::Symbol(operator)) if operator == "atomic-store" && items.len() == 4 => {
+                    Some(Type::Unit)
+                }
                 Some(Expr::Symbol(operator)) if operator == "slice-of" && items.len() == 2 => {
                     let Type::Reference { target, .. } = self.expression_type(&items[1])? else {
                         return None;
@@ -8136,6 +8196,94 @@ impl FunctionContext {
             _ => return Err("expression list must start with a symbol".into()),
         };
         let (qualifier, operator, mode) = operator_parts(operator);
+        if operator == "atomic-init" {
+            if items.len() != 3 {
+                return Err("atomic-init requires a scalar type and initial value".into());
+            }
+            self.expression(&items[2])?;
+            return Ok(());
+        }
+        if matches!(
+            operator,
+            "atomic-load" | "atomic-store" | "atomic-fetch-add"
+        ) {
+            let expected = if operator == "atomic-load" { 3 } else { 4 };
+            if items.len() != expected {
+                return Err(format!("{operator} has invalid arity"));
+            }
+            let reference_type = self
+                .expression_type(&items[1])
+                .ok_or_else(|| format!("{operator} requires a reference to an atomic scalar"))?;
+            let Type::Reference { target, .. } = reference_type else {
+                return Err(format!(
+                    "{operator} requires a reference to an atomic scalar"
+                ));
+            };
+            let Type::Atomic(scalar) = *target else {
+                return Err(format!(
+                    "{operator} requires a reference to an atomic scalar"
+                ));
+            };
+            let (bytes, signed) = atomic_scalar_info(&scalar)
+                .ok_or_else(|| "unsupported atomic scalar width".to_owned())?;
+            if operator == "atomic-load" {
+                self.expression(&items[1])?;
+                let instruction = match (bytes, signed) {
+                    (1, true) => "movsx rax, BYTE PTR [rax]",
+                    (1, false) => "movzx eax, BYTE PTR [rax]",
+                    (2, true) => "movsx rax, WORD PTR [rax]",
+                    (2, false) => "movzx eax, WORD PTR [rax]",
+                    (4, true) => "movsxd rax, DWORD PTR [rax]",
+                    (4, false) => "mov eax, DWORD PTR [rax]",
+                    (8, _) => "mov rax, QWORD PTR [rax]",
+                    _ => unreachable!(),
+                };
+                self.output.push_str(&format!("    {instruction}\n"));
+                return Ok(());
+            }
+            self.expression(&items[1])?;
+            self.output.push_str("    push rax\n");
+            self.stack_depth += 1;
+            self.expression(&items[2])?;
+            self.output.push_str("    pop rcx\n");
+            self.stack_depth -= 1;
+            let value_register = match bytes {
+                1 => "al",
+                2 => "ax",
+                4 => "eax",
+                8 => "rax",
+                _ => unreachable!(),
+            };
+            if operator == "atomic-store" {
+                let order = match &items[3] {
+                    Expr::Symbol(name) => name.as_str(),
+                    _ => "",
+                };
+                let mnemonic = if matches!(order, "#memory-seq-cst" | "memory-seq-cst") {
+                    "xchg"
+                } else {
+                    "mov"
+                };
+                self.output.push_str(&format!(
+                    "    {mnemonic} {width} PTR [rcx], {value_register}\n",
+                    width = atomic_width_name(bytes)
+                ));
+            } else {
+                self.output.push_str(&format!(
+                    "    lock xadd {width} PTR [rcx], {value_register}\n",
+                    width = atomic_width_name(bytes)
+                ));
+                match (bytes, signed) {
+                    (1, true) => self.output.push_str("    movsx rax, al\n"),
+                    (1, false) => self.output.push_str("    movzx eax, al\n"),
+                    (2, true) => self.output.push_str("    movsx rax, ax\n"),
+                    (2, false) => self.output.push_str("    movzx eax, ax\n"),
+                    (4, true) => self.output.push_str("    movsxd rax, eax\n"),
+                    _ => {}
+                }
+            }
+            return Ok(());
+        }
         if operator == "slice-of" {
             if items.len() != 2 {
                 return Err("slice requires an immutable reference to an array".into());
@@ -11761,6 +11909,7 @@ impl FunctionContext {
         }
         match ty {
             Type::Unit | Type::Never => Ok(1),
+            Type::Atomic(target) => self.native_type_align(target),
             Type::I128 | Type::U128 => Ok(8),
             Type::Array(element, _) => self.native_type_align(element),
             Type::Tuple(fields) => Ok(fields
@@ -11800,6 +11949,7 @@ impl FunctionContext {
             Type::Unit | Type::Never => Ok(0),
             Type::I128 | Type::U128 => Ok(16),
             Type::Slice(_) | Type::MutableSlice(_) => Ok(16),
+            Type::Atomic(target) => self.native_type_size(target),
             Type::Array(element, length) => self
                 .native_type_size(element)?
                 .checked_mul(*length)
