@@ -194,7 +194,7 @@ fn check_types_inner(
             continue;
         };
         if !declared_types.contains(type_name) {
-            *diagnostic_span = unsafe_impl_type_span(program, type_name);
+            *diagnostic_span = unsafe_impl_type_span(program, type_name, *property, 0);
             return Err(format!(
                 "unsafe {:?} annotation refers to undeclared type '{type_name}'",
                 property
@@ -219,14 +219,14 @@ fn check_types_inner(
             _ => false,
         });
         if generic {
-            *diagnostic_span = unsafe_impl_type_span(program, type_name);
+            *diagnostic_span = unsafe_impl_type_span(program, type_name, *property, 0);
             return Err(format!(
                 "unsafe {:?} annotation for generic type '{type_name}' is not supported",
                 property
             ));
         }
         if !unsafe_thread_properties.insert((type_name.clone(), *property)) {
-            *diagnostic_span = unsafe_impl_type_span(program, type_name);
+            *diagnostic_span = unsafe_impl_type_span(program, type_name, *property, 1);
             return Err(format!(
                 "duplicate unsafe {:?} annotation for '{type_name}'",
                 property
@@ -673,7 +673,13 @@ fn check_thread_task_ownership(
                         &enum_fields,
                         &mut HashSet::new(),
                     ) {
-                        *diagnostic_span = task_type_in_declaration_span(program, name, &tasks);
+                        *diagnostic_span = task_type_in_declaration_span(
+                            program,
+                            name,
+                            &tasks,
+                            aliases,
+                            &enum_fields,
+                        );
                         record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                         return Err(format!(
                             "thread task handles cannot be stored in struct '{name}'"
@@ -692,7 +698,13 @@ fn check_thread_task_ownership(
                     })
                 {
                     if !task_result_enums.contains(name) {
-                        *diagnostic_span = task_type_in_declaration_span(program, name, &tasks);
+                        *diagnostic_span = task_type_in_declaration_span(
+                            program,
+                            name,
+                            &tasks,
+                            aliases,
+                            &enum_fields,
+                        );
                         record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                         return Err(format!(
                             "thread task handles cannot be stored in enum '{name}'"
@@ -707,7 +719,8 @@ fn check_thread_task_ownership(
                     &enum_fields,
                     &mut HashSet::new(),
                 ) {
-                    *diagnostic_span = task_type_in_declaration_span(program, name, &tasks);
+                    *diagnostic_span =
+                        task_type_in_declaration_span(program, name, &tasks, aliases, &enum_fields);
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     return Err(format!(
                         "type alias '{name}' cannot contain a thread task handle"
@@ -721,7 +734,8 @@ fn check_thread_task_ownership(
                     &enum_fields,
                     &mut HashSet::new(),
                 ) {
-                    *diagnostic_span = task_type_in_declaration_span(program, name, &tasks);
+                    *diagnostic_span =
+                        task_type_in_declaration_span(program, name, &tasks, aliases, &enum_fields);
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     return Err(format!(
                         "global '{name}' cannot contain a thread task handle"
@@ -739,8 +753,13 @@ fn check_thread_task_ownership(
                     &enum_fields,
                     &mut HashSet::new(),
                 ) {
-                    *diagnostic_span =
-                        task_type_in_declaration_span(program, &function.name, &tasks);
+                    *diagnostic_span = task_type_in_declaration_span(
+                        program,
+                        &function.name,
+                        &tasks,
+                        aliases,
+                        &enum_fields,
+                    );
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     return Err(format!(
                         "function '{}' cannot accept, return, or retain a thread task handle",
@@ -2897,17 +2916,24 @@ fn function_name_span(program: &Program, name: &str) -> Option<crate::Span> {
 
 fn declaration_name_span(program: &Program, name: &str) -> Option<crate::Span> {
     program
-        .declaration_expressions
+        .declaration_occurrences
         .get(name)?
+        .get(1)?
         .children
         .get(1)
         .map(|expression| expression.span)
 }
 
-fn unsafe_impl_type_span(program: &Program, type_name: &str) -> Option<crate::Span> {
+fn unsafe_impl_type_span(
+    program: &Program,
+    type_name: &str,
+    property: ThreadProperty,
+    occurrence: usize,
+) -> Option<crate::Span> {
     program
-        .declaration_expressions
-        .get(&format!("$unsafe-impl:{type_name}"))
+        .declaration_occurrences
+        .get(&format!("$unsafe-impl:{property:?}:{type_name}"))?
+        .get(occurrence)
         .and_then(|expression| first_symbol_span(expression, type_name))
 }
 
@@ -2915,11 +2941,61 @@ fn task_type_in_declaration_span(
     program: &Program,
     declaration: &str,
     tasks: &HashMap<String, String>,
+    aliases: &HashMap<String, Type>,
+    enum_fields: &HashMap<String, Vec<Type>>,
 ) -> Option<crate::Span> {
     let expression = program.declaration_expressions.get(declaration)?;
-    tasks
-        .keys()
-        .find_map(|task| first_symbol_span(expression, task))
+    let head = match &expression.children.first()?.expr {
+        Expr::Symbol(head) => head.trim_start_matches('#'),
+        _ => return None,
+    };
+    let children = &expression.children;
+    let mut candidates = Vec::new();
+    match head {
+        "struct" => {
+            for field in &children.last()?.children {
+                if let Some(ty) = field.children.get(1) {
+                    candidates.push(ty);
+                }
+            }
+        }
+        "enum" => {
+            for variant in &children.last()?.children {
+                candidates.extend(variant.children.iter().skip(1));
+            }
+        }
+        "type" => candidates.push(children.last()?),
+        "let" | "let-mut" | "static" | "static-mut" => candidates.push(children.get(2)?),
+        "fn" | "extern-fn" => {
+            let start = if head == "extern-fn" { 3 } else { 2 };
+            for parameter in &children.get(start)?.children {
+                if let Some(ty) = parameter.children.get(1) {
+                    candidates.push(ty);
+                }
+            }
+            candidates.push(children.get(start + 1)?);
+        }
+        _ => return None,
+    }
+    // Walk only type positions, in source order. A field/parameter/variant
+    // selector that happens to share a task's name must never be selected.
+    candidates.into_iter().find_map(|node| {
+        let ty = parse_type(Some(&crate::normalize_keywords(node.expr.clone()))).ok()?;
+        let resolved = resolve_type(&ty, aliases).ok()?;
+        if !type_mentions_task(&resolved, tasks, enum_fields, &mut HashSet::new()) {
+            return None;
+        }
+        fn direct(
+            node: &crate::SpannedExpr,
+            tasks: &HashMap<String, String>,
+        ) -> Option<crate::Span> {
+            if matches!(&node.expr, Expr::Symbol(name) if tasks.contains_key(name)) {
+                return Some(node.span);
+            }
+            node.children.iter().find_map(|child| direct(child, tasks))
+        }
+        Some(direct(node, tasks).unwrap_or(node.span))
+    })
 }
 
 fn first_unresolved_type<'a>(

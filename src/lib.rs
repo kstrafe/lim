@@ -1491,6 +1491,7 @@ pub struct Program {
     pub(crate) statement_expressions: HashMap<(String, usize), SpannedExpr>,
     pub(crate) declaration_spans: HashMap<String, Span>,
     pub(crate) declaration_expressions: HashMap<String, SpannedExpr>,
+    pub(crate) declaration_occurrences: HashMap<String, Vec<SpannedExpr>>,
     pub(crate) generated_source_invocations: HashMap<u32, Span>,
 }
 
@@ -2222,6 +2223,7 @@ fn parse_program_in_directory(
     let mut statement_expressions = HashMap::new();
     let mut declaration_spans = HashMap::new();
     let mut declaration_expressions = HashMap::new();
+    let mut declaration_occurrences: HashMap<String, Vec<SpannedExpr>> = HashMap::new();
     let mut generated_source_invocations = HashMap::new();
     let worker_functions = expressions
         .iter()
@@ -2372,14 +2374,16 @@ fn parse_program_in_directory(
         };
         for item in parsed_items {
             for name in item_declared_names(&item) {
-                declaration_spans.insert(name.clone(), form_span);
-                declaration_expressions.insert(
-                    name.clone(),
-                    generated_declarations
-                        .get(&name)
-                        .unwrap_or(&source_expression)
-                        .clone(),
-                );
+                let expression = generated_declarations
+                    .get(&name)
+                    .unwrap_or(&source_expression)
+                    .clone();
+                declaration_occurrences
+                    .entry(name.clone())
+                    .or_default()
+                    .push(expression.clone());
+                declaration_spans.entry(name.clone()).or_insert(form_span);
+                declaration_expressions.entry(name).or_insert(expression);
             }
             items.push(item);
         }
@@ -2418,6 +2422,7 @@ fn parse_program_in_directory(
         statement_expressions,
         declaration_spans,
         declaration_expressions,
+        declaration_occurrences,
         generated_source_invocations,
     })
 }
@@ -2431,8 +2436,11 @@ fn item_declared_names(item: &Item) -> Vec<String> {
         | Item::ThreadTask { name, .. }
         | Item::Static { name, .. }
         | Item::Let { name, .. } => vec![name.clone()],
-        Item::UnsafeThreadAnnotation { type_name, .. } => {
-            vec![format!("$unsafe-impl:{type_name}")]
+        Item::UnsafeThreadAnnotation {
+            type_name,
+            property,
+        } => {
+            vec![format!("$unsafe-impl:{property:?}:{type_name}")]
         }
     }
 }
@@ -5450,7 +5458,7 @@ fn specialize_generic_types(
                 "unsafe {:?} annotation refers to undeclared type '{type_name}'",
                 property
             );
-            let key = format!("$unsafe-impl:{type_name}");
+            let key = format!("$unsafe-impl:{property:?}:{type_name}");
             let precise = declaration_expressions
                 .get(&key)
                 .and_then(|expression| source_symbol_span(expression, type_name, false));
@@ -5477,7 +5485,7 @@ fn specialize_generic_types(
                 "unsafe {:?} annotations require a nominal struct or enum type, not alias '{type_name}'",
                 property
             );
-            let key = format!("$unsafe-impl:{type_name}");
+            let key = format!("$unsafe-impl:{property:?}:{type_name}");
             let precise = declaration_expressions
                 .get(&key)
                 .and_then(|expression| source_symbol_span(expression, type_name, false));
@@ -5492,7 +5500,7 @@ fn specialize_generic_types(
                 "unsafe {:?} annotation for generic type '{type_name}' is not supported",
                 property
             );
-            let key = format!("$unsafe-impl:{type_name}");
+            let key = format!("$unsafe-impl:{property:?}:{type_name}");
             let precise = declaration_expressions
                 .get(&key)
                 .and_then(|expression| source_symbol_span(expression, type_name, false));

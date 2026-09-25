@@ -627,7 +627,7 @@ and acceptance coverage.
   pass only with their declared outcome. Keep compiler/linker stderr available
   on failure and use uniquely created temporary directories.
 
-- [ ] **DIAG-01: Select declaration errors by occurrence and source order.**
+- [x] **DIAG-01: Select declaration errors by occurrence and source order.**
   Declaration span maps are keyed by names, and
   `task_type_in_declaration_span` searches `HashMap` task keys. These are
   insufficient to guarantee the responsible occurrence when several names
