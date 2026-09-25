@@ -151,6 +151,7 @@ fn check_types_inner(
             continue;
         };
         if !declared_types.contains(type_name) {
+            *diagnostic_span = unsafe_impl_type_span(program, type_name);
             return Err(format!(
                 "unsafe {:?} implementation refers to undeclared type '{type_name}'",
                 trait_kind
@@ -175,12 +176,14 @@ fn check_types_inner(
             _ => false,
         });
         if generic {
+            *diagnostic_span = unsafe_impl_type_span(program, type_name);
             return Err(format!(
                 "unsafe {:?} implementation for generic type '{type_name}' is not supported",
                 trait_kind
             ));
         }
         if !unsafe_auto_traits.insert((type_name.clone(), *trait_kind)) {
+            *diagnostic_span = unsafe_impl_type_span(program, type_name);
             return Err(format!(
                 "duplicate unsafe {:?} implementation for '{type_name}'",
                 trait_kind
@@ -2826,6 +2829,13 @@ fn function_name_span(program: &Program, name: &str) -> Option<crate::Span> {
         .children
         .get(1)
         .map(|expression| expression.span)
+}
+
+fn unsafe_impl_type_span(program: &Program, type_name: &str) -> Option<crate::Span> {
+    program
+        .declaration_expressions
+        .get(&format!("$unsafe-impl:{type_name}"))
+        .and_then(|expression| first_symbol_span(expression, type_name))
 }
 
 fn first_unresolved_type<'a>(

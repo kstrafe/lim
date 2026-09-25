@@ -1947,22 +1947,6 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
         }
     }
 
-    if message.contains("unsafe") && message.contains("implementation") {
-        if let Some(type_name) = message.split('\'').nth(1) {
-            let key = format!("$unsafe-impl:{type_name}");
-            if let Some(span) = program
-                .declaration_expressions
-                .get(&key)
-                .and_then(|expression| symbol_span(expression, type_name))
-            {
-                return Some(span);
-            }
-            if let Some(span) = program.declaration_spans.get(&key) {
-                return Some(*span);
-            }
-        }
-    }
-
     if let Some(function_marker) = message.find("function '") {
         let rest = &message[function_marker + "function '".len()..];
         if let Some((function, suffix)) = rest.split_once('\'') {
@@ -9185,6 +9169,12 @@ mod tests {
         assert!(check_types(&duplicate)
             .unwrap_err()
             .contains("duplicate unsafe Send implementation"));
+        let duplicate_source =
+            "(#struct Value ((value u64))) (#unsafe-impl #send Value) (#unsafe-impl #send Value)";
+        let (_, _, span, _) = typecheck::check_types_with_span(&duplicate).unwrap_err();
+        let span = span.expect("duplicate unsafe implementation has its type span");
+        assert_eq!(&duplicate_source[span.start..span.end], "Value");
+        assert_eq!(duplicate_source[..span.start].matches("Value").count(), 2);
 
         assert!(parse_program("(#unsafe-impl #send Unknown)")
             .unwrap_err()
