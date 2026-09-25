@@ -7369,11 +7369,18 @@ fn is_form(expression: &Expr, name: &str) -> bool {
 struct Parser<'a> {
     tokens: &'a [Token],
     index: usize,
+    depth: usize,
 }
+
+const MAX_PARSE_NESTING: usize = 256;
 
 impl<'a> Parser<'a> {
     fn new(tokens: &'a [Token]) -> Self {
-        Self { tokens, index: 0 }
+        Self {
+            tokens,
+            index: 0,
+            depth: 0,
+        }
     }
 
     fn run(mut self) -> Result<Vec<SpannedExpr>, ParseError> {
@@ -7385,6 +7392,23 @@ impl<'a> Parser<'a> {
     }
 
     fn expression(&mut self) -> Result<SpannedExpr, ParseError> {
+        if self.depth >= MAX_PARSE_NESTING {
+            let span = self
+                .tokens
+                .get(self.index)
+                .map_or_else(|| self.eof_span(), |token| token.span);
+            return Err(self.error(
+                &format!("expression nesting exceeds maximum of {MAX_PARSE_NESTING}"),
+                span,
+            ));
+        }
+        self.depth += 1;
+        let result = self.expression_inner();
+        self.depth -= 1;
+        result
+    }
+
+    fn expression_inner(&mut self) -> Result<SpannedExpr, ParseError> {
         let token = self
             .tokens
             .get(self.index)
@@ -9237,6 +9261,26 @@ mod tests {
     fn parses_nested_lists_quotes_and_comments() {
         let expressions = parse("# header\n'(#fn main () i32 42) ; tail\n").unwrap();
         assert!(matches!(expressions[0].expr, Expr::Quote(_)));
+    }
+
+    #[test]
+    fn parser_rejects_excessive_nesting_with_a_spanned_error() {
+        let within_limit = format!(
+            "{}value{}",
+            "(".repeat(MAX_PARSE_NESTING - 1),
+            ")".repeat(MAX_PARSE_NESTING - 1)
+        );
+        assert!(parse(&within_limit).is_ok());
+
+        let over_limit = format!(
+            "{}value{}",
+            "(".repeat(MAX_PARSE_NESTING),
+            ")".repeat(MAX_PARSE_NESTING)
+        );
+        let tokens = lex(&over_limit).unwrap();
+        let error = Parser::new(&tokens).run().unwrap_err();
+        assert!(error.message.contains("expression nesting exceeds maximum"));
+        assert!(error.span.start < over_limit.len());
     }
 
     #[test]

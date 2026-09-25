@@ -440,13 +440,15 @@ Each item requires documentation and regression coverage before being checked.
   generator quasiquotes without dropping or moving comments to the wrong
   form. Test leading/trailing comments, strings with semicolons, empty lists,
   and formatting idempotence; parsed semantics must remain unchanged.
+- [x] Bound recursive parser nesting and return a source-spanned parse error
+  before the Rust call stack can be exhausted. Test the nesting limit at and
+  beyond its boundary with generated inputs.
 - [ ] Add a dependency-free compiler robustness suite with explicit resource
-  budgets. Audit parser nesting, import traversal, generator expansion size,
-  aggregate layout arithmetic, and diagnostic rendering beyond existing
-  generator limits. Exercise seeded generated inputs and malformed/truncated
-  files in bounded subprocesses. Require deterministic diagnostics instead of
-  panics, stack overflow, hangs, or partially published outputs; keep minimal
-  reproducers for every discovered failure.
+  budgets. Audit import traversal, generator expansion size, aggregate layout
+  arithmetic, and diagnostic rendering beyond existing limits. Exercise seeded
+  generated inputs and malformed/truncated files in bounded subprocesses.
+  Require deterministic diagnostics instead of panics, hangs, or partially
+  published outputs; keep minimal reproducers for every discovered failure.
 - [ ] Establish reproducible compile-time and generated-code performance
   baselines before optimizing the compiler. Measure lex/parse, import/cfg,
   generation (cold and warm cache), semantic checks, native emission, and
