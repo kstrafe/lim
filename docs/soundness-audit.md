@@ -16,14 +16,14 @@ destruction and allocation cases are in the binary integration tests.
 | Captured loans remain live while a task is outstanding and transfer with the task handle through a failed-join error branch | thread-task loan checks in `borrowcheck.rs`, including failed-join/error-binding coverage |
 | Generated destruction consumes nested owned fields exactly once across moves and returns; allocator failure preserves the vector for explicit destruction | `explicit_aggregate_destruction_runs_once_after_moves_and_returns`, `allocator_backed_vector_grows_and_destroys_elements`, `allocator_backed_vector_reports_allocation_failure_without_losing_vector` |
 
-Compiler-enforced properties include structural auto-trait derivation,
+Compiler-enforced properties include structural Send/Sync derivation,
 thread-handle ownership, captured-loan transfer, and the explicit unsafe
 boundaries. Unsafe pointer operations and `#unsafe-impl #send/#sync` remain
 programmer promises: the compiler checks their syntactic and type-level
 preconditions, but cannot establish that an external address is valid or that
 an override is truthful. The tests demonstrate both sides of this boundary:
 raw pointers and `Cell` are rejected structurally, while an explicit unsafe
-override allows the opted-in type to satisfy the trait. Thread runtime tests
+override allows the opted-in type to satisfy the property. Thread runtime tests
 cover allocation, creation, and join failures; a failed join preserves the
 task packet and returns its handle rather than silently destroying it. These
 tests are regression evidence, not a formal proof of the compiler.

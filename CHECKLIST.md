@@ -733,7 +733,7 @@ and acceptance coverage.
   Document the generated x86 instructions, ordering guarantees, and fairness
   limitations; do not introduce callbacks, methods, or implicit dispatch.
 
-- [ ] **LANG-01: Use Send/Sync annotation terminology consistently.**
+- [x] **LANG-01: Use Send/Sync annotation terminology consistently.**
   `AutoTrait`, `UnsafeAutoTraitImpl`, diagnostics, and the soundness document
   still borrow trait terminology despite traits being a documented non-goal.
   Rename internal concepts and user-facing wording to Send/Sync properties and

@@ -1398,7 +1398,7 @@ pub(crate) fn generate_checked_assembly(
             Item::Enum { .. } => {}
             Item::TypeAlias { .. } => {}
             Item::Let { .. } | Item::Static { .. } => {}
-            Item::UnsafeAutoTraitImpl { .. } => {}
+            Item::UnsafeThreadAnnotation { .. } => {}
             Item::ThreadTask { name, worker, .. } => generate_thread_task(
                 name,
                 worker,

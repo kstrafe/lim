@@ -20,7 +20,7 @@ pub use codegen::generate_assembly;
 pub use codegen::generate_assembly_for_target;
 pub use output::{reject_source_output_collision, write_output_atomic};
 pub use stack_usage::stack_usage_report;
-pub use typecheck::{check_types, type_has_auto_trait};
+pub use typecheck::{check_types, type_has_thread_property};
 
 /// CPU architecture descriptions understood by the native backend.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1435,7 +1435,7 @@ pub struct EnumVariant {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum AutoTrait {
+pub enum ThreadProperty {
     Send,
     Sync,
 }
@@ -1471,8 +1471,8 @@ pub enum Item {
         ty: Type,
         value: Expr,
     },
-    UnsafeAutoTraitImpl {
-        trait_kind: AutoTrait,
+    UnsafeThreadAnnotation {
+        property: ThreadProperty,
         type_name: String,
     },
     ThreadTask {
@@ -2431,7 +2431,7 @@ fn item_declared_names(item: &Item) -> Vec<String> {
         | Item::ThreadTask { name, .. }
         | Item::Static { name, .. }
         | Item::Let { name, .. } => vec![name.clone()],
-        Item::UnsafeAutoTraitImpl { type_name, .. } => {
+        Item::UnsafeThreadAnnotation { type_name, .. } => {
             vec![format!("$unsafe-impl:{type_name}")]
         }
     }
@@ -5432,8 +5432,8 @@ fn specialize_generic_types(
     source_files: &[SourceFile],
 ) -> Result<Vec<Item>, String> {
     for item in &items {
-        let Item::UnsafeAutoTraitImpl {
-            trait_kind,
+        let Item::UnsafeThreadAnnotation {
+            property,
             type_name,
         } = item
         else {
@@ -5447,8 +5447,8 @@ fn specialize_generic_types(
         });
         let Some(declaration) = declaration else {
             let error = format!(
-                "unsafe {:?} implementation refers to undeclared type '{type_name}'",
-                trait_kind
+                "unsafe {:?} annotation refers to undeclared type '{type_name}'",
+                property
             );
             let key = format!("$unsafe-impl:{type_name}");
             let precise = declaration_expressions
@@ -5474,8 +5474,8 @@ fn specialize_generic_types(
         };
         if matches!(declaration, Item::TypeAlias { .. }) {
             let error = format!(
-                "unsafe {:?} implementations require a nominal struct or enum type, not alias '{type_name}'",
-                trait_kind
+                "unsafe {:?} annotations require a nominal struct or enum type, not alias '{type_name}'",
+                property
             );
             let key = format!("$unsafe-impl:{type_name}");
             let precise = declaration_expressions
@@ -5489,8 +5489,8 @@ fn specialize_generic_types(
         }
         if is_generic {
             let error = format!(
-                "unsafe {:?} implementation for generic type '{type_name}' is not supported",
-                trait_kind
+                "unsafe {:?} annotation for generic type '{type_name}' is not supported",
+                property
             );
             let key = format!("$unsafe-impl:{type_name}");
             let precise = declaration_expressions
@@ -5653,7 +5653,7 @@ fn specialize_generic_types(
                         &mut generated,
                     )?;
                 }
-                Item::UnsafeAutoTraitImpl { .. } => {}
+                Item::UnsafeThreadAnnotation { .. } => {}
                 Item::ThreadTask { .. } => {}
             }
             Ok(())
@@ -5798,14 +5798,14 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
             if items.len() != 3 {
                 return Err("unsafe-impl requires (#unsafe-impl #send-or-sync Type)".into());
             }
-            let trait_kind = match expect_symbol(items.get(1), "auto-trait name")? {
-                "send" => AutoTrait::Send,
-                "sync" => AutoTrait::Sync,
-                other => return Err(format!("unsupported unsafe auto-trait '{other}'")),
+            let property = match expect_symbol(items.get(1), "thread property name")? {
+                "send" => ThreadProperty::Send,
+                "sync" => ThreadProperty::Sync,
+                other => return Err(format!("unsupported unsafe thread property '{other}'")),
             };
-            let type_name = expect_symbol(items.get(2), "auto-trait type")?.to_owned();
-            Ok(Item::UnsafeAutoTraitImpl {
-                trait_kind,
+            let type_name = expect_symbol(items.get(2), "thread property type")?.to_owned();
+            Ok(Item::UnsafeThreadAnnotation {
+                property,
                 type_name,
             })
         }
@@ -8920,56 +8920,56 @@ mod tests {
         )
         .unwrap();
         check_types(&program).unwrap();
-        let has = |name: &str, trait_kind: AutoTrait| {
-            type_has_auto_trait(&program, &Type::Named(name.to_owned()), trait_kind).unwrap()
+        let has = |name: &str, property: ThreadProperty| {
+            type_has_thread_property(&program, &Type::Named(name.to_owned()), property).unwrap()
         };
 
-        assert!(has("Plain", AutoTrait::Send));
-        assert!(has("Plain", AutoTrait::Sync));
-        assert!(has("HasCell", AutoTrait::Send));
-        assert!(!has("HasCell", AutoTrait::Sync));
-        assert!(!has("HasPointer", AutoTrait::Send));
-        assert!(!has("HasPointer", AutoTrait::Sync));
-        assert!(has("HasSharedReference", AutoTrait::Send));
-        assert!(has("HasSharedReference", AutoTrait::Sync));
-        assert!(has("PromisedSend", AutoTrait::Send));
-        assert!(!has("PromisedSend", AutoTrait::Sync));
-        assert!(has("PromisedSync", AutoTrait::Sync));
+        assert!(has("Plain", ThreadProperty::Send));
+        assert!(has("Plain", ThreadProperty::Sync));
+        assert!(has("HasCell", ThreadProperty::Send));
+        assert!(!has("HasCell", ThreadProperty::Sync));
+        assert!(!has("HasPointer", ThreadProperty::Send));
+        assert!(!has("HasPointer", ThreadProperty::Sync));
+        assert!(has("HasSharedReference", ThreadProperty::Send));
+        assert!(has("HasSharedReference", ThreadProperty::Sync));
+        assert!(has("PromisedSend", ThreadProperty::Send));
+        assert!(!has("PromisedSend", ThreadProperty::Sync));
+        assert!(has("PromisedSync", ThreadProperty::Sync));
 
-        assert!(type_has_auto_trait(
+        assert!(type_has_thread_property(
             &program,
             &Type::Reference {
                 mutable: false,
                 target: Box::new(Type::Named("Plain".to_owned())),
             },
-            AutoTrait::Send,
+            ThreadProperty::Send,
         )
         .unwrap());
-        assert!(!type_has_auto_trait(
+        assert!(!type_has_thread_property(
             &program,
             &Type::Reference {
                 mutable: false,
                 target: Box::new(Type::Named("HasCell".to_owned())),
             },
-            AutoTrait::Send,
+            ThreadProperty::Send,
         )
         .unwrap());
-        assert!(type_has_auto_trait(
+        assert!(type_has_thread_property(
             &program,
             &Type::Reference {
                 mutable: true,
                 target: Box::new(Type::Named("Plain".to_owned())),
             },
-            AutoTrait::Send,
+            ThreadProperty::Send,
         )
         .unwrap());
-        assert!(!type_has_auto_trait(
+        assert!(!type_has_thread_property(
             &program,
             &Type::Reference {
                 mutable: true,
                 target: Box::new(Type::Named("HasCell".to_owned())),
             },
-            AutoTrait::Sync,
+            ThreadProperty::Sync,
         )
         .unwrap());
 
@@ -8979,11 +8979,11 @@ mod tests {
         .unwrap();
         assert!(check_types(&duplicate)
             .unwrap_err()
-            .contains("duplicate unsafe Send implementation"));
+            .contains("duplicate unsafe Send annotation"));
         let duplicate_source =
             "(#struct Value ((value u64))) (#unsafe-impl #send Value) (#unsafe-impl #send Value)";
         let (_, _, span, _) = typecheck::check_types_with_span(&duplicate).unwrap_err();
-        let span = span.expect("duplicate unsafe implementation has its type span");
+        let span = span.expect("duplicate unsafe annotation has its type span");
         assert_eq!(&duplicate_source[span.start..span.end], "Value");
         assert_eq!(duplicate_source[..span.start].matches("Value").count(), 2);
 

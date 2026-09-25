@@ -3,8 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    parse_type, AutoTrait, CallingConvention, EnumVariant, Expr, Field, Function, Item, Program,
-    Representation, Statement, Type,
+    parse_type, CallingConvention, EnumVariant, Expr, Field, Function, Item, Program,
+    Representation, Statement, ThreadProperty, Type,
 };
 
 const LOOP_VALUE_CONTEXT: &str = "\0lim-loop-value";
@@ -184,10 +184,10 @@ fn check_types_inner(
             _ => {}
         }
     }
-    let mut unsafe_auto_traits = HashSet::new();
+    let mut unsafe_thread_properties = HashSet::new();
     for item in &program.items {
-        let Item::UnsafeAutoTraitImpl {
-            trait_kind,
+        let Item::UnsafeThreadAnnotation {
+            property,
             type_name,
         } = item
         else {
@@ -196,8 +196,8 @@ fn check_types_inner(
         if !declared_types.contains(type_name) {
             *diagnostic_span = unsafe_impl_type_span(program, type_name);
             return Err(format!(
-                "unsafe {:?} implementation refers to undeclared type '{type_name}'",
-                trait_kind
+                "unsafe {:?} annotation refers to undeclared type '{type_name}'",
+                property
             ));
         }
         let generic = program.items.iter().any(|declaration| match declaration {
@@ -221,15 +221,15 @@ fn check_types_inner(
         if generic {
             *diagnostic_span = unsafe_impl_type_span(program, type_name);
             return Err(format!(
-                "unsafe {:?} implementation for generic type '{type_name}' is not supported",
-                trait_kind
+                "unsafe {:?} annotation for generic type '{type_name}' is not supported",
+                property
             ));
         }
-        if !unsafe_auto_traits.insert((type_name.clone(), *trait_kind)) {
+        if !unsafe_thread_properties.insert((type_name.clone(), *property)) {
             *diagnostic_span = unsafe_impl_type_span(program, type_name);
             return Err(format!(
-                "duplicate unsafe {:?} implementation for '{type_name}'",
-                trait_kind
+                "duplicate unsafe {:?} annotation for '{type_name}'",
+                property
             ));
         }
     }
@@ -433,7 +433,7 @@ fn check_types_inner(
             .zip(&worker_signature.parameters)
             .enumerate()
         {
-            let send = match type_has_auto_trait(program, ty, AutoTrait::Send) {
+            let send = match type_has_thread_property(program, ty, ThreadProperty::Send) {
                 Ok(send) => send,
                 Err(error) => {
                     *diagnostic_span = first_unresolved_type(ty, &declared_types, &aliases)
@@ -453,20 +453,20 @@ fn check_types_inner(
                 ));
             }
         }
-        let return_send =
-            match type_has_auto_trait(program, &worker_signature.return_type, AutoTrait::Send) {
-                Ok(send) => send,
-                Err(error) => {
-                    *diagnostic_span = first_unresolved_type(
-                        &worker_signature.return_type,
-                        &declared_types,
-                        &aliases,
-                    )
-                    .and_then(|unknown| worker_return_type_span(program, worker, &unknown));
-                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                    return Err(format!("{error} while checking thread worker '{worker}'"));
-                }
-            };
+        let return_send = match type_has_thread_property(
+            program,
+            &worker_signature.return_type,
+            ThreadProperty::Send,
+        ) {
+            Ok(send) => send,
+            Err(error) => {
+                *diagnostic_span =
+                    first_unresolved_type(&worker_signature.return_type, &declared_types, &aliases)
+                        .and_then(|unknown| worker_return_type_span(program, worker, &unknown));
+                record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                return Err(format!("{error} while checking thread worker '{worker}'"));
+            }
+        };
         if !return_send {
             *diagnostic_span = worker_return_span(program, worker);
             record_generated_invocation(program, diagnostic_span, diagnostic_labels);
@@ -562,7 +562,7 @@ fn check_types_inner(
             Item::TypeAlias { .. }
             | Item::Struct { .. }
             | Item::Enum { .. }
-            | Item::UnsafeAutoTraitImpl { .. }
+            | Item::UnsafeThreadAnnotation { .. }
             | Item::ThreadTask { .. } => {}
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
                 let ty = globals.get(name).expect("global type collected");
@@ -777,7 +777,7 @@ fn check_thread_task_ownership(
                 // rejected above). This also permits a failed join's returned
                 // handle to be retried without ending its captured borrows.
             }
-            Item::UnsafeAutoTraitImpl { .. } | Item::ThreadTask { .. } => {}
+            Item::UnsafeThreadAnnotation { .. } | Item::ThreadTask { .. } => {}
         }
     }
     Ok(())
@@ -1556,11 +1556,11 @@ fn check_task_statement(
 }
 
 /// Determine whether a concrete type satisfies Lim's built-in Send or Sync
-/// auto trait. Explicit `#unsafe-impl` declarations override structural rules.
-pub fn type_has_auto_trait(
+/// thread property. Explicit `#unsafe-impl` declarations override structural rules.
+pub fn type_has_thread_property(
     program: &Program,
     ty: &Type,
-    trait_kind: AutoTrait,
+    property: ThreadProperty,
 ) -> Result<bool, String> {
     let aliases = program
         .items
@@ -1620,16 +1620,16 @@ pub fn type_has_auto_trait(
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::UnsafeAutoTraitImpl {
-                trait_kind,
+            Item::UnsafeThreadAnnotation {
+                property,
                 type_name,
-            } => Some((type_name.clone(), *trait_kind)),
+            } => Some((type_name.clone(), *property)),
             _ => None,
         })
         .collect::<HashSet<_>>();
-    type_has_auto_trait_inner(
+    type_has_thread_property_inner(
         &resolve_type(ty, &aliases)?,
-        trait_kind,
+        property,
         &structs,
         &enums,
         &overrides,
@@ -1637,17 +1637,18 @@ pub fn type_has_auto_trait(
     )
 }
 
-fn type_has_auto_trait_inner(
+fn type_has_thread_property_inner(
     ty: &Type,
-    trait_kind: AutoTrait,
+    property: ThreadProperty,
     structs: &HashMap<String, Vec<(String, Type)>>,
     enums: &HashMap<String, Vec<Vec<Type>>>,
-    overrides: &HashSet<(String, AutoTrait)>,
+    overrides: &HashSet<(String, ThreadProperty)>,
     active: &mut HashSet<String>,
 ) -> Result<bool, String> {
     let all = |types: Vec<&Type>, active: &mut HashSet<String>| -> Result<bool, String> {
         for nested in types {
-            if !type_has_auto_trait_inner(nested, trait_kind, structs, enums, overrides, active)? {
+            if !type_has_thread_property_inner(nested, property, structs, enums, overrides, active)?
+            {
                 return Ok(false);
             }
         }
@@ -1674,51 +1675,58 @@ fn type_has_auto_trait_inner(
         | Type::F64 => Ok(true),
         Type::Generic(_) => Ok(false),
         Type::RawPointer { .. } => Ok(false),
-        Type::Cell(inner) => match trait_kind {
-            AutoTrait::Send => {
-                type_has_auto_trait_inner(inner, trait_kind, structs, enums, overrides, active)
+        Type::Cell(inner) => match property {
+            ThreadProperty::Send => {
+                type_has_thread_property_inner(inner, property, structs, enums, overrides, active)
             }
-            AutoTrait::Sync => Ok(false),
+            ThreadProperty::Sync => Ok(false),
         },
-        Type::Reference { mutable, target } => match (trait_kind, mutable) {
-            (AutoTrait::Send, false) | (AutoTrait::Sync, _) => type_has_auto_trait_inner(
+        Type::Reference { mutable, target } => match (property, mutable) {
+            (ThreadProperty::Send, false) | (ThreadProperty::Sync, _) => {
+                type_has_thread_property_inner(
+                    target,
+                    ThreadProperty::Sync,
+                    structs,
+                    enums,
+                    overrides,
+                    active,
+                )
+            }
+            (ThreadProperty::Send, true) => type_has_thread_property_inner(
                 target,
-                AutoTrait::Sync,
-                structs,
-                enums,
-                overrides,
-                active,
-            ),
-            (AutoTrait::Send, true) => type_has_auto_trait_inner(
-                target,
-                AutoTrait::Send,
+                ThreadProperty::Send,
                 structs,
                 enums,
                 overrides,
                 active,
             ),
         },
-        Type::Slice(target) => {
-            type_has_auto_trait_inner(target, AutoTrait::Sync, structs, enums, overrides, active)
-        }
-        Type::MutableSlice(target) => match trait_kind {
-            AutoTrait::Send => type_has_auto_trait_inner(
+        Type::Slice(target) => type_has_thread_property_inner(
+            target,
+            ThreadProperty::Sync,
+            structs,
+            enums,
+            overrides,
+            active,
+        ),
+        Type::MutableSlice(target) => match property {
+            ThreadProperty::Send => type_has_thread_property_inner(
                 target,
-                AutoTrait::Send,
+                ThreadProperty::Send,
                 structs,
                 enums,
                 overrides,
                 active,
             ),
-            AutoTrait::Sync => Ok(false),
+            ThreadProperty::Sync => Ok(false),
         },
         Type::Atomic(target) => Ok(is_atomic_scalar(target)),
         Type::Tuple(fields) => all(fields.iter().collect(), active),
         Type::Array(element, _) => {
-            type_has_auto_trait_inner(element, trait_kind, structs, enums, overrides, active)
+            type_has_thread_property_inner(element, property, structs, enums, overrides, active)
         }
         Type::Named(name) => {
-            if overrides.contains(&(name.clone(), trait_kind)) {
+            if overrides.contains(&(name.clone(), property)) {
                 return Ok(true);
             }
             if !active.insert(name.clone()) {
@@ -1732,9 +1740,7 @@ fn type_has_auto_trait_inner(
                     active,
                 )?
             } else {
-                return Err(format!(
-                    "unknown type '{name}' while checking {trait_kind:?}"
-                ));
+                return Err(format!("unknown type '{name}' while checking {property:?}"));
             };
             active.remove(name);
             Ok(result)
