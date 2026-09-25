@@ -1947,35 +1947,6 @@ fn unlocated_analysis_span(program: &Program, message: &str) -> Option<Span> {
         }
     }
 
-    if let Some(enum_name) = message
-        .strip_prefix("#repr-c enum '")
-        .and_then(|rest| rest.split('\'').next())
-    {
-        let enum_variants = program.items.iter().find_map(|item| match item {
-            Item::Enum { name, variants, .. } if name == enum_name => Some(variants),
-            _ => None,
-        });
-        let declaration = program.declaration_expressions.get(enum_name);
-        if let (Some(variants), Some(declaration)) = (enum_variants, declaration) {
-            let variant_list = declaration
-                .children
-                .iter()
-                .rev()
-                .find(|child| matches!(&child.expr, Expr::List(_)));
-            if let Some(variant_list) = variant_list {
-                for (variant, source_variant) in variants.iter().zip(&variant_list.children) {
-                    if variant.discriminant > i32::MAX as u64 {
-                        return source_variant
-                            .children
-                            .get(1)
-                            .map(|value| value.span)
-                            .or_else(|| source_variant.children.first().map(|name| name.span));
-                    }
-                }
-            }
-        }
-    }
-
     if let Some(rest) = message.strip_prefix("thread task '") {
         if let Some((task_name, rest)) = rest.split_once("' refers to unknown worker function '") {
             if let Some(worker_name) = rest.split('\'').next() {

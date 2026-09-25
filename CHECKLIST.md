@@ -452,6 +452,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Carry the recursive call edge's source span from call-graph cycle
     detection, and remove cycle parsing/call-name span recovery from
     `unlocated_analysis_span`; the recursive-call UI assertion pins the callee.
+  - [x] Locate out-of-range `#repr-c` enum discriminants during declaration
+    validation and remove the corresponding message-parsing span fallback;
+    the UI fixture checks the offending discriminant.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated

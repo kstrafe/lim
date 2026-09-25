@@ -98,9 +98,30 @@ fn check_types_inner(
                 .iter()
                 .any(|variant| variant.discriminant > i32::MAX as u64) =>
             {
+                *diagnostic_span =
+                    program
+                        .declaration_expressions
+                        .get(name)
+                        .and_then(|declaration| {
+                            let variant_list = declaration
+                                .children
+                                .iter()
+                                .rev()
+                                .find(|child| matches!(&child.expr, Expr::List(_)))?;
+                            variants
+                                .iter()
+                                .zip(&variant_list.children)
+                                .find(|(variant, _)| variant.discriminant > i32::MAX as u64)
+                                .and_then(|(_, form)| {
+                                    form.children
+                                        .get(1)
+                                        .or_else(|| form.children.first())
+                                        .map(|value| value.span)
+                                })
+                        });
                 return Err(format!(
                     "#repr-c enum '{name}' discriminants must fit in signed 32-bit C int"
-                ))
+                ));
             }
             _ => {}
         }
