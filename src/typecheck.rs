@@ -3971,6 +3971,29 @@ fn list_expression(
                 target: element,
             })
         }
+        "slice-range" => {
+            require_arity(operator, items, 4)?;
+            let Type::Slice(element) = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?
+            else {
+                return Err("slice-range requires a slice".into());
+            };
+            for bound in &items[2..4] {
+                let ty = expression(
+                    bound,
+                    variables,
+                    functions,
+                    structs,
+                    enums,
+                    mutable,
+                    aliases,
+                    Some(&Type::Usize),
+                )?;
+                require_type(&ty, &Type::Usize, "slice range bound")?;
+            }
+            Ok(Type::Slice(element))
+        }
         "borrow" | "borrow-mut" => {
             if items.len() == 2 {
                 let (target, base_mutable) = match &items[1] {

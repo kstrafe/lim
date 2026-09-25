@@ -5938,6 +5938,12 @@ impl FunctionContext {
                     Some(Type::Slice(element))
                 }
                 Some(Expr::Symbol(operator)) if operator == "slice-len" => Some(Type::Usize),
+                Some(Expr::Symbol(operator)) if operator == "slice-range" && items.len() == 4 => {
+                    match self.expression_type(&items[1])? {
+                        Type::Slice(element) => Some(Type::Slice(element)),
+                        _ => None,
+                    }
+                }
                 Some(Expr::Symbol(operator)) if operator == "slice-idx" && items.len() == 3 => {
                     match self.expression_type(&items[1])? {
                         Type::Slice(element) => Some(Type::Reference {
@@ -8137,6 +8143,51 @@ impl FunctionContext {
             let done = self.label("slice_bounds_done");
             let stride = storage_word_count(&element_type, &self.structs, &self.enums)? * 8;
             self.output.push_str(&format!("    cmp rax, rdx\n    jae {fail}\n    imul rax, {stride}\n    sub rcx, rax\n    mov rax, rcx\n    jmp {done}\n{fail}:\n    ud2\n{done}:\n"));
+            return Ok(());
+        }
+        if operator == "slice-range" {
+            if items.len() != 4 {
+                return Err("slice-range requires a slice and half-open start/end bounds".into());
+            }
+            let element_type = match self.expression_type(&items[1]) {
+                Some(Type::Slice(element)) => *element,
+                _ => return Err("slice-range requires a slice".into()),
+            };
+            if let Expr::Symbol(name) = &items[1] {
+                if let Some(Storage::Tuple(slots)) = self.locals.get(name).cloned() {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
+                        slots[0] * 8,
+                        slots[1] * 8
+                    ));
+                } else {
+                    self.expression(&items[1])?;
+                }
+            } else {
+                self.expression(&items[1])?;
+            }
+            self.output.push_str("    push rax\n    push rdx\n");
+            self.stack_depth += 2;
+            self.expression(&items[2])?;
+            self.output.push_str("    push rax\n");
+            self.stack_depth += 1;
+            self.expression(&items[3])?;
+            self.output
+                .push_str("    mov r8, rax\n    pop rcx\n    pop rdx\n    pop rax\n");
+            self.stack_depth -= 3;
+            let fail = self.label("slice_range_bounds_fail");
+            let done = self.label("slice_range_bounds_done");
+            let stride = storage_word_count(&element_type, &self.structs, &self.enums)? * 8;
+            self.output.push_str(&format!(
+                "    cmp rcx, r8\n    ja {fail}\n    cmp r8, rdx\n    ja {fail}\n    sub r8, rcx\n"
+            ));
+            if stride != 0 {
+                self.output
+                    .push_str(&format!("    imul rcx, {stride}\n    sub rax, rcx\n"));
+            }
+            self.output.push_str(&format!(
+                "    mov rdx, r8\n    jmp {done}\n{fail}:\n    ud2\n{done}:\n"
+            ));
             return Ok(());
         }
         if let Some((enum_name, variant_fields)) =

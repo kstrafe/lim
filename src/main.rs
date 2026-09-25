@@ -569,6 +569,28 @@ mod tests {
     }
 
     #[test]
+    fn ranged_slices_run_with_empty_and_end_boundary_ranges() {
+        let directory = env::temp_dir().join(format!("lim-ranged-slices-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("program.lim");
+        let output = directory.join("program");
+        fs::write(&input, "(#fn main () u64 (#let values (#array u64 3) (#array (#array u64 3) 4u64 8u64 15u64)) (#let all (#slice u64) (#slice-of (#borrow values))) (#let empty (#slice u64) (#slice-range all 3usize 3usize)) (#let middle (#slice u64) (#slice-range all 1usize 3usize)) (#assert (#usize.== (#slice-len empty) 0usize)) (#return (#deref (#slice-idx middle 1usize))))").unwrap();
+        assert_eq!(
+            compile(
+                input.to_str().unwrap(),
+                &output,
+                false,
+                &lim::CompileConfig::default(),
+                lim::TargetDescription::X86_64_SYSTEM_V
+            ),
+            ExitCode::SUCCESS
+        );
+        assert_eq!(Command::new(&output).status().unwrap().code(), Some(15));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn nested_destructured_mutable_references_run_natively() {
         let directory =
             env::temp_dir().join(format!("lim-destructure-references-{}", std::process::id()));

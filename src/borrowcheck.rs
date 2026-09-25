@@ -1935,7 +1935,9 @@ fn reference_origins(
             if matches!(operator.as_str(), "borrow" | "borrow-mut") && items.len() == 2 {
                 return borrow_place_origins(&items[1], context);
             }
-            if matches!(operator.as_str(), "slice-of" | "slice-idx") && items.len() >= 2 {
+            if matches!(operator.as_str(), "slice-of" | "slice-idx" | "slice-range")
+                && items.len() >= 2
+            {
                 return reference_origins(&items[1], context, true);
             }
             if matches!(operator.as_str(), "ptr-borrow" | "ptr-borrow-mut") && items.len() == 3 {

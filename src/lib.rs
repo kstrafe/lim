@@ -12209,4 +12209,21 @@ mod tests {
         check_types(&program).unwrap();
         generate_assembly(&program).unwrap();
     }
+
+    #[test]
+    fn ranged_slices_typecheck_and_emit_runtime_bounds_checks() {
+        let source = "(#fn main () u64 (#let values (#array u64 3) (#array (#array u64 3) 4u64 8u64 15u64)) (#let all (#slice u64) (#slice-of (#borrow values))) (#let middle (#slice u64) (#slice-range all 1usize 2usize)) (#return (#deref (#slice-idx middle 0usize))))";
+        let program = parse_program(source).unwrap();
+        check_types(&program).unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("slice_range_bounds_fail"));
+        assert!(assembly.contains("cmp rcx, r8"));
+    }
+
+    #[test]
+    fn ranged_slice_cannot_outlive_its_array() {
+        let source = "(#fn bad () (#slice u64) (#let values (#array u64 2) (#array (#array u64 2) 1u64 2u64)) (#let all (#slice u64) (#slice-of (#borrow values))) (#return (#slice-range all 0usize 1usize)))";
+        let program = parse_program(source).unwrap();
+        assert!(check_types(&program).is_err());
+    }
 }

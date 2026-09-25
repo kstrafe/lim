@@ -410,7 +410,7 @@ Each item requires documentation and regression coverage before being checked.
 
 ### Priority 3: collection ergonomics without implicit behavior
 
-- [ ] Add explicit ranged immutable subslices. `docs/language.md` currently
+- [x] Add explicit ranged immutable subslices. `docs/language.md` currently
   documents immutable slices without ranged slicing. Choose a constructor
   distinct from the slice type, specify half-open bounds and failure behavior,
   and retain the original referent's lifetime through nested slices and

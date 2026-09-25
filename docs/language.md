@@ -512,7 +512,11 @@ An immutable slice type is written `(#slice T)`. Create a full-array view with
 `(#slice-len view)` for its runtime length and
 `(#slice-idx view index)` to get a shared reference to an element. Indexing
 checks the index against the slice length and traps if it is out of bounds.
-Slices are immutable for now; ranged subslices are not yet supported.
+Use `(#slice-range view start end)` to create an immutable half-open subrange
+`[start, end)`. Both bounds are `usize`; the operation traps if `start > end`
+or `end > (#slice-len view)`. Empty and end-boundary ranges are valid. A
+subslice retains the original borrow provenance, including across function
+returns; it does not extend the referent's lifetime. Slices remain immutable.
 
 User-defined names refer to concrete structs, enums, and aliases.  Generic
 declarations and angle-bracket applications are not part of Lim.  Generators
