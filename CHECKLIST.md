@@ -467,6 +467,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Locate thread-worker `Send` failures and reference-containing return
     failures directly at the parameter or return type, and remove their
     dedicated message-based span recovery; UI tests pin the offending type.
+  - [x] Carry inconsistent function calling-convention diagnostics from
+    declaration validation with the function-name span; a unit regression
+    verifies the exact token arrives through the structured checker API.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated

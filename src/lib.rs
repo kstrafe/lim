@@ -8572,6 +8572,24 @@ mod tests {
     }
 
     #[test]
+    fn function_declaration_validation_errors_carry_the_name_span() {
+        let source = "(#fn invalid () u64 (#return 0u64))";
+        let mut program = parse_program(source).unwrap();
+        let function = program
+            .items
+            .iter_mut()
+            .find_map(|item| match item {
+                Item::Function(function) => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        function.external = true;
+        let (_, _, span, _) = typecheck::check_types_with_span(&program).unwrap_err();
+        let span = span.expect("invalid function declaration has a structured span");
+        assert_eq!(&source[span.start..span.end], "invalid");
+    }
+
+    #[test]
     fn imported_parser_diagnostics_highlight_the_full_offending_token() {
         let directory =
             std::env::temp_dir().join(format!("lim-import-parser-span-{}", std::process::id()));

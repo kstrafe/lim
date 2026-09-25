@@ -84,10 +84,11 @@ fn check_types_inner(
             Item::Function(function)
                 if function.external != (function.calling_convention == CallingConvention::C) =>
             {
+                *diagnostic_span = function_name_span(program, &function.name);
                 return Err(format!(
                     "function '{}' has an inconsistent calling convention",
                     function.name
-                ))
+                ));
             }
             Item::Enum {
                 name,
@@ -317,6 +318,7 @@ fn check_types_inner(
             continue;
         };
         if function.external && !function.type_parameters.is_empty() {
+            *diagnostic_span = function_name_span(program, &function.name);
             return Err(format!(
                 "external function '{}' cannot be generic",
                 function.name
@@ -342,6 +344,7 @@ fn check_types_inner(
             )
             .is_some()
         {
+            *diagnostic_span = function_name_span(program, &function.name);
             return Err(format!("duplicate function '{}'", function.name));
         }
     }
@@ -2814,6 +2817,15 @@ fn first_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Option<cr
         .iter()
         .skip(start)
         .find_map(|child| first_symbol_span(child, target))
+}
+
+fn function_name_span(program: &Program, name: &str) -> Option<crate::Span> {
+    program
+        .declaration_expressions
+        .get(name)?
+        .children
+        .get(1)
+        .map(|expression| expression.span)
 }
 
 fn first_unresolved_type<'a>(
