@@ -11,7 +11,9 @@ struct LinearTypes {
 
 /// Enforce linear use of owned values. Non-Copy values must be consumed exactly
 /// once; Copy values and references do not create an ownership obligation.
-pub(crate) fn check_program(program: &Program) -> Result<(), String> {
+pub(crate) fn check_program_with_span(
+    program: &Program,
+) -> Result<(), (String, Option<crate::Span>)> {
     let mut types = LinearTypes::default();
     for item in &program.items {
         match item {
@@ -51,14 +53,13 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
             .collect::<HashSet<_>>();
         let mut moved = HashSet::new();
         for (index, statement) in function.body.iter().enumerate() {
-            check_statements(
+            if let Err(error) = check_statements(
                 std::slice::from_ref(statement),
                 &mut bindings,
                 &mut moved,
                 &HashSet::new(),
                 &types,
-            )
-            .map_err(|error| {
+            ) {
                 let key = (function.name.clone(), index);
                 let precise = program
                     .statement_expressions
@@ -89,21 +90,16 @@ pub(crate) fn check_program(program: &Program) -> Result<(), String> {
                         })
                         .flatten()
                     });
-                precise
+                let span = precise
                     .or_else(|| {
                         program
                             .statement_expressions
                             .get(&key)
                             .map(crate::source_value_span)
                     })
-                    .or_else(|| program.statement_spans.get(&key).copied())
-                    .map_or(error.clone(), |span| {
-                        format!(
-                            "{error}; source span {}:{}:{}",
-                            span.source_id, span.start, span.end
-                        )
-                    })
-            })?;
+                    .or_else(|| program.statement_spans.get(&key).copied());
+                return Err((error, span));
+            }
         }
     }
     Ok(())

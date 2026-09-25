@@ -8571,6 +8571,13 @@ mod tests {
         assert!(!message.contains("source span "));
         let span = span.expect("unsafe static access has a structured span");
         assert_eq!(&unsafe_source[span.start..span.end], "VALUE");
+
+        let linear_source = "(#struct Resource ((value (#cell u64)))) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value (#cell 1u64))))) (#return 0u64))";
+        let linear_program = parse_program(linear_source).unwrap();
+        let (message, span) = typecheck::check_types_with_span(&linear_program).unwrap_err();
+        assert!(!message.contains("source span "));
+        let span = span.expect("unconsumed linear local has a structured span");
+        assert_eq!(&linear_source[span.start..span.end], "resource");
     }
 
     #[test]

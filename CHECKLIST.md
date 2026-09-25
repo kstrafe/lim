@@ -426,6 +426,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Carry unsafe-checker source locations as structured spans into the CLI
     diagnostic path; the unsafe-static UI case and semantic unit test pin the
     accessed static without serializing its range into the error message.
+  - [x] Carry linear-checker source locations as structured spans into the CLI
+    diagnostic path; the existing linearity diagnostic coverage pins the local
+    ownership violation without serializing the range into its message.
   - [x] Resolve duplicate-parameter diagnostics at parameter validation time
     from the retained function declaration tree, and remove the corresponding
     message-parsing branch from `unlocated_analysis_span`; the UI test asserts
