@@ -1352,7 +1352,9 @@ pub(crate) fn generate_checked_assembly(
     let mut output = String::from(".intel_syntax noprefix\n");
     if !globals.is_empty() {
         output.push_str(".section .rodata\n");
-        for (name, value) in &globals {
+        let mut ordered_globals = globals.iter().collect::<Vec<_>>();
+        ordered_globals.sort_by(|(left, _), (right, _)| left.cmp(right));
+        for (name, value) in ordered_globals {
             let symbol = asm_symbol(name);
             match value {
                 GlobalValue::Zero => {}

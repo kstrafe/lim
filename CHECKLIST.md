@@ -849,7 +849,7 @@ commit, documentation, and focused regression coverage.
   machine-readable report channel that does not corrupt JSON diagnostics or
   emitted assembly, and document that cache digests are not authentication.
 
-- [ ] **BUILD-02: Verify reproducible outputs across fresh processes and
+- [x] **BUILD-02: Verify reproducible outputs across fresh processes and
   relocated workspaces.** Existing cache identity and publication tests do
   not by themselves prove whole-build reproducibility. Build a representative
   imported/generated project in two independently created source roots with

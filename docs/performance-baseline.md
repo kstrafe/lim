@@ -102,3 +102,13 @@ This is a first baseline, not a statistically stable performance claim. Five
 samples are especially weak for sub-millisecond phases. Link timings include
 the Nix clang wrapper and system linker startup, which dominates these tiny
 inputs. Use longer runs and repeated machine-local measurements for decisions.
+## Reproducible artifacts
+
+`tests/reproducible.rs` builds the same imported, generated project in two
+independent source roots using fresh CLI processes, both cold and warm. It
+compares all cache metadata and inspectable source bytes, assembly, and linked
+executables without path filtering. Native results are checked too. Global
+emission is sorted by symbol so randomized map order does not affect layout.
+This guarantee assumes identical compiler, Nix toolchain, target, and cfg;
+it does not promise identical bytes across different linker versions.
+Diagnostic paths remain real source paths and are not rewritten for builds.
