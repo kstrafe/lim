@@ -10,6 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::typecheck::function_call_depths;
+use crate::typed_ir::resolve_type;
 use crate::{parse_type, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
 
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
@@ -1019,43 +1020,11 @@ pub(crate) fn generate_checked_assembly(
     }
     let program = checked.program();
     let program = erase_unsafe_blocks(program);
-    let aliases: HashMap<String, Type> = program
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            Item::TypeAlias { name, target, .. } => Some((name.clone(), target.clone())),
-            _ => None,
-        })
-        .collect();
-    let program = monomorphize_program(&program, &aliases)?;
-    let structs: HashMap<String, Vec<Field>> = program
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Struct { name, fields, .. } => Some((
-                name.clone(),
-                fields
-                    .iter()
-                    .map(|field| Field {
-                        name: field.name.clone(),
-                        ty: resolve_type(&field.ty, &aliases).unwrap_or_else(|_| field.ty.clone()),
-                    })
-                    .collect(),
-            )),
-            Item::ThreadTask { name, .. } => Some((
-                name.clone(),
-                vec![Field {
-                    name: "__lim_thread_context".into(),
-                    ty: Type::RawPointer {
-                        mutable: true,
-                        target: Box::new(Type::Unit),
-                    },
-                }],
-            )),
-            _ => None,
-        })
-        .collect();
-    let mut enums = HashMap::new();
+    let declarations = checked.declarations();
+    let aliases = &declarations.aliases;
+    let program = monomorphize_program(&program, aliases)?;
+    let structs = &declarations.structs;
+    let enums = &declarations.enums;
     let repr_c_types: HashSet<String> = program
         .items
         .iter()
@@ -1073,48 +1042,43 @@ pub(crate) fn generate_checked_assembly(
             _ => None,
         })
         .collect();
-    for item in &program.items {
-        if let Item::Enum { name, variants, .. } = item {
-            let variants = variants
-                .iter()
-                .map(|variant| {
-                    Ok(EnumVariant {
-                        name: variant.name.clone(),
-                        fields: variant
-                            .fields
-                            .iter()
-                            .map(|field| resolve_type(field, &aliases))
-                            .collect::<Result<Vec<_>, _>>()?,
-                        discriminant: variant.discriminant,
-                    })
-                })
-                .collect::<Result<Vec<_>, String>>()?;
-            enums.insert(name.clone(), variants);
-        }
-    }
     let mut functions = HashMap::new();
     let call_depths = function_call_depths(&program);
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;
         };
-        let parameters = function
-            .parameters
-            .iter()
-            .map(|parameter| resolve_type(&parameter.ty, &aliases))
-            .collect::<Result<Vec<_>, _>>()?;
+        let declaration = declarations
+            .function_id(&function.name)
+            .map(|id| declarations.function(id));
+        // Legacy generic specializations are introduced after validation. All
+        // ordinary and generator-produced functions use retained signatures.
+        let (parameters, return_type) = if let Some(declaration) = declaration {
+            (
+                declaration.signature.parameters.clone(),
+                declaration.signature.return_type.clone(),
+            )
+        } else {
+            (
+                function
+                    .parameters
+                    .iter()
+                    .map(|parameter| resolve_type(&parameter.ty, aliases))
+                    .collect::<Result<Vec<_>, _>>()?,
+                resolve_type(&function.return_type, aliases)?,
+            )
+        };
         let indirect_parameters: Vec<bool> = parameters
             .iter()
-            .map(|ty| supports_indirect_return_type(ty, &structs, &enums))
+            .map(|ty| supports_indirect_return_type(ty, structs, enums))
             .collect();
-        let return_type = resolve_type(&function.return_type, &aliases)?;
-        let indirect_return = supports_indirect_return_type(&return_type, &structs, &enums);
+        let indirect_return = supports_indirect_return_type(&return_type, structs, enums);
         if function.external
             && (parameters
                 .iter()
-                .any(|parameter| !is_external_scalar_type(parameter, &enums))
+                .any(|parameter| !is_external_scalar_type(parameter, enums))
                 || (!matches!(return_type, Type::Unit)
-                    && !is_external_scalar_type(&return_type, &enums)))
+                    && !is_external_scalar_type(&return_type, enums)))
         {
             return Err(format!(
                 "external function '{}' must use directly passed scalar values",
@@ -1134,8 +1098,8 @@ pub(crate) fn generate_checked_assembly(
             ).into());
         }
         for parameter in &parameters {
-            if !supports_indirect_return_type(parameter, &structs, &enums) {
-                ensure_parameter_type(parameter, &enums, &structs).map_err(|error| {
+            if !supports_indirect_return_type(parameter, structs, enums) {
+                ensure_parameter_type(parameter, enums, structs).map_err(|error| {
                     let error = crate::source_error::SourceError::from(error);
                     program
                         .declaration_spans
@@ -1144,12 +1108,12 @@ pub(crate) fn generate_checked_assembly(
                 })?;
             }
         }
-        ensure_return_type(&return_type, &enums, &structs).map_err(|error| {
+        ensure_return_type(&return_type, enums, structs).map_err(|error| {
             let error = crate::source_error::SourceError::from(error);
-            program
-                .declaration_spans
-                .get(&function.name)
-                .map_or(error.clone(), |span| error.at(*span))
+            declaration
+                .and_then(|declaration| declaration.span)
+                .or_else(|| program.declaration_spans.get(&function.name).copied())
+                .map_or(error.clone(), |span| error.at(span))
         })?;
         functions.insert(
             function.name.clone(),
@@ -1173,8 +1137,7 @@ pub(crate) fn generate_checked_assembly(
         let task_type = Type::Named(name.clone());
         let spawn_result_type = Type::Named(format!("{name}-spawn-result"));
         let join_result_type = Type::Named(format!("{name}-join-result"));
-        let join_indirect_return =
-            supports_indirect_return_type(&join_result_type, &structs, &enums);
+        let join_indirect_return = supports_indirect_return_type(&join_result_type, structs, enums);
         let spawn_name = format!("{name}-spawn");
         let join_name = format!("{name}-join");
         for (function_name, abi) in [
@@ -1222,21 +1185,25 @@ pub(crate) fn generate_checked_assembly(
     let mut evaluating_constants = HashSet::new();
     let mut evaluating_float_constants = HashSet::new();
     for item in &program.items {
-        let (name, ty, value, mutable) = match item {
+        let (name, value, mutable) = match item {
             Item::Let {
                 name,
-                ty,
                 value,
                 mutable,
-            } => (name, ty, value, *mutable),
-            Item::Static { name, ty, value } => (name, ty, value, false),
+                ..
+            } => (name, value, *mutable),
+            Item::Static { name, value, .. } => (name, value, false),
             _ => continue,
         };
         {
             if mutable {
                 return Err(format!("top-level binding '{name}' cannot be mutable").into());
             }
-            let ty = resolve_type(ty, &aliases)?;
+            let ty = declarations
+                .globals
+                .get(name)
+                .expect("validated global has a resolved declaration")
+                .clone();
             let global = (|| -> Result<GlobalValue, String> {
                 let global = match &ty {
                     Type::Unit => {
@@ -1255,7 +1222,7 @@ pub(crate) fn generate_checked_assembly(
                             Expr::UnsignedInteger(value) => *value,
                             _ => constant_value(
                                 value,
-                                &enums,
+                                enums,
                                 &constants,
                                 &constant_initializers,
                                 &mut evaluating_constants,
@@ -1298,11 +1265,11 @@ pub(crate) fn generate_checked_assembly(
                         }
                         GlobalValue::F64(value.value().to_bits())
                     }
-                    _ if ensure_scalar_type(&ty, &enums).is_ok() => {
+                    _ if ensure_scalar_type(&ty, enums).is_ok() => {
                         let normalized = normalize_global_integer(
                             constant_value(
                                 value,
-                                &enums,
+                                enums,
                                 &constants,
                                 &constant_initializers,
                                 &mut evaluating_constants,
@@ -1318,8 +1285,8 @@ pub(crate) fn generate_checked_assembly(
                     _ => GlobalValue::Aggregate(constant_aggregate_words(
                         value,
                         &ty,
-                        &structs,
-                        &enums,
+                        structs,
+                        enums,
                         &constants,
                         &float_constants,
                         &constant_initializers,
@@ -1341,7 +1308,7 @@ pub(crate) fn generate_checked_assembly(
                 }
                 let span = locate(value, &|expression| {
                     matches!(expression, Expr::Symbol(symbol) if constant_initializers.contains_key(symbol)) &&
-                    constant_value(expression, &enums, &constants, &constant_initializers, &mut HashSet::new(), Some(&ty)).is_err()
+                    constant_value(expression, enums, &constants, &constant_initializers, &mut HashSet::new(), Some(&ty)).is_err()
                 }).unwrap_or(value.span);
                 error.at(span)
             })?;
@@ -1401,12 +1368,12 @@ pub(crate) fn generate_checked_assembly(
             Item::Function(function) if !function.external => generate_function(
                 function,
                 &mut output,
-                &structs,
-                &enums,
+                structs,
+                enums,
                 &repr_c_types,
                 &globals,
                 &global_types,
-                &aliases,
+                aliases,
                 &functions,
                 &program.statement_spans,
                 &program.statement_expressions,
@@ -1427,9 +1394,9 @@ pub(crate) fn generate_checked_assembly(
                 name,
                 worker,
                 &mut output,
-                &structs,
-                &enums,
-                &aliases,
+                structs,
+                enums,
+                aliases,
                 &functions,
             )
             .map_err(|error| {
@@ -1860,37 +1827,26 @@ fn generate_function(
     statement_spans: &HashMap<(String, usize), crate::Span>,
     statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
 ) -> Result<(), crate::source_error::SourceError> {
-    let return_type = resolve_type(&function.return_type, aliases)?;
-    ensure_return_type(&return_type, enums, structs)?;
-    let indirect_parameters = functions
+    let abi = functions
         .get(&function.name)
-        .map(|abi| abi.indirect_parameters.clone())
-        .unwrap_or_else(|| vec![false; function.parameters.len()]);
-    for (parameter, indirect) in function.parameters.iter().zip(&indirect_parameters) {
-        let parameter_type = resolve_type(&parameter.ty, aliases)?;
+        .expect("emitted function has a resolved ABI");
+    let return_type = abi.return_type.clone();
+    ensure_return_type(&return_type, enums, structs)?;
+    let indirect_parameters = &abi.indirect_parameters;
+    for (parameter_type, indirect) in abi.parameters.iter().zip(indirect_parameters) {
         if !indirect {
-            ensure_parameter_type(&parameter_type, enums, structs)?;
+            ensure_parameter_type(parameter_type, enums, structs)?;
         }
     }
-    let has_float_parameter = function.parameters.iter().any(|parameter| {
-        matches!(
-            resolve_type(&parameter.ty, aliases),
-            Ok(Type::F32 | Type::F64)
-        )
-    });
-    let has_integer_parameter = function.parameters.iter().any(|parameter| {
-        !matches!(
-            resolve_type(&parameter.ty, aliases),
-            Ok(Type::F32 | Type::F64)
-        )
-    });
+    let has_float_parameter = abi.parameters.iter().any(is_float_type);
+    let has_integer_parameter = abi.parameters.iter().any(|ty| !is_float_type(ty));
     let mut locals = HashMap::new();
     let mut next_slot = 1usize;
-    for parameter in &function.parameters {
+    for (parameter, ty) in function.parameters.iter().zip(&abi.parameters) {
         add_local(
             &mut locals,
             &parameter.name,
-            &parameter.ty,
+            ty,
             structs,
             enums,
             aliases,
@@ -1898,11 +1854,8 @@ fn generate_function(
         )?;
     }
     let mut local_types = HashMap::new();
-    for parameter in &function.parameters {
-        local_types.insert(
-            parameter.name.clone(),
-            resolve_type(&parameter.ty, aliases)?,
-        );
+    for (parameter, ty) in function.parameters.iter().zip(&abi.parameters) {
+        local_types.insert(parameter.name.clone(), ty.clone());
     }
     for (name, abi) in functions {
         local_types
@@ -2025,8 +1978,7 @@ fn generate_function(
     if all_float_parameters {
         let mut float_index = 0usize;
         let mut stack_index = 0usize;
-        for parameter in &function.parameters {
-            let ty = resolve_type(&parameter.ty, aliases)?;
+        for (parameter, ty) in function.parameters.iter().zip(&abi.parameters) {
             let slot = local_slots(&locals, &parameter.name)?[0];
             if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
                 output.push_str(&format!(
@@ -2059,8 +2011,12 @@ fn generate_function(
         let mut integer_index = 0usize;
         let mut float_index = 0usize;
         let mut stack_index = 0usize;
-        for (parameter, indirect) in function.parameters.iter().zip(&indirect_parameters) {
-            let ty = resolve_type(&parameter.ty, aliases)?;
+        for ((parameter, ty), indirect) in function
+            .parameters
+            .iter()
+            .zip(&abi.parameters)
+            .zip(indirect_parameters)
+        {
             if matches!(ty, Type::F32 | Type::F64) {
                 let slot = local_slots(&locals, &parameter.name)?[0];
                 if float_index < FLOAT_ARGUMENT_REGISTERS.len() {
@@ -2125,11 +2081,15 @@ fn generate_function(
         }
     }
     let mut incoming_word = 0usize;
-    for (parameter, indirect) in function.parameters.iter().zip(&indirect_parameters) {
+    for ((parameter, ty), indirect) in function
+        .parameters
+        .iter()
+        .zip(&abi.parameters)
+        .zip(indirect_parameters)
+    {
         if mixed_parameters {
             continue;
         }
-        let ty = resolve_type(&parameter.ty, aliases)?;
         if *indirect {
             let slots = local_slots(&locals, &parameter.name)?;
             if incoming_word < ARGUMENT_REGISTERS.len() {
@@ -4092,41 +4052,6 @@ fn is_flat_native_value(
             false
         }
         _ => false,
-    }
-}
-
-fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, String> {
-    resolve_type_with_seen(ty, aliases, &mut HashSet::new())
-}
-
-fn resolve_type_with_seen(
-    ty: &Type,
-    aliases: &HashMap<String, Type>,
-    seen: &mut HashSet<String>,
-) -> Result<Type, String> {
-    match ty {
-        Type::Named(name) => {
-            let Some(target) = aliases.get(name) else {
-                return Ok(ty.clone());
-            };
-            if !seen.insert(name.clone()) {
-                return Err(format!("recursive type alias '{name}'"));
-            }
-            let result = resolve_type_with_seen(target, aliases, seen);
-            seen.remove(name);
-            result
-        }
-        Type::Array(element, length) => Ok(Type::Array(
-            Box::new(resolve_type_with_seen(element, aliases, seen)?),
-            *length,
-        )),
-        Type::Tuple(fields) => Ok(Type::Tuple(
-            fields
-                .iter()
-                .map(|field| resolve_type_with_seen(field, aliases, seen))
-                .collect::<Result<Vec<_>, _>>()?,
-        )),
-        _ => Ok(ty.clone()),
     }
 }
 

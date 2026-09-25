@@ -18,6 +18,7 @@ mod output;
 mod source_error;
 mod stack_usage;
 mod typecheck;
+mod typed_ir;
 mod unsafecheck;
 use source_error::SourceError;
 

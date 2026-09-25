@@ -17,6 +17,9 @@ returns. See [docs/language.md](docs/language.md) for the implemented syntax,
 ownership rules, and current limitations. The allocator design is described
 in [docs/allocator.md](docs/allocator.md).
 
+The internal typed-representation migration is documented in
+[docs/compiler-ir.md](docs/compiler-ir.md).
+
 ## Build the compiler
 
 The repository's Nix development shell provides Rust and the native build

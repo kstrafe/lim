@@ -98,13 +98,7 @@ fn borrow_error(message: &str) -> SemanticError {
     error
 }
 
-#[derive(Clone)]
-struct Signature {
-    type_parameters: Vec<String>,
-    parameters: Vec<Type>,
-    parameter_names: Vec<String>,
-    return_type: Type,
-}
+use crate::typed_ir::{Declarations, Signature};
 
 pub fn check_types(program: &Program) -> Result<(), String> {
     check_types_with_span(program).map_err(|(message, _, _, _)| message)
@@ -112,7 +106,10 @@ pub fn check_types(program: &Program) -> Result<(), String> {
 
 /// An immutable program whose semantic validation has succeeded. The private
 /// field prevents emission callers from constructing or invalidating this proof.
-pub struct CheckedProgram<'a>(&'a Program);
+pub struct CheckedProgram<'a> {
+    program: &'a Program,
+    declarations: Declarations,
+}
 
 pub(crate) type AnalysisError = (
     String,
@@ -123,16 +120,22 @@ pub(crate) type AnalysisError = (
 
 impl<'a> CheckedProgram<'a> {
     pub(crate) fn validate_with_span(program: &'a Program) -> Result<Self, AnalysisError> {
-        check_types_with_span(program)?;
-        Ok(Self(program))
+        let declarations = resolve_program(program)?;
+        Ok(Self {
+            program,
+            declarations,
+        })
     }
     pub fn validate(program: &'a Program) -> Result<Self, String> {
-        check_types(program)?;
-        Ok(Self(program))
+        Self::validate_with_span(program).map_err(|error| error.0)
     }
 
     pub(crate) fn program(&self) -> &'a Program {
-        self.0
+        self.program
+    }
+
+    pub(crate) fn declarations(&self) -> &Declarations {
+        &self.declarations
     }
 
     /// Emit a previously validated, immutably borrowed program.
@@ -238,6 +241,10 @@ pub(crate) fn check_types_with_span(
         Vec<(crate::Span, String)>,
     ),
 > {
+    resolve_program(program).map(|_| ())
+}
+
+fn resolve_program(program: &Program) -> Result<Declarations, AnalysisError> {
     let mut diagnostic_span = None;
     let mut diagnostic_code = crate::DiagnosticCode::Type;
     let mut diagnostic_labels = Vec::new();
@@ -255,7 +262,7 @@ fn check_types_inner(
     diagnostic_code: &mut crate::DiagnosticCode,
     diagnostic_span: &mut Option<crate::Span>,
     diagnostic_labels: &mut Vec<(crate::Span, String)>,
-) -> Result<(), String> {
+) -> Result<Declarations, String> {
     #[cfg(test)]
     SEMANTIC_PASSES.with(|passes| passes.set(passes.get() + 1));
     for item in &program.items {
@@ -773,7 +780,14 @@ fn check_types_inner(
         *diagnostic_span = span;
         message
     })?;
-    Ok(())
+    Ok(Declarations::new(
+        aliases,
+        structs,
+        enums,
+        globals,
+        functions,
+        &program.declaration_spans,
+    ))
 }
 
 fn check_thread_task_ownership(
@@ -7089,58 +7103,7 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
 }
 
 fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result<Type, SemanticError> {
-    resolve_type_with_seen(ty, aliases, &mut HashSet::new())
-}
-
-fn resolve_type_with_seen(
-    ty: &Type,
-    aliases: &HashMap<String, Type>,
-    seen: &mut HashSet<String>,
-) -> Result<Type, SemanticError> {
-    match ty {
-        Type::Named(name) => {
-            let Some(target) = aliases.get(name) else {
-                return Ok(ty.clone());
-            };
-            if !seen.insert(name.clone()) {
-                return Err(semantic_format!("type alias '{name}' is recursive"));
-            }
-            let result = resolve_type_with_seen(target, aliases, seen);
-            seen.remove(name);
-            result
-        }
-        Type::Array(element, length) => Ok(Type::Array(
-            Box::new(resolve_type_with_seen(element, aliases, seen)?),
-            *length,
-        )),
-        Type::Slice(element) => Ok(Type::Slice(Box::new(resolve_type_with_seen(
-            element, aliases, seen,
-        )?))),
-        Type::MutableSlice(element) => Ok(Type::MutableSlice(Box::new(resolve_type_with_seen(
-            element, aliases, seen,
-        )?))),
-        Type::Atomic(element) => Ok(Type::Atomic(Box::new(resolve_type_with_seen(
-            element, aliases, seen,
-        )?))),
-        Type::Tuple(fields) => Ok(Type::Tuple(
-            fields
-                .iter()
-                .map(|field| resolve_type_with_seen(field, aliases, seen))
-                .collect::<Result<Vec<_>, _>>()?,
-        )),
-        Type::Reference { mutable, target } => Ok(Type::Reference {
-            mutable: *mutable,
-            target: Box::new(resolve_type_with_seen(target, aliases, seen)?),
-        }),
-        Type::RawPointer { mutable, target } => Ok(Type::RawPointer {
-            mutable: *mutable,
-            target: Box::new(resolve_type_with_seen(target, aliases, seen)?),
-        }),
-        Type::Cell(target) => Ok(Type::Cell(Box::new(resolve_type_with_seen(
-            target, aliases, seen,
-        )?))),
-        _ => Ok(ty.clone()),
-    }
+    crate::typed_ir::resolve_type(ty, aliases).map_err(SemanticError::from)
 }
 
 fn validate_layout_type(

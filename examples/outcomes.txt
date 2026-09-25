@@ -10,6 +10,7 @@ exit 12 aggregate_loop.lim - -
 exit 20 aggregate_match_return.lim - -
 exit 42 aggregate_or_pattern.lim - -
 exit 42 alias.lim - -
+exit 42 nested_aliases.lim - -
 exit 42 allocator_state.lim - -
 exit 37 array_constructor_function.lim - -
 exit 42 array_constructor.lim - -

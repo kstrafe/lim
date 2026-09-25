@@ -4,7 +4,40 @@ This is the working roadmap for the language. Checked items are implemented
 and covered by the current test suite. Cross items off as they are completed;
 the checklist is committed alongside the implementation it tracks.
 
-## Completed foundation
+## Typed representation migration
+
+- [x] **IR-01: Retain resolved declarations after validation.** Preserve
+  checked function signatures, struct fields, enum payloads, and global types
+  in `CheckedProgram`; have native emission consume them. Assign deterministic
+  program-local function IDs and retain declaration spans. Share recursive
+  alias resolution across validation and remaining AST lowering, including
+  every nested type constructor, with no unresolved-field fallback. Acceptance:
+  single validation per compilation, stable IDs and assembly across fresh
+  parses, recursive-alias diagnostics unchanged, executable nested-alias test.
+
+- [ ] **IR-02: Lower checked expressions and bindings to stable identities.**
+  Retain operand/result types, binding IDs, function IDs on calls, and exact
+  source spans. Numeric nodes must explicitly encode operation, width,
+  signedness, and wrapping/saturation behavior. Preserve named-argument source
+  order metadata separately from declaration-order operands. IDs must survive
+  unsafe erasure and specialization without depending on allocation addresses.
+  Acceptance: shadowing, dotted names, reordered calls, contextual literals,
+  generated/imported spans, and all numeric modes have focused lowering tests.
+
+- [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
+  emission through IR-02, then extend to aggregates and control flow. Remove
+  corresponding AST type reconstruction as each path migrates; do not silently
+  fall back when a migrated node lacks type information. Acceptance: numeric
+  differential tests, every native example, reproducibility, and benchmark
+  smoke tests pass with unchanged source syntax and one validation pass.
+
+- [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
+  Use stable binding/place identities and explicit branches, joins, loops,
+  returns, and unreachable paths. Retain loan and consumption origin spans.
+  Acceptance: existing borrow/linearity tests and exact UI spans remain valid;
+  add branch/loop aliasing and aggregate-reference propagation regressions.
+
+## Previously completed foundation
 
 - [x] S-expression lexer and parser with comments, strings, characters, and
   numeric literals.
