@@ -194,6 +194,19 @@ fn check_types_inner(
             }
         }
     }
+    for item in &program.items {
+        let Item::TypeAlias { name, .. } = item else {
+            continue;
+        };
+        if let Err(error) = resolve_type(&Type::Named(name.clone()), &aliases) {
+            *diagnostic_span = program
+                .declaration_expressions
+                .get(name)
+                .and_then(|declaration| declaration.children.get(2))
+                .map(|target| target.span);
+            return Err(error);
+        }
+    }
     let mut globals = HashMap::new();
     for item in &program.items {
         let (name, ty, mutable) = match item {

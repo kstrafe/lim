@@ -458,6 +458,9 @@ Each item requires documentation and regression coverage before being checked.
   - [x] Locate missing thread-worker names at `#thread-task` validation time
     and remove the dedicated error-message recovery branch; the UI test pins
     the worker identifier.
+  - [x] Validate recursive type aliases in source declaration order, retain
+    the alias target span at detection, and remove the alias-recursion message
+    parsing branch; the UI case checks the target identifier.
   - [ ] Remove message-text/name-based fallback span selection from
     `analysis_diagnostic` and `unlocated_analysis_span`; retain syntax-node
     identity or explicit provenance for repeated identifiers and generated
