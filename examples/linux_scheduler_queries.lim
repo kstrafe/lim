@@ -1,0 +1,42 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let scheduler-memory (#ptr-mut i32)
+    (#unsafe (#linux-syscall (#ptr-mut i32) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let policy i64
+    (#unsafe (#call linux-sched-getscheduler (#fn-args (pid 0i64)))))
+  (#let parameters-read i64
+    (#unsafe (#call linux-sched-getparam (#fn-args
+      (pid 0i64) (scheduler-parameters scheduler-memory)))))
+  (#let priority i32 (#unsafe (#ptr-read scheduler-memory)))
+  (#let other-priority-min i64
+    (#unsafe (#call linux-sched-get-priority-min (#fn-args (policy 0i64)))))
+  (#let other-priority-max i64
+    (#unsafe (#call linux-sched-get-priority-max (#fn-args (policy 0i64)))))
+  (#let fifo-priority-min i64
+    (#unsafe (#call linux-sched-get-priority-min (#fn-args (policy 1i64)))))
+  (#let fifo-priority-max i64
+    (#unsafe (#call linux-sched-get-priority-max (#fn-args (policy 1i64)))))
+  (#let invalid-priority-min i64
+    (#unsafe (#call linux-sched-get-priority-min (#fn-args (policy 99i64)))))
+  (#let nice-value i64
+    (#unsafe (#call linux-getpriority (#fn-args
+      (which 0i64) (who 0i64)))))
+  (#let memory-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP
+      (scheduler-memory 4096usize))))
+  (#let scheduler-queries-ok bool
+    (#bool.&& (#i64.== policy 0i64)
+      (#bool.&& (#i64.== parameters-read 0i64)
+        (#bool.&& (#i32.== priority 0i32)
+          (#bool.&& (#i64.== other-priority-min 0i64)
+            (#bool.&& (#i64.== other-priority-max 0i64)
+              (#bool.&& (#i64.== fifo-priority-min 1i64)
+                (#bool.&& (#i64.== fifo-priority-max 99i64)
+                  (#bool.&& (#i64.== invalid-priority-min -22i64)
+                    (#bool.&& (#i64.> nice-value 0i64)
+                      (#i64.<= nice-value 40i64)))))))))))
+  (#return
+    (#if (#bool.&& scheduler-queries-ok
+      (#i64.== memory-unmapped 0i64)) 42u64 1u64)))

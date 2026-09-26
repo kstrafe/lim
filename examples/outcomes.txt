@@ -39,6 +39,7 @@ exit 42 linux_zero_copy.lim - -
 exit 42 linux_wait4.lim - -
 exit 42 linux_affinity.lim - -
 exit 42 linux_copy_file_range.lim - -
+exit 42 linux_scheduler_queries.lim - -
 exit 42 linux_syscalls.lim - -
 exit 37 array_constructor_function.lim - -
 exit 42 array_constructor.lim - -

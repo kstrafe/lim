@@ -327,6 +327,8 @@ encoded exit status; `examples/linux_affinity.lim` round-trips the process's
 allowed-CPU mask and checks the affinity state is unchanged;
 `examples/linux_copy_file_range.lim` validates explicit-offset copying between
 anonymous files, including the copied bytes and updated offsets;
+`examples/linux_scheduler_queries.lim` checks scheduler parameters, policy
+priority bounds, invalid-policy behavior, and the current nice value;
 `examples/linux_xattrs.lim` exercises descriptor-based extended-attribute
 creation, listing, retrieval, removal, and the missing-attribute error on a
 fresh memfd.

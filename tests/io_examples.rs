@@ -560,3 +560,29 @@ fn linux_copy_file_range_copies_data_and_advances_offsets() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn linux_scheduler_query_syscalls_match_kernel_policy() {
+    let scratch = support::Scratch::new("linux-scheduler-queries");
+    let executable = scratch.path().join("scheduler-query-checks");
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/linux_scheduler_queries.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile Lim scheduler query example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    let output = Command::new(executable)
+        .output()
+        .expect("run compiled scheduler query example");
+    assert_eq!(output.status.code(), Some(42));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}

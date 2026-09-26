@@ -47,6 +47,18 @@
       (pid status options usage)))))
   (#fn linux-sched-yield () i64
     (#return (#unsafe (#asm i64 ((rax LINUX-SYS-SCHED-YIELD)) "syscall"))))
+  (#fn linux-sched-getparam ((pid i64) (scheduler-parameters (#ptr-mut i32))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SCHED-GETPARAM
+      (pid scheduler-parameters)))))
+  (#fn linux-sched-getscheduler ((pid i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SCHED-GETSCHEDULER
+      (pid)))))
+  (#fn linux-sched-get-priority-max ((policy i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SCHED-GET-PRIORITY-MAX
+      (policy)))))
+  (#fn linux-sched-get-priority-min ((policy i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SCHED-GET-PRIORITY-MIN
+      (policy)))))
   (#fn linux-sched-setaffinity ((pid i64) (size usize) (mask (#ptr-mut u64))) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SCHED-SETAFFINITY
       (pid size mask)))))
@@ -250,6 +262,10 @@
     (#fn linux-fork () i64 (#return -38i64))
     (#fn linux-wait4 ((pid i64) (status (#ptr-mut i32)) (options usize) (usage (#ptr-mut i64))) i64 (#return -38i64))
     (#fn linux-sched-yield () i64 (#return -38i64))
+    (#fn linux-sched-getparam ((pid i64) (scheduler-parameters (#ptr-mut i32))) i64 (#return -38i64))
+    (#fn linux-sched-getscheduler ((pid i64)) i64 (#return -38i64))
+    (#fn linux-sched-get-priority-max ((policy i64)) i64 (#return -38i64))
+    (#fn linux-sched-get-priority-min ((policy i64)) i64 (#return -38i64))
     (#fn linux-sched-setaffinity ((pid i64) (size usize) (mask (#ptr-mut u64))) i64 (#return -38i64))
     (#fn linux-sched-getaffinity ((pid i64) (size usize) (mask (#ptr-mut u64))) i64 (#return -38i64))
     (#fn linux-close ((fd i64)) i64 (#return -38i64))
