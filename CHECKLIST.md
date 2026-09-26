@@ -103,8 +103,16 @@ the checklist is committed alongside the implementation it tracks.
   Keep the canonical source symbol in the resolved ABI; direct scalar calls
   now use the same `FunctionId` for both ABI layout and call target, even if
   reconstructed syntax carries a different spelling. Backend-synthesized
-  calls keep the name lookup. Aggregate-specialized call paths still require
-  migration before IR-03 can be closed.
+  calls keep the name lookup. Aggregate-specialized call paths are covered by
+  IR-03f; their dispatch guards still need the remaining migration.
+
+- [x] **IR-03f: Resolve aggregate-call targets by checked identity.** Pass the
+  original checked expression through indirect-return and aggregate-temporary
+  call paths so their ABI and emitted symbol come from `FunctionId`. Avoid
+  cloning nested call syntax, which loses the emission overlay association.
+  Existing indirect-return native examples, numeric differential tests, and
+  reproducibility tests continue to pass. The name-based dispatch guards and
+  backend-synthesized calls remain for later IR-03 work.
 
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove

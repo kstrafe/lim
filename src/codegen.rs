@@ -5880,7 +5880,7 @@ impl FunctionContext {
                             .get(function_name)
                             .is_some_and(|function| function.indirect_return) =>
                     {
-                        let base = self.call_to_aggregate_temp(function_name, &items[1..])?;
+                        let base = self.call_to_aggregate_temp(value)?;
                         Some(flat_slots(base, storage_words))
                     }
                     _ => None,
@@ -7589,7 +7589,7 @@ impl FunctionContext {
                         .next()
                         .copied()
                         .ok_or_else(|| "struct has no storage fields".to_owned())?;
-                    self.call(function_name, &items[1..], Some(base), None)?;
+                    self.call_into_aggregate(value, base)?;
                     return Ok(());
                 }
             }
@@ -7674,7 +7674,7 @@ impl FunctionContext {
                     .get(function_name)
                     .is_some_and(|function| function.indirect_return)
                 {
-                    self.call(function_name, &items[1..], Some(discriminant), None)?;
+                    self.call_into_aggregate(value, discriminant)?;
                     return Ok(());
                 }
             }
@@ -7853,7 +7853,7 @@ impl FunctionContext {
                     let base = *slots
                         .first()
                         .ok_or_else(|| "tuple has no storage slots".to_owned())?;
-                    self.call(function_name, &items[1..], Some(base), None)?;
+                    self.call_into_aggregate(value, base)?;
                     return Ok(());
                 }
             }
@@ -7975,7 +7975,7 @@ impl FunctionContext {
                     .get(function_name)
                     .is_some_and(|function| function.indirect_return)
                 {
-                    self.call(function_name, &items[1..], Some(base), None)?;
+                    self.call_into_aggregate(value, base)?;
                     return Ok(());
                 }
             }
@@ -9384,7 +9384,7 @@ impl FunctionContext {
                             "direct indexing of large arrays exceeds value registers".into()
                         );
                     }
-                    let base = self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                    let base = self.call_to_aggregate_temp(&items[1])?;
                     let bounds_failure = self.label("indirect_array_index_bounds_failure");
                     let done = self.label("indirect_array_index_done");
                     self.expression(&items[2])?;
@@ -9762,14 +9762,14 @@ impl FunctionContext {
                             .expression_type(&items[1])
                             .is_some_and(|ty| self.is_enum_type(&ty)) =>
                 {
-                    Some((function_name.clone(), call_items[1..].to_vec()))
+                    Some(&items[1])
                 }
                 _ => None,
             },
             _ => None,
         };
-        let direct_enum_base = if let Some((function_name, arguments)) = direct_enum_call {
-            Some(self.call_to_aggregate_temp(&function_name, &arguments)?)
+        let direct_enum_base = if let Some(call) = direct_enum_call {
+            Some(self.call_to_aggregate_temp(call)?)
         } else {
             None
         };
@@ -10521,8 +10521,7 @@ impl FunctionContext {
                             .get(function_name)
                             .is_some_and(|function| function.indirect_return)
                         {
-                            let base =
-                                self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                            let base = self.call_to_aggregate_temp(&items[1])?;
                             let storage_words =
                                 storage_word_count(&ty, &self.structs, &self.enums)?;
                             let source_slots = flat_slots(base, storage_words);
@@ -10551,7 +10550,7 @@ impl FunctionContext {
                             .get(function_name)
                             .is_some_and(|function| function.indirect_return) =>
                     {
-                        let base = self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                        let base = self.call_to_aggregate_temp(&items[1])?;
                         Some(flat_slots(base, storage_words))
                     }
                     _ => None,
@@ -11677,7 +11676,7 @@ impl FunctionContext {
                             .collect::<Result<Vec<_>, _>>()?
                             .into_iter()
                             .sum::<usize>();
-                        let base = self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                        let base = self.call_to_aggregate_temp(&items[1])?;
                         self.load_aggregate_temp_value(base, offset, &field_type)?;
                         return Ok(());
                     }
@@ -12043,8 +12042,7 @@ impl FunctionContext {
                                 .collect::<Result<Vec<_>, _>>()?
                                 .into_iter()
                                 .sum::<usize>();
-                            let base =
-                                self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                            let base = self.call_to_aggregate_temp(&items[1])?;
                             self.load_aggregate_temp_value(base, offset, &field_type)?;
                             return Ok(());
                         }
@@ -13602,7 +13600,7 @@ impl FunctionContext {
                     let base = *slots
                         .first()
                         .ok_or_else(|| "aggregate temporary has no storage".to_owned())?;
-                    self.call(function_name, &items[1..], Some(base), None)?;
+                    self.call_into_aggregate(value, base)?;
                     return Ok(());
                 }
             }
@@ -13808,9 +13806,7 @@ impl FunctionContext {
                         .get(function_name)
                         .is_some_and(|function| function.indirect_return) =>
                 {
-                    Some(Source::Local(
-                        self.call_to_aggregate_temp(function_name, &call_items[1..])?,
-                    ))
+                    Some(Source::Local(self.call_to_aggregate_temp(&items[1])?))
                 }
                 _ => {
                     let source_type = self
@@ -13944,7 +13940,7 @@ impl FunctionContext {
                         .get(function_name)
                         .is_some_and(|function| function.indirect_return) =>
                 {
-                    let base = self.call_to_aggregate_temp(function_name, &call_items[1..])?;
+                    let base = self.call_to_aggregate_temp(&items[1])?;
                     let source_words =
                         storage_word_count(&source_type, &self.structs, &self.enums)?;
                     Some(Source::Slots(flat_slots(base, source_words)))
@@ -14222,11 +14218,26 @@ impl FunctionContext {
         }
     }
 
-    fn call_to_aggregate_temp(&mut self, name: &str, arguments: &[Expr]) -> Result<usize, String> {
+    fn call_into_aggregate(&mut self, expression: &Expr, base: usize) -> Result<(), String> {
+        let Expr::List(items) = expression else {
+            return Err("aggregate call must be a list".into());
+        };
+        let Some(Expr::Symbol(name)) = items.first() else {
+            return Err("aggregate call must start with a symbol".into());
+        };
+        let callee = self
+            .expression_types
+            .by_address
+            .get(&(std::ptr::from_ref(expression) as usize))
+            .and_then(|node| node.callee);
+        self.call(name, &items[1..], Some(base), callee)
+    }
+
+    fn call_to_aggregate_temp(&mut self, expression: &Expr) -> Result<usize, String> {
         let base = self
             .aggregate_temp_base
             .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
-        self.call(name, arguments, Some(base), None)?;
+        self.call_into_aggregate(expression, base)?;
         Ok(base)
     }
 
