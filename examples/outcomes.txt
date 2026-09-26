@@ -18,6 +18,7 @@ exit 42 threaded_tasks.lim - -
 exit 42 task_cancellation.lim - -
 module - modules/error_collection.lim - -
 module - modules/file_errors.lim - -
+module - echo_input.lim - -
 module - modules/parse_errors.lim - -
 exit 42 nested_aliases.lim - -
 exit 42 allocator_state.lim - -

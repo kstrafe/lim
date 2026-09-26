@@ -673,6 +673,11 @@ can be supplied repeatedly with `--link-lib NAME` and `--link-object PATH`;
 object files are passed to `ld` before libraries, and libraries are emitted as
 `-lNAME` arguments. These options apply to binary output, not `--emit-asm`.
 
+There are not yet dedicated standard-I/O builtins. `examples/echo_input.lim`
+shows explicit byte-at-a-time input and output by calling POSIX `read` and
+`write` through unsafe FFI; `tests/io_examples.rs` compiles and runs it with
+piped input and checks that the bytes written to stdout match.
+
 ### C aggregate layout
 
 `#repr-c` opts a struct or enum into the x86-64 System V C layout for layout
