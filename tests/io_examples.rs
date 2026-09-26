@@ -641,3 +641,33 @@ fn linux_statx_reports_memfd_size() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn linux_openat2_resolves_paths_and_rejects_unknown_flags() {
+    let scratch = support::Scratch::new("linux-openat2");
+    let executable = scratch.path().join("openat2-checks");
+    let working_directory = scratch.path().join("cwd");
+    std::fs::create_dir(&working_directory).unwrap();
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/linux_openat2.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile Lim openat2 example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    let output = Command::new(executable)
+        .current_dir(&working_directory)
+        .output()
+        .expect("run compiled openat2 example");
+    assert_eq!(output.status.code(), Some(42));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+    assert_eq!(std::fs::read_dir(working_directory).unwrap().count(), 0);
+}

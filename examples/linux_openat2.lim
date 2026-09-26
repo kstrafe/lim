@@ -1,0 +1,66 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let paths (#ptr-mut u8)
+    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let how (#ptr-mut u64)
+    (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let initialized ()
+    (#unsafe
+      (#block
+        (#ptr-write paths 112u8)
+        (#ptr-write (#ptr-offset paths 1usize) 114u8)
+        (#ptr-write (#ptr-offset paths 2usize) 101u8)
+        (#ptr-write (#ptr-offset paths 3usize) 115u8)
+        (#ptr-write (#ptr-offset paths 4usize) 101u8)
+        (#ptr-write (#ptr-offset paths 5usize) 110u8)
+        (#ptr-write (#ptr-offset paths 6usize) 116u8)
+        (#ptr-write (#ptr-offset paths 16usize) 109u8)
+        (#ptr-write (#ptr-offset paths 17usize) 105u8)
+        (#ptr-write (#ptr-offset paths 18usize) 115u8)
+        (#ptr-write (#ptr-offset paths 19usize) 115u8)
+        (#ptr-write (#ptr-offset paths 20usize) 105u8)
+        (#ptr-write (#ptr-offset paths 21usize) 110u8)
+        (#ptr-write (#ptr-offset paths 22usize) 103u8)
+        (#ptr-write how 0u64)
+        (#ptr-write (#ptr-offset how 1usize) 0u64)
+        (#ptr-write (#ptr-offset how 2usize) 8u64)
+        ())))
+  (#let file-created i64
+    (#unsafe (#call linux-openat (#fn-args
+      (directory -100i64) (path paths) (flags 524481usize) (mode 384usize)))))
+  (#let file-closed i64 (#call linux-close (#fn-args (fd file-created))))
+  (#let secure-open i64
+    (#unsafe (#call linux-openat2 (#fn-args
+      (directory -100i64) (path paths) (how how) (how-size 24usize)))))
+  (#let secure-close i64 (#call linux-close (#fn-args (fd secure-open))))
+  (#let missing-open i64
+    (#unsafe (#call linux-openat2 (#fn-args
+      (directory -100i64)
+      (path (#ptr-offset paths 16usize))
+      (how how)
+      (how-size 24usize)))))
+  (#unsafe (#ptr-write (#ptr-offset how 2usize) 9223372036854775808u64))
+  (#let invalid-resolve i64
+    (#unsafe (#call linux-openat2 (#fn-args
+      (directory -100i64) (path paths) (how how) (how-size 24usize)))))
+  (#let file-removed i64
+    (#unsafe (#call linux-unlinkat (#fn-args
+      (directory -100i64) (path paths) (flags 0usize)))))
+  (#let how-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (how 4096usize))))
+  (#let paths-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (paths 4096usize))))
+  (#let openat2-ok bool
+    (#bool.&& (#i64.>= file-created 0i64)
+      (#bool.&& (#i64.== file-closed 0i64)
+        (#bool.&& (#i64.>= secure-open 0i64)
+          (#bool.&& (#i64.== secure-close 0i64)
+            (#bool.&& (#i64.== missing-open -2i64)
+              (#bool.&& (#i64.== invalid-resolve -22i64)
+                (#bool.&& (#i64.== file-removed 0i64)
+                  (#bool.&& (#i64.== how-unmapped 0i64)
+                    (#i64.== paths-unmapped 0i64))))))))))
+  (#return (#if openat2-ok 42u64 1u64)))

@@ -70,6 +70,10 @@
   (#fn linux-openat ((directory i64) (path (#ptr-mut u8)) (flags usize) (mode usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-OPENAT
       (directory path flags mode)))))
+  (#fn linux-openat2 ((directory i64) (path (#ptr-mut u8))
+      (how (#ptr-mut u64)) (how-size usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-OPENAT2
+      (directory path how how-size)))))
   (#fn linux-mkdirat ((directory i64) (path (#ptr-mut u8)) (mode usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-MKDIRAT
       (directory path mode)))))
@@ -278,6 +282,7 @@
     (#fn linux-sched-getaffinity ((pid i64) (size usize) (mask (#ptr-mut u64))) i64 (#return -38i64))
     (#fn linux-close ((fd i64)) i64 (#return -38i64))
     (#fn linux-openat ((directory i64) (path (#ptr-mut u8)) (flags usize) (mode usize)) i64 (#return -38i64))
+    (#fn linux-openat2 ((directory i64) (path (#ptr-mut u8)) (how (#ptr-mut u64)) (how-size usize)) i64 (#return -38i64))
     (#fn linux-mkdirat ((directory i64) (path (#ptr-mut u8)) (mode usize)) i64 (#return -38i64))
     (#fn linux-renameat2 ((old-directory i64) (old-path (#ptr-mut u8)) (new-directory i64) (new-path (#ptr-mut u8)) (flags usize)) i64 (#return -38i64))
     (#fn linux-inotify-init1 ((flags usize)) i64 (#return -38i64))

@@ -1036,7 +1036,7 @@ commit, documentation, and focused regression coverage.
   invalid pointers remain explicitly unsafe; unsupported targets fail clearly;
   assembly and ABI tests verify argument registers, return/error handling, and
   clobbers. A Lim standard library owns policy and safe wrappers while the
-  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-ae
+  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-af
   establish the Linux x86-64 boundary, catalog, and initial tested wrapper
   families; call-site unsafe enforcement, most syscalls, and additional
   operating systems remain open.
@@ -1200,6 +1200,10 @@ commit, documentation, and focused regression coverage.
 - [x] **SYS-01ae: Exercise Linux statx metadata queries.**
   Query an anonymous file through `AT_EMPTY_PATH`, verify the returned mask
   includes `STATX_SIZE`, and assert its reported length matches written data.
+
+- [x] **SYS-01af: Exercise Linux openat2 path resolution.**
+  Open a scratch file with `RESOLVE_BENEATH`, verify a missing path result and
+  reject an unknown resolve flag, then remove the file and clean resources.
 
 - [ ] **SYS-01n: Enforce unsafe syscall-wrapper contracts at call sites.**
   Add an unsafe-function declaration/call model (or equivalent) so functions

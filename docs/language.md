@@ -333,6 +333,8 @@ priority bounds, invalid-policy behavior, and the current nice value;
 renaming, and old/new path visibility in a scratch working directory;
 `examples/linux_statx.lim` checks anonymous-file metadata through
 `AT_EMPTY_PATH`, including the returned size mask and exact file size;
+`examples/linux_openat2.lim` exercises `RESOLVE_BENEATH`, missing-path errors,
+and rejection of unknown resolution flags in a scratch cwd;
 `examples/linux_xattrs.lim` exercises descriptor-based extended-attribute
 creation, listing, retrieval, removal, and the missing-attribute error on a
 fresh memfd.
