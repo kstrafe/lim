@@ -120,6 +120,9 @@ assignment invalidates that origin. It rejects overlapping places when either
 loan is mutable and reports both source sites. Control-flow joins, references
 returned from calls, and longer-lived loans
 still require the full flow-sensitive loan transfer in IR-04.
+Equivalent borrow paths are collapsed by place identity and mutability before
+the bounded path limit is applied; the first matching source origin is retained
+for diagnostics.
 
 Global reads and borrows, named field/payload projections, concrete aggregate
 and variant constructors, and pattern constructors retain declaration IDs.

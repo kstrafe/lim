@@ -3,7 +3,7 @@
 //! results. Bindings inside value blocks retain their origins; general
 //! flow-sensitive bindings and call results remain for IR-04.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind, PlaceRoot};
 use crate::typed_ir::DeclarationId;
@@ -12,6 +12,7 @@ use crate::Span;
 
 const MAX_BORROW_ALTERNATIVES: usize = 1024;
 
+#[derive(Debug)]
 pub(crate) struct BorrowConflict {
     pub message: String,
     pub span: Option<Span>,
@@ -184,10 +185,8 @@ fn combine(
     callee: &str,
     span: Option<Span>,
 ) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
-    if left.len().saturating_mul(right.len()) > MAX_BORROW_ALTERNATIVES {
-        return Err(complexity_error(span));
-    }
-    let mut result = Vec::with_capacity(left.len().saturating_mul(right.len()));
+    let mut result = Vec::new();
+    let mut seen = HashSet::new();
     for existing in &left {
         for incoming in &right {
             let mut combined = existing.clone();
@@ -209,23 +208,40 @@ fn combine(
                 }
                 combined.push(borrow.clone());
             }
-            result.push(combined);
+            let key = borrow_key(&combined);
+            if seen.insert(key) {
+                result.push(combined);
+                if result.len() > MAX_BORROW_ALTERNATIVES {
+                    return Err(complexity_error(span));
+                }
+            }
         }
     }
-    bounded(result, span)
+    Ok(result)
 }
 
 fn bounded(
     alternatives: Vec<Vec<DirectBorrow>>,
     span: Option<Span>,
 ) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
-    if alternatives.iter().all(Vec::is_empty) {
-        Ok(vec![Vec::new()])
-    } else if alternatives.len() > MAX_BORROW_ALTERNATIVES {
-        Err(complexity_error(span))
-    } else {
-        Ok(alternatives)
+    let mut unique = Vec::new();
+    let mut seen = HashSet::new();
+    for alternative in alternatives {
+        if seen.insert(borrow_key(&alternative)) {
+            unique.push(alternative);
+            if unique.len() > MAX_BORROW_ALTERNATIVES {
+                return Err(complexity_error(span));
+            }
+        }
     }
+    Ok(unique)
+}
+
+fn borrow_key(borrows: &[DirectBorrow]) -> Vec<(Place, bool)> {
+    borrows
+        .iter()
+        .map(|borrow| (borrow.place.clone(), borrow.mutable))
+        .collect()
 }
 
 fn complexity_error(span: Option<Span>) -> BorrowConflict {
@@ -258,6 +274,10 @@ fn direct_borrow(body: &Body, id: NodeId) -> Option<DirectBorrow> {
 
 #[cfg(test)]
 mod tests {
+    use super::{bounded, combine, DirectBorrow, MAX_BORROW_ALTERNATIVES};
+    use crate::typed_body::{BindingId, PlaceRoot};
+    use crate::typed_place::Place;
+
     fn source(args: &str) -> String {
         format!(
             "(#fn inspect ((left (#ref-mut u64)) (right (#ref u64))) u64
@@ -472,5 +492,42 @@ mod tests {
             .replace("(right (#borrow-mut value))", "(right (#borrow-mut other))");
         let program = crate::parse_program(&disjoint).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    #[test]
+    fn equivalent_borrow_paths_do_not_exhaust_the_path_budget() {
+        let shared = DirectBorrow {
+            place: Place::root(PlaceRoot::Local(BindingId(0))),
+            mutable: false,
+            span: None,
+        };
+        let repeated = vec![vec![shared.clone()]; MAX_BORROW_ALTERNATIVES + 1];
+        assert_eq!(bounded(repeated, None).unwrap().len(), 1);
+
+        // The Cartesian product has 33 * 33 paths, but only 65 distinct
+        // loan sequences after equivalent alternatives are folded together.
+        let alternatives = (0..33).map(|count| vec![shared.clone(); count]).collect();
+        assert_eq!(
+            combine(
+                alternatives,
+                (0..33).map(|count| vec![shared.clone(); count]).collect(),
+                "inspect",
+                None
+            )
+            .unwrap()
+            .len(),
+            65
+        );
+
+        let distinct = (0..=MAX_BORROW_ALTERNATIVES)
+            .map(|index| {
+                vec![DirectBorrow {
+                    place: Place::root(PlaceRoot::Local(BindingId(index))),
+                    mutable: false,
+                    span: None,
+                }]
+            })
+            .collect();
+        assert!(bounded(distinct, None).is_err());
     }
 }

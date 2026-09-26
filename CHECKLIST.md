@@ -231,6 +231,12 @@ the checklist is committed alongside the implementation it tracks.
   call arguments. Replacing a reference-bearing binding is prohibited by the
   language, so this does not add reference reassignment or loop dataflow.
 
+- [x] **IR-04m: Deduplicate equivalent typed borrow paths.** Identify path
+  states by their resolved places and mutability, retaining the first source
+  origin for diagnostics. Apply the path budget to unique states rather than
+  the raw Cartesian product, so repeated branches do not reject valid code.
+  Still reject genuinely excessive distinct paths with a bounded diagnostic.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
