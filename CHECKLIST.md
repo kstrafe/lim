@@ -1297,13 +1297,19 @@ commit, documentation, and focused regression coverage.
   times; an additional 100-run Lim stress check passed. Readable procfs wait
   symbols are required and unsupported hosts are not counted as passing.
 
-- [ ] **SYS-01ah: Investigate robust-futex cleanup after requeue.**
+- [x] **SYS-01ah: Investigate robust-futex cleanup after requeue.**
   CMP_REQUEUE onto an owned robust word intermittently produced timeout despite
   the owner-death bits being set on kernel 7.2.6. An independent C probe also
   reproduces the failure, including with confirmed sleeping waiters. Preserve
   direct-wait coverage, isolate the requeue/exit interaction, and add a reliable
   blocked-requeue regression before claiming that path works. See
   docs/syscall-coverage.md for the reproducer sequence and evidence limitations.
+  A pipe-gated test now requires a blocked waiter, moves exactly one waiter
+  from staging to the registered robust word, and only then releases the owner.
+  The waiter must return successfully with OWNER_DIED/WAITERS and cleared TID.
+  The existing direct-wait path remains. The Lim example passed 1,000 repeated
+  runs and the independent C sequence passed 2,000 on this host. This validates
+  the exercised path, not the root cause of earlier intermittent failures.
 
 - [x] **SYS-01ai: Add direct memory sealing and secret-memory wrappers.**
   Match the kernel flag widths (`usize` for mseal, `u32` for memfd_secret),

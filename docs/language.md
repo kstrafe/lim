@@ -415,16 +415,18 @@ restores the original thread registration, and checks invalid sizes, missing
 threads, and invalid output pointers. A child then exits while owning a
 futex in shared memory; the parent verifies that Linux clears its owner ID
 and sets `FUTEX_OWNER_DIED`. A second owner is held behind a pipe while a
-waiter blocks directly on its robust futex. The controller checks the child's
-`/proc/PID/wchan` for a futex wait before releasing the owner, rather than
-guessing readiness with a sleep. This test requires readable procfs wait
+waiter blocks directly on its robust futex. A second run blocks on a staging
+word and moves that waiter to the robust futex with `FUTEX_CMP_REQUEUE` before
+the owner exits. The controller checks each child's `/proc/PID/wchan` for a
+futex wait before releasing the owner, rather than guessing readiness with a
+sleep. This test requires readable procfs wait
 symbols; see [proc_pid_wchan(5)](https://man7.org/linux/man-pages/man5/proc_pid_wchan.5.html).
 The waiter requires a successful wake and verifies both owner-death
 and waiters bits before printing `W`; the parent reaps both children and
 prints `R`. The requeue wrapper uses an explicit `u32` count in the fourth
 syscall argument, rather than pretending it is a timeout pointer. The example
-tests an empty requeue and an expected-value mismatch, not successful blocked
-requeue cleanup; that remains an open coverage issue. See
+tests an empty requeue, an expected-value mismatch, and successful blocked
+requeue cleanup on the supported host. See
 [FUTEX_CMP_REQUEUE(2)](https://man7.org/linux/man-pages/man2/FUTEX_CMP_REQUEUE.2const.html).
 These raw registrations require
 the caller to keep the list storage valid until replacement or thread exit;

@@ -642,7 +642,7 @@ fn linux_io_uring_reuses_rings_and_transfers_registered_file_payloads() {
 }
 
 #[test]
-fn linux_robust_futex_restores_registration_and_wakes_blocked_waiters() {
+fn linux_robust_futex_restores_registration_and_wakes_direct_and_requeued_waiters() {
     let scratch = support::Scratch::new("linux-robust-futex");
     let executable = scratch.path().join("robust-checks");
     let example =

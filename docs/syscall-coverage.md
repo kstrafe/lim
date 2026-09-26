@@ -155,12 +155,13 @@ delivery after rearming, suppression after cancellation, and restoration of
 the process signal mask. Its exact stdout fixture is `B\nA\nN\n`; `N` comes
 from the delivered notification payload, not a fixed success banner.
 
-The robust-futex example verifies blocked-waiter wakeup as well as the
-owner-death word update. A controller observes a direct waiter's futex wait
-channel in `/proc/PID/wchan` before releasing the owner from a pipe read;
-it never uses a timed sleep to assume the waiter is ready. The waiter checks a zero
-wait return and the owner-death/waiters bits, then prints `W`. The controller
-checks both child exit statuses before printing `R`. The wait has a two-second
+The robust-futex example verifies direct and requeued blocked-waiter wakeup
+as well as the owner-death word update. A controller observes each waiter's
+futex wait channel in `/proc/PID/wchan`. For the requeue path it moves one
+waiter from a staging word to the robust word before releasing the owner from
+a pipe read; it never uses a timed sleep to assume readiness. Each waiter
+checks a zero wait return and the owner-death/waiters bits, then prints `W`.
+The controller checks both child exit statuses before printing `R`. Each wait has a two-second
 timeout and the I/O harness bounds each entire process group to five seconds,
 repeating the executable eight times. Readable procfs wait symbols are required;
 a restricted host is not silently counted as a successful run.
@@ -331,8 +332,8 @@ wrapper declarations across 278 distinct catalog numbers. All 402 unsafe-call
 probes and six structural coverage checks pass with the new declaration.
 The full 321-entry native manifest passed in 145.77 seconds; four documentation
 tests and seven native-linker tests also passed.
-Ordinary requeue success does not resolve the separate robust-owner-death
-cleanup issue described below.
+Ordinary requeue success alone did not resolve the separate robust-owner-death
+cleanup question. The gated regression described below now covers that path.
 
 A later untraced stress run exposed a faulty test assumption: after a successful
 requeue, the source wake probe occasionally woke the child and tripped the
@@ -370,19 +371,18 @@ issue or silently count a source wake as a successful destination wake.
 - Expand signal coverage beyond synchronous self-delivery, including nested
   handlers, interrupted/restarted I/O, and automatic alternate-stack disarming.
   The current handler test uses one signal and a persistent alternate stack.
-- Investigate robust owner-death cleanup after `FUTEX_CMP_REQUEUE`. On this
-  host (kernel 7.2.6), a waiter moved from a separate staging word sometimes
-  timed out despite the destination acquiring OWNER_DIED and WAITERS bits.
-  An independent C probe reproduced it, including when procfs confirmed a
-  sleeping waiter; tracing masked it in 2,000 runs. This narrows the issue
-  beyond Lim code generation but does not establish a kernel root cause.
-  Direct robust waits passed 300 C-probe runs, 100 Lim stress runs, and the
-  eight-run Lim regression test.
-  The current requeue wrapper checks only empty-queue success and comparison
-  mismatch; successful requeue/wakeup coverage remains unproven. Reproduce
-  with shared anonymous memory, a pipe-gated owner, FUTEX_WAIT on a zero
-  staging word, and CMP_REQUEUE(wake=0, move=1) onto the registered robust
-  word (owner TID | WAITERS), then release the owner and require wait result 0.
+- Keep watching robust owner-death cleanup after `FUTEX_CMP_REQUEUE` on other
+  kernels. An earlier probe on this host (kernel 7.2.6) intermittently timed
+  out despite OWNER_DIED and WAITERS being set, including in an independent C
+  probe; tracing masked that failure. The gated Lim regression now preserves
+  direct-wait coverage and separately blocks a waiter on shared staging,
+  requires CMP_REQUEUE(wake=0, move=1) to move one waiter to the registered
+  robust word, then releases the pipe-gated owner. It requires wait result 0,
+  OWNER_DIED/WAITERS with cleared TID, and reaps both children. The I/O test
+  repeats the example eight times. The updated Lim example passed 1,000
+  additional runs and a matching C probe passed 2,000 runs on this host.
+  This establishes the tested path here, not the root cause of the earlier
+  intermittent result or a guarantee across kernels.
 - Audit new wrappers for hidden caller obligations as they are added; pointer
   type checks alone do not catch scalar arguments that encode addresses or
   operations that alter process memory/execution state.

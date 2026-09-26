@@ -3,7 +3,7 @@
 ; SAFETY: memory is the initialized, shared 4096-byte mapping owned by main.
 ; No unrelated task accesses its test slots; the process is single-threaded
 ; before each fork, and the mapping remains alive until both children exit.
-(#unsafe-fn check-waiter ((memory (#ptr-mut u8))) ()
+(#unsafe-fn check-waiter ((memory (#ptr-mut u8)) (requeue bool)) ()
   ; Reuse the circular list at +0/+64. The controller observes the waiter
   ; sleeping in /proc before allowing the owner to exit.
   (#let owned (#ptr-mut u32) (#unsafe (#asm (#ptr-mut u32)
@@ -35,8 +35,7 @@
   (#assert (#i64.== (#call linux-close (#fn-args (fd read-fd))) 0i64))
   (#unsafe (#ptr-write owned (#u32.| (#as owner u32) 2147483648u32)))
   ; Check the count-valued requeue ABI on an empty staging queue, including
-  ; comparison failure. Requeued-waiter owner-death cleanup is a separate
-  ; unresolved host/kernel interaction; this test waits directly on owned.
+  ; comparison failure. The blocked requeue path is tested below.
   (#assert (#i64.== (#unsafe (#call linux-futex-cmp-requeue (#fn-args
     (address staging) (wake-count 0u32) (requeue-count 1u32)
     (second-address owned) (expected 1u32)))) -11i64))
@@ -48,10 +47,16 @@
   (#if (#i64.== waiter 0i64)
     (#block
       (#assert (#i64.== (#call linux-close (#fn-args (fd write-fd))) 0i64))
-      (#assert (#i64.== (#unsafe (#call linux-futex (#fn-args
-        (address owned) (operation 0i32)
-        (value (#u32.| (#as owner u32) 2147483648u32)) (timeout timeout)
-        (second-address (#ptr-null (#ptr-mut u32))) (value3 0u32)))) 0i64))
+      (#if requeue
+        (#block
+          (#assert (#i64.== (#unsafe (#call linux-futex (#fn-args
+            (address staging) (operation 0i32) (value 0u32) (timeout timeout)
+            (second-address (#ptr-null (#ptr-mut u32))) (value3 0u32)))) 0i64)))
+        (#block
+          (#assert (#i64.== (#unsafe (#call linux-futex (#fn-args
+            (address owned) (operation 0i32)
+            (value (#u32.| (#as owner u32) 2147483648u32)) (timeout timeout)
+            (second-address (#ptr-null (#ptr-mut u32))) (value3 0u32)))) 0i64))))
       ; Require both OWNER_DIED and WAITERS, with the owner's TID cleared.
       (#assert (#u32.== (#unsafe (#ptr-read owned)) 3221225472u32))
       (#let letter u8 87u8)
@@ -81,6 +86,13 @@
     (#set attempts (#u32.+.wrap attempts 1u32)))
   (#assert (#i64.== (#call linux-close (#fn-args (fd state-fd))) 0i64))
   (#assert sleeping)
+  (#if requeue
+    (#block
+      ; The waiter is blocked on staging. Move exactly one waiter to the
+      ; registered robust word before permitting the owner to exit.
+      (#assert (#i64.== (#unsafe (#call linux-futex-cmp-requeue (#fn-args
+        (address staging) (wake-count 0u32) (requeue-count 1u32)
+        (second-address owned) (expected 0u32)))) 1i64))) ())
   (#assert (#i64.== (#unsafe (#call linux-write (#fn-args
     (fd write-fd) (source message) (count 1usize)))) 1i64))
   (#assert (#i64.== (#call linux-close (#fn-args (fd write-fd))) 0i64))
@@ -154,7 +166,8 @@
   ; Kernel cleared the owner's TID and set FUTEX_OWNER_DIED.
   (#assert (#u32.== (#unsafe (#asm u32 ((rdi memory))
     "mov eax, DWORD PTR [rdi+72]")) 1073741824u32))
-  (#unsafe (#call check-waiter (#fn-args (memory memory))))
+  (#unsafe (#call check-waiter (#fn-args (memory memory) (requeue false))))
+  (#unsafe (#call check-waiter (#fn-args (memory memory) (requeue true))))
   (#assert (#i64.== (#unsafe (#call linux-munmap (#fn-args
     (address memory) (length 4096usize)))) 0i64))
   (#let letter u8 82u8)
