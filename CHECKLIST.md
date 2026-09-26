@@ -201,6 +201,15 @@ the checklist is committed alongside the implementation it tracks.
   array writes, enum payloads, and punctuation. Move/loan overlap analysis on
   these places remains open in IR-04.
 
+- [x] **IR-04i: Reject overlapping direct call-argument borrows.** Compare
+  resolved places for bare `#borrow` and `#borrow-mut` arguments passed to the
+  same call. Two shared borrows may coexist; a mutable borrow cannot overlap
+  another argument's borrow. Parent/child paths and dynamic indices overlap,
+  while distinct field IDs do not. Report the second borrow's exact span and
+  label the first; cover shared/shared, mutable/shared, disjoint fields, and a
+  source-underlined UI error. Borrows hidden inside aggregate expressions or
+  retained in bindings still need full typed loan analysis in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

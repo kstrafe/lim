@@ -111,6 +111,11 @@ Read and write places now have structural identities: a `BindingId` or
 or concrete/dynamic array indices. A dotted identifier remains one binding,
 not a field path. Assignment flow nodes retain these places directly; move and
 loan overlap rules still belong to the pending ownership migration.
+One typed borrow preflight compares direct `#borrow` and `#borrow-mut` call
+arguments using those place identities. It rejects overlapping places when
+either argument is mutable and reports both source sites. This is deliberately
+limited to direct arguments; aggregate-contained references and longer-lived
+loans still require the full flow-sensitive loan transfer in IR-04.
 
 Global reads and borrows, named field/payload projections, concrete aggregate
 and variant constructors, and pattern constructors retain declaration IDs.

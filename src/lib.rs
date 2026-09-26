@@ -24,6 +24,7 @@ mod stack_usage;
 mod syntax_collection;
 mod typecheck;
 mod typed_body;
+mod typed_borrow;
 mod typed_flow;
 mod typed_ir;
 mod typed_place;

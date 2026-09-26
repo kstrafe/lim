@@ -264,6 +264,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "overlapping-call-borrows",
+            diagnostic_code: "E4100",
+            offending_line: "    (right (#borrow value))))))",
+            line_number: 7,
+        },
+        Case {
             name: "block-reference-escape",
             diagnostic_code: "E4100",
             offending_line: "  (#let escaped (#ref u64) (#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local)))",
@@ -863,6 +869,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unsafe-function-call" => Some("answer"),
             "unsafe-pointer-op" => Some("#ptr-read"),
             "borrow" => Some("#set"),
+            "overlapping-call-borrows" => Some("(#borrow value)"),
             "block-reference-escape" => Some("(#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local))"),
             "match-reference-escape" => Some("(#match holder (#case (Has view) view))"),
             "borrow-conflict-field-name" => Some("owner"),

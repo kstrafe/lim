@@ -915,6 +915,17 @@ fn check_types_inner(
         *diagnostic_labels = error.labels;
         error.message
     })?;
+    for item in &program.items {
+        if let crate::Item::Function(function) = item {
+            if let Some(body) = declarations.bodies.get(&function.name) {
+                crate::typed_borrow::check_call_arguments(body).map_err(|error| {
+                    *diagnostic_span = error.span;
+                    *diagnostic_labels = error.labels;
+                    error.message
+                })?;
+            }
+        }
+    }
     *diagnostic_code = crate::DiagnosticCode::Unsafe;
     crate::unsafecheck::check_program_with_span(program).map_err(|(message, span)| {
         *diagnostic_span = span;

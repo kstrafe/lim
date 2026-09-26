@@ -81,6 +81,22 @@ impl Place {
             _ => None,
         }
     }
+
+    /// A parent place overlaps any descendant. A dynamic index may name any
+    /// element of the same array, while distinct concrete indices do not
+    /// overlap. This is about identity, not whether a particular loan is live.
+    pub fn overlaps(&self, other: &Self) -> bool {
+        self.root == other.root
+            && self
+                .segments
+                .iter()
+                .zip(&other.segments)
+                .all(|(left, right)| {
+                    left == right
+                        || matches!(left, Segment::DynamicIndex)
+                        || matches!(right, Segment::DynamicIndex)
+                })
+    }
 }
 
 fn literal_index(body: &Body, id: NodeId) -> Option<u128> {
@@ -153,6 +169,8 @@ mod tests {
         };
         assert_ne!(dynamic, first);
         assert_ne!(first, second);
+        assert!(dynamic.overlaps(&first));
+        assert!(!first.overlaps(&second));
     }
 
     #[test]
