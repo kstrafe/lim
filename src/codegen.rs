@@ -5060,6 +5060,49 @@ struct FunctionContext {
     output: String,
 }
 
+fn checked_numeric_metadata(
+    metadata: Option<&crate::typed_body::EmissionNode>,
+    head: Option<&Expr>,
+) -> Result<Option<crate::typed_body::NumericOperation>, String> {
+    let numeric = metadata.and_then(|node| node.numeric.clone());
+    if metadata.is_some()
+        && numeric.is_none()
+        && matches!(head, Some(Expr::Symbol(name)) if crate::typed_body::NumericOperation::parse(name).is_some())
+    {
+        return Err(
+            "internal error: checked numeric expression lost its operation metadata".into(),
+        );
+    }
+    Ok(numeric)
+}
+
+#[cfg(test)]
+#[test]
+fn checked_numeric_expressions_require_retained_operations() {
+    let head = Expr::Symbol("u64.+.wrap".into());
+    let missing = crate::typed_body::EmissionNode {
+        ty: Some(Type::U64),
+        numeric: None,
+        callee: None,
+    };
+    assert!(checked_numeric_metadata(Some(&missing), Some(&head))
+        .unwrap_err()
+        .contains("lost its operation metadata"));
+    assert!(checked_numeric_metadata(None, Some(&head))
+        .unwrap()
+        .is_none());
+    let retained = crate::typed_body::EmissionNode {
+        numeric: crate::typed_body::NumericOperation::parse("u64.+.wrap"),
+        ..missing
+    };
+    assert_eq!(
+        checked_numeric_metadata(Some(&retained), Some(&head))
+            .unwrap()
+            .unwrap(),
+        crate::typed_body::NumericOperation::parse("u64.+.wrap").unwrap()
+    );
+}
+
 impl FunctionContext {
     /// Tagged local references grow toward lower addresses; untagged static
     /// and raw-backed references grow toward higher addresses. Keep the tag
@@ -8162,7 +8205,7 @@ impl FunctionContext {
                     .expression_types
                     .by_address
                     .get(&(std::ptr::from_ref(expression) as usize));
-                let numeric = metadata.and_then(|node| node.numeric.clone());
+                let numeric = checked_numeric_metadata(metadata, items.first())?;
                 let callee = metadata.and_then(|node| node.callee);
                 self.list_expression(items, numeric, callee)?;
             }

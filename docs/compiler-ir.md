@@ -94,6 +94,9 @@ syntax-only nodes without value types. When codegen asks for a checked node's
 type and none was retained, it receives no type rather than reconstructing one
 from syntax. Numeric operator selection also uses the retained operation,
 operand type, and overflow mode rather than reparsing the dotted spelling.
+If a checked numeric expression lacks that metadata, emission reports an
+internal error instead of interpreting its spelling again. Backend-synthesized
+expressions without checked nodes still use the compatibility parser.
 Checked calls select their ABI by retained `FunctionId`; the source-level name
 is still used for the assembly symbol and diagnostics. The compatibility type
 and call lookup remain available only for expressions synthesized after

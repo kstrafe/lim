@@ -92,6 +92,13 @@ the checklist is committed alongside the implementation it tracks.
   source-level symbol for assembly naming and diagnostics; synthesized legacy
   calls without an IR identity retain their compatibility lookup.
 
+- [x] **IR-03d: Reject missing checked numeric metadata in emission.** A
+  checked numeric expression must retain its opcode, operand type, and overflow
+  mode; it cannot silently fall back to reparsing its source spelling. Preserve
+  the compatibility fallback only for backend-synthesized expressions that
+  were never checked as syntax nodes. Test both paths and retain the native
+  numeric differential suite.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
