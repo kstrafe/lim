@@ -217,6 +217,13 @@ the checklist is committed alongside the implementation it tracks.
   source spans, while permitting disjoint fields and branches. Binding aliases,
   borrow-returning calls, and general flow-sensitive loans remain in IR-04.
 
+- [x] **IR-04k: Retain local block-result borrow origins.** Follow immutable
+  binding IDs through value-producing blocks when checking call arguments;
+  invalidate a bound origin after assignment rather than reusing stale data.
+  Cover nested array/enum constructors and match arms, with exact borrow-site
+  labels for a block alias. Mutable and control-flow-joined bindings and
+  borrow-returning calls still require the full IR-04 loan transfer.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

@@ -1,8 +1,11 @@
 //! Checks simultaneous call-argument loans using resolved places. Pure
 //! constructors preserve direct borrows through aggregates and conditional
-//! results; bindings and unknown call results remain for the full CFG pass.
+//! results. Immutable bindings inside value blocks retain their origins;
+//! general flow-sensitive bindings and unknown call results remain for IR-04.
 
-use crate::typed_body::{Body, Control, NodeId, NodeKind};
+use std::collections::HashMap;
+
+use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind};
 use crate::typed_ir::DeclarationId;
 use crate::typed_place::Place;
 use crate::Span;
@@ -49,19 +52,40 @@ fn returned_borrows(
     id: NodeId,
     callee: &str,
 ) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
+    returned_borrows_with_bindings(body, id, callee, &HashMap::new())
+}
+
+type BoundBorrows = HashMap<BindingId, Vec<Vec<DirectBorrow>>>;
+
+fn returned_borrows_with_bindings(
+    body: &Body,
+    id: NodeId,
+    callee: &str,
+    bindings: &BoundBorrows,
+) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
     if let Some(borrow) = direct_borrow(body, id) {
         return Ok(vec![vec![borrow]]);
     }
     let node = &body.nodes[id.0];
     match &node.kind {
+        NodeKind::Symbol {
+            binding: Some(binding),
+            ..
+        } => Ok(bindings
+            .get(binding)
+            .cloned()
+            .unwrap_or_else(|| vec![Vec::new()])),
         NodeKind::If {
             then_value,
             else_value,
             ..
         } => {
-            let mut alternatives = returned_borrows(body, *then_value, callee)?;
+            let mut alternatives =
+                returned_borrows_with_bindings(body, *then_value, callee, bindings)?;
             if let Some(otherwise) = else_value {
-                alternatives.extend(returned_borrows(body, *otherwise, callee)?);
+                alternatives.extend(returned_borrows_with_bindings(
+                    body, *otherwise, callee, bindings,
+                )?);
             } else {
                 alternatives.push(Vec::new());
             }
@@ -74,21 +98,42 @@ fn returned_borrows(
                     continue;
                 };
                 if let Some(value) = values.last() {
-                    alternatives.extend(returned_borrows(body, *value, callee)?);
+                    alternatives.extend(returned_borrows_with_bindings(
+                        body, *value, callee, bindings,
+                    )?);
                 }
             }
             bounded(alternatives, node.span)
         }
-        NodeKind::Block(instructions) => match instructions.last().map(|item| &item.control) {
-            Some(Control::Evaluate(value)) => returned_borrows(body, *value, callee),
-            _ => Ok(vec![Vec::new()]),
-        },
-        NodeKind::Labeled(_, inner) => returned_borrows(body, *inner, callee),
+        NodeKind::Block(instructions) => {
+            let mut local = bindings.clone();
+            for instruction in instructions {
+                match &instruction.control {
+                    Control::Bind(binding, value, false) => {
+                        let loans = returned_borrows_with_bindings(body, *value, callee, &local)?;
+                        local.insert(*binding, loans);
+                    }
+                    Control::Assign(crate::typed_body::PlaceRoot::Local(binding), _, _) => {
+                        local.remove(binding);
+                    }
+                    _ => {}
+                }
+            }
+            match instructions.last().map(|item| &item.control) {
+                Some(Control::Evaluate(value)) => {
+                    returned_borrows_with_bindings(body, *value, callee, &local)
+                }
+                _ => Ok(vec![Vec::new()]),
+            }
+        }
+        NodeKind::Labeled(_, inner) => {
+            returned_borrows_with_bindings(body, *inner, callee, bindings)
+        }
         NodeKind::Form { head, children, .. } if head == "unsafe" && children.len() == 2 => {
-            returned_borrows(body, children[1], callee)
+            returned_borrows_with_bindings(body, children[1], callee, bindings)
         }
         NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
-            returned_borrows(body, children[1], callee)
+            returned_borrows_with_bindings(body, children[1], callee, bindings)
         }
         NodeKind::Form { head, children, .. }
             if matches!(head.as_str(), "tuple" | "array" | "struct-literal")
@@ -99,10 +144,16 @@ fn returned_borrows(
                     ))
                 ) =>
         {
-            combine_children(body, children.iter().skip(1).copied(), callee, node.span)
+            combine_children(
+                body,
+                children.iter().skip(1).copied(),
+                callee,
+                node.span,
+                bindings,
+            )
         }
         NodeKind::Syntax(children) => {
-            combine_children(body, children.iter().copied(), callee, node.span)
+            combine_children(body, children.iter().copied(), callee, node.span, bindings)
         }
         _ => Ok(vec![Vec::new()]),
     }
@@ -113,12 +164,13 @@ fn combine_children(
     children: impl Iterator<Item = NodeId>,
     callee: &str,
     span: Option<Span>,
+    bindings: &BoundBorrows,
 ) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
     let mut alternatives = vec![Vec::new()];
     for child in children {
         alternatives = combine(
             alternatives,
-            returned_borrows(body, child, callee)?,
+            returned_borrows_with_bindings(body, child, callee, bindings)?,
             callee,
             span,
         )?;
@@ -323,5 +375,73 @@ mod tests {
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
         assert!(error.contains("overlapping borrows"), "{error}");
+    }
+
+    #[test]
+    fn borrow_inside_array_argument_conflicts_with_another_argument() {
+        let source = "(#fn inspect ((left (#array (#ref u64) 1)) (right (#ref-mut u64))) u64
+            (#let (#array item) (#array (#ref u64) 1) left)
+            (#drop item) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#call inspect (#fn-args
+              (left (#array (#array (#ref u64) 1) (#borrow value)))
+              (right (#borrow-mut value))))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+    }
+
+    #[test]
+    fn borrow_inside_enum_argument_conflicts_with_another_argument() {
+        let source = "(#enum Holder ((Has (#ref u64))))
+          (#fn inspect ((left Holder) (right (#ref-mut u64))) u64
+            (#let-else (Has item) Holder left (#return 0u64))
+            (#drop item) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#call inspect (#fn-args
+              (left (Has (#borrow value)))
+              (right (#borrow-mut value))))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+    }
+
+    #[test]
+    fn match_result_borrows_are_checked_per_arm() {
+        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut first u64 1u64)
+            (#let-mut second u64 2u64)
+            (#return (#call inspect (#fn-args
+              (left (#match true
+                (#case true (#borrow first))
+                (#case false (#borrow second))))
+              (right (#borrow-mut first))))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+    }
+
+    #[test]
+    fn immutable_block_binding_retains_borrow_origin() {
+        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#call inspect (#fn-args
+              (left (#block (#let view (#ref u64) (#borrow value)) view))
+              (right (#borrow-mut value))))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let second = error.2.unwrap();
+        assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
+        let first = error.3[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow value)");
     }
 }

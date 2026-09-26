@@ -114,10 +114,11 @@ loan overlap rules still belong to the pending ownership migration.
 One typed borrow preflight compares direct `#borrow` and `#borrow-mut` call
 arguments using those place identities. It retains borrow origins through pure
 aggregate construction and expression-valued branches, comparing only loans
-that can coexist on one path. It rejects overlapping places when either loan
-is mutable and reports both source sites. Binding aliases, references returned
-from calls, and longer-lived loans still require the full flow-sensitive loan
-transfer in IR-04.
+that can coexist on one path. Immutable bindings in value-producing blocks
+retain their loan origins by stable binding ID. It rejects overlapping places
+when either loan is mutable and reports both source sites. Mutable bindings,
+control-flow joins, references returned from calls, and longer-lived loans
+still require the full flow-sensitive loan transfer in IR-04.
 
 Global reads and borrows, named field/payload projections, concrete aggregate
 and variant constructors, and pattern constructors retain declaration IDs.
