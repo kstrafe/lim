@@ -429,3 +429,29 @@ fn linux_extended_attribute_syscalls_match_kernel_results() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn linux_interval_timer_syscalls_restore_prior_state() {
+    let scratch = support::Scratch::new("linux-interval-timers");
+    let executable = scratch.path().join("interval-timer-checks");
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/linux_interval_timers.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile Lim interval timers example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    let output = Command::new(executable)
+        .output()
+        .expect("run compiled interval timers example");
+    assert_eq!(output.status.code(), Some(42));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}

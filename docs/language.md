@@ -318,6 +318,8 @@ and offsets; `examples/linux_directory.lim` checks enumeration and cwd queries;
 installation, and restoration without delivering a signal;
 `examples/linux_timers.lim` checks POSIX timer creation, arming, querying,
 deletion, and invalid-handle behavior without signal delivery;
+`examples/linux_interval_timers.lim` checks arming, querying, and restoring
+the process's legacy interval timer state;
 `examples/linux_xattrs.lim` exercises descriptor-based extended-attribute
 creation, listing, retrieval, removal, and the missing-attribute error on a
 fresh memfd.

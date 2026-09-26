@@ -57,6 +57,13 @@
   (#fn linux-getrusage ((resource i64) (usage (#ptr-mut i64))) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-GETRUSAGE
       (resource usage)))))
+  (#fn linux-getitimer ((which i64) (current-value (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-GETITIMER
+      (which current-value)))))
+  (#fn linux-setitimer ((which i64) (new-value (#ptr-mut i64))
+      (old-value (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SETITIMER
+      (which new-value old-value)))))
   (#fn linux-getrlimit ((resource usize) (limits (#ptr-mut i64))) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-GETRLIMIT
       (resource limits)))))
@@ -220,6 +227,8 @@
     (#fn linux-getdents64 ((fd i64) (buffer (#ptr-mut u8)) (size usize)) i64 (#return -38i64))
     (#fn linux-fchdir ((fd i64)) i64 (#return -38i64))
     (#fn linux-getrusage ((resource i64) (usage (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-getitimer ((which i64) (current-value (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-setitimer ((which i64) (new-value (#ptr-mut i64)) (old-value (#ptr-mut i64))) i64 (#return -38i64))
     (#fn linux-getrlimit ((resource usize) (limits (#ptr-mut i64))) i64 (#return -38i64))
     (#fn linux-setrlimit ((resource usize) (limits (#ptr-mut i64))) i64 (#return -38i64))
     (#fn linux-prlimit64 ((pid i64) (resource usize) (new-limits (#ptr-mut i64)) (old-limits (#ptr-mut i64))) i64 (#return -38i64))
