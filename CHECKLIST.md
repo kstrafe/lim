@@ -210,6 +210,13 @@ the checklist is committed alongside the implementation it tracks.
   source-underlined UI error. Borrows hidden inside aggregate expressions or
   retained in bindings still need full typed loan analysis in IR-04.
 
+- [x] **IR-04j: Track call-argument borrows through pure value construction.**
+  Preserve direct borrow origins through struct and tuple constructors and
+  expression-valued conditionals, comparing only borrows on the same execution
+  path. Reject overlapping mutable loans across argument values with exact
+  source spans, while permitting disjoint fields and branches. Binding aliases,
+  borrow-returning calls, and general flow-sensitive loans remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

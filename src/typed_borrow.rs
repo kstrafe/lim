@@ -1,10 +1,13 @@
-//! Checks simultaneous direct call-argument loans using resolved places.
-//! Longer-lived references and aggregate provenance still use the lexical
-//! borrow pass until the full CFG loan migration is complete.
+//! Checks simultaneous call-argument loans using resolved places. Pure
+//! constructors preserve direct borrows through aggregates and conditional
+//! results; bindings and unknown call results remain for the full CFG pass.
 
-use crate::typed_body::{Body, NodeId, NodeKind};
+use crate::typed_body::{Body, Control, NodeId, NodeKind};
+use crate::typed_ir::DeclarationId;
 use crate::typed_place::Place;
 use crate::Span;
+
+const MAX_BORROW_ALTERNATIVES: usize = 1024;
 
 pub(crate) struct BorrowConflict {
     pub message: String,
@@ -12,6 +15,7 @@ pub(crate) struct BorrowConflict {
     pub labels: Vec<(Span, String)>,
 }
 
+#[derive(Clone)]
 struct DirectBorrow {
     place: Place,
     mutable: bool,
@@ -29,30 +33,157 @@ pub(crate) fn check_call_arguments(body: &Body) -> Result<(), BorrowConflict> {
         else {
             continue;
         };
-        let mut prior = Vec::<DirectBorrow>::new();
+        let mut prior = vec![Vec::<DirectBorrow>::new()];
         for argument in children.iter().skip(1) {
-            let Some(borrow) = direct_borrow(body, *argument) else {
-                continue;
-            };
-            if let Some(first) = prior.iter().find(|first| {
-                (first.mutable || borrow.mutable) && first.place.overlaps(&borrow.place)
-            }) {
-                return Err(BorrowConflict {
-                    message: format!(
-                        "call to '{head}' passes overlapping borrows; at most one may be mutable"
-                    ),
-                    span: borrow.span.or(node.span),
-                    labels: first
-                        .span
-                        .map(|span| (span, "first borrow is passed here".into()))
-                        .into_iter()
-                        .collect(),
-                });
-            }
-            prior.push(borrow);
+            let alternatives = returned_borrows(body, *argument, head)?;
+            prior = combine(prior, alternatives, head, node.span)?;
         }
     }
     Ok(())
+}
+
+/// Each alternative is one execution path through the value expression.
+/// Borrows within one alternative coexist; different alternatives do not.
+fn returned_borrows(
+    body: &Body,
+    id: NodeId,
+    callee: &str,
+) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
+    if let Some(borrow) = direct_borrow(body, id) {
+        return Ok(vec![vec![borrow]]);
+    }
+    let node = &body.nodes[id.0];
+    match &node.kind {
+        NodeKind::If {
+            then_value,
+            else_value,
+            ..
+        } => {
+            let mut alternatives = returned_borrows(body, *then_value, callee)?;
+            if let Some(otherwise) = else_value {
+                alternatives.extend(returned_borrows(body, *otherwise, callee)?);
+            } else {
+                alternatives.push(Vec::new());
+            }
+            bounded(alternatives, node.span)
+        }
+        NodeKind::Match { arms, .. } => {
+            let mut alternatives = Vec::new();
+            for arm in arms {
+                let NodeKind::MatchArm { values, .. } = &body.nodes[arm.0].kind else {
+                    continue;
+                };
+                if let Some(value) = values.last() {
+                    alternatives.extend(returned_borrows(body, *value, callee)?);
+                }
+            }
+            bounded(alternatives, node.span)
+        }
+        NodeKind::Block(instructions) => match instructions.last().map(|item| &item.control) {
+            Some(Control::Evaluate(value)) => returned_borrows(body, *value, callee),
+            _ => Ok(vec![Vec::new()]),
+        },
+        NodeKind::Labeled(_, inner) => returned_borrows(body, *inner, callee),
+        NodeKind::Form { head, children, .. } if head == "unsafe" && children.len() == 2 => {
+            returned_borrows(body, children[1], callee)
+        }
+        NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
+            returned_borrows(body, children[1], callee)
+        }
+        NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "tuple" | "array" | "struct-literal")
+                || matches!(
+                    children.first().map(|child| &body.nodes[child.0].kind),
+                    Some(NodeKind::Declaration(
+                        DeclarationId::Variant(_) | DeclarationId::Aggregate(_)
+                    ))
+                ) =>
+        {
+            combine_children(body, children.iter().skip(1).copied(), callee, node.span)
+        }
+        NodeKind::Syntax(children) => {
+            combine_children(body, children.iter().copied(), callee, node.span)
+        }
+        _ => Ok(vec![Vec::new()]),
+    }
+}
+
+fn combine_children(
+    body: &Body,
+    children: impl Iterator<Item = NodeId>,
+    callee: &str,
+    span: Option<Span>,
+) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
+    let mut alternatives = vec![Vec::new()];
+    for child in children {
+        alternatives = combine(
+            alternatives,
+            returned_borrows(body, child, callee)?,
+            callee,
+            span,
+        )?;
+    }
+    Ok(alternatives)
+}
+
+fn combine(
+    left: Vec<Vec<DirectBorrow>>,
+    right: Vec<Vec<DirectBorrow>>,
+    callee: &str,
+    span: Option<Span>,
+) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
+    if left.len().saturating_mul(right.len()) > MAX_BORROW_ALTERNATIVES {
+        return Err(complexity_error(span));
+    }
+    let mut result = Vec::with_capacity(left.len().saturating_mul(right.len()));
+    for existing in &left {
+        for incoming in &right {
+            let mut combined = existing.clone();
+            for borrow in incoming {
+                if let Some(first) = combined.iter().find(|first| {
+                    (first.mutable || borrow.mutable) && first.place.overlaps(&borrow.place)
+                }) {
+                    return Err(BorrowConflict {
+                        message: format!(
+                            "call to '{callee}' passes overlapping borrows; at most one may be mutable"
+                        ),
+                        span: borrow.span.or(span),
+                        labels: first
+                            .span
+                            .map(|span| (span, "first borrow is passed here".into()))
+                            .into_iter()
+                            .collect(),
+                    });
+                }
+                combined.push(borrow.clone());
+            }
+            result.push(combined);
+        }
+    }
+    bounded(result, span)
+}
+
+fn bounded(
+    alternatives: Vec<Vec<DirectBorrow>>,
+    span: Option<Span>,
+) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
+    if alternatives.iter().all(Vec::is_empty) {
+        Ok(vec![Vec::new()])
+    } else if alternatives.len() > MAX_BORROW_ALTERNATIVES {
+        Err(complexity_error(span))
+    } else {
+        Ok(alternatives)
+    }
+}
+
+fn complexity_error(span: Option<Span>) -> BorrowConflict {
+    BorrowConflict {
+        message: format!(
+            "call argument has more than {MAX_BORROW_ALTERNATIVES} borrow paths; split the expression"
+        ),
+        span,
+        labels: Vec::new(),
+    }
 }
 
 fn direct_borrow(body: &Body, id: NodeId) -> Option<DirectBorrow> {
@@ -131,6 +262,65 @@ mod tests {
             "(right (#borrow (#get pair-ref left)))",
         );
         let program = crate::parse_program(&overlapping).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+    }
+
+    #[test]
+    fn borrow_inside_struct_argument_conflicts_with_another_argument() {
+        let source = "(#struct Holder ((item (#ref u64))))
+          (#fn inspect ((holder Holder) (right (#ref-mut u64))) u64
+            (#let (Holder item) Holder holder)
+            (#drop item) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#call inspect (#fn-args
+              (holder (#struct-literal Holder ((item (#borrow value)))))
+              (right (#borrow-mut value))))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let second = error.2.unwrap();
+        assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
+    }
+
+    #[test]
+    fn conditional_alternatives_do_not_conflict_with_each_other() {
+        let source = "(#fn inspect ((left (#ref-mut u64)) (right (#ref u64))) u64
+            (#forget left) (#forget right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut first u64 1u64)
+            (#let-mut second u64 2u64)
+            (#return (#call inspect (#fn-args
+              (left (#if true (#borrow-mut first) (#borrow-mut second)))
+              (right (#borrow second))))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+
+        let disjoint = source
+            .replace(
+                "(#let-mut second u64 2u64)",
+                "(#let-mut second u64 2u64) (#let-mut third u64 3u64)",
+            )
+            .replace("(right (#borrow second))", "(right (#borrow third))");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    #[test]
+    fn borrow_inside_tuple_argument_conflicts_with_another_argument() {
+        let source = "(#fn inspect ((left (#tuple (#ref u64))) (right (#ref-mut u64))) u64
+            (#let (#tuple item) (#tuple (#ref u64)) left)
+            (#drop item) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#call inspect (#fn-args
+              (left (#tuple (#borrow value)))
+              (right (#borrow-mut value))))))";
+        let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
         assert!(error.contains("overlapping borrows"), "{error}");
     }
