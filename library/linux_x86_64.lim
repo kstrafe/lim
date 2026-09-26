@@ -47,6 +47,12 @@
       (pid status options usage)))))
   (#fn linux-sched-yield () i64
     (#return (#unsafe (#asm i64 ((rax LINUX-SYS-SCHED-YIELD)) "syscall"))))
+  (#fn linux-sched-setaffinity ((pid i64) (size usize) (mask (#ptr-mut u64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SCHED-SETAFFINITY
+      (pid size mask)))))
+  (#fn linux-sched-getaffinity ((pid i64) (size usize) (mask (#ptr-mut u64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SCHED-GETAFFINITY
+      (pid size mask)))))
   (#fn linux-close ((fd i64)) i64
     (#return (#unsafe (#asm i64 ((rax LINUX-SYS-CLOSE) (rdi fd)) "syscall"))))
   (#fn linux-openat ((directory i64) (path (#ptr-mut u8)) (flags usize) (mode usize)) i64
@@ -240,6 +246,8 @@
     (#fn linux-fork () i64 (#return -38i64))
     (#fn linux-wait4 ((pid i64) (status (#ptr-mut i32)) (options usize) (usage (#ptr-mut i64))) i64 (#return -38i64))
     (#fn linux-sched-yield () i64 (#return -38i64))
+    (#fn linux-sched-setaffinity ((pid i64) (size usize) (mask (#ptr-mut u64))) i64 (#return -38i64))
+    (#fn linux-sched-getaffinity ((pid i64) (size usize) (mask (#ptr-mut u64))) i64 (#return -38i64))
     (#fn linux-close ((fd i64)) i64 (#return -38i64))
     (#fn linux-openat ((directory i64) (path (#ptr-mut u8)) (flags usize) (mode usize)) i64 (#return -38i64))
     (#fn linux-mkdirat ((directory i64) (path (#ptr-mut u8)) (mode usize)) i64 (#return -38i64))

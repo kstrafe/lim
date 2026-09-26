@@ -1036,7 +1036,7 @@ commit, documentation, and focused regression coverage.
   invalid pointers remain explicitly unsafe; unsupported targets fail clearly;
   assembly and ABI tests verify argument registers, return/error handling, and
   clobbers. A Lim standard library owns policy and safe wrappers while the
-  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-z
+  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-aa
   establish the Linux x86-64 boundary, catalog, and initial tested wrapper
   families; call-site unsafe enforcement, most syscalls, and additional
   operating systems remain open.
@@ -1179,6 +1179,11 @@ commit, documentation, and focused regression coverage.
 - [x] **SYS-01z: Exercise Linux fork and wait4 process lifecycle.**
   Fork a child that exits with a known status, reap it with `wait4`, and verify
   the PID and encoded exit status from the Lim program.
+
+- [x] **SYS-01aa: Exercise Linux scheduler affinity syscalls.**
+  Query the process's allowed-CPU mask, set that same mask back, yield, and
+  query again. Verify return sizes and that the complete supported mask buffer
+  remains identical.
 
 - [ ] **SYS-01n: Enforce unsafe syscall-wrapper contracts at call sites.**
   Add an unsafe-function declaration/call model (or equivalent) so functions
