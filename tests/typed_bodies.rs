@@ -10,6 +10,10 @@ fn imported_named_operands_keep_exact_spans_in_the_ir() {
     let program = lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
     let checked = lim::CheckedProgram::validate(&program).unwrap();
     let dump = checked.dump_typed_ir();
+    assert!(
+        dump.contains("argument source order: [1, 0]"),
+        "missing imported call-site order: {dump}"
+    );
     for literal in ["2", "40"] {
         let offset = module.rfind(&format!(" {literal})")).unwrap() + 1;
         assert!(

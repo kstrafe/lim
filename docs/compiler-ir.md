@@ -55,9 +55,12 @@ binding IDs, source spans, numeric operation/type/overflow metadata, callee
 IDs, and structured statements (loops, assignments with projections, returns,
 breaks, and continues). Expression `if`, `match`, and individual match arms
 also have dedicated nodes with explicit child IDs; arm patterns and values keep
-their binding scopes. Named-call operands remain in declaration order; their
-spans retain source order. Syntax-only nodes such as type operands and patterns
-have no runtime type.
+their binding scopes. Named-call operands remain in declaration order; sourced
+calls also retain a separate permutation of operand indices in written order.
+That metadata records provenance, not evaluation order: arguments are evaluated
+in parameter declaration order. Calls synthesized without complete source spans
+have no written-order permutation. Syntax-only nodes such as type operands and
+patterns have no runtime type.
 
 Local identities are allocated at declarations, including unused destructured
 and match-bound names, rather than inferred from the first variable use.

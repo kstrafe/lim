@@ -60,9 +60,15 @@ mod tests {
                 )
             })
             .unwrap();
-        let NodeKind::Form { children, .. } = &call.kind else {
+        let NodeKind::Form {
+            children,
+            argument_source_order,
+            ..
+        } = &call.kind
+        else {
             unreachable!()
         };
+        assert_eq!(argument_source_order.as_deref(), Some(&[1, 0][..]));
         let left = body.nodes[children[1].0].span.unwrap();
         let right = body.nodes[children[2].0].span.unwrap();
         assert_eq!(&source[left.start..left.end], "x");
@@ -83,6 +89,59 @@ mod tests {
         let independent = crate::parse_program(source).unwrap();
         let other = crate::CheckedProgram::validate(&independent).unwrap();
         assert_eq!(checked.dump_typed_ir(), other.dump_typed_ir());
+    }
+
+    #[test]
+    fn call_argument_order_is_separate_from_parameter_order() {
+        let source = "(#fn combine ((first u64) (second u64) (third u64)) u64 (#return first))
+          (#fn main () u64
+            (#return (#call combine (#fn-args (third 3u64) (first 1u64) (second 2u64)))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let (children, source_order) = body
+            .nodes
+            .iter()
+            .find_map(|node| match &node.kind {
+                NodeKind::Form {
+                    children,
+                    callee: Some(_),
+                    argument_source_order,
+                    ..
+                } => Some((children, argument_source_order)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(source_order.as_deref(), Some(&[2, 0, 1][..]));
+        let values = children
+            .iter()
+            .skip(1)
+            .map(|id| {
+                let span = body.nodes[id.0].span.unwrap();
+                &source[span.start..span.end]
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values, ["1u64", "2u64", "3u64"]);
+    }
+
+    #[test]
+    fn call_without_arguments_has_empty_written_order() {
+        let program = crate::parse_program(
+            "(#fn value () u64 (#return 42u64))
+             (#fn main () u64 (#return (#call value (#fn-args))))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let order = body.nodes.iter().find_map(|node| match &node.kind {
+            NodeKind::Form {
+                callee: Some(_),
+                argument_source_order,
+                ..
+            } => argument_source_order.as_deref(),
+            _ => None,
+        });
+        assert_eq!(order, Some(&[][..]));
     }
 
     #[test]
@@ -391,6 +450,9 @@ pub(crate) enum NodeKind {
         children: Vec<NodeId>,
         numeric: Option<NumericOperation>,
         callee: Option<FunctionId>,
+        /// Declaration-order argument indices in their written order. Absent
+        /// for synthesized calls without complete source spans.
+        argument_source_order: Option<Vec<usize>>,
     },
     If {
         head: NodeId,
@@ -541,6 +603,7 @@ impl Body {
                 children,
                 numeric,
                 callee,
+                ..
             } => {
                 if erase_unsafe && head == "unsafe" && children.len() == 2 {
                     return self.syntax(children[1], true);
@@ -734,6 +797,13 @@ impl Body {
                 node.ty, node.span, node.kind
             )
             .unwrap();
+            if let NodeKind::Form {
+                argument_source_order: Some(order),
+                ..
+            } = &node.kind
+            {
+                writeln!(output, "    argument source order: {order:?}").unwrap();
+            }
         }
         for instruction in &self.instructions {
             writeln!(
@@ -1125,14 +1195,32 @@ impl Builder<'_> {
                         }
                         let ty = self.types.get(&address).cloned();
                         self.resolve_form(items, &children, ty.as_ref());
-                        if let Some(callee) = self.declarations.function_id(head) {
+                        let callee = self.declarations.function_id(head);
+                        if let Some(callee) = callee {
                             self.body.callees.insert(callee, head.clone());
                         }
+                        let argument_source_order = callee.and_then(|_| {
+                            let arguments = &children[1..];
+                            let spans = arguments
+                                .iter()
+                                .map(|id| self.body.nodes[id.0].span)
+                                .collect::<Option<Vec<_>>>()?;
+                            if spans
+                                .iter()
+                                .any(|span| span.source_id != spans[0].source_id)
+                            {
+                                return None;
+                            }
+                            let mut order = (0..arguments.len()).collect::<Vec<_>>();
+                            order.sort_by_key(|&index| (spans[index].start, index));
+                            Some(order)
+                        });
                         NodeKind::Form {
                             head: head.clone(),
                             children,
                             numeric: NumericOperation::parse(head),
-                            callee: self.declarations.function_id(head),
+                            callee,
+                            argument_source_order,
                         }
                     } else {
                         NodeKind::Syntax(children)

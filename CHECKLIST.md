@@ -52,6 +52,14 @@ the checklist is committed alongside the implementation it tracks.
   Acceptance: shadowing, dotted names, reordered calls, contextual literals,
   generated/imported spans, and all numeric modes have focused lowering tests.
 
+- [x] **IR-02d: Retain named-call written order separately from operands.**
+  Checked call nodes keep arguments in parameter declaration order and record
+  the source-order permutation when all argument spans are available. This
+  preserves the written order for diagnostics without changing the language's
+  declaration-order evaluation rule. Reordered and contextual-literal call
+  tests cover both orderings. The address-indexed emission bridge and the
+  remaining IR-02 criteria are still open.
+
 - [x] **IR-02a: Preserve checked metadata when erasing unsafe wrappers.**
   Verify the body's stable node sequence and retained numeric type/operation
   metadata still associate with backend syntax after `#unsafe` wrappers are
