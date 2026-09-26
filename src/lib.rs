@@ -1846,13 +1846,7 @@ pub fn compile_source_to_assembly_for_output(
     target: TargetDescription,
     output: Option<&Path>,
 ) -> Result<String, Diagnostic> {
-    let tokens = lex(source).map_err(|error| {
-        Diagnostic::new(DiagnosticCode::Lex, error.message).with_span(error.span)
-    })?;
-    Parser::new(&tokens).run().map_err(|error| {
-        Diagnostic::new(DiagnosticCode::Parse, error.message).with_span(error.span)
-    })?;
-
+    // Import loading lexes and parses the root source, preserving its spans.
     let program = parse_program_in_directory(
         source,
         source_path.parent().unwrap_or(Path::new(".")),
