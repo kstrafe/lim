@@ -102,6 +102,10 @@ incoming path. Move and loan tracking still use the transitional syntax pass.
 Match dispatch preserves source order: a pattern or guard failure tries the
 next arm, while payload bindings appear only on the successful pattern edge.
 The impossible failure after the last exhaustive arm diverges in the graph.
+Each checked flow also retains backward binding liveness before and after its
+nodes. Whole-local replacement kills the old value; projected writes read the
+aggregate. Liveness tracks future reads only: it cannot by itself prove that
+linear values were consumed or that loans may be released at suspension.
 
 Global reads and borrows, named field/payload projections, concrete aggregate
 and variant constructors, and pattern constructors retain declaration IDs.

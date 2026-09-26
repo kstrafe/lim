@@ -170,7 +170,7 @@ impl<'a> CheckedProgram<'a> {
                 format!(
                     "function {name}\n{}{}",
                     self.declarations.bodies[name].dump(),
-                    self.declarations.flows[name].dump()
+                    self.declarations.flows[name].dump(&self.declarations.liveness[name])
                 )
             })
             .collect()

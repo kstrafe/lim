@@ -183,6 +183,15 @@ the checklist is committed alongside the implementation it tracks.
   Test guarded fallthrough and stable binding scopes. Move and loan transfer
   functions on this graph remain open in IR-04.
 
+- [x] **IR-04g: Retain binding liveness on typed control flow.** Compute
+  backward may-liveness of stable `BindingId`s at each graph node, including
+  guarded match fallthrough and loop back edges. Distinguish whole-local
+  replacement, which kills the old value, from projected writes, which still
+  need the aggregate. Keep liveness in checked declarations and expose it in
+  the debug IR dump. Tests cover guarded bindings, assignments, and loops.
+  This identifies future reads, not ownership cleanup or loan lifetimes;
+  those remain open in IR-04 and ASYNC-01.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

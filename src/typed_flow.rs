@@ -18,7 +18,7 @@ pub(crate) enum FlowAction {
     Exit,
     Evaluate(NodeId),
     Bind(BindingId),
-    Assign(PlaceRoot),
+    Assign(PlaceRoot, Projection),
     Pattern(NodeId),
     Branch(NodeId),
     LoopHead,
@@ -42,6 +42,32 @@ pub(crate) struct FlowGraph {
     pub nodes: Vec<FlowNode>,
     pub entry: FlowNodeId,
     pub exit: FlowNodeId,
+}
+
+/// Future reads of each local at each control-flow point. This is not an
+/// ownership or loan analysis: a value may still need cleanup when no later
+/// expression reads it.
+pub(crate) struct FlowLiveness {
+    before: Vec<Vec<u64>>,
+    after: Vec<Vec<u64>>,
+    binding_count: usize,
+}
+
+impl FlowLiveness {
+    pub fn before(&self, id: FlowNodeId) -> Vec<BindingId> {
+        self.bindings(&self.before[id.0])
+    }
+
+    pub fn after(&self, id: FlowNodeId) -> Vec<BindingId> {
+        self.bindings(&self.after[id.0])
+    }
+
+    fn bindings(&self, bits: &[u64]) -> Vec<BindingId> {
+        (0..self.binding_count)
+            .filter(|index| bits[index / 64] & (1u64 << (index % 64)) != 0)
+            .map(BindingId)
+            .collect()
+    }
 }
 
 #[derive(Clone)]
@@ -107,12 +133,12 @@ impl FlowGraph {
                         return Err(format!("typed flow binds invalid local {id:?}"));
                     }
                 }
-                FlowAction::Assign(PlaceRoot::Local(id)) => {
+                FlowAction::Assign(PlaceRoot::Local(id), _) => {
                     if id.0 >= body.bindings.len() {
                         return Err(format!("typed flow assigns invalid local {id:?}"));
                     }
                 }
-                FlowAction::Assign(PlaceRoot::Global(_)) => {}
+                FlowAction::Assign(PlaceRoot::Global(_), _) => {}
                 FlowAction::Pattern(id) | FlowAction::Branch(id) => {
                     if id.0 >= body.nodes.len() {
                         return Err(format!("typed flow references invalid node {id:?}"));
@@ -135,7 +161,7 @@ impl FlowGraph {
         Ok(())
     }
 
-    pub fn dump(&self) -> String {
+    pub fn dump(&self, liveness: &FlowLiveness) -> String {
         use std::fmt::Write;
         let reachable = self.reachable();
         let mut output = format!("  flow entry {} exit {}\n", self.entry.0, self.exit.0);
@@ -143,9 +169,11 @@ impl FlowGraph {
             let edges = node.successors.iter().map(|id| id.0).collect::<Vec<_>>();
             writeln!(
                 output,
-                "  flow {index}: {:?} {:?} -> {edges:?}{}",
+                "  flow {index}: {:?} {:?} -> {edges:?} live={:?}->{:?}{}",
                 node.action,
                 node.span,
+                liveness.before(FlowNodeId(index)),
+                liveness.after(FlowNodeId(index)),
                 if reachable.contains(&FlowNodeId(index)) {
                     ""
                 } else {
@@ -155,6 +183,91 @@ impl FlowGraph {
             .unwrap();
         }
         output
+    }
+
+    /// Backward may-liveness over the same edges used by ownership analyses.
+    /// Definitions kill older values only on the edge where the binding is
+    /// introduced or wholly replaced. Projected writes read the aggregate.
+    pub fn liveness(&self, body: &Body) -> FlowLiveness {
+        let count = body.bindings.len();
+        let words = count.div_ceil(64);
+        let mut before = vec![vec![0u64; words]; self.nodes.len()];
+        let mut after = before.clone();
+        let mut uses = before.clone();
+        let mut defs = before.clone();
+        let mut predecessors = vec![Vec::<FlowNodeId>::new(); self.nodes.len()];
+        let reachable = self.reachable();
+        for id in &reachable {
+            let node = &self.nodes[id.0];
+            for successor in &node.successors {
+                predecessors[successor.0].push(*id);
+            }
+            let set = |bits: &mut [Vec<u64>], binding: BindingId| {
+                bits[id.0][binding.0 / 64] |= 1u64 << (binding.0 % 64);
+            };
+            match &node.action {
+                FlowAction::Evaluate(value) => {
+                    if let NodeKind::Symbol {
+                        binding: Some(binding),
+                        ..
+                    } = body.nodes[value.0].kind
+                    {
+                        set(&mut uses, binding);
+                    }
+                }
+                FlowAction::Bind(binding) => set(&mut defs, *binding),
+                FlowAction::Pattern(pattern) => {
+                    let mut bindings = HashSet::new();
+                    collect_pattern_bindings(body, *pattern, &mut bindings);
+                    for binding in bindings {
+                        set(&mut defs, binding);
+                    }
+                }
+                FlowAction::Assign(PlaceRoot::Local(binding), projection) => {
+                    if matches!(projection, Projection::Local) {
+                        set(&mut defs, *binding);
+                    } else {
+                        set(&mut uses, *binding);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut pending = VecDeque::from_iter(reachable.iter().copied());
+        let mut queued = vec![false; self.nodes.len()];
+        for id in &reachable {
+            queued[id.0] = true;
+        }
+        while let Some(id) = pending.pop_front() {
+            queued[id.0] = false;
+            let mut next_after = vec![0u64; words];
+            for successor in &self.nodes[id.0].successors {
+                for (word, successor_word) in next_after.iter_mut().zip(&before[successor.0]) {
+                    *word |= successor_word;
+                }
+            }
+            let mut next_before = next_after.clone();
+            for ((word, used), defined) in next_before.iter_mut().zip(&uses[id.0]).zip(&defs[id.0])
+            {
+                *word = (*word & !*defined) | *used;
+            }
+            let changed = before[id.0] != next_before || after[id.0] != next_after;
+            if changed {
+                before[id.0] = next_before;
+                after[id.0] = next_after;
+                for predecessor in &predecessors[id.0] {
+                    if !queued[predecessor.0] {
+                        pending.push_back(*predecessor);
+                        queued[predecessor.0] = true;
+                    }
+                }
+            }
+        }
+        FlowLiveness {
+            before,
+            after,
+            binding_count: count,
+        }
     }
 
     /// First ownership consumer of the shared graph: a local must be bound on
@@ -251,7 +364,7 @@ impl FlowGraph {
                     } => Some(binding),
                     _ => None,
                 },
-                FlowAction::Assign(PlaceRoot::Local(binding)) => Some(binding),
+                FlowAction::Assign(PlaceRoot::Local(binding), _) => Some(binding),
                 _ => None,
             };
             if let Some(binding) = binding {
@@ -341,7 +454,11 @@ impl Builder<'_> {
                 self.expression(*value, decision, targets, None)
             }
             Control::Assign(root, projection, value) => {
-                let assign = self.push(FlowAction::Assign(root.clone()), span, vec![next]);
+                let assign = self.push(
+                    FlowAction::Assign(root.clone(), projection.clone()),
+                    span,
+                    vec![next],
+                );
                 let value_entry = self.expression(*value, assign, targets, None)?;
                 if let Projection::Array(index) = projection {
                     self.expression(*index, value_entry, targets, None)
@@ -770,6 +887,102 @@ mod tests {
         graph
             .check_definite_bindings(body, 0)
             .expect("guarded fallback has valid local scopes");
+
+        let liveness = &checked.declarations().liveness["main"];
+        let FlowAction::Pattern(pattern) = graph.nodes[bound.0].action else {
+            unreachable!()
+        };
+        let mut payloads = HashSet::new();
+        collect_pattern_bindings(body, pattern, &mut payloads);
+        for payload in payloads {
+            assert!(!liveness.before(bound).contains(&payload));
+            assert!(liveness.after(bound).contains(&payload));
+        }
+    }
+
+    #[test]
+    fn liveness_distinguishes_whole_and_projected_assignments() {
+        let source = "(#struct Point ((x u64) (y u64)))
+          (#fn main () u64
+            (#let-mut point Point (#struct-literal Point ((x 1u64) (y 2u64))))
+            (#let-mut replacement Point (#struct-literal Point ((x 3u64) (y 4u64))))
+            (#set-field point x 5u64)
+            (#let field-before u64 (#get point y))
+            (#set point replacement)
+            (#return (#u64.+.wrap field-before (#get point x))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let liveness = &checked.declarations().liveness["main"];
+        let point = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "point")
+                .unwrap(),
+        );
+        let projected = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match node.action {
+                FlowAction::Assign(PlaceRoot::Local(id), Projection::Field(_)) if id == point => {
+                    Some(FlowNodeId(index))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let whole = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match node.action {
+                FlowAction::Assign(PlaceRoot::Local(id), Projection::Local) if id == point => {
+                    Some(FlowNodeId(index))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(liveness.before(projected).contains(&point));
+        assert!(liveness.after(projected).contains(&point));
+        assert!(!liveness.before(whole).contains(&point));
+        assert!(liveness.after(whole).contains(&point));
+    }
+
+    #[test]
+    fn liveness_reaches_loop_condition_through_back_edge() {
+        let source = "(#fn main () u64
+          (#let-mut counter u64 0u64)
+          (#while (#u64.< counter 3u64)
+            (#set counter (#u64.+.wrap counter 1u64)))
+          (#return counter))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let liveness = &checked.declarations().liveness["main"];
+        let counter = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "counter")
+                .unwrap(),
+        );
+        let branch = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match node.action {
+                FlowAction::Branch(id)
+                    if matches!(body.nodes[id.0].kind, NodeKind::Form { .. })
+                        && node.successors.len() == 2 =>
+                {
+                    Some(FlowNodeId(index))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(liveness.before(branch).contains(&counter));
+        assert!(liveness.after(branch).contains(&counter));
     }
 
     #[test]
