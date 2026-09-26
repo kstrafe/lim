@@ -99,9 +99,9 @@ internal error instead of interpreting its spelling again. Backend-synthesized
 expressions without checked nodes still use the compatibility parser.
 Direct checked scalar and aggregate-specialized calls select their ABI and
 canonical source assembly symbol by retained `FunctionId`; the reconstructed
-name remains available for diagnostics. Aggregate dispatch guards and
-backend-synthesized calls still use the legacy name lookup until their lowering
-paths are migrated. The overlay is
+name remains available for diagnostics. Aggregate dispatch guards use the
+same checked identity; backend-synthesized calls retain the legacy name lookup.
+The overlay is
 still address-indexed internally; it is
 neither exported nor cached as an identity.
 An executable regression verifies that erasing `#unsafe` wrappers preserves

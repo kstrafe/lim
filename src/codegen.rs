@@ -185,6 +185,37 @@ fn resolve_call_abi(
     }
 }
 
+fn checked_callee(
+    expression: &Expr,
+    emission: &crate::typed_body::EmissionTypes,
+) -> Option<crate::typed_ir::FunctionId> {
+    emission
+        .by_address
+        .get(&(std::ptr::from_ref(expression) as usize))
+        .and_then(|node| node.callee)
+}
+
+fn aggregate_call_abi<'a>(
+    expression: &Expr,
+    emission: &crate::typed_body::EmissionTypes,
+    functions: &'a HashMap<String, FunctionAbi>,
+    by_id: &'a HashMap<crate::typed_ir::FunctionId, FunctionAbi>,
+) -> Result<Option<&'a FunctionAbi>, String> {
+    let Expr::List(items) = expression else {
+        return Ok(None);
+    };
+    let Some(Expr::Symbol(name)) = items.first() else {
+        return Ok(None);
+    };
+    match checked_callee(expression, emission) {
+        Some(id) => by_id
+            .get(&id)
+            .map(Some)
+            .ok_or_else(|| format!("internal error: missing ABI for function ID {id:?}")),
+        None => Ok(functions.get(name)),
+    }
+}
+
 #[cfg(test)]
 #[test]
 fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
@@ -220,6 +251,58 @@ fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
             .unwrap()
             .symbol_name,
         "wrong"
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
+    let program = crate::parse_program(
+        "(#struct Large ((a u64) (b u64) (c u64)))
+         (#fn actual () Large
+           (#return (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64)))))
+         (#fn main () u64
+           (#let value Large (#call actual (#fn-args)))
+           (#return (#get value c)))",
+    )
+    .unwrap();
+    let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
+    let id = checked.declarations().function_id("actual").unwrap();
+    let expression = Expr::List(vec![Expr::Symbol("wrong".into())]);
+    let mut emission = crate::typed_body::EmissionTypes::default();
+    emission.by_address.insert(
+        std::ptr::from_ref(&expression) as usize,
+        crate::typed_body::EmissionNode {
+            callee: Some(id),
+            ..Default::default()
+        },
+    );
+    let abi = FunctionAbi {
+        symbol_name: "actual".into(),
+        parameters: Vec::new(),
+        indirect_parameters: Vec::new(),
+        return_type: Type::Named("Large".into()),
+        indirect_return: true,
+        max_call_depth: 1,
+    };
+    let wrong = FunctionAbi {
+        symbol_name: "wrong".into(),
+        indirect_return: false,
+        ..abi.clone()
+    };
+    let by_name = HashMap::from([("wrong".into(), wrong)]);
+    let by_id = HashMap::from([(id, abi)]);
+    let selected = aggregate_call_abi(&expression, &emission, &by_name, &by_id)
+        .unwrap()
+        .unwrap();
+    assert!(selected.indirect_return);
+    assert_eq!(selected.symbol_name, "actual");
+    emission.by_address.clear();
+    assert!(
+        !aggregate_call_abi(&expression, &emission, &by_name, &by_id)
+            .unwrap()
+            .unwrap()
+            .indirect_return
     );
 }
 
@@ -5874,12 +5957,7 @@ impl FunctionContext {
                 Some(local_slots(&self.locals, name)?)
             } else if let Expr::List(items) = value {
                 match items.first() {
-                    Some(Expr::Symbol(function_name))
-                        if self
-                            .functions
-                            .get(function_name)
-                            .is_some_and(|function| function.indirect_return) =>
-                    {
+                    Some(Expr::Symbol(_)) if self.is_indirect_return_call(value)? => {
                         let base = self.call_to_aggregate_temp(value)?;
                         Some(flat_slots(base, storage_words))
                     }
@@ -7577,12 +7655,8 @@ impl FunctionContext {
             }
         }
         if let Expr::List(items) = value {
-            if let Some(Expr::Symbol(function_name)) = items.first() {
-                if self
-                    .functions
-                    .get(function_name)
-                    .is_some_and(|function| function.indirect_return)
-                {
+            if let Some(Expr::Symbol(_)) = items.first() {
+                if self.is_indirect_return_call(value)? {
                     let base = slots
                         .iter()
                         .flat_map(|(_, field_slots)| field_slots.iter())
@@ -7668,12 +7742,8 @@ impl FunctionContext {
             }
         }
         if let Expr::List(items) = value {
-            if let Some(Expr::Symbol(function_name)) = items.first() {
-                if self
-                    .functions
-                    .get(function_name)
-                    .is_some_and(|function| function.indirect_return)
-                {
+            if let Some(Expr::Symbol(_)) = items.first() {
+                if self.is_indirect_return_call(value)? {
                     self.call_into_aggregate(value, discriminant)?;
                     return Ok(());
                 }
@@ -7844,12 +7914,8 @@ impl FunctionContext {
             }
         }
         if let Expr::List(items) = value {
-            if let Some(Expr::Symbol(function_name)) = items.first() {
-                if self
-                    .functions
-                    .get(function_name)
-                    .is_some_and(|function| function.indirect_return)
-                {
+            if let Some(Expr::Symbol(_)) = items.first() {
+                if self.is_indirect_return_call(value)? {
                     let base = *slots
                         .first()
                         .ok_or_else(|| "tuple has no storage slots".to_owned())?;
@@ -7969,12 +8035,8 @@ impl FunctionContext {
             }
         }
         if let Expr::List(items) = value {
-            if let Some(Expr::Symbol(function_name)) = items.first() {
-                if self
-                    .functions
-                    .get(function_name)
-                    .is_some_and(|function| function.indirect_return)
-                {
+            if let Some(Expr::Symbol(_)) = items.first() {
+                if self.is_indirect_return_call(value)? {
                     self.call_into_aggregate(value, base)?;
                     return Ok(());
                 }
@@ -9366,12 +9428,8 @@ impl FunctionContext {
             return Ok(());
         }
         if let Expr::List(call_items) = &items[1] {
-            if let Some(Expr::Symbol(function_name)) = call_items.first() {
-                if self
-                    .functions
-                    .get(function_name)
-                    .is_some_and(|function| function.indirect_return)
-                {
+            if let Some(Expr::Symbol(_)) = call_items.first() {
+                if self.is_indirect_return_call(&items[1])? {
                     let Type::Array(element, length) = self
                         .expression_type(&items[1])
                         .ok_or_else(|| "large aggregate call has no known type".to_owned())?
@@ -9753,11 +9811,8 @@ impl FunctionContext {
         }
         let direct_enum_call = match &items[1] {
             Expr::List(call_items) => match call_items.first() {
-                Some(Expr::Symbol(function_name))
-                    if self
-                        .functions
-                        .get(function_name)
-                        .is_some_and(|function| function.indirect_return)
+                Some(Expr::Symbol(_))
+                    if self.is_indirect_return_call(&items[1])?
                         && self
                             .expression_type(&items[1])
                             .is_some_and(|ty| self.is_enum_type(&ty)) =>
@@ -10515,12 +10570,8 @@ impl FunctionContext {
                     }
                 }
                 if let Expr::List(call_items) = &items[1] {
-                    if let Some(Expr::Symbol(function_name)) = call_items.first() {
-                        if self
-                            .functions
-                            .get(function_name)
-                            .is_some_and(|function| function.indirect_return)
-                        {
+                    if let Some(Expr::Symbol(_)) = call_items.first() {
+                        if self.is_indirect_return_call(&items[1])? {
                             let base = self.call_to_aggregate_temp(&items[1])?;
                             let storage_words =
                                 storage_word_count(&ty, &self.structs, &self.enums)?;
@@ -10544,12 +10595,7 @@ impl FunctionContext {
                     .transpose()?
             } else if let Expr::List(call_items) = &items[1] {
                 match call_items.first() {
-                    Some(Expr::Symbol(function_name))
-                        if self
-                            .functions
-                            .get(function_name)
-                            .is_some_and(|function| function.indirect_return) =>
-                    {
+                    Some(Expr::Symbol(_)) if self.is_indirect_return_call(&items[1])? => {
                         let base = self.call_to_aggregate_temp(&items[1])?;
                         Some(flat_slots(base, storage_words))
                     }
@@ -11659,12 +11705,8 @@ impl FunctionContext {
                 .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?
                 .clone();
             if let Expr::List(call_items) = &items[1] {
-                if let Some(Expr::Symbol(function_name)) = call_items.first() {
-                    if self
-                        .functions
-                        .get(function_name)
-                        .is_some_and(|function| function.indirect_return)
-                    {
+                if let Some(Expr::Symbol(_)) = call_items.first() {
+                    if self.is_indirect_return_call(&items[1])? {
                         let field_words =
                             value_word_count(&field_type, &self.structs, &self.enums)?;
                         if field_words > VALUE_REGISTERS.len() {
@@ -12020,12 +12062,8 @@ impl FunctionContext {
                     .position(|field| field.name == *field_name)
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;
                 if let Expr::List(call_items) = &items[1] {
-                    if let Some(Expr::Symbol(function_name)) = call_items.first() {
-                        if self
-                            .functions
-                            .get(function_name)
-                            .is_some_and(|function| function.indirect_return)
-                        {
+                    if let Some(Expr::Symbol(_)) = call_items.first() {
+                        if self.is_indirect_return_call(&items[1])? {
                             let field_type = fields[index].ty.clone();
                             let field_words =
                                 value_word_count(&field_type, &self.structs, &self.enums)?;
@@ -13591,12 +13629,8 @@ impl FunctionContext {
             }
         }
         if let Expr::List(items) = value {
-            if let Some(Expr::Symbol(function_name)) = items.first() {
-                if self
-                    .functions
-                    .get(function_name)
-                    .is_some_and(|function| function.indirect_return)
-                {
+            if let Some(Expr::Symbol(_)) = items.first() {
+                if self.is_indirect_return_call(value)? {
                     let base = *slots
                         .first()
                         .ok_or_else(|| "aggregate temporary has no storage".to_owned())?;
@@ -13800,12 +13834,7 @@ impl FunctionContext {
                     self.aggregate_projection_depth -= 1;
                     Some(Source::Local(temp_base))
                 }
-                Some(Expr::Symbol(function_name))
-                    if self
-                        .functions
-                        .get(function_name)
-                        .is_some_and(|function| function.indirect_return) =>
-                {
+                Some(Expr::Symbol(_)) if self.is_indirect_return_call(&items[1])? => {
                     Some(Source::Local(self.call_to_aggregate_temp(&items[1])?))
                 }
                 _ => {
@@ -13934,12 +13963,7 @@ impl FunctionContext {
                 }
             }
             Expr::List(call_items) => match call_items.first() {
-                Some(Expr::Symbol(function_name))
-                    if self
-                        .functions
-                        .get(function_name)
-                        .is_some_and(|function| function.indirect_return) =>
-                {
+                Some(Expr::Symbol(_)) if self.is_indirect_return_call(&items[1])? => {
                     let base = self.call_to_aggregate_temp(&items[1])?;
                     let source_words =
                         storage_word_count(&source_type, &self.structs, &self.enums)?;
@@ -14218,6 +14242,16 @@ impl FunctionContext {
         }
     }
 
+    fn is_indirect_return_call(&self, expression: &Expr) -> Result<bool, String> {
+        Ok(aggregate_call_abi(
+            expression,
+            &self.expression_types,
+            &self.functions,
+            &self.function_abis_by_id,
+        )?
+        .is_some_and(|abi| abi.indirect_return))
+    }
+
     fn call_into_aggregate(&mut self, expression: &Expr, base: usize) -> Result<(), String> {
         let Expr::List(items) = expression else {
             return Err("aggregate call must be a list".into());
@@ -14225,11 +14259,7 @@ impl FunctionContext {
         let Some(Expr::Symbol(name)) = items.first() else {
             return Err("aggregate call must start with a symbol".into());
         };
-        let callee = self
-            .expression_types
-            .by_address
-            .get(&(std::ptr::from_ref(expression) as usize))
-            .and_then(|node| node.callee);
+        let callee = checked_callee(expression, &self.expression_types);
         self.call(name, &items[1..], Some(base), callee)
     }
 
