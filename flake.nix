@@ -47,7 +47,7 @@
         libxi
         libxrandr
         valgrind
-      ];
+      ] ++ lib.optionals stdenv.isLinux [ strace ];
     in
       {
         devShells.default = pkgs.mkShell {

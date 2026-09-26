@@ -295,6 +295,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "unsafe-function-call",
+            diagnostic_code: "E4300",
+            offending_line: "  (#return (#call answer (#fn-args))))",
+            line_number: 3,
+        },
+        Case {
             name: "unsafe-pointer-op",
             diagnostic_code: "E4300",
             offending_line: "  (#return (#ptr-read pointer))",
@@ -438,6 +444,12 @@ fn compilation_errors_render_the_offending_source_line() {
             diagnostic_code: "E4000",
             offending_line: "(#fn worker ((pointer (#ptr u64))) u64 (#return 0u64))",
             line_number: 1,
+        },
+        Case {
+            name: "thread-worker-ffi",
+            diagnostic_code: "E5000",
+            offending_line: "(#thread-task Work work)",
+            line_number: 3,
         },
         Case {
             name: "thread-task-field",
@@ -820,6 +832,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "reversed-match-range" => Some("2"),
             "non-reference-deref-set" => Some("value"),
             "thread-worker-missing" => Some("missing-worker"),
+            "thread-worker-ffi" => Some("(#thread-task Work work)"),
             "thread-send" => Some("(#ptr u64)"),
             "thread-worker-reference-result" => Some("(#ref u64)"),
             "thread-task-function-signature" => Some("Task"),
@@ -835,6 +848,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "duplicate-generator-parameter" => Some("x"),
             "unsafe" => Some("VALUE"),
             "unsafe-external-call" => Some("external-value"),
+            "unsafe-function-call" => Some("answer"),
             "unsafe-pointer-op" => Some("#ptr-read"),
             "borrow" => Some("#set"),
             "borrow-conflict-field-name" => Some("owner"),

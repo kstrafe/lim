@@ -17,10 +17,17 @@ pub(crate) fn check_program_with_span(
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::Function(function) if function.external => Some(function.name.as_str()),
+            Item::Function(function) if function.external || function.unsafe_call => Some((
+                function.name.as_str(),
+                if function.external {
+                    "external"
+                } else {
+                    "unsafe"
+                },
+            )),
             _ => None,
         })
-        .collect::<std::collections::HashSet<_>>();
+        .collect::<std::collections::HashMap<_, _>>();
     for item in &program.items {
         if let Item::Function(function) = item {
             if function.external {
@@ -61,7 +68,7 @@ fn check_statement(
     statement: &Statement,
     unsafe_context: bool,
     statics: &std::collections::HashSet<&str>,
-    external_functions: &std::collections::HashSet<&str>,
+    external_functions: &std::collections::HashMap<&str, &str>,
 ) -> Result<(), Error> {
     let _site = Site::statement(statement).enter();
     match statement {
@@ -121,7 +128,7 @@ fn check_statements(
     statements: &[Statement],
     unsafe_context: bool,
     statics: &std::collections::HashSet<&str>,
-    external_functions: &std::collections::HashSet<&str>,
+    external_functions: &std::collections::HashMap<&str, &str>,
 ) -> Result<(), Error> {
     for statement in statements {
         check_statement(statement, unsafe_context, statics, external_functions)?;
@@ -133,7 +140,7 @@ fn check_expression(
     expression: &Expr,
     unsafe_context: bool,
     statics: &std::collections::HashSet<&str>,
-    external_functions: &std::collections::HashSet<&str>,
+    external_functions: &std::collections::HashMap<&str, &str>,
 ) -> Result<(), Error> {
     let _site = Site::expression(expression).enter();
     match expression {
@@ -144,10 +151,12 @@ fn check_expression(
             });
             let nested_unsafe = operator == Some("unsafe");
             if let Some(operator) = operator {
-                if external_functions.contains(operator) && !unsafe_context && !nested_unsafe {
-                    return Err(failure!(
-                        "call to external function '{operator}' requires an enclosing (#unsafe ...) block"
-                    ).child(0));
+                if !unsafe_context && !nested_unsafe {
+                    if let Some(kind) = external_functions.get(operator) {
+                        return Err(failure!(
+                            "call to {kind} function '{operator}' requires an enclosing (#unsafe ...) block"
+                        ).child(0));
+                    }
                 }
             }
             if let Some(Expr::Symbol(name)) = items.get(1) {

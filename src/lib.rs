@@ -1462,6 +1462,8 @@ pub enum Statement {
 pub struct Function {
     pub name: String,
     pub external: bool,
+    /// Calling this function requires an explicit unsafe region.
+    pub unsafe_call: bool,
     pub calling_convention: CallingConvention,
     pub type_parameters: Vec<String>,
     pub parameters: Vec<Parameter>,
@@ -1941,7 +1943,8 @@ fn codegen_diagnostic(error: SourceError, program: &Program) -> Diagnostic {
 }
 
 /// Assemble and link native output, returning a structured link diagnostic on
-/// tool invocation or linker failure. libc and pthread remain implicit inputs.
+/// tool invocation or linker failure. The runtime libraries are added only for
+/// unresolved symbols or explicitly requested libraries, not syscall-only code.
 pub fn link_native_binary(
     assembly: &str,
     output: &Path,
@@ -1964,7 +1967,9 @@ pub fn link_native_binary(
     let assembly_path = directory.0.join("input.s");
     let object_path = directory.0.join("input.o");
     let staged_output = directory.0.join("binary");
-    let entry = "\n.section .text\n.globl _start\n.type _start, @function\n_start:\n    xor ebp, ebp\n    and rsp, -16\n    call main\n    mov edi, eax\n    mov eax, 60\n    syscall\n    ud2\n.size _start, .-_start\n";
+    // Returning from main terminates the process, including io_uring workers;
+    // thread-only SYS_exit can lose main's status when another task exits last.
+    let entry = "\n.section .text\n.globl _start\n.type _start, @function\n_start:\n    xor ebp, ebp\n    and rsp, -16\n    call main\n    mov edi, eax\n    mov eax, 231\n    syscall\n    ud2\n.size _start, .-_start\n";
     let result = (|| {
         fs::write(&assembly_path, format!("{assembly}{entry}")).map_err(|error| {
             Diagnostic::new(
@@ -1992,22 +1997,31 @@ pub fn link_native_binary(
             .note(String::from_utf8_lossy(&assemble.stderr).into_owned())
             .note(String::from_utf8_lossy(&assemble.stdout).into_owned()));
         }
-        let dynamic_linker = native_dynamic_linker();
+        // Inspect assembled references, not source spellings: inline assembly
+        // can reference foreign symbols without an emitted .extern directive,
+        // while an unused .extern need not introduce a dependency at all.
+        let mut needs_runtime = !libraries.is_empty();
+        for object in std::iter::once(&object_path).chain(object_files.iter()) {
+            needs_runtime |= native_object_has_undefined_symbols(object)?;
+        }
         let mut linker = Command::new("ld");
-        linker
-            .arg("-o")
-            .arg(&staged_output)
-            .arg("-e")
-            .arg("_start")
-            .arg("--dynamic-linker")
-            .arg(dynamic_linker)
-            .arg(&object_path);
+        linker.arg("-o").arg(&staged_output).arg("-e").arg("_start");
+        if needs_runtime {
+            linker.arg("--dynamic-linker").arg(native_dynamic_linker());
+        } else {
+            // Also prevents a toolchain wrapper from introducing an ELF
+            // interpreter into an otherwise self-contained syscall program.
+            linker.arg("-static");
+        }
+        linker.arg(&object_path);
         for object in object_files {
             linker.arg(object);
         }
-        linker.arg("-lc").arg("-lpthread");
         for library in libraries {
             linker.arg(format!("-l{library}"));
+        }
+        if needs_runtime {
+            linker.arg("-lc").arg("-lpthread");
         }
         let status = linker.output().map_err(|error| {
             Diagnostic::new(
@@ -2033,6 +2047,28 @@ pub fn link_native_binary(
     let _ = fs::remove_file(&assembly_path);
     let _ = fs::remove_file(&object_path);
     result
+}
+
+fn native_object_has_undefined_symbols(object: &Path) -> Result<bool, Diagnostic> {
+    let symbols = Command::new("nm")
+        .arg("--undefined-only")
+        .arg("--format=posix")
+        .arg(object)
+        .output()
+        .map_err(|error| {
+            Diagnostic::new(
+                DiagnosticCode::Link,
+                format!("could not inspect native object symbols: {error}"),
+            )
+        })?;
+    if !symbols.status.success() {
+        return Err(Diagnostic::new(
+            DiagnosticCode::Link,
+            format!("symbol inspection failed for {}", object.display()),
+        )
+        .note(String::from_utf8_lossy(&symbols.stderr).into_owned()));
+    }
+    Ok(!symbols.stdout.iter().all(u8::is_ascii_whitespace))
 }
 
 fn native_dynamic_linker() -> String {
@@ -2508,7 +2544,7 @@ fn collect_function_statement_spans(
     let Expr::List(items) = &expression.expr else {
         return;
     };
-    if !matches!(items.first(), Some(Expr::Symbol(name)) if name == "#fn" || name == "fn")
+    if !matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "#fn" | "fn" | "#unsafe-fn" | "unsafe-fn"))
         || items.len() < 5
     {
         return;
@@ -3685,6 +3721,7 @@ fn is_builtin_form(name: &str) -> bool {
         name,
         "type"
             | "fn"
+            | "unsafe-fn"
             | "call"
             | "fn-args"
             | "extern-fn"
@@ -5593,7 +5630,7 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
                 ),
             })
         }
-        "fn" => Ok(Item::Function(parse_function(items, false)?)),
+        "fn" | "unsafe-fn" => Ok(Item::Function(parse_function(items, false)?)),
         "extern-fn" => Ok(Item::Function(parse_function(items, true)?)),
         "thread-task" => {
             if !matches!(items.len(), 3 | 5) {
@@ -5948,6 +5985,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-construct"),
             external: false,
+            unsafe_call: false,
             calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
@@ -5964,6 +6002,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-is-some"),
             external: false,
+            unsafe_call: false,
             calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
@@ -5977,6 +6016,7 @@ fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-unwrap-or"),
             external: false,
+            unsafe_call: false,
             calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![
@@ -6367,6 +6407,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-ok"),
             external: false,
+            unsafe_call: false,
             calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
@@ -6383,6 +6424,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-err"),
             external: false,
+            unsafe_call: false,
             calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
@@ -6399,6 +6441,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-is-ok"),
             external: false,
+            unsafe_call: false,
             calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![Parameter {
@@ -6412,6 +6455,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-unwrap-or"),
             external: false,
+            unsafe_call: false,
             calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![
@@ -6432,6 +6476,7 @@ fn parse_generated_result_items(items: &[Expr]) -> Result<Vec<Item>, String> {
         Item::Function(Function {
             name: format!("{name}-unwrap-err-or"),
             external: false,
+            unsafe_call: false,
             calling_convention: CallingConvention::Lim,
             type_parameters: Vec::new(),
             parameters: vec![
@@ -6674,6 +6719,8 @@ pub(crate) fn parse_function(items: &[Expr], external: bool) -> Result<Function,
     Ok(Function {
         name,
         external,
+        unsafe_call: external
+            || matches!(items.first(), Some(Expr::Symbol(head)) if head == "unsafe-fn"),
         calling_convention: if external {
             CallingConvention::C
         } else {
@@ -8992,8 +9039,10 @@ mod tests {
                 if name == "IncrementTask" && worker == "increment"
         )));
         let assembly = generate_assembly(&valid).unwrap();
-        assert!(assembly.contains("call pthread_create"));
-        assert!(assembly.contains("call pthread_join"));
+        assert!(!assembly.contains("pthread"));
+        assert!(!assembly.contains(".extern malloc"));
+        assert!(assembly.contains("mov eax, 56\n    syscall"));
+        assert!(assembly.contains("mov eax, 202\n    syscall"));
         assert!(assembly.contains(".Llim_thread_entry_IncrementTask"));
 
         let api = parse_program(
@@ -12661,7 +12710,7 @@ mod tests {
     }
 
     #[test]
-    fn stack_usage_report_includes_thread_entries_and_external_unknowns() {
+    fn stack_usage_report_includes_bounded_kernel_thread_entries() {
         let program = parse_program(include_str!("../examples/thread_spawn.lim")).unwrap();
         check_types(&program).unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -12671,7 +12720,7 @@ mod tests {
             "{report}"
         );
         assert!(report.contains("main: at most"), "{report}");
-        assert!(report.contains("total is unknown"), "{report}");
-        assert!(report.contains("pthread_create"), "{report}");
+        assert!(!report.contains("total is unknown"), "{report}");
+        assert!(!report.contains("pthread_create"), "{report}");
     }
 }

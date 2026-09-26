@@ -71,7 +71,7 @@ fn declared_lim_function_signatures(
             continue;
         };
         let external = match kind.as_str() {
-            "fn" => false,
+            "fn" | "unsafe-fn" => false,
             "extern-fn" => true,
             _ => continue,
         };
@@ -90,7 +90,8 @@ fn declared_lim_function_signatures(
             .iter()
             .map(|parameter| parameter.ty.clone())
             .collect::<Vec<_>>();
-        let signature = format!("{arguments:?}->{:?}", function.return_type);
+        let safety = if function.unsafe_call { "unsafe " } else { "" };
+        let signature = format!("{safety}{arguments:?}->{:?}", function.return_type);
         if signatures.contains_key(&function.name) {
             let name_span = expression
                 .children

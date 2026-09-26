@@ -1,0 +1,127 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let pid i64 (#call linux-getpid (#fn-args)))
+  (#let-mut mask i64 512i64)
+  (#let-mut original i64 0i64)
+  (#let mask-pointer (#ptr-mut i64) (#unsafe (#addr-of-mut mask)))
+  ; Block SIGUSR1 before sending it to this process. Every sent signal is
+  ; consumed before restoring the original mask.
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (#fn-args
+    (how 0usize) (signal-set mask-pointer)
+    (old-set (#addr-of-mut original)) (sigset-size 8usize)))) 0i64))
+  (#let memory (#ptr-mut u8)
+    (#unsafe (#call linux-mmap (#fn-args
+      (address (#ptr-null (#ptr-mut u8))) (length 4096usize)
+      (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
+  (#let timeout (#ptr-mut i64)
+    (#unsafe (#asm (#ptr-mut i64) ((rdi memory)) "lea rax, [rdi+128]")))
+  (#assert (#i64.== (#unsafe (#call linux-signalfd (#fn-args
+    (fd -1i64) (signal-set mask-pointer) (sigset-size 7usize)))) -22i64))
+  (#assert (#i64.== (#unsafe (#call linux-signalfd4 (#fn-args
+    (fd -1i64) (signal-set mask-pointer) (sigset-size 8usize)
+    (flags 1i32)))) -22i64))
+  (#let legacy i64 (#unsafe (#call linux-signalfd (#fn-args
+    (fd -1i64) (signal-set mask-pointer) (sigset-size 8usize)))))
+  (#assert (#i64.>= legacy 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-fcntl (#fn-args
+    (fd legacy) (command 4i32) (argument 2048usize)))) 0i64))
+  (#let modern i64 (#unsafe (#call linux-signalfd4 (#fn-args
+    (fd -1i64) (signal-set mask-pointer) (sigset-size 8usize)
+    (flags 526336i32)))))
+  (#assert (#i64.>= modern 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-fcntl (#fn-args
+    (fd modern) (command 1i32) (argument 0usize)))) 1i64))
+  (#assert (#i64.== (#unsafe (#call linux-signalfd (#fn-args
+    (fd modern) (signal-set mask-pointer) (sigset-size 8usize)))) modern))
+  (#for-range (iteration u64) 0u64 2u64
+    (#let fd i64 (#if (#u64.== iteration 0u64) legacy modern))
+    (#assert (#i64.== (#unsafe (#call linux-read (#fn-args
+      (fd fd) (destination memory) (count 128usize)))) -11i64))
+    (#assert (#i64.== (#call linux-kill (#fn-args
+      (pid pid) (signal 10i32))) 0i64))
+    (#assert (#i64.== (#unsafe (#call linux-read (#fn-args
+      (fd fd) (destination memory) (count 128usize)))) 128i64))
+    (#let signal u32
+      (#unsafe (#asm u32 ((rdi memory)) "mov eax, DWORD PTR [rdi]")))
+    (#let sender u32
+      (#unsafe (#asm u32 ((rdi memory)) "mov eax, DWORD PTR [rdi+12]")))
+    (#assert (#u32.== signal 10u32))
+    (#assert (#u32.== sender (#as pid u32)))
+    (#assert (#i64.== (#unsafe (#call linux-read (#fn-args
+      (fd fd) (destination memory) (count 128usize)))) -11i64)))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigtimedwait (#fn-args
+    (signal-set mask-pointer) (info memory) (timeout timeout)
+    (sigset-size 7usize)))) -22i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigtimedwait (#fn-args
+    (signal-set mask-pointer) (info memory) (timeout timeout)
+    (sigset-size 8usize)))) -11i64))
+  (#assert (#i64.== (#call linux-kill (#fn-args
+    (pid pid) (signal 10i32))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigtimedwait (#fn-args
+    (signal-set mask-pointer) (info memory) (timeout timeout)
+    (sigset-size 8usize)))) 10i64))
+  (#let signal u32
+    (#unsafe (#asm u32 ((rdi memory)) "mov eax, DWORD PTR [rdi]")))
+  (#assert (#u32.== signal 10u32))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigtimedwait (#fn-args
+    (signal-set mask-pointer) (info memory) (timeout timeout)
+    (sigset-size 8usize)))) -11i64))
+  ; Send native siginfo records with SI_QUEUE and explicit sender credentials.
+  ; x86-64 layout: signo@0, errno@4, code@8, pid@16, uid@20, value@24.
+  (#let queued-info (#ptr-mut u8) (#unsafe (#ptr-offset memory 256usize)))
+  (#let group i32 (#as pid i32))
+  (#let thread i32 (#as (#call linux-gettid (#fn-args)) i32))
+  (#let uid u32 (#as (#call linux-getuid (#fn-args)) u32))
+  (#unsafe (#asm () ((rdi queued-info) (rsi group) (rdx uid))
+    "mov DWORD PTR [rdi], 10\nmov DWORD PTR [rdi+8], -1\nmov DWORD PTR [rdi+16], esi\nmov DWORD PTR [rdi+20], edx"))
+  (#for-range (iteration u64) 0u64 2u64
+    (#let payload u64 (#u64.+.wrap 0x1234567800000041u64 iteration))
+    (#unsafe (#asm () ((rdi queued-info) (rsi payload)) "mov QWORD PTR [rdi+24], rsi"))
+    (#let sent i64 (#if (#u64.== iteration 0u64)
+      (#unsafe (#call linux-rt-sigqueueinfo (#fn-args
+        (group group) (signal 10i32) (info queued-info))))
+      (#unsafe (#call linux-rt-tgsigqueueinfo (#fn-args
+        (group group) (thread thread) (signal 10i32) (info queued-info))))))
+    (#assert (#i64.== sent 0i64))
+    (#assert (#i64.== (#unsafe (#call linux-rt-sigtimedwait (#fn-args
+      (signal-set mask-pointer) (info memory) (timeout timeout)
+      (sigset-size 8usize)))) 10i64))
+    (#assert (#i32.== (#unsafe (#asm i32 ((rdi memory))
+      "mov eax, DWORD PTR [rdi+8]")) -1i32))
+    (#assert (#i32.== (#unsafe (#asm i32 ((rdi memory))
+      "mov eax, DWORD PTR [rdi+16]")) group))
+    (#assert (#u32.== (#unsafe (#asm u32 ((rdi memory))
+      "mov eax, DWORD PTR [rdi+20]")) uid))
+    (#assert (#u64.== (#unsafe (#asm u64 ((rdi memory))
+      "mov rax, QWORD PTR [rdi+24]")) payload))
+    (#assert (#i64.== (#unsafe (#call linux-rt-sigtimedwait (#fn-args
+      (signal-set mask-pointer) (info memory) (timeout timeout)
+      (sigset-size 8usize)))) -11i64)))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigqueueinfo (#fn-args
+    (group group) (signal 65i32) (info queued-info)))) -22i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-tgsigqueueinfo (#fn-args
+    (group group) (thread thread) (signal 65i32) (info queued-info)))) -22i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigqueueinfo (#fn-args
+    (group group) (signal 10i32) (info (#ptr-null (#ptr-mut u8)))))) -14i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-tgsigqueueinfo (#fn-args
+    (group group) (thread thread) (signal 10i32) (info (#ptr-null (#ptr-mut u8)))))) -14i64))
+  (#assert (#i64.== (#call linux-close (#fn-args (fd legacy))) 0i64))
+  (#assert (#i64.== (#call linux-close (#fn-args (fd modern))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (#fn-args
+    (how 2usize) (signal-set (#addr-of-mut original))
+    (old-set (#ptr-null (#ptr-mut i64))) (sigset-size 8usize)))) 0i64))
+  (#let-mut restored i64 0i64)
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (#fn-args
+    (how 2usize) (signal-set (#ptr-null (#ptr-mut i64)))
+    (old-set (#addr-of-mut restored)) (sigset-size 8usize)))) 0i64))
+  (#assert (#i64.== restored original))
+  (#assert (#i64.== (#unsafe (#call linux-munmap (#fn-args
+    (address memory) (length 4096usize)))) 0i64))
+  (#let letter u8 71u8)
+  (#let newline u8 10u8)
+  (#assert (#i64.== (#call linux-write-byte (#fn-args
+    (source (#borrow letter)))) 1i64))
+  (#assert (#i64.== (#call linux-write-byte (#fn-args
+    (source (#borrow newline)))) 1i64))
+  (#return 42u64))

@@ -19,7 +19,7 @@
   (#let tid i64 (#call linux-gettid (#fn-args)))
   (#let yielded i64 (#call linux-sched-yield (#fn-args)))
   (#let alive i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-KILL (pid 0usize))))
+    (#call linux-kill (#fn-args (pid pid) (signal 0i32))))
   (#let failed_close i64
     (#call linux-close (#fn-args (fd 999999i64))))
   (#let failed_dup i64
@@ -36,8 +36,8 @@
   (#let failed_ioctl i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-IOCTL (999999i64 0usize 0usize))))
   (#let failed_fcntl i64
-    (#call linux-fcntl (#fn-args
-      (fd 999999i64) (command 1i32) (argument 0usize))))
+    (#unsafe (#call linux-fcntl (#fn-args
+      (fd 999999i64) (command 1i32) (argument 0usize)))))
   (#let failed_flock i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-FLOCK (999999i64 2usize))))
   (#let failed_fdatasync i64
@@ -73,38 +73,52 @@
     (#unsafe (#linux-syscall (#ptr-mut u32) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let getresuid-result i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-GETRESUID
-      ((#ptr-offset identity-memory 0usize)
-       (#ptr-offset identity-memory 1usize)
-       (#ptr-offset identity-memory 2usize)))))
+    (#unsafe (#call linux-getresuid (#fn-args
+      (real identity-memory)
+      (effective (#ptr-offset identity-memory 1usize))
+      (saved (#ptr-offset identity-memory 2usize))))))
   (#let real-uid u32 (#unsafe (#ptr-read identity-memory)))
   (#let effective-uid u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 1usize))))
   (#let saved-uid u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 2usize))))
   (#let getresgid-result i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-GETRESGID
-      ((#ptr-offset identity-memory 0usize)
-       (#ptr-offset identity-memory 1usize)
-       (#ptr-offset identity-memory 2usize)))))
+    (#unsafe (#call linux-getresgid (#fn-args
+      (real identity-memory)
+      (effective (#ptr-offset identity-memory 1usize))
+      (saved (#ptr-offset identity-memory 2usize))))))
   (#let real-gid u32 (#unsafe (#ptr-read identity-memory)))
   (#let effective-gid u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 1usize))))
   (#let saved-gid u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 2usize))))
   (#let supplementary-groups i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-GETGROUPS
-      (0usize (#ptr-null (#ptr-mut u32))))))
+    (#unsafe (#call linux-getgroups (#fn-args
+      (size 0i32) (groups (#ptr-null (#ptr-mut u32)))))))
+  (#let invalid-groups-size i64
+    (#unsafe (#call linux-getgroups (#fn-args
+      (size -1i32) (groups (#ptr-null (#ptr-mut u32)))))))
   (#let identity-memory-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (identity-memory 4096usize))))
   (#let-mut mapping (#ptr-mut u8)
     (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let uname-result i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-UNAME (mapping))))
+    (#unsafe (#call linux-uname (#fn-args (buffer mapping)))))
   (#let uname-first-byte u8 (#unsafe (#ptr-read mapping)))
+  (#let uname-second-byte u8
+    (#unsafe (#ptr-read (#ptr-offset mapping 1usize))))
+  (#let uname-third-byte u8
+    (#unsafe (#ptr-read (#ptr-offset mapping 2usize))))
+  (#let uname-fourth-byte u8
+    (#unsafe (#ptr-read (#ptr-offset mapping 3usize))))
+  (#let uname-fifth-byte u8
+    (#unsafe (#ptr-read (#ptr-offset mapping 4usize))))
+  (#let uname-terminator u8
+    (#unsafe (#ptr-read (#ptr-offset mapping 5usize))))
   (#let random-buffer-count i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-GETRANDOM (mapping 4usize 0usize))))
+    (#unsafe (#call linux-getrandom (#fn-args
+      (destination mapping) (size 4usize) (flags 0u32)))))
   (#unsafe
     (#block
       (#ptr-write mapping 47u8)
@@ -141,8 +155,9 @@
       (#ptr-write (#ptr-offset mapping 14usize) 0u8)
       ()))
   (#let readlink-count i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-READLINKAT
-      (-100i64 mapping (#ptr-offset mapping 64usize) 256usize))))
+    (#unsafe (#call linux-readlinkat (#fn-args
+      (directory -100i64) (path mapping)
+      (destination (#ptr-offset mapping 64usize)) (size 256usize)))))
   (#let link-first-byte u8
     (#unsafe (#ptr-read (#ptr-offset mapping 64usize))))
   (#let cwd-result i64
@@ -154,14 +169,16 @@
   (#let unprotected i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MPROTECT (mapping 4096usize 3usize))))
   (#let advised i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MADVISE (mapping 4096usize 0usize))))
+    (#unsafe (#call linux-madvise (#fn-args
+      (address mapping) (length 4096usize) (advice 0i32)))))
   (#let edge-written ()
     (#unsafe (#ptr-write (#ptr-offset mapping 4095usize) 42u8)))
   (#let edge-byte u8
     (#unsafe (#ptr-read (#ptr-offset mapping 4095usize))))
   (#let remapped (#ptr-mut u8)
-    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MREMAP
-      (mapping 4096usize 8192usize 1usize))))
+    (#unsafe (#call linux-mremap (#fn-args
+      (old-address mapping) (old-length 4096usize) (new-length 8192usize)
+      (flags 1u32) (new-address (#ptr-null (#ptr-mut u8)))))))
   (#set mapping remapped)
   (#let preserved-edge u8
     (#unsafe (#ptr-read (#ptr-offset mapping 4095usize))))
@@ -271,7 +288,8 @@
                 (#bool.&& (#i64.== (#as effective-gid i64) egid)
                   (#bool.&& (#u32.>= saved-gid 0u32)
                     (#bool.&& (#i64.>= supplementary-groups 0i64)
-                      (#i64.== identity-memory-unmapped 0i64)))))))))))
+                      (#bool.&& (#i64.== invalid-groups-size -22i64)
+                        (#i64.== identity-memory-unmapped 0i64))))))))))))
   (#let process-ok bool
     (#bool.&& (#i64.!= ppid 0i64)
       (#bool.&& (#i64.> pgrp 0i64)
@@ -292,6 +310,13 @@
                     (#bool.&& (#i64.>= null-device 0i64)
                       (#bool.&& (#i64.== close-null-device 0i64)
                   (#bool.&& (#i64.== advice -9i64) (#i64.== alive 0i64)))))))))))))
+  (#let uname-name-ok bool
+    (#bool.&& (#u8.== uname-first-byte 76u8)
+      (#bool.&& (#u8.== uname-second-byte 105u8)
+        (#bool.&& (#u8.== uname-third-byte 110u8)
+          (#bool.&& (#u8.== uname-fourth-byte 117u8)
+            (#bool.&& (#u8.== uname-fifth-byte 120u8)
+              (#u8.== uname-terminator 0u8)))))))
   (#let extra-descriptor-errors-ok bool
     (#bool.&& (#call is-ebadf (#fn-args (status failed_fstat)))
       (#bool.&& (#call is-ebadf (#fn-args (status failed_ioctl)))
@@ -355,13 +380,13 @@
               (#i64.== event-unmapped 0i64)))))))
   (#return
     (#if
-      (#bool.&& identity-ok (#bool.&& process-ok
+      (#bool.&& uname-name-ok (#bool.&& identity-ok (#bool.&& process-ok
         (#bool.&& credential-queries-ok
           (#bool.&& descriptor-errors-ok
             (#bool.&& extra-descriptor-errors-ok
               (#bool.&& path-queries-ok
                 (#bool.&& memory-time-ok
                   (#bool.&& pointer-widths-ok
-                    (#bool.&& pipe-io-ok eventfd-io-ok)))))))))
+                    (#bool.&& pipe-io-ok eventfd-io-ok))))))))))
       42u64
       1u64)))

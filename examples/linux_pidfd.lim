@@ -1,0 +1,69 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let pid i64 (#call linux-getpid (#fn-args)))
+  (#let invalid-pid i64
+    (#call linux-pidfd-open (#fn-args (pid 0i64) (flags 0u32))))
+  (#let invalid-open-flags i64
+    (#call linux-pidfd-open (#fn-args (pid pid) (flags 1u32))))
+  (#let pidfd i64
+    (#call linux-pidfd-open (#fn-args (pid pid) (flags 0u32))))
+  (#let no-info (#ptr-mut u8) (#ptr-null (#ptr-mut u8)))
+  ; Signal zero checks the target without delivering a signal.
+  (#let self-alive i64
+    (#unsafe (#call linux-pidfd-send-signal (#fn-args
+      (pidfd pidfd) (signal 0i32) (info no-info) (flags 0u32)))))
+  (#let invalid-signal i64
+    (#unsafe (#call linux-pidfd-send-signal (#fn-args
+      (pidfd pidfd) (signal 999i32) (info no-info) (flags 0u32)))))
+  (#let invalid-signal-fd i64
+    (#unsafe (#call linux-pidfd-send-signal (#fn-args
+      (pidfd -1i64) (signal 0i32) (info no-info) (flags 0u32)))))
+  (#let invalid-getfd i64
+    (#call linux-pidfd-getfd (#fn-args
+      (pidfd -1i64) (target-fd pidfd) (flags 0u32))))
+  (#let duplicated i64
+    (#call linux-pidfd-getfd (#fn-args
+      (pidfd pidfd) (target-fd pidfd) (flags 0u32))))
+  (#let duplicate-flags i64
+    (#if (#i64.>= duplicated 0i64)
+      (#unsafe (#call linux-fcntl (#fn-args
+        (fd duplicated) (command 1i32) (argument 0usize))))
+      -1i64))
+  (#let duplicate-closed i64
+    (#if (#i64.>= duplicated 0i64)
+      (#call linux-close (#fn-args (fd duplicated)))
+      -1i64))
+  (#let original-closed i64 (#call linux-close (#fn-args (fd pidfd))))
+  (#let closed-pidfd-signal i64
+    (#unsafe (#call linux-pidfd-send-signal (#fn-args
+      (pidfd pidfd) (signal 0i32) (info no-info) (flags 0u32)))))
+  (#let getfd-ok bool
+    (#bool.|| (#i64.== duplicated -1i64)
+      (#bool.&& (#i64.>= duplicated 0i64)
+        (#bool.&& (#i64.== duplicate-flags 1i64)
+          (#i64.== duplicate-closed 0i64)))))
+  (#let checks-ok bool
+    (#bool.&& (#i64.> pid 0i64)
+      (#bool.&& (#i64.== invalid-pid -22i64)
+        (#bool.&& (#i64.== invalid-open-flags -22i64)
+          (#bool.&& (#i64.>= pidfd 0i64)
+            (#bool.&& (#i64.== self-alive 0i64)
+              (#bool.&& (#i64.== invalid-signal -22i64)
+                (#bool.&& (#i64.== invalid-signal-fd -9i64)
+                  (#bool.&& (#i64.== invalid-getfd -9i64)
+                    (#bool.&& getfd-ok
+                      (#bool.&& (#i64.== original-closed 0i64)
+                        (#i64.== closed-pidfd-signal -9i64))))))))))))
+  (#return
+    (#if checks-ok
+      (#block
+        (#let-mut byte u8 80u8)
+        (#let first-write i64
+          (#call linux-write-byte (#fn-args (source (#borrow byte)))))
+        (#set byte 10u8)
+        (#let second-write i64
+          (#call linux-write-byte (#fn-args (source (#borrow byte)))))
+        (#if (#bool.&& (#i64.== first-write 1i64)
+            (#i64.== second-write 1i64)) 42u64 1u64))
+      1u64)))

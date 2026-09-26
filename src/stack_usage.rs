@@ -50,6 +50,63 @@ struct PathUsage {
     unknown: Vec<String>,
 }
 
+/// A worker stack must have a proven bound, not the partial bound printed for
+/// an FFI caller. Analyze only reachable functions: unrelated inline assembly
+/// elsewhere in an imported module must not affect the worker's stack.
+pub(crate) fn bounded_entry_stack(assembly: &str, entry: &str) -> Result<usize, String> {
+    let mut bodies = HashMap::<String, String>::new();
+    let mut current = None;
+    for line in assembly.lines() {
+        if let Some((name, _)) = line
+            .trim()
+            .strip_prefix(".type ")
+            .and_then(|s| s.split_once(", @function"))
+        {
+            current = Some(name.trim().to_owned());
+        }
+        if let Some(name) = &current {
+            let body = bodies.entry(name.clone()).or_default();
+            body.push_str(line);
+            body.push('\n');
+            if line.trim().starts_with(&format!(".size {name},")) {
+                current = None;
+            }
+        }
+    }
+    fn visit(
+        name: &str,
+        bodies: &HashMap<String, String>,
+        active: &mut Vec<String>,
+        done: &mut HashMap<String, usize>,
+    ) -> Result<usize, String> {
+        if let Some(bytes) = done.get(name) {
+            return Ok(*bytes);
+        }
+        if active.iter().any(|caller| caller == name) {
+            return Err(format!("recursive thread call path through '{name}'"));
+        }
+        let body = bodies.get(name).ok_or_else(||
+            format!("kernel thread reaches external/indirect callee '{name}'; foreign TLS and stack bounds are unsupported"))?;
+        let functions = parse_functions(body)?;
+        let own = analyze_function(&functions[name]).map_err(|error| format!("{name}: {error}"))?;
+        active.push(name.to_owned());
+        let mut peak = own.peak;
+        for (callee, depth) in own.calls {
+            let child = visit(&callee, bodies, active, done)?;
+            peak = peak.max(
+                depth
+                    .checked_add(8)
+                    .and_then(|n| n.checked_add(child))
+                    .ok_or("thread stack bound overflow")?,
+            );
+        }
+        active.pop();
+        done.insert(name.to_owned(), peak);
+        Ok(peak)
+    }
+    visit(entry, &bodies, &mut Vec::new(), &mut HashMap::new())
+}
+
 /// Analyze emitted x86-64 assembly. Internal control flow is evaluated as a
 /// stack-depth graph; unresolved direct calls and indirect calls are reported
 /// as unknown rather than assigned guessed bounds.
@@ -301,6 +358,36 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
             }
             peaks[index] = peaks[index].max(peak);
             let mut successors = Vec::new();
+            let resolve = |target: &str| -> Result<usize, String> {
+                if let Some((digits, direction)) =
+                    target.split_at_checked(target.len().saturating_sub(1))
+                {
+                    if !digits.is_empty()
+                        && digits.bytes().all(|c| c.is_ascii_digit())
+                        && matches!(direction, "b" | "f")
+                    {
+                        let candidates = function.blocks.iter().enumerate().filter(|(i, block)| {
+                            block.label == digits
+                                && if direction == "b" {
+                                    *i <= index
+                                } else {
+                                    *i > index
+                                }
+                        });
+                        return if direction == "b" {
+                            candidates.last()
+                        } else {
+                            candidates.into_iter().next()
+                        }
+                        .map(|(i, _)| i)
+                        .ok_or_else(|| format!("unknown assembly branch target '{target}'"));
+                    }
+                }
+                labels
+                    .get(target)
+                    .copied()
+                    .ok_or_else(|| format!("unknown assembly branch target '{target}'"))
+            };
             match last_terminator {
                 Some(Terminator::Stop) => {}
                 Some(Terminator::Return) => {
@@ -308,17 +395,9 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
                         return Err(format!("unbalanced stack at return in '{}'", block.label));
                     }
                 }
-                Some(Terminator::Jump(target)) => successors.push(
-                    *labels
-                        .get(target.as_str())
-                        .ok_or_else(|| format!("unknown assembly branch target '{target}'"))?,
-                ),
+                Some(Terminator::Jump(target)) => successors.push(resolve(target)?),
                 Some(Terminator::Branch(target)) => {
-                    successors.push(
-                        *labels
-                            .get(target.as_str())
-                            .ok_or_else(|| format!("unknown assembly branch target '{target}'"))?,
-                    );
+                    successors.push(resolve(target)?);
                     if index + 1 < count {
                         successors.push(index + 1);
                     }
@@ -420,6 +499,26 @@ fn call_path_usage(
 #[cfg(test)]
 mod tests {
     use super::stack_usage_report;
+
+    #[test]
+    fn strict_worker_bounds_ignore_unrelated_assembly_but_reject_unknown_calls() {
+        let assembly = ".type unrelated, @function\nunrelated:\n mov rsp, rax\n ret\n.size unrelated, .-unrelated\n.type worker, @function\nworker:\n push rbp\n mov rbp, rsp\n leave\n ret\n.size worker, .-worker\n";
+        assert_eq!(super::bounded_entry_stack(assembly, "worker").unwrap(), 8);
+        let foreign = assembly.replace(" leave", " call foreign\n leave");
+        assert!(super::bounded_entry_stack(&foreign, "worker")
+            .unwrap_err()
+            .contains("external/indirect"));
+        let recursive = assembly.replace(" leave", " call worker\n leave");
+        assert!(super::bounded_entry_stack(&recursive, "worker")
+            .unwrap_err()
+            .contains("recursive"));
+    }
+
+    #[test]
+    fn numeric_local_branches_resolve_nearest_forward_and_backward_definitions() {
+        let assembly = ".type main, @function\nmain:\n push rbp\n mov rbp, rsp\n1:\n sub rsp, 16\n add rsp, 16\n jne 1b\n jmp 1f\n ud2\n1:\n sub rsp, 32\n add rsp, 32\n jne 1b\n leave\n ret\n.size main, .-main\n";
+        assert_eq!(super::bounded_entry_stack(assembly, "main").unwrap(), 40);
+    }
 
     #[test]
     fn reports_internal_call_chain_and_marks_external_usage_unknown() {

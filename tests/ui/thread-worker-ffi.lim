@@ -1,0 +1,4 @@
+(#extern-fn #abi-c abs ((value i32)) i32)
+(#fn work () i32 (#return (#unsafe (#call abs (#fn-args (value -42i32))))))
+(#thread-task Work work)
+(#fn main () u64 (#return 42u64))

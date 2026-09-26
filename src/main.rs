@@ -946,23 +946,8 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("thread.lim");
         let output = directory.join("thread");
-        let stub_source = directory.join("pthread-stub.s");
-        let stub_object = directory.join("pthread-stub.o");
         let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (#call Task-spawn (#fn-args (value 41))) (#case (Task-spawn-ok task) (#panic)) (#case (Task-spawn-error error) (#match error (#case Task-spawn-creation-error 43) (#case Task-spawn-allocation-error 0))))))";
         fs::write(&input, source).unwrap();
-        fs::write(
-            &stub_source,
-            ".intel_syntax noprefix\n.text\n.globl pthread_create\npthread_create:\n    mov eax, 11\n    ret\n",
-        )
-        .unwrap();
-        assert!(Command::new("as")
-            .arg("--64")
-            .arg(&stub_source)
-            .arg("-o")
-            .arg(&stub_object)
-            .status()
-            .unwrap()
-            .success());
 
         let config = lim::CompileConfig::default();
         let assembly = lim::compile_source_to_assembly(
@@ -973,10 +958,15 @@ mod tests {
             lim::TargetDescription::X86_64_SYSTEM_V,
         )
         .unwrap();
+        // Exercise the native negative-errno branch without requiring ptrace
+        // in ordinary unit tests. The integration audit injects real syscalls.
+        let site = "    mov eax, 56\n    syscall\n";
+        assert_eq!(assembly.matches(site).count(), 1);
+        let assembly = assembly.replace(site, "    mov rax, -11\n");
         assert!(lim::link_native_binary(
             &assembly,
             &output,
-            std::slice::from_ref(&stub_object),
+            &[],
             &[],
             lim::TargetDescription::X86_64_SYSTEM_V,
         )
@@ -993,23 +983,8 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("thread.lim");
         let output = directory.join("thread");
-        let stub_source = directory.join("malloc-stub.s");
-        let stub_object = directory.join("malloc-stub.o");
         let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (#call Task-spawn (#fn-args (value 41))) (#case (Task-spawn-ok task) (#panic)) (#case (Task-spawn-error error) (#match error (#case Task-spawn-creation-error 0) (#case Task-spawn-allocation-error 44))))))";
         fs::write(&input, source).unwrap();
-        fs::write(
-            &stub_source,
-            ".intel_syntax noprefix\n.text\n.globl malloc\nmalloc:\n    xor eax, eax\n    ret\n.section .note.GNU-stack,\"\",@progbits\n",
-        )
-        .unwrap();
-        assert!(Command::new("as")
-            .arg("--64")
-            .arg(&stub_source)
-            .arg("-o")
-            .arg(&stub_object)
-            .status()
-            .unwrap()
-            .success());
 
         let config = lim::CompileConfig::default();
         let assembly = lim::compile_source_to_assembly(
@@ -1020,10 +995,14 @@ mod tests {
             lim::TargetDescription::X86_64_SYSTEM_V,
         )
         .unwrap();
+        let start = assembly.find("    mov eax, 9\n").unwrap();
+        let end = start + assembly[start..].find("    syscall\n").unwrap() + "    syscall\n".len();
+        let mut assembly = assembly;
+        assembly.replace_range(start..end, "    mov rax, -12\n");
         assert!(lim::link_native_binary(
             &assembly,
             &output,
-            std::slice::from_ref(&stub_object),
+            &[],
             &[],
             lim::TargetDescription::X86_64_SYSTEM_V,
         )
@@ -1040,23 +1019,8 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let input = directory.join("thread.lim");
         let output = directory.join("thread");
-        let stub_source = directory.join("pthread-stub.s");
-        let stub_object = directory.join("pthread-stub.o");
         let source = "(#extern-fn #abi-c exit ((status i32)) ()) (#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#return (#match (#call Task-spawn (#fn-args (value 41))) (#case (Task-spawn-ok task) (#match (#call Task-join (#fn-args (task task))) (#case (Task-join-ok value) 42) (#case (Task-join-error (#tuple retry error)) (#if (#i32.== error 11) (#panic) (#block (#unsafe (#call exit (#fn-args (status 43)))) (#panic)))))) (#case (Task-spawn-error error) (#panic)))))";
         fs::write(&input, source).unwrap();
-        fs::write(
-            &stub_source,
-            ".intel_syntax noprefix\n.text\n.globl pthread_create\npthread_create:\n    push rbp\n    mov rbp, rsp\n    sub rsp, 32\n    mov QWORD PTR [rbp-8], rdi\n    mov QWORD PTR [rbp-16], rdx\n    mov QWORD PTR [rbp-24], rcx\n    mov QWORD PTR [rdi], 1\n    mov rdi, QWORD PTR [rbp-24]\n    mov rax, QWORD PTR [rbp-16]\n    call rax\n    xor eax, eax\n    leave\n    ret\n.globl pthread_join\npthread_join:\n    mov eax, 11\n    ret\n.globl free\nfree:\n    mov eax, 60\n    mov edi, 77\n    syscall\n    ud2\n.section .note.GNU-stack,\"\",@progbits\n",
-        )
-        .unwrap();
-        assert!(Command::new("as")
-            .arg("--64")
-            .arg(&stub_source)
-            .arg("-o")
-            .arg(&stub_object)
-            .status()
-            .unwrap()
-            .success());
 
         let config = lim::CompileConfig::default();
         let assembly = lim::compile_source_to_assembly(
@@ -1067,10 +1031,22 @@ mod tests {
             lim::TargetDescription::X86_64_SYSTEM_V,
         )
         .unwrap();
+        let site = "    mov eax, 186\n    syscall\n";
+        assert_eq!(assembly.matches(site).count(), 1);
+        let assembly = assembly.replace(
+            site,
+            "    mov eax, 11\n    jmp .Llim_thread_join_fail_Task\n",
+        );
+        // A failed join must neither consume the mapping nor release borrows.
+        // Make an accidental cleanup visibly different from the expected trap.
+        let assembly = assembly.replace(
+            "    mov eax, 11\n    syscall\n",
+            "    mov eax, 231\n    mov edi, 77\n    syscall\n    ud2\n",
+        );
         assert!(lim::link_native_binary(
             &assembly,
             &output,
-            std::slice::from_ref(&stub_object),
+            &[],
             &[],
             lim::TargetDescription::X86_64_SYSTEM_V,
         )

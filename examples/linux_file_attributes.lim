@@ -1,0 +1,88 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let path (#ptr-mut u8)
+    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let metadata (#ptr-mut u64)
+    (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#unsafe (#block
+    (#ptr-write path 97u8)
+    (#ptr-write (#ptr-offset path 1usize) 116u8)
+    (#ptr-write (#ptr-offset path 2usize) 116u8)
+    (#ptr-write (#ptr-offset path 3usize) 114u8)
+    (#ptr-write (#ptr-offset path 4usize) 115u8)
+    (#ptr-write (#ptr-offset path 16usize) 65u8)))
+  (#let fd i64
+    (#unsafe (#call linux-creat (#fn-args (path path) (mode 384u32)))))
+  (#let initial-write i64
+    (#unsafe (#call linux-write (#fn-args
+      (fd fd) (source (#ptr-offset path 16usize)) (count 1usize)))))
+  (#let fd-closed i64 (#call linux-close (#fn-args (fd fd))))
+  (#let resized i64
+    (#unsafe (#call linux-truncate (#fn-args (path path) (length 8i64)))))
+  (#let invalid-size i64
+    (#unsafe (#call linux-truncate (#fn-args (path path) (length -1i64)))))
+  (#let mode-changed i64
+    (#unsafe (#call linux-chmod (#fn-args (path path) (mode 256u32)))))
+  ; The all-ones UID/GID sentinels leave ownership unchanged.
+  (#let owner-unchanged i64
+    (#unsafe (#call linux-chown (#fn-args
+      (path path) (owner 4294967295u32) (group 4294967295u32)))))
+  (#let link-owner-unchanged i64
+    (#unsafe (#call linux-lchown (#fn-args
+      (path path) (owner 4294967295u32) (group 4294967295u32)))))
+  (#let null-times (#ptr-mut i64) (#ptr-null (#ptr-mut i64)))
+  (#let seconds-touched i64
+    (#unsafe (#call linux-utime (#fn-args (path path) (times null-times)))))
+  (#let microseconds-touched i64
+    (#unsafe (#call linux-utimes (#fn-args (path path) (times null-times)))))
+  (#let relative-touched i64
+    (#unsafe (#call linux-futimesat (#fn-args
+      (directory -100i64) (path path) (times null-times)))))
+  (#let stat-result i64
+    (#unsafe (#call linux-stat (#fn-args (path path) (metadata metadata)))))
+  ; x86-64 kernel stat: mode at byte 24, size at 48, mtime at 88.
+  (#let mode-word u64
+    (#unsafe (#ptr-read (#ptr-offset metadata 3usize))))
+  (#let file-size u64
+    (#unsafe (#ptr-read (#ptr-offset metadata 6usize))))
+  (#let modification-seconds u64
+    (#unsafe (#ptr-read (#ptr-offset metadata 11usize))))
+  (#let file-unlinked i64
+    (#unsafe (#call linux-unlink (#fn-args (path path)))))
+  (#let path-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (path 4096usize))))
+  (#let metadata-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (metadata 4096usize))))
+  (#let file-ok bool
+    (#bool.&& (#i64.>= fd 0i64)
+      (#bool.&& (#i64.== initial-write 1i64)
+        (#bool.&& (#i64.== fd-closed 0i64)
+          (#bool.&& (#i64.== resized 0i64)
+            (#bool.&& (#i64.== invalid-size -22i64)
+              (#bool.&& (#i64.== mode-changed 0i64)
+                (#bool.&& (#i64.== owner-unchanged 0i64)
+                  (#bool.&& (#i64.== link-owner-unchanged 0i64)
+                    (#bool.&& (#i64.== seconds-touched 0i64)
+                      (#bool.&& (#i64.== microseconds-touched 0i64)
+                        (#bool.&& (#i64.== relative-touched 0i64)
+                          (#bool.&& (#i64.== stat-result 0i64)
+                            (#bool.&& (#u64.== (#u64.& mode-word 511u64) 256u64)
+                              (#bool.&& (#u64.== file-size 8u64)
+                                (#bool.&& (#u64.> modification-seconds 0u64)
+                                  (#bool.&& (#i64.== file-unlinked 0i64)
+                                    (#bool.&& (#i64.== path-unmapped 0i64)
+                                      (#i64.== metadata-unmapped 0i64)))))))))))))))))))
+  (#return (#if file-ok
+    (#block
+      (#let-mut byte u8 65u8)
+      (#let first i64
+        (#call linux-write-byte (#fn-args (source (#borrow byte)))))
+      (#set byte 10u8)
+      (#let second i64
+        (#call linux-write-byte (#fn-args (source (#borrow byte)))))
+      (#if (#bool.&& (#i64.== first 1i64) (#i64.== second 1i64))
+        42u64 1u64))
+    1u64)))

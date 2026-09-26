@@ -572,6 +572,17 @@ fn check_types_inner(
         let Item::Function(function) = item else {
             continue;
         };
+        let clone_hook = function
+            .name
+            .strip_suffix("-clone")
+            .is_some_and(|name| structs.contains_key(name) || enums.contains_key(name));
+        if (function.external || function.unsafe_call) && (function.name == "main" || clone_hook) {
+            *diagnostic_span = function_name_span(program, &function.name);
+            return Err(semantic_format!(
+                "implicit entry point '{}' must be safe; use an explicit unsafe call inside a safe wrapper",
+                function.name
+            ));
+        }
         if function.external && !function.type_parameters.is_empty() {
             *diagnostic_span = function_name_span(program, &function.name);
             return Err(semantic_format!(
@@ -625,6 +636,15 @@ fn check_types_inner(
                 "thread task '{name}' refers to unknown worker function '{worker}'"
             ));
         };
+        if worker_item.external || worker_item.unsafe_call {
+            *diagnostic_span = program
+                .declaration_expressions
+                .get(name)
+                .and_then(|declaration| first_symbol_span(declaration, worker));
+            return Err(semantic_format!(
+                "thread worker '{worker}' must be safe; use a safe wrapper with an explicit unsafe call"
+            ));
+        }
         if !worker_item.type_parameters.is_empty() {
             return Err(semantic_format!(
                 "thread worker '{worker}' must be monomorphic; specialize it before spawning"
@@ -3396,7 +3416,7 @@ fn task_type_in_declaration_span(
         }
         "type" => candidates.push(children.last()?),
         "let" | "let-mut" | "static" | "static-mut" => candidates.push(children.get(2)?),
-        "fn" | "extern-fn" => {
+        "fn" | "unsafe-fn" | "extern-fn" => {
             let start = if head == "extern-fn" { 3 } else { 2 };
             for parameter in &children.get(start)?.children {
                 if let Some(ty) = parameter.children.get(1) {

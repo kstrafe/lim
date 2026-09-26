@@ -17,6 +17,10 @@ This document describes the language implemented by this crate.  The
 canonical spelling uses `#` before every builtin form. Unprefixed builtin
 forms are rejected.
 
+For syntax, contextual examples, and semantics of every builtin, see the
+[alphabetical builtin reference](#complete--builtin-reference-alphabetical)
+and its [typed operator families](#typed-operator-families-alphabetical).
+
 ## Design and scope
 
 Lim currently provides:
@@ -50,7 +54,8 @@ mutability belongs to the allocator implementation.
 
 `(#cell T)` is a single-threaded interior-mutable storage cell for supported
 scalar values (`T` must be numeric, `bool`, `char`, a raw pointer, or a
-fieldless enum). `(#cell T value)` constructs one, `#cell-get` reads its
+fieldless enum). `(#cell value)` constructs one when the expected type is
+`(#cell T)`; `#cell-get` reads its
 current value, and `#cell-set` replaces that value. A cell never returns a
 reference to its contents, so allocator state may be shared immutably while a
 cursor changes through the cell:
@@ -169,6 +174,40 @@ This distinguishes runtime failure from valid zero-valued results and allows
 the caller to retry a failed join. A failed join does not release captured
 borrows or free the task packet.
 
+On the Linux x86-64 backend, generated threads use direct kernel calls, not
+libc or pthreads. `mmap` reserves a stack and task packet; `mprotect` leaves
+the bottom page inaccessible. The compiler sizes each worker's stack from its
+emitted call graph, rounded to pages with a 64-KiB minimum and allowances for
+the entry trampoline and red zone. An unknown or unbounded worker call path
+is a compilation error rather than a guessed stack size.
+
+The native `clone` trampoline starts execution on the new stack. The parent
+and child share a kernel-managed TID word: parent-TID publication avoids an
+immediate-exit race, and child-TID clearing wakes a shared futex after exit.
+Join waits for that clearing before copying the result and unmapping the
+stack/packet. `EINTR` and `EAGAIN` retry internally; other futex errors retain
+the task handle in the join-error result. Allocation/protection and creation
+failures keep the existing distinct spawn-error variants. See the Linux
+[clone contract](https://man7.org/linux/man-pages/man2/clone.2.html) and
+[clear-child-TID contract](https://man7.org/linux/man-pages/man2/set_tid_address.2.html).
+
+Workers have no libc TLS: their FS base is explicitly zero, and reachable
+foreign or indirect callees are rejected, including calls through Lim helper
+functions. Explicit FFI outside worker call graphs remains available. Unsafe
+worker assembly must obey the same no-foreign-runtime and stack contracts;
+it must not terminate the thread early or change its clear-child-TID address.
+Installing custom signal handlers is also an unsafe responsibility: block
+their signals before spawning, arrange a worker-owned alternate signal stack,
+then unblock them. The computed Lim stack bound does not cover arbitrary
+signal-handler frames. The backend provides no pthread cancellation or TLS
+destructor behavior.
+
+`examples/kernel_threads.lim` exercises concurrent parent/worker progress,
+shared PID/distinct TIDs, the worker TLS boundary, repeated joining, and
+stdout. `tests/kernel_threads.rs` checks static ELF linkage, argument/result
+layouts, nested workers, large stack frames, and an actual guard-page fault.
+Its opt-in ptrace tests also verify kernel calls and inject spawn/join failures.
+
 For inspection, `@thread-spawn TaskType worker` materializes in `.lim/` as a
 `#thread-task` declaration containing explicit `#thread-task-spawn` and
 `#thread-task-join` builtin signatures, followed by `#enum` declarations for
@@ -255,6 +294,29 @@ address and reading or writing through a raw pointer must occur inside an
         (#ptr-read pointer)))))
 ```
 
+Functions with caller safety obligations use `#unsafe-fn` instead of `#fn`.
+Their signatures otherwise have the same shape. Every call must be enclosed
+in `#unsafe`, including calls from another unsafe function. The declaration
+does not make its body implicitly unsafe: raw operations still need a block.
+
+```lisp run=42
+(#unsafe-fn read-byte ((pointer (#ptr u8))) u8
+  (#return (#unsafe (#ptr-read pointer))))
+(#fn main () u64
+  (#let value u8 42u8)
+  (#return (#as (#unsafe
+    (#call read-byte (#fn-args (pointer (#addr-of value))))) u64)))
+```
+
+Imports and generated declarations preserve the calling requirement. Implicit
+entry points (`main`, aggregate clone hooks, and thread workers) must be safe;
+use a safe wrapper that explicitly discharges the unsafe function's obligations.
+Generator capability contracts currently describe safe operations, so an unsafe
+operation does not satisfy one. The Linux library uses this contract for all
+raw-pointer wrappers and integer-only APIs with hidden memory or execution-state
+obligations. Reference-bounded byte/time helpers remain safe. See the
+[syscall caller contracts](syscall-coverage.md#caller-safety-contracts).
+
 The operations are `#addr-of`, `#addr-of-mut`, `#ptr-read`, `#ptr-write`, and
 `(#ptr-offset pointer element-index)`. `(#ptr-null (#ptr-mut T))` or
 `(#ptr-null (#ptr T))` constructs a typed null pointer; constructing one is
@@ -311,24 +373,203 @@ calls, so this annotation is presently a caller convention rather than a
 checked requirement. The raw syscall operation remains available for the rest
 of the Linux syscall table. `examples/linux_syscalls.lim` and
 `examples/linux_sockets.lim` exercise direct socket syscalls, while
+`examples/linux_socket_listener.lim` binds an automatically named abstract
+UNIX socket, listens, connects, and exchanges bytes through both `accept` and
+`accept4`. It checks returned peer addresses, nonblocking and close-on-exec
+flags, empty accept queues, invalid arguments, and exact stdout;
+`examples/linux_socket_messages.lim` transfers datagrams with `sendmsg`,
+`recvmsg`, `sendmmsg`, and `recvmmsg`, checks each batched message length,
+and verifies nonblocking empty-queue errors and exact received output;
+`examples/linux_select.lim` checks `select` and raw `pselect6` readiness
+before and after draining an `eventfd`, validates the kernel signal-mask
+argument size, and exercises legacy epoll/inotify descriptor creation;
+`examples/linux_shared_memory.lim` creates a private System V segment with
+`shmget`, checks shared bytes through writable and read-only `shmat`
+attachments, marks it for removal with `shmctl`, and verifies destruction
+after the last `shmdt`;
+`examples/linux_message_queue.lim` creates a private queue with `msgget`,
+sends typed messages with `msgsnd`, verifies `msgrcv` type selection and
+buffer-size/empty-queue errors, removes the queue with `msgctl`, and checks
+the received payloads through exact stdout;
+`examples/linux_semaphores.lim` creates and removes a private semaphore set
+with `semget`/`semctl`, verifies atomic `semop` failure without partial
+changes, and exercises successful and expired `semtimedop` calls;
+`examples/linux_posix_mq.lim` exercises `mq_open`, `mq_unlink`,
+`mq_timedsend`, `mq_timedreceive`, `mq_getsetattr`, and `mq_notify`.
+It immediately unlinks its unique queue, verifies priority ordering,
+oversized-message rejection, queue counts, expired deadlines, nonblocking
+mode changes, and exclusive `SIGEV_NONE` notification registration. It also
+blocks SIGUSR1 and verifies actual `SIGEV_SIGNAL` delivery, the `SI_MESGQ`
+code, sender PID/UID, and notification payload, then checks one-shot delivery,
+rearming, cancellation, and restoration of the original signal mask. Exact
+stdout checks both the received messages and the notification payload; see
+[mq_notify(3)](https://man7.org/linux/man-pages/man3/mq_notify.3.html).
+Raw queue names omit the leading
+slash required by libc, deadlines are absolute CLOCK_REALTIME values, and
+descriptors close with `linux-close`; see
+[mq_open(3)](https://man7.org/linux/man-pages/man3/mq_open.3.html).
+`examples/linux_robust_futex.lim` registers and queries a robust-futex list,
+restores the original thread registration, and checks invalid sizes, missing
+threads, and invalid output pointers. A child then exits while owning a
+futex in shared memory; the parent verifies that Linux clears its owner ID
+and sets `FUTEX_OWNER_DIED`. A second owner is held behind a pipe while a
+waiter blocks directly on its robust futex. The controller checks the child's
+`/proc/PID/wchan` for a futex wait before releasing the owner, rather than
+guessing readiness with a sleep. This test requires readable procfs wait
+symbols; see [proc_pid_wchan(5)](https://man7.org/linux/man-pages/man5/proc_pid_wchan.5.html).
+The waiter requires a successful wake and verifies both owner-death
+and waiters bits before printing `W`; the parent reaps both children and
+prints `R`. The requeue wrapper uses an explicit `u32` count in the fourth
+syscall argument, rather than pretending it is a timeout pointer. The example
+tests an empty requeue and an expected-value mismatch, not successful blocked
+requeue cleanup; that remains an open coverage issue. See
+[FUTEX_CMP_REQUEUE(2)](https://man7.org/linux/man-pages/man2/FUTEX_CMP_REQUEUE.2const.html).
+These raw registrations require
+the caller to keep the list storage valid until replacement or thread exit;
+see [get_robust_list(2)](https://man7.org/linux/man-pages/man2/get_robust_list.2.html).
+`examples/linux_process_vectors.lim` transfers bytes within its own address
+space using `process_vm_readv` and `process_vm_writev`, then through a pipe
+using `vmsplice`, checking byte counts, error paths, and exact payload output;
+`examples/linux_mseal.lim` exercises `linux-mseal`, whose flags are `usize`
+(Linux `unsigned long`). It verifies invalid inputs, page rounding,
+idempotence, and rejected permission changes, discard, and unmapping while
+preserving the payload. Sealed mappings cannot be unsealed; this example's
+page is released only when its process exits. See the
+[kernel mseal documentation](https://docs.kernel.org/userspace-api/mseal.html).
+`examples/linux_secret_memory.lim` exercises `linux-memfd-secret` with `u32`
+flags. It verifies `O_CLOEXEC` (524288, not `MFD_CLOEXEC`), initial sizing,
+rejected resizing, shared mappings, and rejected `process_vm_readv` access.
+Mappings remain usable after descriptor close. The example deliberately
+copies its synthetic test bytes into ordinary memory for stdout, then unmaps
+all storage. Kernel secret-memory support and sufficient locked-memory
+allowance are required; unsupported hosts do not count as passing. See
+[memfd_secret(2)](https://man7.org/linux/man-pages/man2/memfd_secret.2.html).
+`examples/linux_io_uring.lim` uses `linux-io-uring-setup`,
+`linux-io-uring-enter`, and `linux-io-uring-register` without liburing.
+The wrappers expose raw kernel layouts and results: callers must keep rings,
+registered resources, and request buffers valid until operations finish.
+The example follows kernel-provided offsets, exercises single/separate ring
+mappings, and uses explicit x86-64 fences when publishing or consuming entries.
+It repeatedly writes and reads a registered anonymous file after closing its
+ordinary descriptor, checks completion cookies/results/flags and reused slots,
+and verifies invalid setup flags, enter flags, opcodes, and file indices.
+All resources are released after completion. Exact stdout comes from read
+buffers. Kernel io_uring support and permission are required; no skip is counted
+as success. See [io_uring_setup(2)](https://man7.org/linux/man-pages/man2/io_uring_setup.2.html)
+and the [kernel ABI header](https://github.com/torvalds/linux/blob/master/include/uapi/linux/io_uring.h).
+`examples/linux_aio.lim` exercises native `io_setup`, `io_submit`,
+`io_getevents`, `io_pgetevents`, `io_cancel`, and `io_destroy` without libaio.
+It writes and reads a memfd, checks completion cookies, the request pointer,
+byte counts, empty-queue behavior, and invalid requests, then prints the read
+payload. It also cancels a pending eventfd poll, drains its completion,
+rejects a second cancellation, and checks the packed signal-mask argument
+to `io_pgetevents`, including mask restoration and invalid sizes.
+Modern Linux returns `-EINPROGRESS` when cancellation is accepted and posts
+the completion to the queue; the legacy `io_cancel` output pointer is unused.
+An accepted cancellation does not itself permit freeing request storage;
+drain its completion first. This follows the
+[kernel AIO implementation](https://github.com/torvalds/linux/blob/master/fs/aio.c).
+These raw APIs require a
+zero-initialized context output for setup and native iocb/io_event layouts;
+request and data storage must remain valid until completion. See
+[io_submit(2)](https://man7.org/linux/man-pages/man2/io_submit.2.html).
+`examples/linux_process_control.lim` exercises `prctl` thread-name changes
+and restoration, `arch_prctl` FS/GS queries, and `capget`/`capset` capability
+version negotiation and unchanged-set round trips, with exact name output;
+`examples/linux_identity.lim` exercises `setuid`, `setgid`, `setreuid`,
+`setregid`, `setresuid`, `setresgid`, `setfsuid`, and `setfsgid` by reapplying
+current IDs or using unchanged-ID sentinels. It compares all real, effective,
+saved, and filesystem IDs, checks invalid-ID errors, and prints `U` only after
+the checks pass. Run this example as an ordinary, non-setuid executable.
+These direct credential syscalls affect the calling kernel thread, unlike
+libc's process-wide credential synchronization. Filesystem-ID setters return
+the previous ID on both success and failure, so callers must query again to
+verify the result; see [setresuid(2)](https://man7.org/linux/man-pages/man2/setresuid.2.html)
+and [setfsuid(2)](https://man7.org/linux/man-pages/man2/setfsuid.2.html).
+`examples/linux_fifo.lim` exercises `mknod`/`mknodat` FIFO creation and
+`fchmodat2` path and `AT_EMPTY_PATH` permission updates, verifies metadata
+and errors, unlinks both FIFOs, and checks bytes through an open FIFO;
+`examples/linux_ioctl.lim` checks pipe unread-byte counts with `FIONREAD`,
+sets nonblocking mode with `FIONBIO`, verifies errors, and prints the exact
+transferred bytes. `linux-ioctl` takes a `u32` request and a `usize` argument
+word, which may encode a pointer; callers must supply the request-specific
+buffer layout and lifetime. Request encodings are architecture-specific;
+see [ioctl(2)](https://man7.org/linux/man-pages/man2/ioctl.2.html).
 `examples/linux_zero_copy.lim` checks `sendfile`, `tee`, and `splice` payloads
-and offsets; `examples/linux_directory.lim` checks enumeration and cwd queries;
+and offsets; `examples/linux_directory.lim` checks both `getdents64` and
+legacy `getdents`, including record boundaries, name termination, file/link
+names, supported type tags (allowing `DT_UNKNOWN`), EOF, and errors. It prints
+`D` after the legacy enumeration checks and also exercises cwd queries.
+Legacy x86-64 records put the name at byte 18 and the type in their final
+byte, unlike `getdents64`; see
+[getdents(2)](https://man7.org/linux/man-pages/man2/getdents.2.html).
 `examples/linux_resources.lim` checks usage, limits, and umask restoration;
 `examples/linux_signals.lim` checks signal action and mask querying,
 installation, and restoration without delivering a signal;
+`examples/linux_signal_stack.lim` installs, queries, and restores a 64-KiB
+alternate signal stack, checks invalid flags and undersized-stack errors,
+arms and cancels an alarm, and tests `tkill` with signal zero and an invalid
+signal. It prints `S` after these checks; it does not test execution of a
+handler on the alternate stack. Stack storage must remain mapped while
+registered; see [sigaltstack(2)](https://man7.org/linux/man-pages/man2/sigaltstack.2.html).
+`examples/linux_pkeys.lim` requires Linux x86-64 PKU/OSPKE support. It tests
+`pkey_alloc`, `pkey_mprotect`, and `pkey_free`, checks PKRU rights, and verifies
+that a child's forbidden write produces SIGSEGV with core dumps disabled.
+The parent restores key zero before freeing the allocated key, checks
+invalid flags and stale-key errors, and prints `K` from the restored mapping.
+On machines without protection-key support allocation can return `-ENOSPC`;
+this hardware-specific test requires successful allocation rather than
+silently counting an unsupported path as coverage. See
+[pkey_alloc(2)](https://man7.org/linux/man-pages/man2/pkey_alloc.2.html).
+`examples/linux_program_break.lim` queries and reapplies the current
+personality, grows the program break by two pages, checks memory access,
+rejects impossible growth, and restores the original break. It prints `H`
+from the allocated region before releasing it. `linux-brk` returns a `usize`
+address: the new break on success or unchanged break on failure, not a
+negative errno or libc's zero/-1 result. Its unsupported-target fallback is
+zero. Program-break ownership must be coordinated across allocators/threads;
+this example is standalone and single-threaded. See
+[brk(2)](https://man7.org/linux/man-pages/man2/brk.2.html).
+`examples/linux_signal_receive.lim` blocks SIGUSR1, sends it to itself,
+consumes it with `signalfd`, `signalfd4`, and `rt_sigtimedwait`, checks
+signal records and empty-queue errors, and restores the original mask.
+It also sends to itself with `rt_sigqueueinfo` and `rt_tgsigqueueinfo`,
+verifies SI_QUEUE, sender fields, and full 64-bit payloads, and checks invalid
+signals and null input records. Raw `siginfo_t` records are 128 bytes on the
+supported target; sender PID/UID fields are supplied by the caller, not
+authenticated credentials. See
+[rt_sigqueueinfo(2)](https://man7.org/linux/man-pages/man2/rt_sigqueueinfo.2.html).
 `examples/linux_timers.lim` checks POSIX timer creation, arming, querying,
-deletion, and invalid-handle behavior without signal delivery;
+deletion, zero overruns on a newly created timer, and invalid-handle behavior
+without signal delivery;
 `examples/linux_interval_timers.lim` checks arming, querying, and restoring
 the process's legacy interval timer state;
 `examples/linux_inotify.lim` checks create/delete event records and watch
 cleanup using a private working directory;
 `examples/linux_wait4.lim` forks and reaps a child and validates the kernel's
-encoded exit status; `examples/linux_affinity.lim` round-trips the process's
+encoded exit status. The paired `tests/fixtures/exec_driver.lim` and
+`exec_target.lim` programs exercise `execve`, relative `execveat`, and
+`execveat` with `AT_EMPTY_PATH`. Their Rust harness compiles the target into
+a private working directory, checks exact output from all three replacement
+images, and verifies child exit statuses and failed-execution errors.
+Both wrappers take explicit null-terminated arrays of string pointers for
+arguments and environment, and NUL-terminated path strings. Successful calls
+replace the process image and never return; failures return raw negative
+errno values. Descriptor-based execution follows the Linux-specific
+[execveat rules](https://man7.org/linux/man-pages/man2/execveat.2.html).
+`examples/linux_waitid.lim` checks `setsid` and `setpgid`
+in isolated children, exits them through `exit`/`exit_group`, observes their
+exit records with `WNOWAIT`, and reaps them with `waitid`;
+`examples/linux_affinity.lim` round-trips the process's
 allowed-CPU mask and checks the affinity state is unchanged;
 `examples/linux_copy_file_range.lim` validates explicit-offset copying between
 anonymous files, including the copied bytes and updated offsets;
 `examples/linux_scheduler_queries.lim` checks scheduler parameters, policy
 priority bounds, invalid-policy behavior, and the current nice value;
+`examples/linux_scheduler_updates.lim` reapplies the current scheduling
+parameters, policy, attributes, nice value, and I/O priority through
+`sched_setparam`, `sched_setscheduler`, `sched_setattr`, `setpriority`, and
+`ioprio_set`, then verifies queried state and invalid-argument errors;
 `examples/linux_renameat2.lim` checks no-replace collision errors, successful
 renaming, and old/new path visibility in a scratch working directory;
 `examples/linux_statx.lim` checks anonymous-file metadata through
@@ -343,6 +584,9 @@ syscall argument counts zero through six, piped IO, local socket payloads, and
 kernel error results.
 
 ## Building and running
+
+For the standard library's measured syscall breadth, test commands, and
+remaining safety/coverage gaps, see [syscall coverage](syscall-coverage.md).
 
 The repository contains a Nix flake with the Rust toolchain:
 
@@ -382,6 +626,21 @@ target/ABI matrix currently has one entry:
 | Target spellings | OS/object format | CPU ABI | Backend/linker |
 | --- | --- | --- | --- |
 | `x86_64-sysv`, `x86_64-unknown-linux-gnu` | Linux ELF | x86-64 System V | native x86-64 assembly, GNU `as` and `ld` |
+
+The linker inspects assembled objects with GNU `nm`. When all objects have
+no undefined symbols and no libraries were explicitly requested, it links
+statically without libc, pthread, or a dynamic interpreter. This includes
+programs importing the direct-syscall Linux library. Unused external
+declarations alone do not require a runtime. Inline assembly's foreign
+references are detected from the object, not guessed from source text.
+If any object contains unresolved references, or explicit libraries were
+requested, the existing dynamic-runtime linking path remains available.
+This is conservative for references resolved between multiple supplied
+objects. `as`, `nm`, and `ld` are required; the Nix dev shell supplies them.
+After `main` returns, the entry stub calls Linux `exit_group` with its result,
+not thread-only `exit`, so outstanding kernel workers cannot change the
+process's final status. Explicit `linux-exit` remains thread-only. See
+[exit_group(2)](https://man7.org/linux/man-pages/man2/exit_group.2.html).
 
 All other target names (including other operating systems using the System V
 calling convention) are rejected. Host selection requires both Linux and
@@ -754,8 +1013,11 @@ pointers only. By-value aggregate FFI signatures remain rejected. Calls are unsa
   (#return (#as (#unsafe (#call abs (#fn-args (value -42i32)))) u64)))
 ```
 
-Binary compilation always links libc and pthread. Additional native link inputs
-can be supplied repeatedly with `--link-lib NAME` and `--link-object PATH`;
+Binary compilation links statically without libc or pthread when the assembled
+objects have no unresolved symbols and no libraries were explicitly requested.
+Foreign references still require the runtime linking path; generated threads
+do not. Additional native link inputs can be supplied repeatedly
+with `--link-lib NAME` and `--link-object PATH`;
 object files are passed to `ld` before libraries, and libraries are emitted as
 `-lNAME` arguments. These options apply to binary output, not `--emit-asm`.
 
@@ -1091,22 +1353,64 @@ appropriate context, and its effect.
 
 ### Complete `#` builtin reference (alphabetical)
 
-Examples below are fragments in their indicated context. A *form* is a list
-whose head is a builtin; type constructors and marker values are called out
-separately. Names such as `#u32.+.wrap` are typed operator identifiers rather
-than builtin form heads; their spelling is summarized after the table.
+This is the crate's builtin index: each row gives the accepted shape, a small
+example with its context, and its behavior. `Type`, `value`, and similar names
+are placeholders; `...` means repetition and square brackets mean optional
+syntax, not literal brackets. Fragment examples assume the named variables,
+types, and functions are declared in their enclosing program. Runtime
+statements belong inside a `#fn`, which must end with an explicit `#return`.
+Generator expressions belong inside a `#generator` or `#gn-fn`, not a runtime
+function. Operand markers and automatic cfg keys are included in the same
+sorted list as forms. Typed operators are listed by family immediately below.
+
+For example, a runtime binding, reference operation, and typed operator fit
+inside a function like this. The parameter is mutable explicitly, the reference
+is explicitly released before accessing its source, and the function returns
+explicitly:
+
+```lisp run=42
+(#fn increment ((#mut value u64)) u64
+  (#let reference (#ref-mut u64) (#borrow-mut value))
+  (#deref-set reference (#u64.+.wrap (#deref reference) 1u64))
+  (#drop reference)
+  (#return value))
+
+(#fn main () u64
+  (#return (#call increment (#fn-args (value 41u64)))))
+```
+
+Generator expressions instead run at compile time. Here a helper checks its
+syntax input, reports an error for a non-symbol, and emits a concrete type
+alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
+
+```lisp run=42
+(#gn-fn alias-declaration (name)
+  (#gn-if (#gn-symbol? name)
+    `(#type ,name u64)
+    (#gn-error "alias name must be a symbol")))
+
+(#generator make-alias (name)
+  (#gn-list (#gn-call alias-declaration name)))
+
+(@make-alias Answer)
+
+(#fn main () Answer
+  (#return 42u64))
+```
 
 | Builtin | Syntax | Example (context) | Meaning |
 | --- | --- | --- | --- |
+| `#abi-c` | `#abi-c` in `#extern-fn` | `(#extern-fn #abi-c abs ((value i32)) i32)` (declaration) | Selects the C calling convention; foreign calls require `#unsafe`. |
 | `#addr-of` | `(#addr-of local)` | `(#unsafe (#addr-of value))` (expression) | Takes a shared raw address of a scalar local; unsafe because later access is not checked. |
 | `#addr-of-mut` | `(#addr-of-mut mutable-local)` | `(#unsafe (#addr-of-mut value))` (expression) | Takes a mutable raw address of a mutable scalar local. |
 | `#align-of` | `(#align-of Type)` | `(#align-of Point)` (expression) | Compile-time alignment in bytes for the Lim representation, or C layout of a `#repr-c` type. |
-| `#array` | `(#array ElementType Length)` as a type; `(#array Type value...)` as value/pattern | `(#let xs (#array u8 2) (#array (#array u8 2) 4u8 5u8))` | Declares a fixed-length array type, constructs it, or matches its elements. |
+| `#arch` | `(#cfg-is #arch literal)` | `(#cfg-if (#cfg-is #arch x86_64) (#type Word u64))` (top level) | Automatically populated target architecture cfg key; overridable with `--cfg arch=VALUE`. |
+| `#array` | `(#array ElementType Length)` as a type; `(#array pattern...)` as a pattern | `(#let xs (#array u8 2) (#array-of (#array u8 2) 4u8 5u8))` (binding) | Names a fixed-length array type or destructures an array in a pattern; values are constructed with `#array-of`. |
 | `#array-of` | `(#array-of ArrayType value...)` | `(#array-of (#array u8 2) 4u8 5u8)` (expression) | Explicitly constructs a fixed array with its full type stated. |
-| `#array-repeat` | `(#array-repeat value)` with an expected array type | `(#let xs (#array u8 3) (#array-repeat 0u8))` | Fills every array slot with the given Copy value. |
-| `#as` | `(#as value TargetType)` | `(#let n u64 (#as byte u64))` (expression) | Performs an explicit checked/defined scalar or enum conversion accepted by the type checker. |
+| `#array-repeat` | `(#array-repeat value)` with an expected array type | `(#let xs (#array u8 3) (#array-repeat 0u8))` (binding) | Fills every array slot with the given Copy value. |
+| `#as` | `(#as value TargetType)` | `(#let n u64 (#as byte u64))` (expression) | Explicit scalar/enum conversion; narrowing integers truncate, and float-to-integer conversions trap when out of range. |
 | `#asm` | `(#asm ResultType ((register value)...) "instructions")` | `(#unsafe (#asm i64 ((rax 39usize)) "syscall"))` (expression) | Emits target assembly; unsafe, target-specific, and subject to the documented register/stack rules. |
-| `#assert` | `(#assert condition)` | `(#assert (#bool.== count 3u64))` (statement) | Traps if the condition is false. |
+| `#assert` | `(#assert condition)` | `(#assert (#u64.== count 3u64))` (statement) | Traps if the condition is false. |
 | `#atomic` | `(#atomic ScalarType)` | `(#let-mut counter (#atomic u64) (#atomic-init u64 0u64))` (type/binding) | Declares a supported atomic scalar wrapper type. |
 | `#atomic-compare-exchange` | `(#atomic-compare-exchange reference expected desired success-order failure-order)` | `(#atomic-compare-exchange (#borrow counter) 0u64 1u64 #memory-acq-rel #memory-acquire)` (expression) | Strong compare-exchange; returns `(success, observed-value)`. |
 | `#atomic-compare-exchange-weak` | `(#atomic-compare-exchange-weak reference expected desired success-order failure-order)` | `(#atomic-compare-exchange-weak (#borrow counter) 0u64 1u64 #memory-release #memory-relaxed)` (expression) | Weak compare-exchange; may fail spuriously and returns `(success, observed-value)`. |
@@ -1118,55 +1422,55 @@ than builtin form heads; their spelling is summarized after the table.
 | `#block` | `(#block statement... final-expression)` | `(#block (#let x u64 2u64) (#u64.+.wrap x 1u64))` (expression) | Evaluates statements in order and yields the final expression, or unit for a side-effect-only block. |
 | `#borrow` | `(#borrow place)` or `(#borrow place body)` | `(#let r (#ref u64) (#borrow value))` (binding) | Creates a shared reference, or scopes a shared borrow around a body. |
 | `#borrow-mut` | `(#borrow-mut place)` or `(#borrow-mut place body)` | `(#let r (#ref-mut u64) (#borrow-mut value))` (binding) | Creates an exclusive mutable reference, or scopes a mutable borrow around a body. |
-| `#break` | `(#break)` or `(#break value)` | `(#if done (#break 42u64) (#continue))` (loop body) | Exits the innermost loop, optionally supplying its expression value. |
+| `#break` | `(#break)` or `(#break value)` | `(#loop (#break 42u64))` (expression in a function) | Exits the innermost loop, optionally supplying its expression value. |
 | `#break-to` | `(#break-to label)` or `(#break-to label value)` | `(#break-to outer 42u64)` (labeled loop body) | Exits a named enclosing loop, optionally with a loop value. |
 | `#call` | `(#call function (#fn-args (name value)...))` | `(#call add (#fn-args (left 20u64) (right 22u64)))` (expression) | Calls a statically named function; every argument is named and checked against its signature. |
 | `#capability` | `(#capability name Type ((operation (Args...) Result)...))` | `(#capability ordered u64 ((less ((#ref u64) (#ref u64)) bool)))` (declaration) | Declares a generator-time signature contract that a concrete type may satisfy. |
 | `#case` | `(#case pattern body)` or `(#case pattern (#when guard) body)` | `(#case (Some x) x)` (inside `#match`) | Introduces one explicit match arm. |
-| `#cell` | `(#cell value)` as a type; `(#cell initial-value)` as an expression | `(#let-mut c (#cell u64) (#cell 0u64))` | Declares or constructs single-threaded interior-mutable storage. |
+| `#cell` | `(#cell ScalarType)` as a type; `(#cell initial-value)` as an expression | `(#let-mut c (#cell u64) (#cell 0u64))` (binding) | Declares or constructs single-threaded interior-mutable scalar storage; context distinguishes type from value. |
 | `#cell-get` | `(#cell-get cell-place)` | `(#cell-get c)` (expression) | Reads the current Cell value. |
 | `#cell-set` | `(#cell-set cell-place new-value)` | `(#cell-set c 9u64)` (statement) | Replaces a Cell value and yields unit. |
 | `#cfg-and` | `(#cfg-and condition...)` | `(#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))` (cfg condition) | Combines conditions with logical AND; requires at least one condition. |
 | `#cfg-else` | `(#cfg-else form...)` | `(#cfg-else (#fn fallback () () (#return ())))` (last `#cfg-if` branch) | Supplies forms when the preceding `#cfg-if` condition is false. |
-| `#cfg-if` | `(#cfg-if condition form... [#cfg-else form...])` | `(#cfg-if (#cfg-is #os linux) (#fn os-call () () (#return ())))` (top level) | Includes only the selected top-level forms before imports and semantic checks. |
+| `#cfg-if` | `(#cfg-if condition form... [(#cfg-else form...)])` | `(#cfg-if (#cfg-is #os linux) (#fn os-call () () (#return ())))` (top level) | Includes only the selected top-level forms before imports and semantic checks. |
 | `#cfg-is` | `(#cfg-is #key literal)` | `(#cfg-is #feature fast)` (cfg condition) | Compares a configured key to a symbol, string, or integer literal. |
 | `#cfg-not` | `(#cfg-not condition)` | `(#cfg-not (#cfg-is #debug enabled))` (cfg condition) | Negates one cfg condition. |
 | `#cfg-or` | `(#cfg-or condition...)` | `(#cfg-or (#cfg-is #os linux) (#cfg-is #os macos))` (cfg condition) | Combines conditions with logical OR; requires at least one condition. |
 | `#clone` | `(#clone value)` | `(#let second Buffer (#clone first))` (statement/expression) | Explicitly duplicates a Copy value or invokes the concrete type's `Type-clone` function. |
-| `#const` | `(#const name Type value)` | `(#const LIMIT u64 16u64)` (top level or statement) | Declares an immutable compile-time constant with an explicit type. |
-| `#continue` | `(#continue)` | `(#if skip (#continue) (#set total next))` (loop body) | Starts the next iteration of the innermost loop. |
+| `#const` | `(#const name Type value)` | `(#const LIMIT u64 16u64)` (top level) | Declares an immutable compile-time constant with an explicit type. |
+| `#continue` | `(#continue)` | `(#while false (#continue))` (function body) | Starts the next iteration of the innermost loop. |
 | `#continue-to` | `(#continue-to label)` | `(#continue-to outer)` (labeled loop body) | Starts the next iteration of a named enclosing loop. |
-| `#debug-assert` | `(#debug-assert condition)` | `(#debug-assert (#u64.< length capacity))` (statement) | Debug-build assertion; compiles away when debug configuration is disabled. |
+| `#debug-assert` | `(#debug-assert condition)` | `(#debug-assert (#u64.< length capacity))` (statement) | Currently identical to `#assert`: evaluates its condition and traps on false, regardless of cfg settings. |
 | `#deref` | `(#deref reference)` | `(#return (#deref r))` (expression) | Reads through a Lim reference. |
 | `#deref-set` | `(#deref-set mutable-reference value)` | `(#deref-set r 7u64)` (statement) | Writes through a mutable Lim reference. |
 | `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly consumes and discards a value without calling user destruction code. |
-| `#enum` | `(#enum Name (Variant (PayloadType...))...)` | `(#enum Maybe ((Some u64) None))` (top level) | Declares a concrete enum; variant payload types and discriminants are explicit. |
+| `#enum` | `(#enum Name [#repr-c] ((Variant [discriminant] PayloadType...)...))` | `(#enum Maybe ((Some u64) None))` (top level) | Declares a concrete enum; variants can carry typed payloads and explicit discriminants. |
 | `#extern-fn` | `(#extern-fn #abi-c name ((arg Type)...) ReturnType)` | `(#extern-fn #abi-c c_abs ((value i32)) i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
-| `#for` | `(#for init condition step body...)` | `(#for (#let-mut i u64 0u64) (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)) (#set sum (#u64.+.wrap sum i)))` (statement) | Runs an explicitly structured init/condition/step loop. |
-| `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i u64) 0u64 4u64 (#set sum (#u64.+.wrap sum i)))` (statement) | Iterates a typed, half-open range `[start, end)`. |
-| `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Explicitly consumes a value while suppressing automatic destruction. |
 | `#fn` | `(#fn name ((arg Type)...) ReturnType body...)` | `(#fn add ((a u64) (b u64)) u64 (#return (#u64.+.wrap a b)))` (top level) | Declares a monomorphic function with explicit parameter/return types and body. |
 | `#fn-args` | `(#fn-args (parameter value)...)` | `(#call id (#fn-args (value 42u64)))` (inside `#call`) | Names each call argument; order at the call site need not match declaration order. |
-| `#generator` | `(#generator name ((parameter syntax-or-capability)...) body...)` | ``(#generator make-alias ((name syntax)) (gn-emit `(#type ,name u64)))`` (top level) | Declares an interpreted compile-time syntax generator; arguments are literals/syntax, not runtime values. |
+| `#for` | `(#for init condition step body...)` | `(#for (#let-mut i u64 0u64) (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)) (#set sum (#u64.+.wrap sum i)))` (statement) | Runs an explicitly structured init/condition/step loop. |
+| `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i u64) 0u64 4u64 (#set sum (#u64.+.wrap sum i)))` (statement) | Iterates a typed, half-open range `[start, end)`. |
+| `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Consumes a value without cleanup; use after explicit resource release. Lim never inserts destructors. Task handles/results cannot be forgotten. |
+| `#generator` | `(#generator name (parameter-or-annotated-parameter...) body)` | ``(#generator make-alias (name) `((#type ,name u64)))`` (top level) | Declares an interpreted compile-time syntax generator; arguments are literals/syntax, not runtime values. |
 | `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
 | `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
 | `#gn-call` | `(#gn-call function syntax-arg...)` | `(#gn-call make-alias name target)` (generator body) | Calls a `#gn-fn` helper during generator interpretation. |
 | `#gn-equal` | `(#gn-equal syntax-a syntax-b)` | `(#gn-equal item expected)` (generator expression) | Tests structural equality of immutable generator syntax values. |
-| `#gn-error` | `(#gn-error string-or-syntax)` | `(#gn-error \"unsupported element type\")` (generator expression) | Stops generation with a source-associated explanatory diagnostic. |
+| `#gn-error` | `(#gn-error message)` where `message` evaluates to string syntax | `(#gn-error "unsupported element type")` (generator expression) | Stops generation with a source-associated explanatory diagnostic; non-string syntax is rejected. |
 | `#gn-first` | `(#gn-first list)` | `(#gn-first members)` (generator expression) | Returns the first element of a non-empty syntax list. |
-| `#gn-for-each` | `(#gn-for-each (name list) body...)` | `(#gn-for-each (field fields) (gn-emit field))` (generator body) | Executes generator forms once per syntax-list element; this is the bounded iteration primitive. |
-| `#gn-fn` | `(#gn-fn name (parameter...) body...)` | `(#gn-fn identity (value) value)` (top level) | Declares a reusable generator-time function. |
+| `#gn-fn` | `(#gn-fn name (parameter...) body)` | `(#gn-fn identity (value) value)` (top level) | Declares a reusable generator-time function with one syntax-producing body. |
+| `#gn-for-each` | `(#gn-for-each name syntax-list body)` | `(#gn-for-each field fields (#gn-list (#gn-symbol "#type") field u64))` (generator body) | Maps one syntax-producing body over a syntax list; returns a list of results and is the bounded iteration primitive. |
 | `#gn-if` | `(#gn-if condition then-value else-value)` | `(#gn-if (#gn-equal kind sortable) yes no)` (generator expression) | Selects a syntax value based on a generator boolean. |
 | `#gn-length` | `(#gn-length syntax-list)` | `(#gn-length fields)` (generator expression) | Returns the number of elements in a syntax list. |
 | `#gn-list` | `(#gn-list syntax...)` | `(#gn-list a b)` (generator expression) | Constructs an immutable syntax list. |
 | `#gn-list?` | `(#gn-list? syntax)` | `(#gn-list? value)` (generator expression) | Tests whether a syntax value is a list. |
 | `#gn-rest` | `(#gn-rest list)` | `(#gn-rest fields)` (generator expression) | Returns a list containing all but the first element. |
-| `#gn-symbol` | `(#gn-symbol text)` | `(#gn-symbol name)` (generator expression) | Constructs a symbol syntax value from literal text/syntax. |
+| `#gn-symbol` | `(#gn-symbol string-literal)` | `(#gn-symbol "#type")` (generator expression) | Constructs a symbol syntax value from a string literal. |
 | `#gn-symbol?` | `(#gn-symbol? syntax)` | `(#gn-symbol? value)` (generator expression) | Tests whether a syntax value is a symbol. |
 | `#if` | `(#if condition then [else])` | `(#return (#if ready 1u64 0u64))` (expression) | Selects an expression by a boolean; without `else`, the then branch must be unit. |
 | `#if-let` | `(#if-let pattern Type value then [else])` | `(#if-let (Some x) Maybe maybe x 0u64)` (expression) | Tests a typed pattern and scopes its bindings to the successful branch. |
-| `#import` | `(#import \"relative/path.lim\")` | `(#import \"types.lim\")` (top level) | Imports internal declarations without renaming their symbols. |
-| `#import-external` | `(#import-external \"path.lim\" prefix)` | `(#import-external \"math.lim\" math-)` (top level) | Imports declarations while prefixing their symbols. |
+| `#import` | `(#import "relative/path.lim")` | `(#import "types.lim")` (top level) | Imports internal declarations without renaming their symbols. |
+| `#import-external` | `(#import-external "path.lim" prefix)` | `(#import-external "math.lim" math-)` (top level) | Imports declarations while prefixing their symbols. |
 | `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
 | `#label` | `(#label name loop)` | `(#label outer (#while condition (#continue-to outer)))` (statement) | Names an enclosing `#while`, `#loop`, or `#for` for targeted control flow. |
 | `#let` | `(#let pattern-or-name Type value)` | `(#let count u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
@@ -1175,30 +1479,35 @@ than builtin form heads; their spelling is summarized after the table.
 | `#linear` | `(#linear TypeName)` | `(#linear FileHandle)` (top level) | Disables structural Copy for the named struct/enum, making its values linear. |
 | `#linux-syscall` | `(#linux-syscall ResultType number (arg...))` | `(#unsafe (#linux-syscall i64 39usize ()))` (expression) | Emits a raw Linux x86-64 syscall instruction with up to six machine-word arguments and unmodified negative-errno results. |
 | `#literal` | `(#literal NumericType literal)` | `(#let n u16 (#literal u16 42))` (expression) | Gives an integer/float literal an explicit numeric type. |
-| `#loop` | `(#loop body...)` | `(#loop (#if done (#break 42u64) (#continue)))` (statement/expression) | Repeats indefinitely until broken; a break value makes it value-producing. |
+| `#loop` | `(#loop body...)` | `(#return (#loop (#break 42u64)))` (function returning `u64`) | Repeats indefinitely until broken; a break value makes it value-producing. |
 | `#match` | `(#match value (#case pattern body)...)` | `(#match maybe (#case (Some x) x) (#case None 0u64))` (expression) | Performs an exhaustive pattern match; every arm must use `#case`. |
 | `#memory-acq-rel` | `#memory-acq-rel` | `(#atomic-fetch-add r 1u64 #memory-acq-rel)` (ordering operand) | Selects acquire-release ordering for read-modify-write atomics. |
 | `#memory-acquire` | `#memory-acquire` | `(#atomic-load r #memory-acquire)` (ordering operand) | Selects acquire ordering where permitted. |
 | `#memory-relaxed` | `#memory-relaxed` | `(#atomic-load r #memory-relaxed)` (ordering operand) | Selects relaxed ordering with no synchronization ordering. |
 | `#memory-release` | `#memory-release` | `(#atomic-store r 1u64 #memory-release)` (ordering operand) | Selects release ordering where permitted. |
 | `#memory-seq-cst` | `#memory-seq-cst` | `(#atomic-load r #memory-seq-cst)` (ordering operand) | Selects sequentially consistent ordering. |
+| `#mut` | `(#mut parameter Type)` | `(#fn advance ((#mut count u64)) u64 (#set count 1u64) (#return count))` (parameter list) | Marks a function parameter mutable; local mutable bindings use `#let-mut`. |
 | `#offset-of` | `(#offset-of ReprCType field)` | `(#offset-of Header payload)` (expression) | Computes a field's offset in the declared C layout; requires a `#repr-c` struct. |
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
+| `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
+| `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr u8) (#ptr-null (#ptr u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-borrow` | `(#ptr-borrow reference-anchor pointer)` | `(#unsafe (#ptr-borrow owner pointer))` (expression) | Creates a shared reference tied to an existing reference's inferred borrow lifetime; caller must uphold pointer validity. |
 | `#ptr-borrow-mut` | `(#ptr-borrow-mut mutable-reference-anchor mutable-pointer)` | `(#unsafe (#ptr-borrow-mut owner pointer))` (expression) | Creates an exclusive reference tied to an anchor; caller must prove unique valid access. |
 | `#ptr-is-null` | `(#ptr-is-null pointer)` | `(#if (#ptr-is-null p) 0u64 1u64)` (expression) | Safely tests a raw pointer for null. |
 | `#ptr-mut` | `(#ptr-mut PointeeType)` | `(#let p (#ptr-mut u8) (#ptr-null (#ptr-mut u8)))` (type) | Mutable raw-pointer type. |
 | `#ptr-null` | `(#ptr-null PointerType)` | `(#ptr-null (#ptr u8))` (expression) | Constructs a typed null raw pointer. |
-| `#ptr-offset` | `(#ptr-offset pointer usize-index)` | `(#ptr-offset p 2usize)` (expression) | Advances by pointee elements with checked address arithmetic; does not check allocation bounds. |
+| `#ptr-offset` | `(#ptr-offset pointer usize-index)` | `(#unsafe (#ptr-offset p 2usize))` (expression) | Advances by pointee elements with checked address arithmetic; requires unsafe context and does not check allocation bounds. |
 | `#ptr-read` | `(#ptr-read pointer)` | `(#unsafe (#ptr-read p))` (expression) | Reads the pointee value without bounds/validity checks. |
 | `#ptr-write` | `(#ptr-write mutable-pointer value)` | `(#unsafe (#ptr-write p 7u8))` (statement) | Writes the pointee without bounds/validity checks. |
-| `#range` | `(#range lower upper)` or `(#range-inclusive lower upper)` | `(#case (#range 1u32 4u32) 1u64)` (pattern) | Matches integer/character values in a half-open or inclusive interval. |
+| `#range` | `(#range lower upper)` | `(#case (#range 1u32 4u32) 1u64)` (pattern) | Matches integer/character values in a half-open interval. |
 | `#range-inclusive` | `(#range-inclusive lower upper)` | `(#case (#range-inclusive 1u32 4u32) 1u64)` (pattern) | Matches both endpoints of an integer/character interval. |
 | `#ref` | `(#ref TargetType)` | `(#let r (#ref u64) (#borrow value))` (type/binding) | Shared-reference type. |
 | `#ref-mut` | `(#ref-mut TargetType)` | `(#let r (#ref-mut u64) (#borrow-mut value))` (type/binding) | Mutable-reference type. |
+| `#repr-c` | `(#struct Name #repr-c fields)` or `(#enum Name #repr-c variants)` | `(#struct Header #repr-c ((tag u8) (length u32)))` (declaration) | Requests C layout metadata for layout queries; does not make arbitrary Lim values FFI-safe. |
 | `#return` | `(#return value)` | `(#return ())` (function body) | Exits a function with its explicitly typed result; void functions must return `()`. |
+| `#send` | `(#unsafe-impl #send Type)` | `(#struct Handle ((raw (#ptr u8)))) (#unsafe-impl #send Handle)` (top level) | Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally. |
 | `#set` | `(#set name value)` | `(#set count (#u32.+.wrap count 1u32))` (statement) | Reassigns a mutable local. |
 | `#set-field` | `(#set-field aggregate field-or-index value)` | `(#set-field point x 4u64)` (statement) | Mutates a struct field or tuple slot. |
 | `#set-index` | `(#set-index array index value)` | `(#set-index values 0usize 9u8)` (statement) | Mutates an array element after a bounds check. |
@@ -1215,51 +1524,76 @@ than builtin form heads; their spelling is summarized after the table.
 | `#slice-of` | `(#slice-of shared-array-reference)` | `(#slice-of (#borrow bytes))` (expression) | Creates a full immutable slice while retaining the source borrow. |
 | `#slice-range` | `(#slice-range slice start end)` | `(#slice-range view 1usize 3usize)` (expression) | Creates a checked half-open immutable subslice `[start,end)`. |
 | `#static` | `(#static name Type value)` | `(#static answer u64 42u64)` (top level) | Declares storage with static lifetime; accesses must be inside `#unsafe`. |
-| `#struct` | `(#struct Name ((field Type)...))` | `(#struct Point ((x u64) (y u64)))` (top level) | Declares a concrete struct; optional `#repr-c` selects C layout for layout queries. |
+| `#struct` | `(#struct Name [#repr-c] ((field Type)...))` | `(#struct Point ((x u64) (y u64)))` (top level) | Declares a concrete struct; optional `#repr-c` selects C layout for layout queries. |
 | `#struct-literal` | `(#struct-literal Type ((field value)...))` | `(#struct-literal Point ((x 1u64) (y 2u64)))` (expression) | Constructs a struct by explicitly naming every field; no defaults are applied. |
-| `#syntax-collection` | `(#syntax-collection name key-type contribution-type)` | `(#syntax-collection handlers Symbol Syntax)` (top level) | Declares a deterministic compile-time collection used by generator expansion. |
-| `#syntax-contribute` | `(#syntax-contribute collection key syntax)` | `(#syntax-contribute handlers Read `\\`(#fn read ...))` (top level) | Adds literal syntax under a unique key to a declared collection. |
+| `#sync` | `(#unsafe-impl #sync Type)` | `(#struct Handle ((raw (#ptr u8)))) (#unsafe-impl #sync Handle)` (top level) | Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally. |
+| `#syntax-collection` | `(#syntax-collection name)` | `(#syntax-collection handlers)` (top level) | Declares a deterministic compile-time syntax collection, frozen before generator expansion. |
+| `#syntax-contribute` | `(#syntax-contribute collection key syntax)` | `(#syntax-contribute handlers Read (Read u64))` (top level) | Adds literal syntax under a key; duplicate keys must contribute identical syntax. |
+| `#target` | `(#cfg-is #target literal)` | `(#cfg-if (#cfg-is #target x86_64-unknown-linux-gnu) (#type Word u64))` (top level) | Automatically populated canonical target triple cfg key; overridable with `--cfg target=VALUE`. |
 | `#thread-task` | `(#thread-task TaskType worker [spawn-signature join-signature])` | `(#thread-task ReadTask read-value)` (generated declaration) | Declares a concrete task type and its named worker; generated builtins are compiler-managed. |
-| `#thread-task-join` | `(#thread-task-join FunctionName TaskType)` | `(#thread-task-join ReadTask-join ReadTask)` (generated signature) | Internal generated declaration for joining a task and retrieving its result. |
-| `#thread-task-spawn` | `(#thread-task-spawn FunctionName TaskType)` | `(#thread-task-spawn ReadTask-spawn ReadTask)` (generated signature) | Internal generated declaration for creating a worker task. |
-| `#tuple` | `(#tuple Type...)` as a type; `(#tuple TupleType value...)` as value/pattern | `(#let pair (#tuple u64 bool) (#tuple (#tuple u64 bool) 3u64 true))` | Declares, constructs, or destructures a fixed tuple. |
+| `#thread-task-join` | `(#thread-task-join FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-join ReadTask-join ((task ReadTask)) ReadTask-join-result)` (generated signature) | Internal generated function signature for joining a task and retrieving its result. |
+| `#thread-task-spawn` | `(#thread-task-spawn FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-spawn ReadTask-spawn ((input u64)) ReadTask-spawn-result)` (generated signature) | Internal generated function signature for creating a worker task. |
+| `#tuple` | `(#tuple Type...)` as a type; `(#tuple TupleType value...)` as a value; `(#tuple pattern...)` as a pattern | `(#let pair (#tuple u64 bool) (#tuple (#tuple u64 bool) 3u64 true))` (binding) | Declares, constructs, or destructures a fixed tuple. |
 | `#type` | `(#type Name Type)` | `(#type UserId u64)` (top level) | Declares a transparent alias; uses remain strongly and statically typed. |
-| `#unsafe` | `(#unsafe expression)` | `(#unsafe (#ptr-read p))` (expression) | Marks a region allowed to contain raw memory, static access, assembly, and raw syscalls. |
-| `#unsafe-impl` | `(#unsafe-impl #send-or-#sync Type)` | `(#unsafe-impl #send NativeHandle)` (top level) | Unsafely overrides a type's structural thread-safety property; this is an author promise. |
 | `#unreachable` | `(#unreachable)` | `(#case impossible (#unreachable))` (expression) | Marks a path that must never execute; execution traps. |
-| `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64.>.wrap x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
+| `#unsafe` | `(#unsafe expression)` | `(#unsafe (#ptr-read p))` (expression) | Marks a region allowed to contain raw memory, static access, assembly, and raw syscalls. |
+| `#unsafe-fn` | `(#unsafe-fn name ((arg Type)...) ReturnType body...)` | `(#unsafe-fn read-byte ((p (#ptr u8))) u8 (#return (#unsafe (#ptr-read p))))` (top level) | Declares caller safety obligations: calls require `#unsafe`, and raw operations in the body still need explicit unsafe blocks. |
+| `#unsafe-impl` | `(#unsafe-impl property Type)` | `(#unsafe-impl #send NativeHandle)` (top level) | Unsafely overrides a type's structural thread-safety property; this is an author promise. |
+| `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64.> x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
 | `#while` | `(#while condition body...)` | `(#while (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)))` (statement) | Repeats while its boolean condition is true. |
 | `#while-let` | `(#while-let pattern Type value body...)` | `(#while-let (Some x) Maybe next (#set total x))` (statement) | Repeatedly matches a value and runs the body while the pattern succeeds. |
 
-#### Reserved builtin tokens and identifier families
+#### Typed operator families (alphabetical)
 
-These names are builtin operands/markers rather than list heads, and are also
-alphabetized here for completeness:
+The qualifier is part of the identifier, not a namespace. In this table,
+`I` expands to each of `i8`, `i16`, `i32`, `i64`, `i128`, `isize`,
+`u8`, `u16`, `u32`, `u64`, `u128`, and `usize`; `F` expands to
+`f32` or `f64`. Both operands must match the qualifier. Examples are
+expressions in a function body; the operator determines their result type.
+Pipe characters in the table are escaped only for Markdown rendering.
 
-| Token family/member | Syntax example | Meaning |
-| --- | --- | --- |
-| `#abi-c` | `(#extern-fn #abi-c c_abs ((value i32)) i32)` | Selects the C calling convention for an external function declaration. |
-| `#arch` | `(#cfg-is #arch x86_64)` | Built-in cfg key for the target architecture. |
-| `#backend` | `(#cfg-is #backend native)` | Built-in cfg key for the selected backend. |
-| `#debug` | `(#cfg-is #debug enabled)` | Built-in cfg key for debug configuration. |
-| `#feature` | `(#cfg-is #feature fast)` | Example user-defined cfg key; set with `--cfg feature=fast`. |
-| `#memory-acq-rel`, `#memory-acquire`, `#memory-relaxed`, `#memory-release`, `#memory-seq-cst` | `(#atomic-load reference #memory-acquire)` | Atomic memory-order operands; each atomic operation restricts which orderings are valid. |
-| `#mut` | `(#fn increment ((#mut value u64)) u64 ...)` | Marks a function parameter mutable; local mutable bindings use the distinct `#let-mut` form. |
-| `#os` | `(#cfg-is #os linux)` | Built-in cfg key for the operating system. |
-| `#platform` | `(#cfg-is #platform linux)` | Built-in cfg key for platform selection. |
-| `#repr-c` | `(#struct Header #repr-c ((tag u8)))` | Requests C layout metadata for supported layout queries; it does not make Lim values FFI-safe. |
-| `#send`, `#sync` | `(#unsafe-impl #sync Handle)` | Selects the thread-safety property named by `#unsafe-impl`. |
-| `#target` | `(#cfg-is #target x86_64-unknown-linux-gnu)` | Built-in cfg key for the target triple. |
-| `#uN.op`, `#iN.op`, `#f32.op`, `#f64.op` | `(#u32.+.wrap left right)` | Typed arithmetic/comparison/bitwise operators. Integer arithmetic names include explicit `.wrap` or `.saturate` where the operation can overflow; comparisons return `bool`. |
-| `#uN.op.wrap`, `#iN.op.wrap` | `(#i8.*.wrap left right)` | Integer arithmetic with two's-complement/modular wrapping. |
-| `#uN.op.saturate`, `#iN.op.saturate` | `(#u8.+.saturate left right)` | Integer arithmetic clamped to the type's minimum/maximum. |
+| Family | Syntax | Example (context) | Meaning |
+| --- | --- | --- | --- |
+| `#F.%` | `(#F.% a b)` | `(#f64.% 5.0f64 2.0f64)` (expression) | Floating-point remainder. |
+| `#F.*` | `(#F.* a b)` | `(#f32.* 2.0f32 3.0f32)` (expression) | Floating-point multiplication. |
+| `#F.+` | `(#F.+ a b)` | `(#f64.+ 2.0f64 3.0f64)` (expression) | Floating-point addition. |
+| `#F.-` | `(#F.- a b)` or `(#F.- a)` | `(#f32.- 2.0f32)` (expression) | Floating-point subtraction or unary negation. |
+| `#F./` | `(#F./ a b)` | `(#f64./ 6.0f64 2.0f64)` (expression) | Floating-point division. |
+| `#I.!` | `(#I.! value)` | `(#u8.! 0u8)` (expression) | Bitwise complement. |
+| `#I.%.saturate` | `(#I.%.saturate a b)` | `(#i8.%.saturate -128i8 -1i8)` (expression) | Remainder with explicit saturation mode; zero divisor traps. |
+| `#I.%.wrap` | `(#I.%.wrap a b)` | `(#u64.%.wrap 7u64 3u64)` (expression) | Remainder with explicit wrapping mode; zero divisor traps. |
+| `#I.&` | `(#I.& a b)` | `(#u8.& 3u8 1u8)` (expression) | Bitwise AND. |
+| `#I.*.saturate` | `(#I.*.saturate a b)` | `(#u8.*.saturate 200u8 2u8)` (expression) | Multiplication clamped to the integer bounds. |
+| `#I.*.wrap` | `(#I.*.wrap a b)` | `(#u8.*.wrap 200u8 2u8)` (expression) | Modular multiplication. |
+| `#I.+.saturate` | `(#I.+.saturate a b)` | `(#u8.+.saturate 255u8 1u8)` (expression) | Addition clamped to the integer bounds. |
+| `#I.+.wrap` | `(#I.+.wrap a b)` | `(#u8.+.wrap 255u8 1u8)` (expression) | Modular addition. |
+| `#I.-.saturate` | `(#I.-.saturate a b)` or `(#I.-.saturate a)` | `(#u8.-.saturate 0u8 1u8)` (expression) | Subtraction or negation clamped to the integer bounds. |
+| `#I.-.wrap` | `(#I.-.wrap a b)` or `(#I.-.wrap a)` | `(#i8.-.wrap -128i8)` (expression) | Modular subtraction or negation. |
+| `#I./.saturate` | `(#I./.saturate a b)` | `(#i8./.saturate -128i8 -1i8)` (expression) | Integer division; signed overflow clamps to the maximum. Zero divisor traps. |
+| `#I./.wrap` | `(#I./.wrap a b)` | `(#i8./.wrap -128i8 -1i8)` (expression) | Integer division; signed overflow wraps to the minimum. Zero divisor traps. |
+| `#I.<<` | `(#I.<< value count)` | `(#u32.<< 1u32 3u32)` (expression) | Left shift; an out-of-width count is rejected or traps. |
+| `#I.>>` | `(#I.>> value count)` | `(#i32.>> -8i32 1i32)` (expression) | Arithmetic right shift for signed types, logical for unsigned; count is checked. |
+| `#I.^` | `(#I.^ a b)` | `(#u8.^ 3u8 1u8)` (expression) | Bitwise XOR. |
+| `#I.\|` | `(#I.\| a b)` | `(#u8.\| 2u8 1u8)` (expression) | Bitwise OR. |
+| `#T.!=` | `(#T.!= a b)` | `(#char.!= #\a #\b)` (expression) | Inequality returning bool; T is I, F, bool, or char. |
+| `#T.<` | `(#T.< a b)` | `(#u64.< 1u64 2u64)` (expression) | Less than, returning bool; T is I, F, bool, or char. |
+| `#T.<=` | `(#T.<= a b)` | `(#f32.<= 1.0f32 2.0f32)` (expression) | Less than or equal, returning bool; T is I, F, bool, or char. |
+| `#T.==` | `(#T.== a b)` | `(#bool.== true false)` (expression) | Equality returning bool; T is I, F, bool, or char. |
+| `#T.>` | `(#T.> a b)` | `(#char.> #\b #\a)` (expression) | Greater than, returning bool; T is I, F, bool, or char. |
+| `#T.>=` | `(#T.>= a b)` | `(#i32.>= 2i32 1i32)` (expression) | Greater than or equal, returning bool; T is I, F, bool, or char. |
+| `#bool.!` | `(#bool.! value)` | `(#bool.! false)` (expression) | Logical negation. |
+| `#bool.&` | `(#bool.& a b)` | `(#bool.& true false)` (expression) | Boolean AND that evaluates both operands. |
+| `#bool.&&` | `(#bool.&& a b)` | `(#bool.&& true false)` (expression) | Short-circuit AND; evaluates b only when a is true. |
+| `#bool.^` | `(#bool.^ a b)` | `(#bool.^ true false)` (expression) | Boolean exclusive OR that evaluates both operands. |
+| `#bool.\|` | `(#bool.\| a b)` | `(#bool.\| true false)` (expression) | Boolean OR that evaluates both operands. |
+| `#bool.\|\|` | `(#bool.\|\| a b)` | `(#bool.\|\| true false)` (expression) | Short-circuit OR; evaluates b only when a is false. |
 
-`N` is a supported integer width/type (`8`, `16`, `32`, `64`, `128`, or the
-machine-width `size` family where implemented). Operators are `+`, `-`, `*`,
-`/`, `%`, `&`, `|`, `^`, `<<`, `>>`, comparisons, and boolean `&&`, `||`, `!`;
-the compiler validates that each operator is implemented for the selected
-type and that overflow behavior is explicit. `#memory-*` markers and cfg keys
-are values in operand positions, not standalone expressions.
+Plain integer arithmetic such as `#u64.+` is rejected. There is no generic
+`#T.op` builtin: expand the documented family to a concrete identifier.
+User-defined cfg keys such as `#feature`, `#debug`, or `#backend` are not
+additional builtins and are not automatically populated; set them with
+`--cfg KEY=VALUE`. The `@` generators and quote/backtick reader syntax are
+documented separately; they are not `#` builtins.
 
 ### Conditionals and blocks
 
@@ -1267,7 +1601,7 @@ An `#if` without an else branch must have unit type.  Value-producing
 conditionals require both branches:
 
 ```lisp syntax
-(#return (#if (#u64.>.wrap value 0u64)
+(#return (#if (#u64.> value 0u64)
               value
               0u64))
 ```
@@ -1286,12 +1620,10 @@ Statement loops use `#break` without a value:
 
 A loop expression has a value only when a reachable break supplies one:
 
-```lisp syntax
-(#let result u64
-  (#loop
-    (#if done
-         (#break 42u64)
-         (#continue))))
+```lisp run=42
+(#fn main () u64
+  (#let result u64 (#loop (#break 42u64)))
+  (#return result))
 ```
 
 The explicit `#for` form is:
@@ -1314,12 +1646,11 @@ are explicit and the range is half-open:
 Labels wrap statement loops with `#label`, and value-loop breaks can target an
 outer value loop:
 
-```lisp syntax
-(#label outer
-  (#while condition
-    (#if done
-         (#break-to outer 42u64)
-         (#continue-to outer))))
+```lisp run=42
+(#fn main () u64
+  (#return
+    (#label outer
+      (#loop (#break-to outer 42u64)))))
 ```
 
 Recursive calls are rejected.  Mutual recursion is rejected as well.
@@ -1341,7 +1672,7 @@ supported. Guards are placed between the pattern and body, using `#when`:
 
 ```lisp syntax
 (#match value
-  (#case (Some payload) (#when (#u64.>.wrap payload 40u64)) payload)
+  (#case (Some payload) (#when (#u64.> payload 40u64)) payload)
   (#case (Some _) 0u64)
   (#case None 0u64))
 ```

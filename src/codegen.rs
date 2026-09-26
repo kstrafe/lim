@@ -1359,13 +1359,6 @@ pub(crate) fn generate_checked_assembly(
         }
     }
     output.push_str(".text\n");
-    if program
-        .items
-        .iter()
-        .any(|item| matches!(item, Item::ThreadTask { .. }))
-    {
-        output.push_str(".extern malloc\n.extern free\n.extern pthread_create\n.extern pthread_join\n.extern abort\n");
-    }
     for item in &program.items {
         if let Item::Function(function) = item {
             if function.external {
@@ -1425,6 +1418,51 @@ pub(crate) fn generate_checked_assembly(
             })?,
         }
     }
+    // Resolve stack sizes only after every concrete worker/callee was emitted.
+    // Guarded mappings include the clone trampoline's 16-byte entry area and
+    // a red-zone allowance. The floor leaves room for ordinary kernel frames;
+    // user-installed signal handlers must arrange their own alternate stacks.
+    for item in &program.items {
+        if let Item::ThreadTask { name, worker, .. } = item {
+            let symbol = asm_symbol(name);
+            let entry = format!(".Llim_thread_entry_{symbol}");
+            let bytes =
+                crate::stack_usage::bounded_entry_stack(&output, &entry).map_err(|error| {
+                    let error = crate::source_error::SourceError::new(
+                        format!("thread '{name}': {error}"),
+                        crate::DiagnosticCode::Codegen,
+                    );
+                    program
+                        .declaration_spans
+                        .get(name)
+                        .map_or(error.clone(), |span| error.at(*span))
+                })?;
+            let stack = bytes
+                .checked_add(16 + 128 + 4095)
+                .map(|n| (n / 4096 * 4096).max(65536))
+                .filter(|n| *n <= i32::MAX as usize - 4096)
+                .ok_or("native thread stack size exceeds supported mapping layout")?;
+            let abi = &functions[worker];
+            let packet = abi
+                .parameters
+                .iter()
+                .chain(std::iter::once(&abi.return_type))
+                .try_fold(16usize, |size, ty| {
+                    let words = storage_word_count(ty, structs, enums)?;
+                    size.checked_add(words.checked_mul(8).ok_or("thread packet size overflow")?)
+                        .ok_or_else(|| "thread packet size overflow".to_owned())
+                })?;
+            let total = packet
+                .checked_add(4095)
+                .map(|n| n / 4096 * 4096)
+                .and_then(|n| n.checked_add(stack))
+                .and_then(|n| n.checked_add(4096));
+            if total.is_none_or(|n| n > i32::MAX as usize) {
+                return Err("native thread mapping size exceeds supported layout".into());
+            }
+            output.push_str(&format!(".set .Llim_thread_stack_{symbol}, {stack}\n"));
+        }
+    }
     output.push_str(".section .note.GNU-stack,\"\",@progbits\n");
     Ok(output)
 }
@@ -1460,24 +1498,46 @@ fn generate_thread_task(
     }
 
     let mut packet_offsets = Vec::with_capacity(worker_abi.parameters.len());
-    let mut packet_offset = 8usize;
+    // Header: kernel clear-child-TID word, completion word, mapping base.
+    let mut packet_offset = 16usize;
     for ty in &worker_abi.parameters {
         let words = storage_word_count(ty, structs, enums)?;
         if words == 0 {
             packet_offsets.push(None);
         } else {
             packet_offsets.push(Some(packet_offset));
-            packet_offset += words * 8;
+            packet_offset = packet_offset
+                .checked_add(
+                    words
+                        .checked_mul(8)
+                        .ok_or("thread argument storage overflow")?,
+                )
+                .ok_or("thread packet size overflow")?;
         }
     }
     let result_offset = packet_offset;
     let result_words = storage_word_count(result_type, structs, enums)?;
-    let allocation_size = packet_offset + result_words * 8;
+    let allocation_size = packet_offset
+        .checked_add(
+            result_words
+                .checked_mul(8)
+                .ok_or("thread result storage overflow")?,
+        )
+        .ok_or("thread packet size overflow")?;
     let task_symbol = asm_symbol(name);
     let worker_symbol = asm_symbol(worker);
     let spawn_symbol = asm_symbol(&format!("{name}-spawn"));
     let join_symbol = asm_symbol(&format!("{name}-join"));
     let entry_symbol = format!(".Llim_thread_entry_{task_symbol}");
+    let stack_symbol = format!(".Llim_thread_stack_{task_symbol}");
+    let mapping_symbol = format!(".Llim_thread_mapping_{task_symbol}");
+    let packet_pages = allocation_size
+        .checked_add(4095)
+        .map(|n| n / 4096 * 4096)
+        .ok_or("thread packet size overflow")?;
+    output.push_str(&format!(
+        ".set {mapping_symbol}, {stack_symbol}+4096+{packet_pages}\n"
+    ));
 
     let mut incoming = Vec::<Vec<(&'static str, String, usize)>>::new();
     let mut spill_words = 0usize;
@@ -1554,8 +1614,8 @@ fn generate_thread_task(
         }
     }
     output.push_str(&format!(
-        "    mov edi, {allocation_size}\n    call malloc\n    test rax, rax\n    je .Llim_thread_alloc_fail_{task_symbol}\n    mov QWORD PTR [rbp-{}], rax\n",
-        context_slot * 8
+        "    mov eax, 9\n    xor edi, edi\n    mov esi, OFFSET {mapping_symbol}\n    xor edx, edx\n    mov r10d, 34\n    mov r8, -1\n    xor r9d, r9d\n    syscall\n    cmp rax, -4095\n    jae .Llim_thread_alloc_fail_{task_symbol}\n    mov QWORD PTR [rbp-{slot}], rax\n    lea rdi, [rax+4096]\n    mov esi, OFFSET {mapping_symbol}-4096\n    mov edx, 3\n    mov eax, 10\n    syscall\n    test rax, rax\n    jne .Llim_thread_protect_fail_{task_symbol}\n    mov rdx, QWORD PTR [rbp-{slot}]\n    mov eax, OFFSET {stack_symbol}+4096\n    add rax, rdx\n    mov QWORD PTR [rax+8], rdx\n    mov QWORD PTR [rbp-{slot}], rax\n",
+        slot = context_slot * 8
     ));
     for (index, offset) in packet_offsets.iter().enumerate() {
         let Some(offset) = offset else {
@@ -1598,10 +1658,8 @@ fn generate_thread_task(
         }
     }
     output.push_str(&format!(
-        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdi, rax\n    xor esi, esi\n    lea rdx, [rip+{entry_symbol}]\n    mov rcx, rax\n    call pthread_create\n    test eax, eax\n    jne .Llim_thread_create_fail_{task_symbol}\n    mov rdx, QWORD PTR [rbp-{}]\n    xor eax, eax\n    leave\n    ret\n.Llim_thread_alloc_fail_{task_symbol}:\n    mov eax, 1\n    xor edx, edx\n    leave\n    ret\n.Llim_thread_create_fail_{task_symbol}:\n    mov rdi, QWORD PTR [rbp-{}]\n    call free\n    mov eax, 1\n    mov edx, 1\n    leave\n    ret\n.size {spawn_symbol}, .-{spawn_symbol}\n",
-        context_slot * 8,
-        context_slot * 8,
-        context_slot * 8
+        "    mov rdx, QWORD PTR [rbp-{slot}]\n    lea rsi, [rdx-16]\n    mov QWORD PTR [rsi], rdx\n    mov r10, rdx\n    xor r8d, r8d\n    mov edi, 0x3d0f00\n    mov eax, 56\n    syscall\n    test rax, rax\n    js .Llim_thread_create_fail_{task_symbol}\n    je .Llim_thread_child_{task_symbol}\n    mov rdx, QWORD PTR [rbp-{slot}]\n    xor eax, eax\n    leave\n    ret\n.Llim_thread_child_{task_symbol}:\n    mov rdi, QWORD PTR [rsp]\n    call {entry_symbol}\n    ud2\n.Llim_thread_protect_fail_{task_symbol}:\n    mov rdi, QWORD PTR [rbp-{slot}]\n    mov esi, OFFSET {mapping_symbol}\n    mov eax, 11\n    syscall\n.Llim_thread_alloc_fail_{task_symbol}:\n    mov eax, 1\n    xor edx, edx\n    leave\n    ret\n.Llim_thread_create_fail_{task_symbol}:\n    mov rdi, QWORD PTR [rbp-{slot}]\n    mov rdi, QWORD PTR [rdi+8]\n    mov esi, OFFSET {mapping_symbol}\n    mov eax, 11\n    syscall\n    mov eax, 1\n    mov edx, 1\n    leave\n    ret\n.size {spawn_symbol}, .-{spawn_symbol}\n",
+        slot = context_slot * 8
     ));
 
     output.push_str(&format!(
@@ -1749,7 +1807,10 @@ fn generate_thread_task(
             ));
         }
     }
-    output.push_str("    xor eax, eax\n    leave\n    ret\n");
+    // CLONE_PARENT_SETTID publishes the TID before the parent returns, even if
+    // the child exits immediately. Never overwrite that word in user space.
+    // CLONE_CHILD_CLEARTID wakes a shared (not PRIVATE) futex after exit.
+    output.push_str(&format!("    mov r10, QWORD PTR [rbp-8]\n    mov DWORD PTR [r10+4], 1\n    mov eax, 60\n    xor edi, edi\n    syscall\n    ud2\n.size {entry_symbol}, .-{entry_symbol}\n"));
 
     let join_result_type = Type::Named(format!("{name}-join-result"));
     let join_result_words = storage_word_count(&join_result_type, structs, enums)?;
@@ -1772,7 +1833,7 @@ fn generate_thread_task(
         output.push_str("    mov QWORD PTR [rbp-16], r10\n");
     }
     output.push_str(&format!(
-        "    test rdi, rdi\n    je .Llim_thread_join_null_{task_symbol}\n    mov rdi, QWORD PTR [rdi]\n    xor esi, esi\n    call pthread_join\n    test eax, eax\n    jne .Llim_thread_join_fail_{task_symbol}\n"
+        "    test rdi, rdi\n    je .Llim_thread_join_null_{task_symbol}\n    mov eax, 186\n    syscall\n    mov rdi, QWORD PTR [rbp-8]\n    cmp DWORD PTR [rdi], eax\n    je .Llim_thread_join_self_{task_symbol}\n.Llim_thread_join_wait_{task_symbol}:\n    mov rdi, QWORD PTR [rbp-8]\n    mov edx, DWORD PTR [rdi]\n    test edx, edx\n    je .Llim_thread_join_ready_{task_symbol}\n    xor esi, esi\n    xor r10d, r10d\n    xor r8d, r8d\n    xor r9d, r9d\n    mov eax, 202\n    syscall\n    test rax, rax\n    je .Llim_thread_join_wait_{task_symbol}\n    cmp rax, -11\n    je .Llim_thread_join_wait_{task_symbol}\n    cmp rax, -4\n    je .Llim_thread_join_wait_{task_symbol}\n    neg eax\n    jmp .Llim_thread_join_fail_{task_symbol}\n.Llim_thread_join_ready_{task_symbol}:\n    cmp DWORD PTR [rdi+4], 1\n    jne .Llim_thread_join_incomplete_{task_symbol}\n"
     ));
     if join_indirect_return {
         output.push_str("    mov r11, QWORD PTR [rbp-16]\n    mov QWORD PTR [r11], 0\n");
@@ -1788,13 +1849,17 @@ fn generate_thread_task(
         if word < result_words {
             output.push_str(&format!(
                 "    mov r10, QWORD PTR [rbp-8]\n    mov rax, QWORD PTR [r10+{}]\n    mov {destination}, rax\n",
-                result_offset + (result_words - 1 - word) * 8,
+                result_offset + if worker_abi.indirect_return {
+                    (result_words - 1 - word) * 8
+                } else {
+                    word * 8
+                },
             ));
         } else {
             output.push_str(&format!("    mov {destination}, 0\n"));
         }
     }
-    output.push_str("    mov rdi, QWORD PTR [rbp-8]\n    call free\n");
+    output.push_str(&format!("    mov rdi, QWORD PTR [rbp-8]\n    mov rdi, QWORD PTR [rdi+8]\n    mov esi, OFFSET {mapping_symbol}\n    mov eax, 11\n    syscall\n    test rax, rax\n    jne .Llim_thread_cleanup_trap_{task_symbol}\n"));
     if !join_indirect_return {
         for (word, register) in VALUE_REGISTERS.iter().take(join_result_words).enumerate() {
             output.push_str(&format!(
@@ -1805,7 +1870,7 @@ fn generate_thread_task(
     }
     output.push_str("    leave\n    ret\n");
     output.push_str(&format!(
-        ".Llim_thread_join_null_{task_symbol}:\n    mov eax, 22\n.Llim_thread_join_fail_{task_symbol}:\n    mov ecx, eax\n"
+        ".Llim_thread_cleanup_trap_{task_symbol}:\n    ud2\n.Llim_thread_join_incomplete_{task_symbol}:\n    ud2\n.Llim_thread_join_self_{task_symbol}:\n    mov eax, 35\n    jmp .Llim_thread_join_fail_{task_symbol}\n.Llim_thread_join_null_{task_symbol}:\n    mov eax, 22\n.Llim_thread_join_fail_{task_symbol}:\n    mov ecx, eax\n"
     ));
     if join_indirect_return {
         output.push_str("    mov r11, QWORD PTR [rbp-16]\n    mov QWORD PTR [r11], 1\n    mov rax, QWORD PTR [rbp-8]\n    mov QWORD PTR [r11-8], rax\n    mov QWORD PTR [r11-16], rcx\n");
@@ -9989,7 +10054,10 @@ impl FunctionContext {
             self.output.push_str(&format!("    jmp {end}\n{next}:\n"));
             self.stack_depth = base_depth + staged_words;
         }
-        self.output.push_str(&format!("{end}:\n"));
+        // Exhaustiveness guarantees this fallthrough is unreachable for a
+        // valid value. Terminate it explicitly so stack analysis cannot treat
+        // an invalid tag as a loop backedge retaining the staged scrutinee.
+        self.output.push_str(&format!("    ud2\n{end}:\n"));
         self.stack_depth = base_depth;
         Ok(())
     }
@@ -10531,7 +10599,7 @@ impl FunctionContext {
             }
             self.stack_depth = base_depth + words;
         }
-        self.output.push_str(&format!("{end}:\n"));
+        self.output.push_str(&format!("    ud2\n{end}:\n"));
         self.stack_depth = base_depth;
         Ok(())
     }
@@ -10616,7 +10684,7 @@ impl FunctionContext {
             ));
             self.stack_depth = base_depth + storage_words;
         }
-        self.output.push_str(&format!("{end}:\n"));
+        self.output.push_str(&format!("    ud2\n{end}:\n"));
         self.stack_depth = base_depth;
         Ok(())
     }
@@ -10673,7 +10741,7 @@ impl FunctionContext {
             }
             self.output.push_str(&format!("    jmp {end}\n{next}:\n"));
         }
-        self.output.push_str(&format!("{end}:\n"));
+        self.output.push_str(&format!("    ud2\n{end}:\n"));
         Ok(())
     }
 

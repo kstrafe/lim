@@ -1,5 +1,60 @@
 (#import "../library/linux_x86_64.lim")
 
+; SAFETY: buffer is an exclusively writable 4096-byte region, readable after
+; the syscall fills it; directory refers to this example's scratch directory.
+(#unsafe-fn check-legacy-entries ((directory i64) (buffer (#ptr-mut u8))) ()
+  (#assert (#i64.== (#call linux-lseek (#fn-args
+    (fd directory) (offset 0i64) (whence 0i64))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-getdents (#fn-args
+    (fd -1i64) (buffer buffer) (size 4096u32)))) -9i64))
+  (#assert (#i64.== (#unsafe (#call linux-getdents (#fn-args
+    (fd directory) (buffer buffer) (size 1u32)))) -22i64))
+  (#let-mut seen-file bool false)
+  (#let-mut seen-link bool false)
+  (#let-mut count i64 (#unsafe (#call linux-getdents (#fn-args
+    (fd directory) (buffer buffer) (size 4096u32)))))
+  (#assert (#i64.>= count 0i64))
+  (#while (#i64.> count 0i64)
+    (#let size usize (#as count usize))
+    (#let-mut offset usize 0usize)
+    (#while (#usize.< offset size)
+      (#assert (#usize.>= (#usize.-.wrap size offset) 24usize))
+      (#let entry (#ptr-mut u8) (#unsafe (#ptr-offset buffer offset)))
+      (#let length usize (#unsafe (#asm usize ((rdi entry))
+        "movzx eax, WORD PTR [rdi+16]")))
+      (#assert (#bool.&& (#usize.>= length 24usize)
+        (#usize.<= length (#usize.-.wrap size offset))))
+      (#assert (#usize.== (#usize.%.wrap length 8usize) 0usize))
+      ; Locate the NUL within the name region, excluding the final type byte.
+      (#let-mut character usize 18usize)
+      (#let end usize (#usize.-.wrap length 1usize))
+      (#while (#bool.&& (#usize.< character end)
+        (#u8.!= (#unsafe (#ptr-read (#ptr-offset entry character))) 0u8))
+        (#set character (#usize.+.wrap character 1usize)))
+      (#assert (#usize.< character end))
+      (#let name u32 (#unsafe (#asm u32 ((rdi entry)) "mov eax, DWORD PTR [rdi+18]")))
+      (#let kind u8 (#unsafe (#ptr-read (#ptr-offset entry end))))
+      (#if (#bool.&& (#usize.== character 22usize) (#u32.== name 0x656c6966u32))
+        (#block
+          (#assert (#bool.|| (#u8.== kind 8u8) (#u8.== kind 0u8)))
+          (#set seen-file true)) ())
+      (#if (#bool.&& (#usize.== character 22usize) (#u32.== name 0x6b6e696cu32))
+        (#block
+          (#assert (#bool.|| (#u8.== kind 10u8) (#u8.== kind 0u8)))
+          (#set seen-link true)) ())
+      (#set offset (#usize.+.wrap offset length)))
+    (#set count (#unsafe (#call linux-getdents (#fn-args
+      (fd directory) (buffer buffer) (size 4096u32)))))
+    (#assert (#i64.>= count 0i64)))
+  (#assert (#bool.&& seen-file seen-link))
+  (#assert (#i64.== (#unsafe (#call linux-getdents (#fn-args
+    (fd directory) (buffer buffer) (size 4096u32)))) 0i64))
+  (#let letter u8 68u8)
+  (#let newline u8 10u8)
+  (#assert (#i64.== (#call linux-write-byte (#fn-args (source (#borrow letter)))) 1i64))
+  (#assert (#i64.== (#call linux-write-byte (#fn-args (source (#borrow newline)))) 1i64))
+  (#return ()))
+
 (#fn main () u64
   (#let path-memory (#ptr-mut u8)
     (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
@@ -8,6 +63,15 @@
     (#block
       (#ptr-write path-memory 46u8)
       (#ptr-write (#ptr-offset path-memory 1usize) 0u8)
+      (#ptr-write (#ptr-offset path-memory 16usize) 102u8)
+      (#ptr-write (#ptr-offset path-memory 17usize) 105u8)
+      (#ptr-write (#ptr-offset path-memory 18usize) 108u8)
+      (#ptr-write (#ptr-offset path-memory 19usize) 101u8)
+      (#ptr-write (#ptr-offset path-memory 32usize) 108u8)
+      (#ptr-write (#ptr-offset path-memory 33usize) 105u8)
+      (#ptr-write (#ptr-offset path-memory 34usize) 110u8)
+      (#ptr-write (#ptr-offset path-memory 35usize) 107u8)
+      (#ptr-write (#ptr-offset path-memory 64usize) 65u8)
       ()))
   (#let directory i64
     (#unsafe (#call linux-openat (#fn-args
@@ -15,6 +79,59 @@
   (#let entries (#ptr-mut u8)
     (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let created i64
+    (#unsafe (#call linux-creat (#fn-args
+      (path (#ptr-offset path-memory 16usize)) (mode 384u32)))))
+  (#let file-written i64
+    (#unsafe (#call linux-write (#fn-args
+      (fd created) (source (#ptr-offset path-memory 64usize)) (count 1usize)))))
+  (#let created-closed i64 (#call linux-close (#fn-args (fd created))))
+  (#let file-access i64
+    (#unsafe (#call linux-access (#fn-args
+      (path (#ptr-offset path-memory 16usize)) (mode 0i32)))))
+  (#let opened i64
+    (#unsafe (#call linux-open (#fn-args
+      (path (#ptr-offset path-memory 16usize)) (flags 0i32) (mode 0u32)))))
+  (#let file-read i64
+    (#unsafe (#call linux-read (#fn-args (fd opened) (destination entries) (count 1usize)))))
+  (#let file-byte u8 (#unsafe (#ptr-read entries)))
+  (#assert (#i64.== (#unsafe (#call linux-getdents (#fn-args
+    (fd opened) (buffer entries) (size 4096u32)))) -20i64))
+  (#let opened-closed i64 (#call linux-close (#fn-args (fd opened))))
+  (#let link-created i64
+    (#unsafe (#call linux-symlink (#fn-args
+      (target (#ptr-offset path-memory 16usize))
+      (link-path (#ptr-offset path-memory 32usize))))))
+  (#let link-read i64
+    (#unsafe (#call linux-readlink (#fn-args
+      (path (#ptr-offset path-memory 32usize))
+      (destination entries) (size 16usize)))))
+  (#let link-first-byte u8 (#unsafe (#ptr-read entries)))
+  (#let link-last-byte u8
+    (#unsafe (#ptr-read (#ptr-offset entries 3usize))))
+  (#let pipe-memory (#ptr-mut i32)
+    (#unsafe (#linux-syscall (#ptr-mut i32) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let pipe-created i64 (#unsafe (#call linux-pipe (#fn-args (descriptors pipe-memory)))))
+  (#let pipe-reader i64 (#as (#unsafe (#ptr-read pipe-memory)) i64))
+  (#let pipe-writer i64
+    (#as (#unsafe (#ptr-read (#ptr-offset pipe-memory 1usize))) i64))
+  (#let pipe-written i64
+    (#unsafe (#call linux-write (#fn-args
+      (fd pipe-writer) (source (#ptr-offset path-memory 64usize))
+      (count 1usize)))))
+  (#let pipe-read i64
+    (#if (#i64.== pipe-written 1i64)
+      (#unsafe (#call linux-read (#fn-args
+        (fd pipe-reader) (destination entries) (count 1usize))))
+      -1i64))
+  (#let pipe-byte u8 (#unsafe (#ptr-read entries)))
+  (#let pipe-reader-closed i64
+    (#call linux-close (#fn-args (fd pipe-reader))))
+  (#let pipe-writer-closed i64
+    (#call linux-close (#fn-args (fd pipe-writer))))
+  (#let pipe-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (pipe-memory 4096usize))))
   (#let first-batch i64
     (#unsafe (#call linux-getdents64 (#fn-args
       (fd directory) (buffer entries) (size 4096usize)))))
@@ -28,26 +145,65 @@
     (#unsafe (#call linux-getdents64 (#fn-args
       (fd directory) (buffer entries) (size 4096usize)))))
   (#let changed-directory i64 (#call linux-fchdir (#fn-args (fd directory))))
+  (#unsafe (#call check-legacy-entries (#fn-args (directory directory) (buffer entries))))
+  (#let changed-by-path i64
+    (#unsafe (#call linux-chdir (#fn-args (path path-memory)))))
   (#let current-directory i64
     (#unsafe (#call linux-getcwd (#fn-args (buffer entries) (size 4096usize)))))
   (#let absolute-path-first-byte u8 (#unsafe (#ptr-read entries)))
+  (#let link-removed i64
+    (#unsafe (#call linux-unlinkat (#fn-args
+      (directory -100i64) (path (#ptr-offset path-memory 32usize))
+      (flags 0i32)))))
+  (#let file-removed i64
+    (#unsafe (#call linux-unlinkat (#fn-args
+      (directory -100i64) (path (#ptr-offset path-memory 16usize))
+      (flags 0i32)))))
   (#let closed i64 (#call linux-close (#fn-args (fd directory))))
   (#let path-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (path-memory 4096usize))))
   (#let entries-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (entries 4096usize))))
+  (#let legacy-file-operations-ok bool
+    (#bool.&& (#i64.>= created 0i64)
+      (#bool.&& (#i64.== file-written 1i64)
+        (#bool.&& (#i64.== created-closed 0i64)
+          (#bool.&& (#i64.== file-access 0i64)
+            (#bool.&& (#i64.>= opened 0i64)
+              (#bool.&& (#i64.== file-read 1i64)
+                (#bool.&& (#u8.== file-byte 65u8)
+                  (#bool.&& (#i64.== opened-closed 0i64)
+                    (#bool.&& (#i64.== link-created 0i64)
+                      (#bool.&& (#i64.== link-read 4i64)
+                        (#bool.&& (#u8.== link-first-byte 102u8)
+                          (#bool.&& (#u8.== link-last-byte 101u8)
+                            (#bool.&& (#i64.== link-removed 0i64)
+                              (#i64.== file-removed 0i64)))))))))))))))
+  (#let pipe-ok bool
+    (#bool.&& (#i64.== pipe-created 0i64)
+      (#bool.&& (#i64.>= pipe-reader 0i64)
+        (#bool.&& (#i64.>= pipe-writer 0i64)
+          (#bool.&& (#i64.== pipe-written 1i64)
+            (#bool.&& (#i64.== pipe-read 1i64)
+              (#bool.&& (#u8.== pipe-byte 65u8)
+                (#bool.&& (#i64.== pipe-reader-closed 0i64)
+                  (#bool.&& (#i64.== pipe-writer-closed 0i64)
+                    (#i64.== pipe-unmapped 0i64))))))))))
   (#return
-    (#if (#bool.&& (#i64.>= directory 0i64)
+    (#if (#bool.&& legacy-file-operations-ok
+      (#bool.&& pipe-ok
+        (#bool.&& (#i64.>= directory 0i64)
       (#bool.&& (#i64.> first-batch 0i64)
         (#bool.&& (#u8.>= first-record-length 19u8)
           (#bool.&& (#u8.!= first-name-byte 0u8)
             (#bool.&& (#i64.== reset-position 0i64)
               (#bool.&& (#i64.> second-batch 0i64)
                 (#bool.&& (#i64.== changed-directory 0i64)
+                  (#bool.&& (#i64.== changed-by-path 0i64)
                   (#bool.&& (#i64.> current-directory 0i64)
                     (#bool.&& (#u8.== absolute-path-first-byte 47u8)
                       (#bool.&& (#i64.== closed 0i64)
                         (#bool.&& (#i64.== path-unmapped 0i64)
-                          (#i64.== entries-unmapped 0i64))))))))))))
+                          (#i64.== entries-unmapped 0i64)))))))))))))))
       42u64
       1u64)))
