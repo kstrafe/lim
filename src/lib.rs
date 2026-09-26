@@ -24,6 +24,7 @@ mod stack_usage;
 mod syntax_collection;
 mod typecheck;
 mod typed_body;
+mod typed_flow;
 mod typed_ir;
 mod unsafecheck;
 use source_error::SourceError;

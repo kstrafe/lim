@@ -166,6 +166,16 @@ the checklist is committed alongside the implementation it tracks.
   parameter-backed return with a native example. This remains an AST-side
   safeguard until match arms use typed binding/place identities in IR-04.
 
+- [x] **IR-04e: Retain shared typed control flow before ownership checks.**
+  Lower checked bodies before linear and borrow analysis, then build a stable,
+  address-free flow graph with edges for expression branches and matches,
+  short-circuit operators, loops, labeled breaks/continues, returns, and
+  divergence. Expose the graph in the typed-IR debug dump. As a first consumer,
+  run definite-binding analysis over `BindingId` at joins and loop fixed points;
+  a reachable read or assignment must be bound on every incoming path. Tests
+  cover branch edges, labels, and divergent paths. Full move/loan analysis on
+  this graph remains open in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

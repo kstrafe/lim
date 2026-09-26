@@ -166,7 +166,13 @@ impl<'a> CheckedProgram<'a> {
         names.sort();
         names
             .into_iter()
-            .map(|name| format!("function {name}\n{}", self.declarations.bodies[name].dump()))
+            .map(|name| {
+                format!(
+                    "function {name}\n{}{}",
+                    self.declarations.bodies[name].dump(),
+                    self.declarations.flows[name].dump()
+                )
+            })
             .collect()
     }
 
@@ -843,24 +849,6 @@ fn check_types_inner(
             }
         }
     }
-    check_thread_task_ownership(program, &aliases, diagnostic_span, diagnostic_labels)?;
-    *diagnostic_code = crate::DiagnosticCode::Linear;
-    crate::linearcheck::check_program_with_span(program).map_err(|(message, span, labels)| {
-        *diagnostic_span = span;
-        *diagnostic_labels = labels;
-        message
-    })?;
-    *diagnostic_code = crate::DiagnosticCode::Borrow;
-    crate::borrowcheck::check_program(program).map_err(|error| {
-        *diagnostic_span = error.span;
-        *diagnostic_labels = error.labels;
-        error.message
-    })?;
-    *diagnostic_code = crate::DiagnosticCode::Unsafe;
-    crate::unsafecheck::check_program_with_span(program).map_err(|(message, span)| {
-        *diagnostic_span = span;
-        message
-    })?;
     functions.collecting_sources.set(true);
     for item in &program.items {
         match item {
@@ -908,7 +896,30 @@ fn check_types_inner(
         program,
         &functions.expression_types.into_inner(),
         &functions.source_spans.into_inner(),
-    );
+    )?;
+    check_thread_task_ownership(
+        program,
+        &declarations.aliases,
+        diagnostic_span,
+        diagnostic_labels,
+    )?;
+    *diagnostic_code = crate::DiagnosticCode::Linear;
+    crate::linearcheck::check_program_with_span(program).map_err(|(message, span, labels)| {
+        *diagnostic_span = span;
+        *diagnostic_labels = labels;
+        message
+    })?;
+    *diagnostic_code = crate::DiagnosticCode::Borrow;
+    crate::borrowcheck::check_program(program).map_err(|error| {
+        *diagnostic_span = error.span;
+        *diagnostic_labels = error.labels;
+        error.message
+    })?;
+    *diagnostic_code = crate::DiagnosticCode::Unsafe;
+    crate::unsafecheck::check_program_with_span(program).map_err(|(message, span)| {
+        *diagnostic_span = span;
+        message
+    })?;
     Ok(declarations)
 }
 

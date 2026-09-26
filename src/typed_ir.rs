@@ -50,6 +50,7 @@ pub(crate) struct FunctionDeclaration {
 
 pub(crate) struct Declarations {
     pub bodies: HashMap<String, crate::typed_body::Body>,
+    pub flows: HashMap<String, crate::typed_flow::FlowGraph>,
     pub aliases: HashMap<String, Type>,
     pub structs: HashMap<String, Vec<Field>>,
     pub enums: HashMap<String, Vec<EnumVariant>>,
@@ -101,6 +102,7 @@ impl Declarations {
             .collect();
         Self {
             bodies: HashMap::new(),
+            flows: HashMap::new(),
             aliases,
             structs,
             enums,
@@ -183,7 +185,7 @@ impl Declarations {
         program: &crate::Program,
         types: &HashMap<usize, Type>,
         spans: &HashMap<usize, Span>,
-    ) {
+    ) -> Result<(), String> {
         self.bodies = program
             .items
             .iter()
@@ -195,6 +197,24 @@ impl Declarations {
                 _ => None,
             })
             .collect();
+        self.flows = self
+            .bodies
+            .iter()
+            .map(|(name, body)| {
+                crate::typed_flow::FlowGraph::lower(body).map(|flow| (name.clone(), flow))
+            })
+            .collect::<Result<_, _>>()?;
+        for item in &program.items {
+            if let crate::Item::Function(function) = item {
+                if !function.external {
+                    self.flows[&function.name].check_definite_bindings(
+                        &self.bodies[&function.name],
+                        function.parameters.len(),
+                    )?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 

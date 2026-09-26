@@ -92,6 +92,14 @@ conservative union prevents a locally owned referent from escaping through
 an enum payload. Direct enum and struct constructors preserve those origins
 as well; typed arm-place provenance remains future IR-04 work.
 
+Checked bodies are now lowered before the ownership passes. Each has a
+retained, address-free control-flow graph keyed by body node and binding IDs;
+it represents branches, matches, short-circuit evaluation, loops, labeled
+transfers, returns, and diverging expressions. The debug IR dump includes the
+graph and its reachable nodes. Definite-binding analysis is the first typed
+ownership preflight: a local read or assignment must be bound on every live
+incoming path. Move and loan tracking still use the transitional syntax pass.
+
 Global reads and borrows, named field/payload projections, concrete aggregate
 and variant constructors, and pattern constructors retain declaration IDs.
 Named assignment projections retain field/variant IDs rather than names.
