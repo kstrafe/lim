@@ -1,0 +1,90 @@
+; Linux x86-64 syscall-backed byte IO and process query primitives.
+; Import only for cfg(os=linux, arch=x86_64). Raw syscall errors are returned
+; as negative errno values in i64; no libc or FFI calls are made here.
+(#import "linux_x86_64_syscall_numbers.lim")
+
+; Lim stack aggregates are laid out toward lower addresses. Keep nanoseconds
+; first so a pointer adjusted to the low end has the Linux C timespec order.
+(#struct LinuxTimespec ((nanoseconds i64) (seconds i64)))
+
+(#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
+  (#fn linux-read-byte ((destination (#ref-mut u8))) i64
+    (#return (#unsafe (#asm i64
+      ((rax LINUX-SYS-READ) (rdi 0usize) (rsi destination) (rdx 1usize))
+      "and rsi, -2\n1:\nsyscall\ncmp rax, -4\nje 1b"))))
+  (#fn linux-write-byte ((source (#ref u8))) i64
+    (#return (#unsafe (#asm i64
+      ((rax LINUX-SYS-WRITE) (rdi 1usize) (rsi source) (rdx 1usize))
+      "and rsi, -2\n1:\nsyscall\ncmp rax, -4\nje 1b"))))
+  (#fn linux-getpid () i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETPID)) "syscall"))))
+  (#fn linux-getuid () i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETUID)) "syscall"))))
+  (#fn linux-getgid () i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETGID)) "syscall"))))
+  (#fn linux-geteuid () i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETEUID)) "syscall"))))
+  (#fn linux-getegid () i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETEGID)) "syscall"))))
+  (#fn linux-getppid () i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETPPID)) "syscall"))))
+  (#fn linux-getpgrp () i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETPGRP)) "syscall"))))
+  (#fn linux-getpgid ((pid i64)) i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETPGID) (rdi pid)) "syscall"))))
+  (#fn linux-getsid ((pid i64)) i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETSID) (rdi pid)) "syscall"))))
+  (#fn linux-getpriority ((which i64) (who i64)) i64
+    (#return (#unsafe (#asm i64
+      ((rax LINUX-SYS-GETPRIORITY) (rdi which) (rsi who)) "syscall"))))
+  (#fn linux-gettid () i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETTID)) "syscall"))))
+  (#fn linux-sched-yield () i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-SCHED-YIELD)) "syscall"))))
+  (#fn linux-close ((fd i64)) i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-CLOSE) (rdi fd)) "syscall"))))
+  (#fn linux-dup ((fd i64)) i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-DUP) (rdi fd)) "syscall"))))
+  (#fn linux-lseek ((fd i64) (offset i64) (whence i64)) i64
+    (#return (#unsafe (#asm i64
+      ((rax LINUX-SYS-LSEEK) (rdi fd) (rsi offset) (rdx whence)) "syscall"))))
+  (#fn linux-fsync ((fd i64)) i64
+    (#return (#unsafe (#asm i64 ((rax LINUX-SYS-FSYNC) (rdi fd)) "syscall"))))
+  (#fn linux-ftruncate ((fd i64) (length i64)) i64
+    (#return (#unsafe (#asm i64
+      ((rax LINUX-SYS-FTRUNCATE) (rdi fd) (rsi length)) "syscall"))))
+  (#fn linux-clock-gettime ((clock-id i64) (time (#ref-mut LinuxTimespec))) i64
+    (#return (#unsafe (#asm i64
+      ((rax LINUX-SYS-CLOCK-GETTIME) (rdi clock-id) (rsi time))
+      "test rsi, 1\njz 1f\nand rsi, -2\nsub rsi, 8\n1:\nsyscall"))))
+  (#fn linux-nanosleep ((request (#ref LinuxTimespec)) (remaining (#ref-mut LinuxTimespec))) i64
+    (#return (#unsafe (#asm i64
+      ((rax LINUX-SYS-NANOSLEEP) (rdi request) (rsi remaining))
+      "test rdi, 1\njz 1f\nand rdi, -2\nsub rdi, 8\n1:\ntest rsi, 1\njz 2f\nand rsi, -2\nsub rsi, 8\n2:\nsyscall"))))
+  (#fn linux-getrandom-byte ((destination (#ref-mut u8))) i64
+    (#return (#unsafe (#asm i64
+      ((rax LINUX-SYS-GETRANDOM) (rdi destination) (rsi 1usize) (rdx 0usize))
+      "and rdi, -2\nsyscall"))))
+  (#cfg-else
+    (#fn linux-read-byte ((destination (#ref-mut u8))) i64 (#return -38i64))
+    (#fn linux-write-byte ((source (#ref u8))) i64 (#return -38i64))
+    (#fn linux-getpid () i64 (#return -38i64))
+    (#fn linux-getuid () i64 (#return -38i64))
+    (#fn linux-getgid () i64 (#return -38i64))
+    (#fn linux-geteuid () i64 (#return -38i64))
+    (#fn linux-getegid () i64 (#return -38i64))
+    (#fn linux-getppid () i64 (#return -38i64))
+    (#fn linux-getpgrp () i64 (#return -38i64))
+    (#fn linux-getpgid ((pid i64)) i64 (#return -38i64))
+    (#fn linux-getsid ((pid i64)) i64 (#return -38i64))
+    (#fn linux-getpriority ((which i64) (who i64)) i64 (#return -38i64))
+    (#fn linux-gettid () i64 (#return -38i64))
+    (#fn linux-sched-yield () i64 (#return -38i64))
+    (#fn linux-close ((fd i64)) i64 (#return -38i64))
+    (#fn linux-dup ((fd i64)) i64 (#return -38i64))
+    (#fn linux-lseek ((fd i64) (offset i64) (whence i64)) i64 (#return -38i64))
+    (#fn linux-fsync ((fd i64)) i64 (#return -38i64))
+    (#fn linux-ftruncate ((fd i64) (length i64)) i64 (#return -38i64))
+    (#fn linux-clock-gettime ((clock-id i64) (time (#ref-mut LinuxTimespec))) i64 (#return -38i64))
+    (#fn linux-nanosleep ((request (#ref LinuxTimespec)) (remaining (#ref-mut LinuxTimespec))) i64 (#return -38i64))
+    (#fn linux-getrandom-byte ((destination (#ref-mut u8))) i64 (#return -38i64))))

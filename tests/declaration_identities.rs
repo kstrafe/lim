@@ -91,10 +91,18 @@ fn enum_constructor_match_and_payload_projection_share_variant_identity() {
 
 #[test]
 fn global_and_shadowing_local_references_have_distinct_declaration_kinds() {
-    // SAFE-01: the legacy unsafe checker still checks the static's spelling.
-    // Keep its required wrapper here while testing the IR's scoped resolution.
+    // Parameters keep their source spelling. Local and pattern bindings are
+    // alpha-renamed by the parser before static access is checked.
     let source = "(#static TOTAL u64 40u64)
-      (#fn shadow ((TOTAL u64)) u64 (#return (#unsafe TOTAL)))
+      (#enum Maybe ((Some u64) None))
+      (#fn shadow ((TOTAL u64)) u64 (#return TOTAL))
+      (#fn shadow-local () u64
+        (#let TOTAL u64 42u64)
+        (#return TOTAL))
+      (#fn shadow-pattern ((value Maybe)) u64
+        (#return (#match value
+          (#case (Some TOTAL) TOTAL)
+          (#case None 0u64))))
       (#fn main () u64
         (#return (#unsafe TOTAL)))";
     let dump = checked_dump(source);
@@ -113,10 +121,93 @@ fn global_and_shadowing_local_references_have_distinct_declaration_kinds() {
         !shadow_dump.contains("Declaration(Global("),
         "shadowed parameter must not resolve to the global: {shadow_dump}"
     );
+    for function in ["shadow-local", "shadow-pattern"] {
+        let body = dump
+            .split_once(&format!("function {function}\n"))
+            .unwrap()
+            .1;
+        let body = body.split("\nfunction ").next().unwrap();
+        assert!(body.contains("binding: Some(BindingId("), "{body}");
+        assert!(!body.contains("Declaration(Global("), "{body}");
+    }
     let main_dump = dump.split_once("function main\n").unwrap().1;
     assert!(
         main_dump.contains("Declaration(Global(GlobalId(0)))"),
         "main's unshadowed reference must resolve to the global: {main_dump}"
+    );
+}
+
+#[test]
+fn actual_static_access_still_requires_unsafe_and_points_at_its_name() {
+    let scratch = support::Scratch::new("static-unsafe");
+    let source = "(#static TOTAL u64 40u64)\n(#fn main () u64 (#return TOTAL))";
+    let error = lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("static-unsafe.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("access to static 'TOTAL' requires"));
+    let span = error.span.expect("static diagnostic source span");
+    assert_eq!(&source[span.start..span.end], "TOTAL");
+}
+
+#[test]
+fn imported_static_access_retains_its_imported_source_location() {
+    let scratch = support::Scratch::new("imported-static-unsafe");
+    let module = "(#static TOTAL u64 40u64)\n(#fn read () u64 (#return TOTAL))";
+    std::fs::write(scratch.path().join("module.lim"), module).unwrap();
+    let root = "(#import \"module.lim\")\n(#fn main () u64 (#return (#call read (#fn-args))))";
+    let error = lim::compile_source_to_assembly(
+        root,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("access to static 'TOTAL' requires"));
+    let span = error.span.expect("imported static diagnostic source span");
+    assert_eq!(span.source_id, 1);
+    assert_eq!(&module[span.start..span.end], "TOTAL");
+    assert_eq!(
+        error.source_name.as_deref(),
+        Some(scratch.path().join("module.lim").to_str().unwrap())
+    );
+}
+
+#[test]
+fn generated_static_access_still_requires_unsafe() {
+    let scratch = support::Scratch::new("generated-static-unsafe");
+    let source =
+        "(#generator make (name) `((#static TOTAL u64 1u64) (#fn ,name () u64 (#return TOTAL))))\n\
+      (@make read)\n\
+      (#fn main () u64 (#return (#call read (#fn-args))))";
+    let error = lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("generated-static.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("access to static 'TOTAL' requires"));
+    let generated_span = error.span.expect("generated diagnostic source span");
+    let generated_text = error
+        .source_text
+        .as_deref()
+        .expect("generated diagnostic source text");
+    assert!(generated_span.source_id > 0);
+    assert!(generated_text.contains("#fn read") && generated_text.contains("TOTAL"));
+    let invocation = error
+        .expansion_provenance
+        .first()
+        .expect("generated diagnostic invocation provenance");
+    assert_eq!(
+        &invocation.source_text.as_deref().unwrap()[invocation.span.start..invocation.span.end],
+        "(@make read)"
     );
 }
 

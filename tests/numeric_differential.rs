@@ -24,7 +24,9 @@ fn execute(source: &str, expected_signal: Option<i32>) {
     );
     let (status, _, error) = support::run(
         &mut Command::new(root.join("program")),
-        Duration::from_secs(3),
+        // The differential corpus launches many tiny binaries. Allow slower
+        // CI/loaded-host scheduling while retaining a finite hang timeout.
+        Duration::from_secs(10),
         1024,
     )
     .unwrap();

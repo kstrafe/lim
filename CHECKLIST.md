@@ -52,6 +52,31 @@ the checklist is committed alongside the implementation it tracks.
   Acceptance: shadowing, dotted names, reordered calls, contextual literals,
   generated/imported spans, and all numeric modes have focused lowering tests.
 
+- [x] **IR-02a: Preserve checked metadata when erasing unsafe wrappers.**
+  Verify the body's stable node sequence and retained numeric type/operation
+  metadata still associate with backend syntax after `#unsafe` wrappers are
+  erased. This covers the existing order-based bridge; replacing that bridge's
+  temporary address index remains part of IR-02.
+
+- [x] **IR-03a: Distinguish checked syntax nodes from backend-synthesized
+  expressions.** Carry a set of every checked expression into the emission
+  overlay, including syntax nodes without runtime types. Do not reconstruct a
+  type from syntax for those checked nodes; reserve the legacy fallback for
+  expressions introduced after body lowering. Test overlay membership and
+  preserve if-let/while-let plus generated Vec codegen.
+
+- [x] **IR-03b: Drive numeric operator selection from retained metadata.**
+  Carry each checked numeric node's operand type, operation, and overflow mode
+  into emission, and use those values directly instead of reparsing the dotted
+  operator spelling. Preserve native results for wrapping, saturating, signed,
+  unsigned, wide, floating-point, and comparison operations.
+
+- [x] **IR-03c: Resolve checked call ABIs by function identity.** Carry
+  `FunctionId` through the emission overlay and select the call signature by
+  that ID, not by looking up the reconstructed callee spelling. Keep the
+  source-level symbol for assembly naming and diagnostics; synthesized legacy
+  calls without an IR identity retain their compatibility lookup.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
@@ -65,13 +90,19 @@ the checklist is committed alongside the implementation it tracks.
   Acceptance: existing borrow/linearity tests and exact UI spans remain valid;
   add branch/loop aliasing and aggregate-reference propagation regressions.
 
-- [ ] **SAFE-01: Resolve static access by identity, not spelling.** The current
-  unsafe checker also flags a parameter that shadows a static of the same
-  name. Use resolved global/local identities (or equivalent scoped resolution)
-  so only actual static accesses require `#unsafe`. Acceptance: shadowing
-  parameters, locals, and pattern bindings work without unnecessary unsafe
-  blocks; genuine static reads/borrows still require unsafe and retain exact
-  diagnostic spans, including imported and generated code.
+- [x] **IR-04a: Represent expression branches and match arms explicitly.**
+  Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
+  retain condition/scrutinee/result node IDs and the pattern binding identities
+  scoped to each arm. Round-trip syntax unchanged and test branch node kinds,
+  binding identity, and arm scopes. Ownership passes have not yet migrated.
+
+- [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
+  function parameter names from each function's static access set; local and
+  pattern declarations that shadow statics are alpha-renamed before checking.
+  Genuine static reads/borrows still require `#unsafe` and retain exact spans,
+  including imported locations and generated-code plus invocation provenance.
+  A later full typed-IR ownership migration can replace this transitional
+  scoped-name handling with direct resolved-identity checks.
 
 ## Collections and initial async facilities
 
@@ -115,6 +146,14 @@ the checklist is committed alongside the implementation it tracks.
   transfer gated on Send, shared state on Sync, and capacity/error behavior
   explicit. Define wake ordering, shutdown, and task migration rules; do not
   claim these semantics for the current thread-owned busy-polling executor.
+
+## Test reliability
+
+- [x] **TEST-01: Avoid flaky numeric differential process timeouts.** The
+  native oracle launches many short-lived programs, so a 3-second per-process
+  deadline could expire from host scheduling pressure after the all-example
+  suite. Increase the bounded deadline to 10 seconds; keep the seeded oracle
+  and signal/result assertions unchanged.
 
 ## Earlier completed foundation
 
@@ -974,3 +1013,89 @@ commit, documentation, and focused regression coverage.
   compiler processes and failures identify the differing artifact. Keep real
   source paths available in diagnostics, and scope the guarantee to identical
   compiler/toolchain/configuration rather than different linker versions.
+
+## Follow-up from 2026-09-25 design notes
+
+- [ ] **GEN-API-01: Make generator parameter declarations unmistakable.**
+  The current `(name annotation)` form declares one parameter; it is not a
+  destructuring pattern. Clarify this distinction in grammar/reference examples
+  and gather usage feedback before changing syntax. If a syntax change is
+  justified, keep parameter names and annotations explicit, do not add implicit
+  destructuring, and provide focused parser diagnostics for malformed
+  declarations. Acceptance: docs show ordinary literal parameters and
+  collection/capability annotations; parser tests establish the exact AST and
+  reject pattern-like forms rather than silently destructuring them.
+
+- [ ] **SYS-01: Establish a target-specific syscall boundary for Lim libraries.**
+  Establish an explicitly unsafe, typed primitive for the supported target,
+  including register arguments, clobbers, errno representation, and source
+  diagnostics. Build Lim wrappers above it, selected by target/configuration
+  rather than presenting OS syscall numbers as portable APIs. Preserve FFI for
+  external libraries, but make core OS services implementable without libc
+  calls. Acceptance: syscall-backed APIs pass output and return-value tests;
+  invalid pointers remain explicitly unsafe; unsupported targets fail clearly;
+  assembly and ABI tests verify argument registers, return/error handling, and
+  clobbers. A Lim standard library owns policy and safe wrappers while the
+  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a/b
+  are the first Linux x86-64 implementation slice; broader syscall coverage and
+  additional operating systems remain open.
+
+- [x] **SYS-01a: Add unsafe inline assembly and direct Linux syscalls.**
+  `#asm` binds typed scalar/pointer values to explicit x86-64 registers and
+  returns a declared scalar from `rax`; it preserves callee-saved GPRs and is
+  restricted to `#unsafe`. `#linux-syscall` directly emits the Linux x86-64
+  `syscall` instruction with the six kernel argument registers and returns raw
+  negative errno values. Automatically expose `#os`, `#arch`, and `#target` cfg
+  values. Acceptance: unsafe/arity/type tests and generated assembly tests pass.
+
+- [x] **SYS-01b: Add initial Linux syscall library and executable tests.**
+  `library/linux_x86_64.lim` provides byte IO and process, descriptor, memory,
+  clock, sleep, and randomness helpers without FFI. Executable Lim tests assert
+  exact piped output and kernel results, including error paths and pointer
+  buffer behavior. Broader safe wrappers and per-syscall behavioral tests
+  remain part of SYS-01.
+
+- [x] **SYS-01c: Add the native x86-64 Linux syscall number catalog.**
+  `library/linux_x86_64_syscall_numbers.lim` contains all 386 `common` and
+  native `64` ABI entries from the pinned Linux syscall table; x32 entries are
+  excluded. The Lim integration test checks count, ordering, unique names, and
+  representative recent IDs. Importing the Linux syscall library compiles and
+  type-checks the complete catalog.
+
+- [x] **SYS-01d: Exercise syscall buffers and pipe IO at runtime.**
+  Lim tests use mmap-backed buffers with `uname`, `getrandom`, `openat`,
+  `readlinkat`, and `getcwd`; they verify narrow raw-pointer accesses at page
+  boundaries. A `pipe2` test transfers and validates a payload using direct
+  `read`/`write` syscalls, then closes descriptors and unmaps memory.
+
+- [x] **SYS-01e: Test common descriptor syscall error paths.**
+  The executable syscall test checks `EBADF` from `fstat`, `ioctl`, `fcntl`,
+  `flock`, `fdatasync`, `fchdir`, `fchmod`, `fchown`, `getdents64`, `fallocate`,
+  and `dup2` when given invalid descriptors; no valid file is modified.
+
+- [x] **SYS-01f: Verify process credential output buffers.**
+  Runtime checks call `getresuid` and `getresgid` with three mmap-backed
+  pointers each, compare real/effective IDs to their scalar queries, and verify
+  `getgroups(0, null)` succeeds with a nonnegative count. Single-byte read/write
+  wrappers retry `EINTR`, and the echo example returns failure on IO errors.
+
+- [x] **SYS-01g: Test Linux virtual-memory management calls.**
+  Mapped pages are read-protected and restored with `mprotect`, passed through
+  `madvise`, expanded with `mremap`, checked for preserved contents, and
+  unmapped at the expanded length. Narrow-pointer boundary checks remain part
+  of the same executable test.
+
+- [x] **SYS-01h: Test eventfd counter IO.**
+  An `eventfd2` descriptor is created, receives an eight-byte counter write,
+  returns the expected counter through an eight-byte read, then is closed and
+  its mapped buffer unmapped.
+
+- [x] **SYS-01i: Test process and resource query syscalls.**
+  A standalone Lim example verifies FIFO priority bounds, null-output `getcpu`,
+  a signal-zero `tgkill` probe, `getrlimit(RLIMIT_NOFILE)` output ordering, and
+  `sysinfo` uptime through mmap-backed output storage.
+
+- [x] **SYS-01j: Test anonymous file descriptor syscalls.**
+  A Lim example creates a memfd, verifies close-on-exec, writes and reads its
+  payload, checks `fstat` size, truncates and verifies the new size, syncs it,
+  and closes/unmaps all resources without creating a persistent file.

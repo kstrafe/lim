@@ -1647,8 +1647,18 @@ pub fn read_project(path: &Path) -> Result<ProjectMetadata, String> {
 impl Default for CompileConfig {
     fn default() -> Self {
         let platform = env::consts::OS;
+        let architecture = env::consts::ARCH;
+        let target = match (architecture, platform) {
+            ("x86_64", "linux") => "x86_64-unknown-linux-gnu",
+            _ => "unknown",
+        };
         Self {
-            values: HashMap::from([("platform".into(), platform.into())]),
+            values: HashMap::from([
+                ("platform".into(), platform.into()),
+                ("os".into(), platform.into()),
+                ("arch".into(), architecture.into()),
+                ("target".into(), target.into()),
+            ]),
             module_paths: Vec::new(),
         }
     }
@@ -3683,6 +3693,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "deref-set"
             | "mut"
             | "unsafe"
+            | "asm"
+            | "linux-syscall"
             | "addr-of"
             | "addr-of-mut"
             | "ptr-read"
@@ -7935,6 +7947,58 @@ mod tests {
         }
         let program = parse_program("(#fn main () u64 (#return 42))").unwrap();
         assert!(generate_assembly_for_target(&program, TargetDescription::X86_64_SYSTEM_V).is_ok());
+    }
+
+    #[test]
+    fn inline_assembly_is_typed_and_requires_unsafe() {
+        let source = "(#fn main () i64\n\
+          (#return (#unsafe (#asm i64 ((rax 39i64)) \"syscall\"))))";
+        let program = parse_program(source).unwrap();
+        let assembly = generate_assembly(&program).unwrap();
+        assert!(assembly.contains("    mov rax, QWORD PTR [rsp+0]"));
+        assert!(assembly.contains("    syscall\n"));
+        assert!(assembly.contains("    pop rbx\n"));
+
+        let outside_unsafe = "(#fn main () i64 (#return (#asm i64 ((rax 39i64)) \"syscall\")))";
+        let outside_unsafe = parse_program(&outside_unsafe).unwrap();
+        let error = check_types(&outside_unsafe).unwrap_err();
+        assert!(
+            error.contains("requires an enclosing (#unsafe ...) block"),
+            "unexpected unsafe diagnostic: {error}"
+        );
+
+        let invalid_register = source.replace("(rax 39i64)", "(rsp 39i64)");
+        let invalid_register = parse_program(&invalid_register).unwrap();
+        let error = check_types(&invalid_register).unwrap_err();
+        assert!(error.contains("unsupported #asm register 'rsp'"));
+    }
+
+    #[test]
+    fn automatic_cfg_values_select_target_specific_assembly() {
+        let source = "(#cfg-if (#cfg-and\
+          (#cfg-is #os linux)\
+          (#cfg-is #arch x86_64)\
+          (#cfg-is #target x86_64-unknown-linux-gnu))\
+          (#fn main () u64 (#return 42u64))\
+          (#cfg-else (#fn main () u64 (#return 0u64))))";
+        let program = parse_program(source).unwrap();
+        assert!(check_types(&program).is_ok());
+        assert_eq!(program.items.len(), 1);
+    }
+
+    #[test]
+    fn raw_linux_syscalls_are_unsafe_and_enforce_the_register_limit() {
+        let outside_unsafe =
+            parse_program("(#fn main () i64 (#return (#linux-syscall i64 39usize ())))").unwrap();
+        let error = check_types(&outside_unsafe).unwrap_err();
+        assert!(error.contains("requires an enclosing (#unsafe ...) block"));
+
+        let too_many_arguments = parse_program(
+            "(#fn main () i64 (#return (#unsafe (#linux-syscall i64 39usize (0usize 0usize 0usize 0usize 0usize 0usize 0usize)))))",
+        )
+        .unwrap();
+        let error = check_types(&too_many_arguments).unwrap_err();
+        assert!(error.contains("at most six arguments"));
     }
 
     #[test]

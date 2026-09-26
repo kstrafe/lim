@@ -22,6 +22,9 @@ module - echo_input.lim - -
 module - modules/parse_errors.lim - -
 exit 42 nested_aliases.lim - -
 exit 42 allocator_state.lim - -
+exit 42 linux_memfd.lim - -
+exit 42 linux_process_queries.lim - -
+exit 42 linux_syscalls.lim - -
 exit 37 array_constructor_function.lim - -
 exit 42 array_constructor.lim - -
 exit 42 array_destructure.lim - -

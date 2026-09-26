@@ -24,9 +24,11 @@ not a prerequisite imposed on every generator.
 `CheckedProgram` now retains the declaration tables produced by validation.
 The native backend consumes their resolved struct fields, enum payloads,
 global types, and ordinary function signatures instead of rebuilding those
-tables from syntax. Generated Lim functions follow the same path. Internal
-legacy generic specializations, which are created later, still resolve their
-specialized signatures during lowering.
+tables from syntax. Generated Lim functions follow the same path. Source
+syntax rejects generic function declarations and angle-bracket calls; user
+generators expand to concrete declarations before checking. A legacy backend
+specialization path remains for programmatically constructed ASTs and still
+uses name-based type resolution. It is not reachable from accepted source.
 
 Function declarations have dense `FunctionId` identities, assigned in sorted
 name order, and retain their source spans when source metadata is available.
@@ -50,10 +52,12 @@ backend no longer silently substitutes unresolved struct field types.
 Validation retains expression types rather than running a second type-checking
 pass. Each ordinary function has a body arena with dense expression and local
 binding IDs, source spans, numeric operation/type/overflow metadata, callee
-IDs, and structured statements (loops, branches through expression forms,
-assignments with projections, returns, breaks, and continues). Named-call
-operands remain in declaration order; their spans retain source order.
-Syntax-only nodes such as type operands and patterns have no runtime type.
+IDs, and structured statements (loops, assignments with projections, returns,
+breaks, and continues). Expression `if`, `match`, and individual match arms
+also have dedicated nodes with explicit child IDs; arm patterns and values keep
+their binding scopes. Named-call operands remain in declaration order; their
+spans retain source order. Syntax-only nodes such as type operands and patterns
+have no runtime type.
 
 Local identities are allocated at declarations, including unused destructured
 and match-bound names, rather than inferred from the first variable use.
@@ -78,8 +82,19 @@ erases unsafe wrappers, and carries retained expression types through to
 emission. The numeric and call identities determine the reconstructed heads.
 Node IDs remain independent of allocation addresses. A temporary address index
 connects original syntax to nodes during lowering and is then discarded. The
-legacy instruction selector still uses an emission-local address-to-type
-overlay; it is not an exported or cached identity.
+emission-local overlay now also marks every checked expression, including
+syntax-only nodes without value types. When codegen asks for a checked node's
+type and none was retained, it receives no type rather than reconstructing one
+from syntax. Numeric operator selection also uses the retained operation,
+operand type, and overflow mode rather than reparsing the dotted spelling.
+Checked calls select their ABI by retained `FunctionId`; the source-level name
+is still used for the assembly symbol and diagnostics. The compatibility type
+and call lookup remain available only for expressions synthesized after
+typed-body lowering. The overlay is still address-indexed internally; it is
+neither exported nor cached as an identity.
+An executable regression verifies that erasing `#unsafe` wrappers preserves
+the typed node order and numeric metadata association. This validates the
+current order-based bridge, not a future address-free mapping.
 `CheckedProgram::dump_typed_ir()` exposes a deterministic
 debugging view (not a stable interchange format).
 
@@ -88,10 +103,13 @@ debugging view (not a stable interchange format).
 The instruction selector still uses AST-shaped inputs. Compiler-synthesized
 expressions and internal legacy generic specializations retain the old type
 lookup path. Specialization provenance and a uniform ownership-place model
-still need a fully unified identity scheme before removing that
-path. Ownership analyses still run on the original AST; they have not been
-replaced by typed control-flow dataflow. No SSA optimizer or arbitrary-function
-async transformation is implemented.
+still need a fully unified identity scheme before removing that path. Numeric
+nodes use typed metadata for operation selection, but their operand trees are
+still recursively emitted from reconstructed syntax; ordinary calls select
+their ABI by ID but still obtain the assembly symbol from reconstructed names.
+Ownership analyses still run on the original AST; they have not yet consumed
+the explicit branch nodes or been replaced by typed control-flow dataflow. No
+SSA optimizer or arbitrary-function async transformation is implemented.
 
 The explicit task-composition generators do not need that full transformation:
 their states are ordinary enums that go through the existing ownership checks.

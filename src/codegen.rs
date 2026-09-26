@@ -1176,6 +1176,10 @@ pub(crate) fn generate_checked_assembly(
             }
         }
     }
+    let function_abis_by_id = functions
+        .iter()
+        .filter_map(|(name, abi)| declarations.function_id(name).map(|id| (id, abi.clone())))
+        .collect::<HashMap<_, _>>();
     let mut globals = HashMap::new();
     let mut global_types = HashMap::new();
     let mut constants = HashMap::new();
@@ -1381,6 +1385,7 @@ pub(crate) fn generate_checked_assembly(
                 &global_types,
                 aliases,
                 &functions,
+                &function_abis_by_id,
                 &program.statement_spans,
                 &program.statement_expressions,
                 declarations
@@ -1836,9 +1841,10 @@ fn generate_function(
     global_types: &HashMap<String, Type>,
     aliases: &HashMap<String, Type>,
     functions: &HashMap<String, FunctionAbi>,
+    function_abis_by_id: &HashMap<crate::typed_ir::FunctionId, FunctionAbi>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
     statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
-    expression_types: HashMap<usize, Type>,
+    expression_types: crate::typed_body::EmissionTypes,
 ) -> Result<(), crate::source_error::SourceError> {
     let abi = functions
         .get(&function.name)
@@ -2151,6 +2157,7 @@ fn generate_function(
         local_types,
         return_type,
         functions: functions.clone(),
+        function_abis_by_id: function_abis_by_id.clone(),
         function_name: function.name.clone(),
         labels: 0,
         stack_depth: 0,
@@ -4939,7 +4946,7 @@ fn normalize_global_integer(value: i128, ty: &Type) -> i128 {
 }
 
 struct FunctionContext {
-    expression_types: HashMap<usize, Type>,
+    expression_types: crate::typed_body::EmissionTypes,
     locals: HashMap<String, Storage>,
     structs: HashMap<String, Vec<Field>>,
     enums: HashMap<String, Vec<EnumVariant>>,
@@ -4950,6 +4957,7 @@ struct FunctionContext {
     local_types: HashMap<String, Type>,
     return_type: Type,
     functions: HashMap<String, FunctionAbi>,
+    function_abis_by_id: HashMap<crate::typed_ir::FunctionId, FunctionAbi>,
     function_name: String,
     labels: usize,
     stack_depth: usize,
@@ -5979,9 +5987,10 @@ impl FunctionContext {
     fn expression_type(&self, expression: &Expr) -> Option<Type> {
         if let Some(ty) = self
             .expression_types
+            .by_address
             .get(&(std::ptr::from_ref(expression) as usize))
         {
-            return Some(ty.clone());
+            return ty.ty.clone();
         }
         match expression {
             Expr::Integer(_) => Some(Type::I64),
@@ -7393,7 +7402,7 @@ impl FunctionContext {
                         .next()
                         .copied()
                         .ok_or_else(|| "struct has no storage fields".to_owned())?;
-                    self.call(function_name, &items[1..], Some(base))?;
+                    self.call(function_name, &items[1..], Some(base), None)?;
                     return Ok(());
                 }
             }
@@ -7478,7 +7487,7 @@ impl FunctionContext {
                     .get(function_name)
                     .is_some_and(|function| function.indirect_return)
                 {
-                    self.call(function_name, &items[1..], Some(discriminant))?;
+                    self.call(function_name, &items[1..], Some(discriminant), None)?;
                     return Ok(());
                 }
             }
@@ -7657,7 +7666,7 @@ impl FunctionContext {
                     let base = *slots
                         .first()
                         .ok_or_else(|| "tuple has no storage slots".to_owned())?;
-                    self.call(function_name, &items[1..], Some(base))?;
+                    self.call(function_name, &items[1..], Some(base), None)?;
                     return Ok(());
                 }
             }
@@ -7779,7 +7788,7 @@ impl FunctionContext {
                     .get(function_name)
                     .is_some_and(|function| function.indirect_return)
                 {
-                    self.call(function_name, &items[1..], Some(base))?;
+                    self.call(function_name, &items[1..], Some(base), None)?;
                     return Ok(());
                 }
             }
@@ -8064,7 +8073,15 @@ impl FunctionContext {
                     return Err(format!("unknown variable '{name}'"));
                 }
             }
-            Expr::List(items) => self.list_expression(items)?,
+            Expr::List(items) => {
+                let metadata = self
+                    .expression_types
+                    .by_address
+                    .get(&(std::ptr::from_ref(expression) as usize));
+                let numeric = metadata.and_then(|node| node.numeric.clone());
+                let callee = metadata.and_then(|node| node.callee);
+                self.list_expression(items, numeric, callee)?;
+            }
             Expr::String(value) => {
                 let characters = value.chars().collect::<Vec<_>>();
                 if characters.len() > VALUE_REGISTERS.len() {
@@ -8230,7 +8247,133 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn list_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+    fn normalize_asm_result(&mut self, result_type: Type) {
+        match result_type {
+            Type::I8 => self.output.push_str("    movsx rax, al\n"),
+            Type::I16 => self.output.push_str("    movsx rax, ax\n"),
+            Type::I32 => self.output.push_str("    movsxd rax, eax\n"),
+            Type::U8 => self.output.push_str("    movzx eax, al\n"),
+            Type::U16 => self.output.push_str("    movzx eax, ax\n"),
+            Type::U32 => self.output.push_str("    mov eax, eax\n"),
+            Type::Bool => self
+                .output
+                .push_str("    test rax, rax\n    setne al\n    movzx eax, al\n"),
+            Type::Unit => self.output.push_str("    xor eax, eax\n"),
+            _ => {}
+        }
+    }
+
+    fn linux_syscall_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 4 {
+            return Err(
+                "#linux-syscall requires a result type, syscall number, and argument list".into(),
+            );
+        }
+        let Expr::List(arguments) = &items[3] else {
+            return Err("#linux-syscall arguments must be a list".into());
+        };
+        const REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "r10", "r8", "r9"];
+        self.expression(&items[2])?;
+        self.output.push_str("    push rax\n");
+        self.stack_depth += 1;
+        for argument in arguments {
+            self.expression(argument)?;
+            self.output.push_str("    push rax\n");
+            self.stack_depth += 1;
+        }
+        self.output.push_str(&format!(
+            "    mov rax, QWORD PTR [rsp+{}]\n",
+            arguments.len() * 8
+        ));
+        for (index, argument) in arguments.iter().enumerate() {
+            let register = REGISTERS[index];
+            let offset = (arguments.len() - 1 - index) * 8;
+            self.output
+                .push_str(&format!("    mov {register}, QWORD PTR [rsp+{offset}]\n"));
+            if matches!(self.expression_type(argument), Some(Type::Reference { .. })) {
+                self.output.push_str(&format!("    and {register}, -2\n"));
+            }
+        }
+        let bytes = (arguments.len() + 1) * 8;
+        self.output
+            .push_str(&format!("    add rsp, {bytes}\n    syscall\n"));
+        self.stack_depth -= arguments.len() + 1;
+        let result_type = resolve_type(&crate::parse_type(items.get(1))?, &self.aliases)?;
+        self.normalize_asm_result(result_type);
+        Ok(())
+    }
+
+    fn asm_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 4 {
+            return Err("#asm requires a result type, register operands, and assembly text".into());
+        }
+        let Expr::List(operands) = &items[2] else {
+            return Err("#asm operands must be a list of (register value) pairs".into());
+        };
+        let Expr::String(assembly) = &items[3] else {
+            return Err("#asm instruction body must be a string literal".into());
+        };
+
+        // Raw assembly may use any caller-saved register. Preserve the SysV
+        // callee-saved set so an unsafe block cannot accidentally violate the
+        // Lim function's own ABI merely by issuing a syscall.
+        for register in ["rbx", "r12", "r13", "r14", "r15"] {
+            self.output.push_str(&format!("    push {register}\n"));
+            self.stack_depth += 1;
+        }
+        for operand in operands {
+            let Expr::List(pair) = operand else {
+                return Err("#asm operand must be a (register value) pair".into());
+            };
+            self.expression(&pair[1])?;
+            self.output.push_str("    push rax\n");
+            self.stack_depth += 1;
+        }
+        for (index, operand) in operands.iter().enumerate() {
+            let Expr::List(pair) = operand else {
+                unreachable!("checked #asm operand shape")
+            };
+            let Expr::Symbol(register) = &pair[0] else {
+                unreachable!("checked #asm register shape")
+            };
+            let offset = (operands.len() - 1 - index) * 8;
+            self.output
+                .push_str(&format!("    mov {register}, QWORD PTR [rsp+{offset}]\n"));
+        }
+        if !operands.is_empty() {
+            let bytes = operands.len() * 8;
+            self.output.push_str(&format!("    add rsp, {bytes}\n"));
+            self.stack_depth -= operands.len();
+        }
+        for line in assembly.lines() {
+            if !line.trim().is_empty() {
+                self.output.push_str("    ");
+                self.output.push_str(line);
+                self.output.push('\n');
+            }
+        }
+        // Keep the declared result in a caller-saved scratch register while
+        // restoring the saved callee-saved registers.
+        self.output.push_str("    push rax\n");
+        self.stack_depth += 1;
+        self.output.push_str("    pop r11\n");
+        self.stack_depth -= 1;
+        for register in ["r15", "r14", "r13", "r12", "rbx"] {
+            self.output.push_str(&format!("    pop {register}\n"));
+            self.stack_depth -= 1;
+        }
+        self.output.push_str("    mov rax, r11\n");
+        let result_type = resolve_type(&crate::parse_type(items.get(1))?, &self.aliases)?;
+        self.normalize_asm_result(result_type);
+        Ok(())
+    }
+
+    fn list_expression(
+        &mut self,
+        items: &[Expr],
+        numeric: Option<crate::typed_body::NumericOperation>,
+        callee: Option<crate::typed_ir::FunctionId>,
+    ) -> Result<(), String> {
         if items.is_empty() {
             return Ok(());
         }
@@ -8238,7 +8381,21 @@ impl FunctionContext {
             Some(Expr::Symbol(name)) => name.as_str(),
             _ => return Err("expression list must start with a symbol".into()),
         };
-        let (qualifier, operator, mode) = operator_parts(operator);
+        if operator == "linux-syscall" {
+            return self.linux_syscall_expression(items);
+        }
+        if operator == "asm" {
+            return self.asm_expression(items);
+        }
+        let (qualifier, operator, mode) = if let Some(numeric) = &numeric {
+            (
+                Some(numeric.scalar_name()),
+                numeric.operation.as_str(),
+                numeric.overflow_mode(),
+            )
+        } else {
+            operator_parts(operator)
+        };
         if operator == "atomic-init" {
             if items.len() != 3 {
                 return Err("atomic-init requires a scalar type and initial value".into());
@@ -8628,7 +8785,7 @@ impl FunctionContext {
                 if let Some(function) =
                     clone_function.filter(|name| self.functions.contains_key(name))
                 {
-                    self.list_expression(&[Expr::Symbol(function), items[1].clone()])
+                    self.list_expression(&[Expr::Symbol(function), items[1].clone()], None, None)
                 } else {
                     self.expression(&items[1])
                 }
@@ -8857,6 +9014,16 @@ impl FunctionContext {
                     return Ok(());
                 }
                 match target {
+                    Type::Bool | Type::U8 => {
+                        self.output.push_str("    movzx eax, BYTE PTR [rax]\n")
+                    }
+                    Type::I8 => self.output.push_str("    movsx rax, BYTE PTR [rax]\n"),
+                    Type::U16 => self.output.push_str("    movzx eax, WORD PTR [rax]\n"),
+                    Type::I16 => self.output.push_str("    movsx rax, WORD PTR [rax]\n"),
+                    Type::Char | Type::U32 => {
+                        self.output.push_str("    mov eax, DWORD PTR [rax]\n")
+                    }
+                    Type::I32 => self.output.push_str("    movsxd rax, DWORD PTR [rax]\n"),
                     Type::F32 => self.output.push_str("    movss xmm0, DWORD PTR [rax]\n"),
                     Type::F64 => self.output.push_str("    movq xmm0, QWORD PTR [rax]\n"),
                     Type::I128 | Type::U128 => self
@@ -8877,7 +9044,7 @@ impl FunctionContext {
                         _ => None,
                     })
                     .ok_or_else(|| "ptr-offset requires a raw pointer".to_owned())?;
-                let element_size = self.native_type_size(&target)?;
+                let element_size = self.raw_pointer_element_size(&target)?;
                 self.expression(&items[1])?;
                 self.output.push_str("    push rax\n");
                 self.stack_depth += 1;
@@ -8919,6 +9086,13 @@ impl FunctionContext {
                     return Ok(());
                 }
                 match target {
+                    Type::Bool | Type::I8 | Type::U8 => {
+                        self.output.push_str("    mov BYTE PTR [rcx], al\n")
+                    }
+                    Type::I16 | Type::U16 => self.output.push_str("    mov WORD PTR [rcx], ax\n"),
+                    Type::Char | Type::I32 | Type::U32 => {
+                        self.output.push_str("    mov DWORD PTR [rcx], eax\n")
+                    }
                     Type::F32 => self.output.push_str("    movd DWORD PTR [rcx], xmm0\n"),
                     Type::F64 => self.output.push_str("    movq QWORD PTR [rcx], xmm0\n"),
                     Type::I128 | Type::U128 => self
@@ -8967,7 +9141,7 @@ impl FunctionContext {
                 self.output.push_str("    ud2\n");
                 Ok(())
             }
-            _ => self.call(operator, &items[1..], None),
+            _ => self.call(operator, &items[1..], None, callee),
         }
     }
 
@@ -12059,6 +12233,23 @@ impl FunctionContext {
         }
     }
 
+    fn raw_pointer_element_size(&self, ty: &Type) -> Result<usize, String> {
+        match ty {
+            Type::Bool | Type::I8 | Type::U8 => Ok(1),
+            Type::I16 | Type::U16 => Ok(2),
+            Type::Char | Type::I32 | Type::U32 | Type::F32 => Ok(4),
+            Type::I64
+            | Type::U64
+            | Type::Isize
+            | Type::Usize
+            | Type::F64
+            | Type::Reference { .. }
+            | Type::RawPointer { .. } => Ok(8),
+            Type::I128 | Type::U128 => Ok(16),
+            _ => self.native_type_size(ty),
+        }
+    }
+
     fn native_type_size(&self, ty: &Type) -> Result<usize, String> {
         if let Type::Named(name) = ty {
             if self.repr_c_types.contains(name) {
@@ -13221,7 +13412,7 @@ impl FunctionContext {
                     let base = *slots
                         .first()
                         .ok_or_else(|| "aggregate temporary has no storage".to_owned())?;
-                    self.call(function_name, &items[1..], Some(base))?;
+                    self.call(function_name, &items[1..], Some(base), None)?;
                     return Ok(());
                 }
             }
@@ -13845,7 +14036,7 @@ impl FunctionContext {
         let base = self
             .aggregate_temp_base
             .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
-        self.call(name, arguments, Some(base))?;
+        self.call(name, arguments, Some(base), None)?;
         Ok(base)
     }
 
@@ -13896,10 +14087,11 @@ impl FunctionContext {
         name: &str,
         arguments: &[Expr],
         indirect_return_slot: Option<usize>,
+        callee: Option<crate::typed_ir::FunctionId>,
     ) -> Result<(), String> {
         let saved_cursor = self.aggregate_argument_cursor;
         self.aggregate_argument_cursor = 0;
-        let result = self.call_inner(name, arguments, indirect_return_slot);
+        let result = self.call_inner(name, arguments, indirect_return_slot, callee);
         self.aggregate_argument_cursor = saved_cursor;
         result
     }
@@ -13909,15 +14101,23 @@ impl FunctionContext {
         name: &str,
         arguments: &[Expr],
         indirect_return_slot: Option<usize>,
+        callee: Option<crate::typed_ir::FunctionId>,
     ) -> Result<(), String> {
         if arguments.len() > 32 {
             return Err(format!("call to '{name}' has more than 32 arguments"));
         }
-        let abi = self
-            .functions
-            .get(name)
-            .cloned()
-            .ok_or_else(|| format!("unknown function '{name}'"))?;
+        let abi = match callee {
+            Some(id) => self
+                .function_abis_by_id
+                .get(&id)
+                .cloned()
+                .ok_or_else(|| format!("internal error: missing ABI for function ID {id:?}"))?,
+            None => self
+                .functions
+                .get(name)
+                .cloned()
+                .ok_or_else(|| format!("unknown function '{name}'"))?,
+        };
         if abi.indirect_return && indirect_return_slot.is_none() {
             return Err(format!(
                 "large aggregate call to '{name}' must initialize a local value"

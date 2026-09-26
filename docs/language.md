@@ -261,14 +261,50 @@ The operations are `#addr-of`, `#addr-of-mut`, `#ptr-read`, `#ptr-write`, and
 safe, but dereferencing it is not. `(#ptr-is-null pointer)` safely tests
 whether a raw pointer is null without consuming it. The offset consumes a raw
 pointer and returns a pointer with the same mutability and pointee type; its
-index must be `usize`. Byte-offset multiplication and address addition are
-checked for overflow and trap on overflow. Writing requires `(#ptr-mut T)`. Reads and
-writes do not check allocation bounds, and raw-pointer operations are rejected
+index must be `usize`. Offsets use the pointee's byte width (for example,
+`*mut u8` advances one byte). Byte-offset multiplication and address addition
+are checked for overflow and trap on overflow. Reads and writes access only
+the pointee's width. Writing requires `(#ptr-mut T)`. Reads and writes do not
+check allocation bounds, and raw-pointer operations are rejected
 outside `#unsafe`; callers must uphold pointer validity and bounds themselves.
 `#ptr-borrow` and `#ptr-borrow-mut` also require `#unsafe`; their first
 argument is a reference used as the inferred lifetime anchor, and the second
 is the pointer to the referenced value. The caller must ensure the pointer is
 valid for that anchor's lifetime and, for mutable borrows, uniquely accessible.
+
+`#asm` embeds target assembler at an expression site. Its form is
+`(#asm ResultType ((register value) ...) "instructions")`: each value is
+evaluated and loaded into its named 64-bit general-purpose register, and the
+result is read from `rax` (or discarded for `()`). The current backend uses
+GNU Intel-syntax x86-64 assembly. `#asm` is unsafe and must be inside `#unsafe`.
+The assembly must leave `rsp` and `rbp` unchanged, must not return or jump out
+of the surrounding function, and must obey the platform ABI for any registers
+it changes; the compiler preserves callee-saved GPRs but cannot verify raw
+instructions. Syscall numbers and register conventions are OS/architecture
+specific, so select implementations with `#cfg` rather than assuming one
+assembly sequence is portable.
+
+For Linux x86-64 kernel entry without hand-written register shuffling, unsafe
+`#linux-syscall` takes an explicit result type, syscall number, and up to six
+arguments. It emits the `syscall` instruction directly; no libc wrapper is
+called. Integer arguments are passed as machine words, raw pointers as-is, and
+Lim references have their internal low-bit tag removed before being passed as
+addresses. Raw syscall failures are returned as negative errno values. The
+primitive is deliberately unsafe because the kernel interprets syscall
+numbers, flags, descriptors, and pointer/length pairs according to Linux ABI
+contracts.
+
+```lisp library
+(#fn process-id () i64
+  (#return (#unsafe (#linux-syscall i64 39usize ()))))
+```
+
+`library/linux_x86_64.lim` builds bounded byte input/output and process helpers
+on this primitive. Its read/write wrappers accept references and transfer only
+one byte, while the low-level syscall operation remains available for the rest
+of the Linux syscall table. `examples/linux_syscalls.lim` and
+`tests/io_examples.rs` exercise syscall argument counts zero through six,
+including exact piped IO and kernel error results.
 
 ## Building and running
 
@@ -351,13 +387,14 @@ directly, with an optional final `#cfg-else` branch:
     (#fn selected () u64 (#return 0u64))))
 ```
 
-`#platform` is populated automatically from the compiler host OS (`linux`,
-`macos`, or `windows`, where applicable). Other keys must be passed with
-`--cfg KEY=VALUE`; for example, `--cfg feature=fast`. Command-line settings
-override automatic values, so `--cfg platform=...` can select another
-platform-specific declaration set. Configured values are literal symbols or
-strings in `#cfg-is`. Excluded forms are removed before imports, generators,
-name checks, and type checking are processed.
+`#platform` and `#os` are populated automatically from the compiler host OS
+(`linux`, `macos`, or `windows`, where applicable); `#arch` is the target
+architecture (such as `x86_64`), and `#target` is its canonical target triple
+(currently `x86_64-unknown-linux-gnu` for the supported backend). Other keys
+must be passed with `--cfg KEY=VALUE`; for example, `--cfg feature=fast`.
+Command-line settings override automatic values. Configured values are literal
+symbols or strings in `#cfg-is`. Excluded forms are removed before imports,
+generators, name checks, and type checking are processed.
 
 Pass `--cfg` repeatedly to set several keys. It works in both binary and
 assembly-output modes; a key supplied more than once uses its last value.
@@ -390,6 +427,13 @@ type opts in with `#capability`, and a generator parameter can require one:
   `((#type Sortable ,element)))
 (@make-sortable u64)
 ```
+
+The list after a generator's name is its parameter declaration list, not a
+pattern match. A bare symbol such as `name` declares an ordinary literal-syntax
+parameter. A pair such as `(variants #syntax-collection)` declares the single
+parameter `variants` and annotates it to receive a frozen collection snapshot;
+it does not destructure the invocation argument. This mirrors function
+signatures, where each nested pair declares one named parameter and its type.
 
 Each capability declaration lists concrete free-standing operations and their
 full argument/return types. Before any generator runs, the compiler verifies
@@ -674,9 +718,27 @@ object files are passed to `ld` before libraries, and libraries are emitted as
 `-lNAME` arguments. These options apply to binary output, not `--emit-asm`.
 
 There are not yet dedicated standard-I/O builtins. `examples/echo_input.lim`
-shows explicit byte-at-a-time input and output by calling POSIX `read` and
-`write` through unsafe FFI; `tests/io_examples.rs` compiles and runs it with
-piped input and checks that the bytes written to stdout match.
+shows byte-at-a-time input and output using Linux x86-64 `read` and `write`
+syscalls inside unsafe `#asm` blocks; `tests/io_examples.rs` runs it with piped
+input and checks that stdout matches. To try it yourself:
+
+```sh
+printf 'hello from Lim\n' | ./target/debug/lim examples/echo_input.lim -o /tmp/lim-echo
+printf 'hello from Lim\n' | /tmp/lim-echo
+```
+
+The program writes every byte it reads back to standard output, stopping at
+end-of-file. The example is target-specific and uses `#cfg` when the standard
+library has multiple platform implementations. `library/linux_x86_64.lim`
+also wraps process identity/group queries, descriptor operations, memory
+mapping, clocks, sleeping, and random-byte generation. These wrappers expose
+the kernel's raw result convention: successful values are returned directly,
+and errors are negative errno values. The integration test exercises both
+successful calls and deterministic invalid-descriptor errors. Other syscalls
+can be issued explicitly with `#linux-syscall` inside `#unsafe`. Importing
+`library/linux_x86_64.lim` also imports the complete native x86-64 syscall
+number catalog in `library/linux_x86_64_syscall_numbers.lim`; it names the
+Linux `common` and native `64` ABI entries while excluding x32.
 
 ### C aggregate layout
 

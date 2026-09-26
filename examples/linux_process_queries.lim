@@ -1,0 +1,42 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let pid i64 (#call linux-getpid (#fn-args)))
+  (#let tid i64 (#call linux-gettid (#fn-args)))
+  (#let max-fifo-priority i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-SCHED-GET-PRIORITY-MAX (1usize))))
+  (#let min-fifo-priority i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-SCHED-GET-PRIORITY-MIN (1usize))))
+  (#let cpu-query i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-GETCPU
+      ((#ptr-null (#ptr-mut u32)) (#ptr-null (#ptr-mut u32))
+       (#ptr-null (#ptr-mut u8))))))
+  (#let thread-signal-probe i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-TGKILL (pid tid 0usize))))
+  (#let limits (#ptr-mut u64)
+    (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let limit-query i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-GETRLIMIT (7usize limits))))
+  (#let open-files-current u64 (#unsafe (#ptr-read limits)))
+  (#let open-files-maximum u64
+    (#unsafe (#ptr-read (#ptr-offset limits 1usize))))
+  (#let system-info i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-SYSINFO (limits))))
+  (#let uptime u64 (#unsafe (#ptr-read limits)))
+  (#let unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (limits 4096usize))))
+  (#let process-queries-ok bool
+    (#bool.&& (#i64.> pid 0i64)
+      (#bool.&& (#i64.> tid 0i64)
+        (#bool.&& (#i64.== min-fifo-priority 1i64)
+          (#bool.&& (#i64.== max-fifo-priority 99i64)
+            (#bool.&& (#i64.== cpu-query 0i64)
+              (#i64.== thread-signal-probe 0i64)))))))
+  (#let resource-queries-ok bool
+    (#bool.&& (#i64.== limit-query 0i64)
+      (#bool.&& (#u64.<= open-files-current open-files-maximum)
+        (#bool.&& (#i64.== system-info 0i64)
+          (#bool.&& (#u64.> uptime 0u64) (#i64.== unmapped 0i64))))))
+  (#return
+    (#if (#bool.&& process-queries-ok resource-queries-ok) 42u64 1u64)))

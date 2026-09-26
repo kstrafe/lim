@@ -1,23 +1,23 @@
-; Echo standard input one byte at a time through POSIX read/write.
-; These calls are explicitly unsafe because their behavior is provided by FFI.
-(#extern-fn #abi-c read ((fd i32) (buffer (#ptr-mut u8)) (count usize)) i64)
-(#extern-fn #abi-c write ((fd i32) (buffer (#ptr u8)) (count usize)) i64)
+(#import "../library/linux_x86_64.lim")
 
-(#fn main () i32
-  (#let-mut byte u8 0u8)
-  (#let-mut count i64
-    (#unsafe (#call read (#fn-args
-      (fd 0i32)
-      (buffer (#unsafe (#addr-of-mut byte)))
-      (count 1usize)))))
-  (#while (#i64.!= count 0i64)
-    (#unsafe (#call write (#fn-args
-      (fd 1i32)
-      (buffer (#unsafe (#addr-of byte)))
-      (count 1usize))))
-    (#set count
-      (#unsafe (#call read (#fn-args
-        (fd 0i32)
-        (buffer (#unsafe (#addr-of-mut byte)))
-        (count 1usize))))))
-  (#return 0))
+(#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
+  (#fn main () i32
+    (#let-mut byte u8 0u8)
+    (#let-mut count i64
+      (#call linux-read-byte (#fn-args (destination (#borrow-mut byte)))))
+    (#let-mut write-count i64 1i64)
+    (#while (#bool.&& (#i64.== count 1i64) (#i64.== write-count 1i64))
+      (#set write-count
+        (#call linux-write-byte (#fn-args (source (#borrow byte)))))
+      (#if (#i64.== write-count 1i64)
+        (#block
+          (#set count
+            (#call linux-read-byte (#fn-args (destination (#borrow-mut byte)))))
+          ())
+        (#block (#set count -1i64) ())))
+    (#return
+      (#if (#bool.&& (#i64.== write-count 1i64) (#i64.>= count 0i64))
+        0
+        1)))
+  (#cfg-else
+    (#fn main () i32 (#return 1))))

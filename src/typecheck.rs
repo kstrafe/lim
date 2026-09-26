@@ -4711,6 +4711,146 @@ fn list_expression(
     let (qualifier, operator, mode) = typed_operator_parts(raw_operator);
     let operator_type = qualifier.map(Type::from_name);
     match operator {
+        "linux-syscall" => {
+            if items.len() != 4 {
+                return Err(
+                    "#linux-syscall requires a result type, syscall number, and argument list"
+                        .into(),
+                );
+            }
+            let result_type = resolve_type(&crate::parse_type(items.get(1))?, aliases)
+                .map_err(SemanticError::from)?;
+            if !is_syscall_word_type(&result_type)
+                && result_type != Type::Unit
+                && !matches!(result_type, Type::RawPointer { .. })
+            {
+                return Err("#linux-syscall result must be unit or a scalar machine word".into());
+            }
+            let number_type = expression(
+                &items[2], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            if !is_syscall_word_type(&number_type) {
+                return Err("#linux-syscall number must be an integer machine word".into());
+            }
+            let Expr::List(arguments) = &items[3] else {
+                return Err("#linux-syscall arguments must be a list".into());
+            };
+            if arguments.len() > 6 {
+                return Err("Linux x86-64 syscalls accept at most six arguments".into());
+            }
+            for argument in arguments {
+                let actual = expression(
+                    argument, variables, functions, structs, enums, mutable, aliases, None,
+                )?;
+                if !is_syscall_word_type(&actual)
+                    && !matches!(actual, Type::RawPointer { .. } | Type::Reference { .. })
+                {
+                    return Err(format!(
+                        "#linux-syscall argument must be a scalar machine word or pointer, got {actual:?}"
+                    )
+                    .into());
+                }
+            }
+            Ok(result_type)
+        }
+        "asm" => {
+            if items.len() != 4 {
+                return Err(
+                    "#asm requires a result type, register operands, and assembly text".into(),
+                );
+            }
+            let result_type = resolve_type(&crate::parse_type(items.get(1))?, aliases)
+                .map_err(SemanticError::from)?;
+            if !matches!(
+                result_type,
+                Type::Unit
+                    | Type::I8
+                    | Type::I16
+                    | Type::I32
+                    | Type::I64
+                    | Type::Isize
+                    | Type::U8
+                    | Type::U16
+                    | Type::U32
+                    | Type::U64
+                    | Type::Usize
+                    | Type::Bool
+                    | Type::RawPointer { .. }
+            ) {
+                return Err(
+                    "#asm result must be unit, an integer up to 64 bits, or a raw pointer".into(),
+                );
+            }
+            let Expr::List(operands) = &items[2] else {
+                return Err("#asm operands must be a list of (register value) pairs".into());
+            };
+            if operands.len() > 6 {
+                return Err("#asm supports at most six register operands".into());
+            }
+            let mut registers = HashSet::new();
+            for operand in operands {
+                let Expr::List(pair) = operand else {
+                    return Err("#asm operand must be a (register value) pair".into());
+                };
+                if pair.len() != 2 {
+                    return Err("#asm operand must contain one register and one value".into());
+                }
+                let Expr::Symbol(register) = &pair[0] else {
+                    return Err("#asm register must be a symbol".into());
+                };
+                if !matches!(
+                    register.as_str(),
+                    "rax"
+                        | "rbx"
+                        | "rcx"
+                        | "rdx"
+                        | "rsi"
+                        | "rdi"
+                        | "r8"
+                        | "r9"
+                        | "r10"
+                        | "r11"
+                        | "r12"
+                        | "r13"
+                        | "r14"
+                        | "r15"
+                ) {
+                    return Err(format!("unsupported #asm register '{register}'").into());
+                }
+                if !registers.insert(register) {
+                    return Err(
+                        format!("#asm register '{register}' is assigned more than once").into(),
+                    );
+                }
+                let input_type = expression(
+                    &pair[1], variables, functions, structs, enums, mutable, aliases, None,
+                )?;
+                if !matches!(
+                    input_type,
+                    Type::I8
+                        | Type::I16
+                        | Type::I32
+                        | Type::I64
+                        | Type::Isize
+                        | Type::U8
+                        | Type::U16
+                        | Type::U32
+                        | Type::U64
+                        | Type::Usize
+                        | Type::RawPointer { .. }
+                        | Type::Reference { .. }
+                ) {
+                    return Err(format!(
+                        "#asm register operand must be an integer up to 64 bits or raw pointer, got {input_type:?}"
+                    )
+                    .into());
+                }
+            }
+            if !matches!(&items[3], Expr::String(_)) {
+                return Err("#asm instruction body must be a string literal".into());
+            }
+            Ok(result_type)
+        }
         "clone" => {
             require_arity(operator, items, 2)?;
             let cloned = expression(
@@ -7366,6 +7506,23 @@ fn is_integer(ty: &Type) -> bool {
             | Type::U64
             | Type::U128
             | Type::Usize
+    )
+}
+
+fn is_syscall_word_type(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::I8
+            | Type::I16
+            | Type::I32
+            | Type::I64
+            | Type::Isize
+            | Type::U8
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::Usize
+            | Type::Bool
     )
 }
 

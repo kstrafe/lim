@@ -86,6 +86,97 @@ mod tests {
     }
 
     #[test]
+    fn emission_overlay_distinguishes_checked_syntax_from_synthesized_nodes() {
+        let source = "(#fn increment ((value u32)) u32 (#return (#u32.+.wrap value 1u32)))\n\
+          (#fn main () u32\n\
+            (#let value u32 40)\n\
+            (#return (#call increment (#fn-args (value (#u32.+.wrap value 2))))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let function = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        let overlay = checked.declarations().bodies["main"]
+            .emission_types(function)
+            .unwrap();
+        assert!(
+            overlay.by_address.len()
+                > overlay
+                    .by_address
+                    .values()
+                    .filter(|node| node.ty.is_some())
+                    .count()
+        );
+        assert!(overlay.by_address.values().any(|node| {
+            node.numeric.as_ref().is_some_and(|operation| {
+                operation.operand_type == Type::U32
+                    && operation.operation == "+"
+                    && operation.overflow == Overflow::Wrap
+            })
+        }));
+        let increment = checked.declarations().function_id("increment");
+        assert!(increment.is_some());
+        assert!(overlay
+            .by_address
+            .values()
+            .any(|node| node.callee == increment));
+    }
+
+    #[test]
+    fn checked_node_metadata_survives_unsafe_erasure() {
+        let source = "(#fn main () u64\n\
+          (#return (#unsafe (#u64.+.wrap 40u64 2u64))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let original = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let stable_nodes = body.emission_nodes.clone();
+        let checked_operator = stable_nodes
+            .iter()
+            .map(|id| &body.nodes[id.0])
+            .find(|node| {
+                matches!(
+                    &node.kind,
+                    NodeKind::Form {
+                        numeric: Some(operation),
+                        ..
+                    } if operation.operation == "+"
+                )
+            })
+            .unwrap();
+        let checked_span = checked_operator.span;
+        let checked_type = checked_operator.ty.clone();
+
+        let mut lowered = original.clone();
+        lowered.body = body.statements(&body.instructions, true);
+        assert_eq!(stable_nodes, body.emission_nodes);
+        assert_eq!(body.statements(&body.instructions, false), original.body);
+        let overlay = body.emission_types(&lowered).unwrap();
+        assert!(overlay.by_address.values().any(|metadata| {
+            metadata.ty == checked_type
+                && metadata.numeric.as_ref().is_some_and(|operation| {
+                    operation.operation == "+"
+                        && operation.operand_type == Type::U64
+                        && operation.overflow == Overflow::Wrap
+                })
+        }));
+        assert!(checked_span.is_some());
+        assert!(!format!("{:?}", lowered.body).contains("unsafe"));
+    }
+
+    #[test]
     fn lowering_preserves_mutation_projections_and_nested_control_flow() {
         let sources = [
             "(#fn main () u64 (#let-mut value u64 0u64) (#while (#u64.< value 2u64) (#set value (#u64.+.wrap value 1u64))) (#return value))",
@@ -105,6 +196,62 @@ mod tests {
             let body = &checked.declarations().bodies["main"];
             assert_eq!(body.statements(&body.instructions, false), original.body);
         }
+    }
+
+    #[test]
+    fn expression_branches_and_match_scopes_are_explicit_in_the_body_ir() {
+        let source = "(#enum Maybe ((Some u64) None))\n\
+          (#fn choose ((flag bool) (input Maybe)) u64\n\
+            (#return (#if flag\n\
+              (#match input (#case (Some payload) payload) (#case None 0u64))\n\
+              1u64)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let function = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "choose" => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        let body = &checked.declarations().bodies["choose"];
+        assert_eq!(body.statements(&body.instructions, false), function.body);
+        assert!(body
+            .nodes
+            .iter()
+            .any(|node| matches!(node.kind, NodeKind::If { .. })));
+        assert!(body
+            .nodes
+            .iter()
+            .any(|node| matches!(node.kind, NodeKind::Match { .. })));
+        let arm = body
+            .nodes
+            .iter()
+            .find_map(|node| match &node.kind {
+                NodeKind::MatchArm { pattern, values } if !values.is_empty() => {
+                    Some((*pattern, values[0]))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let pattern_binding = body.nodes.iter().find_map(|node| match &node.kind {
+            NodeKind::Symbol {
+                name,
+                binding: Some(binding),
+            } if name == "payload" => Some(*binding),
+            _ => None,
+        });
+        let pattern_binding = pattern_binding.expect("match pattern binding identity");
+        assert!(body.nodes[arm.0 .0].ty.is_none());
+        assert!(body.nodes[arm.1 .0].ty.is_some());
+        assert!(body.nodes.iter().any(|node| matches!(
+            &node.kind,
+            NodeKind::Symbol {
+                name,
+                binding: Some(binding),
+            } if name == "payload" && *binding == pattern_binding
+        )));
     }
 }
 
@@ -133,8 +280,8 @@ pub(crate) struct NumericOperation {
 }
 
 impl NumericOperation {
-    fn spelling(&self) -> String {
-        let scalar = match self.operand_type {
+    pub fn scalar_name(&self) -> &'static str {
+        match self.operand_type {
             Type::Bool => "bool",
             Type::Char => "char",
             Type::I8 => "i8",
@@ -152,13 +299,22 @@ impl NumericOperation {
             Type::F32 => "f32",
             Type::F64 => "f64",
             _ => unreachable!("numeric node has a scalar operand type"),
-        };
-        let mode = match self.overflow {
-            Overflow::NotApplicable => "",
-            Overflow::Wrap => ".wrap",
-            Overflow::Saturate => ".saturate",
-        };
-        format!("{scalar}.{}{mode}", self.operation)
+        }
+    }
+
+    pub fn overflow_mode(&self) -> Option<&'static str> {
+        match self.overflow {
+            Overflow::NotApplicable => None,
+            Overflow::Wrap => Some("wrap"),
+            Overflow::Saturate => Some("saturate"),
+        }
+    }
+
+    fn spelling(&self) -> String {
+        let mode = self
+            .overflow_mode()
+            .map_or_else(String::new, |mode| format!(".{mode}"));
+        format!("{}.{}{mode}", self.scalar_name(), self.operation)
     }
     pub fn parse(name: &str) -> Option<Self> {
         let (qualifier, rest) = name.split_once('.')?;
@@ -236,6 +392,21 @@ pub(crate) enum NodeKind {
         numeric: Option<NumericOperation>,
         callee: Option<FunctionId>,
     },
+    If {
+        head: NodeId,
+        condition: NodeId,
+        then_value: NodeId,
+        else_value: Option<NodeId>,
+    },
+    Match {
+        head: NodeId,
+        value: NodeId,
+        arms: Vec<NodeId>,
+    },
+    MatchArm {
+        pattern: NodeId,
+        values: Vec<NodeId>,
+    },
     Block(Vec<Instruction>),
     Loop(Vec<Instruction>),
     Labeled(String, NodeId),
@@ -309,10 +480,24 @@ pub(crate) struct Body {
     declaration_names: HashMap<DeclarationId, String>,
 }
 
+#[derive(Default)]
+pub(crate) struct EmissionTypes {
+    /// A present entry marks a checked node; its type may be absent only for
+    /// syntax nodes that do not have a runtime type.
+    pub by_address: HashMap<usize, EmissionNode>,
+}
+
+#[derive(Default)]
+pub(crate) struct EmissionNode {
+    pub ty: Option<Type>,
+    pub numeric: Option<NumericOperation>,
+    pub callee: Option<FunctionId>,
+}
+
 impl Body {
     /// Bridge stable nodes into the legacy instruction selector after unsafe
     /// erasure and call-name specialization. No semantic analysis is repeated.
-    pub fn emission_types(&self, lowered: &Function) -> Result<HashMap<usize, Type>, String> {
+    pub fn emission_types(&self, lowered: &Function) -> Result<EmissionTypes, String> {
         let mut after = Vec::new();
         walk_statements(&lowered.body, &mut after);
         if self.emission_nodes.len() != after.len() {
@@ -321,17 +506,26 @@ impl Body {
                 lowered.name
             ));
         }
-        Ok(self
-            .emission_nodes
-            .iter()
-            .zip(after)
-            .filter_map(|(id, target)| {
-                self.nodes[id.0]
-                    .ty
-                    .clone()
-                    .map(|ty| (std::ptr::from_ref(target) as usize, ty))
-            })
-            .collect())
+        let mut emission = EmissionTypes::default();
+        for (id, target) in self.emission_nodes.iter().zip(after) {
+            let address = std::ptr::from_ref(target) as usize;
+            let node = &self.nodes[id.0];
+            let (numeric, callee) = match &node.kind {
+                NodeKind::Form {
+                    numeric, callee, ..
+                } => (numeric.clone(), *callee),
+                _ => (None, None),
+            };
+            emission.by_address.insert(
+                address,
+                EmissionNode {
+                    ty: node.ty.clone(),
+                    numeric,
+                    callee,
+                },
+            );
+        }
+        Ok(emission)
     }
     pub fn syntax(&self, id: NodeId, erase_unsafe: bool) -> Expr {
         match &self.nodes[id.0].kind {
@@ -361,6 +555,35 @@ impl Body {
                 if let Some(callee) = callee {
                     items[0] = Expr::Symbol(self.callees[callee].clone());
                 }
+                Expr::List(items)
+            }
+            NodeKind::If {
+                head,
+                condition,
+                then_value,
+                else_value,
+            } => {
+                let mut items = vec![
+                    self.syntax(*head, erase_unsafe),
+                    self.syntax(*condition, erase_unsafe),
+                    self.syntax(*then_value, erase_unsafe),
+                ];
+                if let Some(value) = else_value {
+                    items.push(self.syntax(*value, erase_unsafe));
+                }
+                Expr::List(items)
+            }
+            NodeKind::Match { head, value, arms } => {
+                let mut items = vec![
+                    self.syntax(*head, erase_unsafe),
+                    self.syntax(*value, erase_unsafe),
+                ];
+                items.extend(arms.iter().map(|arm| self.syntax(*arm, erase_unsafe)));
+                Expr::List(items)
+            }
+            NodeKind::MatchArm { pattern, values } => {
+                let mut items = vec![self.syntax(*pattern, erase_unsafe)];
+                items.extend(values.iter().map(|value| self.syntax(*value, erase_unsafe)));
                 Expr::List(items)
             }
             NodeKind::Syntax(children) => Expr::List(
@@ -780,10 +1003,12 @@ impl Builder<'_> {
         };
         let pattern = self.expression(&parts[0]);
         self.pattern_bindings(&parts[0], ty, true);
-        let mut children = vec![pattern];
-        children.extend(parts[1..].iter().map(|part| self.expression(part)));
+        let values = parts[1..]
+            .iter()
+            .map(|part| self.expression(part))
+            .collect();
         self.names = saved;
-        self.record(arm, NodeKind::Syntax(children))
+        self.record(arm, NodeKind::MatchArm { pattern, values })
     }
 
     fn resolve_form(&mut self, items: &[Expr], children: &[NodeId], ty: Option<&Type>) {
@@ -856,48 +1081,62 @@ impl Builder<'_> {
                 }
             }
             Expr::List(items) => {
-                let children = if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match")
-                {
+                if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match") {
                     let ty = self.types[&(std::ptr::from_ref(&items[1]) as usize)].clone();
-                    let mut children = vec![self.expression(&items[0]), self.expression(&items[1])];
-                    children.extend(items[2..].iter().map(|arm| self.match_arm(arm, &ty)));
-                    children
+                    let head = self.expression(&items[0]);
+                    let value = self.expression(&items[1]);
+                    let arms = items[2..]
+                        .iter()
+                        .map(|arm| self.match_arm(arm, &ty))
+                        .collect();
+                    NodeKind::Match { head, value, arms }
+                } else if matches!(items.first(), Some(Expr::Symbol(head)) if head == "if") {
+                    let head = self.expression(&items[0]);
+                    let condition = self.expression(&items[1]);
+                    let then_value = self.expression(&items[2]);
+                    let else_value = items.get(3).map(|value| self.expression(value));
+                    NodeKind::If {
+                        head,
+                        condition,
+                        then_value,
+                        else_value,
+                    }
                 } else {
-                    items
+                    let children = items
                         .iter()
                         .map(|child| self.expression(child))
-                        .collect::<Vec<_>>()
-                };
-                if let Some(Expr::Symbol(head)) = items.first() {
-                    if matches!(head.as_str(), "borrow" | "borrow-mut") {
-                        if let Some(Expr::Symbol(name)) = items.get(1) {
-                            if let Some(binding) = self.names.get(name).copied() {
-                                self.body.nodes[children[1].0].kind = NodeKind::Symbol {
-                                    name: name.clone(),
-                                    binding: Some(binding),
-                                };
-                                self.body.nodes[children[1].0].ty =
-                                    Some(self.body.bindings[binding.0].ty.clone());
-                            } else if let Some(id) = self.declarations.global_id(name) {
-                                self.resolve_node(children[1], DeclarationId::Global(id));
-                                self.body.nodes[children[1].0].ty =
-                                    Some(self.declarations.global_type(id).clone());
+                        .collect::<Vec<_>>();
+                    if let Some(Expr::Symbol(head)) = items.first() {
+                        if matches!(head.as_str(), "borrow" | "borrow-mut") {
+                            if let Some(Expr::Symbol(name)) = items.get(1) {
+                                if let Some(binding) = self.names.get(name).copied() {
+                                    self.body.nodes[children[1].0].kind = NodeKind::Symbol {
+                                        name: name.clone(),
+                                        binding: Some(binding),
+                                    };
+                                    self.body.nodes[children[1].0].ty =
+                                        Some(self.body.bindings[binding.0].ty.clone());
+                                } else if let Some(id) = self.declarations.global_id(name) {
+                                    self.resolve_node(children[1], DeclarationId::Global(id));
+                                    self.body.nodes[children[1].0].ty =
+                                        Some(self.declarations.global_type(id).clone());
+                                }
                             }
                         }
+                        let ty = self.types.get(&address).cloned();
+                        self.resolve_form(items, &children, ty.as_ref());
+                        if let Some(callee) = self.declarations.function_id(head) {
+                            self.body.callees.insert(callee, head.clone());
+                        }
+                        NodeKind::Form {
+                            head: head.clone(),
+                            children,
+                            numeric: NumericOperation::parse(head),
+                            callee: self.declarations.function_id(head),
+                        }
+                    } else {
+                        NodeKind::Syntax(children)
                     }
-                    let ty = self.types.get(&address).cloned();
-                    self.resolve_form(items, &children, ty.as_ref());
-                    if let Some(callee) = self.declarations.function_id(head) {
-                        self.body.callees.insert(callee, head.clone());
-                    }
-                    NodeKind::Form {
-                        head: head.clone(),
-                        children,
-                        numeric: NumericOperation::parse(head),
-                        callee: self.declarations.function_id(head),
-                    }
-                } else {
-                    NodeKind::Syntax(children)
                 }
             }
             Expr::Block(body) => NodeKind::Block(self.statements(body)),

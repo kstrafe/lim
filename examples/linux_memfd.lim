@@ -1,0 +1,93 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn syscall-is ((actual i64) (expected i64)) bool
+  (#return (#i64.== actual expected)))
+
+(#fn main () u64
+  (#let path-memory (#ptr-mut u8)
+    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#unsafe
+    (#block
+      (#ptr-write path-memory 108u8)
+      (#ptr-write (#ptr-offset path-memory 1usize) 105u8)
+      (#ptr-write (#ptr-offset path-memory 2usize) 109u8)
+      (#ptr-write (#ptr-offset path-memory 3usize) 45u8)
+      (#ptr-write (#ptr-offset path-memory 4usize) 102u8)
+      (#ptr-write (#ptr-offset path-memory 5usize) 105u8)
+      (#ptr-write (#ptr-offset path-memory 6usize) 108u8)
+      (#ptr-write (#ptr-offset path-memory 7usize) 101u8)
+      (#ptr-write (#ptr-offset path-memory 8usize) 0u8)
+      (#ptr-write (#ptr-offset path-memory 16usize) 76u8)
+      (#ptr-write (#ptr-offset path-memory 17usize) 73u8)
+      (#ptr-write (#ptr-offset path-memory 18usize) 77u8)
+      (#ptr-write (#ptr-offset path-memory 19usize) 33u8)
+      ()))
+  (#let descriptor i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MEMFD-CREATE (path-memory 1usize))))
+  (#let descriptor-flags i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-FCNTL (descriptor 1usize 0usize))))
+  (#let written i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-WRITE
+      (descriptor (#ptr-offset path-memory 16usize) 4usize))))
+  (#let seek-start i64
+    (#call linux-lseek (#fn-args (fd descriptor) (offset 0i64) (whence 0i64))))
+  (#let bytes-read i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-READ
+      (descriptor (#ptr-offset path-memory 32usize) 4usize))))
+  (#let byte-0 u8
+    (#unsafe (#ptr-read (#ptr-offset path-memory 32usize))))
+  (#let byte-1 u8
+    (#unsafe (#ptr-read (#ptr-offset path-memory 33usize))))
+  (#let byte-2 u8
+    (#unsafe (#ptr-read (#ptr-offset path-memory 34usize))))
+  (#let byte-3 u8
+    (#unsafe (#ptr-read (#ptr-offset path-memory 35usize))))
+  (#let stat-memory (#ptr-mut i64)
+    (#unsafe (#linux-syscall (#ptr-mut i64) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let stat-result i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-FSTAT (descriptor stat-memory))))
+  (#let file-size i64
+    (#unsafe (#ptr-read (#ptr-offset stat-memory 6usize))))
+  (#let end-before-truncate i64
+    (#call linux-lseek (#fn-args (fd descriptor) (offset 0i64) (whence 2i64))))
+  (#let truncated i64
+    (#call linux-ftruncate (#fn-args (fd descriptor) (length 2i64))))
+  (#let end-after-truncate i64
+    (#call linux-lseek (#fn-args (fd descriptor) (offset 0i64) (whence 2i64))))
+  (#let synced i64 (#call linux-fsync (#fn-args (fd descriptor))))
+  (#let data-synced i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-FDATASYNC (descriptor))))
+  (#let closed i64 (#call linux-close (#fn-args (fd descriptor))))
+  (#let path-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (path-memory 4096usize))))
+  (#let stat-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (stat-memory 4096usize))))
+  (#let descriptor-ok bool
+    (#bool.&& (#i64.>= descriptor 0i64)
+      (#call syscall-is (#fn-args (actual descriptor-flags) (expected 1i64)))))
+  (#let contents-ok bool
+    (#bool.&& (#call syscall-is (#fn-args (actual written) (expected 4i64)))
+      (#bool.&& (#call syscall-is (#fn-args (actual seek-start) (expected 0i64)))
+        (#bool.&& (#call syscall-is (#fn-args (actual bytes-read) (expected 4i64)))
+          (#bool.&& (#u8.== byte-0 76u8)
+            (#bool.&& (#u8.== byte-1 73u8)
+              (#bool.&& (#u8.== byte-2 77u8) (#u8.== byte-3 33u8))))))))
+  (#let metadata-ok bool
+    (#bool.&& (#call syscall-is (#fn-args (actual stat-result) (expected 0i64)))
+      (#bool.&& (#call syscall-is (#fn-args (actual file-size) (expected 4i64)))
+        (#call syscall-is (#fn-args (actual end-before-truncate) (expected 4i64))))))
+  (#let updates-ok bool
+    (#bool.&& (#call syscall-is (#fn-args (actual truncated) (expected 0i64)))
+      (#bool.&& (#call syscall-is (#fn-args (actual end-after-truncate) (expected 2i64)))
+        (#bool.&& (#call syscall-is (#fn-args (actual synced) (expected 0i64)))
+          (#bool.&& (#call syscall-is (#fn-args (actual data-synced) (expected 0i64)))
+            (#bool.&& (#call syscall-is (#fn-args (actual closed) (expected 0i64)))
+              (#bool.&& (#call syscall-is (#fn-args (actual path-unmapped) (expected 0i64)))
+                (#call syscall-is (#fn-args (actual stat-unmapped) (expected 0i64))))))))))
+  (#return
+    (#if (#bool.&& descriptor-ok (#bool.&& contents-ok
+      (#bool.&& metadata-ok updates-ok)))
+      42u64
+      1u64)))

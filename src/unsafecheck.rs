@@ -26,8 +26,23 @@ pub(crate) fn check_program_with_span(
             if function.external {
                 continue;
             }
+            // Function parameters shadow statics in the same way as local
+            // bindings. The parser retains parameter spellings, so exclude
+            // those names from this function's static-access set. Locals and
+            // pattern bindings that shadow a static are alpha-renamed during
+            // parsing and therefore no longer collide here.
+            let shadowed_statics = function
+                .parameters
+                .iter()
+                .map(|parameter| parameter.name.as_str())
+                .collect::<std::collections::HashSet<_>>();
+            let function_statics = statics
+                .difference(&shadowed_statics)
+                .copied()
+                .collect::<std::collections::HashSet<_>>();
             for (index, statement) in function.body.iter().enumerate() {
-                if let Err(error) = check_statement(statement, false, &statics, &external_functions)
+                if let Err(error) =
+                    check_statement(statement, false, &function_statics, &external_functions)
                 {
                     let key = (function.name.clone(), index);
                     let span = error
@@ -152,7 +167,9 @@ fn check_expression(
                         | "ptr-write"
                         | "ptr-offset"
                         | "ptr-borrow"
-                        | "ptr-borrow-mut",
+                        | "ptr-borrow-mut"
+                        | "asm"
+                        | "linux-syscall",
                 )
             ) && !unsafe_context
             {
