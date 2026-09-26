@@ -30,7 +30,7 @@
         ())))
   (#let file-created i64
     (#unsafe (#call linux-openat (#fn-args
-      (directory -100i64) (path paths) (flags 524481usize) (mode 384usize)))))
+      (directory -100i64) (path paths) (flags 524481i32) (mode 384u32)))))
   (#let file-closed i64 (#call linux-close (#fn-args (fd file-created))))
   (#let secure-open i64
     (#unsafe (#call linux-openat2 (#fn-args
@@ -48,7 +48,7 @@
       (directory -100i64) (path paths) (how how) (how-size 24usize)))))
   (#let file-removed i64
     (#unsafe (#call linux-unlinkat (#fn-args
-      (directory -100i64) (path paths) (flags 0usize)))))
+      (directory -100i64) (path paths) (flags 0i32)))))
   (#let how-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (how 4096usize))))
   (#let paths-unmapped i64

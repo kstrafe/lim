@@ -23,6 +23,7 @@ module - modules/parse_errors.lim - -
 exit 42 nested_aliases.lim - -
 exit 42 allocator_state.lim - -
 exit 42 linux_memfd.lim - -
+exit 42 linux_memory.lim - -
 exit 42 linux_epoll.lim - -
 exit 42 linux_futex.lim - -
 exit 42 linux_interval_timers.lim - -

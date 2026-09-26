@@ -25,9 +25,9 @@
       ()))
   (#let descriptor i64
     (#unsafe (#call linux-memfd-create
-      (#fn-args (name path-memory) (flags 1usize)))))
+      (#fn-args (name path-memory) (flags 1u32)))))
   (#let descriptor-flags i64
-    (#call linux-fcntl (#fn-args (fd descriptor) (command 1usize) (argument 0usize))))
+    (#call linux-fcntl (#fn-args (fd descriptor) (command 1i32) (argument 0usize))))
   (#let written i64
     (#unsafe (#call linux-write (#fn-args (fd descriptor)
       (source (#ptr-offset path-memory 16usize)) (count 4usize)))))
@@ -55,20 +55,20 @@
     (#unsafe (#ptr-read (#ptr-offset path-memory 35usize))))
   (#let file-advice i64
     (#call linux-fadvise64 (#fn-args
-      (fd descriptor) (offset 0i64) (length 8i64) (advice 2usize))))
+      (fd descriptor) (offset 0i64) (length 8i64) (advice 2i32))))
   (#let lock-acquired i64
-    (#call linux-flock (#fn-args (fd descriptor) (operation 2usize))))
+    (#call linux-flock (#fn-args (fd descriptor) (operation 2i32))))
   (#let lock-released i64
-    (#call linux-flock (#fn-args (fd descriptor) (operation 8usize))))
+    (#call linux-flock (#fn-args (fd descriptor) (operation 8i32))))
   (#let permissions-changed i64
-    (#call linux-fchmod (#fn-args (fd descriptor) (mode 384usize))))
+    (#call linux-fchmod (#fn-args (fd descriptor) (mode 384u32))))
   (#let owner-changed i64
     (#call linux-fchown (#fn-args (fd descriptor)
       (owner (#call linux-getuid (#fn-args)))
       (group (#call linux-getgid (#fn-args))))))
   (#let allocated i64
     (#call linux-fallocate (#fn-args
-      (fd descriptor) (mode 0usize) (offset 8i64) (length 4i64))))
+      (fd descriptor) (mode 0i32) (offset 8i64) (length 4i64))))
   (#let duplicate-same-fd i64
     (#call linux-dup2 (#fn-args (source descriptor) (destination descriptor))))
   (#let stat-memory (#ptr-mut i64)

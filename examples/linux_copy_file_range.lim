@@ -29,10 +29,10 @@
         ())))
   (#let source-fd i64
     (#unsafe (#call linux-memfd-create (#fn-args
-      (name memory) (flags 1usize)))))
+      (name memory) (flags 1u32)))))
   (#let destination-fd i64
     (#unsafe (#call linux-memfd-create (#fn-args
-      (name (#ptr-offset memory 8usize)) (flags 1usize)))))
+      (name (#ptr-offset memory 8usize)) (flags 1u32)))))
   (#let payload-written i64
     (#unsafe (#call linux-write (#fn-args
       (fd source-fd) (source (#ptr-offset memory 32usize)) (count 8usize)))))
@@ -43,7 +43,7 @@
       (output destination-fd)
       (output-offset (#ptr-offset offsets 1usize))
       (count 8usize)
-      (flags 0usize)))))
+      (flags 0u32)))))
   (#let copied-input-offset i64 (#unsafe (#ptr-read offsets)))
   (#let copied-output-offset i64
     (#unsafe (#ptr-read (#ptr-offset offsets 1usize))))

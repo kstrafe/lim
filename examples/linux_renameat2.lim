@@ -29,11 +29,11 @@
         ())))
   (#let source-fd i64
     (#unsafe (#call linux-openat (#fn-args
-      (directory -100i64) (path paths) (flags 524481usize) (mode 384usize)))))
+      (directory -100i64) (path paths) (flags 524481i32) (mode 384u32)))))
   (#let target-fd i64
     (#unsafe (#call linux-openat (#fn-args
       (directory -100i64) (path (#ptr-offset paths 16usize))
-      (flags 524481usize) (mode 384usize)))))
+      (flags 524481i32) (mode 384u32)))))
   (#let source-closed i64 (#call linux-close (#fn-args (fd source-fd))))
   (#let target-closed i64 (#call linux-close (#fn-args (fd target-fd))))
   (#let no-replace-result i64
@@ -42,31 +42,31 @@
       (old-path paths)
       (new-directory -100i64)
       (new-path (#ptr-offset paths 16usize))
-      (flags 1usize)))))
+      (flags 1u32)))))
   (#let target-removed i64
     (#unsafe (#call linux-unlinkat (#fn-args
-      (directory -100i64) (path (#ptr-offset paths 16usize)) (flags 0usize)))))
+      (directory -100i64) (path (#ptr-offset paths 16usize)) (flags 0i32)))))
   (#let rename-result i64
     (#unsafe (#call linux-renameat2 (#fn-args
       (old-directory -100i64)
       (old-path paths)
       (new-directory -100i64)
       (new-path (#ptr-offset paths 32usize))
-      (flags 0usize)))))
+      (flags 0u32)))))
   (#let old-open i64
     (#unsafe (#call linux-openat (#fn-args
-      (directory -100i64) (path paths) (flags 0usize) (mode 0usize)))))
+      (directory -100i64) (path paths) (flags 0i32) (mode 0u32)))))
   (#let renamed-open i64
     (#unsafe (#call linux-openat (#fn-args
       (directory -100i64) (path (#ptr-offset paths 32usize))
-      (flags 0usize) (mode 0usize)))))
+      (flags 0i32) (mode 0u32)))))
   (#let renamed-closed i64 (#call linux-close (#fn-args (fd renamed-open))))
   (#let renamed-removed i64
     (#unsafe (#call linux-unlinkat (#fn-args
-      (directory -100i64) (path (#ptr-offset paths 32usize)) (flags 0usize)))))
+      (directory -100i64) (path (#ptr-offset paths 32usize)) (flags 0i32)))))
   (#let source-cleaned i64
     (#unsafe (#call linux-unlinkat (#fn-args
-      (directory -100i64) (path paths) (flags 0usize)))))
+      (directory -100i64) (path paths) (flags 0i32)))))
   (#let rename-ok bool
     (#bool.&& (#i64.>= source-fd 0i64)
       (#bool.&& (#i64.>= target-fd 0i64)

@@ -38,14 +38,14 @@
         ())))
   (#let fd i64
     (#unsafe (#call linux-memfd-create (#fn-args
-      (name memory) (flags 1usize)))))
+      (name memory) (flags 1u32)))))
   (#let attribute-set i64
     (#unsafe (#call linux-fsetxattr (#fn-args
       (fd fd)
       (name (#ptr-offset memory 16usize))
       (value (#ptr-offset memory 32usize))
       (size 8usize)
-      (flags 0usize)))))
+      (flags 0i32)))))
   (#let attribute-listed i64
     (#unsafe (#call linux-flistxattr (#fn-args
       (fd fd) (list (#ptr-offset memory 96usize)) (size 128usize)))))

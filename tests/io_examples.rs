@@ -97,6 +97,29 @@ fn echo_example_prints_the_bytes_read_from_standard_input() {
 }
 
 #[test]
+fn linux_memory_mapping_syscalls_match_kernel_results() {
+    let scratch = support::Scratch::new("linux-memory");
+    let executable = scratch.path().join("memory-checks");
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/linux_memory.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("run Lim compiler");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    let output = Command::new(executable)
+        .output()
+        .expect("run compiled memory syscall test");
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn linux_syscall_wrappers_report_kernel_results() {
     let scratch = support::Scratch::new("linux-syscalls");
     let executable = scratch.path().join("syscall-checks");

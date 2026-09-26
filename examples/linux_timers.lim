@@ -39,7 +39,7 @@
   (#let timer-armed i64
     (#unsafe (#call linux-timer-settime (#fn-args
       (timer-id timer-id)
-      (flags 0usize)
+      (flags 0i32)
       (new-time time-memory)
       (old-time (#ptr-null (#ptr-mut i64)))))))
   (#let timer-read i64

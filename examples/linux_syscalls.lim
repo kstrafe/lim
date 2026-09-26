@@ -37,7 +37,7 @@
     (#unsafe (#linux-syscall i64 LINUX-SYS-IOCTL (999999i64 0usize 0usize))))
   (#let failed_fcntl i64
     (#call linux-fcntl (#fn-args
-      (fd 999999i64) (command 1usize) (argument 0usize))))
+      (fd 999999i64) (command 1i32) (argument 0usize))))
   (#let failed_flock i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-FLOCK (999999i64 2usize))))
   (#let failed_fdatasync i64
@@ -45,10 +45,10 @@
   (#let failed_openat i64
     (#unsafe (#call linux-openat (#fn-args
       (directory -100i64) (path (#ptr-null (#ptr-mut u8)))
-      (flags 0usize) (mode 0usize)))))
+      (flags 0i32) (mode 0u32)))))
   (#let failed_unlinkat i64
     (#unsafe (#call linux-unlinkat (#fn-args
-      (directory -100i64) (path (#ptr-null (#ptr-mut u8))) (flags 0usize)))))
+      (directory -100i64) (path (#ptr-null (#ptr-mut u8))) (flags 0i32)))))
   (#let failed_fchdir i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-FCHDIR (999999i64))))
   (#let failed_fchmod i64
@@ -120,7 +120,7 @@
       ()))
   (#let null-device i64
     (#unsafe (#call linux-openat (#fn-args
-      (directory -100i64) (path mapping) (flags 0usize) (mode 0usize)))))
+      (directory -100i64) (path mapping) (flags 0i32) (mode 0u32)))))
   (#let close-null-device i64
     (#call linux-close (#fn-args (fd null-device))))
   (#unsafe

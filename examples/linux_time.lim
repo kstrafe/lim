@@ -49,7 +49,7 @@
         ())))
   (#let sleep-result i64
     (#unsafe (#call linux-clock-nanosleep (#fn-args
-      (clock-id 1i64) (flags 0usize)
+      (clock-id 1i64) (flags 0i32)
       (request (#ptr-offset memory 12usize))
       (remaining (#ptr-offset memory 14usize))))))
   (#let unmapped i64

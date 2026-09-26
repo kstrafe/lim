@@ -11,7 +11,7 @@
       ()))
   (#let directory i64
     (#unsafe (#call linux-openat (#fn-args
-      (directory -100i64) (path path-memory) (flags 65536usize) (mode 0usize)))))
+      (directory -100i64) (path path-memory) (flags 65536i32) (mode 0u32)))))
   (#let entries (#ptr-mut u8)
     (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))

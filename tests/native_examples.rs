@@ -38,7 +38,7 @@ fn run(
     directory: &Path,
     budget: Duration,
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>), String> {
-    let _ = directory;
+    let command = command.current_dir(directory);
     support::run(command, budget, 1024 * 1024)
 }
 
