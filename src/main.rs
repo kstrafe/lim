@@ -31,7 +31,7 @@ fn main() -> ExitCode {
     JSON_DIAGNOSTICS.store(json, std::sync::atomic::Ordering::Relaxed);
     arguments.retain(|arg| arg != "--diagnostic-format=json" && arg != "--diagnostic-format=human");
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]...\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]...\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         return ExitCode::SUCCESS;
     }
     if matches!(
@@ -39,6 +39,24 @@ fn main() -> ExitCode {
         Some("--stack-usage" | "--explain-cache")
     ) {
         return stack_usage_command(&arguments);
+    }
+    if arguments.first().map(String::as_str) == Some("fmt") {
+        if arguments.len() != 2 {
+            eprintln!("usage: lim fmt INPUT");
+            return ExitCode::FAILURE;
+        }
+        return match lim::format_project_from_path(Path::new(&arguments[1])) {
+            Ok(paths) => {
+                for path in paths {
+                    println!("formatted {}", path.display());
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("lim: {error}");
+                ExitCode::FAILURE
+            }
+        };
     }
     if arguments.first().map(String::as_str) == Some("--format") {
         let Some(input) = arguments.get(1) else {
@@ -197,6 +215,7 @@ fn main() -> ExitCode {
             eprintln!("usage: lim INPUT [-o OUTPUT] [--target TARGET]  (default output: INPUT without extension)");
             eprintln!("       lim INPUT --cfg KEY=VALUE ...");
             eprintln!("       lim --emit-asm INPUT OUTPUT [--cfg KEY=VALUE ...]");
+            eprintln!("       lim fmt INPUT");
             eprintln!("       lim --collect-cfgs INPUT");
             eprintln!("       lim --check-examples [DIRECTORY]");
             return ExitCode::FAILURE;

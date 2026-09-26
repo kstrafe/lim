@@ -365,10 +365,16 @@ echo $? # 55 for the Fibonacci example
 nix develop --command cargo run -- --check-examples examples
 nix develop --command cargo run -- examples/fibonacci.lim --target x86_64-sysv
 nix develop --command cargo run -- --format examples/fibonacci.lim
+nix develop --command cargo run -- fmt examples/modules/main.lim
 ```
 
 `--format` retains comments in their surrounding syntax, including nested
 forms and generator templates. Formatting is idempotent.
+
+`lim fmt INPUT` formats the file in place and follows internal `#import`s
+transitively. `#import-external` files are skipped. The read-only `--format`
+form remains available to print one formatted file or write it to a separate
+output path.
 
 Native compilation carries an explicit target description. The supported
 target/ABI matrix currently has one entry:
@@ -1053,7 +1059,9 @@ representations subject to the type checker’s range rules.
 ## Expressions and builtin forms
 
 Builtin forms are ordinary Lisp lists whose first symbol begins with `#`.
-The following forms are currently implemented:
+The table below is a quick, categorized overview. The alphabetic reference
+that follows documents each reserved `#` form, its shape, a use in the
+appropriate context, and its effect.
 
 | Form | Purpose |
 | --- | --- |
@@ -1080,6 +1088,178 @@ The following forms are currently implemented:
 | `#assert`, `#debug-assert` | runtime assertions |
 | `#panic`, `#unreachable` | diverging expressions |
 | `#literal` | explicitly typed literal form |
+
+### Complete `#` builtin reference (alphabetical)
+
+Examples below are fragments in their indicated context. A *form* is a list
+whose head is a builtin; type constructors and marker values are called out
+separately. Names such as `#u32.+.wrap` are typed operator identifiers rather
+than builtin form heads; their spelling is summarized after the table.
+
+| Builtin | Syntax | Example (context) | Meaning |
+| --- | --- | --- | --- |
+| `#addr-of` | `(#addr-of local)` | `(#unsafe (#addr-of value))` (expression) | Takes a shared raw address of a scalar local; unsafe because later access is not checked. |
+| `#addr-of-mut` | `(#addr-of-mut mutable-local)` | `(#unsafe (#addr-of-mut value))` (expression) | Takes a mutable raw address of a mutable scalar local. |
+| `#align-of` | `(#align-of Type)` | `(#align-of Point)` (expression) | Compile-time alignment in bytes for the Lim representation, or C layout of a `#repr-c` type. |
+| `#array` | `(#array ElementType Length)` as a type; `(#array Type value...)` as value/pattern | `(#let xs (#array u8 2) (#array (#array u8 2) 4u8 5u8))` | Declares a fixed-length array type, constructs it, or matches its elements. |
+| `#array-of` | `(#array-of ArrayType value...)` | `(#array-of (#array u8 2) 4u8 5u8)` (expression) | Explicitly constructs a fixed array with its full type stated. |
+| `#array-repeat` | `(#array-repeat value)` with an expected array type | `(#let xs (#array u8 3) (#array-repeat 0u8))` | Fills every array slot with the given Copy value. |
+| `#as` | `(#as value TargetType)` | `(#let n u64 (#as byte u64))` (expression) | Performs an explicit checked/defined scalar or enum conversion accepted by the type checker. |
+| `#asm` | `(#asm ResultType ((register value)...) "instructions")` | `(#unsafe (#asm i64 ((rax 39usize)) "syscall"))` (expression) | Emits target assembly; unsafe, target-specific, and subject to the documented register/stack rules. |
+| `#assert` | `(#assert condition)` | `(#assert (#bool.== count 3u64))` (statement) | Traps if the condition is false. |
+| `#atomic` | `(#atomic ScalarType)` | `(#let-mut counter (#atomic u64) (#atomic-init u64 0u64))` (type/binding) | Declares a supported atomic scalar wrapper type. |
+| `#atomic-compare-exchange` | `(#atomic-compare-exchange reference expected desired success-order failure-order)` | `(#atomic-compare-exchange (#borrow counter) 0u64 1u64 #memory-acq-rel #memory-acquire)` (expression) | Strong compare-exchange; returns `(success, observed-value)`. |
+| `#atomic-compare-exchange-weak` | `(#atomic-compare-exchange-weak reference expected desired success-order failure-order)` | `(#atomic-compare-exchange-weak (#borrow counter) 0u64 1u64 #memory-release #memory-relaxed)` (expression) | Weak compare-exchange; may fail spuriously and returns `(success, observed-value)`. |
+| `#atomic-exchange` | `(#atomic-exchange reference desired order)` | `(#atomic-exchange (#borrow counter) 2u64 #memory-seq-cst)` (expression) | Atomically replaces the value and returns the previous value. |
+| `#atomic-fetch-add` | `(#atomic-fetch-add reference addend order)` | `(#atomic-fetch-add (#borrow counter) 1u64 #memory-acq-rel)` (expression) | Atomically adds and returns the previous value. |
+| `#atomic-init` | `(#atomic-init ScalarType initial-value)` | `(#atomic-init u64 0u64)` (initializer) | Creates an atomic value; allowed scalar widths are documented in the atomics section. |
+| `#atomic-load` | `(#atomic-load reference order)` | `(#atomic-load (#borrow counter) #memory-acquire)` (expression) | Atomically reads a value using an allowed load ordering. |
+| `#atomic-store` | `(#atomic-store reference value order)` | `(#atomic-store (#borrow counter) 4u64 #memory-release)` (statement) | Atomically stores a value using an allowed store ordering. |
+| `#block` | `(#block statement... final-expression)` | `(#block (#let x u64 2u64) (#u64.+.wrap x 1u64))` (expression) | Evaluates statements in order and yields the final expression, or unit for a side-effect-only block. |
+| `#borrow` | `(#borrow place)` or `(#borrow place body)` | `(#let r (#ref u64) (#borrow value))` (binding) | Creates a shared reference, or scopes a shared borrow around a body. |
+| `#borrow-mut` | `(#borrow-mut place)` or `(#borrow-mut place body)` | `(#let r (#ref-mut u64) (#borrow-mut value))` (binding) | Creates an exclusive mutable reference, or scopes a mutable borrow around a body. |
+| `#break` | `(#break)` or `(#break value)` | `(#if done (#break 42u64) (#continue))` (loop body) | Exits the innermost loop, optionally supplying its expression value. |
+| `#break-to` | `(#break-to label)` or `(#break-to label value)` | `(#break-to outer 42u64)` (labeled loop body) | Exits a named enclosing loop, optionally with a loop value. |
+| `#call` | `(#call function (#fn-args (name value)...))` | `(#call add (#fn-args (left 20u64) (right 22u64)))` (expression) | Calls a statically named function; every argument is named and checked against its signature. |
+| `#capability` | `(#capability name Type ((operation (Args...) Result)...))` | `(#capability ordered u64 ((less ((#ref u64) (#ref u64)) bool)))` (declaration) | Declares a generator-time signature contract that a concrete type may satisfy. |
+| `#case` | `(#case pattern body)` or `(#case pattern (#when guard) body)` | `(#case (Some x) x)` (inside `#match`) | Introduces one explicit match arm. |
+| `#cell` | `(#cell value)` as a type; `(#cell initial-value)` as an expression | `(#let-mut c (#cell u64) (#cell 0u64))` | Declares or constructs single-threaded interior-mutable storage. |
+| `#cell-get` | `(#cell-get cell-place)` | `(#cell-get c)` (expression) | Reads the current Cell value. |
+| `#cell-set` | `(#cell-set cell-place new-value)` | `(#cell-set c 9u64)` (statement) | Replaces a Cell value and yields unit. |
+| `#cfg-and` | `(#cfg-and condition...)` | `(#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))` (cfg condition) | Combines conditions with logical AND; requires at least one condition. |
+| `#cfg-else` | `(#cfg-else form...)` | `(#cfg-else (#fn fallback () () (#return ())))` (last `#cfg-if` branch) | Supplies forms when the preceding `#cfg-if` condition is false. |
+| `#cfg-if` | `(#cfg-if condition form... [#cfg-else form...])` | `(#cfg-if (#cfg-is #os linux) (#fn os-call () () (#return ())))` (top level) | Includes only the selected top-level forms before imports and semantic checks. |
+| `#cfg-is` | `(#cfg-is #key literal)` | `(#cfg-is #feature fast)` (cfg condition) | Compares a configured key to a symbol, string, or integer literal. |
+| `#cfg-not` | `(#cfg-not condition)` | `(#cfg-not (#cfg-is #debug enabled))` (cfg condition) | Negates one cfg condition. |
+| `#cfg-or` | `(#cfg-or condition...)` | `(#cfg-or (#cfg-is #os linux) (#cfg-is #os macos))` (cfg condition) | Combines conditions with logical OR; requires at least one condition. |
+| `#clone` | `(#clone value)` | `(#let second Buffer (#clone first))` (statement/expression) | Explicitly duplicates a Copy value or invokes the concrete type's `Type-clone` function. |
+| `#const` | `(#const name Type value)` | `(#const LIMIT u64 16u64)` (top level or statement) | Declares an immutable compile-time constant with an explicit type. |
+| `#continue` | `(#continue)` | `(#if skip (#continue) (#set total next))` (loop body) | Starts the next iteration of the innermost loop. |
+| `#continue-to` | `(#continue-to label)` | `(#continue-to outer)` (labeled loop body) | Starts the next iteration of a named enclosing loop. |
+| `#debug-assert` | `(#debug-assert condition)` | `(#debug-assert (#u64.< length capacity))` (statement) | Debug-build assertion; compiles away when debug configuration is disabled. |
+| `#deref` | `(#deref reference)` | `(#return (#deref r))` (expression) | Reads through a Lim reference. |
+| `#deref-set` | `(#deref-set mutable-reference value)` | `(#deref-set r 7u64)` (statement) | Writes through a mutable Lim reference. |
+| `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly consumes and discards a value without calling user destruction code. |
+| `#enum` | `(#enum Name (Variant (PayloadType...))...)` | `(#enum Maybe ((Some u64) None))` (top level) | Declares a concrete enum; variant payload types and discriminants are explicit. |
+| `#extern-fn` | `(#extern-fn #abi-c name ((arg Type)...) ReturnType)` | `(#extern-fn #abi-c c_abs ((value i32)) i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
+| `#for` | `(#for init condition step body...)` | `(#for (#let-mut i u64 0u64) (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)) (#set sum (#u64.+.wrap sum i)))` (statement) | Runs an explicitly structured init/condition/step loop. |
+| `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i u64) 0u64 4u64 (#set sum (#u64.+.wrap sum i)))` (statement) | Iterates a typed, half-open range `[start, end)`. |
+| `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Explicitly consumes a value while suppressing automatic destruction. |
+| `#fn` | `(#fn name ((arg Type)...) ReturnType body...)` | `(#fn add ((a u64) (b u64)) u64 (#return (#u64.+.wrap a b)))` (top level) | Declares a monomorphic function with explicit parameter/return types and body. |
+| `#fn-args` | `(#fn-args (parameter value)...)` | `(#call id (#fn-args (value 42u64)))` (inside `#call`) | Names each call argument; order at the call site need not match declaration order. |
+| `#generator` | `(#generator name ((parameter syntax-or-capability)...) body...)` | ``(#generator make-alias ((name syntax)) (gn-emit `(#type ,name u64)))`` (top level) | Declares an interpreted compile-time syntax generator; arguments are literals/syntax, not runtime values. |
+| `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
+| `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
+| `#gn-call` | `(#gn-call function syntax-arg...)` | `(#gn-call make-alias name target)` (generator body) | Calls a `#gn-fn` helper during generator interpretation. |
+| `#gn-equal` | `(#gn-equal syntax-a syntax-b)` | `(#gn-equal item expected)` (generator expression) | Tests structural equality of immutable generator syntax values. |
+| `#gn-error` | `(#gn-error string-or-syntax)` | `(#gn-error \"unsupported element type\")` (generator expression) | Stops generation with a source-associated explanatory diagnostic. |
+| `#gn-first` | `(#gn-first list)` | `(#gn-first members)` (generator expression) | Returns the first element of a non-empty syntax list. |
+| `#gn-for-each` | `(#gn-for-each (name list) body...)` | `(#gn-for-each (field fields) (gn-emit field))` (generator body) | Executes generator forms once per syntax-list element; this is the bounded iteration primitive. |
+| `#gn-fn` | `(#gn-fn name (parameter...) body...)` | `(#gn-fn identity (value) value)` (top level) | Declares a reusable generator-time function. |
+| `#gn-if` | `(#gn-if condition then-value else-value)` | `(#gn-if (#gn-equal kind sortable) yes no)` (generator expression) | Selects a syntax value based on a generator boolean. |
+| `#gn-length` | `(#gn-length syntax-list)` | `(#gn-length fields)` (generator expression) | Returns the number of elements in a syntax list. |
+| `#gn-list` | `(#gn-list syntax...)` | `(#gn-list a b)` (generator expression) | Constructs an immutable syntax list. |
+| `#gn-list?` | `(#gn-list? syntax)` | `(#gn-list? value)` (generator expression) | Tests whether a syntax value is a list. |
+| `#gn-rest` | `(#gn-rest list)` | `(#gn-rest fields)` (generator expression) | Returns a list containing all but the first element. |
+| `#gn-symbol` | `(#gn-symbol text)` | `(#gn-symbol name)` (generator expression) | Constructs a symbol syntax value from literal text/syntax. |
+| `#gn-symbol?` | `(#gn-symbol? syntax)` | `(#gn-symbol? value)` (generator expression) | Tests whether a syntax value is a symbol. |
+| `#if` | `(#if condition then [else])` | `(#return (#if ready 1u64 0u64))` (expression) | Selects an expression by a boolean; without `else`, the then branch must be unit. |
+| `#if-let` | `(#if-let pattern Type value then [else])` | `(#if-let (Some x) Maybe maybe x 0u64)` (expression) | Tests a typed pattern and scopes its bindings to the successful branch. |
+| `#import` | `(#import \"relative/path.lim\")` | `(#import \"types.lim\")` (top level) | Imports internal declarations without renaming their symbols. |
+| `#import-external` | `(#import-external \"path.lim\" prefix)` | `(#import-external \"math.lim\" math-)` (top level) | Imports declarations while prefixing their symbols. |
+| `#index` | `(#index array usize-index)` | `(#index values 1usize)` (expression) | Reads an array element with a checked index. |
+| `#label` | `(#label name loop)` | `(#label outer (#while condition (#continue-to outer)))` (statement) | Names an enclosing `#while`, `#loop`, or `#for` for targeted control flow. |
+| `#let` | `(#let pattern-or-name Type value)` | `(#let count u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
+| `#let-else` | `(#let-else pattern Type value else-statement...)` | `(#let-else (Some x) Maybe maybe (#return 0u64))` (function body) | Destructures on success; the else branch must diverge. |
+| `#let-mut` | `(#let-mut name-or-pattern Type value)` | `(#let-mut count u32 0u32)` (function body) | Declares a mutable local with an explicit type. |
+| `#linear` | `(#linear TypeName)` | `(#linear FileHandle)` (top level) | Disables structural Copy for the named struct/enum, making its values linear. |
+| `#linux-syscall` | `(#linux-syscall ResultType number (arg...))` | `(#unsafe (#linux-syscall i64 39usize ()))` (expression) | Emits a raw Linux x86-64 syscall instruction with up to six machine-word arguments and unmodified negative-errno results. |
+| `#literal` | `(#literal NumericType literal)` | `(#let n u16 (#literal u16 42))` (expression) | Gives an integer/float literal an explicit numeric type. |
+| `#loop` | `(#loop body...)` | `(#loop (#if done (#break 42u64) (#continue)))` (statement/expression) | Repeats indefinitely until broken; a break value makes it value-producing. |
+| `#match` | `(#match value (#case pattern body)...)` | `(#match maybe (#case (Some x) x) (#case None 0u64))` (expression) | Performs an exhaustive pattern match; every arm must use `#case`. |
+| `#memory-acq-rel` | `#memory-acq-rel` | `(#atomic-fetch-add r 1u64 #memory-acq-rel)` (ordering operand) | Selects acquire-release ordering for read-modify-write atomics. |
+| `#memory-acquire` | `#memory-acquire` | `(#atomic-load r #memory-acquire)` (ordering operand) | Selects acquire ordering where permitted. |
+| `#memory-relaxed` | `#memory-relaxed` | `(#atomic-load r #memory-relaxed)` (ordering operand) | Selects relaxed ordering with no synchronization ordering. |
+| `#memory-release` | `#memory-release` | `(#atomic-store r 1u64 #memory-release)` (ordering operand) | Selects release ordering where permitted. |
+| `#memory-seq-cst` | `#memory-seq-cst` | `(#atomic-load r #memory-seq-cst)` (ordering operand) | Selects sequentially consistent ordering. |
+| `#offset-of` | `(#offset-of ReprCType field)` | `(#offset-of Header payload)` (expression) | Computes a field's offset in the declared C layout; requires a `#repr-c` struct. |
+| `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
+| `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
+| `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr u8) (#ptr-null (#ptr u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
+| `#ptr-borrow` | `(#ptr-borrow reference-anchor pointer)` | `(#unsafe (#ptr-borrow owner pointer))` (expression) | Creates a shared reference tied to an existing reference's inferred borrow lifetime; caller must uphold pointer validity. |
+| `#ptr-borrow-mut` | `(#ptr-borrow-mut mutable-reference-anchor mutable-pointer)` | `(#unsafe (#ptr-borrow-mut owner pointer))` (expression) | Creates an exclusive reference tied to an anchor; caller must prove unique valid access. |
+| `#ptr-is-null` | `(#ptr-is-null pointer)` | `(#if (#ptr-is-null p) 0u64 1u64)` (expression) | Safely tests a raw pointer for null. |
+| `#ptr-mut` | `(#ptr-mut PointeeType)` | `(#let p (#ptr-mut u8) (#ptr-null (#ptr-mut u8)))` (type) | Mutable raw-pointer type. |
+| `#ptr-null` | `(#ptr-null PointerType)` | `(#ptr-null (#ptr u8))` (expression) | Constructs a typed null raw pointer. |
+| `#ptr-offset` | `(#ptr-offset pointer usize-index)` | `(#ptr-offset p 2usize)` (expression) | Advances by pointee elements with checked address arithmetic; does not check allocation bounds. |
+| `#ptr-read` | `(#ptr-read pointer)` | `(#unsafe (#ptr-read p))` (expression) | Reads the pointee value without bounds/validity checks. |
+| `#ptr-write` | `(#ptr-write mutable-pointer value)` | `(#unsafe (#ptr-write p 7u8))` (statement) | Writes the pointee without bounds/validity checks. |
+| `#range` | `(#range lower upper)` or `(#range-inclusive lower upper)` | `(#case (#range 1u32 4u32) 1u64)` (pattern) | Matches integer/character values in a half-open or inclusive interval. |
+| `#range-inclusive` | `(#range-inclusive lower upper)` | `(#case (#range-inclusive 1u32 4u32) 1u64)` (pattern) | Matches both endpoints of an integer/character interval. |
+| `#ref` | `(#ref TargetType)` | `(#let r (#ref u64) (#borrow value))` (type/binding) | Shared-reference type. |
+| `#ref-mut` | `(#ref-mut TargetType)` | `(#let r (#ref-mut u64) (#borrow-mut value))` (type/binding) | Mutable-reference type. |
+| `#return` | `(#return value)` | `(#return ())` (function body) | Exits a function with its explicitly typed result; void functions must return `()`. |
+| `#set` | `(#set name value)` | `(#set count (#u32.+.wrap count 1u32))` (statement) | Reassigns a mutable local. |
+| `#set-field` | `(#set-field aggregate field-or-index value)` | `(#set-field point x 4u64)` (statement) | Mutates a struct field or tuple slot. |
+| `#set-index` | `(#set-index array index value)` | `(#set-index values 0usize 9u8)` (statement) | Mutates an array element after a bounds check. |
+| `#set-payload` | `(#set-payload enum variant index value)` | `(#set-payload choice Data 0 9u64)` (statement) | Replaces one payload field of a mutable enum value. |
+| `#size-of` | `(#size-of Type)` | `(#return (#size-of Point))` (expression) | Returns the compile-time size in bytes for the Lim or selected C layout. |
+| `#slice` | `(#slice ElementType)` | `(#let view (#slice u8) (#slice-of (#borrow bytes)))` (type) | Immutable dynamically sized view over an array borrow. |
+| `#slice-idx` | `(#slice-idx slice usize-index)` | `(#deref (#slice-idx view 0usize))` (expression) | Bounds-checks and returns a shared reference to an element. |
+| `#slice-len` | `(#slice-len slice)` | `(#slice-len view)` (expression) | Returns the immutable slice length as `usize`. |
+| `#slice-mut` | `(#slice-mut ElementType)` | `(#let view (#slice-mut u8) (#slice-mut-of (#borrow-mut bytes)))` (type) | Mutable dynamically sized view retaining an exclusive array borrow. |
+| `#slice-mut-idx` | `(#slice-mut-idx slice usize-index)` | `(#deref-set (#slice-mut-idx view 0usize) 9u8)` (expression) | Bounds-checks and returns a mutable reference to an element. |
+| `#slice-mut-len` | `(#slice-mut-len slice)` | `(#slice-mut-len view)` (expression) | Returns the mutable slice length as `usize`. |
+| `#slice-mut-of` | `(#slice-mut-of mutable-array-reference)` | `(#slice-mut-of (#borrow-mut bytes))` (expression) | Creates a mutable slice over an array while retaining its exclusive borrow. |
+| `#slice-mut-split` | `(#slice-mut-split slice usize-index)` | `(#let pair (#tuple (#slice-mut u8) (#slice-mut u8)) (#slice-mut-split view 2usize))` (expression) | Consumes a mutable slice and returns two disjoint mutable slices. |
+| `#slice-of` | `(#slice-of shared-array-reference)` | `(#slice-of (#borrow bytes))` (expression) | Creates a full immutable slice while retaining the source borrow. |
+| `#slice-range` | `(#slice-range slice start end)` | `(#slice-range view 1usize 3usize)` (expression) | Creates a checked half-open immutable subslice `[start,end)`. |
+| `#static` | `(#static name Type value)` | `(#static answer u64 42u64)` (top level) | Declares storage with static lifetime; accesses must be inside `#unsafe`. |
+| `#struct` | `(#struct Name ((field Type)...))` | `(#struct Point ((x u64) (y u64)))` (top level) | Declares a concrete struct; optional `#repr-c` selects C layout for layout queries. |
+| `#struct-literal` | `(#struct-literal Type ((field value)...))` | `(#struct-literal Point ((x 1u64) (y 2u64)))` (expression) | Constructs a struct by explicitly naming every field; no defaults are applied. |
+| `#syntax-collection` | `(#syntax-collection name key-type contribution-type)` | `(#syntax-collection handlers Symbol Syntax)` (top level) | Declares a deterministic compile-time collection used by generator expansion. |
+| `#syntax-contribute` | `(#syntax-contribute collection key syntax)` | `(#syntax-contribute handlers Read `\\`(#fn read ...))` (top level) | Adds literal syntax under a unique key to a declared collection. |
+| `#thread-task` | `(#thread-task TaskType worker [spawn-signature join-signature])` | `(#thread-task ReadTask read-value)` (generated declaration) | Declares a concrete task type and its named worker; generated builtins are compiler-managed. |
+| `#thread-task-join` | `(#thread-task-join FunctionName TaskType)` | `(#thread-task-join ReadTask-join ReadTask)` (generated signature) | Internal generated declaration for joining a task and retrieving its result. |
+| `#thread-task-spawn` | `(#thread-task-spawn FunctionName TaskType)` | `(#thread-task-spawn ReadTask-spawn ReadTask)` (generated signature) | Internal generated declaration for creating a worker task. |
+| `#tuple` | `(#tuple Type...)` as a type; `(#tuple TupleType value...)` as value/pattern | `(#let pair (#tuple u64 bool) (#tuple (#tuple u64 bool) 3u64 true))` | Declares, constructs, or destructures a fixed tuple. |
+| `#type` | `(#type Name Type)` | `(#type UserId u64)` (top level) | Declares a transparent alias; uses remain strongly and statically typed. |
+| `#unsafe` | `(#unsafe expression)` | `(#unsafe (#ptr-read p))` (expression) | Marks a region allowed to contain raw memory, static access, assembly, and raw syscalls. |
+| `#unsafe-impl` | `(#unsafe-impl #send-or-#sync Type)` | `(#unsafe-impl #send NativeHandle)` (top level) | Unsafely overrides a type's structural thread-safety property; this is an author promise. |
+| `#unreachable` | `(#unreachable)` | `(#case impossible (#unreachable))` (expression) | Marks a path that must never execute; execution traps. |
+| `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64.>.wrap x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
+| `#while` | `(#while condition body...)` | `(#while (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)))` (statement) | Repeats while its boolean condition is true. |
+| `#while-let` | `(#while-let pattern Type value body...)` | `(#while-let (Some x) Maybe next (#set total x))` (statement) | Repeatedly matches a value and runs the body while the pattern succeeds. |
+
+#### Reserved builtin tokens and identifier families
+
+These names are builtin operands/markers rather than list heads, and are also
+alphabetized here for completeness:
+
+| Token family/member | Syntax example | Meaning |
+| --- | --- | --- |
+| `#abi-c` | `(#extern-fn #abi-c c_abs ((value i32)) i32)` | Selects the C calling convention for an external function declaration. |
+| `#arch` | `(#cfg-is #arch x86_64)` | Built-in cfg key for the target architecture. |
+| `#backend` | `(#cfg-is #backend native)` | Built-in cfg key for the selected backend. |
+| `#debug` | `(#cfg-is #debug enabled)` | Built-in cfg key for debug configuration. |
+| `#feature` | `(#cfg-is #feature fast)` | Example user-defined cfg key; set with `--cfg feature=fast`. |
+| `#memory-acq-rel`, `#memory-acquire`, `#memory-relaxed`, `#memory-release`, `#memory-seq-cst` | `(#atomic-load reference #memory-acquire)` | Atomic memory-order operands; each atomic operation restricts which orderings are valid. |
+| `#mut` | `(#fn increment ((#mut value u64)) u64 ...)` | Marks a function parameter mutable; local mutable bindings use the distinct `#let-mut` form. |
+| `#os` | `(#cfg-is #os linux)` | Built-in cfg key for the operating system. |
+| `#platform` | `(#cfg-is #platform linux)` | Built-in cfg key for platform selection. |
+| `#repr-c` | `(#struct Header #repr-c ((tag u8)))` | Requests C layout metadata for supported layout queries; it does not make Lim values FFI-safe. |
+| `#send`, `#sync` | `(#unsafe-impl #sync Handle)` | Selects the thread-safety property named by `#unsafe-impl`. |
+| `#target` | `(#cfg-is #target x86_64-unknown-linux-gnu)` | Built-in cfg key for the target triple. |
+| `#uN.op`, `#iN.op`, `#f32.op`, `#f64.op` | `(#u32.+.wrap left right)` | Typed arithmetic/comparison/bitwise operators. Integer arithmetic names include explicit `.wrap` or `.saturate` where the operation can overflow; comparisons return `bool`. |
+| `#uN.op.wrap`, `#iN.op.wrap` | `(#i8.*.wrap left right)` | Integer arithmetic with two's-complement/modular wrapping. |
+| `#uN.op.saturate`, `#iN.op.saturate` | `(#u8.+.saturate left right)` | Integer arithmetic clamped to the type's minimum/maximum. |
+
+`N` is a supported integer width/type (`8`, `16`, `32`, `64`, `128`, or the
+machine-width `size` family where implemented). Operators are `+`, `-`, `*`,
+`/`, `%`, `&`, `|`, `^`, `<<`, `>>`, comparisons, and boolean `&&`, `||`, `!`;
+the compiler validates that each operator is implemented for the selected
+type and that overflow behavior is explicit. `#memory-*` markers and cfg keys
+are values in operand positions, not standalone expressions.
 
 ### Conditionals and blocks
 

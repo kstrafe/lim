@@ -1032,6 +1032,81 @@ pub fn format_source(source: &str) -> Result<String, String> {
     Ok(output)
 }
 
+/// Format a source file and every transitively imported internal source file.
+/// External imports are deliberately not opened or modified.
+pub fn format_project_from_path(source_path: &Path) -> Result<Vec<PathBuf>, String> {
+    fn discover(
+        path: &Path,
+        visited: &mut HashSet<PathBuf>,
+        files: &mut Vec<(PathBuf, String)>,
+    ) -> Result<(), String> {
+        let path = fs::canonicalize(path)
+            .map_err(|error| format!("cannot resolve source '{}': {error}", path.display()))?;
+        if !visited.insert(path.clone()) {
+            return Ok(());
+        }
+        let source = fs::read_to_string(&path)
+            .map_err(|error| format!("cannot read source '{}': {error}", path.display()))?;
+        let expressions = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+        let mut imports = Vec::new();
+        for expression in &expressions {
+            collect_internal_imports(&expression.expr, &mut imports)?;
+        }
+        files.push((path.clone(), source));
+        for import in imports {
+            let imported = path.parent().unwrap_or_else(|| Path::new(".")).join(import);
+            discover(&imported, visited, files)?;
+        }
+        Ok(())
+    }
+
+    fn collect_internal_imports(
+        expression: &Expr,
+        imports: &mut Vec<String>,
+    ) -> Result<(), String> {
+        let Expr::List(items) = expression else {
+            return Ok(());
+        };
+        if let Some(specification) = import_form(expression)? {
+            if !specification.external {
+                imports.push(specification.path.to_owned());
+            }
+            return Ok(());
+        }
+        if matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "#cfg-if" || keyword == "#cfg-else")
+        {
+            for branch in items.iter().skip(
+                if items.first().is_some_and(
+                    |item| matches!(item, Expr::Symbol(keyword) if keyword == "#cfg-if"),
+                ) {
+                    2
+                } else {
+                    1
+                },
+            ) {
+                collect_internal_imports(branch, imports)?;
+            }
+        }
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    discover(source_path, &mut HashSet::new(), &mut files)?;
+    let mut formatted_files = Vec::with_capacity(files.len());
+    for (path, source) in files {
+        let formatted =
+            format_source(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+        formatted_files.push((path, formatted));
+    }
+    let mut paths = Vec::with_capacity(formatted_files.len());
+    for (path, formatted) in formatted_files {
+        write_output_atomic(&path, formatted.as_bytes())
+            .map_err(|error| format!("cannot write '{}': {error}", path.display()))?;
+        paths.push(path);
+    }
+    Ok(paths)
+}
+
 #[derive(Clone)]
 struct SourceComment {
     span: Span,
@@ -7842,6 +7917,38 @@ mod tests {
         assert!(formatted.contains("#fn\n"));
         assert!(formatted.contains("#return"));
         assert_eq!(format_source(&formatted).unwrap(), formatted);
+    }
+
+    #[test]
+    fn project_formatter_formats_transitive_internal_imports_only() {
+        let directory = std::env::temp_dir().join(format!(
+            "lim-format-project-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let root = directory.join("root.lim");
+        let first = directory.join("first.lim");
+        let second = directory.join("second.lim");
+        fs::write(
+            &root,
+            "(#import \"first.lim\") (#import-external \"missing.lim\" ext-)",
+        )
+        .unwrap();
+        fs::write(&first, "(#import \"second.lim\")").unwrap();
+        fs::write(&second, "(#type Number u64)").unwrap();
+
+        let formatted = format_project_from_path(&root).unwrap();
+        assert_eq!(formatted.len(), 3);
+        for path in [&root, &first, &second] {
+            let source = fs::read_to_string(path).unwrap();
+            assert_eq!(format_source(&source).unwrap(), source);
+        }
+        assert!(!directory.join("missing.lim").exists());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
