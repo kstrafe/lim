@@ -320,6 +320,8 @@ installation, and restoration without delivering a signal;
 deletion, and invalid-handle behavior without signal delivery;
 `examples/linux_interval_timers.lim` checks arming, querying, and restoring
 the process's legacy interval timer state;
+`examples/linux_inotify.lim` checks create/delete event records and watch
+cleanup using a private working directory;
 `examples/linux_xattrs.lim` exercises descriptor-based extended-attribute
 creation, listing, retrieval, removal, and the missing-attribute error on a
 fresh memfd.

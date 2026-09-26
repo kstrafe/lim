@@ -26,6 +26,7 @@ exit 42 linux_memfd.lim - -
 exit 42 linux_epoll.lim - -
 exit 42 linux_futex.lim - -
 exit 42 linux_interval_timers.lim - -
+exit 42 linux_inotify.lim - -
 exit 42 linux_directory.lim - -
 exit 42 linux_process_queries.lim - -
 exit 42 linux_resources.lim - -

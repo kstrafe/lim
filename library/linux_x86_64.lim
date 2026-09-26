@@ -46,6 +46,17 @@
   (#fn linux-openat ((directory i64) (path (#ptr-mut u8)) (flags usize) (mode usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-OPENAT
       (directory path flags mode)))))
+  (#fn linux-mkdirat ((directory i64) (path (#ptr-mut u8)) (mode usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-MKDIRAT
+      (directory path mode)))))
+  (#fn linux-inotify-init1 ((flags usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-INOTIFY-INIT1 (flags)))))
+  (#fn linux-inotify-add-watch ((fd i64) (path (#ptr-mut u8)) (mask usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-INOTIFY-ADD-WATCH
+      (fd path mask)))))
+  (#fn linux-inotify-rm-watch ((fd i64) (watch i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-INOTIFY-RM-WATCH
+      (fd watch)))))
   (#fn linux-getcwd ((buffer (#ptr-mut u8)) (size usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-GETCWD
       (buffer size)))))
@@ -223,6 +234,10 @@
     (#fn linux-sched-yield () i64 (#return -38i64))
     (#fn linux-close ((fd i64)) i64 (#return -38i64))
     (#fn linux-openat ((directory i64) (path (#ptr-mut u8)) (flags usize) (mode usize)) i64 (#return -38i64))
+    (#fn linux-mkdirat ((directory i64) (path (#ptr-mut u8)) (mode usize)) i64 (#return -38i64))
+    (#fn linux-inotify-init1 ((flags usize)) i64 (#return -38i64))
+    (#fn linux-inotify-add-watch ((fd i64) (path (#ptr-mut u8)) (mask usize)) i64 (#return -38i64))
+    (#fn linux-inotify-rm-watch ((fd i64) (watch i64)) i64 (#return -38i64))
     (#fn linux-getcwd ((buffer (#ptr-mut u8)) (size usize)) i64 (#return -38i64))
     (#fn linux-getdents64 ((fd i64) (buffer (#ptr-mut u8)) (size usize)) i64 (#return -38i64))
     (#fn linux-fchdir ((fd i64)) i64 (#return -38i64))

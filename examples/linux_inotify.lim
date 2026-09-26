@@ -1,0 +1,107 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let paths (#ptr-mut u8)
+    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let events (#ptr-mut u32)
+    (#unsafe (#linux-syscall (#ptr-mut u32) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let paths-initialized ()
+    (#unsafe
+      (#block
+        (#ptr-write (#ptr-offset paths 0usize) 119u8)
+        (#ptr-write (#ptr-offset paths 1usize) 97u8)
+        (#ptr-write (#ptr-offset paths 2usize) 116u8)
+        (#ptr-write (#ptr-offset paths 3usize) 99u8)
+        (#ptr-write (#ptr-offset paths 4usize) 104u8)
+        (#ptr-write (#ptr-offset paths 5usize) 45u8)
+        (#ptr-write (#ptr-offset paths 6usize) 100u8)
+        (#ptr-write (#ptr-offset paths 7usize) 105u8)
+        (#ptr-write (#ptr-offset paths 8usize) 114u8)
+        (#ptr-write (#ptr-offset paths 16usize) 119u8)
+        (#ptr-write (#ptr-offset paths 17usize) 97u8)
+        (#ptr-write (#ptr-offset paths 18usize) 116u8)
+        (#ptr-write (#ptr-offset paths 19usize) 99u8)
+        (#ptr-write (#ptr-offset paths 20usize) 104u8)
+        (#ptr-write (#ptr-offset paths 21usize) 45u8)
+        (#ptr-write (#ptr-offset paths 22usize) 100u8)
+        (#ptr-write (#ptr-offset paths 23usize) 105u8)
+        (#ptr-write (#ptr-offset paths 24usize) 114u8)
+        (#ptr-write (#ptr-offset paths 25usize) 47u8)
+        (#ptr-write (#ptr-offset paths 26usize) 105u8)
+        (#ptr-write (#ptr-offset paths 27usize) 116u8)
+        (#ptr-write (#ptr-offset paths 28usize) 101u8)
+        (#ptr-write (#ptr-offset paths 29usize) 109u8)
+        ())))
+  (#let directory-created i64
+    (#unsafe (#call linux-mkdirat (#fn-args
+      (directory -100i64) (path paths) (mode 448usize)))))
+  (#let notification-fd i64
+    (#unsafe (#call linux-inotify-init1 (#fn-args (flags 526336usize)))))
+  (#let watch i64
+    (#unsafe (#call linux-inotify-add-watch (#fn-args
+      (fd notification-fd) (path paths) (mask 768usize)))))
+  (#let file-fd i64
+    (#unsafe (#call linux-openat (#fn-args
+      (directory -100i64)
+      (path (#ptr-offset paths 16usize))
+      (flags 524481usize)
+      (mode 384usize)))))
+  (#let file-closed i64 (#call linux-close (#fn-args (fd file-fd))))
+  (#let create-event-size i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-READ
+      (notification-fd events 1024usize))))
+  (#let create-event-watch u32 (#unsafe (#ptr-read events)))
+  (#let create-event-mask u32
+    (#unsafe (#ptr-read (#ptr-offset events 1usize))))
+  (#let create-event-name-length u32
+    (#unsafe (#ptr-read (#ptr-offset events 3usize))))
+  (#let create-event-name u32
+    (#unsafe (#ptr-read (#ptr-offset events 4usize))))
+  (#let file-removed i64
+    (#unsafe (#call linux-unlinkat (#fn-args
+      (directory -100i64)
+      (path (#ptr-offset paths 16usize))
+      (flags 0usize)))))
+  (#let delete-event-size i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-READ
+      (notification-fd (#ptr-offset events 16usize) 1024usize))))
+  (#let delete-event-watch u32
+    (#unsafe (#ptr-read (#ptr-offset events 16usize))))
+  (#let delete-event-mask u32
+    (#unsafe (#ptr-read (#ptr-offset events 17usize))))
+  (#let watch-removed i64
+    (#unsafe (#call linux-inotify-rm-watch (#fn-args
+      (fd notification-fd) (watch watch)))))
+  (#let notification-closed i64
+    (#call linux-close (#fn-args (fd notification-fd))))
+  (#let directory-removed i64
+    (#unsafe (#call linux-unlinkat (#fn-args
+      (directory -100i64) (path paths) (flags 512usize)))))
+  (#let events-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (events 4096usize))))
+  (#let paths-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (paths 4096usize))))
+  (#let events-valid bool
+    (#bool.&& (#i64.== create-event-size 32i64)
+      (#bool.&& (#u32.== create-event-watch (#as watch u32))
+        (#bool.&& (#u32.== create-event-mask 256u32)
+          (#bool.&& (#u32.== create-event-name-length 16u32)
+            (#bool.&& (#u32.== create-event-name 1835365481u32)
+              (#bool.&& (#i64.== delete-event-size 32i64)
+                (#bool.&& (#u32.== delete-event-watch (#as watch u32))
+                  (#u32.== delete-event-mask 512u32)))))))))
+  (#let cleanup-valid bool
+    (#bool.&& (#i64.== directory-created 0i64)
+      (#bool.&& (#i64.>= notification-fd 0i64)
+        (#bool.&& (#i64.>= watch 0i64)
+          (#bool.&& (#i64.>= file-fd 0i64)
+            (#bool.&& (#i64.== file-closed 0i64)
+              (#bool.&& (#i64.== file-removed 0i64)
+                (#bool.&& (#i64.== watch-removed 0i64)
+                  (#bool.&& (#i64.== notification-closed 0i64)
+                    (#bool.&& (#i64.== directory-removed 0i64)
+                      (#bool.&& (#i64.== events-unmapped 0i64)
+                        (#i64.== paths-unmapped 0i64))))))))))))
+  (#return (#if (#bool.&& events-valid cleanup-valid) 42u64 1u64)))
