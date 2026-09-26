@@ -264,6 +264,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "block-reference-escape",
+            diagnostic_code: "E4100",
+            offending_line: "  (#let escaped (#ref u64) (#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local)))",
+            line_number: 2,
+        },
+        Case {
             name: "borrow-conflict-field-name",
             diagnostic_code: "E4100",
             offending_line: "  (#return (#tuple (#get pair owner) owner)))",
@@ -851,6 +857,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unsafe-function-call" => Some("answer"),
             "unsafe-pointer-op" => Some("#ptr-read"),
             "borrow" => Some("#set"),
+            "block-reference-escape" => Some("(#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local))"),
             "borrow-conflict-field-name" => Some("owner"),
             "borrow-conflict-callee-name" => Some("owner"),
             "linear" => Some("resource"),

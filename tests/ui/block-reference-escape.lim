@@ -1,0 +1,3 @@
+(#fn main () u64
+  (#let escaped (#ref u64) (#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local)))
+  (#return (#deref escaped)))

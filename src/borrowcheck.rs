@@ -74,6 +74,147 @@ fn aggregate_reference_released_on_every_branch_allows_mutation() {
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
 }
 
+#[cfg(test)]
+#[test]
+fn block_local_reference_cannot_escape_into_outer_binding() {
+    let program = crate::parse_program(
+        "(#fn main () u64
+           (#let escaped (#ref u64)
+             (#block
+               (#let local u64 7u64)
+               (#borrow local)))
+           (#return (#deref escaped)))",
+    )
+    .unwrap();
+    let error = match crate::typecheck::CheckedProgram::validate(&program) {
+        Ok(_) => panic!("block-local reference escaped"),
+        Err(error) => error,
+    };
+    assert!(error.contains("reference to block-local variable 'local' escapes its scope"));
+}
+
+#[cfg(test)]
+#[test]
+fn destructured_block_local_reference_cannot_escape() {
+    let program = crate::parse_program(
+        "(#fn main () u64
+           (#let escaped (#ref u64)
+             (#block
+               (#let (#tuple local) (#tuple u64) (#tuple 7u64))
+               (#borrow local)))
+           (#return (#deref escaped)))",
+    )
+    .unwrap();
+    assert!(check_program(&program).is_err());
+    assert!(crate::typecheck::CheckedProgram::validate(&program).is_err());
+}
+
+#[cfg(test)]
+#[test]
+fn block_reference_alias_cannot_escape_its_owner() {
+    let program = crate::parse_program(
+        "(#fn main () u64
+           (#let escaped (#ref u64)
+             (#block
+               (#let (#tuple local) (#tuple u64) (#tuple 7u64))
+               (#let alias (#ref u64) (#borrow local))
+               alias))
+           (#return (#deref escaped)))",
+    )
+    .unwrap();
+    let error = check_program(&program).unwrap_err();
+    assert!(error.message.contains("block-local variable 'local'"));
+}
+
+#[cfg(test)]
+#[test]
+fn block_reference_to_outer_owner_can_escape() {
+    let program = crate::parse_program(
+        "(#fn main () u64
+           (#let owner u64 42u64)
+           (#let escaped (#ref u64)
+             (#block
+               (#let alias (#ref u64) (#borrow owner))
+               alias))
+           (#return (#deref escaped)))",
+    )
+    .unwrap();
+    assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
+}
+
+#[cfg(test)]
+#[test]
+fn block_local_reference_cannot_be_passed_to_a_call() {
+    let program = crate::parse_program(
+        "(#fn read ((value (#ref u64))) u64 (#return (#deref value)))
+         (#fn main () u64
+           (#return (#call read (#fn-args
+             (value (#block
+               (#let (#tuple local) (#tuple u64) (#tuple 7u64))
+               (#borrow local)))))))",
+    )
+    .unwrap();
+    let error = check_program(&program).unwrap_err();
+    assert!(error.message.contains("block-local variable 'local'"));
+    assert!(crate::typecheck::CheckedProgram::validate(&program).is_err());
+}
+
+#[cfg(test)]
+#[test]
+fn aliased_reference_parameter_cannot_hide_block_local_escape() {
+    let program = crate::parse_program(
+        "(#type WordRef (#ref u64))
+         (#fn read ((value WordRef)) u64 (#return (#deref value)))
+         (#fn main () u64
+           (#return (#call read (#fn-args
+             (value (#block
+               (#let (#tuple local) (#tuple u64) (#tuple 7u64))
+               (#borrow local)))))))",
+    )
+    .unwrap();
+    let error = check_program(&program).unwrap_err();
+    assert!(error.message.contains("block-local variable 'local'"));
+}
+
+#[cfg(test)]
+#[test]
+fn scalar_result_from_block_local_reference_can_be_passed_to_a_call() {
+    let program = crate::parse_program(
+        "(#fn identity ((value u64)) u64 (#return value))
+         (#fn main () u64
+           (#return (#call identity (#fn-args
+             (value (#block
+               (#let local u64 42u64)
+               (#let alias (#ref u64) (#borrow local))
+               (#deref alias)))))))",
+    )
+    .unwrap();
+    assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
+}
+
+#[cfg(test)]
+#[test]
+fn block_local_reference_cannot_be_stored_in_a_field() {
+    let program = crate::parse_program(
+        "(#struct Holder ((view (#ref u64))))
+         (#fn main () u64
+           (#let owner u64 1u64)
+           (#let-mut holder Holder
+             (#struct-literal Holder ((view (#borrow owner)))))
+           (#set-field holder view
+             (#block
+               (#let (#tuple local) (#tuple u64) (#tuple 7u64))
+               (#borrow local)))
+           (#let result u64 (#deref (#get holder view)))
+           (#forget holder)
+           (#return result))",
+    )
+    .unwrap();
+    let error = check_program(&program).unwrap_err();
+    assert!(error.message.contains("local variable 'local'"));
+    assert!(crate::typecheck::CheckedProgram::validate(&program).is_err());
+}
+
 const PLACE_SEPARATOR: char = '\u{1f}';
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -92,6 +233,7 @@ struct Loans {
 struct Context {
     loans: Loans,
     returnable: HashSet<String>,
+    scope_bindings: HashSet<String>,
     mutable: HashSet<String>,
     mutable_references: HashSet<String>,
     reference_bindings: HashSet<String>,
@@ -106,6 +248,7 @@ struct Context {
     reference_types: HashSet<String>,
     reference_functions: HashSet<String>,
     function_names: HashSet<String>,
+    reference_parameters: Arc<HashMap<String, Vec<bool>>>,
     thread_spawn_functions: HashMap<String, Vec<crate::Type>>,
     thread_join_functions: HashSet<String>,
     thread_task_loans: HashMap<String, Vec<(String, LoanKind)>>,
@@ -303,6 +446,11 @@ pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
         .items
         .iter()
         .filter_map(|item| match item {
+            Item::TypeAlias { name, target, .. }
+                if type_contains_reference(target, &program.items, &mut HashSet::new()) =>
+            {
+                Some(name.clone())
+            }
             Item::Struct { name, fields, .. }
                 if fields.iter().any(|field| {
                     type_contains_reference(&field.ty, &program.items, &mut HashSet::new())
@@ -325,6 +473,11 @@ pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
         .items
         .iter()
         .filter_map(|item| match item {
+            Item::TypeAlias { name, target, .. }
+                if type_contains_mutable_reference(target, &program.items, &mut HashSet::new()) =>
+            {
+                Some(name.clone())
+            }
             Item::Struct { name, .. } | Item::Enum { name, .. }
                 if type_contains_mutable_reference(
                     &crate::Type::Named(name.clone()),
@@ -378,6 +531,31 @@ pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
         }
         thread_join_functions.insert(format!("{name}-join"));
     }
+    let mut reference_parameters = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(function) => Some((
+                function.name.clone(),
+                function
+                    .parameters
+                    .iter()
+                    .map(|parameter| contains_reference_type(&parameter.ty, &reference_types))
+                    .collect::<Vec<_>>(),
+            )),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+    for (name, parameters) in &thread_spawn_functions {
+        reference_parameters.insert(
+            name.clone(),
+            parameters
+                .iter()
+                .map(|ty| contains_reference_type(ty, &reference_types))
+                .collect(),
+        );
+    }
+    let reference_parameters = Arc::new(reference_parameters);
     let function_names = function_names
         .into_iter()
         .chain(thread_spawn_functions.keys().cloned())
@@ -394,6 +572,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
                     &mutable_reference_types,
                     &reference_functions,
                     &function_names,
+                    &reference_parameters,
                     &thread_spawn_functions,
                     &thread_join_functions,
                     &program.statement_spans,
@@ -413,6 +592,7 @@ fn check_function(
     mutable_reference_types: &HashSet<String>,
     reference_functions: &HashSet<String>,
     function_names: &HashSet<String>,
+    reference_parameters: &Arc<HashMap<String, Vec<bool>>>,
     thread_spawn_functions: &HashMap<String, Vec<crate::Type>>,
     thread_join_functions: &HashSet<String>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
@@ -444,6 +624,16 @@ fn check_function(
     let mut context = Context {
         loans: Loans::default(),
         returnable,
+        scope_bindings: globals
+            .iter()
+            .cloned()
+            .chain(
+                function
+                    .parameters
+                    .iter()
+                    .map(|parameter| parameter.name.clone()),
+            )
+            .collect(),
         mutable,
         mutable_references,
         reference_bindings,
@@ -458,6 +648,7 @@ fn check_function(
         mutable_reference_types: mutable_reference_types.clone(),
         reference_functions: reference_functions.clone(),
         function_names: function_names.clone(),
+        reference_parameters: reference_parameters.clone(),
         thread_spawn_functions: thread_spawn_functions.clone(),
         thread_join_functions: thread_join_functions.clone(),
         thread_task_loans: HashMap::new(),
@@ -518,6 +709,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             let _origin = Site::expression(value).enter();
             let contains_references = contains_reference_type(ty, &context.reference_types);
             let origins = reference_origins(value, context, contains_references);
+            ensure_origins_in_scope(&origins, context)?;
             let derived_parent = borrowed_field_parent(value);
             let contains_mutable_references = contains_mutable_reference(
                 ty,
@@ -630,6 +822,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             if *mutable {
                 context.mutable.insert(name.clone());
             }
+            context.scope_bindings.insert(name.clone());
             if contains_mutable_references {
                 context.mutable_references.insert(name.clone());
             }
@@ -649,7 +842,18 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             mutable,
         } => {
             check_expression(value, context)?;
+            ensure_origins_in_scope(
+                &reference_origins(
+                    value,
+                    context,
+                    contains_reference_type(ty, &context.reference_types),
+                ),
+                context,
+            )?;
             bind_pattern_references(pattern, ty, value, context)?;
+            let mut names = Vec::new();
+            pattern_names(pattern, &mut names);
+            context.scope_bindings.extend(names);
             if *mutable {
                 let mut names = Vec::new();
                 pattern_names(pattern, &mut names);
@@ -660,7 +864,18 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             pattern, ty, value, ..
         } => {
             check_expression(value, context)?;
+            ensure_origins_in_scope(
+                &reference_origins(
+                    value,
+                    context,
+                    contains_reference_type(ty, &context.reference_types),
+                ),
+                context,
+            )?;
             bind_pattern_references(pattern, ty, value, context)?;
+            let mut names = Vec::new();
+            pattern_names(pattern, &mut names);
+            context.scope_bindings.extend(names);
         }
         Statement::Assign { name, value } => {
             if matches!(statement, Statement::Assign { .. })
@@ -1137,6 +1352,9 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                             return Err("match arms must contain a pattern and body".into());
                         }
                         let mut branch = base.clone();
+                        let mut names = Vec::new();
+                        pattern_names(&parts[0], &mut names);
+                        branch.scope_bindings.extend(names);
                         if let Some(operation) = &thread_operation {
                             apply_thread_match_arm(
                                 operation,
@@ -1272,9 +1490,23 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                 } else if context.function_names.contains(operator) {
                     let previous = context.allow_local_reference;
                     context.allow_local_reference = true;
-                    let checked = items[1..]
-                        .iter()
-                        .try_for_each(|item| check_expression(item, context));
+                    let reference_parameters = context.reference_parameters.get(operator).cloned();
+                    let checked = items[1..].iter().enumerate().try_for_each(|(index, item)| {
+                        let _argument_site = Site::expression(item).enter();
+                        check_expression(item, context)?;
+                        if reference_parameters
+                            .as_ref()
+                            .and_then(|parameters| parameters.get(index))
+                            .copied()
+                            .unwrap_or_else(|| context.thread_join_functions.contains(operator))
+                        {
+                            ensure_origins_in_scope(
+                                &reference_origins(item, context, true),
+                                context,
+                            )?;
+                        }
+                        Ok::<(), Error>(())
+                    });
                     context.allow_local_reference = previous;
                     checked?;
                 } else if matches!(operator.as_str(), "get" | "index" | "get-payload") {
@@ -1851,6 +2083,71 @@ fn borrow_place_loans(place: &Expr, context: &Context) -> Vec<(String, String)> 
         .collect()
 }
 
+fn ensure_origins_in_scope(origins: &HashSet<String>, context: &Context) -> Result<(), Error> {
+    if let Some(owner) = origins
+        .iter()
+        .filter(|owner| !context.scope_bindings.contains(*owner))
+        .min()
+    {
+        return Err(failure!(
+            "reference to block-local variable '{owner}' escapes its scope"
+        ));
+    }
+    Ok(())
+}
+
+fn scoped_result_origins(statements: &[Statement], context: &Context) -> HashSet<String> {
+    let mut scoped = context.clone();
+    let mut result = HashSet::new();
+    for statement in statements {
+        match statement {
+            Statement::Let {
+                name, ty, value, ..
+            } => {
+                let origins = reference_origins(
+                    value,
+                    &scoped,
+                    contains_reference_type(ty, &scoped.reference_types),
+                );
+                if !origins.is_empty() {
+                    scoped.reference_origins.insert(name.clone(), origins);
+                }
+                scoped.scope_bindings.insert(name.clone());
+            }
+            Statement::Destructure {
+                pattern, ty, value, ..
+            }
+            | Statement::LetElse {
+                pattern, ty, value, ..
+            } => {
+                let origins = reference_origins(
+                    value,
+                    &scoped,
+                    contains_reference_type(ty, &scoped.reference_types),
+                );
+                let mut names = Vec::new();
+                pattern_names(pattern, &mut names);
+                for name in names {
+                    if !origins.is_empty() {
+                        scoped
+                            .reference_origins
+                            .insert(name.clone(), origins.clone());
+                    }
+                    scoped.scope_bindings.insert(name);
+                }
+            }
+            Statement::Expr(value)
+            | Statement::Return(Some(value))
+            | Statement::BreakValue(value)
+            | Statement::BreakToValue { value, .. } => {
+                result = reference_origins(value, &scoped, true);
+            }
+            _ => {}
+        }
+    }
+    result
+}
+
 fn reference_origins(
     expression: &Expr,
     context: &Context,
@@ -1946,19 +2243,9 @@ fn reference_origins(
             }
             HashSet::new()
         }
-        Expr::Block(statements) | Expr::Loop(statements) => statements
-            .iter()
-            .rev()
-            .find_map(|statement| match statement {
-                Statement::Expr(value)
-                | Statement::Return(Some(value))
-                | Statement::BreakValue(value)
-                | Statement::BreakToValue { value, .. } => {
-                    Some(reference_origins(value, context, true))
-                }
-                _ => None,
-            })
-            .unwrap_or_default(),
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            scoped_result_origins(statements, context)
+        }
         Expr::Labeled { expression, .. }
         | Expr::Quote(expression)
         | Expr::QuasiQuote(expression)
@@ -1996,6 +2283,11 @@ fn type_contains_reference(ty: &crate::Type, items: &[Item], seen: &mut HashSet<
                     .iter()
                     .flat_map(|variant| &variant.fields)
                     .any(|field| type_contains_reference(field, items, seen)),
+                Item::TypeAlias {
+                    name: alias_name,
+                    target,
+                    ..
+                } if alias_name == name => type_contains_reference(target, items, seen),
                 _ => false,
             });
             seen.remove(name);
@@ -2038,6 +2330,11 @@ fn type_contains_mutable_reference(
                     .iter()
                     .flat_map(|variant| &variant.fields)
                     .any(|field| type_contains_mutable_reference(field, items, seen)),
+                Item::TypeAlias {
+                    name: alias_name,
+                    target,
+                    ..
+                } if alias_name == name => type_contains_mutable_reference(target, items, seen),
                 _ => false,
             });
             seen.remove(name);

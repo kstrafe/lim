@@ -80,6 +80,12 @@ branch join now retains loans from paths where they remain active without
 resurrecting loans released on every path. Lexical blocks propagate releases
 of references that existed before the block; newly declared block references
 stay scoped. A native aggregate-reference example covers the release case.
+The borrow pass also tracks which owner names are visible at a binding or call
+site. Block-result provenance follows local aliases and destructuring, so a
+reference to a block-local owner is rejected when retained outside the block;
+reference-typed call parameters include aliases, while scalar block results
+remain valid. This check is transitional until ownership
+uses typed binding and place identities throughout.
 
 Global reads and borrows, named field/payload projections, concrete aggregate
 and variant constructors, and pattern constructors retain declaration IDs.

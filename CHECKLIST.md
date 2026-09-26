@@ -148,6 +148,15 @@ the checklist is committed alongside the implementation it tracks.
   example exercises the accepted path. The full typed-CFG ownership migration
   remains open in IR-04.
 
+- [x] **IR-04c: Reject references escaping block-local owners.** Track names
+  visible at each borrow-checking scope, compute block-result provenance through
+  local aliases and destructuring, and reject out-of-scope owners retained by
+  bindings or passed to reference-valued function parameters, including type
+  aliases of references. Preserve scalar
+  block results and references to outer owners. Add a source-underlined UI
+  regression and positive/negative borrow tests. This is a transitional AST
+  check; stable place identities and complete ownership CFG remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
