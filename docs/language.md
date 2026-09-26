@@ -315,7 +315,9 @@ of the Linux syscall table. `examples/linux_syscalls.lim` and
 and offsets; `examples/linux_directory.lim` checks enumeration and cwd queries;
 `examples/linux_resources.lim` checks usage, limits, and umask restoration;
 `examples/linux_signals.lim` checks signal action and mask querying,
-installation, and restoration without delivering a signal.
+installation, and restoration without delivering a signal;
+`examples/linux_timers.lim` checks POSIX timer creation, arming, querying,
+deletion, and invalid-handle behavior without signal delivery.
 `tests/io_examples.rs` checks exact program exit/output behavior,
 syscall argument counts zero through six, piped IO, local socket payloads, and
 kernel error results.

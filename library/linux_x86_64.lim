@@ -159,6 +159,20 @@
       (request (#ptr-mut i64)) (remaining (#ptr-mut i64))) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-CLOCK-NANOSLEEP
       (clock-id flags request remaining)))))
+  (#fn linux-timer-create ((clock-id i64) (event (#ptr-mut i64))
+      (timer-id (#ptr-mut i32))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-TIMER-CREATE
+      (clock-id event timer-id)))))
+  (#fn linux-timer-settime ((timer-id i64) (flags usize)
+      (new-time (#ptr-mut i64)) (old-time (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-TIMER-SETTIME
+      (timer-id flags new-time old-time)))))
+  (#fn linux-timer-gettime ((timer-id i64) (current-time (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-TIMER-GETTIME
+      (timer-id current-time)))))
+  (#fn linux-timer-delete ((timer-id i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-TIMER-DELETE
+      (timer-id)))))
   (#fn linux-futex ((address (#ptr-mut u32)) (operation usize) (value u32)
       (timeout (#ptr-mut i64)) (second-address (#ptr-mut u32)) (value3 usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FUTEX
@@ -228,6 +242,10 @@
     (#fn linux-time ((output (#ptr-mut i64))) i64 (#return -38i64))
     (#fn linux-times ((output (#ptr-mut i64))) i64 (#return -38i64))
     (#fn linux-clock-nanosleep ((clock-id i64) (flags usize) (request (#ptr-mut i64)) (remaining (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-timer-create ((clock-id i64) (event (#ptr-mut i64)) (timer-id (#ptr-mut i32))) i64 (#return -38i64))
+    (#fn linux-timer-settime ((timer-id i64) (flags usize) (new-time (#ptr-mut i64)) (old-time (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-timer-gettime ((timer-id i64) (current-time (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-timer-delete ((timer-id i64)) i64 (#return -38i64))
     (#fn linux-futex ((address (#ptr-mut u32)) (operation usize) (value u32) (timeout (#ptr-mut i64)) (second-address (#ptr-mut u32)) (value3 usize)) i64 (#return -38i64))
     (#fn linux-nanosleep ((request (#ref LinuxTimespec)) (remaining (#ref-mut LinuxTimespec))) i64 (#return -38i64))
     (#fn linux-getrandom-byte ((destination (#ref-mut u8))) i64 (#return -38i64))))

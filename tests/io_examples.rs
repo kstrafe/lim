@@ -377,3 +377,29 @@ fn linux_signal_syscalls_restore_process_state() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn linux_posix_timer_syscalls_match_kernel_state() {
+    let scratch = support::Scratch::new("linux-timers");
+    let executable = scratch.path().join("timer-checks");
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/linux_timers.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile Lim timers example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    let output = Command::new(executable)
+        .output()
+        .expect("run compiled timers example");
+    assert_eq!(output.status.code(), Some(42));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}

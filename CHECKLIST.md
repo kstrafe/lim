@@ -1036,7 +1036,7 @@ commit, documentation, and focused regression coverage.
   invalid pointers remain explicitly unsafe; unsupported targets fail clearly;
   assembly and ABI tests verify argument registers, return/error handling, and
   clobbers. A Lim standard library owns policy and safe wrappers while the
-  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-u
+  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-v
   establish the Linux x86-64 boundary, catalog, and initial tested wrapper
   families; call-site unsafe enforcement, most syscalls, and additional
   operating systems remain open.
@@ -1158,6 +1158,11 @@ commit, documentation, and focused regression coverage.
 - [x] **SYS-01u: Exercise Linux real-time signal state syscalls.**
   Verify signal-action and signal-mask installation, queries, and restoration,
   plus pending-mask querying, without delivering a signal.
+
+- [x] **SYS-01v: Exercise Linux POSIX timer syscalls.**
+  Create a `SIGEV_NONE` monotonic timer, arm and query a future expiration,
+  delete it, and verify querying its deleted ID fails as expected. Keep the
+  test independent of signal delivery and wall-clock output.
 
 - [ ] **SYS-01n: Enforce unsafe syscall-wrapper contracts at call sites.**
   Add an unsafe-function declaration/call model (or equivalent) so functions
