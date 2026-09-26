@@ -1192,6 +1192,34 @@ pub(crate) fn generate_checked_assembly(
         .iter()
         .filter_map(|(name, abi)| declarations.function_id(name).map(|id| (id, abi.clone())))
         .collect::<HashMap<_, _>>();
+    let max_abi_storage_words = functions
+        .values()
+        .flat_map(|abi| {
+            let returns = abi
+                .indirect_return
+                .then(|| storage_word_count(&abi.return_type, structs, enums));
+            let parameters = abi
+                .parameters
+                .iter()
+                .zip(&abi.indirect_parameters)
+                .filter(|(_, indirect)| **indirect)
+                .map(|(ty, _)| storage_word_count(ty, structs, enums));
+            returns.into_iter().chain(parameters)
+        })
+        .filter_map(Result::ok)
+        .max()
+        .unwrap_or(0);
+    let max_indirect_parameters = functions
+        .values()
+        .map(|abi| {
+            abi.indirect_parameters
+                .iter()
+                .filter(|indirect| **indirect)
+                .count()
+        })
+        .max()
+        .unwrap_or(1)
+        .max(1);
     let mut globals = HashMap::new();
     let mut global_types = HashMap::new();
     let mut constants = HashMap::new();
@@ -1338,6 +1366,15 @@ pub(crate) fn generate_checked_assembly(
             globals.insert(name.clone(), global);
         }
     }
+    let mut base_local_types = functions
+        .iter()
+        .map(|(name, abi)| (name.clone(), abi.return_type.clone()))
+        .collect::<HashMap<_, _>>();
+    for (name, ty) in &global_types {
+        base_local_types
+            .entry(name.clone())
+            .or_insert_with(|| ty.clone());
+    }
     let mut output = String::from(".intel_syntax noprefix\n");
     if !globals.is_empty() {
         output.push_str(".section .rodata\n");
@@ -1391,6 +1428,9 @@ pub(crate) fn generate_checked_assembly(
                 aliases,
                 &functions,
                 &function_abis_by_id,
+                max_abi_storage_words,
+                max_indirect_parameters,
+                &base_local_types,
                 &program.statement_spans,
                 &program.statement_expressions,
                 declarations
@@ -1919,6 +1959,9 @@ fn generate_function(
     aliases: &HashMap<String, Type>,
     functions: &HashMap<String, FunctionAbi>,
     function_abis_by_id: &HashMap<crate::typed_ir::FunctionId, FunctionAbi>,
+    max_abi_storage_words: usize,
+    max_indirect_parameters: usize,
+    base_local_types: &HashMap<String, Type>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
     statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
     expression_types: crate::typed_body::EmissionTypes,
@@ -1949,19 +1992,9 @@ fn generate_function(
             &mut next_slot,
         )?;
     }
-    let mut local_types = HashMap::new();
+    let mut local_types = base_local_types.clone();
     for (parameter, ty) in function.parameters.iter().zip(&abi.parameters) {
         local_types.insert(parameter.name.clone(), ty.clone());
-    }
-    for (name, abi) in functions {
-        local_types
-            .entry(name.clone())
-            .or_insert_with(|| abi.return_type.clone());
-    }
-    for (name, ty) in global_types {
-        local_types
-            .entry(name.clone())
-            .or_insert_with(|| ty.clone());
     }
     for statement in &function.body {
         collect_local_types(statement, &mut local_types, aliases, enums, structs);
@@ -1987,23 +2020,7 @@ fn generate_function(
     } else {
         None
     };
-    let aggregate_temp_words = functions
-        .values()
-        .flat_map(|abi| {
-            let returns = abi
-                .indirect_return
-                .then(|| storage_word_count(&abi.return_type, structs, enums));
-            let parameters = abi
-                .parameters
-                .iter()
-                .zip(&abi.indirect_parameters)
-                .filter(|(_, indirect)| **indirect)
-                .map(|(ty, _)| storage_word_count(ty, structs, enums));
-            returns.into_iter().chain(parameters)
-        })
-        .filter_map(Result::ok)
-        .max()
-        .unwrap_or(0)
+    let aggregate_temp_words = max_abi_storage_words
         .max(
             local_types
                 .values()
@@ -2025,17 +2042,7 @@ fn generate_function(
                 .max()
                 .unwrap_or(0),
         );
-    let argument_temp_regions = functions
-        .values()
-        .map(|abi| {
-            abi.indirect_parameters
-                .iter()
-                .filter(|indirect| **indirect)
-                .count()
-        })
-        .max()
-        .unwrap_or(1)
-        .max(1);
+    let argument_temp_regions = max_indirect_parameters;
     let projection_regions = function
         .body
         .iter()
