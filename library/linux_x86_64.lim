@@ -138,6 +138,10 @@
       (fd source count offset)))))
   (#fn linux-fstat ((fd i64) (metadata (#ptr-mut i64))) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FSTAT (fd metadata)))))
+  (#fn linux-statx ((directory i64) (path (#ptr-mut u8)) (flags usize)
+      (mask usize) (metadata (#ptr-mut u64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-STATX
+      (directory path flags mask metadata)))))
   (#fn linux-fsetxattr ((fd i64) (name (#ptr-mut u8))
       (value (#ptr-mut u8)) (size usize) (flags usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FSETXATTR
@@ -297,6 +301,7 @@
     (#fn linux-pread64 ((fd i64) (destination (#ptr-mut u8)) (count usize) (offset i64)) i64 (#return -38i64))
     (#fn linux-pwrite64 ((fd i64) (source (#ptr-mut u8)) (count usize) (offset i64)) i64 (#return -38i64))
     (#fn linux-fstat ((fd i64) (metadata (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-statx ((directory i64) (path (#ptr-mut u8)) (flags usize) (mask usize) (metadata (#ptr-mut u64))) i64 (#return -38i64))
     (#fn linux-fsetxattr ((fd i64) (name (#ptr-mut u8)) (value (#ptr-mut u8)) (size usize) (flags usize)) i64 (#return -38i64))
     (#fn linux-fgetxattr ((fd i64) (name (#ptr-mut u8)) (value (#ptr-mut u8)) (size usize)) i64 (#return -38i64))
     (#fn linux-flistxattr ((fd i64) (list (#ptr-mut u8)) (size usize)) i64 (#return -38i64))

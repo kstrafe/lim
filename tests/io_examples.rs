@@ -616,3 +616,28 @@ fn linux_renameat2_checks_noreplace_and_success() {
     assert!(output.stderr.is_empty());
     assert_eq!(std::fs::read_dir(working_directory).unwrap().count(), 0);
 }
+
+#[test]
+fn linux_statx_reports_memfd_size() {
+    let scratch = support::Scratch::new("linux-statx");
+    let executable = scratch.path().join("statx-checks");
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/linux_statx.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile Lim statx example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    let output = Command::new(executable)
+        .output()
+        .expect("run compiled statx example");
+    assert_eq!(output.status.code(), Some(42));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}

@@ -1,0 +1,57 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let memory (#ptr-mut u8)
+    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let metadata (#ptr-mut u64)
+    (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let initialized ()
+    (#unsafe
+      (#block
+        (#ptr-write (#ptr-offset memory 8usize) 115u8)
+        (#ptr-write (#ptr-offset memory 9usize) 116u8)
+        (#ptr-write (#ptr-offset memory 10usize) 97u8)
+        (#ptr-write (#ptr-offset memory 11usize) 116u8)
+        (#ptr-write (#ptr-offset memory 12usize) 120u8)
+        (#ptr-write (#ptr-offset memory 32usize) 115u8)
+        (#ptr-write (#ptr-offset memory 33usize) 116u8)
+        (#ptr-write (#ptr-offset memory 34usize) 97u8)
+        (#ptr-write (#ptr-offset memory 35usize) 116u8)
+        (#ptr-write (#ptr-offset memory 36usize) 120u8)
+        (#ptr-write (#ptr-offset memory 37usize) 45u8)
+        (#ptr-write (#ptr-offset memory 38usize) 111u8)
+        (#ptr-write (#ptr-offset memory 39usize) 107u8)
+        ())))
+  (#let fd i64
+    (#unsafe (#call linux-memfd-create (#fn-args
+      (name (#ptr-offset memory 8usize)) (flags 1usize)))))
+  (#let bytes-written i64
+    (#unsafe (#call linux-write (#fn-args
+      (fd fd) (source (#ptr-offset memory 32usize)) (count 8usize)))))
+  (#let statx-result i64
+    (#unsafe (#call linux-statx (#fn-args
+      (directory fd)
+      (path memory)
+      (flags 4096usize)
+      (mask 2047usize)
+      (metadata metadata)))))
+  (#let returned-mask u64 (#unsafe (#ptr-read metadata)))
+  (#let returned-size u64
+    (#unsafe (#ptr-read (#ptr-offset metadata 5usize))))
+  (#let fd-closed i64 (#call linux-close (#fn-args (fd fd))))
+  (#let memory-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+  (#let metadata-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (metadata 4096usize))))
+  (#let statx-ok bool
+    (#bool.&& (#i64.>= fd 0i64)
+      (#bool.&& (#i64.== bytes-written 8i64)
+        (#bool.&& (#i64.== statx-result 0i64)
+          (#bool.&& (#u64.== (#u64.& returned-mask 512u64) 512u64)
+            (#bool.&& (#u64.== returned-size 8u64)
+              (#bool.&& (#i64.== fd-closed 0i64)
+                (#bool.&& (#i64.== memory-unmapped 0i64)
+                  (#i64.== metadata-unmapped 0i64)))))))))
+  (#return (#if statx-ok 42u64 1u64)))
