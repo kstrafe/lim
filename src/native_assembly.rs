@@ -14,9 +14,16 @@ use crate::instruction_encoder::{
 
 pub(crate) struct Assembled {
     pub code: EncodedInstructions,
-    pub symbols: BTreeMap<String, usize>,
+    pub rodata: Vec<u8>,
+    pub symbols: BTreeMap<String, SectionOffset>,
     pub unresolved: Vec<Relocation>,
     pub relocation_lines: BTreeMap<usize, usize>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SectionOffset {
+    Code(usize),
+    Rodata(usize),
 }
 
 pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
@@ -56,6 +63,7 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
         constants.insert(name.clone(), value);
     }
     let mut in_rodata = false;
+    let mut rodata = Vec::new();
     let mut relocation_lines = BTreeMap::new();
     for (index, raw) in source.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -72,10 +80,12 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
             } else {
                 symbol
             };
-            if symbols
-                .insert(symbol.to_owned(), code.bytes.len())
-                .is_some()
-            {
+            let offset = if in_rodata {
+                SectionOffset::Rodata(rodata.len())
+            } else {
+                SectionOffset::Code(code.bytes.len())
+            };
+            if symbols.insert(symbol.to_owned(), offset).is_some() {
                 return Err(format!(
                     "assembly line {}: duplicate symbol '{symbol}'",
                     index + 1
@@ -110,8 +120,8 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
                         index + 1
                     ));
                 }
-                let padding = (alignment - code.bytes.len() % alignment) % alignment;
-                code.bytes.resize(code.bytes.len() + padding, 0);
+                let padding = (alignment - rodata.len() % alignment) % alignment;
+                rodata.resize(rodata.len() + padding, 0);
                 continue;
             }
             if let Some(value) = line.strip_prefix(".quad ") {
@@ -121,8 +131,7 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
                         index + 1
                     ));
                 }
-                code.bytes
-                    .extend_from_slice(&parse_u64(value)?.to_le_bytes());
+                rodata.extend_from_slice(&parse_u64(value)?.to_le_bytes());
                 continue;
             }
             if let Some(value) = line.strip_prefix(".long ") {
@@ -134,7 +143,7 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
                 }
                 let value = parse_u64(value)?;
                 let value = u32::try_from(value).map_err(|_| "32-bit datum exceeds width")?;
-                code.bytes.extend_from_slice(&value.to_le_bytes());
+                rodata.extend_from_slice(&value.to_le_bytes());
                 continue;
             }
             if line == ".intel_syntax noprefix"
@@ -184,7 +193,7 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
     }
     let mut unresolved = Vec::new();
     for (index, relocation) in code.relocations.clone().iter().enumerate() {
-        if let Some(&target) = symbols.get(&relocation.symbol) {
+        if let Some(&SectionOffset::Code(target)) = symbols.get(&relocation.symbol) {
             code.resolve_local(index, target)?;
         } else {
             unresolved.push(relocation.clone());
@@ -192,6 +201,7 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
     }
     Ok(Assembled {
         code,
+        rodata,
         symbols,
         unresolved,
         relocation_lines,

@@ -640,8 +640,10 @@ objects are resolved before considering shared libraries. If unresolved
 references remain, or libraries were explicitly requested, the compiler
 writes the interpreter, dynamic symbol/string tables, GOT relocations, and
 shared-library dependencies itself. Supplied ELF64 objects may contain code,
-read-only data, writable data, and BSS. Unsupported `#asm` forms or ELF
-relocations are diagnosed rather than passed to an external tool. All 318
+read-only data, writable data, and BSS. Source constants and object-file
+read-only sections occupy a separate readable, non-executable ELF segment;
+code is read-execute and mutable data is read-write. Unsupported `#asm` forms
+or ELF relocations are diagnosed rather than passed to an external tool. All 318
 current examples build with external build tools absent from `PATH`.
 The object linker currently accepts x86-64 `R_X86_64_64`, `PC32`, `PLT32`,
 `32`, `32S`, `GOTPCREL`, `GOTPCRELX`, and `REX_GOTPCRELX` relocations. Direct

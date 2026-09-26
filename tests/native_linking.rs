@@ -98,6 +98,121 @@ fn constant_data_and_rip_relative_loads_build_without_external_tools() {
 }
 
 #[test]
+fn source_constants_reside_in_a_nonexecutable_read_only_load_segment() {
+    let scratch = support::Scratch::new("native-read-only-segment");
+    let assembly = ".intel_syntax noprefix\n.section .rodata\n.align 8\nconstant:\n.quad 42\n.text\n.globl main\nmain:\n mov rax, QWORD PTR [rip+constant]\n ret\n";
+    for (name, libraries) in [("static", vec![]), ("dynamic", vec!["c".to_owned()])] {
+        let binary = scratch.path().join(name);
+        lim::link_native_binary(
+            assembly,
+            &binary,
+            &[],
+            &libraries,
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+        assert_eq!(Command::new(&binary).status().unwrap().code(), Some(42));
+        let bytes = fs::read(&binary).unwrap();
+        let header_offset = u64::from_le_bytes(bytes[32..40].try_into().unwrap()) as usize;
+        let header_size = u16::from_le_bytes(bytes[54..56].try_into().unwrap()) as usize;
+        let header_count = u16::from_le_bytes(bytes[56..58].try_into().unwrap()) as usize;
+        let loads = (0..header_count)
+            .filter_map(|index| {
+                let header = header_offset + index * header_size;
+                (u32::from_le_bytes(bytes[header..header + 4].try_into().unwrap()) == 1).then(
+                    || {
+                        (
+                            u32::from_le_bytes(bytes[header + 4..header + 8].try_into().unwrap()),
+                            u64::from_le_bytes(bytes[header + 16..header + 24].try_into().unwrap()),
+                        )
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(loads.contains(&(5, 0x400000)), "{name}: {loads:?}");
+        assert!(loads.contains(&(4, 0x08400000)), "{name}: {loads:?}");
+        assert_eq!(
+            loads.iter().any(|(flags, _)| *flags == 6),
+            name == "dynamic"
+        );
+        assert!(!loads.iter().any(|(flags, _)| *flags == 7));
+    }
+}
+
+#[test]
+fn object_rodata_relocations_resolve_into_the_read_only_segment() {
+    let scratch = support::Scratch::new("object-read-only-segment");
+    let object = scratch.path().join("constant.o");
+    let code = [0x48, 0x8b, 0x05, 0, 0, 0, 0, 0xc3];
+    fs::write(
+        &object,
+        fixture::object(
+            &[
+                fixture::Section {
+                    name: ".text",
+                    bytes: &code,
+                    size: code.len(),
+                    writable: false,
+                    executable: true,
+                },
+                fixture::Section {
+                    name: ".rodata",
+                    bytes: &42u64.to_le_bytes(),
+                    size: 8,
+                    writable: false,
+                    executable: false,
+                },
+            ],
+            &[
+                fixture::Symbol {
+                    name: "read_constant",
+                    section: Some(0),
+                    value: 0,
+                    global: true,
+                },
+                fixture::Symbol {
+                    name: "constant",
+                    section: Some(1),
+                    value: 0,
+                    global: false,
+                },
+            ],
+            &[fixture::Relocation {
+                section: 0,
+                offset: 3,
+                symbol: 1,
+                kind: 2,
+                addend: -4,
+            }],
+        ),
+    )
+    .unwrap();
+    let program = lim::parse_program(
+        "(#extern-fn #abi-c read_constant () u64) (#fn main () u64 (#return (#unsafe (#call read_constant (#fn-args)))))",
+    )
+    .unwrap();
+    let assembly = lim::generate_assembly(&program).unwrap();
+    let binary = scratch.path().join("program");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[object],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    assert_static(&binary);
+    assert_eq!(Command::new(&binary).status().unwrap().code(), Some(42));
+    let segments = inspect(&binary, &["-lW"]);
+    assert!(
+        segments
+            .lines()
+            .any(|line| line.contains("LOAD") && line.contains(" R  ")),
+        "{segments}"
+    );
+}
+
+#[test]
 fn array_indexing_builds_without_external_tools() {
     let scratch = support::Scratch::new("internal-array-link");
     for (name, source, expected) in [

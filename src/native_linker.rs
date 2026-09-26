@@ -9,7 +9,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{elf_object, elf_writer, native_assembly::Assembled};
+use crate::{
+    elf_object, elf_writer,
+    native_assembly::{Assembled, SectionOffset},
+};
 
 struct PlacedObject<'a> {
     object: &'a elf_object::Object,
@@ -19,6 +22,7 @@ struct PlacedObject<'a> {
 #[derive(Clone, Copy)]
 enum Address {
     Code(usize),
+    Rodata(usize),
     Data(usize),
 }
 
@@ -26,6 +30,7 @@ impl Address {
     fn virtual_address(self) -> Result<u64, String> {
         match self {
             Self::Code(offset) => elf_writer::code_address(offset),
+            Self::Rodata(offset) => elf_writer::rodata_address(offset),
             Self::Data(offset) => elf_writer::data_address(offset),
         }
     }
@@ -33,6 +38,7 @@ impl Address {
     fn advance(self, count: usize) -> Result<Self, String> {
         match self {
             Self::Code(offset) => offset.checked_add(count).map(Self::Code),
+            Self::Rodata(offset) => offset.checked_add(count).map(Self::Rodata),
             Self::Data(offset) => offset.checked_add(count).map(Self::Data),
         }
         .ok_or("linked section address overflow".into())
@@ -62,6 +68,7 @@ pub(crate) struct ForeignCopyReference {
 
 pub(crate) struct Linked {
     pub code: Vec<u8>,
+    pub rodata: Vec<u8>,
     pub data: Vec<u8>,
     pub entry: usize,
     pub foreign: Vec<ForeignReference>,
@@ -105,13 +112,14 @@ fn defined_symbol(
 
 /// Return linked code and entry offset for objects using the supported ELF64
 /// RELA relocations. An unsupported object is rejected without modifying the
-/// caller's image, allowing the migration path to use the legacy linker.
+/// caller's image.
 pub(crate) fn link(
     assembled: &Assembled,
     objects: &[elf_object::Object],
     allow_foreign: bool,
 ) -> Result<Linked, String> {
     let mut code = assembled.code.bytes.clone();
+    let mut rodata = assembled.rodata.clone();
     let mut data = Vec::new();
     let mut foreign = Vec::new();
     let mut foreign_got = Vec::new();
@@ -126,19 +134,21 @@ pub(crate) fn link(
                     section.name
                 ));
             }
-            let (bytes, writable) = if section.writable {
-                (&mut data, true)
+            let (bytes, address) = if section.writable {
+                (&mut data, 2)
+            } else if section.executable {
+                (&mut code, 0)
             } else {
-                (&mut code, false)
+                (&mut rodata, 1)
             };
             let start = align_up(bytes.len(), section.align)?;
             bytes.resize(start, 0);
             sections.insert(
                 section.index,
-                if writable {
-                    Address::Data(start)
-                } else {
-                    Address::Code(start)
+                match address {
+                    0 => Address::Code(start),
+                    1 => Address::Rodata(start),
+                    _ => Address::Data(start),
                 },
             );
             bytes.extend_from_slice(&section.data);
@@ -156,7 +166,15 @@ pub(crate) fn link(
     let mut globals = assembled
         .symbols
         .iter()
-        .map(|(name, offset)| (name.clone(), Address::Code(*offset)))
+        .map(|(name, offset)| {
+            (
+                name.clone(),
+                match offset {
+                    SectionOffset::Code(offset) => Address::Code(*offset),
+                    SectionOffset::Rodata(offset) => Address::Rodata(*offset),
+                },
+            )
+        })
         .collect::<BTreeMap<_, _>>();
     let mut weak = BTreeMap::new();
     for object in &placed {
@@ -310,6 +328,7 @@ pub(crate) fn link(
             };
             let bytes = match place {
                 Address::Code(offset) => code.get_mut(offset..offset + width),
+                Address::Rodata(offset) => rodata.get_mut(offset..offset + width),
                 Address::Data(offset) => data.get_mut(offset..offset + width),
             }
             .ok_or("object relocation extends beyond image")?;
@@ -341,6 +360,7 @@ pub(crate) fn link(
     };
     Ok(Linked {
         code,
+        rodata,
         data,
         entry,
         foreign,

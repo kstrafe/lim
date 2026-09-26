@@ -494,12 +494,16 @@ these areas as stable.
   The complete example manifest and full test suite pass under the internal
   encoder, including hand-written inline assembly and unsupported-form
   diagnostics.
-- [ ] **NATIVE-02: Write self-contained Linux x86-64 ELF binaries directly.**
+- [x] **NATIVE-02: Write self-contained Linux x86-64 ELF binaries directly.**
   Lay out code, read-only data, writable data, entry stub, load segments, and
   permissions in the compiler. Resolve local/global labels and PC-relative
   relocations, check displacement and size overflow, and publish the executable
   atomically. Retain `--emit-asm` for inspection. Test ELF headers, section and
   segment permissions, reproducible bytes, and the native example suite.
+  Compiler and object-file constants now occupy a separate non-executable,
+  non-writable PT_LOAD; code remains RX and mutable data RW. Static and dynamic
+  segment tests, object relocations, the full example manifest, and the full
+  test suite pass.
 - [x] **NATIVE-03: Remove `as` and `nm` from normal compilation.** Use the
   encoder's symbol definitions and unresolved references directly to decide
   whether a program needs foreign linkage. Preserve detection of foreign

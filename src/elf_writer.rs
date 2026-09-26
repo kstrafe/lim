@@ -7,6 +7,7 @@
 
 const BASE_ADDRESS: u64 = 0x400000;
 const DATA_ADDRESS: u64 = BASE_ADDRESS + 0x1000_0000;
+const RODATA_ADDRESS: u64 = BASE_ADDRESS + 0x0800_0000;
 const CODE_OFFSET: usize = 0x1000;
 const ELF_HEADER_SIZE: usize = 64;
 const PROGRAM_HEADER_SIZE: usize = 56;
@@ -26,6 +27,12 @@ pub(crate) fn data_address(offset: usize) -> Result<u64, String> {
     DATA_ADDRESS
         .checked_add(u64::try_from(offset).map_err(|_| "ELF data offset overflow")?)
         .ok_or("ELF data address overflow".into())
+}
+
+pub(crate) fn rodata_address(offset: usize) -> Result<u64, String> {
+    RODATA_ADDRESS
+        .checked_add(u64::try_from(offset).map_err(|_| "ELF rodata offset overflow")?)
+        .ok_or("ELF rodata address overflow".into())
 }
 
 fn put_u16(bytes: &mut [u8], offset: usize, value: u16) {
@@ -84,51 +91,93 @@ pub(crate) fn executable(text: &[u8], entry_offset: usize) -> Result<Vec<u8>, St
     Ok(image)
 }
 
-/// Static executable with a separate writable PT_LOAD for supplied object
-/// sections. The data virtual address is fixed so object relocations can be
-/// resolved before file padding and ELF headers are laid out.
-pub(crate) fn executable_with_data(
+/// Static executable with independent RX, R, and RW PT_LOAD segments.
+/// Fixed virtual bases allow relocations to resolve before file layout.
+pub(crate) fn executable_with_sections(
     text: &[u8],
     entry_offset: usize,
+    rodata: &[u8],
     data: &[u8],
 ) -> Result<Vec<u8>, String> {
-    if data.is_empty() {
+    if rodata.is_empty() && data.is_empty() {
         return executable(text, entry_offset);
     }
     let mut image = executable(text, entry_offset)?;
     let code_end = image.len();
-    if code_address(text.len())? >= DATA_ADDRESS {
-        return Err("native code overlaps the data segment".into());
+    if code_address(text.len())? >= RODATA_ADDRESS {
+        return Err("native code overlaps the read-only segment".into());
     }
-    let data_offset = align_up(code_end, 4096)?;
-    let file_end = data_offset
-        .checked_add(data.len())
-        .ok_or("ELF data image overflow")?;
-    image.resize(file_end, 0);
-    image[data_offset..file_end].copy_from_slice(data);
-    put_u16(&mut image, 56, 3);
-    let program = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
-    put_u32(&mut image, program, 1); // PT_LOAD
-    put_u32(&mut image, program + 4, 6); // PF_R | PF_W
-    put_u64(
+    let mut next = 1usize;
+    let mut file_end = code_end;
+    if !rodata.is_empty() {
+        if rodata_address(rodata.len())? >= DATA_ADDRESS {
+            return Err("read-only segment overlaps writable data".into());
+        }
+        let offset = align_up(file_end, 4096)?;
+        file_end = offset
+            .checked_add(rodata.len())
+            .ok_or("ELF rodata image overflow")?;
+        image.resize(file_end, 0);
+        image[offset..file_end].copy_from_slice(rodata);
+        let program = ELF_HEADER_SIZE + next * PROGRAM_HEADER_SIZE;
+        put_u32(&mut image, program, 1);
+        put_u32(&mut image, program + 4, 4); // PF_R, no execute
+        put_u64(
+            &mut image,
+            program + 8,
+            u64::try_from(offset).map_err(|_| "ELF rodata offset overflow")?,
+        );
+        put_u64(&mut image, program + 16, RODATA_ADDRESS);
+        put_u64(&mut image, program + 24, RODATA_ADDRESS);
+        put_u64(
+            &mut image,
+            program + 32,
+            u64::try_from(rodata.len()).map_err(|_| "ELF rodata size overflow")?,
+        );
+        put_u64(
+            &mut image,
+            program + 40,
+            u64::try_from(rodata.len()).map_err(|_| "ELF rodata size overflow")?,
+        );
+        put_u64(&mut image, program + 48, 4096);
+        next += 1;
+    }
+    if !data.is_empty() {
+        let offset = align_up(file_end, 4096)?;
+        file_end = offset
+            .checked_add(data.len())
+            .ok_or("ELF data image overflow")?;
+        image.resize(file_end, 0);
+        image[offset..file_end].copy_from_slice(data);
+        let program = ELF_HEADER_SIZE + next * PROGRAM_HEADER_SIZE;
+        put_u32(&mut image, program, 1);
+        put_u32(&mut image, program + 4, 6); // PF_R | PF_W
+        put_u64(
+            &mut image,
+            program + 8,
+            u64::try_from(offset).map_err(|_| "ELF data offset overflow")?,
+        );
+        put_u64(&mut image, program + 16, DATA_ADDRESS);
+        put_u64(&mut image, program + 24, DATA_ADDRESS);
+        put_u64(
+            &mut image,
+            program + 32,
+            u64::try_from(data.len()).map_err(|_| "ELF data size overflow")?,
+        );
+        put_u64(
+            &mut image,
+            program + 40,
+            u64::try_from(data.len()).map_err(|_| "ELF data size overflow")?,
+        );
+        put_u64(&mut image, program + 48, 4096);
+        next += 1;
+    }
+    put_u16(
         &mut image,
-        program + 8,
-        u64::try_from(data_offset).map_err(|_| "ELF data offset overflow")?,
+        56,
+        u16::try_from(next + 1).map_err(|_| "ELF program header count overflow")?,
     );
-    put_u64(&mut image, program + 16, DATA_ADDRESS);
-    put_u64(&mut image, program + 24, DATA_ADDRESS);
-    put_u64(
-        &mut image,
-        program + 32,
-        u64::try_from(data.len()).map_err(|_| "ELF data size overflow")?,
-    );
-    put_u64(
-        &mut image,
-        program + 40,
-        u64::try_from(data.len()).map_err(|_| "ELF data size overflow")?,
-    );
-    put_u64(&mut image, program + 48, 4096);
-    let stack = program + PROGRAM_HEADER_SIZE;
+    let stack = ELF_HEADER_SIZE + next * PROGRAM_HEADER_SIZE;
     put_u32(&mut image, stack, 0x6474_e551);
     put_u32(&mut image, stack + 4, 6);
     put_u64(&mut image, stack + 48, 16);
@@ -372,11 +421,18 @@ pub(crate) fn dynamic_executable(
     if BASE_ADDRESS
         .checked_add(u64::try_from(code_end).map_err(|_| "ELF code size overflow")?)
         .ok_or("ELF code address overflow")?
-        >= DATA_ADDRESS
+        >= RODATA_ADDRESS
     {
-        return Err("native code overlaps the data segment".into());
+        return Err("native code overlaps the read-only segment".into());
     }
-    let data_offset = align_up(code_end, 4096)?;
+    let rodata_offset = align_up(code_end, 4096)?;
+    let rodata_end = rodata_offset
+        .checked_add(linked.rodata.len())
+        .ok_or("ELF read-only image overflow")?;
+    if rodata_address(linked.rodata.len())? >= DATA_ADDRESS {
+        return Err("read-only segment overlaps writable data".into());
+    }
+    let data_offset = align_up(rodata_end, 4096)?;
     let got_size = imports
         .len()
         .checked_mul(8)
@@ -479,7 +535,7 @@ pub(crate) fn dynamic_executable(
     put_u64(&mut image, 32, ELF_HEADER_SIZE as u64);
     put_u16(&mut image, 52, ELF_HEADER_SIZE as u16);
     put_u16(&mut image, 54, PROGRAM_HEADER_SIZE as u16);
-    put_u16(&mut image, 56, 5);
+    put_u16(&mut image, 56, if linked.rodata.is_empty() { 5 } else { 6 });
     let program = ELF_HEADER_SIZE;
     put_u32(&mut image, program, 1); // RX PT_LOAD
     put_u32(&mut image, program + 4, 5);
@@ -496,7 +552,30 @@ pub(crate) fn dynamic_executable(
         u64::try_from(code_end).map_err(|_| "ELF code size overflow")?,
     );
     put_u64(&mut image, program + 48, 4096);
-    let load_data = program + PROGRAM_HEADER_SIZE;
+    let mut load_data = program + PROGRAM_HEADER_SIZE;
+    if !linked.rodata.is_empty() {
+        put_u32(&mut image, load_data, 1); // R PT_LOAD
+        put_u32(&mut image, load_data + 4, 4); // PF_R, no execute
+        put_u64(
+            &mut image,
+            load_data + 8,
+            u64::try_from(rodata_offset).map_err(|_| "ELF rodata offset overflow")?,
+        );
+        put_u64(&mut image, load_data + 16, RODATA_ADDRESS);
+        put_u64(&mut image, load_data + 24, RODATA_ADDRESS);
+        put_u64(
+            &mut image,
+            load_data + 32,
+            u64::try_from(linked.rodata.len()).map_err(|_| "ELF rodata size overflow")?,
+        );
+        put_u64(
+            &mut image,
+            load_data + 40,
+            u64::try_from(linked.rodata.len()).map_err(|_| "ELF rodata size overflow")?,
+        );
+        put_u64(&mut image, load_data + 48, 4096);
+        load_data += PROGRAM_HEADER_SIZE;
+    }
     put_u32(&mut image, load_data, 1); // RW PT_LOAD
     put_u32(&mut image, load_data + 4, 6);
     put_u64(
@@ -582,6 +661,7 @@ pub(crate) fn dynamic_executable(
     put_u32(&mut image, stack + 4, 6);
     put_u64(&mut image, stack + 48, 16);
     image[CODE_OFFSET..code_end].copy_from_slice(&code);
+    image[rodata_offset..rodata_end].copy_from_slice(&linked.rodata);
     image[data_offset..file_size].copy_from_slice(&data);
     Ok(image)
 }

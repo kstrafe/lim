@@ -76,6 +76,7 @@ pub(crate) struct Section {
     pub size: usize,
     pub align: usize,
     pub writable: bool,
+    pub executable: bool,
 }
 
 #[derive(Debug)]
@@ -143,6 +144,9 @@ pub(crate) fn relocatable(bytes: &[u8]) -> Result<Object, String> {
         let kind = u32_at(bytes, header + 4)?;
         let flags = u64_at(bytes, header + 8)?;
         if flags & 2 != 0 {
+            if flags & 1 != 0 && flags & 4 != 0 {
+                return Err("writable executable ELF sections are unsupported".into());
+            }
             if kind != 1 && kind != 7 && kind != 8 {
                 return Err(format!("unsupported allocatable ELF section type {kind}"));
             }
@@ -170,6 +174,7 @@ pub(crate) fn relocatable(bytes: &[u8]) -> Result<Object, String> {
                 size,
                 align,
                 writable: flags & 1 != 0,
+                executable: flags & 4 != 0,
             });
         }
         if kind == 2 {

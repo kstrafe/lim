@@ -1990,7 +1990,12 @@ pub fn link_native_binary(
             && linked.foreign_copy.is_empty()
             && libraries.is_empty()
         {
-            elf_writer::executable_with_data(&linked.code, linked.entry, &linked.data)
+            elf_writer::executable_with_sections(
+                &linked.code,
+                linked.entry,
+                &linked.rodata,
+                &linked.data,
+            )
         } else {
             let interpreter = native_dynamic_linker();
             let needed = native_linker::resolve_libraries(
