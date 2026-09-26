@@ -4,7 +4,6 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     env, fmt, fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 mod analysis_error;
@@ -12,8 +11,13 @@ mod borrowcheck;
 mod cache_report;
 mod codegen;
 mod diagnostic_json;
+mod elf_object;
+mod elf_writer;
 mod generator;
+mod instruction_encoder;
 mod linearcheck;
+mod native_assembly;
+mod native_linker;
 mod output;
 mod source_error;
 mod stack_usage;
@@ -1943,8 +1947,8 @@ fn codegen_diagnostic(error: SourceError, program: &Program) -> Diagnostic {
 }
 
 /// Assemble and link native output, returning a structured link diagnostic on
-/// tool invocation or linker failure. The runtime libraries are added only for
-/// unresolved symbols or explicitly requested libraries, not syscall-only code.
+/// linker failure. Shared libraries are added only for unresolved symbols or
+/// explicitly requested libraries, not syscall-only code.
 pub fn link_native_binary(
     assembly: &str,
     output: &Path,
@@ -1964,122 +1968,160 @@ pub fn link_native_binary(
             format!("cannot stage output: {error}"),
         )
     })?;
-    let assembly_path = directory.0.join("input.s");
-    let object_path = directory.0.join("input.o");
     let staged_output = directory.0.join("binary");
     // Returning from main terminates the process, including io_uring workers;
     // thread-only SYS_exit can lose main's status when another task exits last.
     let entry = "\n.section .text\n.globl _start\n.type _start, @function\n_start:\n    xor ebp, ebp\n    and rsp, -16\n    call main\n    mov edi, eax\n    mov eax, 231\n    syscall\n    ud2\n.size _start, .-_start\n";
-    let result = (|| {
-        fs::write(&assembly_path, format!("{assembly}{entry}")).map_err(|error| {
-            Diagnostic::new(
-                DiagnosticCode::Link,
-                format!("cannot write temporary assembly: {error}"),
-            )
-        })?;
-        let assemble = Command::new("as")
-            .arg("--64")
-            .arg(&assembly_path)
-            .arg("-o")
-            .arg(&object_path)
-            .output()
-            .map_err(|error| {
+    let complete_assembly = format!("{assembly}{entry}");
+    let build = || -> Result<Vec<u8>, String> {
+        let assembled = native_assembly::assemble(&complete_assembly)?;
+        let objects = object_files
+            .iter()
+            .map(|path| {
+                let bytes = fs::read(path)
+                    .map_err(|error| format!("cannot read object {}: {error}", path.display()))?;
+                elf_object::relocatable(&bytes)
+                    .map_err(|error| format!("invalid object {}: {error}", path.display()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let linked = native_linker::link(&assembled, &objects, true)?;
+        if linked.foreign.is_empty()
+            && linked.foreign_got.is_empty()
+            && linked.foreign_copy.is_empty()
+            && libraries.is_empty()
+        {
+            elf_writer::executable_with_data(&linked.code, linked.entry, &linked.data)
+        } else {
+            let interpreter = native_dynamic_linker();
+            let needed = native_linker::resolve_libraries(
+                &linked.foreign,
+                &linked.foreign_got,
+                &linked.foreign_copy,
+                libraries,
+                &interpreter,
+            )?;
+            elf_writer::dynamic_executable(linked, &needed, &interpreter)
+        }
+    };
+    let image = build().map_err(|error| Diagnostic::new(DiagnosticCode::Link, error))?;
+    fs::write(&staged_output, image).map_err(|error| {
+        Diagnostic::new(
+            DiagnosticCode::Link,
+            format!("cannot write native ELF: {error}"),
+        )
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&staged_output, fs::Permissions::from_mode(0o755)).map_err(
+            |error| {
                 Diagnostic::new(
                     DiagnosticCode::Link,
-                    format!("could not run assembler: {error}"),
+                    format!("cannot make native ELF executable: {error}"),
                 )
-            })?;
-        if !assemble.status.success() {
-            return Err(Diagnostic::new(
-                DiagnosticCode::Link,
-                format!("assembler failed with status {}", assemble.status),
-            )
-            .note(String::from_utf8_lossy(&assemble.stderr).into_owned())
-            .note(String::from_utf8_lossy(&assemble.stdout).into_owned()));
-        }
-        // Inspect assembled references, not source spellings: inline assembly
-        // can reference foreign symbols without an emitted .extern directive,
-        // while an unused .extern need not introduce a dependency at all.
-        let mut needs_runtime = !libraries.is_empty();
-        for object in std::iter::once(&object_path).chain(object_files.iter()) {
-            needs_runtime |= native_object_has_undefined_symbols(object)?;
-        }
-        let mut linker = Command::new("ld");
-        linker.arg("-o").arg(&staged_output).arg("-e").arg("_start");
-        if needs_runtime {
-            linker.arg("--dynamic-linker").arg(native_dynamic_linker());
-        } else {
-            // Also prevents a toolchain wrapper from introducing an ELF
-            // interpreter into an otherwise self-contained syscall program.
-            linker.arg("-static");
-        }
-        linker.arg(&object_path);
-        for object in object_files {
-            linker.arg(object);
-        }
-        for library in libraries {
-            linker.arg(format!("-l{library}"));
-        }
-        if needs_runtime {
-            linker.arg("-lc").arg("-lpthread");
-        }
-        let status = linker.output().map_err(|error| {
-            Diagnostic::new(
-                DiagnosticCode::Link,
-                format!("could not run linker: {error}"),
-            )
-        })?;
-        if !status.status.success() {
-            return Err(Diagnostic::new(
-                DiagnosticCode::Link,
-                format!("linker failed with status {}", status.status),
-            )
-            .note(String::from_utf8_lossy(&status.stderr).into_owned())
-            .note(String::from_utf8_lossy(&status.stdout).into_owned()));
-        }
-        fs::rename(&staged_output, output).map_err(|error| {
-            Diagnostic::new(
-                DiagnosticCode::Link,
-                format!("cannot publish output: {error}"),
-            )
-        })
-    })();
-    let _ = fs::remove_file(&assembly_path);
-    let _ = fs::remove_file(&object_path);
-    result
-}
-
-fn native_object_has_undefined_symbols(object: &Path) -> Result<bool, Diagnostic> {
-    let symbols = Command::new("nm")
-        .arg("--undefined-only")
-        .arg("--format=posix")
-        .arg(object)
-        .output()
-        .map_err(|error| {
-            Diagnostic::new(
-                DiagnosticCode::Link,
-                format!("could not inspect native object symbols: {error}"),
-            )
-        })?;
-    if !symbols.status.success() {
-        return Err(Diagnostic::new(
-            DiagnosticCode::Link,
-            format!("symbol inspection failed for {}", object.display()),
-        )
-        .note(String::from_utf8_lossy(&symbols.stderr).into_owned()));
+            },
+        )?;
     }
-    Ok(!symbols.stdout.iter().all(u8::is_ascii_whitespace))
+    fs::rename(&staged_output, output).map_err(|error| {
+        Diagnostic::new(
+            DiagnosticCode::Link,
+            format!("cannot publish output: {error}"),
+        )
+    })
 }
 
 fn native_dynamic_linker() -> String {
-    Command::new("cc")
-        .arg("-print-file-name=ld-linux-x86-64.so.2")
-        .output()
+    env::var("LIM_DYNAMIC_LINKER")
         .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-        .filter(|path| !path.is_empty() && Path::new(path).is_absolute())
+        .filter(|path| Path::new(path).is_absolute())
+        .or_else(|| {
+            env::current_exe()
+                .ok()
+                .and_then(|path| fs::read(path).ok())
+                .and_then(|bytes| elf_object::interpreter_path(&bytes).ok().flatten())
+        })
         .unwrap_or_else(|| "/lib64/ld-linux-x86-64.so.2".to_owned())
+}
+
+/// Attach a Lim source span to a link failure when its unresolved symbol is
+/// spelled in the root source. The assembly-only linking API cannot infer a
+/// Lim location; CLI callers can supply their source after linking fails.
+pub fn locate_link_diagnostic(mut diagnostic: Diagnostic, source: &str) -> Diagnostic {
+    if diagnostic.code != DiagnosticCode::Link || diagnostic.span.is_some() {
+        return diagnostic;
+    }
+    if let Some(mnemonic) = diagnostic
+        .message
+        .split("unsupported instruction '")
+        .nth(1)
+        .and_then(|rest| rest.split_once('\'').map(|(name, _)| name))
+    {
+        if let Some(at) = source.rfind(mnemonic) {
+            let before = &source[..at];
+            let line = before.bytes().filter(|byte| *byte == b'\n').count() + 1;
+            let column = before.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+            diagnostic.span = Some(source_span_at(
+                source,
+                line,
+                column,
+                mnemonic.chars().count(),
+            ));
+            return diagnostic;
+        }
+    }
+    let symbol = [
+        "no linked shared library exports '",
+        "undefined native symbol '",
+        "duplicate native symbol '",
+    ]
+    .iter()
+    .find_map(|prefix| diagnostic.message.strip_prefix(prefix))
+    .and_then(|rest| rest.split_once('\'').map(|(name, _)| name));
+    let Some(symbol) = symbol else {
+        return diagnostic;
+    };
+    if let Ok(expressions) = parse(source) {
+        diagnostic.span = expressions
+            .iter()
+            .filter_map(|expression| source_symbol_span(expression, symbol, true))
+            .max_by_key(|span| span.start);
+    }
+    diagnostic
+}
+
+#[cfg(test)]
+mod link_location_tests {
+    use super::*;
+
+    #[test]
+    fn unresolved_symbol_highlights_the_call_not_its_declaration() {
+        let source = "(#extern-fn #abi-c unavailable () u64)\n(#fn main () u64 (#return (#unsafe (#call unavailable (#fn-args)))))\n";
+        let diagnostic = locate_link_diagnostic(
+            Diagnostic::new(
+                DiagnosticCode::Link,
+                "no linked shared library exports 'unavailable' (assembly line 8)",
+            ),
+            source,
+        );
+        let span = diagnostic.span.unwrap();
+        assert_eq!(span.line, 2);
+        assert_eq!(&source[span.start..span.end], "unavailable");
+    }
+
+    #[test]
+    fn unsupported_asm_instruction_highlights_its_source_text() {
+        let source =
+            "(#fn main () () (#unsafe (#asm () () \"vaddps ymm0, ymm1, ymm2\")) (#return ()))";
+        let diagnostic = locate_link_diagnostic(
+            Diagnostic::new(
+                DiagnosticCode::Link,
+                "assembly line 9: unsupported instruction 'vaddps'",
+            ),
+            source,
+        );
+        let span = diagnostic.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "vaddps");
+    }
 }
 
 fn parse_program_in_directory(

@@ -2,6 +2,7 @@
 use std::{fs, path::Path, process::Command, time::Duration};
 
 mod support;
+use support::elf_fixture as fixture;
 
 fn inspect(binary: &Path, options: &[&str]) -> String {
     let output = Command::new("readelf")
@@ -48,6 +49,389 @@ fn compile(source: &str, directory: &Path, libraries: &[String]) -> std::path::P
 }
 
 #[test]
+fn simple_lim_program_builds_with_no_external_tools_on_path() {
+    let scratch = support::Scratch::new("internal-fibonacci-link");
+    let source = scratch.path().join("fibonacci.lim");
+    let binary = scratch.path().join("fibonacci");
+    fs::write(&source, include_str!("../examples/fibonacci.lim")).unwrap();
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(&source)
+        .arg("-o")
+        .arg(&binary)
+        .env("PATH", scratch.path())
+        .output()
+        .unwrap();
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    assert_static(&binary);
+    assert_eq!(Command::new(&binary).status().unwrap().code(), Some(55));
+}
+
+#[test]
+fn constant_data_and_rip_relative_loads_build_without_external_tools() {
+    let scratch = support::Scratch::new("internal-constant-link");
+    for (name, source) in [
+        ("global", include_str!("../examples/global.lim")),
+        ("global_128", include_str!("../examples/global_128.lim")),
+    ] {
+        let input = scratch.path().join(format!("{name}.lim"));
+        let binary = scratch.path().join(name);
+        fs::write(&input, source).unwrap();
+        let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary)
+            .env("PATH", scratch.path())
+            .output()
+            .unwrap();
+        assert!(
+            compilation.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&compilation.stderr)
+        );
+        assert_static(&binary);
+        assert_eq!(Command::new(&binary).status().unwrap().code(), Some(42));
+    }
+}
+
+#[test]
+fn array_indexing_builds_without_external_tools() {
+    let scratch = support::Scratch::new("internal-array-link");
+    for (name, source, expected) in [
+        ("array", include_str!("../examples/array.lim"), 41),
+        (
+            "array_repeat",
+            include_str!("../examples/array_repeat.lim"),
+            13,
+        ),
+        ("array-of", include_str!("../examples/array-of.lim"), 30),
+    ] {
+        let input = scratch.path().join(format!("{name}.lim"));
+        let binary = scratch.path().join(name);
+        fs::write(&input, source).unwrap();
+        let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary)
+            .env("PATH", scratch.path())
+            .output()
+            .unwrap();
+        assert!(
+            compilation.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&compilation.stderr)
+        );
+        assert_static(&binary);
+        assert_eq!(
+            Command::new(&binary).status().unwrap().code(),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn aggregate_memory_operands_build_without_external_tools() {
+    let scratch = support::Scratch::new("internal-aggregate-link");
+    for (name, source, expected) in [
+        (
+            "aggregate_let",
+            include_str!("../examples/aggregate_let.lim"),
+            4,
+        ),
+        (
+            "aggregate_match_return",
+            include_str!("../examples/aggregate_match_return.lim"),
+            20,
+        ),
+        (
+            "array_return_index",
+            include_str!("../examples/array_return_index.lim"),
+            20,
+        ),
+        (
+            "const_aggregate",
+            include_str!("../examples/const_aggregate.lim"),
+            42,
+        ),
+    ] {
+        let input = scratch.path().join(format!("{name}.lim"));
+        let binary = scratch.path().join(name);
+        fs::write(&input, source).unwrap();
+        let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary)
+            .env("PATH", scratch.path())
+            .output()
+            .unwrap();
+        assert!(
+            compilation.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&compilation.stderr)
+        );
+        assert_static(&binary);
+        assert_eq!(
+            Command::new(&binary).status().unwrap().code(),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn scalar_and_task_programs_build_without_external_tools() {
+    let scratch = support::Scratch::new("internal-scalar-link");
+    for (name, source) in [
+        ("bitwise_not", include_str!("../examples/bitwise_not.lim")),
+        ("bool_bitwise", include_str!("../examples/bool_bitwise.lim")),
+        (
+            "constant_short_circuit",
+            include_str!("../examples/constant_short_circuit.lim"),
+        ),
+        (
+            "cooperative_tasks",
+            include_str!("../examples/cooperative_tasks.lim"),
+        ),
+        (
+            "allocator_state",
+            include_str!("../examples/allocator_state.lim"),
+        ),
+    ] {
+        let input = scratch.path().join(format!("{name}.lim"));
+        let binary = scratch.path().join(name);
+        let task_library = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("library/tasks.lim")
+            .to_string_lossy()
+            .into_owned();
+        fs::write(
+            &input,
+            source.replace("../library/tasks.lim", &task_library),
+        )
+        .unwrap();
+        let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary)
+            .env("PATH", scratch.path())
+            .output()
+            .unwrap();
+        assert!(
+            compilation.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&compilation.stderr)
+        );
+        assert_static(&binary);
+        assert_eq!(Command::new(&binary).status().unwrap().code(), Some(42));
+    }
+}
+
+#[test]
+fn syscall_echo_builds_without_external_tools() {
+    use std::io::Write;
+    let scratch = support::Scratch::new("internal-syscall-echo");
+    let input = scratch.path().join("echo_input.lim");
+    let binary = scratch.path().join("echo_input");
+    let library = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("library/linux_x86_64.lim")
+        .to_string_lossy()
+        .into_owned();
+    fs::write(
+        &input,
+        include_str!("../examples/echo_input.lim").replace("../library/linux_x86_64.lim", &library),
+    )
+    .unwrap();
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(&input)
+        .arg("-o")
+        .arg(&binary)
+        .env("PATH", scratch.path())
+        .output()
+        .unwrap();
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    assert_static(&binary);
+    let mut child = Command::new(&binary)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"A\0\xff\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"A\0\xff\n");
+}
+
+#[test]
+fn unreachable_branch_traps_with_internal_encoding() {
+    use std::os::unix::process::ExitStatusExt;
+    let scratch = support::Scratch::new("internal-unreachable");
+    let input = scratch.path().join("never.lim");
+    let binary = scratch.path().join("never");
+    fs::write(&input, include_str!("../examples/never.lim")).unwrap();
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(&input)
+        .arg("-o")
+        .arg(&binary)
+        .env("PATH", scratch.path())
+        .output()
+        .unwrap();
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    for _ in 0..32 {
+        let (status, stdout, stderr) =
+            support::run(&mut Command::new(&binary), Duration::from_secs(2), 1024).unwrap();
+        assert_eq!(status.signal(), Some(4));
+        assert!(stdout.is_empty());
+        assert!(stderr.is_empty());
+    }
+}
+
+#[test]
+fn scalar_float_programs_build_without_external_tools() {
+    let scratch = support::Scratch::new("internal-float-link");
+    for (name, source, expected) in [
+        ("float", include_str!("../examples/float.lim"), 42),
+        ("float32", include_str!("../examples/float32.lim"), 42),
+        (
+            "float_control",
+            include_str!("../examples/float_control.lim"),
+            42,
+        ),
+        (
+            "float_global_expr",
+            include_str!("../examples/float_global_expr.lim"),
+            42,
+        ),
+        (
+            "float_comparison_edges",
+            include_str!("../examples/float_comparison_edges.lim"),
+            42,
+        ),
+        (
+            "mixed_float",
+            include_str!("../examples/mixed_float.lim"),
+            0,
+        ),
+    ] {
+        let input = scratch.path().join(format!("{name}.lim"));
+        let binary = scratch.path().join(name);
+        fs::write(&input, source).unwrap();
+        let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary)
+            .env("PATH", scratch.path())
+            .output()
+            .unwrap();
+        assert!(
+            compilation.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&compilation.stderr)
+        );
+        assert_static(&binary);
+        assert_eq!(
+            Command::new(&binary).status().unwrap().code(),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn linux_aio_builds_and_runs_without_external_tools() {
+    let scratch = support::Scratch::new("internal-linux-aio");
+    let input = scratch.path().join("linux_aio.lim");
+    let binary = scratch.path().join("linux_aio");
+    let library = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("library/linux_x86_64.lim")
+        .to_string_lossy()
+        .into_owned();
+    fs::write(
+        &input,
+        include_str!("../examples/linux_aio.lim").replace("../library/linux_x86_64.lim", &library),
+    )
+    .unwrap();
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(&input)
+        .arg("-o")
+        .arg(&binary)
+        .env("PATH", scratch.path())
+        .output()
+        .unwrap();
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    assert_static(&binary);
+    let (status, stdout, stderr) = support::run(
+        &mut Command::new(&binary).current_dir(scratch.path()),
+        Duration::from_secs(5),
+        4096,
+    )
+    .unwrap();
+    assert_eq!(status.code(), Some(42));
+    assert_eq!(stdout, include_bytes!("fixtures/aio.stdout"));
+    assert!(stderr.is_empty());
+}
+
+#[test]
+fn generated_kernel_threads_and_atomics_build_without_external_tools() {
+    let scratch = support::Scratch::new("internal-kernel-threads");
+    let library = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("library/linux_x86_64.lim")
+        .to_string_lossy()
+        .into_owned();
+    for (name, source, expected_stdout) in [
+        (
+            "kernel_threads",
+            include_str!("../examples/kernel_threads.lim"),
+            b"T\n".as_slice(),
+        ),
+        (
+            "atomic_claim",
+            include_str!("../examples/atomic_claim.lim"),
+            b"".as_slice(),
+        ),
+    ] {
+        let input = scratch.path().join(format!("{name}.lim"));
+        let binary = scratch.path().join(name);
+        fs::write(
+            &input,
+            source.replace("../library/linux_x86_64.lim", &library),
+        )
+        .unwrap();
+        let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary)
+            .env("PATH", scratch.path())
+            .output()
+            .unwrap();
+        assert!(
+            compilation.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&compilation.stderr)
+        );
+        assert_static(&binary);
+        for _ in 0..8 {
+            let (status, stdout, stderr) =
+                support::run(&mut Command::new(&binary), Duration::from_secs(5), 4096).unwrap();
+            assert_eq!(status.code(), Some(42), "{name}: {stderr:?}");
+            assert_eq!(stdout, expected_stdout, "{name}");
+            assert!(stderr.is_empty());
+        }
+    }
+}
+
+#[test]
 fn syscall_library_binary_has_no_interpreter_or_dynamic_dependencies() {
     let scratch = support::Scratch::new("syscall-static-link");
     let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("library/linux_x86_64.lim");
@@ -87,6 +471,92 @@ fn referenced_foreign_functions_still_link_and_run() {
 }
 
 #[test]
+fn dynamic_images_are_reproducible_and_keep_code_nonwritable() {
+    let scratch = support::Scratch::new("dynamic-elf-reproducible");
+    let source = include_str!("../examples/extern_abs.lim");
+    let program = lim::parse_program(source).unwrap();
+    let assembly = lim::generate_assembly(&program).unwrap();
+    let first = scratch.path().join("first");
+    let second = scratch.path().join("second");
+    for output in [&first, &second] {
+        lim::link_native_binary(
+            &assembly,
+            output,
+            &[],
+            &[],
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+    }
+    assert_eq!(fs::read(&first).unwrap(), fs::read(&second).unwrap());
+    let headers = inspect(&first, &["-lW"]);
+    assert!(headers.contains("INTERP"), "{headers}");
+    assert!(
+        headers
+            .lines()
+            .any(|line| line.contains("LOAD") && line.contains("R E")),
+        "{headers}"
+    );
+    assert!(
+        headers
+            .lines()
+            .any(|line| line.contains("LOAD") && line.contains("RW ")),
+        "{headers}"
+    );
+    assert!(
+        !headers
+            .lines()
+            .any(|line| line.contains("LOAD") && line.contains("RWE")),
+        "{headers}"
+    );
+    assert_runs(&first, b"");
+}
+
+#[test]
+fn missing_foreign_symbol_preserves_existing_binary() {
+    let scratch = support::Scratch::new("missing-foreign-symbol");
+    let binary = compile("(#fn main () u64 (#return 42u64))", scratch.path(), &[]);
+    let original = fs::read(&binary).unwrap();
+    let program = lim::parse_program(
+        "(#extern-fn #abi-c lim_symbol_that_does_not_exist () u64)\n(#fn main () u64 (#return (#unsafe (#call lim_symbol_that_does_not_exist (#fn-args)))))"
+    ).unwrap();
+    let assembly = lim::generate_assembly(&program).unwrap();
+    let error = lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("lim_symbol_that_does_not_exist"),
+        "{error:?}"
+    );
+    assert_eq!(fs::read(&binary).unwrap(), original);
+
+    let input = scratch.path().join("missing.lim");
+    fs::write(&input,
+        "(#extern-fn #abi-c lim_symbol_that_does_not_exist () u64)\n(#fn main () u64 (#return (#unsafe (#call lim_symbol_that_does_not_exist (#fn-args)))))\n"
+    ).unwrap();
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(&input)
+        .arg("-o")
+        .arg(scratch.path().join("missing"))
+        .env("PATH", scratch.path())
+        .output()
+        .unwrap();
+    assert!(!compilation.status.success());
+    let diagnostic = String::from_utf8_lossy(&compilation.stderr);
+    assert!(diagnostic.contains("missing.lim:2:"), "{diagnostic}");
+    assert!(
+        diagnostic.contains("#call lim_symbol_that_does_not_exist"),
+        "{diagnostic}"
+    );
+    assert!(diagnostic.contains('^'), "{diagnostic}");
+}
+
+#[test]
 fn inline_assembly_external_references_are_detected_from_the_object() {
     let scratch = support::Scratch::new("assembly-foreign-link");
     // No .extern directive: the object relocation is authoritative.
@@ -113,8 +583,26 @@ fn explicitly_requested_libraries_are_not_ignored() {
         &["m".into()],
     );
     assert_runs(&binary, b"");
-    // Nix may supply --as-needed: executing successfully establishes that the
-    // requested library was found. Missing explicit libraries must still fail.
+    let input = scratch.path().join("explicit.lim");
+    fs::write(&input, "(#fn main () u64 (#return 42u64))").unwrap();
+    let tool_free = scratch.path().join("tool-free-m");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(&input)
+        .arg("-o")
+        .arg(&tool_free)
+        .arg("--link-lib")
+        .arg("m")
+        .env("PATH", scratch.path())
+        .output()
+        .unwrap();
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    assert!(inspect(&tool_free, &["-dW"]).contains("libm.so"));
+    assert_runs(&tool_free, b"");
+    // Missing explicit libraries must still fail without replacing an output.
     let original = fs::read(&binary).unwrap();
     let program = lim::parse_program("(#fn main () u64 (#return 42u64))").unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
@@ -132,21 +620,41 @@ fn explicitly_requested_libraries_are_not_ignored() {
 #[test]
 fn supplied_object_references_are_inspected_too() {
     let scratch = support::Scratch::new("supplied-object-link");
-    let source = scratch.path().join("helper.s");
     let object = scratch.path().join("helper.o");
     fs::write(
-        &source,
-        ".text\n.globl helper\nhelper:\n jmp abs\n.section .note.GNU-stack,\"\",@progbits\n",
+        &object,
+        fixture::object(
+            &[fixture::Section {
+                name: ".text",
+                bytes: &[0xe9, 0, 0, 0, 0],
+                size: 5,
+                writable: false,
+                executable: true,
+            }],
+            &[
+                fixture::Symbol {
+                    name: "helper",
+                    section: Some(0),
+                    value: 0,
+                    global: true,
+                },
+                fixture::Symbol {
+                    name: "abs",
+                    section: None,
+                    value: 0,
+                    global: true,
+                },
+            ],
+            &[fixture::Relocation {
+                section: 0,
+                offset: 1,
+                symbol: 1,
+                kind: 4,
+                addend: -4,
+            }],
+        ),
     )
     .unwrap();
-    assert!(Command::new("as")
-        .arg("--64")
-        .arg(&source)
-        .arg("-o")
-        .arg(&object)
-        .status()
-        .unwrap()
-        .success());
     let program = lim::parse_program("(#fn main () u64 (#return 42u64))").unwrap();
     let assembly = lim::generate_assembly(&program).unwrap();
     let binary = scratch.path().join("program");
@@ -160,6 +668,481 @@ fn supplied_object_references_are_inspected_too() {
     .unwrap();
     assert!(inspect(&binary, &["-dW"]).contains("libc.so"));
     assert_runs(&binary, b"");
+}
+
+#[test]
+fn supplied_static_object_links_bidirectionally_without_build_tools() {
+    let scratch = support::Scratch::new("internal-static-object-link");
+    let object = scratch.path().join("helper.o");
+    fs::write(
+        &object,
+        fixture::object(
+            &[fixture::Section {
+                name: ".text",
+                bytes: &[0xe8, 0, 0, 0, 0, 0xc3],
+                size: 6,
+                writable: false,
+                executable: true,
+            }],
+            &[
+                fixture::Symbol {
+                    name: "helper",
+                    section: Some(0),
+                    value: 0,
+                    global: true,
+                },
+                fixture::Symbol {
+                    name: "supplier",
+                    section: None,
+                    value: 0,
+                    global: true,
+                },
+            ],
+            &[fixture::Relocation {
+                section: 0,
+                offset: 1,
+                symbol: 1,
+                kind: 4,
+                addend: -4,
+            }],
+        ),
+    )
+    .unwrap();
+    let input = scratch.path().join("main.lim");
+    fs::write(
+        &input,
+        "(#extern-fn #abi-c helper () u64)\n(#fn supplier () u64 (#return 42u64))\n(#fn main () u64 (#return (#unsafe (#call helper (#fn-args)))))\n",
+    )
+    .unwrap();
+    let binary = scratch.path().join("program");
+    let output = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(&input)
+        .arg("-o")
+        .arg(&binary)
+        .arg("--link-object")
+        .arg(&object)
+        .env("PATH", scratch.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_static(&binary);
+    assert_runs(&binary, b"");
+}
+
+#[test]
+fn supplied_object_data_and_bss_use_a_writable_segment() {
+    let scratch = support::Scratch::new("internal-object-data-link");
+    let object = scratch.path().join("data.o");
+    let code = [
+        0x48, 0xc7, 0x05, 0, 0, 0, 0, 1, 0, 0, 0, // movq $1, counter(%rip)
+        0x48, 0x8b, 0x05, 0, 0, 0, 0, // mov shared_value(%rip), %rax
+        0x48, 0x03, 0x05, 0, 0, 0, 0, // add counter(%rip), %rax
+        0xc3,
+    ];
+    fs::write(
+        &object,
+        fixture::object(
+            &[
+                fixture::Section {
+                    name: ".text",
+                    bytes: &code,
+                    size: code.len(),
+                    writable: false,
+                    executable: true,
+                },
+                fixture::Section {
+                    name: ".data",
+                    bytes: &42u64.to_le_bytes(),
+                    size: 8,
+                    writable: true,
+                    executable: false,
+                },
+                fixture::Section {
+                    name: ".bss",
+                    bytes: &[],
+                    size: 8,
+                    writable: true,
+                    executable: false,
+                },
+            ],
+            &[
+                fixture::Symbol {
+                    name: "provided_value",
+                    section: Some(0),
+                    value: 0,
+                    global: true,
+                },
+                fixture::Symbol {
+                    name: "shared_value",
+                    section: Some(1),
+                    value: 0,
+                    global: false,
+                },
+                fixture::Symbol {
+                    name: "counter",
+                    section: Some(2),
+                    value: 0,
+                    global: false,
+                },
+            ],
+            &[
+                // The trailing imm32 means RIP is eight bytes after this rel32.
+                fixture::Relocation {
+                    section: 0,
+                    offset: 3,
+                    symbol: 2,
+                    kind: 2,
+                    addend: -8,
+                },
+                fixture::Relocation {
+                    section: 0,
+                    offset: 14,
+                    symbol: 1,
+                    kind: 2,
+                    addend: -4,
+                },
+                fixture::Relocation {
+                    section: 0,
+                    offset: 21,
+                    symbol: 2,
+                    kind: 2,
+                    addend: -4,
+                },
+            ],
+        ),
+    )
+    .unwrap();
+    let input = scratch.path().join("main.lim");
+    fs::write(&input,
+        "(#extern-fn #abi-c provided_value () u64)\n(#fn main () u64 (#return (#unsafe (#call provided_value (#fn-args)))))\n"
+    ).unwrap();
+    let binary = scratch.path().join("program");
+    let output = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(&input)
+        .arg("-o")
+        .arg(&binary)
+        .arg("--link-object")
+        .arg(&object)
+        .env("PATH", scratch.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_static(&binary);
+    assert_eq!(Command::new(&binary).status().unwrap().code(), Some(43));
+    let segments = inspect(&binary, &["-lW"]);
+    assert!(segments.contains("LOAD"));
+    assert!(segments.contains("RW "), "{segments}");
+}
+
+#[test]
+fn supplied_object_with_data_and_libc_import_links_without_tools() {
+    let scratch = support::Scratch::new("internal-object-foreign-data-link");
+    let object = scratch.path().join("helper.o");
+    let code = [
+        0x48, 0x83, 0xec, 0x08, // sub $8, %rsp
+        0x8b, 0x3d, 0, 0, 0, 0, // mov value(%rip), %edi
+        0xe8, 0, 0, 0, 0, // call abs
+        0x48, 0x83, 0xc4, 0x08, 0xc3,
+    ];
+    fs::write(
+        &object,
+        fixture::object(
+            &[
+                fixture::Section {
+                    name: ".text",
+                    bytes: &code,
+                    size: code.len(),
+                    writable: false,
+                    executable: true,
+                },
+                fixture::Section {
+                    name: ".data",
+                    bytes: &(-42i32).to_le_bytes(),
+                    size: 4,
+                    writable: true,
+                    executable: false,
+                },
+            ],
+            &[
+                fixture::Symbol {
+                    name: "provided_value",
+                    section: Some(0),
+                    value: 0,
+                    global: true,
+                },
+                fixture::Symbol {
+                    name: "value",
+                    section: Some(1),
+                    value: 0,
+                    global: false,
+                },
+                fixture::Symbol {
+                    name: "abs",
+                    section: None,
+                    value: 0,
+                    global: true,
+                },
+            ],
+            &[
+                fixture::Relocation {
+                    section: 0,
+                    offset: 6,
+                    symbol: 1,
+                    kind: 2,
+                    addend: -4,
+                },
+                fixture::Relocation {
+                    section: 0,
+                    offset: 11,
+                    symbol: 2,
+                    kind: 4,
+                    addend: -4,
+                },
+            ],
+        ),
+    )
+    .unwrap();
+    let input = scratch.path().join("main.lim");
+    fs::write(&input, "(#extern-fn #abi-c provided_value () u64)\n(#fn main () u64 (#return (#unsafe (#call provided_value (#fn-args)))))\n").unwrap();
+    let binary = scratch.path().join("program");
+    let output = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(&input)
+        .arg("-o")
+        .arg(&binary)
+        .arg("--link-object")
+        .arg(&object)
+        .env("PATH", scratch.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(inspect(&binary, &["-dW"]).contains("libc.so"));
+    assert_runs(&binary, b"");
+}
+
+#[test]
+fn pic_object_got_relocations_resolve_local_and_foreign_addresses() {
+    let scratch = support::Scratch::new("internal-pic-object-link");
+    let input = scratch.path().join("main.lim");
+    fs::write(&input, "(#extern-fn #abi-c provided_value () u64)\n(#fn main () u64 (#return (#unsafe (#call provided_value (#fn-args)))))\n").unwrap();
+    for (name, code, symbol, expected_dynamic) in [
+        (
+            "local",
+            vec![0x48, 0x8b, 0x05, 0, 0, 0, 0, 0x8b, 0x00, 0xc3],
+            "value",
+            false,
+        ),
+        (
+            "foreign",
+            vec![
+                0x48, 0x83, 0xec, 0x08, 0x48, 0x8b, 0x05, 0, 0, 0, 0, 0xbf, 0xd6, 0xff, 0xff, 0xff,
+                0xff, 0xd0, 0x48, 0x83, 0xc4, 0x08, 0xc3,
+            ],
+            "abs",
+            true,
+        ),
+    ] {
+        let object = scratch.path().join(format!("{name}.o"));
+        let mut sections = vec![fixture::Section {
+            name: ".text",
+            bytes: &code,
+            size: code.len(),
+            writable: false,
+            executable: true,
+        }];
+        let value = 42u32.to_le_bytes();
+        if !expected_dynamic {
+            sections.push(fixture::Section {
+                name: ".data",
+                bytes: &value,
+                size: 4,
+                writable: true,
+                executable: false,
+            });
+        }
+        fs::write(
+            &object,
+            fixture::object(
+                &sections,
+                &[
+                    fixture::Symbol {
+                        name: "provided_value",
+                        section: Some(0),
+                        value: 0,
+                        global: true,
+                    },
+                    fixture::Symbol {
+                        name: symbol,
+                        section: if expected_dynamic { None } else { Some(1) },
+                        value: 0,
+                        global: expected_dynamic,
+                    },
+                ],
+                &[fixture::Relocation {
+                    section: 0,
+                    offset: if expected_dynamic { 7 } else { 3 },
+                    symbol: 1,
+                    kind: 42,
+                    addend: -4,
+                }],
+            ),
+        )
+        .unwrap();
+        let binary = scratch.path().join(name);
+        let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary)
+            .arg("--link-object")
+            .arg(&object)
+            .env("PATH", scratch.path())
+            .output()
+            .unwrap();
+        assert!(
+            compilation.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&compilation.stderr)
+        );
+        assert_eq!(
+            Command::new(&binary).status().unwrap().code(),
+            Some(42),
+            "{name}"
+        );
+        assert_eq!(
+            inspect(&binary, &["-lW"]).contains("INTERP"),
+            expected_dynamic,
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn tls_data_pc32_is_rejected_instead_of_linking_to_a_call_stub() {
+    let scratch = support::Scratch::new("external-data-pc32");
+    let object = scratch.path().join("data.o");
+    fs::write(
+        &object,
+        fixture::object(
+            &[fixture::Section {
+                name: ".text",
+                bytes: &[0x48, 0x8b, 0x05, 0, 0, 0, 0, 0xc3],
+                size: 8,
+                writable: false,
+                executable: true,
+            }],
+            &[
+                fixture::Symbol {
+                    name: "read_data",
+                    section: Some(0),
+                    value: 0,
+                    global: true,
+                },
+                fixture::Symbol {
+                    name: "errno",
+                    section: None,
+                    value: 0,
+                    global: true,
+                },
+            ],
+            &[fixture::Relocation {
+                section: 0,
+                offset: 3,
+                symbol: 1,
+                kind: 2,
+                addend: -4,
+            }],
+        ),
+    )
+    .unwrap();
+    let program = lim::parse_program("(#fn main () u64 (#return 42u64))").unwrap();
+    let assembly = lim::generate_assembly(&program).unwrap();
+    let binary = scratch.path().join("program");
+    let error = lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[object],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("no linked shared library has a sized data symbol"),
+        "{error:?}"
+    );
+    assert!(!binary.exists());
+}
+
+#[test]
+fn external_data_pc32_uses_an_internal_copy_relocation() {
+    let scratch = support::Scratch::new("external-data-copy");
+    let object = scratch.path().join("data.o");
+    let code = [0x8b, 0x05, 0, 0, 0, 0, 0x83, 0xc0, 41, 0xc3];
+    fs::write(
+        &object,
+        fixture::object(
+            &[fixture::Section {
+                name: ".text",
+                bytes: &code,
+                size: code.len(),
+                writable: false,
+                executable: true,
+            }],
+            &[
+                fixture::Symbol {
+                    name: "read_data",
+                    section: Some(0),
+                    value: 0,
+                    global: true,
+                },
+                fixture::Symbol {
+                    name: "optind",
+                    section: None,
+                    value: 0,
+                    global: true,
+                },
+            ],
+            &[fixture::Relocation {
+                section: 0,
+                offset: 2,
+                symbol: 1,
+                kind: 2,
+                addend: -4,
+            }],
+        ),
+    )
+    .unwrap();
+    let input = scratch.path().join("main.lim");
+    fs::write(&input, "(#extern-fn #abi-c read_data () u64)\n(#fn main () u64 (#return (#unsafe (#call read_data (#fn-args)))))\n").unwrap();
+    let binary = scratch.path().join("program");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(&input)
+        .arg("-o")
+        .arg(&binary)
+        .arg("--link-object")
+        .arg(&object)
+        .env("PATH", scratch.path())
+        .output()
+        .unwrap();
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    assert_eq!(Command::new(&binary).status().unwrap().code(), Some(42));
+    assert!(inspect(&binary, &["-rDW"]).contains("R_X86_64_COPY"));
 }
 
 #[test]

@@ -9,7 +9,7 @@ nix develop --command cargo bench --bench compiler -- --iterations 20
 Use the same machine, Nix shell, release profile, and iteration count when
 comparing changes. The harness reports lexing, parsing, import/cfg/frontend
 processing, semantic checks, checked native assembly emission, cold and warm
-generator caches, and production assembler/linker work separately.
+generator caches, and internal native linking/publication separately.
 It also runs the allocator-backed vector and large aggregate projection
 examples, checks their exit values, and reports assembly/binary sizes. Timings
 are informational; ordinary correctness tests deliberately have no timing
@@ -17,7 +17,7 @@ thresholds. On Linux, the harness prints its process high-water RSS from
 `/proc/self/status` when available. The printed peak covers the whole harness,
 not a per-phase memory profile.
 
-## Production pipeline sample (2026-09-25)
+## Historical external-tool production sample (2026-09-25)
 
 Five iterations, Nix release profile, Intel i7-13700KF, Linux 7.2.6 x86-64,
 rustc 1.99.0-nightly (89c61a754 2026-07-23), GNU binutils 2.46. The target is
@@ -38,8 +38,9 @@ x86_64-sysv. Small/large sources remain 174/9,798 bytes. Peak RSS: 11,684 KiB.
 Small/large assembly sizes: 1,743/74,715 B; binary sizes: 13,616/26,936 B.
 The checked-program API excludes semantic checking from emission; compile
 end-to-end includes lexing, parsing, imports, expansion, validation, and
-emission. Link timing includes `as`, dynamic-linker discovery, `ld`, and
-atomic publication. Build timings below also include cache preparation,
+emission. These historical link timings include `as`, dynamic-linker
+discovery, `ld`, and atomic publication; current builds use Lim's internal
+encoder and ELF linker. Build timings below also include cache preparation,
 inspectable generated source writing, compilation, linking, and one checked
 execution. Cold means the generator cache is removed before each build;
 it does not flush the OS filesystem cache.

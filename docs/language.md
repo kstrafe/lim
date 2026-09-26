@@ -10,8 +10,10 @@ the soundness audit, and reject unclassified Lim fences.
 
 Lim is a compiled, statically typed Lisp.  Its syntax is made of
 S-expressions, but its type and evaluation rules are deliberately explicit.
-The compiler currently targets native x86-64 assembly for the host system and
-assembles/links binaries directly with the system `as` and `ld` tools.
+The compiler currently targets Linux x86-64 System V. It emits inspectable
+assembly, then encodes and links ELF binaries internally, including supported
+ELF objects and shared-library calls. Unsupported assembly or object features
+produce a link diagnostic; the compiler does not invoke `as` or `ld`.
 
 This document describes the language implemented by this crate.  The
 canonical spelling uses `#` before every builtin form. Unprefixed builtin
@@ -597,7 +599,8 @@ nix develop --command cargo doc --no-deps --open
 ```
 
 Compile Lim source directly to a native executable from the Nix development
-shell. The backend emits assembly and invokes the system assembler and linker.
+shell. The backend emits inspectable assembly; its x86-64 encoder and ELF
+writer produce the executable without external build tools.
 By default, the output is placed beside the input and uses
 the input filename without its extension. `-o` selects a different path:
 
@@ -625,18 +628,32 @@ target/ABI matrix currently has one entry:
 
 | Target spellings | OS/object format | CPU ABI | Backend/linker |
 | --- | --- | --- | --- |
-| `x86_64-sysv`, `x86_64-unknown-linux-gnu` | Linux ELF | x86-64 System V | native x86-64 assembly, GNU `as` and `ld` |
+| `x86_64-sysv`, `x86_64-unknown-linux-gnu` | Linux ELF | x86-64 System V | native x86-64 assembly, internal instruction encoder and ELF linker |
 
-The linker inspects assembled objects with GNU `nm`. When all objects have
-no undefined symbols and no libraries were explicitly requested, it links
+The linker reads ELF object symbol tables directly. When all objects have
+no unresolved symbols and no libraries were explicitly requested, it links
 statically without libc, pthread, or a dynamic interpreter. This includes
 programs importing the direct-syscall Linux library. Unused external
 declarations alone do not require a runtime. Inline assembly's foreign
-references are detected from the object, not guessed from source text.
-If any object contains unresolved references, or explicit libraries were
-requested, the existing dynamic-runtime linking path remains available.
-This is conservative for references resolved between multiple supplied
-objects. `as`, `nm`, and `ld` are required; the Nix dev shell supplies them.
+references are detected from encoded relocations. References between supplied
+objects are resolved before considering shared libraries. If unresolved
+references remain, or libraries were explicitly requested, the compiler
+writes the interpreter, dynamic symbol/string tables, GOT relocations, and
+shared-library dependencies itself. Supplied ELF64 objects may contain code,
+read-only data, writable data, and BSS. Unsupported `#asm` forms or ELF
+relocations are diagnosed rather than passed to an external tool. All 318
+current examples build with external build tools absent from `PATH`.
+The object linker currently accepts x86-64 `R_X86_64_64`, `PC32`, `PLT32`,
+`32`, `32S`, `GOTPCREL`, `GOTPCRELX`, and `REX_GOTPCRELX` relocations. Direct
+unresolved `PC32` references to sized data symbols in shared libraries use
+`R_X86_64_COPY` relocations. TLS data and unsupported relocation forms are
+rejected with a linker diagnostic.
+The dynamic loader path is
+read from the compiler's own ELF interpreter when available, with
+`LIM_DYNAMIC_LINKER` as an absolute-path override and the conventional Linux
+x86-64 loader path as a fallback. Shared libraries are located using the
+loader's directory, target library search paths, and standard Linux paths;
+their directories are recorded as an ELF runpath.
 After `main` returns, the entry stub calls Linux `exit_group` with its result,
 not thread-only `exit`, so outstanding kernel workers cannot change the
 process's final status. Explicit `linux-exit` remains thread-only. See
@@ -1017,9 +1034,10 @@ Binary compilation links statically without libc or pthread when the assembled
 objects have no unresolved symbols and no libraries were explicitly requested.
 Foreign references still require the runtime linking path; generated threads
 do not. Additional native link inputs can be supplied repeatedly
-with `--link-lib NAME` and `--link-object PATH`;
-object files are passed to `ld` before libraries, and libraries are emitted as
-`-lNAME` arguments. These options apply to binary output, not `--emit-asm`.
+with `--link-lib NAME` and `--link-object PATH`. The internal linker reads
+object definitions and relocations, resolves requested shared libraries, and
+reports missing libraries or symbols before publishing output. These options
+apply to binary output, not `--emit-asm`.
 
 There are not yet dedicated standard-I/O builtins. `examples/echo_input.lim`
 shows byte-at-a-time input and output using Linux x86-64 `read` and `write`

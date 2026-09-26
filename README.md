@@ -3,8 +3,8 @@
 Lim is an experimental, compiled Lisp designed to make programs explicit and
 readable to both people and LLMs. It has strong static types, no type
 inference, linear-by-default values, explicit returns and arithmetic behavior,
-and a dependency-free Rust compiler. The native backend emits x86-64 System V
-assembly and uses the system assembler and linker to produce a binary.
+and a dependency-free Rust compiler. The native backend emits inspectable
+x86-64 System V assembly, then encodes and links ELF binaries internally.
 
 Lim uses concrete generated code instead of user-facing generic types. A
 generator invocation such as `(@optional u64 MaybeU64)` emits a concrete type
@@ -26,8 +26,8 @@ cooperative task API are documented in
 
 ## Build the compiler
 
-The repository's Nix development shell provides Rust and the native build
-tools:
+The repository's Nix development shell provides Rust. Lim itself does not
+invoke a system assembler or linker:
 
 ```sh
 nix develop

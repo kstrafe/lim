@@ -106,6 +106,10 @@ the checklist is committed alongside the implementation it tracks.
 
 ## Collections and initial async facilities
 
+Next steps: finish IR-02, IR-03, and IR-04 in the typed representation
+section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below. GEN-API-01
+is an independent documentation and parser-diagnostics task.
+
 - [x] **COL-01: Freeze keyed syntax collections before generation.** Collect
   active imported contributions, sort by key, deduplicate identical entries,
   reject conflicts/unknown collections, and prohibit generated registration.
@@ -142,10 +146,13 @@ the checklist is committed alongside the implementation it tracks.
   completion registration, and OS-operation ownership. Cancellation must not
   release buffers until completion/cancellation is acknowledged. Test stale
   wake handles, lost wakeups, capacity exhaustion, shutdown, and cancellation.
-- [ ] **ASYNC-03: Add a bounded multithreaded task scheduler.** Keep task
-  transfer gated on Send, shared state on Sync, and capacity/error behavior
-  explicit. Define wake ordering, shutdown, and task migration rules; do not
-  claim these semantics for the current thread-owned busy-polling executor.
+- [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
+  Run ready tasks cooperatively on one OS thread, using the wake handles and
+  non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,
+  shutdown, and cancellation behavior explicit. Test multiple tasks sharing
+  one event loop, including repeated wakes, exhausted capacity, and idle
+  waiting. Keep task ownership on that thread; task migration and worker-pool
+  scheduling are outside this milestone.
 
 ## Test reliability
 
@@ -470,6 +477,55 @@ these areas as stable.
 
 ### Native ABI and targets
 
+- [x] **NATIVE-01: Encode Lim's x86-64 instructions in a dedicated module.**
+  Add a dependency-free instruction encoder under `src/` with typed operands,
+  registers, memory addressing, widths, labels, and relocations. Keep frontend
+  parsing and semantic analysis out of this module. Cover the instructions
+  emitted by the current backend, including integer, floating-point, atomic,
+  and thread/syscall paths. Reject unsupported `#asm` instructions with a
+  precise diagnostic rather than producing incorrect bytes. Compare encoded
+  instructions and executable behavior with the existing toolchain during
+  migration.
+  The dedicated encoder handles integer/control-flow, SSE and x87 scalar
+  arithmetic, static constants, indexed memory, repeated numeric labels,
+  atomic operations, and generated thread assembly. All 318 examples now
+  compile with `PATH` restricted to an empty directory; the full exact-outcome
+  manifest passes. Focused byte-level and unsupported-assembly tests exist;
+  The complete example manifest and full test suite pass under the internal
+  encoder, including hand-written inline assembly and unsupported-form
+  diagnostics.
+- [ ] **NATIVE-02: Write self-contained Linux x86-64 ELF binaries directly.**
+  Lay out code, read-only data, writable data, entry stub, load segments, and
+  permissions in the compiler. Resolve local/global labels and PC-relative
+  relocations, check displacement and size overflow, and publish the executable
+  atomically. Retain `--emit-asm` for inspection. Test ELF headers, section and
+  segment permissions, reproducible bytes, and the native example suite.
+- [x] **NATIVE-03: Remove `as` and `nm` from normal compilation.** Use the
+  encoder's symbol definitions and unresolved references directly to decide
+  whether a program needs foreign linkage. Preserve detection of foreign
+  references from `#asm`, including references without `.extern` directives.
+  Keep symbol diagnostics and source locations when resolution fails.
+  Compiler-owned definitions/relocations and a checked ELF64 object reader
+  replace tool-driven symbol inspection. Neither tool is invoked in the
+  compilation path, including foreign-linking and inline-assembly cases.
+- [ ] **NATIVE-04: Link foreign objects and libraries without `ld` or `cc`.**
+  Read supported ELF relocatable objects and their symbols/relocations;
+  resolve library dependencies and emit the dynamic ELF metadata required by
+  the supported Linux target. Specify the dynamic loader path as target
+  configuration, not by executing a C compiler. Preserve `--link-object`,
+  `--link-lib`, and referenced foreign functions; test mixed Lim/foreign
+  objects, missing symbols/libraries, rollback on failure, and runtime output.
+  The internal linker handles text/rodata/data/BSS, supported ELF64 RELA
+  relocations, libc and explicit shared libraries, and eager GOT resolution.
+  Runtime, missing-library, mixed-object, PIC GOT, and rollback tests pass.
+  Direct unresolved PC32 references to sized shared-library data now use
+  COPY relocations; TLS and unsupported object relocation forms still fail
+  explicitly. Audit remaining foreign-object compatibility, especially
+  writable-section relocations and weak external references.
+- [x] **NATIVE-05: Remove external build tool invocations and dependencies.**
+  The compiler, benchmark, and default tests no longer invoke `as`, `nm`,
+  `ld`, or `cc`; ELF object fixtures are built in Rust, the Nix shell no longer
+  lists clang/lld, and all examples build with an empty PATH.
 - [x] Make `#repr-c` layout guarantees match actual Lim storage and the C ABI,
   or narrow the feature and its documentation so layout-query results cannot
   be mistaken for permission to pass or reinterpret Lim aggregates as C
@@ -1026,7 +1082,7 @@ commit, documentation, and focused regression coverage.
   collection/capability annotations; parser tests establish the exact AST and
   reject pattern-like forms rather than silently destructuring them.
 
-- [ ] **SYS-01: Establish a target-specific syscall boundary for Lim libraries.**
+- [x] **SYS-01: Establish a target-specific syscall boundary for Lim libraries.**
   Establish an explicitly unsafe, typed primitive for the supported target,
   including register arguments, clobbers, errno representation, and source
   diagnostics. Build Lim wrappers above it, selected by target/configuration
@@ -1038,8 +1094,11 @@ commit, documentation, and focused regression coverage.
   clobbers. A Lim standard library owns policy and safe wrappers while the
   compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-af
   establish the Linux x86-64 boundary, catalog, and initial tested wrapper
-  families; call-site unsafe enforcement, most syscalls, and additional
-  operating systems remain open.
+  families. Call-site unsafe enforcement is complete, with 278 catalog
+  syscalls referenced by the current library and observed in passing programs.
+  This satisfies the supported-target boundary and the requested most-syscalls
+  baseline (278/386 catalog entries). Remaining syscall families, deeper
+  behavioral coverage, and additional operating systems remain follow-up work.
 
 - [x] **SYS-01a: Add unsafe inline assembly and direct Linux syscalls.**
   `#asm` binds typed scalar/pointer values to explicit x86-64 registers and
@@ -1107,8 +1166,8 @@ commit, documentation, and focused regression coverage.
   Route pipe, `/dev/null`, and memfd examples through these wrappers and assert
   exact byte counts, payloads, metadata, descriptor flags, and `EFAULT`/`EBADF`
   results. These raw-pointer wrappers document their caller obligations, and
-  examples mark calls as `#unsafe`; Lim still lacks an unsafe-function contract
-  that enforces this at call sites (tracked by SYS-01n).
+  examples mark calls as `#unsafe`; SYS-01n now enforces these contracts at
+  call sites with `#unsafe-fn` declarations.
 
 - [x] **SYS-01l: Exercise local Linux socket syscalls.**
   Use an `AF_UNIX` socket pair to check socket creation, `sendto`/`recvfrom`
@@ -1205,10 +1264,157 @@ commit, documentation, and focused regression coverage.
   Open a scratch file with `RESOLVE_BENEATH`, verify a missing path result and
   reject an unknown resolve flag, then remove the file and clean resources.
 
-- [ ] **SYS-01n: Enforce unsafe syscall-wrapper contracts at call sites.**
+- [x] **SYS-01n: Enforce unsafe syscall-wrapper contracts at call sites.**
   Add an unsafe-function declaration/call model (or equivalent) so functions
   that accept raw pointers or expose kernel memory effects require an explicit
   `#unsafe` at every call site. Migrate low-level Linux wrappers and prove safe
   calls are rejected while explicitly unsafe calls compile; preserve imported
-  function identity and diagnostics. Current examples use `#unsafe` by
-  convention, but the checker does not yet enforce it.
+  function identity and diagnostics. The `#unsafe-fn` contract and io_uring
+  migration are implemented and tested, including implicit-call safeguards.
+  At migration, 196 raw-pointer/hidden-memory/process-state wrappers required unsafe
+  calls in native and fallback branches; 81 safe APIs retain their signatures.
+  Examples and raw-pointer example helpers use explicit caller contracts.
+  Regression tests reject safe calls to every unsafe wrapper in both cfg
+  branches (392 negative probes) at the exact callee, compile their explicit
+  unsafe counterparts, and guard raw-pointer and scalar-hidden obligations.
+  All 52 I/O tests passed after migration; the native manifest sweep also
+  passed all 319 entries. Caller obligations are documented by category in
+  docs/syscall-coverage.md; unsafe declarations do not prove their fulfillment.
+
+- [x] **SYS-01ag: Verify blocked robust-futex owner-death wakeup.**
+  Gate owner exit on observing a child sleeping directly on the shared robust
+  futex. Require a successful wait return and OWNER_DIED/WAITERS with cleared
+  TID, reap both children, and verify exact stdout. The I/O test repeats eight
+  times; an additional 100-run Lim stress check passed. Readable procfs wait
+  symbols are required and unsupported hosts are not counted as passing.
+
+- [ ] **SYS-01ah: Investigate robust-futex cleanup after requeue.**
+  CMP_REQUEUE onto an owned robust word intermittently produced timeout despite
+  the owner-death bits being set on kernel 7.2.6. An independent C probe also
+  reproduces the failure, including with confirmed sleeping waiters. Preserve
+  direct-wait coverage, isolate the requeue/exit interaction, and add a reliable
+  blocked-requeue regression before claiming that path works. See
+  docs/syscall-coverage.md for the reproducer sequence and evidence limitations.
+
+- [x] **SYS-01ai: Add direct memory sealing and secret-memory wrappers.**
+  Match the kernel flag widths (`usize` for mseal, `u32` for memfd_secret),
+  preserve cfg fallback signatures, and verify real protected-memory behavior.
+  Examples check sealing rejection and preserved bytes, shared secret mappings,
+  rejected process_vm_readv access, descriptor/mapping lifetimes, and exact
+  stdout. Kernel support and locked-memory requirements are explicit.
+
+- [x] **SYS-01aj: Remove unnecessary C runtime dependencies from syscall binaries.**
+  Inspect assembled undefined references with nm. Objects without references
+  or requested libraries link statically without libc/pthread or an interpreter.
+  Regression tests inspect ELF metadata and execute a program importing the
+  Linux library; foreign declarations/calls, inline assembly, explicit libraries,
+  and supplied object references are covered separately. Runtime selection is
+  conservative for references resolved between supplied objects. All 318 native
+  examples pass after the change, including generated threads and foreign calls.
+
+- [x] **SYS-01ak: Add direct io_uring calls and real ring I/O.**
+  Add setup/enter/register with matching cfg fallbacks. Exercise kernel offsets,
+  single/separate mappings, explicit x86-64 publication fences, slot reuse,
+  registered-file lifetime after ordinary close, read/write completions and
+  error CQEs. Check exact stdout and require kernel support rather than skipping.
+
+- [x] **SYS-01al: Preserve main's process exit status with workers present.**
+  Startup used raw thread exit, allowing io_uring worker termination to replace
+  the process status. Switch only the entry stub to exit_group; keep explicit
+  linux-exit thread-local. Pin the behavior with both io_uring and a raw-clone
+  regression whose worker remains alive when main returns.
+
+- [x] **SYS-01am: Exercise alternate-stack handlers and rt_sigsuspend.**
+  Add the unsafe raw-mask suspend wrapper with matching cfg fallback. Install
+  a real x86-64 SA_SIGINFO/SA_ONSTACK handler and SA_RESTORER trampoline using
+  assembly labels, not libc or ordinary Lim callback functions. Check actual
+  entry RSP bounds, SS_ONSTACK, active-stack disable rejection, signal/sender
+  metadata, handler mask, and stdout written by the handler. Deliver once
+  unblocked and once via pending-signal/sigsuspend; require -EINTR and mask
+  restoration, plus invalid-size and invalid-pointer errors. Restore and check
+  the original action/stack/mask before releasing memory. Eight repeated runs
+  require H/H/S output; broken-stack, broken-restorer, and fake-suspend-result
+  variants must fail before the second handler output.
+  The 54-test I/O suite passes. The new wrapper brings the library to 274
+  distinct catalog numbers, with 197 unsafe and 81 safe wrapper declarations.
+  All 320 native manifest entries passed on retry. The first sweep timed out
+  on the existing never.lim trap; isolated recheck and full retry passed.
+
+- [x] **SYS-01an: Add futex2 vector/single waits and direct wakeups.**
+  Implement futex_waitv, futex_wait, and futex_wake with their native ABI
+  widths, unsafe declarations, caller contracts, and matching cfg fallbacks.
+  Exercise both indices of a shared two-entry vector plus a single-word wait
+  from isolated children. Retry empty wakes until exactly one dequeue succeeds,
+  require correct wait results and exit status, and check queues are empty
+  afterward. Test absolute monotonic/realtime timeouts, second-entry mismatch
+  cleanup, invalid counts/flags/record fields, bad addresses, invalid clocks
+  and timespecs, and oversized values/masks. Eight repeated runs require
+  A/B/C stdout within bounded process-group deadlines. All 55 I/O tests pass.
+  Library breadth is 277 catalog syscalls, with 200 unsafe and 81 safe wrappers.
+  All 321 native manifest entries, 400 unsafe-call probes, six coverage checks,
+  four documentation tests, and seven native-linker tests also pass.
+
+- [x] **SYS-01ao: Exercise ordinary futex2 requeue on a live waiter.**
+  Add the unsafe requeue wrapper with matching cfg fallback. Move a shared
+  single-word waiter without waking it, then prove the source is empty and
+  the destination retains the original wake mask. A live value mismatch must
+  not move it back. Release it only through a matching destination wake, check
+  its return/exit status and the final empty queues, and require A/B/C/D stdout.
+  Test invalid flags, null records, destination reserved fields, empty queues,
+  and mismatched values. A mutation that wakes instead of moving must fail even
+  though it returns the same count. All 56 I/O tests and 402 unsafe-call probes
+  pass, as do all 321 native examples, six coverage checks, four documentation
+  tests, and seven native-linker tests. This does not close SYS-01ah's
+  robust-owner-death cleanup investigation.
+
+- [x] **SYS-01ap: Audit runtime syscall coverage against implemented numbers.**
+  Trace the executable Linux corpus and compare the observed syscall numbers
+  to the library's referenced catalog entries. Include forked children, paired
+  exec fixtures, and stdin-driven echo; preserve per-example exit/output checks
+  and process-group timeouts. Keep instrumentation failures explicit, and do
+  not count compiler/linker/trace-launcher calls as target-program execution.
+  Investigate any missing number with its wrapper/call-site mapping. Record
+  runtime evidence separately from structural coverage and deeper behavior
+  assertions; an observed syscall alone does not prove its semantics.
+  `tests/syscall_execution.rs` observed all 278 implemented numbers across 54
+  passing programs, checking static ELF linkage and exact runtime outcomes.
+  The ignored audit must be explicitly run with `--ignored --nocapture`;
+  ordinary test runs exercise its trace-parser regression only. The Linux
+  devshell includes strace, and the coverage document records reproduction
+  instructions and the distinction between reachability and behavior.
+
+- [x] **SYS-01aq: Remove generated-thread FFI from the standard-library path.**
+  `library/tasks.lim` exposes `@threaded-executor`, so its former backend's
+  malloc/free/pthread_create/pthread_join calls violated the no-FFI objective
+  even though syscall-wrapper binaries were static. Use direct Linux calls for
+  allocation, guarded stacks, clone entry, clear-child-TID/futex joining, and
+  cleanup. Preserve Send/Sync, linear handles, captured-reference lifetimes,
+  aggregate argument/result ABI, retryable join errors, and spawn-failure
+  ownership semantics. Calculate worker stack requirements rather than silently
+  assuming a fixed stack fits. Define and test the foreign-code/TLS boundary;
+  raw threads must not call libc with shared parent TLS. Test actual concurrent
+  execution, immediate exit/join races, repeated spawn/join cleanup, failures,
+  nested workers, and large frames. Inspect the standard-library executor ELF
+  for absence of interpreter/dynamic dependencies and trace its kernel calls.
+  All eight kernel-thread tests pass, including the two explicit ptrace audits.
+  They verify guard faults, calculated large stacks, aggregate and nested-worker
+  ABI, multi-page packets, concurrent progress, zero worker FS base, exact
+  stdout, static executor linkage, spawn cleanup, interrupted joins, and retrying a returned error
+  handle. The new FFI diagnostic has an exact-underlining UI test. Legacy
+  failure tests now simulate native negative returns rather than C stubs.
+
+- [x] **SYS-01ar: Prove byte-I/O interruption and hard-error behavior.**
+  Inject EINTR independently into read/write and require exact binary echo;
+  inject EBADF and require failure without output. The new test reproduced
+  syscall(-4)/ENOSYS after interruption. Preserve the syscall number outside
+  RAX and restore it on every retry. The opt-in syscall execution audit now
+  exercises these cases as well as all 278 implemented syscall numbers.
+
+- [x] **SYS-01as: Remove unstable queue-membership assumptions from futex2 tests.**
+  An untraced stress failure and core dump located the source wake probe after
+  requeue. A spurious kernel wake can restart the original wait; do not probe
+  its source destructively and assume it must stay empty. Retry moves as needed
+  and require an actual masked destination wake of one, then verify the child
+  and final empty queues. Preserve the wake-instead-of-move negative test.
+  The corrected executable passed 1,000 consecutive untraced runs and both
+  normal/mutation regressions. SYS-01ah remains a separate investigation.

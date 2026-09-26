@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod elf_fixture;
+
 use std::os::unix::process::CommandExt;
 use std::{
     fs,

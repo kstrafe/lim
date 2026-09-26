@@ -673,6 +673,7 @@ fn compile_with_links(
     ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(diagnostic) => {
+            let diagnostic = lim::locate_link_diagnostic(diagnostic, &input);
             emit_diagnostic(&diagnostic, &input, input_path);
             ExitCode::FAILURE
         }
@@ -684,6 +685,10 @@ mod tests {
     use super::*;
     use std::os::unix::process::ExitStatusExt;
     use std::process::Command;
+
+    mod elf_fixture {
+        include!("../tests/support/elf_fixture.rs");
+    }
 
     #[test]
     fn compiles_and_runs_binary_pipeline() {
@@ -1117,23 +1122,29 @@ mod tests {
         let directory = env::temp_dir().join(format!("lim-link-object-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
-        let assembly = directory.join("support.s");
         let object = directory.join("support.o");
         let input = directory.join("program.lim");
         let output = directory.join("program");
         fs::write(
-            &assembly,
-            ".globl provided_value\n.type provided_value, @function\nprovided_value:\n    mov $42, %eax\n    ret\n",
+            &object,
+            elf_fixture::object(
+                &[elf_fixture::Section {
+                    name: ".text",
+                    bytes: &[0xb8, 42, 0, 0, 0, 0xc3],
+                    size: 6,
+                    writable: false,
+                    executable: true,
+                }],
+                &[elf_fixture::Symbol {
+                    name: "provided_value",
+                    section: Some(0),
+                    value: 0,
+                    global: true,
+                }],
+                &[],
+            ),
         )
         .unwrap();
-        assert!(Command::new("as")
-            .arg("--64")
-            .arg(&assembly)
-            .arg("-o")
-            .arg(&object)
-            .status()
-            .unwrap()
-            .success());
         fs::write(
             &input,
             "(#extern-fn #abi-c provided_value () u64) (#fn main () u64 (#return (#unsafe (#call provided_value (#fn-args )))))",

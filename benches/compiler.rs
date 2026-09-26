@@ -91,7 +91,7 @@ fn main() {
     let small = generated_program(4);
     let large = generated_program(256);
     println!(
-        "lim={} target=x86_64-sysv arch={} os={} rustc={} ld={} machine={}",
+        "lim={} target=x86_64-sysv arch={} os={} rustc={} backend=internal-x86_64-elf machine={}",
         env!("CARGO_PKG_VERSION"),
         env::consts::ARCH,
         env::consts::OS,
@@ -99,15 +99,6 @@ fn main() {
             .arg("--version")
             .output()
             .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-            .unwrap_or_else(|_| "unavailable".into()),
-        Command::new("ld")
-            .arg("--version")
-            .output()
-            .map(|output| String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .next()
-                .unwrap_or("unknown")
-                .to_owned())
             .unwrap_or_else(|_| "unavailable".into()),
         Command::new("uname")
             .arg("-srmo")

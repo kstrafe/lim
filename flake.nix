@@ -28,13 +28,11 @@
         lm_sensors
 
         cmake
-        clang
         fontconfig.dev
         just
         libGL
         libxkbcommon
         libxkbcommon
-        lld
         pkg-config
         openssl.dev
         python312Packages.cogapp.out

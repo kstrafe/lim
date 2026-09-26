@@ -129,6 +129,9 @@ fn every_native_example_has_its_declared_outcome() {
         } else {
             compiler.arg(examples.join(source)).arg("-o").arg(&output);
         }
+        // The compiler must build every example, including libc callers,
+        // without invoking an external assembler or linker.
+        compiler.env("PATH", &scratch.0);
         let (status, _, compiler_errors) = run(&mut compiler, &scratch.0, Duration::from_secs(20))
             .unwrap_or_else(|error| panic!("{source}: compile {error}"));
         if *kind == "error" {
@@ -156,10 +159,12 @@ fn every_native_example_has_its_declared_outcome() {
         if *kind == "module" {
             continue;
         }
+        // The sweep starts hundreds of short-lived processes. Leave a bounded
+        // margin for host scheduling pressure after compiling each example.
         let (status, actual_stdout, actual_stderr) = run(
             &mut Command::new(&output),
             &scratch.0,
-            Duration::from_secs(2),
+            Duration::from_secs(5),
         )
         .unwrap_or_else(|error| panic!("{source}: runtime {error}"));
         assert!(
