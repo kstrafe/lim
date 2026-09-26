@@ -489,20 +489,16 @@ impl Builder<'_> {
                 self.expression(*condition, decision, targets, None)
             }
             NodeKind::Match { value, arms, .. } => {
-                let mut entries = Vec::with_capacity(arms.len());
-                for arm in arms {
-                    entries.push(self.expression(*arm, next, targets, None)?);
+                // Try arms in source order. A failed pattern or guard resumes
+                // at the next arm; only the successful edge binds its pattern.
+                let mut entry = self.push(FlowAction::Diverge, span, vec![]);
+                for arm in arms.iter().rev() {
+                    entry = self.match_arm(*arm, next, entry, targets)?;
                 }
-                let decision = self.push(FlowAction::Branch(id), span, entries);
+                let decision = self.push(FlowAction::Branch(id), span, vec![entry]);
                 self.expression(*value, decision, targets, None)
             }
-            NodeKind::MatchArm { pattern, values } => {
-                let mut entry = next;
-                for value in values.iter().rev() {
-                    entry = self.expression(*value, entry, targets, None)?;
-                }
-                Ok(self.push(FlowAction::Pattern(*pattern), span, vec![entry]))
-            }
+            NodeKind::MatchArm { .. } => Err("typed match arm has no dispatch".into()),
             NodeKind::Block(body) => self.instructions(body, next, targets),
             NodeKind::Loop(body) => self.loop_body(body, next, targets, label, span),
             NodeKind::Labeled(name, value) => self.expression(*value, next, targets, Some(name)),
@@ -558,6 +554,47 @@ impl Builder<'_> {
                 }
             }
         }
+    }
+
+    fn match_arm(
+        &mut self,
+        id: NodeId,
+        next: FlowNodeId,
+        failure: FlowNodeId,
+        targets: &[Target],
+    ) -> Result<FlowNodeId, String> {
+        let node = &self.body.nodes[id.0];
+        let NodeKind::MatchArm { pattern, values } = &node.kind else {
+            return Err("typed match dispatch has a non-arm target".into());
+        };
+        let pattern = *pattern;
+        let span = node.span;
+        let (guard, body) = match values.as_slice() {
+            [body] => (None, *body),
+            [guard, body] => {
+                let NodeKind::Form { head, children, .. } = &self.body.nodes[guard.0].kind else {
+                    return Err("typed match guard is not a form".into());
+                };
+                if head != "when" || children.len() != 2 {
+                    return Err("typed match guard has an invalid shape".into());
+                }
+                (Some(children[1]), *body)
+            }
+            _ => return Err("typed match arm has an invalid shape".into()),
+        };
+        let body_entry = self.expression(body, next, targets, None)?;
+        let success = if let Some(guard) = guard {
+            let decision = self.push(
+                FlowAction::Branch(guard),
+                self.body.nodes[guard.0].span,
+                vec![body_entry, failure],
+            );
+            self.expression(guard, decision, targets, None)?
+        } else {
+            body_entry
+        };
+        let bound = self.push(FlowAction::Pattern(pattern), span, vec![success]);
+        Ok(self.push(FlowAction::Branch(pattern), span, vec![bound, failure]))
     }
 }
 
@@ -679,12 +716,60 @@ mod tests {
             matches!(body.nodes[id.0].kind, NodeKind::If { .. }) && node.successors.len() == 2
         }));
         assert!(branches.iter().any(|(id, node)| {
-            matches!(body.nodes[id.0].kind, NodeKind::Match { .. }) && node.successors.len() == 2
+            matches!(body.nodes[id.0].kind, NodeKind::Match { .. }) && node.successors.len() == 1
         }));
         assert!(branches.iter().any(|(id, node)| {
             matches!(body.nodes[id.0].kind, NodeKind::Form { .. }) && node.successors.len() == 2
         }));
         assert!(graph.reachable().contains(&graph.exit));
+    }
+
+    #[test]
+    fn guarded_match_failure_reaches_next_arm_without_its_bindings() {
+        let program =
+            crate::parse_program(include_str!("../examples/match_guard_fallback.lim")).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let dispatch = graph
+            .nodes
+            .iter()
+            .find(|node| {
+                matches!(node.action, FlowAction::Branch(id) if matches!(body.nodes[id.0].kind, NodeKind::Match { .. }))
+            })
+            .unwrap();
+        let first = dispatch.successors[0];
+        let first_node = &graph.nodes[first.0];
+        assert!(matches!(first_node.action, FlowAction::Branch(_)));
+        let fallback = first_node.successors[1];
+        assert!(matches!(
+            graph.nodes[fallback.0].action,
+            FlowAction::Branch(_)
+        ));
+        let bound = first_node.successors[0];
+        assert!(matches!(
+            graph.nodes[bound.0].action,
+            FlowAction::Pattern(_)
+        ));
+
+        let mut pending = vec![bound];
+        let mut seen = HashSet::new();
+        let mut guard = None;
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            if matches!(graph.nodes[id.0].action, FlowAction::Branch(_)) {
+                guard = Some(id);
+                break;
+            }
+            pending.extend(graph.nodes[id.0].successors.iter().copied());
+        }
+        let guard = guard.expect("guard branch after pattern binding");
+        assert_eq!(graph.nodes[guard.0].successors[1], fallback);
+        graph
+            .check_definite_bindings(body, 0)
+            .expect("guarded fallback has valid local scopes");
     }
 
     #[test]

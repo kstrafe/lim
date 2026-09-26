@@ -99,6 +99,9 @@ transfers, returns, and diverging expressions. The debug IR dump includes the
 graph and its reachable nodes. Definite-binding analysis is the first typed
 ownership preflight: a local read or assignment must be bound on every live
 incoming path. Move and loan tracking still use the transitional syntax pass.
+Match dispatch preserves source order: a pattern or guard failure tries the
+next arm, while payload bindings appear only on the successful pattern edge.
+The impossible failure after the last exhaustive arm diverges in the graph.
 
 Global reads and borrows, named field/payload projections, concrete aggregate
 and variant constructors, and pattern constructors retain declaration IDs.

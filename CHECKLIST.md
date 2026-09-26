@@ -176,6 +176,13 @@ the checklist is committed alongside the implementation it tracks.
   cover branch edges, labels, and divergent paths. Full move/loan analysis on
   this graph remains open in IR-04.
 
+- [x] **IR-04f: Model ordered match and guard fallthrough in typed flow.**
+  Dispatch patterns in source order, branch to the next arm when a pattern or
+  guard fails, and bind an arm's payloads only on its successful edge. Keep
+  exhaustive failure diverging rather than falling through to following code.
+  Test guarded fallthrough and stable binding scopes. Move and loan transfer
+  functions on this graph remain open in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
