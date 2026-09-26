@@ -61,6 +61,10 @@ That metadata records provenance, not evaluation order: arguments are evaluated
 in parameter declaration order. Calls synthesized without complete source spans
 have no written-order permutation. Syntax-only nodes such as type operands and
 patterns have no runtime type.
+Numeric operations use a closed opcode enum, not an arbitrary operation string;
+their exact scalar operand type records width and signedness, and a separate
+mode records wrapping or saturation. The backend reads these checked values
+when selecting numeric instructions.
 
 Local identities are allocated at declarations, including unused destructured
 and match-bound names, rather than inferred from the first variable use.

@@ -7,6 +7,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn numeric_opcodes_round_trip_without_free_form_operation_names() {
+        for spelling in [
+            "+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "<", "<=", ">", ">=", "==", "!=",
+            "!", "&&", "||",
+        ] {
+            let name = format!("u64.{spelling}");
+            let operation = NumericOperation::parse(&name).unwrap();
+            assert_eq!(operation.operand_type, Type::U64);
+            assert_eq!(operation.operation.as_str(), spelling);
+            assert_eq!(operation.spelling(), name);
+        }
+        for (name, ty, overflow) in [
+            ("i8.+.wrap", Type::I8, Overflow::Wrap),
+            ("u128.*.saturate", Type::U128, Overflow::Saturate),
+            ("f32./", Type::F32, Overflow::NotApplicable),
+        ] {
+            let operation = NumericOperation::parse(name).unwrap();
+            assert_eq!(operation.operand_type, ty);
+            assert_eq!(operation.overflow, overflow);
+            assert_eq!(operation.spelling(), name);
+        }
+        assert!(NumericOperation::parse("u64.unknown").is_none());
+    }
+
+    #[test]
     fn borrowed_places_retain_binding_identity_and_checked_type() {
         let source = "(#fn main () u64
           (#let u64 u64 42u64)
@@ -174,7 +199,7 @@ mod tests {
         assert!(overlay.by_address.values().any(|node| {
             node.numeric.as_ref().is_some_and(|operation| {
                 operation.operand_type == Type::U32
-                    && operation.operation == "+"
+                    && operation.operation == NumericOpcode::Add
                     && operation.overflow == Overflow::Wrap
             })
         }));
@@ -211,7 +236,7 @@ mod tests {
                     NodeKind::Form {
                         numeric: Some(operation),
                         ..
-                    } if operation.operation == "+"
+                    } if operation.operation == NumericOpcode::Add
                 )
             })
             .unwrap();
@@ -226,7 +251,7 @@ mod tests {
         assert!(overlay.by_address.values().any(|metadata| {
             metadata.ty == checked_type
                 && metadata.numeric.as_ref().is_some_and(|operation| {
-                    operation.operation == "+"
+                    operation.operation == NumericOpcode::Add
                         && operation.operand_type == Type::U64
                         && operation.overflow == Overflow::Wrap
                 })
@@ -331,10 +356,84 @@ pub(crate) enum Overflow {
     Saturate,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NumericOpcode {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Remainder,
+    BitAnd,
+    BitOr,
+    BitXor,
+    ShiftLeft,
+    ShiftRight,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    Equal,
+    NotEqual,
+    Not,
+    LogicalAnd,
+    LogicalOr,
+}
+
+impl NumericOpcode {
+    fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "+" => Self::Add,
+            "-" => Self::Subtract,
+            "*" => Self::Multiply,
+            "/" => Self::Divide,
+            "%" => Self::Remainder,
+            "&" => Self::BitAnd,
+            "|" => Self::BitOr,
+            "^" => Self::BitXor,
+            "<<" => Self::ShiftLeft,
+            ">>" => Self::ShiftRight,
+            "<" => Self::Less,
+            "<=" => Self::LessEqual,
+            ">" => Self::Greater,
+            ">=" => Self::GreaterEqual,
+            "==" => Self::Equal,
+            "!=" => Self::NotEqual,
+            "!" => Self::Not,
+            "&&" => Self::LogicalAnd,
+            "||" => Self::LogicalOr,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Add => "+",
+            Self::Subtract => "-",
+            Self::Multiply => "*",
+            Self::Divide => "/",
+            Self::Remainder => "%",
+            Self::BitAnd => "&",
+            Self::BitOr => "|",
+            Self::BitXor => "^",
+            Self::ShiftLeft => "<<",
+            Self::ShiftRight => ">>",
+            Self::Less => "<",
+            Self::LessEqual => "<=",
+            Self::Greater => ">",
+            Self::GreaterEqual => ">=",
+            Self::Equal => "==",
+            Self::NotEqual => "!=",
+            Self::Not => "!",
+            Self::LogicalAnd => "&&",
+            Self::LogicalOr => "||",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct NumericOperation {
     pub operand_type: Type,
-    pub operation: String,
+    pub operation: NumericOpcode,
     pub overflow: Overflow,
 }
 
@@ -373,7 +472,7 @@ impl NumericOperation {
         let mode = self
             .overflow_mode()
             .map_or_else(String::new, |mode| format!(".{mode}"));
-        format!("{}.{}{mode}", self.scalar_name(), self.operation)
+        format!("{}.{}{mode}", self.scalar_name(), self.operation.as_str())
     }
     pub fn parse(name: &str) -> Option<Self> {
         let (qualifier, rest) = name.split_once('.')?;
@@ -400,29 +499,7 @@ impl NumericOperation {
             return None;
         }
         let (operation, mode) = rest.split_once('.').unwrap_or((rest, ""));
-        if !matches!(
-            operation,
-            "+" | "-"
-                | "*"
-                | "/"
-                | "%"
-                | "&"
-                | "|"
-                | "^"
-                | "<<"
-                | ">>"
-                | "<"
-                | "<="
-                | ">"
-                | ">="
-                | "=="
-                | "!="
-                | "!"
-                | "&&"
-                | "||"
-        ) {
-            return None;
-        }
+        let operation = NumericOpcode::parse(operation)?;
         let overflow = match mode {
             "wrap" => Overflow::Wrap,
             "saturate" => Overflow::Saturate,
@@ -431,7 +508,7 @@ impl NumericOperation {
         };
         Some(Self {
             operand_type,
-            operation: operation.into(),
+            operation,
             overflow,
         })
     }

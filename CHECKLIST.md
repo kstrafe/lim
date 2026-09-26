@@ -60,6 +60,13 @@ the checklist is committed alongside the implementation it tracks.
   tests cover both orderings. The address-indexed emission bridge and the
   remaining IR-02 criteria are still open.
 
+- [x] **IR-02e: Encode numeric operations as typed opcodes.** Replace the
+  free-form operation string in checked numeric nodes with a closed opcode
+  enum. Retain the exact scalar operand type for width and signedness, plus
+  the explicit overflow mode. Round-trip every supported operator spelling
+  and reject unknown names; retain native numeric differential coverage.
+  Direct typed emission and the address-free bridge remain part of IR-02/03.
+
 - [x] **IR-02a: Preserve checked metadata when erasing unsafe wrappers.**
   Verify the body's stable node sequence and retained numeric type/operation
   metadata still associate with backend syntax after `#unsafe` wrappers are
