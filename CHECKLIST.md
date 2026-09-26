@@ -139,6 +139,15 @@ the checklist is committed alongside the implementation it tracks.
   scoped to each arm. Round-trip syntax unchanged and test branch node kinds,
   binding identity, and arm scopes. Ownership passes have not yet migrated.
 
+- [x] **IR-04b: Preserve reference releases across block and branch joins.**
+  A block now propagates consumption of pre-existing references while keeping
+  its new bindings scoped. Branch joins merge only loans active on at least one
+  path, retaining their origin diagnostics, and merge aggregate reference
+  provenance instead of taking the first branch. Tests cover release on both
+  branches, release on one branch, and aggregate-held references; a native
+  example exercises the accepted path. The full typed-CFG ownership migration
+  remains open in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

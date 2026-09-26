@@ -75,6 +75,12 @@ semantics. Assignment roots distinguish local binding IDs from global IDs.
 The parser's existing shadow-renaming remains a compatibility aid for the
 legacy backend, not the IR's binding identity scheme.
 
+The current ownership passes still operate on reconstructed syntax. Their
+branch join now retains loans from paths where they remain active without
+resurrecting loans released on every path. Lexical blocks propagate releases
+of references that existed before the block; newly declared block references
+stay scoped. A native aggregate-reference example covers the release case.
+
 Global reads and borrows, named field/payload projections, concrete aggregate
 and variant constructors, and pattern constructors retain declaration IDs.
 Named assignment projections retain field/variant IDs rather than names.

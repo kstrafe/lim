@@ -1,0 +1,12 @@
+(#struct Holder ((view (#ref u64))))
+
+(#fn main () u64
+  (#let-mut owner u64 1u64)
+  (#let holder Holder
+    (#struct-literal Holder ((view (#borrow owner)))))
+  (#let released ()
+    (#if true
+      (#block (#forget holder) ())
+      (#block (#forget holder) ())))
+  (#set owner 42u64)
+  (#return owner))

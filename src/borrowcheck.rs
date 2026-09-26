@@ -15,6 +15,65 @@ use crate::analysis_error::{failure, Error, Site};
 
 use crate::{Expr, Function, Item, Program, Statement};
 
+#[cfg(test)]
+#[test]
+fn borrow_released_on_every_if_branch_allows_later_mutation() {
+    let program = crate::parse_program(
+        "(#fn main () u64
+           (#let-mut owner u64 1u64)
+           (#let view (#ref u64) (#borrow owner))
+           (#let released ()
+             (#if true
+               (#block (#forget view) ())
+               (#block (#forget view) ())))
+           (#set owner 2u64)
+           (#return owner))",
+    )
+    .unwrap();
+    check_program(&program).unwrap_or_else(|error| panic!("{}", error.message));
+    assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
+}
+
+#[cfg(test)]
+#[test]
+fn borrow_released_on_only_one_branch_still_blocks_mutation() {
+    let program = crate::parse_program(
+        "(#fn main () u64
+           (#let-mut owner u64 1u64)
+           (#let view (#ref u64) (#borrow owner))
+           (#let released ()
+             (#if true
+               (#block (#forget view) ())
+               ()))
+           (#set owner 2u64)
+           (#return owner))",
+    )
+    .unwrap();
+    let error = check_program(&program).unwrap_err();
+    assert!(error.message.contains("cannot mutate 'owner'"));
+}
+
+#[cfg(test)]
+#[test]
+fn aggregate_reference_released_on_every_branch_allows_mutation() {
+    let program = crate::parse_program(
+        "(#struct Holder ((view (#ref u64))))
+         (#fn main () u64
+           (#let-mut owner u64 1u64)
+           (#let holder Holder
+             (#struct-literal Holder ((view (#borrow owner)))))
+           (#let released ()
+             (#if true
+               (#block (#forget holder) ())
+               (#block (#forget holder) ())))
+           (#set owner 2u64)
+           (#return owner))",
+    )
+    .unwrap();
+    check_program(&program).unwrap_or_else(|error| panic!("{}", error.message));
+    assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
+}
+
 const PLACE_SEPARATOR: char = '\u{1f}';
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1253,11 +1312,29 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                 }
             }
         }
-        Expr::Block(statements) | Expr::Loop(statements) => {
-            // Locals and loans created by a block cannot escape its lexical
-            // scope. The enclosing let separately records the provenance of a
-            // reference-valued block result, so the temporary context can be
-            // discarded after checking the block.
+        Expr::Block(statements) => {
+            // Locals created by a block do not escape it, but consuming an
+            // outer reference does. Carry those releases into the parent
+            // context after checking the block's statements.
+            let mut scoped = context.clone();
+            check_statements(statements, &mut scoped)?;
+            let mut outer_references = context
+                .reference_origins
+                .keys()
+                .chain(context.reference_loans.keys())
+                .cloned()
+                .collect::<Vec<_>>();
+            outer_references.sort();
+            outer_references.dedup();
+            for name in outer_references {
+                if !scoped.reference_origins.contains_key(&name)
+                    && !scoped.reference_loans.contains_key(&name)
+                {
+                    release_dropped_value(&Expr::Symbol(name), context);
+                }
+            }
+        }
+        Expr::Loop(statements) => {
             let mut scoped = context.clone();
             check_statements(statements, &mut scoped)?;
         }
@@ -1304,6 +1381,15 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
 fn merge_branch_context(context: &mut Context, branches: &[Context]) {
     let base = context.clone();
     let mut merged = base.clone();
+    merged.loans.active.clear();
+    merged.loans.origins.clear();
+    merged.reference_origins.clear();
+    merged.reference_loans.clear();
+    merged.reference_fields.clear();
+    merged.reference_parents.clear();
+    merged.suspended_references.clear();
+    merged.thread_task_loans.clear();
+    merged.thread_exclusive_owners.clear();
     for branch in branches {
         for (owner, kind) in &branch.loans.active {
             let next = match (merged.loans.active.get(owner).copied(), *kind) {
@@ -1314,6 +1400,9 @@ fn merge_branch_context(context: &mut Context, branches: &[Context]) {
                 (None, LoanKind::Shared(count)) => LoanKind::Shared(count),
             };
             merged.loans.active.insert(owner.clone(), next);
+            if let Some(site) = branch.loans.origins.get(owner) {
+                merged.loans.origins.entry(owner.clone()).or_insert(*site);
+            }
         }
         for (name, origins) in &branch.reference_origins {
             if base.reference_origins.contains_key(name) {
@@ -1326,18 +1415,26 @@ fn merge_branch_context(context: &mut Context, branches: &[Context]) {
         }
         for (name, loans) in &branch.reference_loans {
             if base.reference_loans.contains_key(name) {
-                merged
-                    .reference_loans
-                    .entry(name.clone())
-                    .or_insert_with(|| loans.clone());
+                let entry = merged.reference_loans.entry(name.clone()).or_default();
+                for loan in loans {
+                    if !entry.contains(loan) {
+                        entry.push(loan.clone());
+                    }
+                }
             }
         }
         for (name, fields) in &branch.reference_fields {
             if base.reference_fields.contains_key(name) {
-                merged
-                    .reference_fields
-                    .entry(name.clone())
-                    .or_insert_with(|| fields.clone());
+                let entry = merged.reference_fields.entry(name.clone()).or_default();
+                for (path, (origins, loans)) in fields {
+                    let (joined_origins, joined_loans) = entry.entry(path.clone()).or_default();
+                    joined_origins.extend(origins.iter().cloned());
+                    for loan in loans {
+                        if !joined_loans.contains(loan) {
+                            joined_loans.push(loan.clone());
+                        }
+                    }
+                }
             }
         }
         for (name, parent) in &branch.reference_parents {
@@ -1348,6 +1445,9 @@ fn merge_branch_context(context: &mut Context, branches: &[Context]) {
                     .or_insert_with(|| parent.clone());
             }
         }
+        merged
+            .suspended_references
+            .extend(branch.suspended_references.iter().cloned());
         for (name, loans) in &branch.thread_task_loans {
             merged
                 .thread_task_loans

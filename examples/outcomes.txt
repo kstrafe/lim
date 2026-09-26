@@ -91,6 +91,7 @@ exit 42 bitwise_not.lim - -
 exit 40 block.lim - -
 exit 42 bool_bitwise.lim - -
 exit 42 borrow.lim - -
+exit 42 branch_borrow_release.lim - -
 exit 42 cast_128.lim - -
 exit 42 cast.lim - -
 exit 41 casts.lim - -
