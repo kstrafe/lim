@@ -39,6 +39,12 @@
       ((rax LINUX-SYS-GETPRIORITY) (rdi which) (rsi who)) "syscall"))))
   (#fn linux-gettid () i64
     (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETTID)) "syscall"))))
+  (#fn linux-fork () i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FORK ()))))
+  (#fn linux-wait4 ((pid i64) (status (#ptr-mut i32)) (options usize)
+      (usage (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-WAIT4
+      (pid status options usage)))))
   (#fn linux-sched-yield () i64
     (#return (#unsafe (#asm i64 ((rax LINUX-SYS-SCHED-YIELD)) "syscall"))))
   (#fn linux-close ((fd i64)) i64
@@ -231,6 +237,8 @@
     (#fn linux-getsid ((pid i64)) i64 (#return -38i64))
     (#fn linux-getpriority ((which i64) (who i64)) i64 (#return -38i64))
     (#fn linux-gettid () i64 (#return -38i64))
+    (#fn linux-fork () i64 (#return -38i64))
+    (#fn linux-wait4 ((pid i64) (status (#ptr-mut i32)) (options usize) (usage (#ptr-mut i64))) i64 (#return -38i64))
     (#fn linux-sched-yield () i64 (#return -38i64))
     (#fn linux-close ((fd i64)) i64 (#return -38i64))
     (#fn linux-openat ((directory i64) (path (#ptr-mut u8)) (flags usize) (mode usize)) i64 (#return -38i64))

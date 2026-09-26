@@ -483,3 +483,28 @@ fn linux_inotify_reports_create_and_delete_events() {
     assert!(output.stderr.is_empty());
     assert!(!scratch.path().join("watch-dir").exists());
 }
+
+#[test]
+fn linux_fork_and_wait4_report_child_exit_status() {
+    let scratch = support::Scratch::new("linux-wait4");
+    let executable = scratch.path().join("wait4-checks");
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/linux_wait4.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile Lim wait4 example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    let output = Command::new(executable)
+        .output()
+        .expect("run compiled wait4 example");
+    assert_eq!(output.status.code(), Some(42));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}

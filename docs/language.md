@@ -322,6 +322,8 @@ deletion, and invalid-handle behavior without signal delivery;
 the process's legacy interval timer state;
 `examples/linux_inotify.lim` checks create/delete event records and watch
 cleanup using a private working directory;
+`examples/linux_wait4.lim` forks and reaps a child and validates the kernel's
+encoded exit status;
 `examples/linux_xattrs.lim` exercises descriptor-based extended-attribute
 creation, listing, retrieval, removal, and the missing-attribute error on a
 fresh memfd.
