@@ -744,10 +744,10 @@ fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String
     }
 }
 
-fn monomorphize_program(
-    program: &Program,
+fn monomorphize_program<'a>(
+    program: &'a Program,
     aliases: &HashMap<String, Type>,
-) -> Result<Program, String> {
+) -> Result<std::borrow::Cow<'a, Program>, String> {
     let generic_functions: HashMap<String, Function> = program
         .items
         .iter()
@@ -767,6 +767,9 @@ fn monomorphize_program(
                 collect_generic_calls_statement(statement, &mut pending);
             }
         }
+    }
+    if generic_functions.is_empty() && pending.is_empty() {
+        return Ok(std::borrow::Cow::Borrowed(program));
     }
     let mut cursor = 0;
     while cursor < pending.len() {
@@ -842,7 +845,7 @@ fn monomorphize_program(
                 .collect();
         }
     }
-    Ok(Program {
+    Ok(std::borrow::Cow::Owned(Program {
         items,
         source: program.source.clone(),
         source_files: program.source_files.clone(),
@@ -852,7 +855,15 @@ fn monomorphize_program(
         declaration_expressions: program.declaration_expressions.clone(),
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
-    })
+    }))
+}
+
+#[cfg(test)]
+#[test]
+fn non_generic_program_does_not_copy_for_monomorphization() {
+    let program = crate::parse_program("(#fn main () u64 (#return 42u64))").unwrap();
+    let result = monomorphize_program(&program, &HashMap::new()).unwrap();
+    assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
 }
 
 fn erase_unsafe_blocks(
@@ -1028,7 +1039,8 @@ pub(crate) fn generate_checked_assembly(
     let program = erase_unsafe_blocks(program, &checked.declarations().bodies);
     let declarations = checked.declarations();
     let aliases = &declarations.aliases;
-    let program = monomorphize_program(&program, aliases)?;
+    let monomorphized = monomorphize_program(&program, aliases)?;
+    let program = monomorphized.as_ref();
     let structs = &declarations.structs;
     let enums = &declarations.enums;
     let repr_c_types: HashSet<String> = program
