@@ -92,6 +92,20 @@
       (fd source count offset)))))
   (#fn linux-fstat ((fd i64) (metadata (#ptr-mut i64))) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FSTAT (fd metadata)))))
+  (#fn linux-fsetxattr ((fd i64) (name (#ptr-mut u8))
+      (value (#ptr-mut u8)) (size usize) (flags usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FSETXATTR
+      (fd name value size flags)))))
+  (#fn linux-fgetxattr ((fd i64) (name (#ptr-mut u8))
+      (value (#ptr-mut u8)) (size usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FGETXATTR
+      (fd name value size)))))
+  (#fn linux-flistxattr ((fd i64) (list (#ptr-mut u8)) (size usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FLISTXATTR
+      (fd list size)))))
+  (#fn linux-fremovexattr ((fd i64) (name (#ptr-mut u8))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FREMOVEXATTR
+      (fd name)))))
   (#fn linux-fcntl ((fd i64) (command usize) (argument usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FCNTL
       (fd command argument)))))
@@ -218,6 +232,10 @@
     (#fn linux-pread64 ((fd i64) (destination (#ptr-mut u8)) (count usize) (offset i64)) i64 (#return -38i64))
     (#fn linux-pwrite64 ((fd i64) (source (#ptr-mut u8)) (count usize) (offset i64)) i64 (#return -38i64))
     (#fn linux-fstat ((fd i64) (metadata (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-fsetxattr ((fd i64) (name (#ptr-mut u8)) (value (#ptr-mut u8)) (size usize) (flags usize)) i64 (#return -38i64))
+    (#fn linux-fgetxattr ((fd i64) (name (#ptr-mut u8)) (value (#ptr-mut u8)) (size usize)) i64 (#return -38i64))
+    (#fn linux-flistxattr ((fd i64) (list (#ptr-mut u8)) (size usize)) i64 (#return -38i64))
+    (#fn linux-fremovexattr ((fd i64) (name (#ptr-mut u8))) i64 (#return -38i64))
     (#fn linux-fcntl ((fd i64) (command usize) (argument usize)) i64 (#return -38i64))
     (#fn linux-fdatasync ((fd i64)) i64 (#return -38i64))
     (#fn linux-memfd-create ((name (#ptr-mut u8)) (flags usize)) i64 (#return -38i64))

@@ -317,7 +317,10 @@ and offsets; `examples/linux_directory.lim` checks enumeration and cwd queries;
 `examples/linux_signals.lim` checks signal action and mask querying,
 installation, and restoration without delivering a signal;
 `examples/linux_timers.lim` checks POSIX timer creation, arming, querying,
-deletion, and invalid-handle behavior without signal delivery.
+deletion, and invalid-handle behavior without signal delivery;
+`examples/linux_xattrs.lim` exercises descriptor-based extended-attribute
+creation, listing, retrieval, removal, and the missing-attribute error on a
+fresh memfd.
 `tests/io_examples.rs` checks exact program exit/output behavior,
 syscall argument counts zero through six, piped IO, local socket payloads, and
 kernel error results.

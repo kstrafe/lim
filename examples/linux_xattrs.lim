@@ -1,0 +1,92 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let memory (#ptr-mut u8)
+    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let initialized ()
+    (#unsafe
+      (#block
+        (#ptr-write memory 120u8)
+        (#ptr-write (#ptr-offset memory 1usize) 97u8)
+        (#ptr-write (#ptr-offset memory 2usize) 116u8)
+        (#ptr-write (#ptr-offset memory 3usize) 116u8)
+        (#ptr-write (#ptr-offset memory 4usize) 114u8)
+        (#ptr-write (#ptr-offset memory 5usize) 45u8)
+        (#ptr-write (#ptr-offset memory 6usize) 102u8)
+        (#ptr-write (#ptr-offset memory 7usize) 105u8)
+        (#ptr-write (#ptr-offset memory 8usize) 108u8)
+        (#ptr-write (#ptr-offset memory 9usize) 101u8)
+        (#ptr-write (#ptr-offset memory 10usize) 0u8)
+        (#ptr-write (#ptr-offset memory 16usize) 117u8)
+        (#ptr-write (#ptr-offset memory 17usize) 115u8)
+        (#ptr-write (#ptr-offset memory 18usize) 101u8)
+        (#ptr-write (#ptr-offset memory 19usize) 114u8)
+        (#ptr-write (#ptr-offset memory 20usize) 46u8)
+        (#ptr-write (#ptr-offset memory 21usize) 108u8)
+        (#ptr-write (#ptr-offset memory 22usize) 105u8)
+        (#ptr-write (#ptr-offset memory 23usize) 109u8)
+        (#ptr-write (#ptr-offset memory 24usize) 0u8)
+        (#ptr-write (#ptr-offset memory 32usize) 108u8)
+        (#ptr-write (#ptr-offset memory 33usize) 105u8)
+        (#ptr-write (#ptr-offset memory 34usize) 109u8)
+        (#ptr-write (#ptr-offset memory 35usize) 45u8)
+        (#ptr-write (#ptr-offset memory 36usize) 100u8)
+        (#ptr-write (#ptr-offset memory 37usize) 97u8)
+        (#ptr-write (#ptr-offset memory 38usize) 116u8)
+        (#ptr-write (#ptr-offset memory 39usize) 97u8)
+        ())))
+  (#let fd i64
+    (#unsafe (#call linux-memfd-create (#fn-args
+      (name memory) (flags 1usize)))))
+  (#let attribute-set i64
+    (#unsafe (#call linux-fsetxattr (#fn-args
+      (fd fd)
+      (name (#ptr-offset memory 16usize))
+      (value (#ptr-offset memory 32usize))
+      (size 8usize)
+      (flags 0usize)))))
+  (#let attribute-listed i64
+    (#unsafe (#call linux-flistxattr (#fn-args
+      (fd fd) (list (#ptr-offset memory 96usize)) (size 128usize)))))
+  (#let attribute-read i64
+    (#unsafe (#call linux-fgetxattr (#fn-args
+      (fd fd)
+      (name (#ptr-offset memory 16usize))
+      (value (#ptr-offset memory 64usize))
+      (size 128usize)))))
+  (#let output-byte-0 u8
+    (#unsafe (#ptr-read (#ptr-offset memory 64usize))))
+  (#let output-byte-7 u8
+    (#unsafe (#ptr-read (#ptr-offset memory 71usize))))
+  (#let list-first u8
+    (#unsafe (#ptr-read (#ptr-offset memory 96usize))))
+  (#let list-last u8
+    (#unsafe (#ptr-read (#ptr-offset memory 104usize))))
+  (#let attribute-removed i64
+    (#unsafe (#call linux-fremovexattr (#fn-args
+      (fd fd) (name (#ptr-offset memory 16usize))))))
+  (#let absent-read i64
+    (#unsafe (#call linux-fgetxattr (#fn-args
+      (fd fd)
+      (name (#ptr-offset memory 16usize))
+      (value (#ptr-offset memory 64usize))
+      (size 128usize)))))
+  (#let fd-closed i64 (#call linux-close (#fn-args (fd fd))))
+  (#let memory-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+  (#let xattrs-ok bool
+    (#bool.&& (#i64.>= fd 0i64)
+      (#bool.&& (#i64.== attribute-set 0i64)
+        (#bool.&& (#i64.== attribute-listed 9i64)
+          (#bool.&& (#i64.== attribute-read 8i64)
+            (#bool.&& (#u8.== output-byte-0 108u8)
+              (#bool.&& (#u8.== output-byte-7 97u8)
+                (#bool.&& (#u8.== list-first 117u8)
+                  (#bool.&& (#u8.== list-last 0u8)
+                    (#bool.&& (#i64.== attribute-removed 0i64)
+                      (#i64.== absent-read -61i64)))))))))))
+  (#return
+    (#if (#bool.&& xattrs-ok
+      (#bool.&& (#i64.== fd-closed 0i64)
+        (#i64.== memory-unmapped 0i64))) 42u64 1u64)))
