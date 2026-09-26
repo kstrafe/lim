@@ -157,6 +157,15 @@ the checklist is committed alongside the implementation it tracks.
   regression and positive/negative borrow tests. This is a transitional AST
   check; stable place identities and complete ownership CFG remain in IR-04.
 
+- [x] **IR-04d: Propagate aggregate reference origins through match arms.**
+  Collect all reference-bearing field origins of a matched aggregate, bind
+  them conservatively to arm payload names for arm checking and match-result
+  provenance, including direct enum and struct constructors, and reject
+  returns that would expose a local owner's reference.
+  Cover the rejected enum-payload escape with an exact UI span and a safe
+  parameter-backed return with a native example. This remains an AST-side
+  safeguard until match arms use typed binding/place identities in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

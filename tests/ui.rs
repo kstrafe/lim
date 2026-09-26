@@ -270,6 +270,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "match-reference-escape",
+            diagnostic_code: "E4100",
+            offending_line: "  (#return (#match holder (#case (Has view) view))))",
+            line_number: 5,
+        },
+        Case {
             name: "borrow-conflict-field-name",
             diagnostic_code: "E4100",
             offending_line: "  (#return (#tuple (#get pair owner) owner)))",
@@ -858,6 +864,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unsafe-pointer-op" => Some("#ptr-read"),
             "borrow" => Some("#set"),
             "block-reference-escape" => Some("(#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local))"),
+            "match-reference-escape" => Some("(#match holder (#case (Has view) view))"),
             "borrow-conflict-field-name" => Some("owner"),
             "borrow-conflict-callee-name" => Some("owner"),
             "linear" => Some("resource"),

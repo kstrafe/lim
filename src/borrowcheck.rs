@@ -194,6 +194,85 @@ fn scalar_result_from_block_local_reference_can_be_passed_to_a_call() {
 
 #[cfg(test)]
 #[test]
+fn matched_reference_payload_cannot_escape_local_owner() {
+    let program = crate::parse_program(
+        "(#enum Holder ((Has (#ref u64))))
+         (#fn escape () (#ref u64)
+           (#let owner u64 7u64)
+           (#let holder Holder (Has (#borrow owner)))
+           (#return (#match holder
+             (#case (Has view) view))))",
+    )
+    .unwrap();
+    let borrow_error = check_program(&program).unwrap_err();
+    assert!(borrow_error.message.contains("local 'owner'"));
+    let error = match crate::typecheck::CheckedProgram::validate(&program) {
+        Ok(_) => panic!("matched reference payload escaped"),
+        Err(error) => error,
+    };
+    assert!(error.contains("local 'owner'"), "{error}");
+}
+
+#[cfg(test)]
+#[test]
+fn matched_reference_payload_from_parameter_can_return() {
+    let program = crate::parse_program(
+        "(#enum Holder ((Has (#ref u64))))
+         (#fn select ((source (#ref u64))) (#ref u64)
+           (#let holder Holder (Has source))
+           (#return (#match holder
+             (#case (Has view) view))))
+         (#fn main () u64
+           (#let owner u64 42u64)
+           (#let selected (#ref u64)
+             (#call select (#fn-args (source (#borrow owner)))))
+           (#return (#deref selected)))",
+    )
+    .unwrap();
+    assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
+}
+
+#[cfg(test)]
+#[test]
+fn direct_matched_payload_cannot_hide_block_local_reference() {
+    let program = crate::parse_program(
+        "(#enum Holder ((Has (#ref u64))))
+         (#fn main () u64
+           (#let escaped (#ref u64)
+             (#match (Has (#block
+               (#let (#tuple local) (#tuple u64) (#tuple 7u64))
+               (#borrow local)))
+               (#case (Has view) view)))
+           (#return (#deref escaped)))",
+    )
+    .unwrap();
+    let error = check_program(&program).unwrap_err();
+    assert!(error.message.contains("block-local variable 'local'"));
+    assert!(crate::typecheck::CheckedProgram::validate(&program).is_err());
+}
+
+#[cfg(test)]
+#[test]
+fn struct_literal_cannot_hide_block_local_reference() {
+    let program = crate::parse_program(
+        "(#struct Holder ((view (#ref u64))))
+         (#fn main () u64
+           (#let holder Holder
+             (#struct-literal Holder
+               ((view (#block
+                 (#let (#tuple local) (#tuple u64) (#tuple 7u64))
+                 (#borrow local))))))
+           (#let result u64 (#deref (#get holder view)))
+           (#forget holder)
+           (#return result))",
+    )
+    .unwrap();
+    let error = check_program(&program).unwrap_err();
+    assert!(error.message.contains("block-local variable 'local'"));
+}
+
+#[cfg(test)]
+#[test]
 fn block_local_reference_cannot_be_stored_in_a_field() {
     let program = crate::parse_program(
         "(#struct Holder ((view (#ref u64))))
@@ -246,6 +325,7 @@ struct Context {
     reference_parents: HashMap<String, String>,
     allow_local_reference: bool,
     reference_types: HashSet<String>,
+    reference_variants: Arc<HashSet<String>>,
     reference_functions: HashSet<String>,
     function_names: HashSet<String>,
     reference_parameters: Arc<HashMap<String, Vec<bool>>>,
@@ -490,6 +570,19 @@ pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
             _ => None,
         })
         .collect::<HashSet<_>>();
+    let reference_variants = Arc::new(
+        program
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Enum { name, variants, .. } if reference_types.contains(name) => {
+                    Some(variants.iter().map(|variant| variant.name.clone()))
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect::<HashSet<_>>(),
+    );
     let reference_functions = program
         .items
         .iter()
@@ -569,6 +662,7 @@ pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
                     program,
                     &globals,
                     &reference_types,
+                    &reference_variants,
                     &mutable_reference_types,
                     &reference_functions,
                     &function_names,
@@ -589,6 +683,7 @@ fn check_function(
     program: &Program,
     globals: &std::collections::HashSet<String>,
     reference_types: &HashSet<String>,
+    reference_variants: &Arc<HashSet<String>>,
     mutable_reference_types: &HashSet<String>,
     reference_functions: &HashSet<String>,
     function_names: &HashSet<String>,
@@ -645,6 +740,7 @@ fn check_function(
         reference_parents: HashMap::new(),
         allow_local_reference: false,
         reference_types: reference_types.clone(),
+        reference_variants: reference_variants.clone(),
         mutable_reference_types: mutable_reference_types.clone(),
         reference_functions: reference_functions.clone(),
         function_names: function_names.clone(),
@@ -1342,6 +1438,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                 } else if operator == "match" && items.len() >= 3 {
                     let thread_operation = thread_match_operation(&items[1], context);
                     check_expression(&items[1], context)?;
+                    let scrutinee_origins = reference_origins(&items[1], context, true);
                     let base = context.clone();
                     let mut branches = Vec::with_capacity(items.len() - 2);
                     for arm in &items[2..] {
@@ -1354,6 +1451,13 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                         let mut branch = base.clone();
                         let mut names = Vec::new();
                         pattern_names(&parts[0], &mut names);
+                        for name in &names {
+                            if !scrutinee_origins.is_empty() {
+                                branch
+                                    .reference_origins
+                                    .insert(name.clone(), scrutinee_origins.clone());
+                            }
+                        }
                         branch.scope_bindings.extend(names);
                         if let Some(operation) = &thread_operation {
                             apply_thread_match_arm(
@@ -2163,11 +2267,19 @@ fn reference_origins(
         return HashSet::new();
     }
     match expression {
-        Expr::Symbol(name) => context
-            .reference_origins
-            .get(name)
-            .cloned()
-            .unwrap_or_default(),
+        Expr::Symbol(name) => {
+            let mut origins = context
+                .reference_origins
+                .get(name)
+                .cloned()
+                .unwrap_or_default();
+            if let Some(fields) = context.reference_fields.get(name) {
+                for (field_origins, _) in fields.values() {
+                    origins.extend(field_origins.iter().cloned());
+                }
+            }
+            origins
+        }
         Expr::List(items) => {
             let Some(Expr::Symbol(operator)) = items.first() else {
                 return HashSet::new();
@@ -2197,13 +2309,28 @@ fn reference_origins(
                 return reference_origins(&items[1], context, true);
             }
             if operator == "match" && items.len() >= 3 {
+                let scrutinee_origins = reference_origins(&items[1], context, true);
                 return items[2..]
                     .iter()
                     .filter_map(|arm| match arm {
-                        Expr::List(parts) if parts.len() >= 2 => parts.last(),
+                        Expr::List(parts) if parts.len() >= 2 => Some(parts),
                         _ => None,
                     })
-                    .flat_map(|value| reference_origins(value, context, true))
+                    .flat_map(|parts| {
+                        let mut arm_context = context.clone();
+                        let mut bindings = Vec::new();
+                        pattern_names(&parts[0], &mut bindings);
+                        for binding in bindings {
+                            arm_context
+                                .reference_origins
+                                .insert(binding, scrutinee_origins.clone());
+                        }
+                        reference_origins(
+                            parts.last().expect("validated match arm has a result"),
+                            &arm_context,
+                            true,
+                        )
+                    })
                     .collect();
             }
             if operator == "as" && items.len() == 3 {
@@ -2223,6 +2350,29 @@ fn reference_origins(
                     .iter()
                     .skip(1)
                     .flat_map(|item| reference_origins(item, context, true))
+                    .collect();
+            }
+            if operator == "struct-literal" {
+                return items
+                    .get(2)
+                    .and_then(|fields| match fields {
+                        Expr::List(fields) => Some(fields),
+                        _ => None,
+                    })
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|field| match field {
+                        Expr::List(parts) => parts.get(1),
+                        _ => None,
+                    })
+                    .flat_map(|value| reference_origins(value, context, true))
+                    .collect();
+            }
+            if context.reference_variants.contains(operator) {
+                return items
+                    .iter()
+                    .skip(1)
+                    .flat_map(|value| reference_origins(value, context, true))
                     .collect();
             }
             if operator == "if" {

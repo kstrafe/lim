@@ -86,6 +86,11 @@ reference to a block-local owner is rejected when retained outside the block;
 reference-typed call parameters include aliases, while scalar block results
 remain valid. This check is transitional until ownership
 uses typed binding and place identities throughout.
+Match-arm payloads now inherit the reference origins of the aggregate
+scrutinee, including origins stored in its reference-bearing fields. The
+conservative union prevents a locally owned referent from escaping through
+an enum payload. Direct enum and struct constructors preserve those origins
+as well; typed arm-place provenance remains future IR-04 work.
 
 Global reads and borrows, named field/payload projections, concrete aggregate
 and variant constructors, and pattern constructors retain declaration IDs.

@@ -1,0 +1,12 @@
+(#enum Holder ((Has (#ref u64))))
+
+(#fn select ((source (#ref u64))) (#ref u64)
+  (#let holder Holder (Has source))
+  (#return (#match holder
+    (#case (Has view) view))))
+
+(#fn main () u64
+  (#let owner u64 42u64)
+  (#let selected (#ref u64)
+    (#call select (#fn-args (source (#borrow owner)))))
+  (#return (#deref selected)))
