@@ -1,11 +1,11 @@
 //! Checks simultaneous call-argument loans using resolved places. Pure
 //! constructors preserve direct borrows through aggregates and conditional
-//! results. Immutable bindings inside value blocks retain their origins;
-//! general flow-sensitive bindings and unknown call results remain for IR-04.
+//! results. Bindings inside value blocks retain their origins; general
+//! flow-sensitive bindings and call results remain for IR-04.
 
 use std::collections::HashMap;
 
-use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind};
+use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind, PlaceRoot};
 use crate::typed_ir::DeclarationId;
 use crate::typed_place::Place;
 use crate::Span;
@@ -109,11 +109,11 @@ fn returned_borrows_with_bindings(
             let mut local = bindings.clone();
             for instruction in instructions {
                 match &instruction.control {
-                    Control::Bind(binding, value, false) => {
+                    Control::Bind(binding, value, _) => {
                         let loans = returned_borrows_with_bindings(body, *value, callee, &local)?;
                         local.insert(*binding, loans);
                     }
-                    Control::Assign(crate::typed_body::PlaceRoot::Local(binding), _, _) => {
+                    Control::Assign(PlaceRoot::Local(binding), _, _) => {
                         local.remove(binding);
                     }
                     _ => {}
@@ -443,5 +443,34 @@ mod tests {
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
         let first = error.3[0].0;
         assert_eq!(&source[first.start..first.end], "(#borrow value)");
+    }
+
+    #[test]
+    fn mutable_block_binding_retains_initial_borrow_origin() {
+        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#call inspect (#fn-args
+              (left (#block
+                (#let-mut view (#ref u64) (#borrow value))
+                view))
+              (right (#borrow-mut value))))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let first = error.3[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+
+        let disjoint = source
+            .replace(
+                "(#let-mut value u64 1u64)",
+                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+            )
+            .replace("(right (#borrow-mut value))", "(right (#borrow-mut other))");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
 }

@@ -221,8 +221,15 @@ the checklist is committed alongside the implementation it tracks.
   binding IDs through value-producing blocks when checking call arguments;
   invalidate a bound origin after assignment rather than reusing stale data.
   Cover nested array/enum constructors and match arms, with exact borrow-site
-  labels for a block alias. Mutable and control-flow-joined bindings and
-  borrow-returning calls still require the full IR-04 loan transfer.
+  labels for a block alias. Mutable bindings are partially covered by IR-04l;
+  control-flow-joined bindings and borrow-returning calls still require the
+  full IR-04 loan transfer.
+
+- [x] **IR-04l: Preserve initial origins of mutable block bindings.** Extend
+  the value-block call check to `#let-mut` bindings, while continuing to
+  invalidate an origin after assignment. Check both overlapping and disjoint
+  call arguments. Replacing a reference-bearing binding is prohibited by the
+  language, so this does not add reference reassignment or loop dataflow.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
