@@ -512,7 +512,7 @@ these areas as stable.
   Compiler-owned definitions/relocations and a checked ELF64 object reader
   replace tool-driven symbol inspection. Neither tool is invoked in the
   compilation path, including foreign-linking and inline-assembly cases.
-- [ ] **NATIVE-04: Link foreign objects and libraries without `ld` or `cc`.**
+- [x] **NATIVE-04: Link foreign objects and libraries without `ld` or `cc`.**
   Read supported ELF relocatable objects and their symbols/relocations;
   resolve library dependencies and emit the dynamic ELF metadata required by
   the supported Linux target. Specify the dynamic loader path as target
@@ -522,10 +522,12 @@ these areas as stable.
   The internal linker handles text/rodata/data/BSS, supported ELF64 RELA
   relocations, libc and explicit shared libraries, and eager GOT resolution.
   Runtime, missing-library, mixed-object, PIC GOT, and rollback tests pass.
-  Direct unresolved PC32 references to sized shared-library data now use
-  COPY relocations; TLS and unsupported object relocation forms still fail
-  explicitly. Audit remaining foreign-object compatibility, especially
-  writable-section relocations and weak external references.
+  Direct unresolved PC32 references to sized shared-library data use COPY
+  relocations. Writable-section R_X86_64_64 references use dynamic relocations;
+  PC-relative call, GOT, and COPY references work from writable sections.
+  Undefined weak object symbols resolve to zero when no object defines them.
+  TLS, text relocations requiring loader writes, and unsupported ELF forms
+  remain explicit errors rather than silently producing invalid binaries.
 - [x] **NATIVE-05: Remove external build tool invocations and dependencies.**
   The compiler, benchmark, and default tests no longer invoke `as`, `nm`,
   `ld`, or `cc`; ELF object fixtures are built in Rust, the Nix shell no longer

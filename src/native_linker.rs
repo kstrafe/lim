@@ -20,18 +20,20 @@ struct PlacedObject<'a> {
 }
 
 #[derive(Clone, Copy)]
-enum Address {
+pub(crate) enum Address {
     Code(usize),
     Rodata(usize),
     Data(usize),
+    Absolute(u64),
 }
 
 impl Address {
-    fn virtual_address(self) -> Result<u64, String> {
+    pub(crate) fn virtual_address(self) -> Result<u64, String> {
         match self {
             Self::Code(offset) => elf_writer::code_address(offset),
             Self::Rodata(offset) => elf_writer::rodata_address(offset),
             Self::Data(offset) => elf_writer::data_address(offset),
+            Self::Absolute(address) => Ok(address),
         }
     }
 
@@ -40,26 +42,34 @@ impl Address {
             Self::Code(offset) => offset.checked_add(count).map(Self::Code),
             Self::Rodata(offset) => offset.checked_add(count).map(Self::Rodata),
             Self::Data(offset) => offset.checked_add(count).map(Self::Data),
+            Self::Absolute(_) => None,
         }
         .ok_or("linked section address overflow".into())
     }
 }
 
 pub(crate) struct ForeignReference {
-    pub offset: usize,
+    pub offset: Address,
     pub symbol: String,
     pub addend: i64,
     pub origin: String,
 }
 
 pub(crate) struct ForeignGotReference {
-    pub offset: usize,
+    pub offset: Address,
     pub symbol: String,
     pub addend: i64,
     pub origin: String,
 }
 
 pub(crate) struct ForeignCopyReference {
+    pub offset: Address,
+    pub symbol: String,
+    pub addend: i64,
+    pub origin: String,
+}
+
+pub(crate) struct ForeignAbsoluteReference {
     pub offset: usize,
     pub symbol: String,
     pub addend: i64,
@@ -74,6 +84,7 @@ pub(crate) struct Linked {
     pub foreign: Vec<ForeignReference>,
     pub foreign_got: Vec<ForeignGotReference>,
     pub foreign_copy: Vec<ForeignCopyReference>,
+    pub foreign_absolute: Vec<ForeignAbsoluteReference>,
 }
 
 fn align_up(value: usize, align: usize) -> Result<usize, String> {
@@ -124,6 +135,7 @@ pub(crate) fn link(
     let mut foreign = Vec::new();
     let mut foreign_got = Vec::new();
     let mut foreign_copy = Vec::new();
+    let mut foreign_absolute = Vec::new();
     let mut placed = Vec::new();
     for object in objects {
         let mut sections = BTreeMap::new();
@@ -199,7 +211,7 @@ pub(crate) fn link(
         let Some(target) = globals.get(&relocation.symbol) else {
             if allow_foreign {
                 foreign.push(ForeignReference {
-                    offset: relocation.offset,
+                    offset: Address::Code(relocation.offset),
                     symbol: relocation.symbol.clone(),
                     addend: relocation.addend,
                     origin: assembled
@@ -251,66 +263,68 @@ pub(crate) fn link(
             let symbol = &object.object.symbols[relocation.symbol];
             let target = match defined_symbol(object, symbol)? {
                 Some(offset) => offset,
-                None => {
-                    match globals.get(&symbol.name) {
-                        Some(offset) => *offset,
-                        None if allow_foreign && matches!(relocation.kind, 9 | 41 | 42) => {
-                            let Address::Code(offset) = place else {
-                                return Err(
-                                    "GOT relocation in writable object section is unsupported"
-                                        .into(),
-                                );
-                            };
-                            foreign_got.push(ForeignGotReference {
-                                offset,
-                                symbol: symbol.name.clone(),
-                                addend: relocation.addend,
-                                origin: format!(
-                                    "object section {}+0x{:x}",
-                                    section.name, relocation.offset
-                                ),
-                            });
-                            continue;
-                        }
-                        None if allow_foreign && relocation.kind == 4 => {
-                            let Address::Code(offset) = place else {
-                                return Err(
-                                    "foreign relocation in writable object section is unsupported"
-                                        .into(),
-                                );
-                            };
-                            foreign.push(ForeignReference {
-                                offset,
-                                symbol: symbol.name.clone(),
-                                addend: relocation
-                                    .addend
-                                    .checked_add(4)
-                                    .ok_or("foreign relocation addend overflow")?,
-                                origin: format!(
-                                    "object section {}+0x{:x}",
-                                    section.name, relocation.offset
-                                ),
-                            });
-                            continue;
-                        }
-                        None if allow_foreign && relocation.kind == 2 => {
-                            let Address::Code(offset) = place else {
-                                return Err("foreign PC32 data relocation in writable section is unsupported".into());
-                            };
-                            foreign_copy.push(ForeignCopyReference {
-                                offset,
-                                symbol: symbol.name.clone(),
-                                addend: relocation.addend,
-                                origin: format!(
-                                    "object section {}+0x{:x}",
-                                    section.name, relocation.offset
-                                ),
-                            });
-                            continue;
-                        }
-                        None => return Err(format!("undefined native symbol '{}'", symbol.name)),
+                None => match globals.get(&symbol.name) {
+                    Some(offset) => *offset,
+                    None if symbol.weak || symbol.name.is_empty() => Address::Absolute(0),
+                    None if allow_foreign && relocation.kind == 1 => {
+                        let Address::Data(offset) = place else {
+                            return Err(
+                                "foreign absolute relocation requires a writable data section"
+                                    .into(),
+                            );
+                        };
+                        foreign_absolute.push(ForeignAbsoluteReference {
+                            offset,
+                            symbol: symbol.name.clone(),
+                            addend: relocation.addend,
+                            origin: format!(
+                                "object section {}+0x{:x}",
+                                section.name, relocation.offset
+                            ),
+                        });
+                        continue;
                     }
-                }
+                    None if allow_foreign && matches!(relocation.kind, 9 | 41 | 42) => {
+                        foreign_got.push(ForeignGotReference {
+                            offset: place,
+                            symbol: symbol.name.clone(),
+                            addend: relocation.addend,
+                            origin: format!(
+                                "object section {}+0x{:x}",
+                                section.name, relocation.offset
+                            ),
+                        });
+                        continue;
+                    }
+                    None if allow_foreign && relocation.kind == 4 => {
+                        foreign.push(ForeignReference {
+                            offset: place,
+                            symbol: symbol.name.clone(),
+                            addend: relocation
+                                .addend
+                                .checked_add(4)
+                                .ok_or("foreign relocation addend overflow")?,
+                            origin: format!(
+                                "object section {}+0x{:x}",
+                                section.name, relocation.offset
+                            ),
+                        });
+                        continue;
+                    }
+                    None if allow_foreign && relocation.kind == 2 => {
+                        foreign_copy.push(ForeignCopyReference {
+                            offset: place,
+                            symbol: symbol.name.clone(),
+                            addend: relocation.addend,
+                            origin: format!(
+                                "object section {}+0x{:x}",
+                                section.name, relocation.offset
+                            ),
+                        });
+                        continue;
+                    }
+                    None => return Err(format!("undefined native symbol '{}'", symbol.name)),
+                },
             };
             let value = match relocation.kind {
                 2 | 4 => {
@@ -330,6 +344,7 @@ pub(crate) fn link(
                 Address::Code(offset) => code.get_mut(offset..offset + width),
                 Address::Rodata(offset) => rodata.get_mut(offset..offset + width),
                 Address::Data(offset) => data.get_mut(offset..offset + width),
+                Address::Absolute(_) => None,
             }
             .ok_or("object relocation extends beyond image")?;
             match relocation.kind {
@@ -366,6 +381,7 @@ pub(crate) fn link(
         foreign,
         foreign_got,
         foreign_copy,
+        foreign_absolute,
     })
 }
 
@@ -411,11 +427,15 @@ pub(crate) fn resolve_libraries(
     foreign: &[ForeignReference],
     foreign_got: &[ForeignGotReference],
     foreign_copy: &[ForeignCopyReference],
+    foreign_absolute: &[ForeignAbsoluteReference],
     requested: &[String],
     interpreter: &str,
 ) -> Result<ResolvedLibraries, String> {
     let mut names = requested.to_vec();
-    if (!foreign.is_empty() || !foreign_got.is_empty() || !foreign_copy.is_empty())
+    if (!foreign.is_empty()
+        || !foreign_got.is_empty()
+        || !foreign_copy.is_empty()
+        || !foreign_absolute.is_empty())
         && !names.iter().any(|name| name == "c")
     {
         names.push("c".into());
@@ -489,6 +509,14 @@ pub(crate) fn resolve_libraries(
         }
     }
     for reference in foreign_got {
+        if !exports.contains(&reference.symbol) {
+            return Err(format!(
+                "no linked shared library exports '{}' ({})",
+                reference.symbol, reference.origin
+            ));
+        }
+    }
+    for reference in foreign_absolute {
         if !exports.contains(&reference.symbol) {
             return Err(format!(
                 "no linked shared library exports '{}' ({})",

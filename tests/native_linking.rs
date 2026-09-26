@@ -1261,6 +1261,266 @@ fn external_data_pc32_uses_an_internal_copy_relocation() {
 }
 
 #[test]
+fn writable_object_data_can_hold_a_shared_library_symbol_address() {
+    let scratch = support::Scratch::new("foreign-absolute-data");
+    let object = scratch.path().join("pointer.o");
+    // Load the relocated pointer, then read glibc's optind (initially 1).
+    let code = [
+        0x48, 0x8b, 0x05, 0, 0, 0, 0, 0x8b, 0x00, 0x83, 0xc0, 41, 0xc3,
+    ];
+    fs::write(
+        &object,
+        fixture::object(
+            &[
+                fixture::Section {
+                    name: ".text",
+                    bytes: &code,
+                    size: code.len(),
+                    writable: false,
+                    executable: true,
+                },
+                fixture::Section {
+                    name: ".data",
+                    bytes: &[0; 8],
+                    size: 8,
+                    writable: true,
+                    executable: false,
+                },
+            ],
+            &[
+                fixture::Symbol {
+                    name: "read_data",
+                    section: Some(0),
+                    value: 0,
+                    global: true,
+                },
+                fixture::Symbol {
+                    name: "pointer",
+                    section: Some(1),
+                    value: 0,
+                    global: false,
+                },
+                fixture::Symbol {
+                    name: "optind",
+                    section: None,
+                    value: 0,
+                    global: true,
+                },
+            ],
+            &[
+                fixture::Relocation {
+                    section: 0,
+                    offset: 3,
+                    symbol: 1,
+                    kind: 2,
+                    addend: -4,
+                },
+                fixture::Relocation {
+                    section: 1,
+                    offset: 0,
+                    symbol: 2,
+                    kind: 1,
+                    addend: 0,
+                },
+            ],
+        ),
+    )
+    .unwrap();
+    let program = lim::parse_program("(#extern-fn #abi-c read_data () u64) (#fn main () u64 (#return (#unsafe (#call read_data (#fn-args)))))").unwrap();
+    let assembly = lim::generate_assembly(&program).unwrap();
+    let binary = scratch.path().join("program");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[object],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    assert_eq!(Command::new(&binary).status().unwrap().code(), Some(42));
+    assert!(inspect(&binary, &["-rDW"]).contains("R_X86_64_64"));
+}
+
+#[test]
+fn unresolved_weak_object_symbol_resolves_to_zero_without_a_library() {
+    let scratch = support::Scratch::new("weak-absolute-data");
+    let object = scratch.path().join("pointer.o");
+    // Read the absolute pointer initialized from an undefined weak symbol.
+    let code = [0x48, 0x8b, 0x05, 0, 0, 0, 0, 0x48, 0x83, 0xc0, 42, 0xc3];
+    fs::write(
+        &object,
+        fixture::object_with_weak(
+            &[
+                fixture::Section {
+                    name: ".text",
+                    bytes: &code,
+                    size: code.len(),
+                    writable: false,
+                    executable: true,
+                },
+                fixture::Section {
+                    name: ".data",
+                    bytes: &[0; 8],
+                    size: 8,
+                    writable: true,
+                    executable: false,
+                },
+            ],
+            &[
+                fixture::Symbol {
+                    name: "read_weak",
+                    section: Some(0),
+                    value: 0,
+                    global: true,
+                },
+                fixture::Symbol {
+                    name: "pointer",
+                    section: Some(1),
+                    value: 0,
+                    global: false,
+                },
+                fixture::Symbol {
+                    name: "optional_provider",
+                    section: None,
+                    value: 0,
+                    global: true,
+                },
+            ],
+            &[
+                fixture::Relocation {
+                    section: 0,
+                    offset: 3,
+                    symbol: 1,
+                    kind: 2,
+                    addend: -4,
+                },
+                fixture::Relocation {
+                    section: 1,
+                    offset: 0,
+                    symbol: 2,
+                    kind: 1,
+                    addend: 0,
+                },
+            ],
+            &[2],
+        ),
+    )
+    .unwrap();
+    let program = lim::parse_program("(#extern-fn #abi-c read_weak () u64) (#fn main () u64 (#return (#unsafe (#call read_weak (#fn-args)))))").unwrap();
+    let assembly = lim::generate_assembly(&program).unwrap();
+    let binary = scratch.path().join("program");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[object],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    assert_static(&binary);
+    assert_eq!(Command::new(&binary).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn pc_relative_foreign_data_relocations_work_from_writable_sections() {
+    let scratch = support::Scratch::new("writable-foreign-relative");
+    for (name, kind, code) in [
+        (
+            "copy",
+            2,
+            vec![
+                0x48, 0x8d, 0x05, 0, 0, 0, 0, 0x48, 0x63, 0x08, 0x48, 0x01, 0xc8, 0x8b, 0x00, 0x83,
+                0xc0, 41, 0xc3,
+            ],
+        ),
+        (
+            "got",
+            9,
+            vec![
+                0x48, 0x8d, 0x05, 0, 0, 0, 0, 0x48, 0x63, 0x08, 0x48, 0x01, 0xc8, 0x48, 0x8b, 0x00,
+                0x8b, 0x00, 0x83, 0xc0, 41, 0xc3,
+            ],
+        ),
+    ] {
+        let object = scratch.path().join(format!("{name}.o"));
+        fs::write(
+            &object,
+            fixture::object(
+                &[
+                    fixture::Section {
+                        name: ".text",
+                        bytes: &code,
+                        size: code.len(),
+                        writable: false,
+                        executable: true,
+                    },
+                    fixture::Section {
+                        name: ".data",
+                        bytes: &[0; 4],
+                        size: 4,
+                        writable: true,
+                        executable: false,
+                    },
+                ],
+                &[
+                    fixture::Symbol {
+                        name: "read_data",
+                        section: Some(0),
+                        value: 0,
+                        global: true,
+                    },
+                    fixture::Symbol {
+                        name: "relative",
+                        section: Some(1),
+                        value: 0,
+                        global: false,
+                    },
+                    fixture::Symbol {
+                        name: "optind",
+                        section: None,
+                        value: 0,
+                        global: true,
+                    },
+                ],
+                &[
+                    fixture::Relocation {
+                        section: 0,
+                        offset: 3,
+                        symbol: 1,
+                        kind: 2,
+                        addend: -4,
+                    },
+                    fixture::Relocation {
+                        section: 1,
+                        offset: 0,
+                        symbol: 2,
+                        kind,
+                        addend: 0,
+                    },
+                ],
+            ),
+        )
+        .unwrap();
+        let program = lim::parse_program("(#extern-fn #abi-c read_data () u64) (#fn main () u64 (#return (#unsafe (#call read_data (#fn-args)))))").unwrap();
+        let assembly = lim::generate_assembly(&program).unwrap();
+        let binary = scratch.path().join(name);
+        lim::link_native_binary(
+            &assembly,
+            &binary,
+            &[object],
+            &[],
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+        assert_eq!(
+            Command::new(&binary).status().unwrap().code(),
+            Some(42),
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn returning_from_main_exits_the_group_with_mains_status() {
     let scratch = support::Scratch::new("exit-group-entry");
     // Raw clone stays within one assembly block: the child has a fresh stack

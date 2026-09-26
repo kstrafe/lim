@@ -64,6 +64,15 @@ pub fn object(
     symbols: &[Symbol<'_>],
     relocations: &[Relocation],
 ) -> Vec<u8> {
+    object_with_weak(sections, symbols, relocations, &[])
+}
+
+pub fn object_with_weak(
+    sections: &[Section<'_>],
+    symbols: &[Symbol<'_>],
+    relocations: &[Relocation],
+    weak_symbols: &[usize],
+) -> Vec<u8> {
     let mut bytes = vec![0; 64];
     let mut names = vec![0];
     let mut headers = Vec::new();
@@ -106,10 +115,16 @@ pub fn object(
     }
     let mut symbol_strings = vec![0];
     let mut symbol_data = vec![0; 24];
-    for symbol in symbols {
+    for (index, symbol) in symbols.iter().enumerate() {
         let mut entry = [0u8; 24];
         u32_at(&mut entry, 0, string(&mut symbol_strings, symbol.name));
-        entry[4] = if symbol.global { 0x12 } else { 0x02 };
+        entry[4] = if weak_symbols.contains(&index) {
+            0x22
+        } else if symbol.global {
+            0x12
+        } else {
+            0x02
+        };
         u16_at(
             &mut entry,
             6,

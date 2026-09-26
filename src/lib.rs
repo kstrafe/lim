@@ -1988,6 +1988,7 @@ pub fn link_native_binary(
         if linked.foreign.is_empty()
             && linked.foreign_got.is_empty()
             && linked.foreign_copy.is_empty()
+            && linked.foreign_absolute.is_empty()
             && libraries.is_empty()
         {
             elf_writer::executable_with_sections(
@@ -2002,6 +2003,7 @@ pub fn link_native_binary(
                 &linked.foreign,
                 &linked.foreign_got,
                 &linked.foreign_copy,
+                &linked.foreign_absolute,
                 libraries,
                 &interpreter,
             )?;

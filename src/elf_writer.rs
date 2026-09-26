@@ -206,11 +206,35 @@ fn append_dynamic(data: &mut Vec<u8>, tag: u64, value: u64) {
     data.extend_from_slice(&value.to_le_bytes());
 }
 
+fn patch_relative(
+    code: &mut [u8],
+    rodata: &mut [u8],
+    data: &mut [u8],
+    place: crate::native_linker::Address,
+    value: i32,
+) -> Result<(), String> {
+    use crate::native_linker::Address;
+    let (bytes, offset) = match place {
+        Address::Code(offset) => (code, offset),
+        Address::Rodata(offset) => (rodata, offset),
+        Address::Data(offset) => (data, offset),
+        Address::Absolute(_) => return Err("absolute relocation has no section".into()),
+    };
+    let end = offset
+        .checked_add(4)
+        .ok_or("foreign relocation offset overflow")?;
+    bytes
+        .get_mut(offset..end)
+        .ok_or("foreign relocation extends beyond section")?
+        .copy_from_slice(&value.to_le_bytes());
+    Ok(())
+}
+
 /// Build an ET_EXEC image with a dynamic interpreter and eager GOT entries.
 /// Undefined calls target one compiler-owned jmp stub per imported symbol;
 /// the loader fills each GOT slot with an R_X86_64_GLOB_DAT relocation.
 pub(crate) fn dynamic_executable(
-    linked: crate::native_linker::Linked,
+    mut linked: crate::native_linker::Linked,
     resolved: &crate::native_linker::ResolvedLibraries,
     interpreter: &str,
 ) -> Result<Vec<u8>, String> {
@@ -254,6 +278,11 @@ pub(crate) fn dynamic_executable(
         }
         import_names.insert(reference.symbol.clone());
     }
+    for reference in &linked.foreign_absolute {
+        if !copy_offsets.contains_key(&reference.symbol) {
+            import_names.insert(reference.symbol.clone());
+        }
+    }
     let imports = import_names
         .into_iter()
         .enumerate()
@@ -270,16 +299,32 @@ pub(crate) fn dynamic_executable(
             .get(&reference.symbol)
             .ok_or("missing copy relocation symbol")?;
         let displacement = (data_address(offset)? as i128) + (reference.addend as i128)
-            - (code_address(reference.offset)? as i128);
+            - (reference.offset.virtual_address()? as i128);
         let displacement =
             i32::try_from(displacement).map_err(|_| "COPY data displacement exceeds rel32")?;
-        let after = reference
-            .offset
-            .checked_add(4)
-            .ok_or("COPY reference offset overflow")?;
-        code.get_mut(reference.offset..after)
-            .ok_or("COPY reference extends beyond code")?
-            .copy_from_slice(&displacement.to_le_bytes());
+        patch_relative(
+            &mut code,
+            &mut linked.rodata,
+            &mut data,
+            reference.offset,
+            displacement,
+        )?;
+    }
+    let mut absolute_relocations = Vec::new();
+    for reference in &linked.foreign_absolute {
+        if let Some(offset) = copy_offsets.get(&reference.symbol) {
+            let value = (data_address(*offset)? as i128) + (reference.addend as i128);
+            let value = u64::try_from(value).map_err(|_| "COPY address addend overflows u64")?;
+            let end = reference
+                .offset
+                .checked_add(8)
+                .ok_or("absolute reference offset overflow")?;
+            data.get_mut(reference.offset..end)
+                .ok_or("absolute reference extends beyond data")?
+                .copy_from_slice(&value.to_le_bytes());
+        } else {
+            absolute_relocations.push(reference);
+        }
     }
     // Assign the stubs in symbol order so identical inputs produce identical ELF bytes.
     let mut stubs = BTreeMap::new();
@@ -292,16 +337,17 @@ pub(crate) fn dynamic_executable(
         let stub = *stubs
             .get(&reference.symbol)
             .ok_or("missing foreign call stub")?;
-        let after = reference
-            .offset
-            .checked_add(4)
-            .ok_or("foreign relocation offset overflow")?;
-        let displacement = (stub as i128) + (reference.addend as i128) - (after as i128);
+        let after = (reference.offset.virtual_address()? as i128) + 4;
+        let displacement = (code_address(stub)? as i128) + (reference.addend as i128) - after;
         let value =
             i32::try_from(displacement).map_err(|_| "foreign call displacement exceeds rel32")?;
-        code.get_mut(reference.offset..after)
-            .ok_or("foreign relocation extends beyond code")?
-            .copy_from_slice(&value.to_le_bytes());
+        patch_relative(
+            &mut code,
+            &mut linked.rodata,
+            &mut data,
+            reference.offset,
+            value,
+        )?;
     }
     let interpreter_offset = CODE_OFFSET
         .checked_add(code.len())
@@ -406,6 +452,7 @@ pub(crate) fn dynamic_executable(
     let relocation_size = imports
         .len()
         .checked_add(copy_offsets.len())
+        .and_then(|count| count.checked_add(absolute_relocations.len()))
         .ok_or("ELF relocation count overflow")?
         .checked_mul(24)
         .ok_or("ELF relocation table overflow")?;
@@ -446,16 +493,16 @@ pub(crate) fn dynamic_executable(
             .checked_add(index.checked_mul(8).ok_or("GOT index overflow")?)
             .ok_or("GOT slot overflow")?;
         let displacement = (data_address(slot)? as i128) + (reference.addend as i128)
-            - (code_address(reference.offset)? as i128);
+            - (reference.offset.virtual_address()? as i128);
         let displacement =
             i32::try_from(displacement).map_err(|_| "foreign GOT displacement exceeds rel32")?;
-        let after = reference
-            .offset
-            .checked_add(4)
-            .ok_or("foreign GOT offset overflow")?;
-        code.get_mut(reference.offset..after)
-            .ok_or("foreign GOT relocation extends beyond code")?
-            .copy_from_slice(&displacement.to_le_bytes());
+        patch_relative(
+            &mut code,
+            &mut linked.rodata,
+            &mut data,
+            reference.offset,
+            displacement,
+        )?;
     }
     for (name, index) in &imports {
         let stub = *stubs.get(name).ok_or("missing foreign stub")?;
@@ -485,6 +532,18 @@ pub(crate) fn dynamic_executable(
         let info =
             (u64::try_from(symbol_index).map_err(|_| "copy symbol index overflow")? << 32) | 5;
         code[rela + 8..rela + 16].copy_from_slice(&info.to_le_bytes());
+    }
+    for (index, reference) in absolute_relocations.iter().enumerate() {
+        let entry = imports.len() + copy_offsets.len() + index;
+        let rela = relocation_offset - CODE_OFFSET + entry * 24;
+        code[rela..rela + 8].copy_from_slice(&data_address(reference.offset)?.to_le_bytes());
+        let symbol = imports
+            .get(&reference.symbol)
+            .ok_or("missing absolute relocation symbol")?;
+        let info =
+            (u64::try_from(symbol + 1).map_err(|_| "ELF relocation symbol overflow")? << 32) | 1;
+        code[rela + 8..rela + 16].copy_from_slice(&info.to_le_bytes());
+        code[rela + 16..rela + 24].copy_from_slice(&reference.addend.to_le_bytes());
     }
     let got_file_offset = data.len();
     data.resize(

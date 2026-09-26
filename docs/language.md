@@ -650,6 +650,11 @@ The object linker currently accepts x86-64 `R_X86_64_64`, `PC32`, `PLT32`,
 unresolved `PC32` references to sized data symbols in shared libraries use
 `R_X86_64_COPY` relocations. TLS data and unsupported relocation forms are
 rejected with a linker diagnostic.
+Absolute shared-library symbol addresses stored in writable object sections
+use dynamic `R_X86_64_64` relocations. PC-relative GOT and COPY references
+may also originate in writable sections. An undefined weak object symbol with
+no linked object definition resolves to zero; it does not force a shared
+library dependency. ELF forms outside this supported subset are rejected.
 The dynamic loader path is
 read from the compiler's own ELF interpreter when available, with
 `LIM_DYNAMIC_LINKER` as an absolute-path override and the conventional Linux
