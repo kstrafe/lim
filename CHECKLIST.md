@@ -1036,9 +1036,10 @@ commit, documentation, and focused regression coverage.
   invalid pointers remain explicitly unsafe; unsupported targets fail clearly;
   assembly and ABI tests verify argument registers, return/error handling, and
   clobbers. A Lim standard library owns policy and safe wrappers while the
-  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a/b
-  are the first Linux x86-64 implementation slice; broader syscall coverage and
-  additional operating systems remain open.
+  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-u
+  establish the Linux x86-64 boundary, catalog, and initial tested wrapper
+  families; call-site unsafe enforcement, most syscalls, and additional
+  operating systems remain open.
 
 - [x] **SYS-01a: Add unsafe inline assembly and direct Linux syscalls.**
   `#asm` binds typed scalar/pointer values to explicit x86-64 registers and
@@ -1099,3 +1100,69 @@ commit, documentation, and focused regression coverage.
   A Lim example creates a memfd, verifies close-on-exec, writes and reads its
   payload, checks `fstat` size, truncates and verifies the new size, syncs it,
   and closes/unmaps all resources without creating a persistent file.
+
+- [x] **SYS-01k: Add and exercise file-descriptor wrapper functions.**
+  Add target-selected Lim wrappers for `openat`, `read`, `write`, `pread64`,
+  `pwrite64`, `fstat`, `fcntl`, `fdatasync`, `memfd_create`, and `unlinkat`.
+  Route pipe, `/dev/null`, and memfd examples through these wrappers and assert
+  exact byte counts, payloads, metadata, descriptor flags, and `EFAULT`/`EBADF`
+  results. These raw-pointer wrappers document their caller obligations, and
+  examples mark calls as `#unsafe`; Lim still lacks an unsafe-function contract
+  that enforces this at call sites (tracked by SYS-01n).
+
+- [x] **SYS-01l: Exercise local Linux socket syscalls.**
+  Use an `AF_UNIX` socket pair to check socket creation, `sendto`/`recvfrom`
+  payloads, `getsockopt`/`setsockopt`, local/peer address lengths, write-side
+  shutdown and EOF, invalid-descriptor errno, and complete descriptor/mapping
+  cleanup. Assert all results by compiling and running a Lim example; no
+  external network or persistent filesystem state is involved.
+
+- [x] **SYS-01m: Exercise epoll readiness and eventfd notification.**
+  Register an eventfd with epoll, send and receive its counter, verify the
+  packed event mask/data bytes, check that readiness clears after consumption,
+  and close/unmap all kernel resources. The Lim program's result is asserted by
+  the native integration suite.
+
+- [x] **SYS-01o: Verify successful file-descriptor control operations.**
+  Extend the anonymous memfd run to test sequential advice, exclusive lock and
+  unlock, mode and owner updates, allocation, and `dup2(fd, fd)`. Assert kernel
+  success and the resulting expanded/truncated file sizes. Route these calls
+  through target-selected Lim wrappers rather than libc.
+
+- [x] **SYS-01p: Exercise Linux wall-clock and process-time syscalls.**
+  Add target-selected wrappers and runtime assertions for `clock_getres`,
+  `clock_nanosleep`, `gettimeofday`, `time`, and `times`. Check timestamp and
+  resolution ranges, output fields, zero-duration sleep, and mmap cleanup.
+
+- [x] **SYS-01q: Exercise Linux zero-copy pipe transfer syscalls.**
+  Use an anonymous file and three pipes to test `sendfile`, `tee`, and `splice`.
+  Verify exact payloads, input offsets, tee's non-consuming behavior, and
+  descriptor/mapping cleanup in a Lim executable.
+
+- [x] **SYS-01r: Exercise private futex wait and wake results.**
+  Add a target-gated wrapper and use a mapped futex word to assert deterministic
+  `EAGAIN` on a mismatched wait value, zero wakes when there are no waiters, and
+  unchanged word contents. Run and assert the Lim binary's result.
+
+- [x] **SYS-01s: Exercise successful Linux directory-descriptor queries.**
+  Enumerate the current directory with `getdents64`, reset and reread its
+  position, use `fchdir` on that directory, and verify `getcwd` produces an
+  absolute path. Assert records, results, and cleanup through a compiled Lim
+  example without creating or deleting files.
+
+- [x] **SYS-01t: Exercise Linux process resource and usage syscalls.**
+  Verify `getrusage`, lower and restore the child program's soft `RLIMIT_NOFILE`
+  with `getrlimit`/`setrlimit`, query the restored limit through `prlimit64`,
+  and change/restore `umask`. Assert output fields and return codes from Lim.
+
+- [x] **SYS-01u: Exercise Linux real-time signal state syscalls.**
+  Verify signal-action and signal-mask installation, queries, and restoration,
+  plus pending-mask querying, without delivering a signal.
+
+- [ ] **SYS-01n: Enforce unsafe syscall-wrapper contracts at call sites.**
+  Add an unsafe-function declaration/call model (or equivalent) so functions
+  that accept raw pointers or expose kernel memory effects require an explicit
+  `#unsafe` at every call site. Migrate low-level Linux wrappers and prove safe
+  calls are rejected while explicitly unsafe calls compile; preserve imported
+  function identity and diagnostics. Current examples use `#unsafe` by
+  convention, but the checker does not yet enforce it.

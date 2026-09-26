@@ -23,7 +23,15 @@ module - modules/parse_errors.lim - -
 exit 42 nested_aliases.lim - -
 exit 42 allocator_state.lim - -
 exit 42 linux_memfd.lim - -
+exit 42 linux_epoll.lim - -
+exit 42 linux_futex.lim - -
+exit 42 linux_directory.lim - -
 exit 42 linux_process_queries.lim - -
+exit 42 linux_resources.lim - -
+exit 42 linux_signals.lim - -
+exit 42 linux_sockets.lim - -
+exit 42 linux_time.lim - -
+exit 42 linux_zero_copy.lim - -
 exit 42 linux_syscalls.lim - -
 exit 37 array_constructor_function.lim - -
 exit 42 array_constructor.lim - -

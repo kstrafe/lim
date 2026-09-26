@@ -1,0 +1,78 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let memory (#ptr-mut i64)
+    (#unsafe (#linux-syscall (#ptr-mut i64) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let clock-read i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-CLOCK-GETTIME
+      (1usize memory))))
+  (#let monotonic-seconds i64 (#unsafe (#ptr-read memory)))
+  (#let monotonic-nanoseconds i64
+    (#unsafe (#ptr-read (#ptr-offset memory 1usize))))
+  (#let clock-resolution i64
+    (#unsafe (#call linux-clock-getres (#fn-args
+      (clock-id 1i64) (time (#ptr-offset memory 2usize))))))
+  (#let resolution-seconds i64
+    (#unsafe (#ptr-read (#ptr-offset memory 2usize))))
+  (#let resolution-nanoseconds i64
+    (#unsafe (#ptr-read (#ptr-offset memory 3usize))))
+  (#let wall-clock i64
+    (#unsafe (#call linux-gettimeofday (#fn-args
+      (time (#ptr-offset memory 4usize))
+      (timezone (#ptr-null (#ptr-mut i64)))))))
+  (#let wall-seconds i64
+    (#unsafe (#ptr-read (#ptr-offset memory 4usize))))
+  (#let wall-microseconds i64
+    (#unsafe (#ptr-read (#ptr-offset memory 5usize))))
+  (#let time-result i64
+    (#unsafe (#call linux-time (#fn-args
+      (output (#ptr-offset memory 6usize))))))
+  (#let time-output i64
+    (#unsafe (#ptr-read (#ptr-offset memory 6usize))))
+  (#let process-times i64
+    (#unsafe (#call linux-times (#fn-args
+      (output (#ptr-offset memory 8usize))))))
+  (#let user-ticks i64
+    (#unsafe (#ptr-read (#ptr-offset memory 8usize))))
+  (#let system-ticks i64
+    (#unsafe (#ptr-read (#ptr-offset memory 9usize))))
+  (#let child-user-ticks i64
+    (#unsafe (#ptr-read (#ptr-offset memory 10usize))))
+  (#let child-system-ticks i64
+    (#unsafe (#ptr-read (#ptr-offset memory 11usize))))
+  (#let request-initialized ()
+    (#unsafe
+      (#block
+        (#ptr-write (#ptr-offset memory 12usize) 0i64)
+        (#ptr-write (#ptr-offset memory 13usize) 0i64)
+        ())))
+  (#let sleep-result i64
+    (#unsafe (#call linux-clock-nanosleep (#fn-args
+      (clock-id 1i64) (flags 0usize)
+      (request (#ptr-offset memory 12usize))
+      (remaining (#ptr-offset memory 14usize))))))
+  (#let unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+  (#let time-ok bool
+    (#bool.&& (#i64.== clock-read 0i64)
+      (#bool.&& (#i64.> monotonic-seconds 0i64)
+        (#bool.&& (#i64.>= monotonic-nanoseconds 0i64)
+          (#bool.&& (#i64.< monotonic-nanoseconds 1000000000i64)
+            (#bool.&& (#i64.== clock-resolution 0i64)
+              (#bool.&& (#i64.>= resolution-seconds 0i64)
+                (#bool.&& (#i64.> resolution-nanoseconds 0i64)
+                  (#bool.&& (#i64.== wall-clock 0i64)
+                    (#bool.&& (#i64.> wall-seconds 0i64)
+                      (#bool.&& (#i64.>= wall-microseconds 0i64)
+                        (#bool.&& (#i64.< wall-microseconds 1000000i64)
+                          (#bool.&& (#i64.> time-result 0i64)
+                            (#bool.&& (#i64.== time-output time-result)
+                              (#bool.&& (#i64.>= process-times 0i64)
+                                (#bool.&& (#i64.>= user-ticks 0i64)
+                                  (#bool.&& (#i64.>= system-ticks 0i64)
+                                    (#bool.&& (#i64.>= child-user-ticks 0i64)
+                                      (#bool.&& (#i64.>= child-system-ticks 0i64)
+                                        (#bool.&& (#i64.== sleep-result 0i64)
+                                          (#i64.== unmapped 0i64)))))))))))))))))))))
+  (#return (#if time-ok 42u64 1u64)))

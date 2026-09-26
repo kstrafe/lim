@@ -1,0 +1,95 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let memory (#ptr-mut i32)
+    (#unsafe (#linux-syscall (#ptr-mut i32) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let pair-result i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-SOCKETPAIR
+      (1usize 1usize 0usize memory))))
+  (#let first-fd i32 (#unsafe (#ptr-read memory)))
+  (#let second-fd i32 (#unsafe (#ptr-read (#ptr-offset memory 1usize))))
+  (#let socket-result i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-SOCKET (1usize 2usize 0usize))))
+  (#let socket-closed i64 (#call linux-close (#fn-args (fd socket-result))))
+  (#let payload-setup ()
+    (#unsafe (#ptr-write (#ptr-offset memory 8usize) 305419896i32)))
+  (#let bytes-written i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-SENDTO
+      (first-fd (#ptr-offset memory 8usize) 4usize 0usize
+        (#ptr-null (#ptr-mut u8)) 0usize))))
+  (#let bytes-read i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-RECVFROM
+      (second-fd (#ptr-offset memory 24usize) 4usize 0usize
+        (#ptr-null (#ptr-mut u8)) (#ptr-null (#ptr-mut u32))))))
+  (#let received i32 (#unsafe (#ptr-read (#ptr-offset memory 24usize))))
+  (#let socket-option-length ()
+    (#unsafe (#block (#ptr-write (#ptr-offset memory 9usize) 4i32) ())))
+  (#let get-option i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-GETSOCKOPT
+      (first-fd 1usize 3usize (#ptr-offset memory 8usize)
+        (#ptr-offset memory 9usize)))))
+  (#let socket-type i32 (#unsafe (#ptr-read (#ptr-offset memory 8usize))))
+  (#let set-option i64
+    (#unsafe
+      (#block
+        (#ptr-write (#ptr-offset memory 10usize) 65536i32)
+        (#ptr-write (#ptr-offset memory 9usize) 4i32)
+        (#linux-syscall i64 LINUX-SYS-SETSOCKOPT
+          (first-fd 1usize 7usize (#ptr-offset memory 10usize) 4usize)))))
+  (#let sndbuf-size i32
+    (#unsafe (#ptr-read (#ptr-offset memory 10usize))))
+  (#let address-length ()
+    (#unsafe (#block (#ptr-write (#ptr-offset memory 11usize) 128i32) ())))
+  (#let local-name i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-GETSOCKNAME
+      (first-fd (#ptr-offset memory 12usize) (#ptr-offset memory 11usize)))))
+  (#let local-address-length i32
+    (#unsafe (#ptr-read (#ptr-offset memory 11usize))))
+  (#let peer-address-length ()
+    (#unsafe (#block (#ptr-write (#ptr-offset memory 15usize) 128i32) ())))
+  (#let peer-name i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-GETPEERNAME
+      (first-fd (#ptr-offset memory 16usize) (#ptr-offset memory 15usize)))))
+  (#let peer-length i32
+    (#unsafe (#ptr-read (#ptr-offset memory 15usize))))
+  (#let shut-down i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-SHUTDOWN (first-fd 1usize))))
+  (#let eof-count i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-RECVFROM
+      (second-fd (#ptr-offset memory 24usize) 4usize 0usize
+        (#ptr-null (#ptr-mut u8)) (#ptr-null (#ptr-mut u32))))))
+  (#let invalid-send i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-SENDTO
+      (999999i64 (#ptr-offset memory 8usize) 4usize 0usize
+        (#ptr-null (#ptr-mut u8)) 0usize))))
+  (#let first-closed i64
+    (#call linux-close (#fn-args (fd (#as first-fd i64)))))
+  (#let second-closed i64
+    (#call linux-close (#fn-args (fd (#as second-fd i64)))))
+  (#let unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+  (#let sockets-ok bool
+    (#bool.&& (#i64.== pair-result 0i64)
+      (#bool.&& (#i32.>= first-fd 0i32)
+        (#bool.&& (#i32.>= second-fd 0i32)
+          (#bool.&& (#i64.>= socket-result 0i64)
+            (#bool.&& (#i64.== socket-closed 0i64)
+              (#bool.&& (#i64.== bytes-written 4i64)
+                (#bool.&& (#i64.== bytes-read 4i64)
+                  (#bool.&& (#i32.== received 305419896i32)
+                    (#bool.&& (#i64.== get-option 0i64)
+                      (#bool.&& (#i32.== socket-type 1i32)
+                        (#bool.&& (#i64.== set-option 0i64)
+                          (#bool.&& (#i32.>= sndbuf-size 65536i32)
+                            (#bool.&& (#i64.== local-name 0i64)
+                              (#bool.&& (#i32.== local-address-length 2i32)
+                                (#bool.&& (#i64.== peer-name 0i64)
+                                  (#bool.&& (#i32.== peer-length 2i32)
+                                    (#bool.&& (#i64.== shut-down 0i64)
+                                      (#bool.&& (#i64.== eof-count 0i64)
+                                        (#bool.&& (#i64.== invalid-send -9i64)
+                                          (#bool.&& (#i64.== first-closed 0i64)
+                                            (#bool.&& (#i64.== second-closed 0i64)
+                                              (#i64.== unmapped 0i64)))))))))))))))))))))))
+  (#return (#if sockets-ok 42u64 1u64)))

@@ -31,16 +31,24 @@
   (#let failed_truncate i64
     (#call linux-ftruncate (#fn-args (fd 999999i64) (length 0i64))))
   (#let failed_fstat i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-FSTAT
-      (999999i64 (#ptr-null (#ptr-mut u8))))))
+    (#unsafe (#call linux-fstat (#fn-args (fd 999999i64)
+      (metadata (#ptr-null (#ptr-mut i64)))))))
   (#let failed_ioctl i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-IOCTL (999999i64 0usize 0usize))))
   (#let failed_fcntl i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-FCNTL (999999i64 1usize 0usize))))
+    (#call linux-fcntl (#fn-args
+      (fd 999999i64) (command 1usize) (argument 0usize))))
   (#let failed_flock i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-FLOCK (999999i64 2usize))))
   (#let failed_fdatasync i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-FDATASYNC (999999i64))))
+    (#call linux-fdatasync (#fn-args (fd 999999i64))))
+  (#let failed_openat i64
+    (#unsafe (#call linux-openat (#fn-args
+      (directory -100i64) (path (#ptr-null (#ptr-mut u8)))
+      (flags 0usize) (mode 0usize)))))
+  (#let failed_unlinkat i64
+    (#unsafe (#call linux-unlinkat (#fn-args
+      (directory -100i64) (path (#ptr-null (#ptr-mut u8))) (flags 0usize)))))
   (#let failed_fchdir i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-FCHDIR (999999i64))))
   (#let failed_fchmod i64
@@ -111,8 +119,8 @@
       (#ptr-write (#ptr-offset mapping 9usize) 0u8)
       ()))
   (#let null-device i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-OPENAT
-      (-100i64 mapping 0usize 0usize))))
+    (#unsafe (#call linux-openat (#fn-args
+      (directory -100i64) (path mapping) (flags 0usize) (mode 0usize)))))
   (#let close-null-device i64
     (#call linux-close (#fn-args (fd null-device))))
   (#unsafe
@@ -295,7 +303,9 @@
                   (#bool.&& (#call is-ebadf (#fn-args (status failed_fchown)))
                     (#bool.&& (#call is-ebadf (#fn-args (status failed_getdents)))
                       (#bool.&& (#call is-ebadf (#fn-args (status failed_fallocate)))
-                        (#call is-ebadf (#fn-args (status failed_dup2))))))))))))))
+                        (#bool.&& (#call is-ebadf (#fn-args (status failed_dup2)))
+                          (#bool.&& (#i64.== failed_openat -14i64)
+                            (#i64.== failed_unlinkat -14i64))))))))))))))
   (#let path-queries-ok bool
     (#bool.&& (#i64.> readlink-count 0i64)
       (#bool.&& (#u8.== link-first-byte 47u8)

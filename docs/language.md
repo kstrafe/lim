@@ -299,12 +299,26 @@ contracts.
   (#return (#unsafe (#linux-syscall i64 39usize ()))))
 ```
 
-`library/linux_x86_64.lim` builds bounded byte input/output and process helpers
-on this primitive. Its read/write wrappers accept references and transfer only
-one byte, while the low-level syscall operation remains available for the rest
+`library/linux_x86_64.lim` builds byte input/output, process helpers, and
+file-descriptor operations (`openat`, positional and sequential IO, metadata,
+directory queries, resource limits and usage, advice, locking, allocation,
+descriptor duplication, anonymous files, wall-clock/process-time queries, and
+private futex operations) on this primitive. The low-level
+pointer wrappers do not validate kernel buffer ranges; callers must uphold
+pointer validity and length preconditions, and callers should mark those calls
+with `#unsafe`. Lim does not yet enforce unsafe function contracts on wrapper
+calls, so this annotation is presently a caller convention rather than a
+checked requirement. The raw syscall operation remains available for the rest
 of the Linux syscall table. `examples/linux_syscalls.lim` and
-`tests/io_examples.rs` exercise syscall argument counts zero through six,
-including exact piped IO and kernel error results.
+`examples/linux_sockets.lim` exercise direct socket syscalls, while
+`examples/linux_zero_copy.lim` checks `sendfile`, `tee`, and `splice` payloads
+and offsets; `examples/linux_directory.lim` checks enumeration and cwd queries;
+`examples/linux_resources.lim` checks usage, limits, and umask restoration;
+`examples/linux_signals.lim` checks signal action and mask querying,
+installation, and restoration without delivering a signal.
+`tests/io_examples.rs` checks exact program exit/output behavior,
+syscall argument counts zero through six, piped IO, local socket payloads, and
+kernel error results.
 
 ## Building and running
 

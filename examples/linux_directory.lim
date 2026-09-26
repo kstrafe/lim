@@ -1,0 +1,53 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let path-memory (#ptr-mut u8)
+    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#unsafe
+    (#block
+      (#ptr-write path-memory 46u8)
+      (#ptr-write (#ptr-offset path-memory 1usize) 0u8)
+      ()))
+  (#let directory i64
+    (#unsafe (#call linux-openat (#fn-args
+      (directory -100i64) (path path-memory) (flags 65536usize) (mode 0usize)))))
+  (#let entries (#ptr-mut u8)
+    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let first-batch i64
+    (#unsafe (#call linux-getdents64 (#fn-args
+      (fd directory) (buffer entries) (size 4096usize)))))
+  (#let first-record-length u8
+    (#unsafe (#ptr-read (#ptr-offset entries 16usize))))
+  (#let first-name-byte u8
+    (#unsafe (#ptr-read (#ptr-offset entries 19usize))))
+  (#let reset-position i64
+    (#call linux-lseek (#fn-args (fd directory) (offset 0i64) (whence 0i64))))
+  (#let second-batch i64
+    (#unsafe (#call linux-getdents64 (#fn-args
+      (fd directory) (buffer entries) (size 4096usize)))))
+  (#let changed-directory i64 (#call linux-fchdir (#fn-args (fd directory))))
+  (#let current-directory i64
+    (#unsafe (#call linux-getcwd (#fn-args (buffer entries) (size 4096usize)))))
+  (#let absolute-path-first-byte u8 (#unsafe (#ptr-read entries)))
+  (#let closed i64 (#call linux-close (#fn-args (fd directory))))
+  (#let path-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (path-memory 4096usize))))
+  (#let entries-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (entries 4096usize))))
+  (#return
+    (#if (#bool.&& (#i64.>= directory 0i64)
+      (#bool.&& (#i64.> first-batch 0i64)
+        (#bool.&& (#u8.>= first-record-length 19u8)
+          (#bool.&& (#u8.!= first-name-byte 0u8)
+            (#bool.&& (#i64.== reset-position 0i64)
+              (#bool.&& (#i64.> second-batch 0i64)
+                (#bool.&& (#i64.== changed-directory 0i64)
+                  (#bool.&& (#i64.> current-directory 0i64)
+                    (#bool.&& (#u8.== absolute-path-first-byte 47u8)
+                      (#bool.&& (#i64.== closed 0i64)
+                        (#bool.&& (#i64.== path-unmapped 0i64)
+                          (#i64.== entries-unmapped 0i64))))))))))))
+      42u64
+      1u64)))

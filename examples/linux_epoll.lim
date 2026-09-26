@@ -1,0 +1,70 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let event-memory (#ptr-mut u8)
+    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let counter-memory (#ptr-mut u64)
+    (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let epoll-fd i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-EPOLL-CREATE1 (0usize))))
+  (#let event-fd i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-EVENTFD2 (0usize 0usize))))
+  (#let event-initialized ()
+    (#unsafe
+      (#block
+        (#ptr-write event-memory 1u8)
+        (#ptr-write (#ptr-offset event-memory 4usize) 136u8)
+        (#ptr-write (#ptr-offset event-memory 5usize) 119u8)
+        (#ptr-write (#ptr-offset event-memory 6usize) 102u8)
+        (#ptr-write (#ptr-offset event-memory 7usize) 85u8)
+        (#ptr-write (#ptr-offset event-memory 8usize) 68u8)
+        (#ptr-write (#ptr-offset event-memory 9usize) 51u8)
+        (#ptr-write (#ptr-offset event-memory 10usize) 34u8)
+        (#ptr-write (#ptr-offset event-memory 11usize) 17u8)
+        ())))
+  (#let registered i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-EPOLL-CTL
+      (epoll-fd 1usize event-fd event-memory))))
+  (#let counter-value-set ()
+    (#unsafe (#ptr-write counter-memory 1u64)))
+  (#let counter-written i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-WRITE
+      (event-fd counter-memory 8usize))))
+  (#let ready-count i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-EPOLL-WAIT
+      (epoll-fd event-memory 1usize 0i64))))
+  (#let readiness-mask u8 (#unsafe (#ptr-read event-memory)))
+  (#let data-byte-0 u8 (#unsafe (#ptr-read (#ptr-offset event-memory 4usize))))
+  (#let data-byte-7 u8 (#unsafe (#ptr-read (#ptr-offset event-memory 11usize))))
+  (#let counter-read i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-READ
+      (event-fd counter-memory 8usize))))
+  (#let counter-value u64 (#unsafe (#ptr-read counter-memory)))
+  (#let no-longer-ready i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-EPOLL-WAIT
+      (epoll-fd event-memory 1usize 0i64))))
+  (#let event-closed i64 (#call linux-close (#fn-args (fd event-fd))))
+  (#let epoll-closed i64 (#call linux-close (#fn-args (fd epoll-fd))))
+  (#let event-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (event-memory 4096usize))))
+  (#let counter-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (counter-memory 4096usize))))
+  (#let epoll-ok bool
+    (#bool.&& (#i64.>= epoll-fd 0i64)
+      (#bool.&& (#i64.>= event-fd 0i64)
+        (#bool.&& (#i64.== registered 0i64)
+          (#bool.&& (#i64.== counter-written 8i64)
+            (#bool.&& (#i64.== ready-count 1i64)
+              (#bool.&& (#u8.== readiness-mask 1u8)
+                (#bool.&& (#u8.== data-byte-0 136u8)
+                  (#bool.&& (#u8.== data-byte-7 17u8)
+                    (#bool.&& (#i64.== counter-read 8i64)
+                      (#bool.&& (#u64.== counter-value 1u64)
+                        (#bool.&& (#i64.== no-longer-ready 0i64)
+                          (#bool.&& (#i64.== event-closed 0i64)
+                            (#bool.&& (#i64.== epoll-closed 0i64)
+                              (#bool.&& (#i64.== event-unmapped 0i64)
+                                (#i64.== counter-unmapped 0i64))))))))))))))))
+  (#return (#if epoll-ok 42u64 1u64)))

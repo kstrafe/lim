@@ -43,6 +43,94 @@
     (#return (#unsafe (#asm i64 ((rax LINUX-SYS-SCHED-YIELD)) "syscall"))))
   (#fn linux-close ((fd i64)) i64
     (#return (#unsafe (#asm i64 ((rax LINUX-SYS-CLOSE) (rdi fd)) "syscall"))))
+  (#fn linux-openat ((directory i64) (path (#ptr-mut u8)) (flags usize) (mode usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-OPENAT
+      (directory path flags mode)))))
+  (#fn linux-getcwd ((buffer (#ptr-mut u8)) (size usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-GETCWD
+      (buffer size)))))
+  (#fn linux-getdents64 ((fd i64) (buffer (#ptr-mut u8)) (size usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-GETDENTS64
+      (fd buffer size)))))
+  (#fn linux-fchdir ((fd i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FCHDIR (fd)))))
+  (#fn linux-getrusage ((resource i64) (usage (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-GETRUSAGE
+      (resource usage)))))
+  (#fn linux-getrlimit ((resource usize) (limits (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-GETRLIMIT
+      (resource limits)))))
+  (#fn linux-setrlimit ((resource usize) (limits (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SETRLIMIT
+      (resource limits)))))
+  (#fn linux-prlimit64 ((pid i64) (resource usize)
+      (new-limits (#ptr-mut i64)) (old-limits (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-PRLIMIT64
+      (pid resource new-limits old-limits)))))
+  (#fn linux-umask ((mask usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-UMASK (mask)))))
+  (#fn linux-rt-sigaction ((signal i64) (action (#ptr-mut i64))
+      (old-action (#ptr-mut i64)) (sigset-size usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-RT-SIGACTION
+      (signal action old-action sigset-size)))))
+  (#fn linux-rt-sigprocmask ((how usize) (signal-set (#ptr-mut i64))
+      (old-set (#ptr-mut i64)) (sigset-size usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-RT-SIGPROCMASK
+      (how signal-set old-set sigset-size)))))
+  (#fn linux-rt-sigpending ((signal-set (#ptr-mut i64)) (sigset-size usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-RT-SIGPENDING
+      (signal-set sigset-size)))))
+  (#fn linux-read ((fd i64) (destination (#ptr-mut u8)) (count usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-READ (fd destination count)))))
+  (#fn linux-write ((fd i64) (source (#ptr-mut u8)) (count usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-WRITE (fd source count)))))
+  (#fn linux-pread64 ((fd i64) (destination (#ptr-mut u8)) (count usize) (offset i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-PREAD64
+      (fd destination count offset)))))
+  (#fn linux-pwrite64 ((fd i64) (source (#ptr-mut u8)) (count usize) (offset i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-PWRITE64
+      (fd source count offset)))))
+  (#fn linux-fstat ((fd i64) (metadata (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FSTAT (fd metadata)))))
+  (#fn linux-fcntl ((fd i64) (command usize) (argument usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FCNTL
+      (fd command argument)))))
+  (#fn linux-fdatasync ((fd i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FDATASYNC (fd)))))
+  (#fn linux-memfd-create ((name (#ptr-mut u8)) (flags usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-MEMFD-CREATE (name flags)))))
+  (#fn linux-unlinkat ((directory i64) (path (#ptr-mut u8)) (flags usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-UNLINKAT
+      (directory path flags)))))
+  (#fn linux-dup2 ((source i64) (destination i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-DUP2
+      (source destination)))))
+  (#fn linux-flock ((fd i64) (operation usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FLOCK (fd operation)))))
+  (#fn linux-fchmod ((fd i64) (mode usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FCHMOD (fd mode)))))
+  (#fn linux-fchown ((fd i64) (owner i64) (group i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FCHOWN
+      (fd owner group)))))
+  (#fn linux-fallocate ((fd i64) (mode usize) (offset i64) (length i64)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FALLOCATE
+      (fd mode offset length)))))
+  (#fn linux-fadvise64 ((fd i64) (offset i64) (length i64) (advice usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FADVISE64
+      (fd offset length advice)))))
+  (#fn linux-pipe2 ((descriptors (#ptr-mut i32)) (flags usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-PIPE2
+      (descriptors flags)))))
+  (#fn linux-sendfile ((output i64) (input i64) (offset (#ptr-mut i64)) (count usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SENDFILE
+      (output input offset count)))))
+  (#fn linux-tee ((input i64) (output i64) (count usize) (flags usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-TEE
+      (input output count flags)))))
+  (#fn linux-splice ((input i64) (input-offset (#ptr-mut i64))
+      (output i64) (output-offset (#ptr-mut i64)) (count usize) (flags usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SPLICE
+      (input input-offset output output-offset count flags)))))
   (#fn linux-dup ((fd i64)) i64
     (#return (#unsafe (#asm i64 ((rax LINUX-SYS-DUP) (rdi fd)) "syscall"))))
   (#fn linux-lseek ((fd i64) (offset i64) (whence i64)) i64
@@ -57,6 +145,24 @@
     (#return (#unsafe (#asm i64
       ((rax LINUX-SYS-CLOCK-GETTIME) (rdi clock-id) (rsi time))
       "test rsi, 1\njz 1f\nand rsi, -2\nsub rsi, 8\n1:\nsyscall"))))
+  (#fn linux-clock-getres ((clock-id i64) (time (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-CLOCK-GETRES
+      (clock-id time)))))
+  (#fn linux-gettimeofday ((time (#ptr-mut i64)) (timezone (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-GETTIMEOFDAY
+      (time timezone)))))
+  (#fn linux-time ((output (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-TIME (output)))))
+  (#fn linux-times ((output (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-TIMES (output)))))
+  (#fn linux-clock-nanosleep ((clock-id i64) (flags usize)
+      (request (#ptr-mut i64)) (remaining (#ptr-mut i64))) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-CLOCK-NANOSLEEP
+      (clock-id flags request remaining)))))
+  (#fn linux-futex ((address (#ptr-mut u32)) (operation usize) (value u32)
+      (timeout (#ptr-mut i64)) (second-address (#ptr-mut u32)) (value3 usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FUTEX
+      (address operation value timeout second-address value3)))))
   (#fn linux-nanosleep ((request (#ref LinuxTimespec)) (remaining (#ref-mut LinuxTimespec))) i64
     (#return (#unsafe (#asm i64
       ((rax LINUX-SYS-NANOSLEEP) (rdi request) (rsi remaining))
@@ -81,10 +187,47 @@
     (#fn linux-gettid () i64 (#return -38i64))
     (#fn linux-sched-yield () i64 (#return -38i64))
     (#fn linux-close ((fd i64)) i64 (#return -38i64))
+    (#fn linux-openat ((directory i64) (path (#ptr-mut u8)) (flags usize) (mode usize)) i64 (#return -38i64))
+    (#fn linux-getcwd ((buffer (#ptr-mut u8)) (size usize)) i64 (#return -38i64))
+    (#fn linux-getdents64 ((fd i64) (buffer (#ptr-mut u8)) (size usize)) i64 (#return -38i64))
+    (#fn linux-fchdir ((fd i64)) i64 (#return -38i64))
+    (#fn linux-getrusage ((resource i64) (usage (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-getrlimit ((resource usize) (limits (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-setrlimit ((resource usize) (limits (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-prlimit64 ((pid i64) (resource usize) (new-limits (#ptr-mut i64)) (old-limits (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-umask ((mask usize)) i64 (#return -38i64))
+    (#fn linux-rt-sigaction ((signal i64) (action (#ptr-mut i64)) (old-action (#ptr-mut i64)) (sigset-size usize)) i64 (#return -38i64))
+    (#fn linux-rt-sigprocmask ((how usize) (signal-set (#ptr-mut i64)) (old-set (#ptr-mut i64)) (sigset-size usize)) i64 (#return -38i64))
+    (#fn linux-rt-sigpending ((signal-set (#ptr-mut i64)) (sigset-size usize)) i64 (#return -38i64))
+    (#fn linux-read ((fd i64) (destination (#ptr-mut u8)) (count usize)) i64 (#return -38i64))
+    (#fn linux-write ((fd i64) (source (#ptr-mut u8)) (count usize)) i64 (#return -38i64))
+    (#fn linux-pread64 ((fd i64) (destination (#ptr-mut u8)) (count usize) (offset i64)) i64 (#return -38i64))
+    (#fn linux-pwrite64 ((fd i64) (source (#ptr-mut u8)) (count usize) (offset i64)) i64 (#return -38i64))
+    (#fn linux-fstat ((fd i64) (metadata (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-fcntl ((fd i64) (command usize) (argument usize)) i64 (#return -38i64))
+    (#fn linux-fdatasync ((fd i64)) i64 (#return -38i64))
+    (#fn linux-memfd-create ((name (#ptr-mut u8)) (flags usize)) i64 (#return -38i64))
+    (#fn linux-unlinkat ((directory i64) (path (#ptr-mut u8)) (flags usize)) i64 (#return -38i64))
+    (#fn linux-dup2 ((source i64) (destination i64)) i64 (#return -38i64))
+    (#fn linux-flock ((fd i64) (operation usize)) i64 (#return -38i64))
+    (#fn linux-fchmod ((fd i64) (mode usize)) i64 (#return -38i64))
+    (#fn linux-fchown ((fd i64) (owner i64) (group i64)) i64 (#return -38i64))
+    (#fn linux-fallocate ((fd i64) (mode usize) (offset i64) (length i64)) i64 (#return -38i64))
+    (#fn linux-fadvise64 ((fd i64) (offset i64) (length i64) (advice usize)) i64 (#return -38i64))
+    (#fn linux-pipe2 ((descriptors (#ptr-mut i32)) (flags usize)) i64 (#return -38i64))
+    (#fn linux-sendfile ((output i64) (input i64) (offset (#ptr-mut i64)) (count usize)) i64 (#return -38i64))
+    (#fn linux-tee ((input i64) (output i64) (count usize) (flags usize)) i64 (#return -38i64))
+    (#fn linux-splice ((input i64) (input-offset (#ptr-mut i64)) (output i64) (output-offset (#ptr-mut i64)) (count usize) (flags usize)) i64 (#return -38i64))
     (#fn linux-dup ((fd i64)) i64 (#return -38i64))
     (#fn linux-lseek ((fd i64) (offset i64) (whence i64)) i64 (#return -38i64))
     (#fn linux-fsync ((fd i64)) i64 (#return -38i64))
     (#fn linux-ftruncate ((fd i64) (length i64)) i64 (#return -38i64))
     (#fn linux-clock-gettime ((clock-id i64) (time (#ref-mut LinuxTimespec))) i64 (#return -38i64))
+    (#fn linux-clock-getres ((clock-id i64) (time (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-gettimeofday ((time (#ptr-mut i64)) (timezone (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-time ((output (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-times ((output (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-clock-nanosleep ((clock-id i64) (flags usize) (request (#ptr-mut i64)) (remaining (#ptr-mut i64))) i64 (#return -38i64))
+    (#fn linux-futex ((address (#ptr-mut u32)) (operation usize) (value u32) (timeout (#ptr-mut i64)) (second-address (#ptr-mut u32)) (value3 usize)) i64 (#return -38i64))
     (#fn linux-nanosleep ((request (#ref LinuxTimespec)) (remaining (#ref-mut LinuxTimespec))) i64 (#return -38i64))
     (#fn linux-getrandom-byte ((destination (#ref-mut u8))) i64 (#return -38i64))))
