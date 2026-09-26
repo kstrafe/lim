@@ -534,3 +534,29 @@ fn linux_scheduler_affinity_round_trips_allowed_mask() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn linux_copy_file_range_copies_data_and_advances_offsets() {
+    let scratch = support::Scratch::new("linux-copy-file-range");
+    let executable = scratch.path().join("copy-file-range-checks");
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/linux_copy_file_range.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile Lim copy_file_range example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    let output = Command::new(executable)
+        .output()
+        .expect("run compiled copy_file_range example");
+    assert_eq!(output.status.code(), Some(42));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}

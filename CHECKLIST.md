@@ -1036,7 +1036,7 @@ commit, documentation, and focused regression coverage.
   invalid pointers remain explicitly unsafe; unsupported targets fail clearly;
   assembly and ABI tests verify argument registers, return/error handling, and
   clobbers. A Lim standard library owns policy and safe wrappers while the
-  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-aa
+  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-ab
   establish the Linux x86-64 boundary, catalog, and initial tested wrapper
   families; call-site unsafe enforcement, most syscalls, and additional
   operating systems remain open.
@@ -1184,6 +1184,10 @@ commit, documentation, and focused regression coverage.
   Query the process's allowed-CPU mask, set that same mask back, yield, and
   query again. Verify return sizes and that the complete supported mask buffer
   remains identical.
+
+- [x] **SYS-01ab: Exercise Linux copy_file_range.**
+  Copy a byte payload between two anonymous files using explicit offsets,
+  validate offset updates and exact destination bytes, and close all resources.
 
 - [ ] **SYS-01n: Enforce unsafe syscall-wrapper contracts at call sites.**
   Add an unsafe-function declaration/call model (or equivalent) so functions

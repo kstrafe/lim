@@ -325,6 +325,8 @@ cleanup using a private working directory;
 `examples/linux_wait4.lim` forks and reaps a child and validates the kernel's
 encoded exit status; `examples/linux_affinity.lim` round-trips the process's
 allowed-CPU mask and checks the affinity state is unchanged;
+`examples/linux_copy_file_range.lim` validates explicit-offset copying between
+anonymous files, including the copied bytes and updated offsets;
 `examples/linux_xattrs.lim` exercises descriptor-based extended-attribute
 creation, listing, retrieval, removal, and the missing-attribute error on a
 fresh memfd.

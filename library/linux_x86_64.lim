@@ -168,6 +168,10 @@
   (#fn linux-sendfile ((output i64) (input i64) (offset (#ptr-mut i64)) (count usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-SENDFILE
       (output input offset count)))))
+  (#fn linux-copy-file-range ((input i64) (input-offset (#ptr-mut i64))
+      (output i64) (output-offset (#ptr-mut i64)) (count usize) (flags usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-COPY-FILE-RANGE
+      (input input-offset output output-offset count flags)))))
   (#fn linux-tee ((input i64) (output i64) (count usize) (flags usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-TEE
       (input output count flags)))))
@@ -288,6 +292,7 @@
     (#fn linux-fadvise64 ((fd i64) (offset i64) (length i64) (advice usize)) i64 (#return -38i64))
     (#fn linux-pipe2 ((descriptors (#ptr-mut i32)) (flags usize)) i64 (#return -38i64))
     (#fn linux-sendfile ((output i64) (input i64) (offset (#ptr-mut i64)) (count usize)) i64 (#return -38i64))
+    (#fn linux-copy-file-range ((input i64) (input-offset (#ptr-mut i64)) (output i64) (output-offset (#ptr-mut i64)) (count usize) (flags usize)) i64 (#return -38i64))
     (#fn linux-tee ((input i64) (output i64) (count usize) (flags usize)) i64 (#return -38i64))
     (#fn linux-splice ((input i64) (input-offset (#ptr-mut i64)) (output i64) (output-offset (#ptr-mut i64)) (count usize) (flags usize)) i64 (#return -38i64))
     (#fn linux-dup ((fd i64)) i64 (#return -38i64))

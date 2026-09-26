@@ -1,0 +1,90 @@
+(#import "../library/linux_x86_64.lim")
+
+(#fn main () u64
+  (#let memory (#ptr-mut u8)
+    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let offsets (#ptr-mut i64)
+    (#unsafe (#linux-syscall (#ptr-mut i64) LINUX-SYS-MMAP
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#let initialized ()
+    (#unsafe
+      (#block
+        (#ptr-write memory 115u8)
+        (#ptr-write (#ptr-offset memory 1usize) 114u8)
+        (#ptr-write (#ptr-offset memory 2usize) 99u8)
+        (#ptr-write (#ptr-offset memory 8usize) 100u8)
+        (#ptr-write (#ptr-offset memory 9usize) 115u8)
+        (#ptr-write (#ptr-offset memory 10usize) 116u8)
+        (#ptr-write (#ptr-offset memory 32usize) 99u8)
+        (#ptr-write (#ptr-offset memory 33usize) 111u8)
+        (#ptr-write (#ptr-offset memory 34usize) 112u8)
+        (#ptr-write (#ptr-offset memory 35usize) 121u8)
+        (#ptr-write (#ptr-offset memory 36usize) 45u8)
+        (#ptr-write (#ptr-offset memory 37usize) 111u8)
+        (#ptr-write (#ptr-offset memory 38usize) 107u8)
+        (#ptr-write (#ptr-offset memory 39usize) 33u8)
+        (#ptr-write offsets 0i64)
+        (#ptr-write (#ptr-offset offsets 1usize) 0i64)
+        ())))
+  (#let source-fd i64
+    (#unsafe (#call linux-memfd-create (#fn-args
+      (name memory) (flags 1usize)))))
+  (#let destination-fd i64
+    (#unsafe (#call linux-memfd-create (#fn-args
+      (name (#ptr-offset memory 8usize)) (flags 1usize)))))
+  (#let payload-written i64
+    (#unsafe (#call linux-write (#fn-args
+      (fd source-fd) (source (#ptr-offset memory 32usize)) (count 8usize)))))
+  (#let copied i64
+    (#unsafe (#call linux-copy-file-range (#fn-args
+      (input source-fd)
+      (input-offset offsets)
+      (output destination-fd)
+      (output-offset (#ptr-offset offsets 1usize))
+      (count 8usize)
+      (flags 0usize)))))
+  (#let copied-input-offset i64 (#unsafe (#ptr-read offsets)))
+  (#let copied-output-offset i64
+    (#unsafe (#ptr-read (#ptr-offset offsets 1usize))))
+  (#let payload-read i64
+    (#unsafe (#call linux-read (#fn-args
+      (fd destination-fd)
+      (destination (#ptr-offset memory 64usize))
+      (count 8usize)))))
+  (#let byte-0 u8 (#unsafe (#ptr-read (#ptr-offset memory 64usize))))
+  (#let byte-1 u8 (#unsafe (#ptr-read (#ptr-offset memory 65usize))))
+  (#let byte-2 u8 (#unsafe (#ptr-read (#ptr-offset memory 66usize))))
+  (#let byte-3 u8 (#unsafe (#ptr-read (#ptr-offset memory 67usize))))
+  (#let byte-4 u8 (#unsafe (#ptr-read (#ptr-offset memory 68usize))))
+  (#let byte-5 u8 (#unsafe (#ptr-read (#ptr-offset memory 69usize))))
+  (#let byte-6 u8 (#unsafe (#ptr-read (#ptr-offset memory 70usize))))
+  (#let byte-7 u8 (#unsafe (#ptr-read (#ptr-offset memory 71usize))))
+  (#let source-closed i64 (#call linux-close (#fn-args (fd source-fd))))
+  (#let destination-closed i64
+    (#call linux-close (#fn-args (fd destination-fd))))
+  (#let memory-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+  (#let offsets-unmapped i64
+    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (offsets 4096usize))))
+  (#let copy-ok bool
+    (#bool.&& (#i64.>= source-fd 0i64)
+      (#bool.&& (#i64.>= destination-fd 0i64)
+        (#bool.&& (#i64.== payload-written 8i64)
+          (#bool.&& (#i64.== copied 8i64)
+            (#bool.&& (#i64.== copied-input-offset 8i64)
+              (#bool.&& (#i64.== copied-output-offset 8i64)
+                (#bool.&& (#i64.== payload-read 8i64)
+                  (#bool.&& (#u8.== byte-0 99u8)
+                    (#bool.&& (#u8.== byte-1 111u8)
+                      (#bool.&& (#u8.== byte-2 112u8)
+                        (#bool.&& (#u8.== byte-3 121u8)
+                          (#bool.&& (#u8.== byte-4 45u8)
+                            (#bool.&& (#u8.== byte-5 111u8)
+                              (#bool.&& (#u8.== byte-6 107u8)
+                                (#bool.&& (#u8.== byte-7 33u8)
+                                  (#bool.&& (#i64.== source-closed 0i64)
+                                    (#bool.&& (#i64.== destination-closed 0i64)
+                                      (#bool.&& (#i64.== memory-unmapped 0i64)
+                                        (#i64.== offsets-unmapped 0i64))))))))))))))))))))
+  (#return (#if copy-ok 42u64 1u64)))
