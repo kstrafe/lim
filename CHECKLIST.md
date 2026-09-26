@@ -237,6 +237,13 @@ the checklist is committed alongside the implementation it tracks.
   the raw Cartesian product, so repeated branches do not reject valid code.
   Still reject genuinely excessive distinct paths with a bounded diagnostic.
 
+- [x] **IR-04n: Retain value origins on typed ownership transfers.** Bind,
+  assignment, and pattern flow actions now carry the checked `NodeId` of the
+  value supplying them, including match scrutinees and destructuring sources.
+  Verify these IDs and their exact spans in focused tests. This supplies the
+  origin needed by later move/loan transfer without reconstructing syntax or
+  inferring it from predecessor graph shape.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

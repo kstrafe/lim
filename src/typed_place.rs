@@ -205,10 +205,10 @@ mod tests {
         let graph = &checked.declarations().flows["main"];
         assert!(graph.nodes.iter().any(|node| matches!(
             &node.action,
-            crate::typed_flow::FlowAction::Assign(Place {
-                root: PlaceRoot::Local(_),
-                segments,
-            }) if segments == &[Segment::Index(1)]
+            crate::typed_flow::FlowAction::Assign {
+                place: Place { root: PlaceRoot::Local(_), segments },
+                ..
+            } if segments == &[Segment::Index(1)]
         )));
 
         let payload =

@@ -18,9 +18,9 @@ pub(crate) enum FlowAction {
     Entry,
     Exit,
     Evaluate(NodeId),
-    Bind(BindingId),
-    Assign(Place),
-    Pattern(NodeId),
+    Bind { binding: BindingId, value: NodeId },
+    Assign { place: Place, value: NodeId },
+    Pattern { pattern: NodeId, value: NodeId },
     Branch(NodeId),
     LoopHead,
     Return,
@@ -129,24 +129,41 @@ impl FlowGraph {
                         return Err(format!("typed flow evaluates invalid node {id:?}"));
                     }
                 }
-                FlowAction::Bind(id) => {
-                    if id.0 >= body.bindings.len() {
-                        return Err(format!("typed flow binds invalid local {id:?}"));
+                FlowAction::Bind { binding, value } => {
+                    if binding.0 >= body.bindings.len() || value.0 >= body.nodes.len() {
+                        return Err(format!("typed flow binds invalid local {binding:?}"));
                     }
                 }
-                FlowAction::Assign(Place {
-                    root: PlaceRoot::Local(id),
-                    ..
-                }) => {
-                    if id.0 >= body.bindings.len() {
-                        return Err(format!("typed flow assigns invalid local {id:?}"));
+                FlowAction::Assign {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            ..
+                        },
+                    value,
+                } => {
+                    if binding.0 >= body.bindings.len() || value.0 >= body.nodes.len() {
+                        return Err(format!("typed flow assigns invalid local {binding:?}"));
                     }
                 }
-                FlowAction::Assign(Place {
-                    root: PlaceRoot::Global(_),
-                    ..
-                }) => {}
-                FlowAction::Pattern(id) | FlowAction::Branch(id) => {
+                FlowAction::Assign {
+                    place:
+                        Place {
+                            root: PlaceRoot::Global(_),
+                            ..
+                        },
+                    value,
+                } => {
+                    if value.0 >= body.nodes.len() {
+                        return Err(format!("typed flow assigns invalid value {value:?}"));
+                    }
+                }
+                FlowAction::Pattern { pattern, value } => {
+                    if pattern.0 >= body.nodes.len() || value.0 >= body.nodes.len() {
+                        return Err(format!("typed flow references invalid pattern {pattern:?}"));
+                    }
+                }
+                FlowAction::Branch(id) => {
                     if id.0 >= body.nodes.len() {
                         return Err(format!("typed flow references invalid node {id:?}"));
                     }
@@ -222,18 +239,22 @@ impl FlowGraph {
                         set(&mut uses, binding);
                     }
                 }
-                FlowAction::Bind(binding) => set(&mut defs, *binding),
-                FlowAction::Pattern(pattern) => {
+                FlowAction::Bind { binding, .. } => set(&mut defs, *binding),
+                FlowAction::Pattern { pattern, .. } => {
                     let mut bindings = HashSet::new();
                     collect_pattern_bindings(body, *pattern, &mut bindings);
                     for binding in bindings {
                         set(&mut defs, binding);
                     }
                 }
-                FlowAction::Assign(Place {
-                    root: PlaceRoot::Local(binding),
-                    segments,
-                }) => {
+                FlowAction::Assign {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            segments,
+                        },
+                    ..
+                } => {
                     if segments.is_empty() {
                         set(&mut defs, *binding);
                     } else {
@@ -306,10 +327,10 @@ impl FlowGraph {
                     predecessors[successor.0].push(FlowNodeId(index));
                 }
                 match &node.action {
-                    FlowAction::Bind(binding) => {
+                    FlowAction::Bind { binding, .. } => {
                         generated[index][binding.0 / 64] |= 1u64 << (binding.0 % 64);
                     }
-                    FlowAction::Pattern(pattern) => {
+                    FlowAction::Pattern { pattern, .. } => {
                         let mut bindings = HashSet::new();
                         collect_pattern_bindings(body, *pattern, &mut bindings);
                         for binding in bindings {
@@ -374,10 +395,14 @@ impl FlowGraph {
                     }) => Some(binding),
                     _ => None,
                 },
-                FlowAction::Assign(Place {
-                    root: PlaceRoot::Local(binding),
+                FlowAction::Assign {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            ..
+                        },
                     ..
-                }) => Some(*binding),
+                } => Some(*binding),
                 _ => None,
             };
             if let Some(binding) = binding {
@@ -448,7 +473,14 @@ impl Builder<'_> {
         let span = instruction.span;
         match &instruction.control {
             Control::Bind(binding, value, _) => {
-                let bind = self.push(FlowAction::Bind(*binding), span, vec![next]);
+                let bind = self.push(
+                    FlowAction::Bind {
+                        binding: *binding,
+                        value: *value,
+                    },
+                    span,
+                    vec![next],
+                );
                 self.expression(*value, bind, targets, None)
             }
             Control::Destructure {
@@ -457,7 +489,14 @@ impl Builder<'_> {
                 otherwise,
                 ..
             } => {
-                let bind = self.push(FlowAction::Pattern(*pattern), span, vec![next]);
+                let bind = self.push(
+                    FlowAction::Pattern {
+                        pattern: *pattern,
+                        value: *value,
+                    },
+                    span,
+                    vec![next],
+                );
                 let decision = if let Some(otherwise) = otherwise {
                     let failure = self.instructions(otherwise, next, targets)?;
                     self.push(FlowAction::Branch(*pattern), span, vec![bind, failure])
@@ -468,7 +507,10 @@ impl Builder<'_> {
             }
             Control::Assign(root, projection, value) => {
                 let assign = self.push(
-                    FlowAction::Assign(Place::from_assignment(self.body, root, projection)),
+                    FlowAction::Assign {
+                        place: Place::from_assignment(self.body, root, projection),
+                        value: *value,
+                    },
                     span,
                     vec![next],
                 );
@@ -623,7 +665,7 @@ impl Builder<'_> {
                 // at the next arm; only the successful edge binds its pattern.
                 let mut entry = self.push(FlowAction::Diverge, span, vec![]);
                 for arm in arms.iter().rev() {
-                    entry = self.match_arm(*arm, next, entry, targets)?;
+                    entry = self.match_arm(*arm, *value, next, entry, targets)?;
                 }
                 let decision = self.push(FlowAction::Branch(id), span, vec![entry]);
                 self.expression(*value, decision, targets, None)
@@ -689,6 +731,7 @@ impl Builder<'_> {
     fn match_arm(
         &mut self,
         id: NodeId,
+        source: NodeId,
         next: FlowNodeId,
         failure: FlowNodeId,
         targets: &[Target],
@@ -723,7 +766,14 @@ impl Builder<'_> {
         } else {
             body_entry
         };
-        let bound = self.push(FlowAction::Pattern(pattern), span, vec![success]);
+        let bound = self.push(
+            FlowAction::Pattern {
+                pattern,
+                value: source,
+            },
+            span,
+            vec![success],
+        );
         Ok(self.push(FlowAction::Branch(pattern), span, vec![bound, failure]))
     }
 }
@@ -761,7 +811,10 @@ mod tests {
                     span: None,
                 },
                 FlowNode {
-                    action: FlowAction::Bind(BindingId(0)),
+                    action: FlowAction::Bind {
+                        binding: BindingId(0),
+                        value: NodeId(0),
+                    },
                     successors: vec![FlowNodeId(1)],
                     span: None,
                 },
@@ -880,7 +933,7 @@ mod tests {
         let bound = first_node.successors[0];
         assert!(matches!(
             graph.nodes[bound.0].action,
-            FlowAction::Pattern(_)
+            FlowAction::Pattern { .. }
         ));
 
         let mut pending = vec![bound];
@@ -903,7 +956,7 @@ mod tests {
             .expect("guarded fallback has valid local scopes");
 
         let liveness = &checked.declarations().liveness["main"];
-        let FlowAction::Pattern(pattern) = graph.nodes[bound.0].action else {
+        let FlowAction::Pattern { pattern, .. } = graph.nodes[bound.0].action else {
             unreachable!()
         };
         let mut payloads = HashSet::new();
@@ -940,10 +993,14 @@ mod tests {
             .iter()
             .enumerate()
             .find_map(|(index, node)| match &node.action {
-                FlowAction::Assign(Place {
-                    root: PlaceRoot::Local(id),
-                    segments,
-                }) if *id == point && matches!(segments.as_slice(), [Segment::Field(_)]) => {
+                FlowAction::Assign {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(id),
+                            segments,
+                        },
+                    ..
+                } if *id == point && matches!(segments.as_slice(), [Segment::Field(_)]) => {
                     Some(FlowNodeId(index))
                 }
                 _ => None,
@@ -954,10 +1011,14 @@ mod tests {
             .iter()
             .enumerate()
             .find_map(|(index, node)| match &node.action {
-                FlowAction::Assign(Place {
-                    root: PlaceRoot::Local(id),
-                    segments,
-                }) if *id == point && segments.is_empty() => Some(FlowNodeId(index)),
+                FlowAction::Assign {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(id),
+                            segments,
+                        },
+                    ..
+                } if *id == point && segments.is_empty() => Some(FlowNodeId(index)),
                 _ => None,
             })
             .unwrap();
@@ -965,6 +1026,35 @@ mod tests {
         assert!(liveness.after(projected).contains(&point));
         assert!(!liveness.before(whole).contains(&point));
         assert!(liveness.after(whole).contains(&point));
+    }
+
+    #[test]
+    fn transfer_actions_retain_checked_value_identities() {
+        let source = "(#enum Choice ((Some u64) None))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#set value 2u64)
+            (#let pair (#tuple u64 u64) (#tuple (#tuple u64 u64) value 3u64))
+            (#let (#tuple first second) (#tuple u64 u64) pair)
+            (#return (#match (Some first)
+              (#case (Some selected) (#u64.+.wrap selected second))
+              (#case None 0u64))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let value_text = |value: NodeId| {
+            let span = body.nodes[value.0].span.unwrap();
+            &source[span.start..span.end]
+        };
+        assert!(graph.nodes.iter().any(|node| matches!(node.action,
+            FlowAction::Bind { value, .. } if value_text(value) == "1u64")));
+        assert!(graph.nodes.iter().any(|node| matches!(&node.action,
+            FlowAction::Assign { value, .. } if value_text(*value) == "2u64")));
+        assert!(graph.nodes.iter().any(|node| matches!(node.action,
+            FlowAction::Pattern { value, .. } if value_text(value) == "pair")));
+        assert!(graph.nodes.iter().any(|node| matches!(node.action,
+            FlowAction::Pattern { value, .. } if value_text(value) == "(Some first)")));
     }
 
     #[test]
