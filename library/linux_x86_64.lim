@@ -73,6 +73,10 @@
   (#fn linux-mkdirat ((directory i64) (path (#ptr-mut u8)) (mode usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-MKDIRAT
       (directory path mode)))))
+  (#fn linux-renameat2 ((old-directory i64) (old-path (#ptr-mut u8))
+      (new-directory i64) (new-path (#ptr-mut u8)) (flags usize)) i64
+    (#return (#unsafe (#linux-syscall i64 LINUX-SYS-RENAMEAT2
+      (old-directory old-path new-directory new-path flags)))))
   (#fn linux-inotify-init1 ((flags usize)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-INOTIFY-INIT1 (flags)))))
   (#fn linux-inotify-add-watch ((fd i64) (path (#ptr-mut u8)) (mask usize)) i64
@@ -271,6 +275,7 @@
     (#fn linux-close ((fd i64)) i64 (#return -38i64))
     (#fn linux-openat ((directory i64) (path (#ptr-mut u8)) (flags usize) (mode usize)) i64 (#return -38i64))
     (#fn linux-mkdirat ((directory i64) (path (#ptr-mut u8)) (mode usize)) i64 (#return -38i64))
+    (#fn linux-renameat2 ((old-directory i64) (old-path (#ptr-mut u8)) (new-directory i64) (new-path (#ptr-mut u8)) (flags usize)) i64 (#return -38i64))
     (#fn linux-inotify-init1 ((flags usize)) i64 (#return -38i64))
     (#fn linux-inotify-add-watch ((fd i64) (path (#ptr-mut u8)) (mask usize)) i64 (#return -38i64))
     (#fn linux-inotify-rm-watch ((fd i64) (watch i64)) i64 (#return -38i64))

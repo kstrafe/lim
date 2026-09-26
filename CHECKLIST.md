@@ -1036,7 +1036,7 @@ commit, documentation, and focused regression coverage.
   invalid pointers remain explicitly unsafe; unsupported targets fail clearly;
   assembly and ABI tests verify argument registers, return/error handling, and
   clobbers. A Lim standard library owns policy and safe wrappers while the
-  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-ac
+  compiler owns the minimal architecture-specific boundary. Subitems SYS-01a-ad
   establish the Linux x86-64 boundary, catalog, and initial tested wrapper
   families; call-site unsafe enforcement, most syscalls, and additional
   operating systems remain open.
@@ -1192,6 +1192,10 @@ commit, documentation, and focused regression coverage.
 - [x] **SYS-01ac: Exercise Linux scheduler query syscalls.**
   Query the current scheduler and parameters, validate policy priority bounds,
   verify invalid-policy error handling, and check the current nice value.
+
+- [x] **SYS-01ad: Exercise Linux renameat2 semantics.**
+  Verify `RENAME_NOREPLACE` rejects an existing destination, then rename
+  successfully and check old/new path results with resource cleanup.
 
 - [ ] **SYS-01n: Enforce unsafe syscall-wrapper contracts at call sites.**
   Add an unsafe-function declaration/call model (or equivalent) so functions

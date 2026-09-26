@@ -329,6 +329,8 @@ allowed-CPU mask and checks the affinity state is unchanged;
 anonymous files, including the copied bytes and updated offsets;
 `examples/linux_scheduler_queries.lim` checks scheduler parameters, policy
 priority bounds, invalid-policy behavior, and the current nice value;
+`examples/linux_renameat2.lim` checks no-replace collision errors, successful
+renaming, and old/new path visibility in a scratch working directory;
 `examples/linux_xattrs.lim` exercises descriptor-based extended-attribute
 creation, listing, retrieval, removal, and the missing-attribute error on a
 fresh memfd.
