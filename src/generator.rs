@@ -454,9 +454,24 @@ fn parse_generator(
         let (name, capabilities) = match parameter {
             Expr::Symbol(name) => (name.as_str(), Vec::new()),
             Expr::List(items) if !items.is_empty() => {
-                let name = symbol(items.first(), "generator parameter name")?;
+                let name = match items.first() {
+                    Some(Expr::Symbol(name)) => name.as_str(),
+                    _ => {
+                        let span = source
+                            .children
+                            .get(2)
+                            .and_then(|parameters| parameters.children.get(parameter_index))
+                            .and_then(|parameter| parameter.children.first())
+                            .map_or(source.span, |node| node.span);
+                        return Err(at_span(
+                            "generator parameter declarations name one binding; nested lists are not destructuring patterns",
+                            span,
+                            "generator parameter",
+                        ));
+                    }
+                };
                 let mut required = Vec::new();
-                for capability in &items[1..] {
+                for (annotation_index, capability) in items[1..].iter().enumerate() {
                     if matches!(capability, Expr::Symbol(name) if name == "#syntax-collection") {
                         if items.len() != 2 {
                             return Err("#syntax-collection must be the only annotation on a generator parameter".into());
@@ -464,7 +479,22 @@ fn parse_generator(
                         collection = true;
                         continue;
                     }
-                    let capability = symbol(Some(capability), "generator parameter capability")?;
+                    let capability = match capability {
+                        Expr::Symbol(name) => name.as_str(),
+                        _ => {
+                            let span = source
+                                .children
+                                .get(2)
+                                .and_then(|parameters| parameters.children.get(parameter_index))
+                                .and_then(|parameter| parameter.children.get(annotation_index + 1))
+                                .map_or(source.span, |node| node.span);
+                            return Err(at_span(
+                                "generator parameter annotations must be capability names, not nested patterns",
+                                span,
+                                "generator parameter",
+                            ));
+                        }
+                    };
                     if capability.starts_with('#') || capability.starts_with('@') {
                         return Err(format!("invalid generator capability '{capability}'").into());
                     }
@@ -1503,6 +1533,65 @@ fn expression_nodes(expression: &Expr) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generator_parameter_forms_bind_one_name_each() {
+        let source = "(#generator make (plain (element sortable) (entries #syntax-collection)) `((#type ,plain ,element)))";
+        let forms = crate::parse(source).unwrap();
+        let Expr::List(items) = &forms[0].expr else {
+            panic!("generator form")
+        };
+        let generator = parse_generator(items, &forms[0]).unwrap();
+        assert_eq!(generator.parameters.len(), 3);
+        assert_eq!(generator.parameters[0].name, "plain");
+        assert!(generator.parameters[0].capabilities.is_empty());
+        assert!(!generator.parameters[0].collection);
+        assert_eq!(generator.parameters[1].name, "element");
+        assert_eq!(generator.parameters[1].capabilities, ["sortable"]);
+        assert!(!generator.parameters[1].collection);
+        assert_eq!(generator.parameters[2].name, "entries");
+        assert!(generator.parameters[2].capabilities.is_empty());
+        assert!(generator.parameters[2].collection);
+        assert!(matches!(generator.body, Expr::QuasiQuote(_)));
+
+        let source = "(#generator one ((left right)) left)";
+        let forms = crate::parse(source).unwrap();
+        let Expr::List(items) = &forms[0].expr else {
+            panic!("generator form")
+        };
+        let generator = parse_generator(items, &forms[0]).unwrap();
+        assert_eq!(generator.parameters.len(), 1);
+        assert_eq!(generator.parameters[0].name, "left");
+        assert_eq!(generator.parameters[0].capabilities, ["right"]);
+    }
+
+    #[test]
+    fn generator_parameter_nested_patterns_report_the_offending_form() {
+        for (source, expected) in [
+            (
+                "(#generator bad (((left right) sortable)) left)",
+                "(left right)",
+            ),
+            (
+                "(#generator bad ((item (left right))) item)",
+                "(left right)",
+            ),
+        ] {
+            let forms = crate::parse(source).unwrap();
+            let Expr::List(items) = &forms[0].expr else {
+                panic!("generator form")
+            };
+            let error = parse_generator(items, &forms[0]).err().unwrap();
+            assert!(
+                error.message.contains("not destructuring patterns")
+                    || error.message.contains("not nested patterns"),
+                "{}",
+                error.message
+            );
+            let span = error.span.unwrap();
+            assert_eq!(&source[span.start..span.end], expected);
+        }
+    }
 
     #[test]
     fn inspectable_generated_source_cache_uses_the_full_key_and_reuses_source() {

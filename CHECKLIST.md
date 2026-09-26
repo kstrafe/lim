@@ -1078,7 +1078,7 @@ commit, documentation, and focused regression coverage.
 
 ## Follow-up from 2026-09-25 design notes
 
-- [ ] **GEN-API-01: Make generator parameter declarations unmistakable.**
+- [x] **GEN-API-01: Make generator parameter declarations unmistakable.**
   The current `(name annotation)` form declares one parameter; it is not a
   destructuring pattern. Clarify this distinction in grammar/reference examples
   and gather usage feedback before changing syntax. If a syntax change is
@@ -1087,6 +1087,9 @@ commit, documentation, and focused regression coverage.
   declarations. Acceptance: docs show ordinary literal parameters and
   collection/capability annotations; parser tests establish the exact AST and
   reject pattern-like forms rather than silently destructuring them.
+  The grammar now spells out each declaration form; parser tests distinguish
+  one annotated parameter from two bare parameters and underline nested-list
+  patterns. Syntax remains unchanged pending actual usage feedback.
 
 - [x] **SYS-01: Establish a target-specific syscall boundary for Lim libraries.**
   Establish an explicitly unsafe, typed primitive for the supported target,

@@ -760,6 +760,20 @@ parameter `variants` and annotates it to receive a frozen collection snapshot;
 it does not destructure the invocation argument. This mirrors function
 signatures, where each nested pair declares one named parameter and its type.
 
+```text
+parameters := (parameter ...)
+parameter  := name | (name capability-name ...) | (name #syntax-collection)
+```
+
+For example, `(#generator alias (name target) ...)` has two literal-syntax
+parameters. `(#generator sortable ((element sortable)) ...)` has one parameter
+named `element` requiring the `sortable` capability. Likewise, `((left right))`
+declares one parameter named `left` with a capability annotation `right`; it
+never binds two names. Nested lists in the name or annotation position are
+rejected as malformed declarations. No implicit destructuring takes place; use
+`#gn-first`, `#gn-rest`, or `#gn-for-each` inside the generator body to inspect
+literal list arguments.
+
 Each capability declaration lists concrete free-standing operations and their
 full argument/return types. Before any generator runs, the compiler verifies
 that every named function exists and exactly matches its declared signature.
@@ -1476,7 +1490,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#for` | `(#for init condition step body...)` | `(#for (#let-mut i u64 0u64) (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)) (#set sum (#u64.+.wrap sum i)))` (statement) | Runs an explicitly structured init/condition/step loop. |
 | `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i u64) 0u64 4u64 (#set sum (#u64.+.wrap sum i)))` (statement) | Iterates a typed, half-open range `[start, end)`. |
 | `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Consumes a value without cleanup; use after explicit resource release. Lim never inserts destructors. Task handles/results cannot be forgotten. |
-| `#generator` | `(#generator name (parameter-or-annotated-parameter...) body)` | ``(#generator make-alias (name) `((#type ,name u64)))`` (top level) | Declares an interpreted compile-time syntax generator; arguments are literals/syntax, not runtime values. |
+| `#generator` | `(#generator name (name-or-(name capability...)...) body)` | ``(#generator make-alias (name) `((#type ,name u64)))`` (top level) | Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values. |
 | `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
 | `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
 | `#gn-call` | `(#gn-call function syntax-arg...)` | `(#gn-call make-alias name target)` (generator body) | Calls a `#gn-fn` helper during generator interpretation. |
