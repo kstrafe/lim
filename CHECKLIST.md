@@ -99,6 +99,13 @@ the checklist is committed alongside the implementation it tracks.
   were never checked as syntax nodes. Test both paths and retain the native
   numeric differential suite.
 
+- [x] **IR-03e: Select direct checked-call symbols by function identity.**
+  Keep the canonical source symbol in the resolved ABI; direct scalar calls
+  now use the same `FunctionId` for both ABI layout and call target, even if
+  reconstructed syntax carries a different spelling. Backend-synthesized
+  calls keep the name lookup. Aggregate-specialized call paths still require
+  migration before IR-03 can be closed.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

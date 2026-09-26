@@ -97,10 +97,11 @@ operand type, and overflow mode rather than reparsing the dotted spelling.
 If a checked numeric expression lacks that metadata, emission reports an
 internal error instead of interpreting its spelling again. Backend-synthesized
 expressions without checked nodes still use the compatibility parser.
-Checked calls select their ABI by retained `FunctionId`; the source-level name
-is still used for the assembly symbol and diagnostics. The compatibility type
-and call lookup remain available only for expressions synthesized after
-typed-body lowering. The overlay is still address-indexed internally; it is
+Direct checked scalar calls select their ABI and canonical source assembly
+symbol by retained `FunctionId`; the reconstructed name remains available for
+diagnostics. Aggregate-specialized and backend-synthesized calls still use the
+legacy name lookup until their lowering paths are migrated. The overlay is
+still address-indexed internally; it is
 neither exported nor cached as an identity.
 An executable regression verifies that erasing `#unsafe` wrappers preserves
 the typed node order and numeric metadata association. This validates the

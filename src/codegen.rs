@@ -159,11 +159,68 @@ enum GlobalValue {
 
 #[derive(Clone)]
 struct FunctionAbi {
+    symbol_name: String,
     parameters: Vec<Type>,
     indirect_parameters: Vec<bool>,
     return_type: Type,
     indirect_return: bool,
     max_call_depth: usize,
+}
+
+fn resolve_call_abi(
+    name: &str,
+    callee: Option<crate::typed_ir::FunctionId>,
+    functions: &HashMap<String, FunctionAbi>,
+    function_abis_by_id: &HashMap<crate::typed_ir::FunctionId, FunctionAbi>,
+) -> Result<FunctionAbi, String> {
+    match callee {
+        Some(id) => function_abis_by_id
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| format!("internal error: missing ABI for function ID {id:?}")),
+        None => functions
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("unknown function '{name}'")),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
+    let program = crate::parse_program(
+        "(#fn actual () u64 (#return 42u64))
+         (#fn main () u64 (#return (#call actual (#fn-args))))",
+    )
+    .unwrap();
+    let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
+    let id = checked.declarations().function_id("actual").unwrap();
+    let abi = FunctionAbi {
+        symbol_name: "actual".into(),
+        parameters: Vec::new(),
+        indirect_parameters: Vec::new(),
+        return_type: Type::U64,
+        indirect_return: false,
+        max_call_depth: 1,
+    };
+    let wrong = FunctionAbi {
+        symbol_name: "wrong".into(),
+        ..abi.clone()
+    };
+    let by_name = HashMap::from([("wrong".into(), wrong)]);
+    let by_id = HashMap::from([(id, abi)]);
+    assert_eq!(
+        resolve_call_abi("wrong", Some(id), &by_name, &by_id)
+            .unwrap()
+            .symbol_name,
+        "actual"
+    );
+    assert_eq!(
+        resolve_call_abi("wrong", None, &by_name, &by_id)
+            .unwrap()
+            .symbol_name,
+        "wrong"
+    );
 }
 
 enum ScalarRange {
@@ -1136,6 +1193,7 @@ pub(crate) fn generate_checked_assembly(
         functions.insert(
             function.name.clone(),
             FunctionAbi {
+                symbol_name: function.name.clone(),
                 parameters,
                 indirect_parameters,
                 indirect_return,
@@ -1162,6 +1220,7 @@ pub(crate) fn generate_checked_assembly(
             (
                 spawn_name.clone(),
                 FunctionAbi {
+                    symbol_name: spawn_name.clone(),
                     parameters: worker_abi.parameters.clone(),
                     indirect_parameters: worker_abi.indirect_parameters.clone(),
                     return_type: spawn_result_type,
@@ -1172,6 +1231,7 @@ pub(crate) fn generate_checked_assembly(
             (
                 join_name.clone(),
                 FunctionAbi {
+                    symbol_name: join_name.clone(),
                     parameters: vec![task_type],
                     indirect_parameters: vec![false],
                     indirect_return: join_indirect_return,
@@ -14236,18 +14296,7 @@ impl FunctionContext {
         if arguments.len() > 32 {
             return Err(format!("call to '{name}' has more than 32 arguments"));
         }
-        let abi = match callee {
-            Some(id) => self
-                .function_abis_by_id
-                .get(&id)
-                .cloned()
-                .ok_or_else(|| format!("internal error: missing ABI for function ID {id:?}"))?,
-            None => self
-                .functions
-                .get(name)
-                .cloned()
-                .ok_or_else(|| format!("unknown function '{name}'"))?,
-        };
+        let abi = resolve_call_abi(name, callee, &self.functions, &self.function_abis_by_id)?;
         if abi.indirect_return && indirect_return_slot.is_none() {
             return Err(format!(
                 "large aggregate call to '{name}' must initialize a local value"
@@ -14259,13 +14308,13 @@ impl FunctionContext {
         if abi.parameters.iter().all(is_float_type) {
             if let Some(ty) = abi.parameters.first() {
                 if abi.parameters.iter().all(|other| other == ty) {
-                    return self.call_float(name, arguments, ty, indirect_return_slot);
+                    return self.call_float(&abi.symbol_name, arguments, ty, indirect_return_slot);
                 }
             }
         }
         if abi.parameters.iter().any(is_float_type) {
             return self.call_mixed(
-                name,
+                &abi.symbol_name,
                 arguments,
                 &abi.parameters,
                 &abi.indirect_parameters,
@@ -14317,7 +14366,7 @@ impl FunctionContext {
             self.stack_depth -= ARGUMENT_REGISTERS.len();
             self.emit_indirect_return_target(indirect_return_slot);
             self.output
-                .push_str(&format!("    call {}\n", asm_symbol(name)));
+                .push_str(&format!("    call {}\n", asm_symbol(&abi.symbol_name)));
             self.output
                 .push_str(&format!("    add rsp, {}\n", stack_arguments * 8));
             self.stack_depth -= stack_arguments;
@@ -14344,7 +14393,7 @@ impl FunctionContext {
         }
         self.emit_indirect_return_target(indirect_return_slot);
         self.output
-            .push_str(&format!("    call {}\n", asm_symbol(name)));
+            .push_str(&format!("    call {}\n", asm_symbol(&abi.symbol_name)));
         if needs_padding {
             self.output.push_str("    add rsp, 8\n");
         }
