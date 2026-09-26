@@ -192,6 +192,15 @@ the checklist is committed alongside the implementation it tracks.
   This identifies future reads, not ownership cleanup or loan lifetimes;
   those remain open in IR-04 and ASYNC-01.
 
+- [x] **IR-04h: Resolve typed place identities for reads and writes.** Build
+  local/global-rooted paths from checked nodes and assignment projections,
+  using owner-qualified field/variant IDs and structural tuple/array indices.
+  Distinguish dotted binding names from field paths and dynamic indices from
+  concrete elements. Flow assignments now retain these paths; liveness and
+  definite-binding checks consume their roots. Test named-owner collisions,
+  array writes, enum payloads, and punctuation. Move/loan overlap analysis on
+  these places remains open in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

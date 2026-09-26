@@ -588,7 +588,7 @@ pub(crate) enum Control {
     Evaluate(NodeId),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum PlaceRoot {
     Local(BindingId),
     Global(GlobalId),

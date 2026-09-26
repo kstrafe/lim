@@ -7,6 +7,7 @@ use std::collections::{HashSet, VecDeque};
 use crate::typed_body::{
     BindingId, Body, Control, Instruction, NodeId, NodeKind, NumericOpcode, PlaceRoot, Projection,
 };
+use crate::typed_place::Place;
 use crate::Span;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -18,7 +19,7 @@ pub(crate) enum FlowAction {
     Exit,
     Evaluate(NodeId),
     Bind(BindingId),
-    Assign(PlaceRoot, Projection),
+    Assign(Place),
     Pattern(NodeId),
     Branch(NodeId),
     LoopHead,
@@ -133,12 +134,18 @@ impl FlowGraph {
                         return Err(format!("typed flow binds invalid local {id:?}"));
                     }
                 }
-                FlowAction::Assign(PlaceRoot::Local(id), _) => {
+                FlowAction::Assign(Place {
+                    root: PlaceRoot::Local(id),
+                    ..
+                }) => {
                     if id.0 >= body.bindings.len() {
                         return Err(format!("typed flow assigns invalid local {id:?}"));
                     }
                 }
-                FlowAction::Assign(PlaceRoot::Global(_), _) => {}
+                FlowAction::Assign(Place {
+                    root: PlaceRoot::Global(_),
+                    ..
+                }) => {}
                 FlowAction::Pattern(id) | FlowAction::Branch(id) => {
                     if id.0 >= body.nodes.len() {
                         return Err(format!("typed flow references invalid node {id:?}"));
@@ -207,10 +214,10 @@ impl FlowGraph {
             };
             match &node.action {
                 FlowAction::Evaluate(value) => {
-                    if let NodeKind::Symbol {
-                        binding: Some(binding),
+                    if let Some(Place {
+                        root: PlaceRoot::Local(binding),
                         ..
-                    } = body.nodes[value.0].kind
+                    }) = Place::from_expression(body, *value)
                     {
                         set(&mut uses, binding);
                     }
@@ -223,8 +230,11 @@ impl FlowGraph {
                         set(&mut defs, binding);
                     }
                 }
-                FlowAction::Assign(PlaceRoot::Local(binding), projection) => {
-                    if matches!(projection, Projection::Local) {
+                FlowAction::Assign(Place {
+                    root: PlaceRoot::Local(binding),
+                    segments,
+                }) => {
+                    if segments.is_empty() {
                         set(&mut defs, *binding);
                     } else {
                         set(&mut uses, *binding);
@@ -295,13 +305,13 @@ impl FlowGraph {
                 for successor in &node.successors {
                     predecessors[successor.0].push(FlowNodeId(index));
                 }
-                match node.action {
+                match &node.action {
                     FlowAction::Bind(binding) => {
                         generated[index][binding.0 / 64] |= 1u64 << (binding.0 % 64);
                     }
                     FlowAction::Pattern(pattern) => {
                         let mut bindings = HashSet::new();
-                        collect_pattern_bindings(body, pattern, &mut bindings);
+                        collect_pattern_bindings(body, *pattern, &mut bindings);
                         for binding in bindings {
                             generated[index][binding.0 / 64] |= 1u64 << (binding.0 % 64);
                         }
@@ -356,15 +366,18 @@ impl FlowGraph {
             if !reachable[index] {
                 continue;
             }
-            let binding = match node.action {
-                FlowAction::Evaluate(id) => match body.nodes[id.0].kind {
-                    NodeKind::Symbol {
-                        binding: Some(binding),
+            let binding = match &node.action {
+                FlowAction::Evaluate(id) => match Place::from_expression(body, *id) {
+                    Some(Place {
+                        root: PlaceRoot::Local(binding),
                         ..
-                    } => Some(binding),
+                    }) => Some(binding),
                     _ => None,
                 },
-                FlowAction::Assign(PlaceRoot::Local(binding), _) => Some(binding),
+                FlowAction::Assign(Place {
+                    root: PlaceRoot::Local(binding),
+                    ..
+                }) => Some(*binding),
                 _ => None,
             };
             if let Some(binding) = binding {
@@ -455,7 +468,7 @@ impl Builder<'_> {
             }
             Control::Assign(root, projection, value) => {
                 let assign = self.push(
-                    FlowAction::Assign(root.clone(), projection.clone()),
+                    FlowAction::Assign(Place::from_assignment(self.body, root, projection)),
                     span,
                     vec![next],
                 );
@@ -718,6 +731,7 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typed_place::Segment;
 
     #[test]
     fn definite_binding_requires_every_live_predecessor() {
@@ -925,8 +939,11 @@ mod tests {
             .nodes
             .iter()
             .enumerate()
-            .find_map(|(index, node)| match node.action {
-                FlowAction::Assign(PlaceRoot::Local(id), Projection::Field(_)) if id == point => {
+            .find_map(|(index, node)| match &node.action {
+                FlowAction::Assign(Place {
+                    root: PlaceRoot::Local(id),
+                    segments,
+                }) if *id == point && matches!(segments.as_slice(), [Segment::Field(_)]) => {
                     Some(FlowNodeId(index))
                 }
                 _ => None,
@@ -936,10 +953,11 @@ mod tests {
             .nodes
             .iter()
             .enumerate()
-            .find_map(|(index, node)| match node.action {
-                FlowAction::Assign(PlaceRoot::Local(id), Projection::Local) if id == point => {
-                    Some(FlowNodeId(index))
-                }
+            .find_map(|(index, node)| match &node.action {
+                FlowAction::Assign(Place {
+                    root: PlaceRoot::Local(id),
+                    segments,
+                }) if *id == point && segments.is_empty() => Some(FlowNodeId(index)),
                 _ => None,
             })
             .unwrap();

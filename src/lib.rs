@@ -26,6 +26,7 @@ mod typecheck;
 mod typed_body;
 mod typed_flow;
 mod typed_ir;
+mod typed_place;
 mod unsafecheck;
 use source_error::SourceError;
 

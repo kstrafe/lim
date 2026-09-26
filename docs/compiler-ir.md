@@ -106,6 +106,11 @@ Each checked flow also retains backward binding liveness before and after its
 nodes. Whole-local replacement kills the old value; projected writes read the
 aggregate. Liveness tracks future reads only: it cannot by itself prove that
 linear values were consumed or that loans may be released at suspension.
+Read and write places now have structural identities: a `BindingId` or
+`GlobalId` root followed by owner-qualified field/variant IDs, tuple positions,
+or concrete/dynamic array indices. A dotted identifier remains one binding,
+not a field path. Assignment flow nodes retain these places directly; move and
+loan overlap rules still belong to the pending ownership migration.
 
 Global reads and borrows, named field/payload projections, concrete aggregate
 and variant constructors, and pattern constructors retain declaration IDs.
