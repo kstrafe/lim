@@ -423,6 +423,24 @@ mod checked_program_tests {
     }
 
     #[test]
+    fn typed_array_literal_return_uses_the_match_bound_owner() {
+        let source = "(#enum Holder ((Has (#ref u64))))
+          (#fn escape () (#array (#ref u64) 1)
+            (#let owner u64 1u64)
+            (#let holder Holder (Has (#borrow owner)))
+            (#return (#array-of (#array (#ref u64) 1)
+              (#match holder (#case (Has view) view)))))";
+        let program = crate::parse_program(source).unwrap();
+        let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+        let span = span.unwrap();
+        assert!(message.contains("local 'owner'"));
+        assert!(source[span.start..span.end].starts_with("(#return (#array-of"));
+        assert!(labels
+            .iter()
+            .any(|(origin, _)| { &source[origin.start..origin.end] == "(#borrow owner)" }));
+    }
+
+    #[test]
     fn normal_compilation_checks_once_and_unchecked_emission_still_validates() {
         let source = "(#fn main () u64 (#return 42u64))";
         let directory = std::env::temp_dir().join(format!("lim-checked-{}", std::process::id()));

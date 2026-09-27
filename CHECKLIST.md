@@ -925,6 +925,12 @@ the checklist is committed alongside the implementation it tracks.
   split projections using the arm-local flow state. Reject a slice returned
   from a reference-to-array pattern that borrows a local array owner.
 
+- [x] **IR-04bm: Preserve arm-local origins in explicit array literals.**
+  Evaluate each `#array-of` element at its own typed flow event and retain its
+  checked array index while collecting conditional reference origins. Reject
+  an explicitly constructed returned array containing a match-bound local
+  reference and retain both error locations.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
