@@ -408,6 +408,10 @@ the checklist is committed alongside the implementation it tracks.
   borrow spans and reject conflicting call arguments while accepting disjoint
   referents.
 
+- [x] **IR-04: Cover labeled loop-break reference results.** Exercise the
+  `#label`/`#break-to` path through the same checked loan transfer and verify
+  its borrow origin is reported when a sibling mutable argument overlaps.
+
 - [x] **IR-04: Propagate loans through explicit array-of construction.**
   Treat `#array-of` as an aggregate value with an explicit type operand and
   indexed reference slots, not as an opaque expression. Test that positional

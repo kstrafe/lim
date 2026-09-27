@@ -1593,6 +1593,14 @@ mod tests {
             .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+
+        let labeled = source.replace(
+            "(#loop (#break (#borrow value)))",
+            "(#label outer (#loop (#break-to outer (#borrow value))))",
+        );
+        let program = crate::parse_program(&labeled).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
     }
 
     #[test]
