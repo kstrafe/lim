@@ -74,6 +74,13 @@ the checklist is committed alongside the implementation it tracks.
   instead of silently attaching checked metadata to the wrong expression.
   Replacing the remaining address-keyed bridge is still required by IR-02.
 
+- [x] **IR-02g: Reject same-shaped symbol drift in the emission bridge.**
+  Verify a reconstructed symbol still names its checked binding or resolved
+  declaration before associating type metadata, including when the overall
+  node count and expression kinds are unchanged. Test a substituted local
+  name; preserve native imports and generated-code examples. The bridge
+  itself remains temporary and address-keyed until IR-02 is complete.
+
 - [x] **IR-02a: Preserve checked metadata when erasing unsafe wrappers.**
   Verify the body's stable node sequence and retained numeric type/operation
   metadata still associate with backend syntax after `#unsafe` wrappers are

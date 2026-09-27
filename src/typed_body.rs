@@ -291,6 +291,38 @@ mod tests {
     }
 
     #[test]
+    fn emission_bridge_rejects_symbol_identity_drift() {
+        let source = "(#fn main () u64
+          (#let first u64 1u64)
+          (#let second u64 2u64)
+          (#return first))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut lowered = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => {
+                    Some(function.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        lowered.body = body.statements(&body.instructions, true);
+        body.emission_types(&lowered).unwrap();
+        let Statement::Return(Some(Expr::Symbol(name))) = &mut lowered.body[2] else {
+            unreachable!()
+        };
+        *name = "second".into();
+        let error = body.emission_types(&lowered).err().unwrap();
+        assert!(
+            error.contains("checked expression shape changed"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn lowering_preserves_mutation_projections_and_nested_control_flow() {
         let sources = [
             "(#fn main () u64 (#let-mut value u64 0u64) (#while (#u64.< value 2u64) (#set value (#u64.+.wrap value 1u64))) (#return value))",
@@ -681,7 +713,15 @@ impl Body {
             let node = &self.nodes[id.0];
             let matches_shape = match (&node.kind, target) {
                 (NodeKind::Literal(expected), actual) => expected == actual,
-                (NodeKind::Symbol { .. } | NodeKind::Declaration(_), Expr::Symbol(_)) => true,
+                (NodeKind::Symbol { name, binding }, Expr::Symbol(actual)) => {
+                    binding
+                        .map(|id| self.bindings[id.0].name.as_str())
+                        .unwrap_or(name)
+                        == actual
+                }
+                (NodeKind::Declaration(id), Expr::Symbol(actual)) => {
+                    &self.declaration_names[id] == actual
+                }
                 (
                     NodeKind::Form { .. }
                     | NodeKind::If { .. }
