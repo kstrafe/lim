@@ -57,7 +57,10 @@ pub(crate) enum FlowAction {
     Branch(NodeId),
     LoopHead,
     Return(Option<NodeId>),
-    Break(Option<NodeId>),
+    Break {
+        value: Option<NodeId>,
+        result: Option<NodeId>,
+    },
     Continue,
     Diverge,
 }
@@ -216,6 +219,49 @@ impl FlowLoanOrigins {
         node: FlowNodeId,
         value: NodeId,
     ) -> Vec<LoanOrigin> {
+        if matches!(body.nodes[value.0].kind, NodeKind::Loop(_)) {
+            let mut loop_results = Vec::new();
+            for (index, event) in flow.nodes.iter().enumerate() {
+                let FlowAction::Break {
+                    value: Some(break_value),
+                    result: Some(result),
+                } = &event.action
+                else {
+                    continue;
+                };
+                if *result != value {
+                    continue;
+                }
+                let Some(state) = &self.before[index] else {
+                    continue;
+                };
+                let mut alternatives = Vec::new();
+                collect_result_alternatives(body, *break_value, &mut alternatives);
+                let mut evaluated = false;
+                for alternative in alternatives {
+                    for (event_index, candidate) in flow.nodes.iter().enumerate() {
+                        if flow_action_has_value(&candidate.action, alternative) {
+                            if let Some(state) = &self.before[event_index] {
+                                evaluated = true;
+                                merge_loan_origins(
+                                    &mut loop_results,
+                                    &value_loan_origins(body, alternative, state),
+                                );
+                            }
+                        }
+                    }
+                }
+                if !evaluated {
+                    merge_loan_origins(
+                        &mut loop_results,
+                        &value_loan_origins(body, *break_value, state),
+                    );
+                }
+            }
+            if !loop_results.is_empty() {
+                return loop_results;
+            }
+        }
         let mut results = Vec::new();
         let mut alternatives = Vec::new();
         collect_result_alternatives(body, value, &mut alternatives);
@@ -313,6 +359,7 @@ struct Target {
     name: Option<String>,
     break_to: FlowNodeId,
     continue_to: Option<FlowNodeId>,
+    break_result: Option<NodeId>,
     scope_depth: usize,
 }
 
@@ -551,7 +598,8 @@ impl FlowGraph {
                 FlowAction::Bind { value, .. }
                 | FlowAction::Assign { value, .. }
                 | FlowAction::Pattern { value, .. } => Some(value),
-                FlowAction::Return(value) | FlowAction::Break(value) => value,
+                FlowAction::Return(value) => value,
+                FlowAction::Break { value, .. } => value,
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -1110,12 +1158,21 @@ impl FlowGraph {
                         ));
                     }
                 }
-                FlowAction::Break(value) => {
+                FlowAction::Break { value, result } => {
                     if value
                         .is_some_and(|id| body.nodes.get(id.0).is_none_or(|node| node.ty.is_none()))
                     {
                         return Err(format!(
                             "typed flow break {index} references an invalid value"
+                        ));
+                    }
+                    if result.is_some_and(|id| {
+                        body.nodes
+                            .get(id.0)
+                            .is_none_or(|node| !matches!(node.kind, NodeKind::Loop(_)))
+                    }) {
+                        return Err(format!(
+                            "typed flow break {index} references an invalid loop result"
                         ));
                     }
                 }
@@ -1985,7 +2042,7 @@ impl Builder<'_> {
             Control::While(condition, body) => {
                 self.while_loop(*condition, body, next, targets, label, span)
             }
-            Control::Loop(body) => self.loop_body(body, next, targets, label, span),
+            Control::Loop(body) => self.loop_body(body, next, targets, label, span, None),
             Control::For(init, condition, step, body) => {
                 let init_bindings =
                     direct_scope_bindings(self.body, std::slice::from_ref(init.as_ref()));
@@ -2007,6 +2064,7 @@ impl Builder<'_> {
                     name: label.map(str::to_owned),
                     break_to: after_loop,
                     continue_to: Some(step_entry),
+                    break_result: None,
                     scope_depth: self.active_scopes.len(),
                 });
                 let body_entry = self.scoped_instructions(body, step_entry, &loop_targets)?;
@@ -2027,6 +2085,7 @@ impl Builder<'_> {
                         name: Some(name.clone()),
                         break_to: next,
                         continue_to: None,
+                        break_result: None,
                         scope_depth: self.active_scopes.len(),
                     });
                     self.instruction(inner, next, &labeled, None)
@@ -2050,7 +2109,14 @@ impl Builder<'_> {
                     })
                     .ok_or_else(|| format!("typed flow has no break target for {label:?}"))?;
                 let cleanup = self.cleanup_to(target.scope_depth, target.break_to);
-                let end = self.push(FlowAction::Break(*value), span, vec![cleanup]);
+                let end = self.push(
+                    FlowAction::Break {
+                        value: *value,
+                        result: target.break_result,
+                    },
+                    span,
+                    vec![cleanup],
+                );
                 match value {
                     Some(value) => self.expression(*value, end, targets, None),
                     None => Ok(end),
@@ -2089,6 +2155,7 @@ impl Builder<'_> {
             name: label.map(str::to_owned),
             break_to: next,
             continue_to: Some(condition_entry),
+            break_result: None,
             scope_depth: self.active_scopes.len(),
         });
         let body_entry = self.scoped_instructions(body, condition_entry, &loop_targets)?;
@@ -2103,6 +2170,7 @@ impl Builder<'_> {
         targets: &[Target],
         label: Option<&str>,
         span: Option<Span>,
+        break_result: Option<NodeId>,
     ) -> Result<FlowNodeId, String> {
         let header = self.push(FlowAction::LoopHead, span, vec![]);
         let mut loop_targets = targets.to_vec();
@@ -2110,6 +2178,7 @@ impl Builder<'_> {
             name: label.map(str::to_owned),
             break_to: next,
             continue_to: Some(header),
+            break_result,
             scope_depth: self.active_scopes.len(),
         });
         let body_entry = self.scoped_instructions(body, header, &loop_targets)?;
@@ -2154,7 +2223,7 @@ impl Builder<'_> {
             }
             NodeKind::MatchArm { .. } => Err("typed match arm has no dispatch".into()),
             NodeKind::Block(body) => self.scoped_instructions(body, next, targets),
-            NodeKind::Loop(body) => self.loop_body(body, next, targets, label, span),
+            NodeKind::Loop(body) => self.loop_body(body, next, targets, label, span, Some(id)),
             NodeKind::Labeled(name, value) => self.expression(*value, next, targets, Some(name)),
             NodeKind::Form {
                 children, numeric, ..
@@ -2447,7 +2516,9 @@ mod tests {
             .nodes
             .iter()
             .filter_map(|node| match node.action {
-                FlowAction::Break(Some(value)) => Some(value),
+                FlowAction::Break {
+                    value: Some(value), ..
+                } => Some(value),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -2478,7 +2549,7 @@ mod tests {
         let transfer = graph
             .nodes
             .iter()
-            .position(|node| matches!(node.action, FlowAction::Break(Some(_))))
+            .position(|node| matches!(node.action, FlowAction::Break { value: Some(_), .. }))
             .map(FlowNodeId)
             .unwrap();
         assert_eq!(origins.before(transfer, view).len(), 1);
@@ -4346,7 +4417,7 @@ mod tests {
         let breaks = graph
             .nodes
             .iter()
-            .filter(|node| matches!(node.action, FlowAction::Break(_)))
+            .filter(|node| matches!(node.action, FlowAction::Break { .. }))
             .collect::<Vec<_>>();
         let continues = graph
             .nodes

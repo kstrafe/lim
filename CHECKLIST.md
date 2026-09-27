@@ -875,6 +875,13 @@ the checklist is committed alongside the implementation it tracks.
   match, and verify the return span plus original borrow label. Loop-break
   result provenance and complete typed escape enforcement remain in IR-04.
 
+- [x] **IR-04bd: Tie loop-expression breaks to their result identity.** Retain
+  the checked loop node on each corresponding break edge, and inspect break
+  values at their pre-cleanup flow events when checking a returned loop result.
+  Validate that the target is a checked loop node; test a local borrow escaping
+  through `(#return (#loop (#break ...)))` with both source labels. Statement
+  loops and other typed ownership transfers remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
