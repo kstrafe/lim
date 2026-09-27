@@ -1621,7 +1621,7 @@ and acceptance coverage.
   and check runtime outputs and artifact sizes without timing gates in ordinary
   tests. Keep Nix and dependency-free Rust tooling.
 
-- [ ] **PERF-02: Measure compile-local symbol interning before adopting it.**
+- [x] **PERF-02: Measure compile-local symbol interning before adopting it.**
   Count duplicate identifier allocations and AST/generator symbol clones on
   representative cold/warm builds. Prototype a compilation-local interner
   using only the standard library; compare wall time, allocations or peak
@@ -1630,13 +1630,16 @@ and acceptance coverage.
   preserving source spelling and diagnostics. Avoid a process-global interner
   that retains symbols between compilations; keep the simpler representation
   if benchmarks show no material win.
-  Initial lexical counts on an i7-13700KF (one benchmark iteration) show
-  1,285 identifier tokens but only 516 distinct spellings in the 256-function
-  synthetic source, with 3,333 repeated text bytes. The measured lex and parse
-  phases together took about 0.56 ms versus about 19 ms end-to-end; this is
-  not an interning speedup measurement. The benchmark now reports repetition
-  for real collection and call-chain workloads too. A controlled A/B prototype
-  is still needed before changing the AST representation.
+  On an i7-13700KF with Rust 1.99.0-nightly, the 256-function fixture's
+  current parse averaged 386.6 µs over 20 iterations; building the post-parse
+  interned mirror averaged 536.3 µs and raised total requested allocation
+  traffic from 1.42 MB/10,556 calls to 1.80 MB/12,882 calls per iteration.
+  The large-reference and allocator fixtures showed the same direction. Keep
+  the String AST: the prototype adds work and allocations, so there is no
+  measured win to justify changing production representation. This does not
+  rule out a future in-place parser prototype if profiling points to identifier
+  cloning. Because the pool is not integrated into generation, cold/warm cache
+  decisions are unchanged (both workloads miss cold and hit warm).
 
 - [x] **PERF-02a: Pilot a standard-library symbol pool in benchmarks.** Add a
   compilation-local `Arc<str>`/ID pool alongside the existing String-clone
@@ -1662,15 +1665,15 @@ and acceptance coverage.
   so retain PERF-02 until an in-place front-end replacement and downstream
   build A/B can establish a material benefit.
 
-- [x] **PERF-02b: Benchmark a compile-local interned syntax-tree prototype.**
+- [x] **PERF-02d: Benchmark a compile-local interned syntax-tree prototype.**
   Preserve syntax shape and spans in a benchmark-only AST with `u32` symbol
   IDs and a per-compilation spelling pool. On an i7-13700KF with Rust 1.99.0
   nightly, 30 warm release iterations measured current parse versus parse
   plus conversion at 271/640 µs (256 generated functions), 87/143 µs
   (large reference projections), and 135/221 µs (allocator example).
   Duplicate symbol allocation estimates were 768, 105, and 251 respectively.
-  This post-parse design loses; PERF-02 remains open for a true front-end and
-  downstream pipeline A/B before deciding whether to change representation.
+  This post-parse design loses; retain the simpler String representation as
+  recorded in the PERF-02 decision above.
 
 ### Build outputs and developer tooling
 
