@@ -1047,6 +1047,13 @@ the checklist is committed alongside the implementation it tracks.
   preserve keyword-sized diagnostic spans, and verify typed diagnostics run
   before the syntax fallback.
 
+- [x] **IR-04ch: Rebase lexical projected reborrows to referent places.** When
+  a scoped borrow targets a field through a stored reference, resolve its
+  referent place at the start event and carry all joined origins through the
+  scope. Permit disjoint sibling accesses while rejecting a nested borrow of
+  the same projection; do not mistake an equal-place nested borrow for a
+  strict child reborrow.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

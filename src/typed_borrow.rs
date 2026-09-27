@@ -55,12 +55,26 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
     let scoped_places = flow
         .nodes
         .iter()
-        .filter_map(|node| match node.action {
+        .enumerate()
+        .filter_map(|(index, node)| match node.action {
             FlowAction::Borrow {
                 value,
                 ref place,
                 mutable,
-            } if scoped_ids.contains(&value) => Some((value, (place.clone(), mutable, node.span))),
+            } if scoped_ids.contains(&value) => {
+                let projected = match place.root {
+                    PlaceRoot::Local(binding) => {
+                        origins.projected_referents(FlowNodeId(index), binding, &place.segments)
+                    }
+                    _ => Vec::new(),
+                };
+                let places = if projected.is_empty() {
+                    vec![place.clone()]
+                } else {
+                    projected
+                };
+                Some((value, (places, mutable, node.span)))
+            }
             _ => None,
         })
         .collect::<HashMap<_, _>>();
@@ -171,7 +185,7 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
         let mut active_scopes = scoped_before[index].iter().copied().collect::<Vec<_>>();
         active_scopes.sort_by_key(|scope| scope.0);
         for scope in active_scopes {
-            let Some((held_place, held_mutable, held_span)) = scoped_places.get(&scope) else {
+            let Some((held_places, held_mutable, held_span)) = scoped_places.get(&scope) else {
                 continue;
             };
             let mutable_scope_access = *held_mutable
@@ -179,23 +193,31 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
                     access,
                     AccessKind::Read | AccessKind::Clone | AccessKind::Write
                 )
-                && access_places.iter().any(|access| {
-                    held_place.root == access.root
-                        && access.segments.starts_with(&held_place.segments)
+                && held_places.iter().any(|held_place| {
+                    access_places.iter().any(|access| {
+                        held_place.root == access.root
+                            && access.segments.starts_with(&held_place.segments)
+                    })
                 });
             let held_is_parent_ancestor = matches!(access, AccessKind::Borrow { .. })
                 && reborrow_parent.is_some()
                 && *held_mutable
-                && access_places.iter().any(|access| {
-                    held_place.root == access.root
-                        && access.segments.starts_with(&held_place.segments)
+                && held_places.iter().any(|held_place| {
+                    access_places.iter().any(|access| {
+                        held_place.root == access.root
+                            && access.segments.len() > held_place.segments.len()
+                            && access.segments.starts_with(&held_place.segments)
+                    })
                 });
-            if mutable_scope_access
-                || held_is_parent_ancestor
-                || !access_places.iter().any(|place| held_place.overlaps(place))
-            {
+            if mutable_scope_access || held_is_parent_ancestor {
                 continue;
             }
+            let Some(held_place) = held_places
+                .iter()
+                .find(|held| access_places.iter().any(|place| held.overlaps(place)))
+            else {
+                continue;
+            };
             let conflicts = match access {
                 AccessKind::Read | AccessKind::Clone => *held_mutable,
                 AccessKind::Borrow { mutable } => *held_mutable || mutable,
@@ -1215,6 +1237,38 @@ mod tests {
             (#if true (#borrow value 2u64) 3u64)
             (#borrow-mut value 4u64)
             (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap();
+    }
+
+    #[test]
+    fn scoped_field_reborrow_conflicts_on_the_referent_projection() {
+        let source = "(#struct Pair ((left u64) (right u64)))
+          (#fn main () u64
+            (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+            (#let parent (#ref-mut Pair) (#borrow-mut pair))
+            (#borrow-mut (#get parent left)
+              (#block
+                (#let view (#ref u64) (#borrow (#get parent left)))
+                3u64))
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("cannot borrow 'pair'"), "{error}");
+    }
+
+    #[test]
+    fn scoped_field_reborrow_keeps_disjoint_siblings_available() {
+        let source = "(#struct Pair ((left u64) (right u64)))
+          (#fn main () u64
+            (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+            (#let parent (#ref-mut Pair) (#borrow-mut pair))
+            (#borrow-mut (#get parent left)
+              (#block
+                (#let view (#ref u64) (#borrow (#get parent right)))
+                (#drop view)
+                3u64))
+            (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
         crate::CheckedProgram::validate(&program).unwrap();
     }
