@@ -1,10 +1,37 @@
 //! Typed, source-located body arena. Dense IDs survive copying and lowering;
-//! the address index is only a bridge to the immutably borrowed legacy AST.
+//! checked type/span capture still bridges through the borrowed legacy AST.
 use std::collections::HashMap;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emission_order_is_reconstructed_from_stable_nodes() {
+        let source = "(#fn main () u64
+          (#let-mut total u64 0u64)
+          (#for (#let-mut i u64 0u64) (#u64.< i 3u64)
+            (#set i (#u64.+.wrap i 1u64))
+            (#set total (#u64.+.wrap total i)))
+          (#return (#if true total 0u64)))";
+        let first = crate::parse_program(source).unwrap();
+        let second = crate::parse_program(source).unwrap();
+        let checked_first = crate::CheckedProgram::validate(&first).unwrap();
+        let checked_second = crate::CheckedProgram::validate(&second).unwrap();
+        let body_first = &checked_first.declarations().bodies["main"];
+        let body_second = &checked_second.declarations().bodies["main"];
+        assert_eq!(body_first.emission_nodes, body_first.emission_node_order());
+        assert_eq!(body_first.emission_nodes, body_second.emission_nodes);
+        let function = first
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        body_first.emission_types(function).unwrap();
+    }
 
     #[test]
     fn numeric_opcodes_round_trip_without_free_form_operation_names() {
@@ -726,6 +753,112 @@ pub(crate) struct EmissionNode {
 }
 
 impl Body {
+    fn emission_node_order(&self) -> Vec<NodeId> {
+        let mut order = Vec::new();
+        self.walk_emission_instructions(&self.instructions, &mut order);
+        order
+    }
+
+    fn walk_emission_instructions(&self, instructions: &[Instruction], order: &mut Vec<NodeId>) {
+        for instruction in instructions {
+            match &instruction.control {
+                Control::Bind(_, value, _)
+                | Control::Return(Some(value))
+                | Control::Break(_, Some(value))
+                | Control::Evaluate(value) => self.walk_emission_node(*value, order),
+                Control::Destructure {
+                    pattern,
+                    value,
+                    otherwise,
+                    ..
+                } => {
+                    self.walk_emission_node(*pattern, order);
+                    self.walk_emission_node(*value, order);
+                    if let Some(otherwise) = otherwise {
+                        self.walk_emission_instructions(otherwise, order);
+                    }
+                }
+                Control::Assign(_, projection, value) => {
+                    if let Projection::Array(index) = projection {
+                        self.walk_emission_node(*index, order);
+                    }
+                    self.walk_emission_node(*value, order);
+                }
+                Control::While(condition, body) => {
+                    self.walk_emission_node(*condition, order);
+                    self.walk_emission_instructions(body, order);
+                }
+                Control::Loop(body) => self.walk_emission_instructions(body, order),
+                Control::For(init, condition, step, body) => {
+                    self.walk_emission_instructions(std::slice::from_ref(init.as_ref()), order);
+                    self.walk_emission_node(*condition, order);
+                    self.walk_emission_instructions(std::slice::from_ref(step.as_ref()), order);
+                    self.walk_emission_instructions(body, order);
+                }
+                Control::Labeled(_, statement) => {
+                    self.walk_emission_instructions(
+                        std::slice::from_ref(statement.as_ref()),
+                        order,
+                    );
+                }
+                Control::Return(None) | Control::Break(_, None) | Control::Continue(_) => {}
+            }
+        }
+    }
+
+    fn walk_emission_node(&self, id: NodeId, order: &mut Vec<NodeId>) {
+        match &self.nodes[id.0].kind {
+            NodeKind::Form { head, children, .. } if head == "unsafe" && children.len() == 2 => {
+                self.walk_emission_node(children[1], order);
+                return;
+            }
+            NodeKind::Form { children, .. } | NodeKind::Syntax(children) => {
+                for child in children {
+                    self.walk_emission_node(*child, order);
+                }
+            }
+            NodeKind::If {
+                head,
+                condition,
+                then_value,
+                else_value,
+            } => {
+                for child in [
+                    Some(*head),
+                    Some(*condition),
+                    Some(*then_value),
+                    *else_value,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    self.walk_emission_node(child, order);
+                }
+            }
+            NodeKind::Match { head, value, arms } => {
+                self.walk_emission_node(*head, order);
+                self.walk_emission_node(*value, order);
+                for arm in arms {
+                    self.walk_emission_node(*arm, order);
+                }
+            }
+            NodeKind::MatchArm { pattern, values } => {
+                self.walk_emission_node(*pattern, order);
+                for value in values {
+                    self.walk_emission_node(*value, order);
+                }
+            }
+            NodeKind::Block(body) | NodeKind::Loop(body) => {
+                self.walk_emission_instructions(body, order);
+            }
+            NodeKind::Labeled(_, child) | NodeKind::Quoted(_, child) => {
+                self.walk_emission_node(*child, order);
+            }
+            NodeKind::Declaration(_) | NodeKind::Symbol { .. } | NodeKind::Literal(_) => {}
+        }
+        order.push(id);
+    }
+
     /// Bridge stable nodes into the legacy instruction selector after unsafe
     /// erasure and call-name specialization. No semantic analysis is repeated.
     pub fn emission_types(&self, lowered: &Function) -> Result<EmissionTypes, String> {
@@ -1043,7 +1176,6 @@ impl Body {
         let mut builder = Builder {
             body: Body::default(),
             names: HashMap::new(),
-            by_address: HashMap::new(),
             declarations,
             types,
             spans,
@@ -1055,12 +1187,7 @@ impl Body {
             );
         }
         builder.body.instructions = builder.statements(&function.body);
-        let mut expressions = Vec::new();
-        walk_statements(&function.body, &mut expressions);
-        builder.body.emission_nodes = expressions
-            .iter()
-            .map(|expression| builder.by_address[&(std::ptr::from_ref(*expression) as usize)])
-            .collect();
+        builder.body.emission_nodes = builder.body.emission_node_order();
         builder.body
     }
 }
@@ -1144,8 +1271,6 @@ fn walk_statements<'a>(statements: &'a [Statement], output: &mut Vec<&'a Expr>) 
 struct Builder<'a> {
     body: Body,
     names: HashMap<String, BindingId>,
-    // Temporary syntax correspondence, discarded once the arena is complete.
-    by_address: HashMap<usize, NodeId>,
     declarations: &'a Declarations,
     types: &'a HashMap<usize, Type>,
     spans: &'a HashMap<usize, Span>,
@@ -1215,30 +1340,33 @@ impl Builder<'_> {
     // Pattern nodes retain their original syntax, but declaration occurrences
     // carry the same identity as uses in the successful scope. Never discover
     // a binding from its first use: unused bindings must exist too.
-    fn pattern_bindings(&mut self, pattern: &Expr, ty: &Type, enum_pattern: bool) {
+    fn pattern_bindings(&mut self, pattern: &Expr, node: NodeId, ty: &Type, enum_pattern: bool) {
         let ty = resolve_type(ty, &self.declarations.aliases).expect("checked pattern type");
+        let children = match &self.body.nodes[node.0].kind {
+            NodeKind::Form { children, .. } | NodeKind::Syntax(children) => children.clone(),
+            _ => Vec::new(),
+        };
         if enum_pattern {
             if let Type::Named(name) = &ty {
                 if self.declarations.enums.contains_key(name) {
                     if let Expr::List(items) = pattern {
                         if let Some(Expr::Symbol(head)) = items.first() {
                             if head == "or" {
-                                for alternative in &items[1..] {
-                                    self.pattern_bindings(alternative, &ty, true);
+                                for (alternative, child) in items[1..].iter().zip(&children[1..]) {
+                                    self.pattern_bindings(alternative, *child, &ty, true);
                                 }
                             } else if let Some(id) = self.declarations.variant_id(&ty, head) {
                                 let fields = self.declarations.variant(id).fields.clone();
-                                let node =
-                                    self.by_address[&(std::ptr::from_ref(&items[0]) as usize)];
-                                self.resolve_node(node, DeclarationId::Variant(id));
-                                for (child, field) in items[1..].iter().zip(fields) {
-                                    self.pattern_bindings(child, &field, false);
+                                self.resolve_node(children[0], DeclarationId::Variant(id));
+                                for ((pattern, child), field) in
+                                    items[1..].iter().zip(&children[1..]).zip(fields)
+                                {
+                                    self.pattern_bindings(pattern, *child, &field, false);
                                 }
                             }
                         }
                     } else if let Expr::Symbol(head) = pattern {
                         if let Some(id) = self.declarations.variant_id(&ty, head) {
-                            let node = self.by_address[&(std::ptr::from_ref(pattern) as usize)];
                             self.resolve_node(node, DeclarationId::Variant(id));
                         }
                     }
@@ -1249,8 +1377,7 @@ impl Builder<'_> {
         match pattern {
             Expr::Symbol(name) if !matches!(name.as_str(), "_" | "true" | "false") => {
                 let binding = self.binding(name, ty);
-                let id = self.by_address[&(std::ptr::from_ref(pattern) as usize)];
-                self.body.nodes[id.0].kind = NodeKind::Symbol {
+                self.body.nodes[node.0].kind = NodeKind::Symbol {
                     name: name.clone(),
                     binding: Some(binding),
                 };
@@ -1273,11 +1400,10 @@ impl Builder<'_> {
                     _ => return, // Literal, range, and or patterns bind nothing.
                 };
                 if let Some(id) = self.declarations.aggregate_id(&ty) {
-                    let node = self.by_address[&(std::ptr::from_ref(&items[0]) as usize)];
-                    self.resolve_node(node, DeclarationId::Aggregate(id));
+                    self.resolve_node(children[0], DeclarationId::Aggregate(id));
                 }
-                for (child, field) in items[1..].iter().zip(fields) {
-                    self.pattern_bindings(child, &field, false);
+                for ((pattern, child), field) in items[1..].iter().zip(&children[1..]).zip(fields) {
+                    self.pattern_bindings(pattern, *child, &field, false);
                 }
             }
             _ => {}
@@ -1290,7 +1416,7 @@ impl Builder<'_> {
             unreachable!("checked match arm");
         };
         let pattern = self.expression(&parts[0]);
-        self.pattern_bindings(&parts[0], ty, true);
+        self.pattern_bindings(&parts[0], pattern, ty, true);
         let values = parts[1..]
             .iter()
             .map(|part| self.expression(part))
@@ -1467,7 +1593,6 @@ impl Builder<'_> {
             span: self.spans.get(&address).copied(),
             kind,
         });
-        self.by_address.insert(address, id);
         id
     }
 
@@ -1505,7 +1630,7 @@ impl Builder<'_> {
                 let value = self.expression(value);
                 let pattern_id = self.expression(pattern);
                 let ty = resolve_type(ty, &self.declarations.aliases).expect("checked pattern");
-                self.pattern_bindings(pattern, &ty, false);
+                self.pattern_bindings(pattern, pattern_id, &ty, false);
                 Control::Destructure {
                     pattern: pattern_id,
                     value,
@@ -1524,7 +1649,7 @@ impl Builder<'_> {
                 let otherwise = Some(self.statements(else_body));
                 let pattern_id = self.expression(pattern);
                 let ty = resolve_type(ty, &self.declarations.aliases).expect("checked pattern");
-                self.pattern_bindings(pattern, &ty, true);
+                self.pattern_bindings(pattern, pattern_id, &ty, true);
                 Control::Destructure {
                     pattern: pattern_id,
                     value,

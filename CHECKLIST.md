@@ -52,6 +52,15 @@ the checklist is committed alongside the implementation it tracks.
   Acceptance: shadowing, dotted names, reordered calls, contextual literals,
   generated/imported spans, and all numeric modes have focused lowering tests.
 
+- [x] **IR-02i: Derive emission order and pattern bindings from typed IDs.**
+  Walk typed instructions and nodes to build the checked emission sequence,
+  including unsafe erasure and structured control flow. Resolve pattern
+  declarations through typed child IDs instead of an expression-address index;
+  discard that temporary index from the body builder. Type and span capture
+  still use source-address maps, and the backend overlay remains a bridge until
+  the rest of IR-02/03 is migrated. Cover deterministic node order across fresh
+  parses and retain native examples and diagnostic tests.
+
 - [x] **IR-02d: Retain named-call written order separately from operands.**
   Checked call nodes keep arguments in parameter declaration order and record
   the source-order permutation when all argument spans are available. This
