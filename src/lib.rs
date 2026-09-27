@@ -9,6 +9,7 @@ use std::{
 };
 
 mod analysis_error;
+mod async_fn;
 mod borrowcheck;
 mod cache_report;
 mod codegen;
@@ -2230,11 +2231,25 @@ fn parse_program_in_directory(
                 });
                 if matches!(
                     kind,
-                    Some("thread-spawn" | "optional" | "result" | "vec" | "vec-alloc" | "vec-sort")
+                    Some(
+                        "thread-spawn"
+                            | "optional"
+                            | "result"
+                            | "vec"
+                            | "vec-alloc"
+                            | "vec-sort"
+                            | "async-fn"
+                    )
                 ) {
-                    if let Some(generated_text) = kind.and_then(|kind| {
-                        materialize_builtin_generated_source(kind, forms, &worker_functions).ok()
-                    }) {
+                    let generated_text = if kind == Some("async-fn") {
+                        async_fn::generated_source(&source_expression.expr).ok()
+                    } else {
+                        kind.and_then(|kind| {
+                            materialize_builtin_generated_source(kind, forms, &worker_functions)
+                                .ok()
+                        })
+                    };
+                    if let Some(generated_text) = generated_text {
                         let source_id = u32::try_from(source_files.len()).map_err(|_| {
                             "too many source files while tracking builtin output".to_owned()
                         })?;
@@ -2276,13 +2291,28 @@ fn parse_program_in_directory(
         }
         let parsed_items = if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
-                parse_generated_items(forms).map_err(|error| {
+                let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn")
+                {
+                    async_fn::generated_source(&source_expression.expr)
+                        .and_then(|source| parse_generated_source_items(&source))
+                } else {
+                    parse_generated_items(forms)
+                };
+                generated.map_err(|error| {
+                    let error_span = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn")
+                        && (error.contains("await") || error.contains("capture"))
+                    {
+                        source_form_head_span(&source_expression, &["#await"])
+                            .unwrap_or(form_span)
+                    } else {
+                        form_span
+                    };
                     attach_span_to_source_error_kind(
                         format!(
                             "{error} while expanding generated declaration {}",
                             expression_source(&expression).unwrap_or_else(|_| "<?>".into())
                         ),
-                        form_span,
+                        error_span,
                         &source_files,
                         "generator error: ",
                     )
@@ -3788,6 +3818,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "if-let"
             | "while"
             | "while-let"
+            | "await"
             | "for"
             | "for-range"
             | "loop"
@@ -4734,6 +4765,7 @@ fn write_generated_sources_in_directory(
         .unwrap_or_else(|| directory.join("cache"));
     for expression in expanded {
         let invocation = expression_source(&expression.expr)?;
+        let original = expression.expr.clone();
         let Expr::List(forms) = normalize_keywords(expression.expr) else {
             continue;
         };
@@ -4743,7 +4775,7 @@ fn write_generated_sources_in_directory(
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
         if !matches!(
             kind,
-            "thread-spawn" | "vec" | "vec-alloc" | "vec-sort" | "optional" | "result"
+            "thread-spawn" | "vec" | "vec-alloc" | "vec-sort" | "optional" | "result" | "async-fn"
         ) {
             continue;
         }
@@ -4754,7 +4786,11 @@ fn write_generated_sources_in_directory(
             dependency_context,
         );
         generator::cached_generated_source(&generated_cache, &key, || {
-            materialize_builtin_generated_source(&kind, &forms, &worker_functions)
+            if kind == "async-fn" {
+                async_fn::generated_source(&original)
+            } else {
+                materialize_builtin_generated_source(&kind, &forms, &worker_functions)
+            }
         })?;
     }
     if !user_generated.is_empty() {

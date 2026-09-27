@@ -527,17 +527,25 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   references exist. Distinguish pinning the referent from pinning a handle,
   and test move, reborrow, field projection, and scope-exit diagnostics.
 - [ ] **ASYNC-01b: Lower async functions to concrete poll state machines.**
-  Introduce explicit `#async-fn` and expression-level `#await`, with named
-  concrete frame and poll-result types and no implicit function pointers.
-  Capture live locals and loans at each suspension; poll with a concrete local
-  wake context. Verify eager/ready and pending paths, repeated polls, named
-  arguments, generated-code inspection, and source-span diagnostics.
+  Extend the initial `@async-fn` lowering beyond sequential immutable `#let`
+  bindings. Support control-flow joins, mutable locals, and expression-level
+  `#await` with typed liveness and loan capture, rather than an explicit
+  capture list. Preserve source-level spans through lowering and support
+  explicit cancellation of every generated state.
 - [x] **ASYNC-01b1: Forward local wake context through explicit async stages.**
   Generate a concrete waker-aware poll function for `@async-wake` task
   composition. Child polls receive the same borrowed local waker, without
   function pointers or hidden clones. Exercise Pending, wake notification,
   Ready, and explicit handle destruction in a native example; retain a test
   that rejects a pending task that illegally retains an executor borrow.
+- [x] **ASYNC-01b2: Lower sequential async functions with explicit captures.**
+  Add built-in inspectable `@async-fn` over a `#fn` form. Accept one or more
+  top-level immutable `#let` bindings whose initializer is `#await`; each
+  suspension declares its concrete child task, poll and result variants,
+  and the values to retain. Emit a linear state enum, start function, poll
+  result, and acyclic stage helpers into the hashed generated-code cache.
+  Verify immediate Ready, multiple Pending/resume cycles, empty captures,
+  omitted capture and escaping-reference rejection, and manual cancellation.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible

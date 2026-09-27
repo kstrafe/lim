@@ -223,6 +223,52 @@ not a guarantee against lost wakes: integration with a validated ready queue
 and registration ordering is still required. See
 `examples/async_wake_pipeline.lim` for a runnable Pending/wake/Ready cycle.
 
+## Compiler-lowered async functions (sequential subset)
+
+`@async-fn` is a built-in inspectable code generator. It reads a `#fn` form
+whose declared result type is the eventual value, then emits an ordinary
+linear frame enum, poll-result enum, start function (using the source function
+name), and named poll/stage helpers. The emitted Lim is cached in `.lim/cache`
+and undergoes normal type, borrow, linearity, and code generation checks:
+
+```lisp syntax
+(@async-fn (Work WorkPoll WorkPending WorkReady work-poll) LocalWaker
+  (#fn work ((offset u64)) u64
+    (#let child Step (Waiting 1u64))
+    (#let value u64
+      (#await (offset) Step StepPending StepReady step-poll child))
+    (#return (#u64.+.wrap value offset))))
+```
+
+`(#call work (#fn-args (offset 1u64)))` creates a `Work` frame. It does not
+execute the body. `work-poll` takes `(task Work)` and
+`(waker (#ref LocalWaker))`, consumes the old frame, and returns `WorkPending`
+with a new frame or `WorkReady` with the result. The child poll must accept
+the named arguments `task` and `waker`. The first poll runs the body up to
+`#await`; if the child is already Ready, execution continues in that poll.
+Later polls resume the stored state. Multiple sequential awaits are allowed.
+
+Each `#await` has the form
+`(#await (captured-name...) ChildTask PendingVariant ReadyVariant poll-function child-expression)`.
+Capture names refer to earlier explicitly typed parameters or `#let`
+bindings; they are not inferred. A value used later but omitted from the
+capture list is an error. Each async body currently consists of immutable
+top-level `#let` bindings and one final explicit `#return`; `#await` must be
+the entire initializer of a `#let`. Nested awaits, mutable locals, loops, and
+branches spanning suspension are not yet lowered. At most 32 awaits are
+accepted. References into pre-suspension locals cannot be retained in the
+frame; the ordinary borrow checker rejects them. Pinning and self-referential
+frames remain open work.
+
+Cancellation is still explicit and caller-defined: a free-standing function
+must match each generated frame state, consume its captured values, and call
+the relevant child cancellation function. Adding a new `#await` adds a state
+and makes an old exhaustive cancellation match fail compilation until it is
+updated. `examples/async_fn.lim` shows one such function and a runnable
+Pending/resume cycle. `examples/async_fn_two_awaits.lim` shows two explicit
+capture lists and the start/Pending/Pending/Ready polling sequence. This
+lowering does not add a scheduler, OS readiness, or lost-wakeup protection.
+
 ## Cancellation and threads
 
 `(@task-cancel cancel-function Task ((State handler) ...))` generates an
@@ -246,6 +292,7 @@ joins, and captured-reference restrictions come from the existing thread
 implementation. OS thread creation still uses its existing allocation path.
 
 Runnable examples: `distributed_errors.lim`, `distributed_slice.lim`,
-`local_waker.lim`, `async_wake_pipeline.lim`,
+`local_waker.lim`, `async_wake_pipeline.lim`, `async_fn.lim`,
+`async_fn_two_awaits.lim`,
 `cooperative_tasks.lim`, `async_pipeline.lim`, `task_cancellation.lim`, and
 `threaded_tasks.lim` in `examples/`.
