@@ -844,6 +844,9 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   two-await regression with scalar `#match` arms that update captured mutable
   state in a resume helper; retain the `#if` case and check the final Ready
   value to exercise the branch join.
+- [x] **ASYNC-01b7: Diagnose suspension nested in control flow.** Reject
+  `#await` inside `#if`, `#match`, or `#block` with a targeted generator error
+  instead of a generic unsupported-binding message; test the diagnostic text.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible

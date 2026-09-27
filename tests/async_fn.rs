@@ -289,6 +289,29 @@ fn async_function_rejects_assignment_to_immutable_capture() {
 }
 
 #[test]
+fn async_function_reports_nested_await_as_unsupported_control_flow() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#forget task)
+        (#return (ChildReady 1u64)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#if true
+            (#block
+              (#let result u64
+                (#await () Child ChildPending ChildReady child-poll (Waiting 0u64)))
+              result)
+            0u64)
+          (#return 0u64))))";
+    let error = lim::parse_program(source).unwrap_err();
+    assert!(
+        error.contains("awaits inside #if/#match/#block are not lowered"),
+        "{error}"
+    );
+}
+
+#[test]
 fn async_function_can_suspend_at_each_await() {
     let original = example_without_cancel_work();
     let (prefix, _) = original.split_once("(#fn main () u64").unwrap();

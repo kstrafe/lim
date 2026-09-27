@@ -271,6 +271,16 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             }
             continue;
         }
+        if form(statement, "#let")
+            .or_else(|| form(statement, "#let-mut"))
+            .or_else(|| form(statement, "let"))
+            .or_else(|| form(statement, "let-mut"))
+            .is_none()
+        {
+            return Err(
+                "@async-fn #await must be a top-level #let/#let-mut initializer or the direct #return value; awaits inside #if/#match/#block are not lowered yet".into(),
+            );
+        }
         let local = binding(statement, "#await")?;
         let let_form = form(statement, "#let")
             .or_else(|| form(statement, "#let-mut"))
