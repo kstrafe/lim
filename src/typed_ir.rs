@@ -185,8 +185,10 @@ impl Declarations {
     pub fn lower_bodies(
         &mut self,
         program: &crate::Program,
-        types: &HashMap<usize, Type>,
+        types: &HashMap<Span, Type>,
+        address_type_fallback: &HashMap<usize, Type>,
         spans: &HashMap<usize, Span>,
+        ambiguous_spans: &std::collections::HashSet<Span>,
     ) -> Result<(), String> {
         self.bodies = program
             .items
@@ -194,7 +196,14 @@ impl Declarations {
             .filter_map(|item| match item {
                 crate::Item::Function(function) if !function.external => Some((
                     function.name.clone(),
-                    crate::typed_body::Body::lower(function, self, types, spans),
+                    crate::typed_body::Body::lower(
+                        function,
+                        self,
+                        types,
+                        address_type_fallback,
+                        spans,
+                        ambiguous_spans,
+                    ),
                 )),
                 _ => None,
             })

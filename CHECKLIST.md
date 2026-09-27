@@ -67,6 +67,15 @@ the checklist is committed alongside the implementation it tracks.
   and native match regressions; the broader checker-to-IR type/span maps remain
   part of open IR-02 work.
 
+- [x] **IR-02k: Key retained expression types by source span.** Collect the
+  expression-to-span association before semantic checking and store checked
+  types under source spans. Use stable span lookup for unambiguous nodes, with
+  an address fallback when span lookup is unavailable or ambiguous after
+  transformed/imported syntax maps multiple AST nodes to one span. Preserve
+  contextual aggregate ownership, generated/imported code, cfg, and
+  loop-lowering behavior across the complete library suite. The backend's
+  address-keyed emission overlay is still open in IR-02/03.
+
 - [x] **IR-02: Verify generated declaration nodes retain source spans.** Add a
   focused generated-function lowering regression that resolves a typed node's
   source ID back to generated source text and checks its exact literal span.

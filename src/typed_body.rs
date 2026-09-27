@@ -1215,15 +1215,19 @@ impl Body {
     pub fn lower(
         function: &Function,
         declarations: &Declarations,
-        types: &HashMap<usize, Type>,
+        types: &HashMap<Span, Type>,
+        address_type_fallback: &HashMap<usize, Type>,
         spans: &HashMap<usize, Span>,
+        ambiguous_spans: &std::collections::HashSet<Span>,
     ) -> Self {
         let mut builder = Builder {
             body: Body::default(),
             names: HashMap::new(),
             declarations,
             types,
+            address_type_fallback,
             spans,
+            ambiguous_spans,
         };
         for parameter in &function.parameters {
             builder.binding(
@@ -1317,11 +1321,27 @@ struct Builder<'a> {
     body: Body,
     names: HashMap<String, BindingId>,
     declarations: &'a Declarations,
-    types: &'a HashMap<usize, Type>,
+    types: &'a HashMap<Span, Type>,
+    address_type_fallback: &'a HashMap<usize, Type>,
     spans: &'a HashMap<usize, Span>,
+    ambiguous_spans: &'a std::collections::HashSet<Span>,
 }
 
 impl Builder<'_> {
+    fn source_span(&self, expression: &Expr) -> Option<Span> {
+        self.spans
+            .get(&(std::ptr::from_ref(expression) as usize))
+            .copied()
+    }
+
+    fn expression_type(&self, expression: &Expr) -> Option<&Type> {
+        let address = std::ptr::from_ref(expression) as usize;
+        self.source_span(expression)
+            .filter(|span| !self.ambiguous_spans.contains(span))
+            .and_then(|span| self.types.get(&span))
+            .or_else(|| self.address_type_fallback.get(&address))
+    }
+
     fn binding(&mut self, name: &str, ty: Type) -> BindingId {
         let id = BindingId(self.body.bindings.len());
         self.body.bindings.push(Binding {
@@ -1513,16 +1533,15 @@ impl Builder<'_> {
     }
 
     fn expression(&mut self, expression: &Expr) -> NodeId {
-        let address = std::ptr::from_ref(expression) as usize;
         let kind = match expression {
             Expr::Symbol(name) => {
                 let binding = self
-                    .types
-                    .contains_key(&address)
+                    .expression_type(expression)
+                    .is_some()
                     .then(|| self.names.get(name).copied())
                     .flatten();
                 let declaration = if binding.is_none() {
-                    self.types.get(&address).and_then(|ty| {
+                    self.expression_type(expression).and_then(|ty| {
                         self.declarations
                             .global_id(name)
                             .map(DeclarationId::Global)
@@ -1589,7 +1608,7 @@ impl Builder<'_> {
                                 }
                             }
                         }
-                        let ty = self.types.get(&address).cloned();
+                        let ty = self.expression_type(expression).cloned();
                         self.resolve_form(items, &children, ty.as_ref());
                         let callee = self.declarations.function_id(head);
                         if let Some(callee) = callee {
@@ -1641,7 +1660,7 @@ impl Builder<'_> {
         let address = std::ptr::from_ref(expression) as usize;
         let id = NodeId(self.body.nodes.len());
         self.body.nodes.push(Node {
-            ty: self.types.get(&address).cloned(),
+            ty: self.expression_type(expression).cloned(),
             span: self.spans.get(&address).copied(),
             kind,
         });

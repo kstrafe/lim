@@ -103,7 +103,8 @@ use crate::typed_ir::{Declarations, Signature};
 #[derive(Default)]
 struct FunctionTable {
     signatures: HashMap<String, Signature>,
-    expression_types: std::cell::RefCell<HashMap<usize, Type>>,
+    expression_types: std::cell::RefCell<HashMap<crate::Span, Type>>,
+    expression_types_by_address_fallback: std::cell::RefCell<HashMap<usize, Type>>,
     source_spans: std::cell::RefCell<HashMap<usize, crate::Span>>,
     collecting_sources: std::cell::Cell<bool>,
 }
@@ -809,6 +810,43 @@ fn check_types_inner(
         *diagnostic_span = error.span;
         error.message
     })?;
+    // Establish stable source identities before type checking. Retained types
+    // are keyed by source span, not by the transient address of an AST node.
+    functions.collecting_sources.set(true);
+    for item in &program.items {
+        match item {
+            Item::Function(function) => {
+                for (index, statement) in function.body.iter().enumerate() {
+                    if let Some(source) = program
+                        .statement_expressions
+                        .get(&(function.name.clone(), index))
+                    {
+                        semantic_statement_source(
+                            statement,
+                            source,
+                            Some(usize::MAX),
+                            false,
+                            &functions,
+                            &structs,
+                        );
+                    }
+                }
+            }
+            Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
+                if let Some(source) = program.declaration_expressions.get(name) {
+                    semantic_expression_source(
+                        value,
+                        crate::source_value_expression(source),
+                        Some(usize::MAX),
+                        false,
+                        &functions,
+                        &structs,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
     for item in &program.items {
         match item {
             Item::Function(function) if function.external => {}
@@ -899,41 +937,6 @@ fn check_types_inner(
             }
         }
     }
-    functions.collecting_sources.set(true);
-    for item in &program.items {
-        match item {
-            Item::Function(function) => {
-                for (index, statement) in function.body.iter().enumerate() {
-                    if let Some(source) = program
-                        .statement_expressions
-                        .get(&(function.name.clone(), index))
-                    {
-                        semantic_statement_source(
-                            statement,
-                            source,
-                            Some(usize::MAX),
-                            false,
-                            &functions,
-                            &structs,
-                        );
-                    }
-                }
-            }
-            Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
-                if let Some(source) = program.declaration_expressions.get(name) {
-                    semantic_expression_source(
-                        value,
-                        crate::source_value_expression(source),
-                        Some(usize::MAX),
-                        false,
-                        &functions,
-                        &structs,
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
     let mut declarations = Declarations::new(
         aliases,
         structs,
@@ -943,10 +946,20 @@ fn check_types_inner(
         &program.declaration_spans,
     );
     let checked_expression_types = std::sync::Arc::new(functions.expression_types.into_inner());
+    let checked_expression_types_by_address_fallback =
+        std::sync::Arc::new(functions.expression_types_by_address_fallback.into_inner());
+    let checked_expression_spans = std::sync::Arc::new(functions.source_spans.into_inner());
+    let mut unique_spans = std::collections::HashSet::new();
+    let ambiguous_expression_spans = checked_expression_spans
+        .values()
+        .filter_map(|span| (!unique_spans.insert(*span)).then_some(*span))
+        .collect::<std::collections::HashSet<_>>();
     declarations.lower_bodies(
         program,
         &checked_expression_types,
-        &functions.source_spans.into_inner(),
+        &checked_expression_types_by_address_fallback,
+        &checked_expression_spans,
+        &ambiguous_expression_spans,
     )?;
     *diagnostic_code = crate::DiagnosticCode::Type;
     check_opaque_access(
@@ -963,13 +976,18 @@ fn check_types_inner(
         diagnostic_labels,
     )?;
     *diagnostic_code = crate::DiagnosticCode::Linear;
-    crate::linearcheck::check_program_with_span(program, checked_expression_types).map_err(
-        |(message, span, labels)| {
-            *diagnostic_span = span;
-            *diagnostic_labels = labels;
-            message
-        },
-    )?;
+    crate::linearcheck::check_program_with_span(
+        program,
+        checked_expression_types,
+        checked_expression_types_by_address_fallback,
+        checked_expression_spans,
+        std::sync::Arc::new(ambiguous_expression_spans),
+    )
+    .map_err(|(message, span, labels)| {
+        *diagnostic_span = span;
+        *diagnostic_labels = labels;
+        message
+    })?;
     let linear_types = crate::linearcheck::LinearTypes::from_program(program);
     for body in declarations.bodies.values() {
         for node in &body.nodes {
@@ -4777,10 +4795,17 @@ fn expression(
         expr, variables, functions, structs, enums, mutable, aliases, expected,
     )
     .inspect(|ty| {
+        let address = std::ptr::from_ref(expr) as usize;
         functions
-            .expression_types
+            .expression_types_by_address_fallback
             .borrow_mut()
-            .insert(std::ptr::from_ref(expr) as usize, ty.clone());
+            .insert(address, ty.clone());
+        if let Some(span) = functions.source_spans.borrow().get(&address).copied() {
+            functions
+                .expression_types
+                .borrow_mut()
+                .insert(span, ty.clone());
+        }
     })
     .map_err(|mut error| {
         if error.scope.is_none() {
