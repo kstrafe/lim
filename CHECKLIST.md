@@ -226,7 +226,13 @@ the checklist is committed alongside the implementation it tracks.
   A bare first operand of `#array` or `#tuple` cannot be an explicit type
   expression, so consume it in the syntax-side checker. Test accepted
   single transfers and rejected later reuse. List-valued contextual operands
-  still require checked constructor metadata in the full IR-04 migration.
+  are handled in the following checked-metadata bridge.
+
+- [x] **IR-04: Classify list-valued contextual constructor moves.** Reuse
+  checked expression types and constructor arity in the transitional linear
+  checker, avoiding a syntax guess when the first value is itself a list.
+  Test both accepted transfers and rejected reuse for arrays and tuples.
+  This address-indexed bridge must disappear when IR-04 is complete.
 
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;

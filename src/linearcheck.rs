@@ -131,6 +131,7 @@ pub(crate) struct LinearTypes {
     structs: std::collections::HashMap<String, Vec<Type>>,
     struct_fields: std::collections::HashMap<String, Vec<(String, Type)>>,
     enums: std::collections::HashMap<String, std::collections::HashMap<String, Vec<Type>>>,
+    checked_expressions: Option<std::sync::Arc<std::collections::HashMap<usize, Type>>>,
 }
 
 impl LinearTypes {
@@ -307,8 +308,10 @@ impl LinearTypes {
 /// once; Copy values and references do not create an ownership obligation.
 pub(crate) fn check_program_with_span(
     program: &Program,
+    checked_expressions: std::sync::Arc<std::collections::HashMap<usize, Type>>,
 ) -> Result<(), (String, Option<crate::Span>, Vec<(crate::Span, String)>)> {
-    let types = LinearTypes::from_program(program);
+    let mut types = LinearTypes::from_program(program);
+    types.checked_expressions = Some(checked_expressions);
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;
@@ -928,14 +931,20 @@ fn check_expr(
             } else if head == "slice-mut-len" && items.len() == 2 {
                 check_expr(&items[1], bindings, moved, globals, true, types)?;
             } else if head == "tuple" || head == "array" {
-                // Explicit constructor types are lists, while a bare first
-                // operand in a contextual constructor is always a value.
-                // List-valued contextual operands need checked metadata and
-                // remain part of the typed-flow migration.
-                let value_start = if matches!(items.get(1), Some(Expr::List(_))) {
-                    2
-                } else {
+                let checked_type = types
+                    .checked_expressions
+                    .as_ref()
+                    .and_then(|checked| checked.get(&(std::ptr::from_ref(expr) as usize)))
+                    .and_then(|ty| types.resolve_aliases(ty.clone()));
+                let arity = match checked_type {
+                    Some(Type::Array(_, length)) => Some(length),
+                    Some(Type::Tuple(fields)) => Some(fields.len()),
+                    _ => None,
+                };
+                let value_start = if arity.is_some_and(|count| items.len() == count + 1) {
                     1
+                } else {
+                    2
                 };
                 for arg in items.iter().skip(value_start) {
                     check_expr(arg, bindings, moved, globals, false, types)?;

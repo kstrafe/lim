@@ -942,9 +942,10 @@ fn check_types_inner(
         functions.signatures,
         &program.declaration_spans,
     );
+    let checked_expression_types = std::sync::Arc::new(functions.expression_types.into_inner());
     declarations.lower_bodies(
         program,
-        &functions.expression_types.into_inner(),
+        &checked_expression_types,
         &functions.source_spans.into_inner(),
     )?;
     *diagnostic_code = crate::DiagnosticCode::Type;
@@ -962,11 +963,13 @@ fn check_types_inner(
         diagnostic_labels,
     )?;
     *diagnostic_code = crate::DiagnosticCode::Linear;
-    crate::linearcheck::check_program_with_span(program).map_err(|(message, span, labels)| {
-        *diagnostic_span = span;
-        *diagnostic_labels = labels;
-        message
-    })?;
+    crate::linearcheck::check_program_with_span(program, checked_expression_types).map_err(
+        |(message, span, labels)| {
+            *diagnostic_span = span;
+            *diagnostic_labels = labels;
+            message
+        },
+    )?;
     let linear_types = crate::linearcheck::LinearTypes::from_program(program);
     for body in declarations.bodies.values() {
         for node in &body.nodes {

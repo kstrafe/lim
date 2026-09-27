@@ -90,6 +90,8 @@ fn contextual_array_and_tuple_consume_the_first_value() {
     for (ty, constructor) in [
         ("(#array Token 1)", "(#array token)"),
         ("(#tuple Token)", "(#tuple token)"),
+        ("(#array Token 1)", "(#array (#block token))"),
+        ("(#tuple Token)", "(#tuple (#block token))"),
     ] {
         let source = format!(
             "(#struct Token ((value u64)))
@@ -111,6 +113,8 @@ fn contextual_array_and_tuple_accept_a_single_linear_transfer() {
     for (ty, constructor) in [
         ("(#array Token 1)", "(#array token)"),
         ("(#tuple Token)", "(#tuple token)"),
+        ("(#array Token 1)", "(#array (#block token))"),
+        ("(#tuple Token)", "(#tuple (#block token))"),
     ] {
         let source = format!(
             "(#struct Token ((value u64)))
@@ -124,4 +128,17 @@ fn contextual_array_and_tuple_accept_a_single_linear_transfer() {
         check_types(&parse_program(&source).unwrap())
             .unwrap_or_else(|error| panic!("{ty}: {error}"));
     }
+}
+
+#[test]
+fn aliased_contextual_constructor_consumes_a_list_valued_operand() {
+    let source = "(#struct Token ((value u64)))
+      (#linear Token)
+      (#type Tokens (#array Token 1))
+      (#fn main () ()
+        (#let token Token (#struct-literal Token ((value 7u64))))
+        (#let values Tokens (#array (#block token)))
+        (#forget values)
+        (#return ()))";
+    check_types(&parse_program(source).unwrap()).unwrap();
 }
