@@ -12215,14 +12215,14 @@ impl FunctionContext {
                 let global_layout = self.label("reference_value_global_layout");
                 let done = self.label("reference_value_done");
                 self.output.push_str(&format!(
-                    "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+                    "    mov r11, rax\n    test r11b, 1\n    jz {global_layout}\n    and r11, -2\n"
                 ));
                 for (word, register) in VALUE_REGISTERS.iter().enumerate().take(field_words) {
                     let offset = word * 8;
                     let address = if offset == 0 {
-                        "rax".to_owned()
+                        "r11".to_owned()
                     } else {
-                        format!("rax-{offset}")
+                        format!("r11-{offset}")
                     };
                     self.output
                         .push_str(&format!("    mov {register}, QWORD PTR [{address}]\n"));
@@ -12231,7 +12231,7 @@ impl FunctionContext {
                     .push_str(&format!("    jmp {done}\n{global_layout}:\n"));
                 for (word, register) in VALUE_REGISTERS.iter().enumerate().take(field_words) {
                     self.output.push_str(&format!(
-                        "    mov {register}, QWORD PTR [rax+{}]\n",
+                        "    mov {register}, QWORD PTR [r11+{}]\n",
                         word * 8
                     ));
                 }

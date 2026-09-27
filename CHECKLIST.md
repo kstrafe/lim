@@ -457,6 +457,12 @@ is an independent documentation and parser-diagnostics task.
 
 ## Test reliability
 
+- [x] **BACKEND-REF-01: Preserve the base of multiword reference fields.**
+  Load projected aggregate words through a dedicated scratch register so the
+  first value word cannot overwrite the address for later words. Cover a
+  three-word array field read through a struct reference with a native
+  regression, and retain the bounded ready-queue example as a second user.
+
 - [x] **TEST-01: Avoid flaky numeric differential process timeouts.** The
   native oracle launches many short-lived programs, so a 3-second per-process
   deadline could expire from host scheduling pressure after the all-example
