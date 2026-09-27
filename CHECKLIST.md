@@ -1353,6 +1353,15 @@ and acceptance coverage.
   for real collection and call-chain workloads too. A controlled A/B prototype
   is still needed before changing the AST representation.
 
+- [x] **PERF-02a: Pilot a standard-library symbol pool in benchmarks.** Add a
+  compilation-local `Arc<str>`/ID pool alongside the existing String-clone
+  workload, without changing compiler behavior or cache keys. On the
+  i7-13700KF, 200 iterations of the 256-function token workload averaged
+  about 56.9 µs for pooling versus 52.6 µs for cloning; the four-function
+  workload averaged 1.48 µs versus 0.79 µs. This microbenchmark does not
+  measure a fully interned AST, so PERF-02 remains open. Preserve the current
+  representation until a broader A/B build shows a material improvement.
+
 ### Build outputs and developer tooling
 
 - [x] **BUILD-01: Publish final outputs only after successful compilation.**

@@ -1,9 +1,10 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env, fs,
     hint::black_box,
     path::{Path, PathBuf},
     process::Command,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -40,6 +41,38 @@ fn report_symbol_repetition(label: &str, source: &str) {
         "{label}.symbols occurrences={occurrences} unique={} repeated_text_bytes={repeated_bytes}",
         unique.len()
     );
+}
+
+fn clone_symbol_text(tokens: &[lim::Token]) -> Vec<String> {
+    tokens
+        .iter()
+        .filter_map(|token| match &token.kind {
+            lim::TokenKind::Symbol(value) => Some(value.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn intern_symbol_text(tokens: &[lim::Token]) -> (Vec<Arc<str>>, Vec<u32>) {
+    let mut symbols = Vec::new();
+    let mut ids = Vec::new();
+    let mut lookup = HashMap::new();
+    for token in tokens {
+        let lim::TokenKind::Symbol(value) = &token.kind else {
+            continue;
+        };
+        let id = if let Some(id) = lookup.get(value.as_str()) {
+            *id
+        } else {
+            let id = u32::try_from(symbols.len()).expect("benchmark symbol count fits u32");
+            let symbol = Arc::<str>::from(value.as_str());
+            lookup.insert(symbol.clone(), id);
+            symbols.push(symbol);
+            id
+        };
+        ids.push(id);
+    }
+    (symbols, ids)
 }
 
 fn temp_root() -> PathBuf {
@@ -146,6 +179,18 @@ fn main() {
     fs::write(&shared_path, "(#type SharedMarker u64)\n").unwrap();
     for (label, source) in [("small", &small), ("large", &large)] {
         report_symbol_repetition(label, source);
+        let tokens = lim::lex(source).unwrap();
+        let symbol_iterations = iterations.max(200);
+        measure(&format!("{label}.symbol-clones"), symbol_iterations, || {
+            black_box(clone_symbol_text(black_box(&tokens)));
+        });
+        measure(
+            &format!("{label}.symbol-intern-pilot"),
+            symbol_iterations,
+            || {
+                black_box(intern_symbol_text(black_box(&tokens)));
+            },
+        );
         measure(&format!("{label}.lex"), iterations, || {
             black_box(lim::lex(black_box(source)).unwrap());
         });
