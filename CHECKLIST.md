@@ -230,6 +230,12 @@ the checklist is committed alongside the implementation it tracks.
   expressions in a separate compatibility map. Verify every checked adapter
   resolves to exactly one retained ID and preserve native call/numeric tests.
 
+- [x] **IR-03p: Require retained source types for casts.** Remove the native
+  emitter's implicit `i64` fallback when a cast operand has no checked type;
+  report an internal error instead. Explicit casts are source-only forms, so
+  no backend-synthesized compatibility case is needed. Keep numeric cast
+  differential and native compilation coverage passing.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

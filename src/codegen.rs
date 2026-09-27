@@ -6446,7 +6446,9 @@ impl FunctionContext {
     }
 
     fn cast_expression(&mut self, value: &Expr, target: &Type) -> Result<(), String> {
-        let source = self.expression_type(value).unwrap_or(Type::I64);
+        let source = self
+            .expression_type(value)
+            .ok_or_else(|| "internal error: checked cast source lost its type".to_owned())?;
         if source == *target {
             return self.expression_as_expected(value, target);
         }
