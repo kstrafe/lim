@@ -122,6 +122,9 @@ Return actions retain their optional checked result node ID. The return
 expression is evaluated before scope cleanup, and the action follows cleanup
 on the edge to function exit; future ownership transfer can identify the
 escaping value without recovering it from source syntax.
+Value-carrying break actions retain their checked loop-result node ID by the
+same rule; their expression is evaluated before the control edge's scope
+cleanup and transfer to the loop's break target.
 An observational forward may-analysis now tracks direct loan origins held by
 bindings, including simple aliases and conditional results. It unions origins
 at flow joins, retains the first exact borrow span, and clears a dropped

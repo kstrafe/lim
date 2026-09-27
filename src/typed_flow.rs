@@ -49,7 +49,7 @@ pub(crate) enum FlowAction {
     Branch(NodeId),
     LoopHead,
     Return(Option<NodeId>),
-    Break,
+    Break(Option<NodeId>),
     Continue,
     Diverge,
 }
@@ -420,10 +420,18 @@ impl FlowGraph {
                         ));
                     }
                 }
+                FlowAction::Break(value) => {
+                    if value
+                        .is_some_and(|id| body.nodes.get(id.0).is_none_or(|node| node.ty.is_none()))
+                    {
+                        return Err(format!(
+                            "typed flow break {index} references an invalid value"
+                        ));
+                    }
+                }
                 FlowAction::Entry
                 | FlowAction::Exit
                 | FlowAction::LoopHead
-                | FlowAction::Break
                 | FlowAction::Continue
                 | FlowAction::Diverge => {}
             }
@@ -1119,7 +1127,7 @@ impl Builder<'_> {
                         None => target.continue_to.is_some(),
                     })
                     .ok_or_else(|| format!("typed flow has no break target for {label:?}"))?;
-                let end = self.push(FlowAction::Break, span, vec![target.break_to]);
+                let end = self.push(FlowAction::Break(*value), span, vec![target.break_to]);
                 let end = self.cleanup_to(target.scope_depth, end);
                 match value {
                     Some(value) => self.expression(*value, end, targets, None),
@@ -1502,6 +1510,27 @@ mod tests {
         ));
         let span = body.nodes[value.0].span.unwrap();
         assert_eq!(&source[span.start..span.end], "value");
+    }
+
+    #[test]
+    fn value_break_retains_checked_loop_result_identity() {
+        let source = include_str!("../examples/loop_value_conditional.lim");
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let values = graph
+            .nodes
+            .iter()
+            .filter_map(|node| match node.action {
+                FlowAction::Break(Some(value)) => Some(value),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values.len(), 1);
+        let value = values[0];
+        let span = body.nodes[value.0].span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#clone i)");
     }
 
     #[test]
@@ -2341,7 +2370,7 @@ mod tests {
         let breaks = graph
             .nodes
             .iter()
-            .filter(|node| matches!(node.action, FlowAction::Break))
+            .filter(|node| matches!(node.action, FlowAction::Break(_)))
             .collect::<Vec<_>>();
         let continues = graph
             .nodes

@@ -421,6 +421,11 @@ the checklist is committed alongside the implementation it tracks.
   Preserve evaluation-before-cleanup order and test the exact source span of
   the returned binding. Actual move/loan transfer still remains in IR-04.
 
+- [x] **IR-04ae: Retain checked values on break edges.** Carry and verify the
+  optional loop-result node ID on typed `#break` actions, preserving the
+  existing evaluation and cleanup order. Test the value break in the native
+  loop-result example; move/loan transfer remains in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
