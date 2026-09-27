@@ -214,8 +214,13 @@ the checklist is committed alongside the implementation it tracks.
   returns, and unreachable paths. Retain loan and consumption origin spans.
   Acceptance: existing borrow/linearity tests and exact UI spans remain valid;
   add branch/loop aliasing and aggregate-reference propagation regressions.
-  A mutable reference bound from `#slice-mut-idx` still encounters a legacy
-  reborrow rejection; handle it with checked referent/place transfer.
+  Checked referent/place transfer must ultimately replace the remaining
+  syntax-side reborrow handling.
+
+- [x] **IR-04: Permit bounded mutable-slice element reborrows.** Track a
+  `#slice-mut-idx` child loan while its parent slice is suspended, restore the
+  parent after explicit release, and reject parent use or overlapping shared
+  borrows. Add acceptance and rejection regressions.
 
 - [x] **IR-04: Classify contextual aggregate constructor operands on typed flow.**
   Use the checked array/tuple arity to distinguish a contextual first value

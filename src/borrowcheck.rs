@@ -705,7 +705,9 @@ fn check_function(
             if matches!(parameter.ty, crate::Type::Reference { .. }) {
                 reference_bindings.insert(parameter.name.clone());
             }
-            if contains_mutable_reference(&parameter.ty, reference_types, mutable_reference_types) {
+            if contains_mutable_reference(&parameter.ty, reference_types, mutable_reference_types)
+                || matches!(parameter.ty, crate::Type::MutableSlice(_))
+            {
                 mutable_references.insert(parameter.name.clone());
             }
         }
@@ -879,9 +881,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                         .as_ref()
                         .is_some_and(|parent| context.mutable_references.contains(parent))
                     {
-                        if loan != owner
-                            && matches!(context.loans.active.get(owner), Some(LoanKind::Mutable))
-                        {
+                        if loan != owner {
                             context.loans.active.remove(owner);
                         }
                         if contains_mutable_references {
@@ -916,7 +916,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                 context.mutable.insert(name.clone());
             }
             context.scope_bindings.insert(name.clone());
-            if contains_mutable_references {
+            if contains_mutable_references || matches!(ty, crate::Type::MutableSlice(_)) {
                 context.mutable_references.insert(name.clone());
             }
             if is_reference_binding {
@@ -2188,6 +2188,14 @@ fn borrowed_field_parent(expression: &Expr) -> Option<String> {
     let Expr::List(items) = expression else {
         return None;
     };
+    if items.len() == 3
+        && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "slice-mut-idx")
+    {
+        return match &items[1] {
+            Expr::Symbol(name) => Some(name.clone()),
+            _ => None,
+        };
+    }
     if !matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut"))
         || (items.len() != 2 && items.len() != 3)
     {
@@ -2227,6 +2235,20 @@ fn borrow_place_origins(place: &Expr, context: &Context) -> HashSet<String> {
 }
 
 fn borrow_place_loans(place: &Expr, context: &Context) -> Vec<(String, String)> {
+    if let Expr::List(items) = place {
+        if items.len() == 3
+            && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "slice-mut-idx")
+        {
+            let index = static_index_segment(&items[2]).unwrap_or_else(|| "*".into());
+            return reference_origins(&items[1], context, true)
+                .into_iter()
+                .map(|owner| {
+                    let loan = format!("{owner}{PLACE_SEPARATOR}slice-index-{index}");
+                    (owner, loan)
+                })
+                .collect();
+        }
+    }
     let Some((base, path)) = projection_path(place) else {
         return Vec::new();
     };
