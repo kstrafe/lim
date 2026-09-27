@@ -222,6 +222,11 @@ the checklist is committed alongside the implementation it tracks.
   parent after explicit release, and reject parent use or overlapping shared
   borrows. Add acceptance and rejection regressions.
 
+- [x] **IR-04: Retain split-slice origins through tuple patterns.** A checked
+  `#slice-mut-split` now carries its source loan into both tuple positions so
+  each destructured half retains its referent and original borrow span.
+  Complete disjoint-range transfer remains part of IR-04.
+
 - [x] **IR-04: Classify contextual aggregate constructor operands on typed flow.**
   Use the checked array/tuple arity to distinguish a contextual first value
   from an explicit type operand. Track that first value as a linear transfer

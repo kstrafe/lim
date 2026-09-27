@@ -1551,6 +1551,20 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 .unwrap_or_default()
         }
         NodeKind::Form { head, children, .. }
+            if head == "slice-mut-split" && children.len() == 3 =>
+        {
+            let source = value_loan_origins(body, children[1], state);
+            let mut origins = Vec::with_capacity(source.len() * 2);
+            for half in 0..2 {
+                for origin in &source {
+                    let mut origin = origin.clone();
+                    origin.storage.insert(0, Segment::Tuple(half));
+                    merge_loan_origins(&mut origins, &[origin]);
+                }
+            }
+            origins
+        }
+        NodeKind::Form { head, children, .. }
             if matches!(head.as_str(), "get" | "get-payload" | "index") =>
         {
             let Some(base) = children.get(1) else {
@@ -3062,6 +3076,38 @@ mod tests {
         assert!(moves
             .after(index, &Place::root(PlaceRoot::Local(left)))
             .is_none());
+    }
+
+    #[test]
+    fn mutable_slice_split_assigns_both_loan_origins_to_pattern_bindings() {
+        let source = "(#fn main () ()
+          (#let-mut values (#array u64 2) (#array-of (#array u64 2) 1u64 2u64))
+          (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
+          (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64))
+            (#slice-mut-split view 1usize))
+          (#forget left) (#forget right)
+          (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        let bind = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Pattern { .. }).then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        for name in ["left", "right"] {
+            let binding = BindingId(body.bindings.iter().position(|b| b.name == name).unwrap());
+            let held = origins.after(bind, binding);
+            assert_eq!(held.len(), 1, "{name}");
+            assert!(held[0].storage.is_empty(), "{name}");
+            let span = held[0].span.unwrap();
+            assert_eq!(&source[span.start..span.end], "(#borrow-mut values)");
+        }
     }
 
     #[test]
