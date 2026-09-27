@@ -279,6 +279,11 @@ the checklist is committed alongside the implementation it tracks.
   operand `Type`, rather than re-querying the AST expression. Preserve the
   wide-integer differential and native example coverage.
 
+- [x] **IR-03x: Select comparison instructions from checked operand types.**
+  Carry the resolved type into scalar, floating, and 128-bit comparisons;
+  remove the now-redundant syntax-based float and unsigned classification
+  helpers. Preserve native comparison and numeric differential tests.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

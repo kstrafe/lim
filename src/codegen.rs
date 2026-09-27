@@ -9375,7 +9375,9 @@ impl FunctionContext {
             "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>" => {
                 self.binary_operator(operator, operand_type.as_ref(), mode, items)
             }
-            "<" | "<=" | ">" | ">=" | "==" | "!=" => self.comparison(operator, items),
+            "<" | "<=" | ">" | ">=" | "==" | "!=" => {
+                self.comparison(operator, operand_type.as_ref(), items)
+            }
             "if" => self.if_expression(items),
             "borrow" | "borrow-mut" => {
                 if items.len() == 3 {
@@ -13392,18 +13394,24 @@ impl FunctionContext {
         ));
         Ok(())
     }
-    fn comparison(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+    fn comparison(
+        &mut self,
+        operator: &str,
+        operand_type: Option<&Type>,
+        items: &[Expr],
+    ) -> Result<(), String> {
         if items.len() != 3 {
             return Err(format!("comparison '{operator}' requires two operands"));
         }
-        if self.expression_is_float(&items[1]) {
-            return self.float_comparison(operator, items);
+        let operand_type = operand_type
+            .cloned()
+            .or_else(|| self.expression_type(&items[1]))
+            .ok_or_else(|| "internal error: checked comparison operand lost its type".to_owned())?;
+        if is_float_type(&operand_type) {
+            return self.float_comparison(operator, &operand_type, items);
         }
-        if self
-            .expression_type(&items[1])
-            .is_some_and(|ty| is_wide_integer(&ty))
-        {
-            return self.wide_comparison(operator, items);
+        if is_wide_integer(&operand_type) {
+            return self.wide_comparison(operator, &operand_type, items);
         }
         self.expression(&items[1])?;
         self.push_rax();
@@ -13411,7 +13419,7 @@ impl FunctionContext {
         self.output
             .push_str("    mov rcx, rax\n    pop rax\n    cmp rax, rcx\n");
         self.stack_depth -= 1;
-        let unsigned = self.expression_is_unsigned(&items[1]);
+        let unsigned = is_unsigned_type(&operand_type);
         let condition = match operator {
             "<" if unsigned => "b",
             "<=" if unsigned => "be",
@@ -13430,7 +13438,12 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn wide_comparison(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
+    fn wide_comparison(
+        &mut self,
+        operator: &str,
+        operand_type: &Type,
+        items: &[Expr],
+    ) -> Result<(), String> {
         self.expression(&items[1])?;
         self.output.push_str("    push rdx\n    push rax\n");
         self.stack_depth += 2;
@@ -13438,9 +13451,7 @@ impl FunctionContext {
         self.output
             .push_str("    mov rcx, rax\n    mov r8, rdx\n    pop rax\n    pop rdx\n");
         self.stack_depth -= 2;
-        let unsigned = self
-            .expression_type(&items[1])
-            .is_some_and(|ty| matches!(ty, Type::U128));
+        let unsigned = matches!(operand_type, Type::U128);
         let true_label = self.label("wide_cmp_true");
         let false_label = self.label("wide_cmp_false");
         let end_label = self.label("wide_cmp_end");
@@ -13490,11 +13501,12 @@ impl FunctionContext {
         Ok(())
     }
 
-    fn float_comparison(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
-        let ty = self
-            .expression_type(&items[1])
-            .filter(is_float_type)
-            .ok_or_else(|| "internal error: checked float operand lost its type".to_owned())?;
+    fn float_comparison(
+        &mut self,
+        operator: &str,
+        ty: &Type,
+        items: &[Expr],
+    ) -> Result<(), String> {
         self.expression_as_float(&items[1], &ty)?;
         if matches!(ty, Type::F32) {
             self.output
@@ -13534,19 +13546,6 @@ impl FunctionContext {
             if operator == "!=" { 1 } else { 0 }
         ));
         Ok(())
-    }
-
-    fn expression_is_unsigned(&self, expression: &Expr) -> bool {
-        self.expression_type(expression)
-            .is_some_and(|ty| is_unsigned_type(&ty))
-    }
-
-    fn expression_is_float(&self, expression: &Expr) -> bool {
-        self.expression_float_type(expression).is_some()
-    }
-
-    fn expression_float_type(&self, expression: &Expr) -> Option<Type> {
-        self.expression_type(expression).filter(is_float_type)
     }
 
     fn expression_as_float(&mut self, expression: &Expr, ty: &Type) -> Result<(), String> {
