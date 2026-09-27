@@ -84,3 +84,24 @@ fn contextual_single_slot_repeat_consumes_the_linear_source() {
     let error = check_types(&program).unwrap_err();
     assert!(error.contains("already consumed"), "{error}");
 }
+
+#[test]
+fn contextual_array_and_tuple_consume_the_first_value() {
+    for (ty, constructor) in [
+        ("(#array Token 1)", "(#array token)"),
+        ("(#tuple Token)", "(#tuple token)"),
+    ] {
+        let source = format!(
+            "(#struct Token ((value u64)))
+             (#linear Token)
+             (#fn main () ()
+               (#let token Token (#struct-literal Token ((value 7u64))))
+               (#let values {ty} {constructor})
+               (#forget token)
+               (#forget values)
+               (#return ()))"
+        );
+        let error = check_types(&parse_program(&source).unwrap()).unwrap_err();
+        assert!(error.contains("after it was consumed"), "{ty}: {error}");
+    }
+}

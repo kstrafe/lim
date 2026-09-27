@@ -539,7 +539,12 @@ impl FlowGraph {
             if callee.is_some() {
                 transfer_roots.extend(children.iter().skip(1).copied());
             } else if node.ty.is_some() && matches!(head.as_str(), "tuple" | "array" | "array-of") {
-                transfer_roots.extend(children.iter().skip(2).copied());
+                let start = if head == "array-of" {
+                    2
+                } else {
+                    constructor_values_start(node.ty.as_ref(), children.len())
+                };
+                transfer_roots.extend(children.iter().skip(start).copied());
             } else if node.ty.is_some() && head == "slice-mut-split" {
                 if let Some(source) = children.get(1) {
                     transfer_roots.push(*source);
@@ -1555,7 +1560,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             // Tuple/array value forms carry an explicit type operand after
             // the head. Patterns do not, so their slots start at child one.
             let values_start = if matches!(head.as_str(), "tuple" | "array") {
-                2
+                constructor_values_start(node.ty.as_ref(), children.len())
             } else {
                 1
             };
@@ -1625,6 +1630,20 @@ fn resolve_known_referents(
     }
     seen.remove(&binding);
     resolved
+}
+
+fn constructor_values_start(ty: Option<&Type>, child_count: usize) -> usize {
+    let arity = match ty {
+        Some(Type::Array(_, length)) => *length,
+        Some(Type::Tuple(fields)) => fields.len(),
+        _ => return 2,
+    };
+    // The head is child zero. Contextual constructors omit the type operand.
+    if child_count == arity + 1 {
+        1
+    } else {
+        2
+    }
 }
 
 fn aggregate_slot(body: &Body, head: &str, children: &[NodeId], index: usize) -> Option<Segment> {

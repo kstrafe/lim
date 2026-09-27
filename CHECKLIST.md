@@ -215,6 +215,13 @@ the checklist is committed alongside the implementation it tracks.
   Acceptance: existing borrow/linearity tests and exact UI spans remain valid;
   add branch/loop aliasing and aggregate-reference propagation regressions.
 
+- [x] **IR-04: Classify contextual aggregate constructor operands on typed flow.**
+  Use the checked array/tuple arity to distinguish a contextual first value
+  from an explicit type operand. Track that first value as a linear transfer
+  and include it in aggregate loan provenance. Regression tests reject a
+  later release of the transferred value. The syntax-side ownership checker
+  still needs complete migration for accepting every valid contextual move.
+
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
   retain condition/scrutinee/result node IDs and the pattern binding identities
