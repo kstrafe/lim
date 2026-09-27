@@ -173,9 +173,10 @@ pattern, return, or break now contribute a possible linear-consumption fact on
 the typed graph. Explicit linear releases contribute the same fact. Later
 overlapping reads or releases are rejected with both source sites. Direct
 transfer roots follow conditional branches, match arms, value blocks, labels,
-and unsafe wrappers through their selected results. This does not yet classify
-call arguments or other nested expression uses or prove all exit obligations,
-so the syntax-side linear checker remains active.
+and unsafe wrappers through their selected results. Resolved ordinary-call
+arguments are also treated as value transfers when their checked type is
+linear. Builtin operand modes, other nested expression uses, and complete exit
+obligations remain with the syntax-side linear checker.
 One typed borrow preflight compares direct `#borrow` and `#borrow-mut` call
 arguments using those place identities. It retains borrow origins through pure
 aggregate construction and expression-valued branches, comparing only loans

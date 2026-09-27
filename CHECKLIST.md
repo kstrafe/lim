@@ -571,6 +571,13 @@ the checklist is committed alongside the implementation it tracks.
   moves. Preserve alternative source spans across joins; test conditional,
   match, and block results. Calls and other nested expressions remain in IR-04.
 
+- [x] **IR-04ax: Track direct linear call arguments as moves.** Use resolved
+  ordinary-call IDs and source argument nodes to classify direct linear
+  arguments, including value-branch results, as transfers. Keep Copy and
+  reference arguments non-consuming and leave builtin operand modes outside
+  this rule. Test an explicit linear resource passed by value and a Copy
+  argument in the same body. Other nested expressions remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

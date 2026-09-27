@@ -515,7 +515,7 @@ impl FlowGraph {
     /// indexing), so only a checked direct bind/assignment/pattern/return/
     /// break value is classified as an implicit move for now.
     pub fn consumptions(&self, body: &Body, types: &LinearTypes) -> FlowConsumptions {
-        let transfer_roots = self
+        let mut transfer_roots = self
             .nodes
             .iter()
             .filter_map(|node| match node.action {
@@ -526,6 +526,16 @@ impl FlowGraph {
                 _ => None,
             })
             .collect::<Vec<_>>();
+        for node in &body.nodes {
+            if let NodeKind::Form {
+                children,
+                callee: Some(_),
+                ..
+            } = &node.kind
+            {
+                transfer_roots.extend(children.iter().skip(1).copied());
+            }
+        }
         let mut direct_transfers = HashSet::new();
         let mut pending_values = transfer_roots;
         while let Some(value) = pending_values.pop() {
@@ -2770,6 +2780,51 @@ mod tests {
                 "{value}"
             );
         }
+    }
+
+    #[test]
+    fn direct_call_argument_consumes_linear_binding_only() {
+        let source = "(#struct Token ((value u64)))
+          (#linear Token)
+          (#fn consume ((arg Token)) () (#forget arg) (#return ()))
+          (#fn main () ()
+            (#let token Token (#struct-literal Token ((value 7u64))))
+            (#let copy u64 4u64)
+            (#call consume (: arg token))
+            (#let still-copy u64 copy)
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let types = LinearTypes::from_program(&program);
+        graph.check_linear_consumptions(body, &types).unwrap();
+        let token = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "token")
+                .unwrap(),
+        );
+        let copy = BindingId(body.bindings.iter().position(|b| b.name == "copy").unwrap());
+        let after_call = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Evaluate(id)
+                if matches!(&body.nodes[id.0].kind, NodeKind::Form { callee: Some(_), .. }))
+                .then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        let moves = graph.consumptions(body, &types);
+        let origin = moves
+            .before(after_call, &Place::root(PlaceRoot::Local(token)))
+            .unwrap()[0]
+            .unwrap();
+        assert_eq!(&source[origin.start..origin.end], "token");
+        assert!(moves
+            .before(after_call, &Place::root(PlaceRoot::Local(copy)))
+            .is_none());
     }
 
     #[test]
