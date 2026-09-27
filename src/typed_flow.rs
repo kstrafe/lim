@@ -1843,6 +1843,29 @@ fn value_loan_origins_at_events(
     value: NodeId,
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
+    if matches!(body.nodes[value.0].kind, NodeKind::Loop(_)) {
+        let mut result = Vec::new();
+        for (index, event) in flow.nodes.iter().enumerate() {
+            let FlowAction::Break {
+                value: Some(break_value),
+                result: Some(loop_result),
+            } = &event.action
+            else {
+                continue;
+            };
+            if *loop_result == value {
+                if let Some(state) = &origins.before[index] {
+                    merge_loan_origins(
+                        &mut result,
+                        &value_loan_origins_at_events(body, flow, origins, *break_value, state),
+                    );
+                }
+            }
+        }
+        if !result.is_empty() {
+            return result;
+        }
+    }
     if matches!(
         body.nodes[value.0].kind,
         NodeKind::If { .. } | NodeKind::Match { .. } | NodeKind::Block(_) | NodeKind::Labeled(..)

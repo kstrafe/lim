@@ -915,6 +915,11 @@ the checklist is committed alongside the implementation it tracks.
   retained loan slot and reject a match-produced wrapper field escaping its
   local referent.
 
+- [x] **IR-04bk: Propagate loop-result loans inside aggregates.** Resolve
+  break values using the loop expression's checked identity even when the loop
+  is nested in a tuple, array, enum, or struct constructor. Inspect each break
+  before cleanup and reject a wrapper containing a borrow of a local owner.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

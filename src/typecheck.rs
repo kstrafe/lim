@@ -388,6 +388,22 @@ mod checked_program_tests {
     }
 
     #[test]
+    fn typed_nested_loop_return_uses_the_break_loan_state() {
+        let source = "(#struct RefBox ((view (#ref u64))))
+          (#fn escape () RefBox
+            (#let owner u64 1u64)
+            (#return (#struct-literal RefBox
+              ((view (#loop (#break (#borrow owner))))))))";
+        let program = crate::parse_program(source).unwrap();
+        let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
+        let span = span.unwrap();
+        assert!(source[span.start..span.end].starts_with("(#return (#struct-literal"));
+        assert!(labels
+            .iter()
+            .any(|(origin, _)| { &source[origin.start..origin.end] == "(#borrow owner)" }));
+    }
+
+    #[test]
     fn normal_compilation_checks_once_and_unchecked_emission_still_validates() {
         let source = "(#fn main () u64 (#return 42u64))";
         let directory = std::env::temp_dir().join(format!("lim-checked-{}", std::process::id()));
