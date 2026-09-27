@@ -110,6 +110,10 @@ Bind, assignment, and pattern actions retain the checked value node that
 supplied them. Match pattern actions point to the scrutinee; destructuring
 actions point to their initializer. These stable origins are available to
 future move and loan transfer without looking back into source syntax.
+Direct borrow expressions also have dedicated flow actions retaining the
+resolved access place, mutability, and exact borrow node. Expressions whose
+referent place is not yet resolved continue as ordinary evaluation nodes;
+alias-aware referent provenance remains part of the pending loan transfer.
 Read and write places now have structural identities: a `BindingId` or
 `GlobalId` root followed by owner-qualified field/variant IDs, tuple positions,
 or concrete/dynamic array indices. A dotted identifier remains one binding,

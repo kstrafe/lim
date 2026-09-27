@@ -244,6 +244,12 @@ the checklist is committed alongside the implementation it tracks.
   origin needed by later move/loan transfer without reconstructing syntax or
   inferring it from predecessor graph shape.
 
+- [x] **IR-04o: Represent direct borrows as typed flow events.** Carry the
+  borrowed resolved place, shared/mutable mode, and checked source node on
+  graph actions for direct `#borrow` and `#borrow-mut`. Preserve liveness and
+  definite-binding behavior, and test exact source spans. Indirect referent
+  provenance and live-loan transfer still remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

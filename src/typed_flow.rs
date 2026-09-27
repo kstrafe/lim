@@ -18,9 +18,23 @@ pub(crate) enum FlowAction {
     Entry,
     Exit,
     Evaluate(NodeId),
-    Bind { binding: BindingId, value: NodeId },
-    Assign { place: Place, value: NodeId },
-    Pattern { pattern: NodeId, value: NodeId },
+    Borrow {
+        value: NodeId,
+        place: Place,
+        mutable: bool,
+    },
+    Bind {
+        binding: BindingId,
+        value: NodeId,
+    },
+    Assign {
+        place: Place,
+        value: NodeId,
+    },
+    Pattern {
+        pattern: NodeId,
+        value: NodeId,
+    },
     Branch(NodeId),
     LoopHead,
     Return,
@@ -127,6 +141,30 @@ impl FlowGraph {
                 FlowAction::Evaluate(id) => {
                     if body.nodes.get(id.0).is_none_or(|node| node.ty.is_none()) {
                         return Err(format!("typed flow evaluates invalid node {id:?}"));
+                    }
+                }
+                FlowAction::Borrow {
+                    value,
+                    place,
+                    mutable,
+                } => {
+                    if body.nodes.get(value.0).is_none_or(|node| node.ty.is_none()) {
+                        return Err(format!("typed flow borrows invalid node {value:?}"));
+                    }
+                    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+                        return Err(format!("typed flow borrow {value:?} is not a form"));
+                    };
+                    if !matches!(head.as_str(), "borrow" | "borrow-mut")
+                        || (head == "borrow-mut") != *mutable
+                        || children.len() != 2
+                        || Place::from_expression(body, children[1]).as_ref() != Some(place)
+                    {
+                        return Err(format!("typed flow borrow {value:?} has invalid metadata"));
+                    }
+                    if let PlaceRoot::Local(binding) = place.root {
+                        if binding.0 >= body.bindings.len() {
+                            return Err(format!("typed flow borrows invalid local {binding:?}"));
+                        }
                     }
                 }
                 FlowAction::Bind { binding, value } => {
@@ -239,6 +277,14 @@ impl FlowGraph {
                         set(&mut uses, binding);
                     }
                 }
+                FlowAction::Borrow {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            ..
+                        },
+                    ..
+                } => set(&mut uses, *binding),
                 FlowAction::Bind { binding, .. } => set(&mut defs, *binding),
                 FlowAction::Pattern { pattern, .. } => {
                     let mut bindings = HashSet::new();
@@ -396,6 +442,14 @@ impl FlowGraph {
                     _ => None,
                 },
                 FlowAction::Assign {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            ..
+                        },
+                    ..
+                } => Some(*binding),
+                FlowAction::Borrow {
                     place:
                         Place {
                             root: PlaceRoot::Local(binding),
@@ -698,6 +752,20 @@ impl Builder<'_> {
             }
             NodeKind::Form { head, .. } if matches!(head.as_str(), "panic" | "unreachable") => {
                 Ok(self.push(FlowAction::Diverge, span, vec![]))
+            }
+            NodeKind::Form { head, children, .. }
+                if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() == 2 =>
+            {
+                let action = Place::from_expression(self.body, children[1]).map_or(
+                    FlowAction::Evaluate(id),
+                    |place| FlowAction::Borrow {
+                        value: id,
+                        place,
+                        mutable: head == "borrow-mut",
+                    },
+                );
+                let done = self.push(action, span, vec![next]);
+                self.expression(children[1], done, targets, None)
             }
             NodeKind::Form { children, .. } => {
                 let mut entry = if node.ty.is_some() {
@@ -1055,6 +1123,53 @@ mod tests {
             FlowAction::Pattern { value, .. } if value_text(value) == "pair")));
         assert!(graph.nodes.iter().any(|node| matches!(node.action,
             FlowAction::Pattern { value, .. } if value_text(value) == "(Some first)")));
+    }
+
+    #[test]
+    fn direct_borrow_actions_retain_place_mode_and_exact_source() {
+        let source = "(#fn main () u64
+          (#let-mut value u64 1u64)
+          (#let shared (#ref u64) (#borrow value))
+          (#drop shared)
+          (#let exclusive (#ref-mut u64) (#borrow-mut value))
+          (#return (#deref exclusive)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let owner = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "value")
+                .unwrap(),
+        );
+        let mut borrows = graph
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.action {
+                FlowAction::Borrow {
+                    value,
+                    place,
+                    mutable,
+                } => Some((body.nodes[value.0].span.unwrap(), place, *mutable)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        borrows.sort_by_key(|(span, _, _)| span.start);
+        assert_eq!(borrows.len(), 2);
+        assert_eq!(
+            &source[borrows[0].0.start..borrows[0].0.end],
+            "(#borrow value)"
+        );
+        assert_eq!(
+            &source[borrows[1].0.start..borrows[1].0.end],
+            "(#borrow-mut value)"
+        );
+        assert!(borrows
+            .iter()
+            .all(|(_, place, _)| place.root == PlaceRoot::Local(owner)));
+        assert!(!borrows[0].2);
+        assert!(borrows[1].2);
     }
 
     #[test]
