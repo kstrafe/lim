@@ -13556,26 +13556,8 @@ impl FunctionContext {
     }
 
     fn expression_is_unsigned(&self, expression: &Expr) -> bool {
-        if let Some(ty) = self.expression_type(expression) {
-            return is_unsigned_type(&ty);
-        }
-        match expression {
-            Expr::Symbol(name) => self.local_types.get(name).is_some_and(is_unsigned_type),
-            Expr::List(items) => match items.first() {
-                Some(Expr::Symbol(operator))
-                    if matches!(
-                        operator_base(operator.as_str()),
-                        "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
-                    ) =>
-                {
-                    items
-                        .get(1)
-                        .is_some_and(|value| self.expression_is_unsigned(value))
-                }
-                _ => false,
-            },
-            _ => false,
-        }
+        self.expression_type(expression)
+            .is_some_and(|ty| is_unsigned_type(&ty))
     }
 
     fn expression_is_float(&self, expression: &Expr) -> bool {

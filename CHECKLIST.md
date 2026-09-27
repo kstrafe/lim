@@ -254,6 +254,13 @@ the checklist is committed alongside the implementation it tracks.
   stable ID before its synthesized-expression fallback. Preserve f32/f64,
   branch, call, and aggregate native cases.
 
+- [x] **IR-03t: Select signedness from resolved operand types.** Remove the
+  syntax-recursive unsigned-expression heuristic. Native integer instruction
+  selection now uses the resolved expression type; checked numeric operands
+  are already required to retain that type, while synthesized expressions
+  keep the centralized type fallback. Preserve division, shifts, saturation,
+  and numeric differential tests.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
