@@ -397,6 +397,12 @@ the checklist is committed alongside the implementation it tracks.
   reference-to-struct chain and a synthetic cycle. Full typed loan enforcement
   remains open in IR-04.
 
+- [x] **IR-04aa: Represent direct local releases in typed flow.** Lower
+  `#drop` and `#forget` of a local to checked release actions with binding and
+  expression IDs. The observational loan transfer clears only that binding,
+  preserving live aliases; tests cover both forms. Projected releases and
+  full ownership enforcement remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

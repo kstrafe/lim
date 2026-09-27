@@ -19,6 +19,11 @@ pub(crate) enum FlowAction {
     Entry,
     Exit,
     Evaluate(NodeId),
+    /// A direct local is consumed by `#drop` or `#forget`.
+    Release {
+        binding: BindingId,
+        value: NodeId,
+    },
     Borrow {
         value: NodeId,
         place: Place,
@@ -255,19 +260,7 @@ impl FlowGraph {
                         replace_projected_origins(&mut state[binding.0], segments, incoming);
                     }
                 }
-                FlowAction::Evaluate(value) => {
-                    if let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind {
-                        if matches!(head.as_str(), "drop" | "forget") && children.len() == 2 {
-                            if let NodeKind::Symbol {
-                                binding: Some(binding),
-                                ..
-                            } = body.nodes[children[1].0].kind
-                            {
-                                state[binding.0].clear();
-                            }
-                        }
-                    }
-                }
+                FlowAction::Release { binding, .. } => state[binding.0].clear(),
                 _ => {}
             }
             after[id.0] = Some(state.clone());
@@ -301,6 +294,24 @@ impl FlowGraph {
                 FlowAction::Evaluate(id) => {
                     if body.nodes.get(id.0).is_none_or(|node| node.ty.is_none()) {
                         return Err(format!("typed flow evaluates invalid node {id:?}"));
+                    }
+                }
+                FlowAction::Release { binding, value } => {
+                    let Some(crate::typed_body::Node {
+                        kind: NodeKind::Form { head, children, .. },
+                        ty: Some(_),
+                        ..
+                    }) = body.nodes.get(value.0)
+                    else {
+                        return Err(format!("typed flow releases invalid node {value:?}"));
+                    };
+                    if !matches!(head.as_str(), "drop" | "forget")
+                        || children.len() != 2
+                        || !matches!(body.nodes.get(children[1].0).map(|node| &node.kind),
+                            Some(NodeKind::Symbol { binding: Some(found), .. }) if found == binding)
+                        || binding.0 >= body.bindings.len()
+                    {
+                        return Err(format!("typed flow release {value:?} has invalid metadata"));
                     }
                 }
                 FlowAction::Borrow {
@@ -1220,6 +1231,22 @@ impl Builder<'_> {
                 let done = self.push(action, span, vec![next]);
                 self.expression(children[1], done, targets, None)
             }
+            NodeKind::Form { head, children, .. }
+                if matches!(head.as_str(), "drop" | "forget") && children.len() == 2 =>
+            {
+                let action = match &self.body.nodes[children[1].0].kind {
+                    NodeKind::Symbol {
+                        binding: Some(binding),
+                        ..
+                    } => FlowAction::Release {
+                        binding: *binding,
+                        value: id,
+                    },
+                    _ => FlowAction::Evaluate(id),
+                };
+                let done = self.push(action, span, vec![next]);
+                self.expression(children[1], done, targets, None)
+            }
             NodeKind::Form { children, .. } => {
                 let mut entry = if node.ty.is_some() {
                     self.push(FlowAction::Evaluate(id), span, vec![next])
@@ -1694,8 +1721,11 @@ mod tests {
             .nodes
             .iter()
             .position(|node| match node.action {
-                FlowAction::Evaluate(value) => matches!(&body.nodes[value.0].kind,
-                    NodeKind::Form { head, .. } if head == "drop"),
+                FlowAction::Release { binding, value } => {
+                    binding == view
+                        && matches!(&body.nodes[value.0].kind,
+                        NodeKind::Form { head, .. } if head == "drop")
+                }
                 _ => false,
             })
             .map(FlowNodeId)
@@ -1703,6 +1733,44 @@ mod tests {
         assert_eq!(origins.before(drop, view).len(), 2);
         assert!(origins.after(drop, view).is_empty());
         assert_eq!(origins.after(drop, alias).len(), 2);
+    }
+
+    #[test]
+    fn forget_releases_only_the_direct_binding_in_typed_flow() {
+        let source = "(#fn main () u64
+          (#let owner u64 7u64)
+          (#let first (#ref u64) (#borrow owner))
+          (#let second (#ref u64) first)
+          (#forget first)
+          (#return (#deref second)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        let binding = |name: &str| {
+            BindingId(
+                body.bindings
+                    .iter()
+                    .position(|item| item.name == name)
+                    .unwrap(),
+            )
+        };
+        let first = binding("first");
+        let second = binding("second");
+        let release = graph
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(node.action, FlowAction::Release { binding, value }
+                if binding == first && matches!(&body.nodes[value.0].kind,
+                    NodeKind::Form { head, .. } if head == "forget"))
+            })
+            .map(FlowNodeId)
+            .unwrap();
+        assert_eq!(origins.before(release, first).len(), 1);
+        assert!(origins.after(release, first).is_empty());
+        assert_eq!(origins.after(release, second).len(), 1);
     }
 
     #[test]

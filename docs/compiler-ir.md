@@ -120,6 +120,10 @@ at flow joins, retains the first exact borrow span, and clears a dropped
 binding without clearing aliases. The typed-IR debug dump includes these
 states. It does not yet replace the lexical borrow checker or resolve indirect
 referents or enforce complete loan lifetimes.
+Direct `#drop` and `#forget` of a local now produce explicit release actions
+with checked binding and expression IDs. Loan-state transfer no longer has to
+recognize these forms by inspecting a generic evaluation node; releases of
+projected or indirect values still need the full ownership migration.
 Constructor values for structs, enums, tuples, and arrays contribute their
 contained direct origins to the resulting aggregate binding; value-block
 results preserve those origins as well.
