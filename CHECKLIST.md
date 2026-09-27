@@ -526,6 +526,11 @@ the checklist is committed alongside the implementation it tracks.
   to disjoint places. Test a shared reference followed by a checked-place
   write conflict. Indirect referents and complete move transfer remain open.
 
+- [x] **IR-04aq: Reject explicit destruction of a live borrowed place.**
+  Compare `#drop`/`#forget` release places with direct loan origins held by
+  future-live bindings. Report both the destruction and original borrow sites;
+  allow disjoint releases. Keep implicit moves and indirect referents in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
