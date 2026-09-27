@@ -191,8 +191,9 @@ name remains available for diagnostics. Aggregate dispatch guards use the
 same checked identity; backend-synthesized calls retain the legacy name lookup.
 Checked scalar call operands must also retain a type that agrees with their
 resolved ABI parameter; missing or mismatched metadata is an internal error.
-Checked scalar call results must likewise retain a type matching their
-resolved ABI return type; missing or mismatched metadata is an internal error.
+All checked call results, including indirect-return aggregates, must retain a
+type matching their resolved ABI return type; missing or mismatched metadata
+is an internal error.
 Checked calls to declared functions also require their retained `FunctionId`;
 they cannot fall back to name-based ABI resolution if that identity is lost,
 including indirect-return aggregate calls.

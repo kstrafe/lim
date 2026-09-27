@@ -137,7 +137,7 @@ the checklist is committed alongside the implementation it tracks.
 - [x] **IR-03i: Verify checked scalar call results against their ABI.**
   Native emission requires the retained result type of a checked scalar call
   to agree with the resolved function return type. Missing or mismatched
-  metadata is an internal error; aggregate returns are unchanged. Cover
+  metadata is an internal error; aggregate returns are covered by IR-03n. Cover
   missing, mismatched, and valid result metadata in unit tests.
 
 - [x] **IR-03j: Require function identity for checked direct calls.**
@@ -165,6 +165,13 @@ the checklist is committed alongside the implementation it tracks.
   checked function call whose `FunctionId` was lost, matching ordinary scalar
   emission. Backend-synthesized calls continue using name lookup. Extend the
   mismatched-spelling identity regression to cover missing metadata.
+
+- [x] **IR-03n: Verify aggregate call results against the resolved ABI.**
+  Generalize the retained return-type check to all checked calls, including
+  indirect-return calls emitted directly into aggregate storage. Reject
+  missing or mismatched aggregate result metadata before writing destination
+  words. Cover aggregate agreement and mismatch in unit tests and run native
+  examples; synthesized calls retain their compatibility path.
 
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove

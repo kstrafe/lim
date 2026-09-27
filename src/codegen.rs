@@ -5344,21 +5344,18 @@ fn native_scalar_type(ty: &Type) -> bool {
     )
 }
 
-fn validate_checked_scalar_call_result(
+fn validate_checked_call_result(
     metadata: &crate::typed_body::EmissionNode,
     expected: &Type,
     aliases: &HashMap<String, Type>,
 ) -> Result<(), String> {
     let expected = resolve_type(expected, aliases)?;
-    if !native_scalar_type(&expected) {
-        return Ok(());
-    }
     let retained = metadata
         .ty
         .as_ref()
-        .ok_or_else(|| "internal error: checked scalar call lost its result type".to_owned())?;
+        .ok_or_else(|| "internal error: checked call lost its result type".to_owned())?;
     if resolve_type(retained, aliases)? != expected {
-        return Err("internal error: checked scalar call result disagrees with its ABI".into());
+        return Err("internal error: checked call result disagrees with its ABI".into());
     }
     Ok(())
 }
@@ -5405,23 +5402,25 @@ fn checked_scalar_arguments_require_retained_types() {
 
 #[cfg(test)]
 #[test]
-fn checked_scalar_call_results_require_retained_abi_type() {
+fn checked_call_results_require_retained_abi_type() {
     let aliases = HashMap::new();
     let mut node = crate::typed_body::EmissionNode::default();
-    assert!(
-        validate_checked_scalar_call_result(&node, &Type::U64, &aliases)
-            .unwrap_err()
-            .contains("lost its result type")
-    );
+    assert!(validate_checked_call_result(&node, &Type::U64, &aliases)
+        .unwrap_err()
+        .contains("lost its result type"));
     node.ty = Some(Type::U32);
+    assert!(validate_checked_call_result(&node, &Type::U64, &aliases)
+        .unwrap_err()
+        .contains("disagrees with its ABI"));
+    node.ty = Some(Type::U64);
+    validate_checked_call_result(&node, &Type::U64, &aliases).unwrap();
     assert!(
-        validate_checked_scalar_call_result(&node, &Type::U64, &aliases)
+        validate_checked_call_result(&node, &Type::Tuple(vec![Type::U64]), &aliases)
             .unwrap_err()
             .contains("disagrees with its ABI")
     );
-    node.ty = Some(Type::U64);
-    validate_checked_scalar_call_result(&node, &Type::U64, &aliases).unwrap();
-    validate_checked_scalar_call_result(&node, &Type::Tuple(vec![Type::U64]), &aliases).unwrap();
+    node.ty = Some(Type::Tuple(vec![Type::U64]));
+    validate_checked_call_result(&node, &Type::Tuple(vec![Type::U64]), &aliases).unwrap();
 }
 
 #[cfg(test)]
@@ -8651,7 +8650,7 @@ impl FunctionContext {
                     let abi = self.function_abis_by_id.get(&id).ok_or_else(|| {
                         "internal error: checked call lost its function ABI".to_owned()
                     })?;
-                    validate_checked_scalar_call_result(
+                    validate_checked_call_result(
                         metadata.expect("checked callee has metadata"),
                         &abi.return_type,
                         &self.aliases,
@@ -14588,6 +14587,17 @@ impl FunctionContext {
             return Err("aggregate call must start with a symbol".into());
         };
         let callee = checked_callee(expression, &self.expression_types, &self.functions)?;
+        if let Some(id) = callee {
+            let abi = self.function_abis_by_id.get(&id).ok_or_else(|| {
+                "internal error: checked aggregate call lost its function ABI".to_owned()
+            })?;
+            let metadata = self
+                .expression_types
+                .by_address
+                .get(&(std::ptr::from_ref(expression) as usize))
+                .expect("checked aggregate call has metadata");
+            validate_checked_call_result(metadata, &abi.return_type, &self.aliases)?;
+        }
         self.call(name, &items[1..], Some(base), callee)
     }
 
