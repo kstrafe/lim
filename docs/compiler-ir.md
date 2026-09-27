@@ -183,6 +183,8 @@ Checked scalar call operands must also retain a type that agrees with their
 resolved ABI parameter; missing or mismatched metadata is an internal error.
 Checked scalar call results must likewise retain a type matching their
 resolved ABI return type; missing or mismatched metadata is an internal error.
+Checked calls to declared functions also require their retained `FunctionId`;
+they cannot fall back to name-based ABI resolution if that identity is lost.
 Synthesized calls still use the compatibility lookup.
 The overlay is
 still address-indexed internally; it is

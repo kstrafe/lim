@@ -140,6 +140,12 @@ the checklist is committed alongside the implementation it tracks.
   metadata is an internal error; aggregate returns are unchanged. Cover
   missing, mismatched, and valid result metadata in unit tests.
 
+- [x] **IR-03j: Require function identity for checked direct calls.**
+  A checked call to a declared function must retain its `FunctionId`; losing
+  it is an internal error instead of a name-based ABI fallback. Builtin forms
+  and backend-synthesized calls continue using their respective paths. Test
+  missing and present identity, and run native examples.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

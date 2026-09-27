@@ -5219,6 +5219,17 @@ fn checked_numeric_metadata(
     Ok(numeric)
 }
 
+fn checked_call_identity(
+    metadata: Option<&crate::typed_body::EmissionNode>,
+    declared_function: bool,
+) -> Result<Option<crate::typed_ir::FunctionId>, String> {
+    let callee = metadata.and_then(|node| node.callee);
+    if metadata.is_some() && declared_function && callee.is_none() {
+        return Err("internal error: checked call lost its function identity".into());
+    }
+    Ok(callee)
+}
+
 fn checked_scalar_argument_type(
     argument: &Expr,
     callee: Option<crate::typed_ir::FunctionId>,
@@ -5342,6 +5353,32 @@ fn checked_scalar_call_results_require_retained_abi_type() {
     node.ty = Some(Type::U64);
     validate_checked_scalar_call_result(&node, &Type::U64, &aliases).unwrap();
     validate_checked_scalar_call_result(&node, &Type::Tuple(vec![Type::U64]), &aliases).unwrap();
+}
+
+#[cfg(test)]
+#[test]
+fn checked_calls_require_retained_function_identity() {
+    let node = crate::typed_body::EmissionNode::default();
+    assert!(checked_call_identity(Some(&node), true)
+        .unwrap_err()
+        .contains("lost its function identity"));
+    assert_eq!(checked_call_identity(None, true).unwrap(), None);
+    assert_eq!(checked_call_identity(Some(&node), false).unwrap(), None);
+    let program = crate::parse_program(
+        "(#fn value () u64 (#return 42u64))
+         (#fn main () u64 (#return (#call value (#fn-args))))",
+    )
+    .unwrap();
+    let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
+    let callee = checked.declarations().function_id("value").unwrap();
+    let node = crate::typed_body::EmissionNode {
+        callee: Some(callee),
+        ..node
+    };
+    assert_eq!(
+        checked_call_identity(Some(&node), true).unwrap(),
+        Some(callee)
+    );
 }
 
 #[cfg(test)]
@@ -8453,7 +8490,8 @@ impl FunctionContext {
                     .by_address
                     .get(&(std::ptr::from_ref(expression) as usize));
                 let numeric = checked_numeric_metadata(metadata, items.first())?;
-                let callee = metadata.and_then(|node| node.callee);
+                let declared_function = matches!(items.first(), Some(Expr::Symbol(name)) if self.functions.contains_key(name));
+                let callee = checked_call_identity(metadata, declared_function)?;
                 if let Some(id) = callee {
                     let abi = self.function_abis_by_id.get(&id).ok_or_else(|| {
                         "internal error: checked call lost its function ABI".to_owned()
