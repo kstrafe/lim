@@ -1632,6 +1632,14 @@ and acceptance coverage.
   toolchain details, plus why this does not yet constitute a full front-end
   A/B or memory-allocation comparison.
 
+- [x] **PERF-02c: Count allocation traffic for the local-ID prototype.** Use
+  a standard-library allocator wrapper in the benchmark to compare current
+  parse requests with constructing a span-preserving ID mirror after parsing.
+  Record requested bytes and allocation calls on representative sources,
+  together with wall times and cache behavior. The mirror duplicates the AST,
+  so retain PERF-02 until an in-place front-end replacement and downstream
+  build A/B can establish a material benefit.
+
 - [x] **PERF-02b: Benchmark a compile-local interned syntax-tree prototype.**
   Preserve syntax shape and spans in a benchmark-only AST with `u32` symbol
   IDs and a per-compilation spelling pool. On an i7-13700KF with Rust 1.99.0

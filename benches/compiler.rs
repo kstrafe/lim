@@ -1,12 +1,109 @@
 use std::{
+    alloc::{GlobalAlloc, Layout, System},
     collections::{HashMap, HashSet},
     env, fs,
     hint::black_box,
     path::{Path, PathBuf},
     process::Command,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
+
+struct CountingAllocator;
+
+static ALLOC_CALLS: AtomicUsize = AtomicUsize::new(0);
+static ALLOC_BYTES: AtomicUsize = AtomicUsize::new(0);
+static DEALLOC_CALLS: AtomicUsize = AtomicUsize::new(0);
+static DEALLOC_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+unsafe impl GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let pointer = System.alloc(layout);
+        if !pointer.is_null() {
+            ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+            ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+        }
+        pointer
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        DEALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+        DEALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+        System.dealloc(pointer, layout);
+    }
+
+    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        let new_pointer = System.realloc(pointer, layout, new_size);
+        if !new_pointer.is_null() {
+            ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+            ALLOC_BYTES.fetch_add(new_size, Ordering::Relaxed);
+            DEALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+            DEALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+        }
+        new_pointer
+    }
+}
+
+#[global_allocator]
+static GLOBAL: CountingAllocator = CountingAllocator;
+
+#[derive(Clone, Copy)]
+struct AllocationCounts {
+    calls: usize,
+    bytes: usize,
+    dealloc_calls: usize,
+    dealloc_bytes: usize,
+}
+
+fn allocation_counts() -> AllocationCounts {
+    AllocationCounts {
+        calls: ALLOC_CALLS.load(Ordering::Relaxed),
+        bytes: ALLOC_BYTES.load(Ordering::Relaxed),
+        dealloc_calls: DEALLOC_CALLS.load(Ordering::Relaxed),
+        dealloc_bytes: DEALLOC_BYTES.load(Ordering::Relaxed),
+    }
+}
+
+fn report_allocations(label: &str, iterations: usize, mut operation: impl FnMut()) {
+    let before = allocation_counts();
+    for _ in 0..iterations {
+        operation();
+    }
+    let after = allocation_counts();
+    println!(
+        "{label}: iterations={iterations} alloc_calls_per_iteration={:.1} requested_bytes_per_iteration={:.0} dealloc_calls_per_iteration={:.1} deallocated_bytes_per_iteration={:.0}",
+        (after.calls - before.calls) as f64 / iterations as f64,
+        (after.bytes - before.bytes) as f64 / iterations as f64,
+        (after.dealloc_calls - before.dealloc_calls) as f64 / iterations as f64,
+        (after.dealloc_bytes - before.dealloc_bytes) as f64 / iterations as f64,
+    );
+}
+
+fn report_mirror_allocations(label: &str, source: &str, iterations: usize) {
+    let mut calls = 0usize;
+    let mut bytes = 0usize;
+    for _ in 0..iterations {
+        let ast = lim::parse(black_box(source)).unwrap();
+        let before = allocation_counts();
+        let mut symbols = LocalSymbols::default();
+        let interned = ast
+            .iter()
+            .map(|node| intern_node(node, &mut symbols))
+            .collect::<Vec<_>>();
+        let after = allocation_counts();
+        calls += after.calls - before.calls;
+        bytes += after.bytes - before.bytes;
+        black_box((&interned, &symbols.by_text));
+    }
+    println!(
+        "{label}: iterations={iterations} alloc_calls_per_iteration={:.1} requested_bytes_per_iteration={:.0} (mirror construction only; parsed input already exists)",
+        calls as f64 / iterations as f64,
+        bytes as f64 / iterations as f64,
+    );
+}
 
 fn measure(label: &str, iterations: usize, mut operation: impl FnMut()) -> Duration {
     let start = Instant::now();
@@ -266,6 +363,27 @@ fn benchmark_ast_interning(label: &str, source: &str, iterations: usize) {
     let (duplicates, repeated_bytes, unique_bytes) = ast_symbol_stats(&parsed);
     println!(
         "{label}.ast-symbols duplicate_allocations_est={duplicates} repeated_text_bytes={repeated_bytes} unique_text_bytes={unique_bytes}"
+    );
+    report_allocations(&format!("{label}.alloc-current-parse"), iterations, || {
+        black_box(lim::parse(black_box(source)).unwrap());
+    });
+    report_allocations(
+        &format!("{label}.alloc-parse-plus-intern"),
+        iterations,
+        || {
+            let ast = lim::parse(black_box(source)).unwrap();
+            let mut symbols = LocalSymbols::default();
+            let interned = ast
+                .iter()
+                .map(|node| intern_node(node, &mut symbols))
+                .collect::<Vec<_>>();
+            black_box((&interned, &symbols.by_text));
+        },
+    );
+    report_mirror_allocations(
+        &format!("{label}.alloc-interned-mirror"),
+        source,
+        iterations,
     );
     report_parsed_symbols(label, source);
     let parsed = lim::parse(source).unwrap();
