@@ -542,6 +542,13 @@ the checklist is committed alongside the implementation it tracks.
   preserve the read and borrow source spans. Keep shared-loan reads valid and
   leave implicit move classification and projected/indirect reads to IR-04.
 
+- [x] **IR-04at: Check the final place for projected reads.** Avoid treating
+  intermediate base evaluation in a checked field/index/payload projection as
+  a whole-base read. Compare the complete projected place when available,
+  and keep borrow, clone, and release operands with their dedicated event.
+  Test a disjoint field access through a reference; indirect referent
+  resolution and implicit move classification remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

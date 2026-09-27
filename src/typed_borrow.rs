@@ -43,11 +43,25 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
     }
     let origins = flow.loan_origins(body);
     let live = flow.liveness(body);
+    // A place projection evaluates its base, but that intermediate evaluation
+    // is not a whole-base read. Check the final projected place instead.
+    let mut projected_bases = HashSet::new();
+    for node in &body.nodes {
+        let NodeKind::Form { head, children, .. } = &node.kind else {
+            continue;
+        };
+        if matches!(
+            head.as_str(),
+            "get" | "get-payload" | "index" | "borrow" | "borrow-mut" | "clone" | "drop" | "forget"
+        ) {
+            if let Some(base) = children.get(1) {
+                projected_bases.insert(*base);
+            }
+        }
+    }
     for (index, node) in flow.nodes.iter().enumerate() {
         let evaluated_place = match node.action {
-            FlowAction::Evaluate(value)
-                if matches!(body.nodes[value.0].kind, NodeKind::Symbol { .. }) =>
-            {
+            FlowAction::Evaluate(value) if !projected_bases.contains(&value) => {
                 Place::from_expression(body, value)
             }
             _ => None,
@@ -793,24 +807,40 @@ mod tests {
             (#return (#deref view)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
-        let body = &checked.declarations().bodies["main"];
-        let mut flow = FlowGraph::lower(body).unwrap();
-        check_live_direct_loans(body, &flow).unwrap();
+        let mut body = checked.declarations().bodies["main"].clone();
+        let flow = FlowGraph::lower(&body).unwrap();
+        check_live_direct_loans(&body, &flow).unwrap();
         let left = BindingId(body.bindings.iter().position(|b| b.name == "left").unwrap());
-        let left_node = body.nodes.iter().position(|node| {
-            matches!(&node.kind, NodeKind::Symbol { binding: Some(id), .. } if *id == left)
-        }).map(NodeId).unwrap();
-        let right_event = flow.nodes.iter_mut().find(|node| {
-            matches!(node.action, FlowAction::Evaluate(id)
-                if matches!(&body.nodes[id.0].kind, NodeKind::Symbol { name, .. } if name == "right"))
+        let right_node = flow.nodes.iter().find_map(|node| match node.action {
+            FlowAction::Evaluate(id)
+                if matches!(&body.nodes[id.0].kind, NodeKind::Symbol { name, .. } if name == "right") => Some(id),
+            _ => None,
         }).unwrap();
-        right_event.action = FlowAction::Evaluate(left_node);
-        let error = check_live_direct_loans(body, &flow).unwrap_err();
+        let NodeKind::Symbol { binding, .. } = &mut body.nodes[right_node.0].kind else {
+            unreachable!()
+        };
+        *binding = Some(left);
+        let error = check_live_direct_loans(&body, &flow).unwrap_err();
         assert!(error.message.contains("cannot read"));
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end], "right");
         let first = error.labels[0].0;
         assert_eq!(&source[first.start..first.end], "(#borrow-mut left)");
+    }
+
+    #[test]
+    fn disjoint_field_read_does_not_read_entire_base() {
+        let source = "(#struct Pair ((left u64) (right u64)))
+          (#fn main () u64
+            (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+            (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
+            (#let view (#ref-mut u64) (#borrow-mut (#get pair-ref left)))
+            (#let right u64 (#get pair-ref right))
+            (#return (#u64.+.wrap (#deref view) right)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        check_live_direct_loans(body, &checked.declarations().flows["main"]).unwrap();
     }
 
     #[test]

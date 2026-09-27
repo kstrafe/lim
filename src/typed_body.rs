@@ -754,7 +754,7 @@ pub(crate) struct Instruction {
     pub control: Control,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct Body {
     pub nodes: Vec<Node>,
     pub bindings: Vec<Binding>,

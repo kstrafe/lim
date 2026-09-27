@@ -133,7 +133,8 @@ states. A typed preflight now rejects a direct borrow that overlaps a direct
 origin retained by a live reference or aggregate binding when either is
 mutable. It also rejects symbol reads or clones through a mutable loan, or
 writing to or destroying a borrowed place. Checked place IDs preserve both
-source spans.
+source spans. Projected reads check the final field/index/payload place;
+intermediate base evaluation is not treated as a whole-base read.
 Indirect referents, moves, and complete loan lifetimes still require the full
 ownership transfer; the lexical checker remains in place.
 Direct `#drop` and `#forget` of a resolved local place now produce explicit
