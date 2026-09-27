@@ -511,6 +511,7 @@ impl From<String> for BorrowDiagnostic {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
     check_program_impl(program, false)
 }

@@ -944,6 +944,12 @@ the checklist is committed alongside the implementation it tracks.
   parameter-backed branch cannot mask a branch that returns a local borrow.
   Verify the return underline and local-origin secondary label.
 
+- [x] **IR-04bp: Keep the standalone legacy return checker test-only.** Limit
+  the old syntax-oriented entry point to unit tests while the normal compiler
+  uses the typed path for direct reference/slice returns and retains a scoped
+  fallback for unsupported named aggregate results. This removes a production
+  dead-code warning without dropping compatibility coverage.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
