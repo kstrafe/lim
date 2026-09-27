@@ -903,6 +903,12 @@ the checklist is committed alongside the implementation it tracks.
   exact or dynamic array slot according to the checked length. Reject a repeated
   match-bound local reference in a returned array with both source locations.
 
+- [x] **IR-04bi: Preserve branch-local origins through reference-returning calls.**
+  Evaluate each reference-valued call argument with its own branch flow state,
+  then lift the origin out of aggregate storage exactly as for direct calls.
+  Reject an arm-bound local reference returned through an identity function
+  and verify the return and original borrow spans.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

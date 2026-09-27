@@ -1831,7 +1831,75 @@ fn value_loan_origins_at_events(
             return result;
         }
     }
-    if let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind {
+    if let NodeKind::Form {
+        head,
+        children,
+        callee,
+        ..
+    } = &body.nodes[value.0].kind
+    {
+        if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
+            return value_loan_origins_at_events(body, flow, origins, children[1], state);
+        }
+        if matches!(
+            head.as_str(),
+            "slice-of" | "slice-mut-of" | "slice-range" | "slice-idx" | "slice-mut-idx"
+        ) {
+            return children.get(1).map_or_else(Vec::new, |source| {
+                value_loan_origins_at_events(body, flow, origins, *source, state)
+            });
+        }
+        if head == "slice-mut-split" && children.len() == 3 {
+            let source = value_loan_origins_at_events(body, flow, origins, children[1], state);
+            let mut result = Vec::with_capacity(source.len() * 2);
+            for half in 0..2 {
+                for origin in &source {
+                    let mut origin = origin.clone();
+                    origin.storage.insert(0, Segment::Tuple(half));
+                    merge_loan_origins(&mut result, &[origin]);
+                }
+            }
+            return result;
+        }
+        if matches!(head.as_str(), "get" | "get-payload" | "index") {
+            let Some(base) = children.get(1) else {
+                return Vec::new();
+            };
+            let Some(slot) = Place::from_expression(body, value)
+                .and_then(|place| place.segments.last().cloned())
+            else {
+                return Vec::new();
+            };
+            return value_loan_origins_at_events(body, flow, origins, *base, state)
+                .into_iter()
+                .filter_map(|mut origin| {
+                    let held_slot = origin.storage.first()?;
+                    if !storage_slot_matches(&slot, held_slot) {
+                        return None;
+                    }
+                    origin.storage.remove(0);
+                    Some(origin)
+                })
+                .collect();
+        }
+        if body.nodes[value.0].ty.as_ref().is_some_and(|ty| {
+            matches!(
+                ty,
+                Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_)
+            )
+        }) && callee.is_some()
+        {
+            let mut result = Vec::new();
+            for argument in children.iter().skip(1) {
+                for mut origin in
+                    value_loan_origins_at_events(body, flow, origins, *argument, state)
+                {
+                    origin.storage.clear();
+                    merge_loan_origins(&mut result, &[origin]);
+                }
+            }
+            return result;
+        }
         if head == "array-repeat" {
             let Some(Type::Array(_, length)) = body.nodes[value.0].ty.as_ref() else {
                 return Vec::new();
