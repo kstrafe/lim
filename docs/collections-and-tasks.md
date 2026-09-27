@@ -11,7 +11,7 @@ I/O reactor, or suspension at arbitrary points in ordinary functions.
 (#syntax-contribute ApplicationErrors filesystem (FileFailure u32))
 (#syntax-contribute ApplicationErrors parser (ParseFailure u64))
 (#import "library/collections.lim")
-(@error-enum ApplicationErrors ApplicationError)
+(@error-enum (#syntax-distribute ApplicationErrors) ApplicationError)
 ```
 
 Contributions can live in different imported files. The compiler first loads
@@ -23,24 +23,26 @@ deduplicated; conflicting values are errors. Unknown collections and duplicate
 collection declarations are errors. Generators cannot add collections or
 contributions after freezing.
 
-A generator parameter `(values #syntax-collection)` explicitly requests a
-snapshot. At invocation, a collection-name literal resolves to its frozen list.
-A literal list can also be supplied, allowing generators to forward snapshots.
-Ordinary parameters still receive their original literal syntax. Helpers
-declared with `#gn-fn` receive values, not collection-name resolution.
-Generator cache keys and invocation deduplication include the resolved list.
+A call-site argument `(#syntax-distribute Collection)` explicitly requests its
+frozen snapshot. Generator parameters are plain syntax bindings; passing a
+bare collection name passes that symbol, not its contents. A literal list can
+also be supplied, allowing generators to forward snapshots. Helpers declared
+with `#gn-fn` receive the same syntax values. Generator cache keys and
+invocation deduplication include the resolved list.
 The existing broader cfg/import dependency context is also still included.
 
 `#gn-length` takes one syntax list and produces an integer literal containing
 its length. The user-defined generators in `library/collections.lim` use these
 facilities to produce ordinary inspectable declarations in `.lim`:
 
-- `(@error-enum collection Type)` emits a concrete enum with inline payloads.
+- `(@error-enum (#syntax-distribute Collection) Type)` emits a concrete enum
+  with inline payloads.
   Allocation freedom also depends on the payload types. The largest variant
   determines payload storage, with tag and alignment overhead.
-- `(@distributed-slice collection StaticName ElementType)` emits a homogeneous
-  static array. Its length and contents are fixed before type checking. Use
-  `#slice-of` to borrow the array; access requires `#unsafe` like other statics.
+- `(@distributed-slice (#syntax-distribute Collection) StaticName ElementType)`
+  emits a homogeneous static array. Its length and contents are fixed before
+  type checking. Use `#slice-of` to borrow the array; access requires `#unsafe`
+  like other statics.
 
 Adding or removing a contribution can change enum layout and discriminants.
 These generated types are build-local, not stable serialization or FFI schemas.
@@ -78,7 +80,8 @@ Each job descriptor is `(name Task Poll Pending Ready poll-function Result)`.
 The generator emits a result struct with one field per job and a function
 accepting one task per job. This is a statically sized, heterogeneous join:
 capacity is the number of descriptors, with no dynamic spawn queue. Job lists
-can also come from frozen syntax collections.
+can also come from frozen syntax collections via an explicit
+`(#syntax-distribute Jobs)` argument.
 
 The executor polls each pending job once per round using direct calls, retains
 completed results, and returns when every job is ready. Poll functions must

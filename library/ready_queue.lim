@@ -2,9 +2,9 @@
 ;; distinct concrete queues can coexist without generated symbol collisions.
 ;; The literal slot list fixes capacity; its values are identity inputs, not
 ;; runtime storage. IDs are u64; generations and task ownership are separate.
-(#generator ready-queue
+(#gn ready-queue
   (name enqueue-result dequeue-result create enqueue dequeue
-    enqueued full item empty (slots #syntax-collection))
+    enqueued full item empty slots)
   (#gn-if (#gn-equal (#gn-length slots) 0)
     (#gn-error "ready queue requires at least one slot ID")
     `((#enum ,enqueue-result (,enqueued ,full))

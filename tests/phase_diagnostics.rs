@@ -19,7 +19,7 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
     let span = error.span.unwrap();
     assert_eq!(&source[span.start..span.end], "#unknown");
 
-    let source = "(#generator fail () (#gn-error \"ordinary text; source span 0:0:1; source file /not/the/source: 8:2: bad\"))\n(@fail)";
+    let source = "(#gn fail () (#gn-error \"ordinary text; source span 0:0:1; source file /not/the/source: 8:2: bad\"))\n(@fail)";
     fs::write(&imported, source).unwrap();
     for _ in 0..2 {
         let error =
@@ -38,7 +38,8 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
     assert_eq!(&source[span.start..span.end], "(#call value (#fn-args))");
     assert!(!error.message.contains("source span"));
 
-    let source = "(#generator inner () `((#fn bad () u64 (#return false))))\n(#generator outer () `((@inner)))\n(@outer)";
+    let source =
+        "(#gn inner () `((#fn bad () u64 (#return false))))\n(#gn outer () `((@inner)))\n(@outer)";
     let cold = lim::compile_source_to_assembly(source, &path, &config, &cache, target).unwrap_err();
     let warm = lim::compile_source_to_assembly(source, &path, &config, &cache, target).unwrap_err();
     assert_eq!(cold, warm);

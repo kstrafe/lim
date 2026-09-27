@@ -370,13 +370,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-generator",
             diagnostic_code: "E3000",
-            offending_line: "(#generator make () (#gn-list))",
+            offending_line: "(#gn make () (#gn-list))",
             line_number: 2,
         },
         Case {
             name: "duplicate-generator-parameter",
             diagnostic_code: "E3000",
-            offending_line: "(#generator make (x x) (#gn-list))",
+            offending_line: "(#gn make (x x) (#gn-list))",
             line_number: 1,
         },
         Case {

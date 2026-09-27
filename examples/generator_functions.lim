@@ -7,7 +7,7 @@
          (#gn-first pair)
          (#gn-first (#gn-rest pair))))))
 
-(#generator aliases (pairs)
+(#gn aliases (pairs)
   (#gn-call make-aliases pairs))
 
 (@aliases ((Byte u8) (Word u16)))

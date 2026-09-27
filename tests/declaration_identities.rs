@@ -182,7 +182,7 @@ fn imported_static_access_retains_its_imported_source_location() {
 fn generated_static_access_still_requires_unsafe() {
     let scratch = support::Scratch::new("generated-static-unsafe");
     let source =
-        "(#generator make (name) `((#static TOTAL u64 1u64) (#fn ,name () u64 (#return TOTAL))))\n\
+        "(#gn make (name) `((#static TOTAL u64 1u64) (#fn ,name () u64 (#return TOTAL))))\n\
       (@make read)\n\
       (#fn main () u64 (#return (#call read (#fn-args))))";
     let error = lim::compile_source_to_assembly(

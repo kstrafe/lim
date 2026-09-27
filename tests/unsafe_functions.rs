@@ -72,7 +72,7 @@ fn external_imports_and_generated_declarations_preserve_safety() {
     fs::write(scratch.path().join("module.lim"), DECLARATION).unwrap();
     for source in [
         "(#import-external \"module.lim\" ext-) (#fn main () u64 (#return (#call ext-answer (#fn-args))))",
-        "(#generator make (name) `((#unsafe-fn ,name () u64 (#return 42u64)))) (@make answer) (#fn main () u64 (#return (#call answer (#fn-args))))",
+        "(#gn make (name) `((#unsafe-fn ,name () u64 (#return 42u64)))) (@make answer) (#fn main () u64 (#return (#call answer (#fn-args))))",
     ] {
         let error = compile(source, &scratch.path().join("main.lim"), &scratch.path().join("cache")).unwrap_err();
         assert_eq!(error.code_string(), "E4300", "{}", error.message);

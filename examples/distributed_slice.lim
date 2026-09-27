@@ -2,7 +2,7 @@
 (#syntax-collection Values)
 (#syntax-contribute Values second 22u64)
 (#syntax-contribute Values first 20u64)
-(@distributed-slice Values Table u64)
+(@distributed-slice (#syntax-distribute Values) Table u64)
 
 (#fn main () u64
   (#return (#unsafe (#block

@@ -449,14 +449,13 @@ the checklist is committed alongside the implementation it tracks.
 ## Collections and initial async facilities
 
 Next steps: finish IR-02, IR-03, and IR-04 in the typed representation
-section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below. GEN-API-01
-is an independent documentation and parser-diagnostics task.
+section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 
 - [x] **COL-01: Freeze keyed syntax collections before generation.** Collect
   active imported contributions, sort by key, deduplicate identical entries,
   reject conflicts/unknown collections, and prohibit generated registration.
-  Explicit collection parameters receive literal list snapshots included in
-  invocation/cache identity. Keep helpers pure and add `#gn-length` for lists.
+  Frozen collection snapshots are included in invocation/cache identity. Keep
+  helpers pure and add `#gn-length` for lists.
 - [x] **COL-02: Generate static registries and concrete error enums.** Provide
   user-defined generators in `library/collections.lim`, with inspectable cached
   output, inline payloads, static arrays, and native examples across imports.
@@ -465,6 +464,12 @@ is an independent documentation and parser-diagnostics task.
   address and direction when reading/writing multiword referents. Cover
   references crossing function calls and multiword slice elements with native
   regression tests.
+- [x] **COL-03: Distribute syntax explicitly at invocation sites.** Replace
+  generator parameter collection annotations with the direct argument form
+  `(#syntax-distribute Collection)`, so bare symbols stay literal. Rename
+  declarations from `#generator` to `#gn` without a compatibility mode.
+  Migrate generators, examples, docs, and UI tests; verify sorting, import
+  prefixing, diagnostics, and cache identity for resolved lists.
 - [x] **TASK-01: Add explicit linear task states and bounded cooperative
   execution.** `#linear` opts concrete structs/enums out of structural Copy.
   Task generators emit linear states and concrete Pending/Ready results; the

@@ -3872,7 +3872,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "forget"
             | "ptr"
             | "ptr-mut"
-            | "generator"
+            | "gn"
+            | "syntax-distribute"
             | "capability"
             | "import"
             | "import-external"
@@ -4320,7 +4321,7 @@ fn load_imports_inner(
                 .iter()
                 .filter_map(|form| match &form.expr {
                     Expr::List(items)
-                        if matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "#generator" || keyword == "#gn-fn") =>
+                        if matches!(items.first(), Some(Expr::Symbol(keyword)) if keyword == "#gn" || keyword == "#gn-fn") =>
                     {
                         items.get(1).and_then(|name| match name {
                             Expr::Symbol(name) => Some(name.clone()),
@@ -7763,7 +7764,7 @@ mod tests {
         assert_eq!(types.code, DiagnosticCode::Type);
         assert!(types.span.is_some());
 
-        let generator_source = "(#generator fail () (#gn-error \"unsupported\"))\n(@fail)";
+        let generator_source = "(#gn fail () (#gn-error \"unsupported\"))\n(@fail)";
         let generator = compile_source_to_assembly(
             generator_source,
             Path::new("example.lim"),
@@ -8241,7 +8242,7 @@ mod tests {
     #[test]
     fn expands_pure_user_generators_over_literal_syntax() {
         let program = parse_program(
-            "(#generator aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte u8) (Word u16))) (@aliases ((Byte u8) (Word u16))) (#fn main () u64 (#return 42))",
+            "(#gn aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte u8) (Word u16))) (@aliases ((Byte u8) (Word u16))) (#fn main () u64 (#return 42))",
         )
         .unwrap();
         assert!(program
@@ -8266,12 +8267,12 @@ mod tests {
 
     #[test]
     fn generator_functions_compose_and_reject_recursion() {
-        let source = "(#gn-fn make-type-form (name target) (#gn-list (#gn-symbol \"#type\") name target)) (#gn-fn make-alias (name target) (#gn-call make-type-form name target)) (#generator aliases (pairs) (#gn-for-each pair pairs (#gn-call make-alias (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte u8) (Word u16))) (#fn main () u64 (#return 42))";
+        let source = "(#gn-fn make-type-form (name target) (#gn-list (#gn-symbol \"#type\") name target)) (#gn-fn make-alias (name target) (#gn-call make-type-form name target)) (#gn aliases (pairs) (#gn-for-each pair pairs (#gn-call make-alias (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte u8) (Word u16))) (#fn main () u64 (#return 42))";
         let program = parse_program(source).unwrap();
         assert_eq!(program.items.len(), 3);
 
         let recursive = parse_program(
-            "(#gn-fn first (x) (#gn-call second x)) (#gn-fn second (x) (#gn-call first x)) (#generator make (x) (#gn-call first x)) (@make value)",
+            "(#gn-fn first (x) (#gn-call second x)) (#gn-fn second (x) (#gn-call first x)) (#gn make (x) (#gn-call first x)) (@make value)",
         )
         .unwrap_err();
         assert!(recursive.contains("recursive generator function calls are not allowed"));
@@ -8280,31 +8281,31 @@ mod tests {
     #[test]
     fn generators_require_explicit_capabilities_for_concrete_types() {
         let valid = parse_program(
-            "(#fn u64-less ((left (#ref u64)) (right (#ref u64))) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#generator emit ((element sortable)) (#gn-list)) (@emit u64)",
+            "(#fn u64-less ((left (#ref u64)) (right (#ref u64))) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit u64)",
         )
         .unwrap();
         assert!(check_types(&valid).is_ok());
 
         let missing = parse_program(
-            "(#generator emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit u64)",
+            "(#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit u64)",
         )
         .unwrap_err();
         assert!(missing.contains("requires capability 'sortable'"));
 
         let wrong_type = parse_program(
-            "(#fn u64-less ((left (#ref u64)) (right (#ref u64))) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#generator emit ((element sortable)) (#gn-list)) (@emit UserType)",
+            "(#fn u64-less ((left (#ref u64)) (right (#ref u64))) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit UserType)",
         )
         .unwrap_err();
         assert!(wrong_type.contains("for type 'UserType'"));
 
         let wrong_signature = parse_program(
-            "(#fn u64-less ((left u64) (right u64)) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#generator emit ((element sortable)) (#gn-list)) (@emit u64)",
+            "(#fn u64-less ((left u64) (right u64)) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit u64)",
         )
         .unwrap_err();
         assert!(wrong_signature.contains("contract requires"));
 
         let missing_operation = parse_program(
-            "(#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#generator emit ((element sortable)) (#gn-list)) (@emit u64)",
+            "(#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit u64)",
         )
         .unwrap_err();
         assert!(missing_operation.contains("requires operation function 'u64-less'"));
@@ -8313,7 +8314,7 @@ mod tests {
     #[test]
     fn generator_functions_return_syntax_not_predicate_values() {
         let error = parse_program(
-            "(#gn-fn invalid (value) (#gn-symbol? value)) (#generator make () (#gn-call invalid name)) (@make)",
+            "(#gn-fn invalid (value) (#gn-symbol? value)) (#gn make () (#gn-call invalid name)) (@make)",
         )
         .unwrap_err();
         assert!(error.contains("must return a syntax value"));
@@ -8321,7 +8322,7 @@ mod tests {
 
     #[test]
     fn generator_quasiquote_unquotes_and_splices_syntax() {
-        let source = "(#gn-fn emit-alias (name) `(#type ,name u64)) (#generator aliases (names) `(,@(#gn-for-each name names (#gn-call emit-alias name)))) (@aliases (First Second)) (#fn main () u64 (#return 42))";
+        let source = "(#gn-fn emit-alias (name) `(#type ,name u64)) (#gn aliases (names) `(,@(#gn-for-each name names (#gn-call emit-alias name)))) (@aliases (First Second)) (#fn main () u64 (#return 42))";
         let program = parse_program(source).unwrap();
         let aliases = program
             .items
@@ -8334,31 +8335,30 @@ mod tests {
         assert_eq!(aliases, ["First", "Second"]);
 
         let non_list =
-            parse_program("(#generator bad () `((#type X u64) ,@not-a-list)) (@bad)").unwrap_err();
+            parse_program("(#gn bad () `((#type X u64) ,@not-a-list)) (@bad)").unwrap_err();
         assert!(non_list.contains("unquote-splicing requires list syntax"));
-        let outside_template = parse_program("(#generator bad (x) ,x) (@bad value)").unwrap_err();
+        let outside_template = parse_program("(#gn bad (x) ,x) (@bad value)").unwrap_err();
         assert!(outside_template.contains("only valid inside a backtick syntax template"));
     }
 
     #[test]
     fn generator_errors_and_recursion_are_reported() {
-        let error = parse_program("(#generator fail () (#gn-error \"unsupported input\")) (@fail)")
-            .unwrap_err();
+        let error =
+            parse_program("(#gn fail () (#gn-error \"unsupported input\")) (@fail)").unwrap_err();
         assert!(error.contains("generator error: unsupported input"));
 
         let recursive =
-            parse_program("(#generator repeat () (#gn-list (@repeat))) (@repeat)").unwrap_err();
+            parse_program("(#gn repeat () (#gn-list (@repeat))) (@repeat)").unwrap_err();
         assert!(recursive.contains("recursive generator expansion is not allowed"));
 
-        let unknown = parse_program("(#generator typo () (#gn-unknown 1))\n(@typo)").unwrap_err();
+        let unknown = parse_program("(#gn typo () (#gn-unknown 1))\n(@typo)").unwrap_err();
         assert!(unknown.contains("unknown generator builtin '#gn-unknown'"));
         assert!(unknown.contains("defined at 1:1"));
         assert!(unknown.contains("2:1: generator expansion"));
 
-        let argument_error = parse_program(
-            "(#generator fail (value) (#gn-error \"unsupported input\"))\n(@fail u64)",
-        )
-        .unwrap_err();
+        let argument_error =
+            parse_program("(#gn fail (value) (#gn-error \"unsupported input\"))\n(@fail u64)")
+                .unwrap_err();
         assert!(argument_error.contains("argument 0="));
         assert!(argument_error.contains("invocation at 2:1"));
     }
@@ -8370,7 +8370,7 @@ mod tests {
         let module_path = directory.join("definitions.lim");
         std::fs::write(
             &module_path,
-            "(#struct Thing ((value u64))) (#fn read-value ((thing Thing)) u64 (#return (#get thing value))) (#generator make-alias (alias target) (#gn-list (#gn-list (#gn-symbol \"#type\") alias target))) (@make-alias GeneratedAlias u64)",
+            "(#struct Thing ((value u64))) (#fn read-value ((thing Thing)) u64 (#return (#get thing value))) (#gn make-alias (alias target) (#gn-list (#gn-list (#gn-symbol \"#type\") alias target))) (@make-alias GeneratedAlias u64)",
         )
         .unwrap();
         let root_path = directory.join("root.lim");
@@ -8530,8 +8530,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&directory);
         std::fs::create_dir_all(&directory).unwrap();
-        let source =
-            "(#generator bad (name) `((#fn ,name () u64 (#return false))))\n(@bad generated)\n";
+        let source = "(#gn bad (name) `((#fn ,name () u64 (#return false))))\n(@bad generated)\n";
         let input = directory.join("input.lim");
         let assembly = directory.join("output.s");
         std::fs::write(&input, source).unwrap();
@@ -8580,7 +8579,7 @@ mod tests {
             std::env::temp_dir().join(format!("lim-import-generator-span-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let module_path = directory.join("module.lim");
-        let module_source = "(#generator fail () (#gn-error \"unsupported\"))\n(@fail)";
+        let module_source = "(#gn fail () (#gn-error \"unsupported\"))\n(@fail)";
         std::fs::write(&module_path, module_source).unwrap();
         let root_path = directory.join("root.lim");
         let root_source = "(#import \"module.lim\")";
@@ -10587,7 +10586,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-user-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        let source = "(#generator emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (@emit CachedType)";
+        let source = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (@emit CachedType)";
         write_generated_sources(source, &directory).unwrap();
         let (path, generated) = read_cached_generated_source(&directory, "CachedType");
         assert!(path

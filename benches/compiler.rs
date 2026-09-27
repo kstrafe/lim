@@ -38,7 +38,7 @@ fn generated_program(functions: usize) -> String {
 
 fn generator_program(aliases: usize) -> String {
     let mut source = String::from(
-        "(#generator aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair)))))\n(@aliases (",
+        "(#gn aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair)))))\n(@aliases (",
     );
     for index in 0..aliases {
         source.push_str(&format!("(Generated{index} u64) "));

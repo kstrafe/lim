@@ -750,25 +750,27 @@ type opts in with `#capability`, and a generator parameter can require one:
   (#return (#u64.< (#deref left) (#deref right))))
 (#capability sortable u64
   ((u64-less ((#ref u64) (#ref u64)) bool)))
-(#generator make-sortable ((element sortable))
+(#gn make-sortable ((element sortable))
   `((#type Sortable ,element)))
 (@make-sortable u64)
 ```
 
 The list after a generator's name is its parameter declaration list, not a
 pattern match. A bare symbol such as `name` declares an ordinary literal-syntax
-parameter. A pair such as `(variants #syntax-collection)` declares the single
-parameter `variants` and annotates it to receive a frozen collection snapshot;
-it does not destructure the invocation argument. This mirrors function
-signatures, where each nested pair declares one named parameter and its type.
+parameter. A pair such as `(element sortable)` declares one parameter that
+requires a capability; it does not destructure the invocation argument. A
+frozen syntax collection is requested explicitly at the call site with
+`(#syntax-distribute Collection)`, leaving the generator parameter ordinary.
+This mirrors function signatures, where each nested pair declares one named
+parameter and its type.
 
 ```text
 parameters := (parameter ...)
-parameter  := name | (name capability-name ...) | (name #syntax-collection)
+parameter  := name | (name capability-name ...)
 ```
 
-For example, `(#generator alias (name target) ...)` has two literal-syntax
-parameters. `(#generator sortable ((element sortable)) ...)` has one parameter
+For example, `(#gn alias (name target) ...)` has two literal-syntax
+parameters. `(#gn sortable ((element sortable)) ...)` has one parameter
 named `element` requiring the `sortable` capability. Likewise, `((left right))`
 declares one parameter named `left` with a capability annotation `right`; it
 never binds two names. Nested lists in the name or annotation position are
@@ -786,7 +788,7 @@ changing an operation contract cannot reuse expansions made under an older
 contract.
 
 ```lisp library
-(#generator aliases (pairs)
+(#gn aliases (pairs)
   (#gn-for-each pair pairs
     (#gn-list
       (#gn-symbol "#type")
@@ -805,7 +807,7 @@ helpers, but direct or indirect recursive calls are rejected. For example:
 (#gn-fn make-alias (name target)
   `(#type ,name ,target))
 
-(#generator aliases (pairs)
+(#gn aliases (pairs)
   `(,@(#gn-for-each pair pairs
        (#gn-call make-alias
          (#gn-first pair)
@@ -841,8 +843,8 @@ intended to declare distinct items.
 ## Imports
 
 Compile-time collections (`#syntax-collection`, `#syntax-contribute`) are
-frozen after active imports and before generators. Generator parameters marked
-`#syntax-collection` receive their deterministic snapshots. See
+frozen after active imports and before generators. A direct invocation argument
+`(#syntax-distribute Collection)` receives its deterministic snapshot. See
 [collections and tasks](collections-and-tasks.md) for the user-defined
 distributed-slice, error-enum, and cooperative async generators.
 
@@ -1400,7 +1402,7 @@ are placeholders; `...` means repetition and square brackets mean optional
 syntax, not literal brackets. Fragment examples assume the named variables,
 types, and functions are declared in their enclosing program. Runtime
 statements belong inside a `#fn`, which must end with an explicit `#return`.
-Generator expressions belong inside a `#generator` or `#gn-fn`, not a runtime
+Generator expressions belong inside a `#gn` or `#gn-fn`, not a runtime
 function. Operand markers and automatic cfg keys are included in the same
 sorted list as forms. Typed operators are listed by family immediately below.
 
@@ -1430,7 +1432,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
     `(#type ,name u64)
     (#gn-error "alias name must be a symbol")))
 
-(#generator make-alias (name)
+(#gn make-alias (name)
   (#gn-list (#gn-call alias-declaration name)))
 
 (@make-alias Answer)
@@ -1492,9 +1494,9 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#for` | `(#for init condition step body...)` | `(#for (#let-mut i u64 0u64) (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)) (#set sum (#u64.+.wrap sum i)))` (statement) | Runs an explicitly structured init/condition/step loop. |
 | `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i u64) 0u64 4u64 (#set sum (#u64.+.wrap sum i)))` (statement) | Iterates a typed, half-open range `[start, end)`. |
 | `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Consumes a value without cleanup; use after explicit resource release. Lim never inserts destructors. Task handles/results cannot be forgotten. |
-| `#generator` | `(#generator name (name-or-(name capability...)...) body)` | ``(#generator make-alias (name) `((#type ,name u64)))`` (top level) | Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values. |
 | `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
 | `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
+| `#gn` | `(#gn name (name-or-(name capability...)...) body)` | ``(#gn make-alias (name) `((#type ,name u64)))`` (top level) | Declares an interpreted compile-time syntax generator. Each declaration binds one syntax parameter, not a destructuring pattern; arguments are literals/syntax, not runtime values. |
 | `#gn-call` | `(#gn-call function syntax-arg...)` | `(#gn-call make-alias name target)` (generator body) | Calls a `#gn-fn` helper during generator interpretation. |
 | `#gn-equal` | `(#gn-equal syntax-a syntax-b)` | `(#gn-equal item expected)` (generator expression) | Tests structural equality of immutable generator syntax values. |
 | `#gn-error` | `(#gn-error message)` where `message` evaluates to string syntax | `(#gn-error "unsupported element type")` (generator expression) | Stops generation with a source-associated explanatory diagnostic; non-string syntax is rejected. |
@@ -1570,6 +1572,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#sync` | `(#unsafe-impl #sync Type)` | `(#struct Handle ((raw (#ptr u8)))) (#unsafe-impl #sync Handle)` (top level) | Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally. |
 | `#syntax-collection` | `(#syntax-collection name)` | `(#syntax-collection handlers)` (top level) | Declares a deterministic compile-time syntax collection, frozen before generator expansion. |
 | `#syntax-contribute` | `(#syntax-contribute collection key syntax)` | `(#syntax-contribute handlers Read (Read u64))` (top level) | Adds literal syntax under a key; duplicate keys must contribute identical syntax. |
+| `#syntax-distribute` | `(#syntax-distribute Collection)` | `(@error-enum (#syntax-distribute Errors) Error)` (direct generator argument) | Replaces one explicit generator-call argument with the frozen, key-sorted syntax values of a collection. Unknown collections are errors. |
 | `#target` | `(#cfg-is #target literal)` | `(#cfg-if (#cfg-is #target x86_64-unknown-linux-gnu) (#type Word u64))` (top level) | Automatically populated canonical target triple cfg key; overridable with `--cfg target=VALUE`. |
 | `#thread-task` | `(#thread-task TaskType worker [spawn-signature join-signature])` | `(#thread-task ReadTask read-value)` (generated declaration) | Declares a concrete task type and its named worker; generated builtins are compiler-managed. |
 | `#thread-task-join` | `(#thread-task-join FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-join ReadTask-join ((task ReadTask)) ReadTask-join-result)` (generated signature) | Internal generated function signature for joining a task and retrieving its result. |

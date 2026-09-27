@@ -1,4 +1,4 @@
-(#generator aliases (pairs)
+(#gn aliases (pairs)
   (#gn-for-each pair pairs
     (#gn-list
       (#gn-symbol "#type")

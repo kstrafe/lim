@@ -8,7 +8,7 @@
 (#gn-fn task-sixth (values) (#gn-call task-fifth (#gn-rest values)))
 (#gn-fn task-seventh (values) (#gn-call task-sixth (#gn-rest values)))
 
-(#generator task (names result states)
+(#gn task (names result states)
   `((#enum ,(#gn-first names) ,states)
     (#linear ,(#gn-first names))
     (#enum ,(#gn-call task-second names)
@@ -51,7 +51,7 @@
        (#case (,(#gn-call task-fourth job) lim.executor.task)
          (#block (#forget lim.executor.task) (#unreachable))))))
 
-(#generator executor (run result (jobs #syntax-collection))
+(#gn executor (run result jobs)
   `((#struct ,result ,(#gn-for-each job jobs (#gn-call executor-field job)))
     (#fn ,run ,(#gn-for-each job jobs (#gn-call executor-parameter job)) ,result
       ,@(#gn-for-each job jobs (#gn-call executor-initialize job))
@@ -93,7 +93,7 @@
            ,(#gn-call async-complete names (#gn-call task-third stage)))))
     (#gn-error "async stage requires (#await Task Pending Ready poll-function)")))
 
-(#generator async (names result stages)
+(#gn async (names result stages)
   `((@task ,names ,result ,(#gn-for-each stage stages (#gn-call async-state stage)))
     (#fn ,(#gn-call task-fifth names) ((task ,(#gn-first names))) ,(#gn-call task-second names)
       (#return (#match task
@@ -106,13 +106,13 @@
   `(#case (,(#gn-first entry) lim.cancel.task)
      (#call ,(#gn-call task-second entry) (#fn-args (task lim.cancel.task)))))
 
-(#generator task-cancel (cancel task states)
+(#gn task-cancel (cancel task states)
   `((#fn ,cancel ((task ,task)) ()
       (#return (#match task
         ,@(#gn-for-each entry states (#gn-call task-cancel-case entry)))))))
 
 ;; One explicit OS worker owns this executor and its fixed set of task slots.
 ;; Existing @thread-spawn Send checks, errors, and mandatory joining apply.
-(#generator threaded-executor (run result (jobs #syntax-collection) thread)
+(#gn threaded-executor (run result jobs thread)
   `((@executor ,run ,result ,jobs)
     (@thread-spawn ,thread ,run)))

@@ -21,7 +21,6 @@ static CACHE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 struct GeneratorParameter {
     name: String,
     capabilities: Vec<String>,
-    collection: bool,
 }
 
 #[derive(Clone)]
@@ -273,7 +272,7 @@ fn expand_with_generated_cached_and_hits(
                 }
                 continue;
             }
-            if is_operator(items.first(), "#generator") {
+            if is_operator(items.first(), "#gn") {
                 let generator = parse_generator(items, &expression).map_err(|error| {
                     if error.span.is_some() {
                         error
@@ -416,23 +415,12 @@ fn parse_generator_function(
         return Err("#gn-fn requires a name, parameter list, and body".into());
     }
     let generator = parse_generator(items, source).map_err(|mut error| {
-        error.message = error
-            .message
-            .replace("#generator", "#gn-fn")
-            .replace("generator '", "generator function '");
+        if error.message.starts_with("#gn requires ") {
+            error.message = error.message.replacen("#gn", "#gn-fn", 1);
+        }
+        error.message = error.message.replace("generator '", "generator function '");
         error
     })?;
-    if generator
-        .parameters
-        .iter()
-        .any(|parameter| parameter.collection)
-    {
-        return Err(at_span(
-            "#gn-fn parameters consume syntax values, not collection names",
-            source.span,
-            "generator function",
-        ));
-    }
     Ok(generator)
 }
 
@@ -441,7 +429,7 @@ fn parse_generator(
     source: &SpannedExpr,
 ) -> Result<Generator, crate::source_error::SourceError> {
     if items.len() != 4 {
-        return Err("#generator requires a name, parameter list, and body".into());
+        return Err("#gn requires a name, parameter list, and body".into());
     }
     let name = symbol(items.get(1), "generator name")?;
     let parameters = match items.get(2) {
@@ -450,7 +438,6 @@ fn parse_generator(
     };
     let mut names = Vec::with_capacity(parameters.len());
     for (parameter_index, parameter) in parameters.iter().enumerate() {
-        let mut collection = false;
         let (name, capabilities) = match parameter {
             Expr::Symbol(name) => (name.as_str(), Vec::new()),
             Expr::List(items) if !items.is_empty() => {
@@ -472,13 +459,6 @@ fn parse_generator(
                 };
                 let mut required = Vec::new();
                 for (annotation_index, capability) in items[1..].iter().enumerate() {
-                    if matches!(capability, Expr::Symbol(name) if name == "#syntax-collection") {
-                        if items.len() != 2 {
-                            return Err("#syntax-collection must be the only annotation on a generator parameter".into());
-                        }
-                        collection = true;
-                        continue;
-                    }
                     let capability = match capability {
                         Expr::Symbol(name) => name.as_str(),
                         _ => {
@@ -531,7 +511,6 @@ fn parse_generator(
         names.push(GeneratorParameter {
             name: name.to_owned(),
             capabilities,
-            collection,
         });
     }
     Ok(Generator {
@@ -592,9 +571,27 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     let Some(Expr::Symbol(name)) = items.get(1) else {
         return Err("generator invocation requires a name after '@'".into());
     };
+    let arguments = items[2..]
+        .iter()
+        .map(|argument| match argument {
+            Expr::List(parts)
+                if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#syntax-distribute") =>
+            {
+                let [_, Expr::Symbol(collection)] = parts.as_slice() else {
+                    return Err("#syntax-distribute requires exactly one syntax collection name".into());
+                };
+                context.collections.get(collection).cloned().ok_or_else(|| {
+                    format!("@{name} references unknown syntax collection '{collection}'")
+                })
+            }
+            _ => Ok(argument.clone()),
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     let Some(generator) = context.generators.get(name).cloned() else {
         // Built-in declarations such as @optional are handled by the Lim parser.
-        return Ok(vec![expression]);
+        let mut resolved = items[..2].to_vec();
+        resolved.extend(arguments);
+        return Ok(vec![Expr::List(resolved)]);
     };
     if context.active.iter().any(|entry| entry == name) {
         let mut chain = context.active.join(" -> ");
@@ -619,7 +616,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             items.len() - 2
         ));
     }
-    for (parameter, argument) in generator.parameters.iter().zip(&items[2..]) {
+    for (parameter, argument) in generator.parameters.iter().zip(&arguments) {
         for capability in &parameter.capabilities {
             let Expr::Symbol(type_name) = argument else {
                 return Err(format!(
@@ -661,21 +658,12 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             "generator expansion exceeds maximum depth of {MAX_EXPANSION_DEPTH}"
         ));
     }
-    let arguments = generator.parameters.iter().zip(&items[2..]).map(|(parameter, argument)| {
-        if !parameter.collection { return Ok(argument.clone()); }
-        match argument {
-            Expr::Symbol(collection) => context.collections.get(collection).cloned()
-                .ok_or_else(|| format!("@{name} parameter '{}' references unknown syntax collection '{collection}'", parameter.name)),
-            Expr::List(_) => Ok(argument.clone()),
-            _ => Err(format!("@{name} parameter '{}' requires a collection name or frozen syntax list", parameter.name)),
-        }
-    }).collect::<Result<Vec<_>, String>>()?;
     let invocation_key = format!("{name}:{arguments:?}");
     if !context.seen_invocations.insert(invocation_key) {
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v8\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
+        "lim-generator-cache-v9\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,
@@ -1536,7 +1524,7 @@ mod tests {
 
     #[test]
     fn generator_parameter_forms_bind_one_name_each() {
-        let source = "(#generator make (plain (element sortable) (entries #syntax-collection)) `((#type ,plain ,element)))";
+        let source = "(#gn make (plain (element sortable) entries) `((#type ,plain ,element)))";
         let forms = crate::parse(source).unwrap();
         let Expr::List(items) = &forms[0].expr else {
             panic!("generator form")
@@ -1545,16 +1533,13 @@ mod tests {
         assert_eq!(generator.parameters.len(), 3);
         assert_eq!(generator.parameters[0].name, "plain");
         assert!(generator.parameters[0].capabilities.is_empty());
-        assert!(!generator.parameters[0].collection);
         assert_eq!(generator.parameters[1].name, "element");
         assert_eq!(generator.parameters[1].capabilities, ["sortable"]);
-        assert!(!generator.parameters[1].collection);
         assert_eq!(generator.parameters[2].name, "entries");
         assert!(generator.parameters[2].capabilities.is_empty());
-        assert!(generator.parameters[2].collection);
         assert!(matches!(generator.body, Expr::QuasiQuote(_)));
 
-        let source = "(#generator one ((left right)) left)";
+        let source = "(#gn one ((left right)) left)";
         let forms = crate::parse(source).unwrap();
         let Expr::List(items) = &forms[0].expr else {
             panic!("generator form")
@@ -1568,14 +1553,8 @@ mod tests {
     #[test]
     fn generator_parameter_nested_patterns_report_the_offending_form() {
         for (source, expected) in [
-            (
-                "(#generator bad (((left right) sortable)) left)",
-                "(left right)",
-            ),
-            (
-                "(#generator bad ((item (left right))) item)",
-                "(left right)",
-            ),
+            ("(#gn bad (((left right) sortable)) left)", "(left right)"),
+            ("(#gn bad ((item (left right))) item)", "(left right)"),
         ] {
             let forms = crate::parse(source).unwrap();
             let Expr::List(items) = &forms[0].expr else {
@@ -1771,7 +1750,7 @@ mod tests {
     fn generated_syntax_cache_hits_and_invalidates_for_generator_dependencies() {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-cache-{}", std::process::id()));
-        let source = "(#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (#gn-fn make-alias (name) `,(#gn-call make-type name)) (#gn-fn unused (name) (#gn-list name)) (#generator alias (name) (#gn-call make-alias name)) (#generator forward (call) (#gn-list call)) (#generator spare (name) (#gn-list name)) (@forward (@alias CachedType)) (@alias CachedType)";
+        let source = "(#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (#gn-fn make-alias (name) `,(#gn-call make-type name)) (#gn-fn unused (name) (#gn-list name)) (#gn alias (name) (#gn-call make-alias name)) (#gn forward (call) (#gn-list call)) (#gn spare (name) (#gn-list name)) (@forward (@alias CachedType)) (@alias CachedType)";
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) =
@@ -1865,8 +1844,8 @@ mod tests {
         let source = "(#syntax-collection Errors)
           (#syntax-contribute Errors second (Second u32))
           (#syntax-contribute Errors first (First u64))
-          (#generator errors ((entries #syntax-collection) name) `((#enum ,name ,entries)))
-          (@errors Errors Error)";
+          (#gn errors (entries name) `((#enum ,name ,entries)))
+          (@errors (#syntax-distribute Errors) Error)";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(
                 crate::parse(source).unwrap(),
@@ -1889,6 +1868,36 @@ mod tests {
     }
 
     #[test]
+    fn distributed_and_literal_list_arguments_deduplicate() {
+        let source = "(#syntax-collection Entries)
+          (#syntax-contribute Entries first u64)
+          (#gn alias (entries) `((#type Alias ,(#gn-first entries))))
+          (@alias (#syntax-distribute Entries))
+          (@alias (u64))";
+        let ((forms, _), _) =
+            expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
+        assert_eq!(forms.len(), 1);
+        assert!(format!("{:?}", forms[0].expr).contains("Alias"));
+    }
+
+    #[test]
+    fn bare_collection_name_remains_literal_syntax() {
+        let source = "(#syntax-collection Entries)
+          (#syntax-contribute Entries first u64)
+          (#gn alias (entry) `((#type Alias ,entry)))
+          (@alias Entries)";
+        let ((forms, _), _) =
+            expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
+        assert!(format!("{:?}", forms[0].expr).contains("Entries"));
+    }
+
+    #[test]
+    fn old_generator_keyword_is_not_accepted() {
+        let source = "(#generator alias (name) `((#type ,name u64))) (@alias Old)";
+        assert!(crate::parse_program(source).is_err());
+    }
+
+    #[test]
     fn generated_cache_invalidates_when_capability_contract_changes() {
         let directory = std::env::temp_dir().join(format!(
             "lim-generator-capability-cache-{}",
@@ -1896,7 +1905,7 @@ mod tests {
         ));
         let source = |operation: &str| {
             format!(
-                "(#fn less ((a (#ref u64)) (b (#ref u64))) bool (#return true)) (#fn less-v2 ((a (#ref u64)) (b (#ref u64))) bool (#return true)) (#capability sortable u64 (({operation} ((#ref u64) (#ref u64)) bool))) (#generator emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit u64)"
+                "(#fn less ((a (#ref u64)) (b (#ref u64))) bool (#return true)) (#fn less-v2 ((a (#ref u64)) (b (#ref u64))) bool (#return true)) (#capability sortable u64 (({operation} ((#ref u64) (#ref u64)) bool))) (#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit u64)"
             )
         };
         let expand = |text: &str| {
@@ -1924,7 +1933,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-context-{}", std::process::id()));
         let source =
-            "(#generator make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (@make ContextType)";
+            "(#gn make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (@make ContextType)";
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) = expand_with_generated_cached_and_hits(

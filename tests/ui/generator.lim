@@ -1,2 +1,2 @@
-(#generator fail () (#gn-error "unsupported input"))
+(#gn fail () (#gn-error "unsupported input"))
 (@fail)
