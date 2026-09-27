@@ -1007,7 +1007,7 @@ impl FlowGraph {
     }
 
     /// Verify every indivisible linear leaf in locals and parameters has a
-    /// definite consumption on every path to each typed return.
+    /// definite consumption on every path to lexical cleanup or a typed return.
     pub fn check_linear_exit_obligations(
         &self,
         body: &Body,
@@ -1036,10 +1036,13 @@ impl FlowGraph {
             .iter()
             .map(|(_, _, place)| place.clone())
             .collect::<HashSet<_>>();
-        let (definite_before, definite_after) =
+        let (definite_before, _definite_after) =
             self.obligation_consumptions(body, types, &obligation_places);
         let active = self.active_bindings_before(body);
         for (index, node) in self.nodes.iter().enumerate() {
+            if definite_before[index].is_none() {
+                continue;
+            }
             let leaving = match &node.action {
                 FlowAction::Return(_) => active[index]
                     .as_ref()
@@ -1047,6 +1050,7 @@ impl FlowGraph {
                     .flatten()
                     .copied()
                     .collect::<HashSet<_>>(),
+                FlowAction::ScopeExit(bindings) => bindings.iter().copied().collect(),
                 _ => continue,
             };
             for (binding, name, place) in &obligations {
@@ -1056,13 +1060,6 @@ impl FlowGraph {
                 let consumed = definite_before[index]
                     .as_ref()
                     .is_some_and(|state| state.contains(place));
-                debug_assert_eq!(
-                    consumed,
-                    definite_after[index]
-                        .as_ref()
-                        .is_some_and(|state| state.contains(place)),
-                    "typed Return action should not change the consumed-place state"
-                );
                 if !consumed {
                     return Err(ReleaseConflict {
                         message: format!("linear value '{name}' must be consumed before returning"),
@@ -1119,6 +1116,21 @@ impl FlowGraph {
                         .filter(|leaf| place_covers(transfer, leaf))
                         .cloned(),
                 );
+            }
+            if let FlowAction::Pattern { value, .. } = &node.action {
+                if let Some(source) = Place::from_expression(body, *value) {
+                    state.extend(
+                        obligations
+                            .iter()
+                            .filter(|leaf| {
+                                place_covers(&source, leaf)
+                                    && leaf.segments[source.segments.len()..]
+                                        .iter()
+                                        .any(|segment| matches!(segment, Segment::Payload(_, _)))
+                            })
+                            .cloned(),
+                    );
+                }
             }
             match &node.action {
                 FlowAction::Bind { binding, .. } => {
@@ -1877,6 +1889,11 @@ fn linear_obligation_place(
                 };
                 current = items.get(*index)?.clone();
                 place.segments.push(Segment::Tuple(*index));
+            }
+            crate::linearcheck::LinearProjection::Payload(variant, index) => {
+                let id = declarations.variant_id(&current, variant)?;
+                current = declarations.variant(id).fields.get(*index)?.clone();
+                place.segments.push(Segment::Payload(id, *index));
             }
             crate::linearcheck::LinearProjection::Index(index) => {
                 let Type::Array(element, count) = current else {
@@ -3812,6 +3829,54 @@ mod tests {
             "expected a typed transfer of Pair.right"
         );
         assert!(missing_right_field
+            .check_linear_exit_obligations(body, &types, declarations)
+            .is_err());
+    }
+
+    #[test]
+    fn typed_match_transfers_enum_payload_obligations_to_arm_bindings() {
+        let source = "(#struct Token ((value u64)))
+          (#linear Token)
+          (#enum Choice ((Owned Token) Empty))
+          (#fn main () ()
+            (#let choice Choice
+              (Owned (#struct-literal Token ((value 1u64)))))
+            (#match choice
+              (#case (Owned payload) (#forget payload))
+              (#case Empty ()))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let body = &declarations.bodies["main"];
+        let graph = &declarations.flows["main"];
+        let types = LinearTypes::from_program(&program);
+        graph
+            .check_linear_exit_obligations(body, &types, declarations)
+            .expect("the match arm consumes the active enum payload");
+
+        let mut missing_arm_transfer = graph.clone();
+        let choice = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "choice")
+                .unwrap(),
+        );
+        let release =
+            missing_arm_transfer
+                .nodes
+                .iter_mut()
+                .find_map(|node| match &mut node.action {
+                    FlowAction::Release { place, .. }
+                        if matches!(place.root, PlaceRoot::Local(_)) =>
+                    {
+                        *place = Place::root(PlaceRoot::Local(choice));
+                        Some(())
+                    }
+                    _ => None,
+                });
+        assert!(release.is_some());
+        assert!(missing_arm_transfer
             .check_linear_exit_obligations(body, &types, declarations)
             .is_err());
     }

@@ -1004,7 +1004,13 @@ the checklist is committed alongside the implementation it tracks.
   return obligations into linear struct/tuple/array leaves and resolve those
   paths to typed field/index identities. A consumed ancestor satisfies its
   descendants; consuming every linear field is accepted, while leaving one
-  field unconsumed is rejected. Active enum-payload obligations remain open.
+  field unconsumed is rejected.
+
+- [x] **IR-04bz: Transfer enum payload obligations through typed match arms.**
+  Retain payload alternatives as stable variant/index places and mark the
+  scrutinee payload transfer on a successful arm, leaving the arm's bindings
+  with their own consumption obligations. Test an owned enum payload and
+  rejection when its arm binding is not consumed.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and

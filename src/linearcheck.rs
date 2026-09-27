@@ -141,6 +141,7 @@ pub(crate) struct LinearTypes {
 pub(crate) enum LinearProjection {
     Field(String),
     Tuple(usize),
+    Payload(String, usize),
     Index(usize),
 }
 
@@ -188,8 +189,8 @@ impl LinearTypes {
     }
 
     /// Return the indivisible linear leaves which must be consumed from a
-    /// value. Structs and tuples may be consumed field-by-field; enums remain
-    /// whole-value obligations until active-variant flow is represented.
+    /// value. Enum payload alternatives are all retained here; typed match
+    /// flow makes inactive alternatives vacuously consumed on each arm.
     pub(crate) fn linear_obligation_paths(&self, ty: &Type) -> Vec<Vec<LinearProjection>> {
         fn walk(
             types: &LinearTypes,
@@ -216,7 +217,19 @@ impl LinearTypes {
                                 path.pop();
                             }
                         }
-                    } else if !types.enums.contains_key(name) {
+                    } else if let Some(variants) = types.enums.get(name) {
+                        let mut variants = variants.iter().collect::<Vec<_>>();
+                        variants.sort_by(|left, right| left.0.cmp(right.0));
+                        for (variant, fields) in variants {
+                            for (index, field_ty) in fields.iter().enumerate() {
+                                if types.is_linear(field_ty) {
+                                    path.push(LinearProjection::Payload(variant.clone(), index));
+                                    walk(types, field_ty, path, seen, output);
+                                    path.pop();
+                                }
+                            }
+                        }
+                    } else {
                         output.push(path.clone());
                     }
                 }
