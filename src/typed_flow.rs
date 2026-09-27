@@ -819,6 +819,14 @@ impl FlowGraph {
                         },
                     ..
                 } => set(&mut uses, *binding),
+                FlowAction::Release {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            ..
+                        },
+                    ..
+                } => set(&mut uses, *binding),
                 FlowAction::Bind { binding, .. } => set(&mut defs, *binding),
                 FlowAction::Pattern { pattern, .. } => {
                     let mut bindings = HashSet::new();

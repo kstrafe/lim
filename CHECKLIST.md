@@ -513,6 +513,13 @@ the checklist is committed alongside the implementation it tracks.
   disjoint places and a conflicting checked-place event. Aggregate-held loans,
   indirect referents, moves, and full ownership transfer remain in IR-04.
 
+- [x] **IR-04ao: Enforce direct loans stored in live aggregates.** Include
+  stored reference origins at typed borrow events, using the referent's checked
+  place rather than its storage slot. Count explicit `#drop`/`#forget` as a
+  liveness use so the aggregate stays live until destruction. Test a struct
+  holding a mutable reference, disjoint access, and a conflicting event with
+  both exact spans. Indirect referents and complete move transfer remain open.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
