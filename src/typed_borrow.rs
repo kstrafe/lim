@@ -327,6 +327,28 @@ fn returned_borrows_with_bindings(
         NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
             returned_borrows_with_bindings(body, children[1], callee, bindings)
         }
+        NodeKind::Form {
+            children,
+            callee: Some(_),
+            ..
+        } if matches!(
+            node.ty,
+            Some(Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_))
+        ) =>
+        {
+            let mut alternatives = Vec::new();
+            for argument in children.iter().skip(1) {
+                for mut alternative in
+                    returned_borrows_with_bindings(body, *argument, callee, bindings)?
+                {
+                    for mut borrow in alternative.drain(..) {
+                        borrow.storage.clear();
+                        alternatives.push(vec![borrow]);
+                    }
+                }
+            }
+            bounded(alternatives, node.span)
+        }
         NodeKind::Form { head, .. }
             if head == "array-repeat" && matches!(node.ty, Some(Type::Array(_, 0))) =>
         {
@@ -1268,6 +1290,15 @@ mod tests {
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
         let first = error.3[0].0;
         assert_eq!(&source[first.start..first.end], "(#borrow value)");
+
+        let disjoint = source
+            .replace(
+                "(#let-mut value u64 1u64)",
+                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+            )
+            .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
 
     #[test]
@@ -1427,6 +1458,28 @@ mod tests {
             .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    #[test]
+    fn reference_returning_call_preserves_argument_origin() {
+        let source = "(#fn identity ((source (#ref u64))) (#ref u64)
+            (#return source))
+          (#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#call inspect
+              (: left (#call identity (: source (#borrow value)))
+               : right (#borrow-mut value)))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let second = error.2.unwrap();
+        assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
+        let first = error.3[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow value)");
     }
 
     #[test]

@@ -380,6 +380,13 @@ the checklist is committed alongside the implementation it tracks.
   extracted element while accepting a sibling element borrowed from another
   owner. Keep dynamic-index overlap conservative.
 
+- [x] **IR-04: Preserve provenance through reference-returning call arguments.**
+  Resolve the possible referent origins of a checked reference- or
+  slice-returning call from its arguments, including aggregate-held references,
+  before comparing that result with sibling call arguments. Retain the original
+  borrow span and reject overlapping mutable access without rejecting disjoint
+  referents.
+
 - [x] **IR-04: Propagate loans through explicit array-of construction.**
   Treat `#array-of` as an aggregate value with an explicit type operand and
   indexed reference slots, not as an opaque expression. Test that positional
