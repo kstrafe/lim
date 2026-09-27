@@ -326,6 +326,13 @@ the checklist is committed alongside the implementation it tracks.
   conservatism. The language currently rejects replacing reference-containing
   fields, so this is a flow-transfer invariant, not a new source capability.
 
+- [x] **IR-04w: Propagate stored borrow origins through aggregate reads.**
+  Reading a checked `#get`, `#get-payload`, or `#index` projection now selects
+  the matching direct origins from its aggregate value and removes the storage
+  slot prefix. Dynamic indexes conservatively select any indexed origin.
+  Verify a reference field read retains its original borrow span. Indirect
+  referents and full loan enforcement remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

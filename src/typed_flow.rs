@@ -746,6 +746,35 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             value_loan_origins(body, children[1], state)
         }
         NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "get" | "get-payload" | "index") =>
+        {
+            let Some(base) = children.get(1) else {
+                return Vec::new();
+            };
+            let Some(slot) =
+                Place::from_expression(body, id).and_then(|place| place.segments.last().cloned())
+            else {
+                return Vec::new();
+            };
+            value_loan_origins(body, *base, state)
+                .into_iter()
+                .filter_map(|mut origin| {
+                    let held_slot = origin.storage.first()?;
+                    if held_slot != &slot
+                        && !matches!(
+                            (&slot, held_slot),
+                            (Segment::DynamicIndex, Segment::Index(_))
+                                | (Segment::Index(_), Segment::DynamicIndex)
+                        )
+                    {
+                        return None;
+                    }
+                    origin.storage.remove(0);
+                    Some(origin)
+                })
+                .collect()
+        }
+        NodeKind::Form { head, children, .. }
             if matches!(head.as_str(), "tuple" | "array" | "struct-literal")
                 || matches!(
                     children.first().map(|child| &body.nodes[child.0].kind),
@@ -1754,6 +1783,40 @@ mod tests {
         );
         assert!(uncertain.contains(&origin(1, vec![Segment::Index(0)])));
         assert!(uncertain.contains(&origin(3, vec![Segment::DynamicIndex])));
+    }
+
+    #[test]
+    fn reference_field_read_retains_its_direct_origin() {
+        let source = "(#struct Pair ((first (#ref u64)) (second (#ref u64))))
+          (#fn main () u64
+            (#let left u64 1u64)
+            (#let right u64 2u64)
+            (#let pair Pair (#struct-literal Pair
+              ((first (#borrow left)) (second (#borrow right)))))
+            (#let view (#ref u64) (#get pair first))
+            (#drop view)
+            (#forget pair)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let view = BindingId(body.bindings.iter().position(|b| b.name == "view").unwrap());
+        let bound = graph
+            .nodes
+            .iter()
+            .position(
+                |node| matches!(node.action, FlowAction::Bind { binding, .. } if binding == view),
+            )
+            .map(FlowNodeId)
+            .unwrap();
+        let origins = graph.loan_origins(body);
+        let [origin] = origins.after(bound, view) else {
+            panic!("reference field must retain one origin");
+        };
+        assert!(origin.storage.is_empty());
+        let span = origin.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#borrow left)");
     }
 
     #[test]

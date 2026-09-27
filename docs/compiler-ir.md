@@ -127,6 +127,10 @@ Each origin also retains its structural storage path. Pattern transfers match
 owner-qualified fields, tuple and array positions, and variant payload IDs
 before assigning origins to destructured bindings, so other fields or variants
 cannot contaminate a binding's provenance.
+Checked aggregate reads select matching stored origins and strip the selected
+field, payload, tuple, or array slot from the storage path. A dynamic array
+index may select any indexed origin. Projected assignment updates known slots
+and retains prior origins when a dynamic index makes the target uncertain.
 Explicit scope-exit flow actions clear origins of bindings declared in blocks,
 match arms, and loop scopes. Nonlocal break, continue, and return edges run
 the relevant cleanup actions too. These transitions make the observational
