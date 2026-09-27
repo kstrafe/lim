@@ -888,6 +888,11 @@ the checklist is committed alongside the implementation it tracks.
   cleared. Reject an alias to an outer local escaping via a returned block and
   verify both source locations. Non-final side effects remain flow-ordered.
 
+- [x] **IR-04bf: Align match-escape UI diagnostics with typed return spans.**
+  Update the UI expectation from the match expression to the complete explicit
+  `#return` statement now selected by typed-flow checking; retain the secondary
+  label at the originating borrow and verify the exact underline width.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

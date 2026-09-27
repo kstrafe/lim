@@ -902,7 +902,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "borrow" => Some("#set"),
             "overlapping-call-borrows" => Some("(#borrow value)"),
             "block-reference-escape" => Some("(#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local))"),
-            "match-reference-escape" => Some("(#match holder (#case (Has view) view))"),
+            "match-reference-escape" => Some("(#return (#match holder (#case (Has view) view)))"),
             "borrow-conflict-field-name" => Some("owner"),
             "borrow-conflict-callee-name" => Some("owner"),
             "use-after-reference-release" => Some("view"),
