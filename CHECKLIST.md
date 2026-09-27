@@ -994,11 +994,17 @@ the checklist is committed alongside the implementation it tracks.
   transfer makes the join non-definite. Function-exit obligations remain next.
 
 - [x] **IR-04bx: Differentially verify whole-value return obligations.** Use
-  active typed binding IDs and must-consumption facts to check indivisible
-  linear values at returns, including explicit `#linear` values, atomics, and
-  opaque named values. Keep the syntax checker authoritative for now; assert
-  agreement on accepted programs and verify mixed-branch transfer rejection.
-  Structural partial-field obligations remain under the broader migration.
+  active typed binding IDs and must-consumption facts to check linear values at
+  returns, including explicit `#linear` values, atomics, opaque named values,
+  and the aggregate leaves covered by IR-04by. Keep the syntax checker
+  authoritative for now; assert agreement on accepted programs and verify
+  mixed-branch transfer rejection.
+
+- [x] **IR-04by: Check typed partial aggregate consumption at returns.** Expand
+  return obligations into linear struct/tuple/array leaves and resolve those
+  paths to typed field/index identities. A consumed ancestor satisfies its
+  descendants; consuming every linear field is accepted, while leaving one
+  field unconsumed is rejected. Active enum-payload obligations remain open.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and

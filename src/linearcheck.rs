@@ -137,6 +137,13 @@ pub(crate) struct LinearTypes {
         Option<std::sync::Arc<std::collections::HashMap<usize, crate::typed_ir::ExpressionId>>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum LinearProjection {
+    Field(String),
+    Tuple(usize),
+    Index(usize),
+}
+
 impl LinearTypes {
     pub(crate) fn from_program(program: &Program) -> Self {
         let mut types = Self::default();
@@ -180,19 +187,62 @@ impl LinearTypes {
         is_linear(ty, self, &mut HashSet::new())
     }
 
-    /// Whether a value is itself an indivisible linear obligation, rather
-    /// than an aggregate whose linear fields can be consumed separately.
-    pub(crate) fn requires_whole_value_consumption(&self, ty: &Type) -> bool {
-        match ty {
-            Type::Atomic(_) | Type::MutableSlice(_) => true,
-            Type::Named(name) => {
-                self.explicitly_linear.contains(name)
-                    || (!self.struct_fields.contains_key(name)
-                        && !self.enums.contains_key(name)
-                        && !self.aliases.contains_key(name))
+    /// Return the indivisible linear leaves which must be consumed from a
+    /// value. Structs and tuples may be consumed field-by-field; enums remain
+    /// whole-value obligations until active-variant flow is represented.
+    pub(crate) fn linear_obligation_paths(&self, ty: &Type) -> Vec<Vec<LinearProjection>> {
+        fn walk(
+            types: &LinearTypes,
+            ty: &Type,
+            path: &mut Vec<LinearProjection>,
+            seen: &mut HashSet<String>,
+            output: &mut Vec<Vec<LinearProjection>>,
+        ) {
+            match ty {
+                Type::Atomic(_) | Type::MutableSlice(_) => output.push(path.clone()),
+                Type::Named(name) => {
+                    if let Some(alias) = types.aliases.get(name) {
+                        if seen.insert(name.clone()) {
+                            walk(types, alias, path, seen, output);
+                            seen.remove(name);
+                        }
+                    } else if types.explicitly_linear.contains(name) {
+                        output.push(path.clone());
+                    } else if let Some(fields) = types.struct_fields.get(name) {
+                        for (field, field_ty) in fields {
+                            if types.is_linear(field_ty) {
+                                path.push(LinearProjection::Field(field.clone()));
+                                walk(types, field_ty, path, seen, output);
+                                path.pop();
+                            }
+                        }
+                    } else if !types.enums.contains_key(name) {
+                        output.push(path.clone());
+                    }
+                }
+                Type::Tuple(items) => {
+                    for (index, item) in items.iter().enumerate() {
+                        if types.is_linear(item) {
+                            path.push(LinearProjection::Tuple(index));
+                            walk(types, item, path, seen, output);
+                            path.pop();
+                        }
+                    }
+                }
+                Type::Array(element, count) if types.is_linear(element) => {
+                    for index in 0..*count {
+                        path.push(LinearProjection::Index(index));
+                        walk(types, element, path, seen, output);
+                        path.pop();
+                    }
+                }
+                _ => {}
             }
-            _ => false,
         }
+
+        let mut output = Vec::new();
+        walk(self, ty, &mut Vec::new(), &mut HashSet::new(), &mut output);
+        output
     }
 
     /// A value can be repeated only when no element requires unique ownership
