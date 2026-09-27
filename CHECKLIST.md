@@ -987,6 +987,19 @@ the checklist is committed alongside the implementation it tracks.
   safeguard for opaque external aggregate-returning calls. Verify that a local
   borrow escaping through internal helper chains is rejected by typed flow.
 
+- [x] **IR-04bw: Compute definite consumption on typed control flow.** Add a
+  must-analysis alongside may-consumption, intersecting ownership facts at
+  branch joins and converging across loop back edges. Verify that a value
+  consumed in both branches is definite, while removing either branch's
+  transfer makes the join non-definite. Function-exit obligations remain next.
+
+- [x] **IR-04bx: Differentially verify whole-value return obligations.** Use
+  active typed binding IDs and must-consumption facts to check indivisible
+  linear values at returns, including explicit `#linear` values, atomics, and
+  opaque named values. Keep the syntax checker authoritative for now; assert
+  agreement on accepted programs and verify mixed-branch transfer rejection.
+  Structural partial-field obligations remain under the broader migration.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

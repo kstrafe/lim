@@ -135,6 +135,8 @@ pub(crate) struct FlowReleases {
 pub(crate) struct FlowConsumptions {
     before: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
+    definite_before: Vec<Option<HashSet<Place>>>,
+    definite_after: Vec<Option<HashSet<Place>>>,
 }
 
 impl FlowConsumptions {
@@ -144,6 +146,18 @@ impl FlowConsumptions {
 
     pub fn after(&self, node: FlowNodeId, place: &Place) -> Option<&[Option<Span>]> {
         self.after[node.0].as_ref()?.get(place).map(Vec::as_slice)
+    }
+
+    pub fn definitely_before(&self, node: FlowNodeId, place: &Place) -> bool {
+        self.definite_before[node.0]
+            .as_ref()
+            .is_some_and(|state| state.contains(place))
+    }
+
+    pub fn definitely_after(&self, node: FlowNodeId, place: &Place) -> bool {
+        self.definite_after[node.0]
+            .as_ref()
+            .is_some_and(|state| state.contains(place))
     }
 
     pub fn dump(&self) -> String {
@@ -834,7 +848,106 @@ impl FlowGraph {
                 }
             }
         }
-        FlowConsumptions { before, after }
+        let (definite_before, definite_after) =
+            self.definite_consumptions(body, types, &direct_transfers);
+        FlowConsumptions {
+            before,
+            after,
+            definite_before,
+            definite_after,
+        }
+    }
+
+    /// Must-analysis of the same checked transfer sites. Joins intersect the
+    /// places consumed on every incoming path; loops converge by shrinking
+    /// the definite set at their headers.
+    fn definite_consumptions(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        direct_transfers: &HashSet<NodeId>,
+    ) -> (Vec<Option<HashSet<Place>>>, Vec<Option<HashSet<Place>>>) {
+        let mut before = vec![None; self.nodes.len()];
+        let mut after = vec![None; self.nodes.len()];
+        let mut queued = vec![false; self.nodes.len()];
+        let mut pending = VecDeque::from([self.entry]);
+        before[self.entry.0] = Some(HashSet::new());
+        queued[self.entry.0] = true;
+        while let Some(id) = pending.pop_front() {
+            queued[id.0] = false;
+            let mut state = before[id.0].as_ref().unwrap().clone();
+            let node = &self.nodes[id.0];
+            match &node.action {
+                FlowAction::Read {
+                    value,
+                    place,
+                    place_base: false,
+                } if matches!(place.root, PlaceRoot::Local(_))
+                    && direct_transfers.contains(value)
+                    && body.nodes[value.0]
+                        .ty
+                        .as_ref()
+                        .is_some_and(|ty| types.is_linear(ty)) =>
+                {
+                    state.insert(place.clone());
+                }
+                FlowAction::Release { place, value }
+                    if matches!(place.root, PlaceRoot::Local(_))
+                        && release_operand_is_linear(body, *value, types) =>
+                {
+                    state.insert(place.clone());
+                }
+                FlowAction::Bind { binding, .. } => {
+                    state.retain(|place| place.root != PlaceRoot::Local(*binding));
+                }
+                FlowAction::Pattern { pattern, .. } => {
+                    let mut bindings = HashSet::new();
+                    collect_pattern_bindings(body, *pattern, &mut bindings);
+                    state.retain(|place| {
+                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                FlowAction::Assign { place, .. } => {
+                    if !place.segments.contains(&Segment::DynamicIndex) {
+                        state.retain(|moved| {
+                            moved.root != place.root || !moved.segments.starts_with(&place.segments)
+                        });
+                    }
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    state.retain(|place| {
+                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                _ => {}
+            }
+            after[id.0] = Some(state.clone());
+            for successor in &node.successors {
+                let changed = match &mut before[successor.0] {
+                    Some(existing) => {
+                        let intersection = existing
+                            .intersection(&state)
+                            .cloned()
+                            .collect::<HashSet<_>>();
+                        if intersection != *existing {
+                            *existing = intersection;
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    slot @ None => {
+                        *slot = Some(state.clone());
+                        true
+                    }
+                };
+                if changed && !queued[successor.0] {
+                    queued[successor.0] = true;
+                    pending.push_back(*successor);
+                }
+            }
+        }
+        (before, after)
     }
 
     /// Reject use or explicit destruction after a possible linear move on
@@ -891,6 +1004,117 @@ impl FlowGraph {
             });
         }
         Ok(())
+    }
+
+    /// Verify indivisible linear locals and parameters have a definite whole
+    /// value consumption on every path to each typed return. Aggregate leaves
+    /// remain with the legacy checker until their complete structural
+    /// obligation set is represented here.
+    pub fn check_linear_exit_obligations(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+    ) -> Result<(), ReleaseConflict> {
+        let obligations = body
+            .bindings
+            .iter()
+            .enumerate()
+            .filter_map(|(index, binding)| {
+                types
+                    .requires_whole_value_consumption(&binding.ty)
+                    .then_some((BindingId(index), binding.name.as_str()))
+            })
+            .collect::<Vec<_>>();
+        if obligations.is_empty() {
+            return Ok(());
+        }
+        let moves = self.consumptions(body, types);
+        let active = self.active_bindings_before(body);
+        for (index, node) in self.nodes.iter().enumerate() {
+            let event = FlowNodeId(index);
+            let leaving = match &node.action {
+                FlowAction::Return(_) => active[index]
+                    .as_ref()
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .collect::<HashSet<_>>(),
+                _ => continue,
+            };
+            for (binding, name) in &obligations {
+                if !leaving.contains(binding) {
+                    continue;
+                }
+                let place = Place::root(PlaceRoot::Local(*binding));
+                debug_assert_eq!(
+                    moves.definitely_before(event, &place),
+                    moves.definitely_after(event, &place),
+                    "typed Return action should not change the consumed-place state"
+                );
+                if moves.definitely_before(event, &place) {
+                    continue;
+                }
+                let previous = moves
+                    .before(event, &place)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .min_by_key(|span| (span.source_id, span.start));
+                return Err(ReleaseConflict {
+                    message: format!("linear value '{name}' must be consumed before returning"),
+                    span: node.span,
+                    labels: previous
+                        .map(|span| (*span, "value was consumed on only some paths".into()))
+                        .into_iter()
+                        .collect(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn active_bindings_before(&self, body: &Body) -> Vec<Option<HashSet<BindingId>>> {
+        let mut before: Vec<Option<HashSet<BindingId>>> = vec![None; self.nodes.len()];
+        let mut queued = vec![false; self.nodes.len()];
+        let mut pending = VecDeque::from([self.entry]);
+        before[self.entry.0] = Some((0..body.parameter_count).map(BindingId).collect());
+        queued[self.entry.0] = true;
+        while let Some(id) = pending.pop_front() {
+            queued[id.0] = false;
+            let mut state = before[id.0].as_ref().unwrap().clone();
+            match &self.nodes[id.0].action {
+                FlowAction::Bind { binding, .. } => {
+                    state.insert(*binding);
+                }
+                FlowAction::Pattern { pattern, .. } => {
+                    collect_pattern_bindings(body, *pattern, &mut state);
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    for binding in bindings {
+                        state.remove(binding);
+                    }
+                }
+                _ => {}
+            }
+            for successor in &self.nodes[id.0].successors {
+                let changed = match &mut before[successor.0] {
+                    Some(existing) => {
+                        let old_len = existing.len();
+                        existing.extend(state.iter().copied());
+                        existing.len() != old_len
+                    }
+                    slot @ None => {
+                        *slot = Some(state.clone());
+                        true
+                    }
+                };
+                if changed && !queued[successor.0] {
+                    queued[successor.0] = true;
+                    pending.push_back(*successor);
+                }
+            }
+        }
+        before
     }
 
     /// Reject a second explicit consumption of an overlapping linear place.
@@ -3326,6 +3550,78 @@ mod tests {
             let span = span.unwrap();
             &source[span.start..span.end] == "token"
         }));
+        assert!(moves.definitely_before(exit, &place));
+        graph
+            .check_linear_exit_obligations(body, &types)
+            .expect("both branch transfers satisfy the typed whole-value obligation");
+
+        let branch_transfers = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| match &node.action {
+                FlowAction::Read {
+                    place: read_place,
+                    place_base: false,
+                    ..
+                } if read_place == &place => Some(FlowNodeId(index)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(branch_transfers.len(), 2);
+        assert!(moves.definitely_after(branch_transfers[0], &place));
+        let mut one_branch_skips_transfer = graph.clone();
+        let FlowAction::Read { place_base, .. } =
+            &mut one_branch_skips_transfer.nodes[branch_transfers[0].0].action
+        else {
+            unreachable!()
+        };
+        *place_base = true;
+        let incomplete = one_branch_skips_transfer.consumptions(body, &types);
+        assert!(!incomplete.definitely_before(exit, &place));
+        assert!(!incomplete.definitely_after(branch_transfers[0], &place));
+        assert!(one_branch_skips_transfer
+            .check_linear_exit_obligations(body, &types)
+            .is_err());
+    }
+
+    #[test]
+    fn definite_consumption_survives_loop_back_edges() {
+        let source = "(#struct Token ((value u64)))
+          (#linear Token)
+          (#fn main ((repeat bool)) ()
+            (#let token Token (#struct-literal Token ((value 7u64))))
+            (#forget token)
+            (#let-mut again bool repeat)
+            (#while again (#set again false))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let types = LinearTypes::from_program(&program);
+        let token = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "token")
+                .unwrap(),
+        );
+        let condition = body
+            .nodes
+            .iter()
+            .position(|node| matches!(&node.kind, NodeKind::Symbol { name, .. } if name == "again"))
+            .map(NodeId)
+            .unwrap();
+        let header = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Branch(value) if value == condition))
+            .map(FlowNodeId)
+            .unwrap();
+        let place = Place::root(PlaceRoot::Local(token));
+        assert!(graph
+            .consumptions(body, &types)
+            .definitely_before(header, &place));
     }
 
     #[test]

@@ -180,6 +180,21 @@ impl LinearTypes {
         is_linear(ty, self, &mut HashSet::new())
     }
 
+    /// Whether a value is itself an indivisible linear obligation, rather
+    /// than an aggregate whose linear fields can be consumed separately.
+    pub(crate) fn requires_whole_value_consumption(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Atomic(_) | Type::MutableSlice(_) => true,
+            Type::Named(name) => {
+                self.explicitly_linear.contains(name)
+                    || (!self.struct_fields.contains_key(name)
+                        && !self.enums.contains_key(name)
+                        && !self.aliases.contains_key(name))
+            }
+            _ => false,
+        }
+    }
+
     /// A value can be repeated only when no element requires unique ownership
     /// or exclusive reference identity. References need no explicit cleanup,
     /// but mutable references still cannot be duplicated.

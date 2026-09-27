@@ -1275,6 +1275,12 @@ fn check_types_inner(
                         *diagnostic_labels = error.labels;
                         error.message
                     })?;
+                let typed_exit = declarations.flows[&function.name]
+                    .check_linear_exit_obligations(body, &linear_types);
+                debug_assert!(
+                    typed_exit.is_ok(),
+                    "typed whole-value exit analysis disagrees with the legacy linear checker: {typed_exit:?}"
+                );
             }
         }
     }
