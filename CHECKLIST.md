@@ -146,6 +146,13 @@ the checklist is committed alongside the implementation it tracks.
   and backend-synthesized calls continue using their respective paths. Test
   missing and present identity, and run native examples.
 
+- [x] **IR-03k: Verify checked numeric results against typed opcodes.**
+  Before native instruction selection, require a retained result type matching
+  the opcode's scalar type or `bool` for comparisons and logical operations.
+  Reject missing or mismatched checked metadata; synthesized expressions
+  remain on the compatibility path. Test arithmetic, comparison, and integer
+  bitwise-not cases, then run numeric differential and native examples.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

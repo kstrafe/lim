@@ -179,6 +179,8 @@ operand type, and overflow mode rather than reparsing the dotted spelling.
 If a checked numeric expression lacks that metadata, emission reports an
 internal error instead of interpreting its spelling again. Backend-synthesized
 expressions without checked nodes still use the compatibility parser.
+Emission also checks that a numeric node's retained result type matches its
+typed opcode, including boolean results from comparisons and logical forms.
 Direct checked scalar and aggregate-specialized calls select their ABI and
 canonical source assembly symbol by retained `FunctionId`; the reconstructed
 name remains available for diagnostics. Aggregate dispatch guards use the

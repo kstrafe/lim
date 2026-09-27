@@ -5216,6 +5216,30 @@ fn checked_numeric_metadata(
             "internal error: checked numeric expression lost its operation metadata".into(),
         );
     }
+    if let (Some(node), Some(operation)) = (metadata, &numeric) {
+        use crate::typed_body::NumericOpcode;
+        let expected = if matches!(
+            operation.operation,
+            NumericOpcode::Less
+                | NumericOpcode::LessEqual
+                | NumericOpcode::Greater
+                | NumericOpcode::GreaterEqual
+                | NumericOpcode::Equal
+                | NumericOpcode::NotEqual
+                | NumericOpcode::LogicalAnd
+                | NumericOpcode::LogicalOr
+        ) {
+            Type::Bool
+        } else {
+            operation.operand_type.clone()
+        };
+        let retained = node.ty.as_ref().ok_or_else(|| {
+            "internal error: checked numeric expression lost its result type".to_owned()
+        })?;
+        if retained != &expected {
+            return Err("internal error: checked numeric result disagrees with its opcode".into());
+        }
+    }
     Ok(numeric)
 }
 
@@ -5406,6 +5430,38 @@ fn checked_numeric_expressions_require_retained_operations() {
             .unwrap(),
         crate::typed_body::NumericOperation::parse("u64.+.wrap").unwrap()
     );
+}
+
+#[cfg(test)]
+#[test]
+fn checked_numeric_result_types_agree_with_opcodes() {
+    let head = Expr::Symbol("u32.+.wrap".into());
+    let mut node = crate::typed_body::EmissionNode {
+        numeric: crate::typed_body::NumericOperation::parse("u32.+.wrap"),
+        ..Default::default()
+    };
+    assert!(checked_numeric_metadata(Some(&node), Some(&head))
+        .unwrap_err()
+        .contains("lost its result type"));
+    node.ty = Some(Type::Bool);
+    assert!(checked_numeric_metadata(Some(&node), Some(&head))
+        .unwrap_err()
+        .contains("disagrees with its opcode"));
+    node.ty = Some(Type::U32);
+    checked_numeric_metadata(Some(&node), Some(&head)).unwrap();
+
+    node.numeric = crate::typed_body::NumericOperation::parse("u32.==");
+    assert!(
+        checked_numeric_metadata(Some(&node), Some(&Expr::Symbol("u32.==".into())))
+            .unwrap_err()
+            .contains("disagrees with its opcode")
+    );
+    node.ty = Some(Type::Bool);
+    checked_numeric_metadata(Some(&node), Some(&Expr::Symbol("u32.==".into()))).unwrap();
+
+    node.numeric = crate::typed_body::NumericOperation::parse("u32.!");
+    node.ty = Some(Type::U32);
+    checked_numeric_metadata(Some(&node), Some(&Expr::Symbol("u32.!".into()))).unwrap();
 }
 
 impl FunctionContext {
