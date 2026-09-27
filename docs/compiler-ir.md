@@ -148,9 +148,11 @@ field, payload, tuple, or array slot from the storage path. A dynamic array
 index may select any indexed origin. Projected assignment updates known slots
 and retains prior origins when a dynamic index makes the target uncertain.
 Explicit scope-exit flow actions clear origins of bindings declared in blocks,
-match arms, and loop scopes. Nonlocal break, continue, and return edges run
-the relevant cleanup actions too. These transitions make the observational
-state scope-aware; conflict enforcement is still pending.
+match arms, loop scopes, and the function's root local scope. Nonlocal break,
+continue, and return edges run the relevant cleanup actions too. Root locals
+remain available at a return transfer and clear on the following exit edge.
+These transitions make the observational state scope-aware; conflict
+enforcement is still pending.
 Read and write places now have structural identities: a `BindingId` or
 `GlobalId` root followed by owner-qualified field/variant IDs, tuple positions,
 or concrete/dynamic array indices. A dotted identifier remains one binding,

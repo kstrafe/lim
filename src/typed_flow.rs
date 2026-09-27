@@ -201,7 +201,7 @@ impl FlowGraph {
             active_scopes: Vec::new(),
         };
         builder.exit = builder.push(FlowAction::Exit, None, vec![]);
-        let first = builder.instructions(&body.instructions, builder.exit, &[])?;
+        let first = builder.scoped_instructions(&body.instructions, builder.exit, &[])?;
         let entry = builder.push(FlowAction::Entry, None, vec![first]);
         let graph = Self {
             nodes: builder.nodes,
@@ -1617,6 +1617,37 @@ mod tests {
         let cleanup = graph.nodes[transfer.0].successors[0];
         assert!(matches!(&graph.nodes[cleanup.0].action,
             FlowAction::ScopeExit(bindings) if bindings == &[BindingId(0)]));
+        assert_eq!(graph.nodes[cleanup.0].successors, vec![graph.exit]);
+    }
+
+    #[test]
+    fn root_function_locals_exit_after_return_transfer() {
+        let source = "(#fn main () u64
+            (#let owner u64 9u64)
+            (#let view (#ref u64) (#borrow owner))
+            (#return (#deref view)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        let view = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "view")
+                .unwrap(),
+        );
+        let transfer = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Return(Some(_))))
+            .map(FlowNodeId)
+            .unwrap();
+        assert_eq!(origins.before(transfer, view).len(), 1);
+        let cleanup = graph.nodes[transfer.0].successors[0];
+        assert!(matches!(&graph.nodes[cleanup.0].action,
+            FlowAction::ScopeExit(bindings) if bindings.contains(&view)));
+        assert!(origins.after(cleanup, view).is_empty());
         assert_eq!(graph.nodes[cleanup.0].successors, vec![graph.exit]);
     }
 

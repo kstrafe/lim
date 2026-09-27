@@ -431,6 +431,13 @@ the checklist is committed alongside the implementation it tracks.
   a value break plus a nested return's cleanup edge. This keeps origin state
   visible to future ownership transfer; actual enforcement remains in IR-04.
 
+- [x] **IR-04ag: Model the function root local scope.** Lower top-level
+  instructions through the same scope builder as nested blocks, so local
+  bindings clear after return transfer or fallthrough. Test that a returned
+  dereference sees its live loan at transfer and that the root cleanup clears
+  it before function exit. Parameters remain separately seeded at entry;
+  full ownership enforcement remains in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
