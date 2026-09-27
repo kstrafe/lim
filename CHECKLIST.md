@@ -1012,6 +1012,12 @@ the checklist is committed alongside the implementation it tracks.
   with their own consumption obligations. Test an owned enum payload and
   rejection when its arm binding is not consumed.
 
+- [x] **IR-04ca: Preserve typed linear-exit source and branch origins.** If a
+  synthetic cleanup/return node lacks a useful source span, fall back to the
+  binding's typed declaration event. When a must-obligation fails after a
+  partial path transfer, label that exact transfer as the path-specific origin.
+  Verify the declaration hunk and related transfer in the branch-join test.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

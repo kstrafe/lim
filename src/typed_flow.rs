@@ -1038,6 +1038,7 @@ impl FlowGraph {
             .collect::<HashSet<_>>();
         let (definite_before, _definite_after) =
             self.obligation_consumptions(body, types, &obligation_places);
+        let possible = self.consumptions(body, types);
         let active = self.active_bindings_before(body);
         for (index, node) in self.nodes.iter().enumerate() {
             if definite_before[index].is_none() {
@@ -1061,10 +1062,28 @@ impl FlowGraph {
                     .as_ref()
                     .is_some_and(|state| state.contains(place));
                 if !consumed {
+                    let labels = possible.before[index]
+                        .as_ref()
+                        .into_iter()
+                        .flat_map(|state| state.iter())
+                        .filter(|(moved, _)| place_covers(moved, place))
+                        .flat_map(|(_, spans)| spans.iter().flatten().copied())
+                        .min_by_key(|span| (span.source_id, span.start))
+                        .map(|span| (span, "value was consumed on only some paths".into()))
+                        .into_iter()
+                        .collect();
+                    let binding_span = self.nodes.iter().find_map(|declaration| match declaration
+                        .action
+                    {
+                        FlowAction::Bind {
+                            binding: declared, ..
+                        } if declared == *binding => declaration.span,
+                        _ => None,
+                    });
                     return Err(ReleaseConflict {
                         message: format!("linear value '{name}' must be consumed before returning"),
-                        span: node.span,
-                        labels: Vec::new(),
+                        span: node.span.or(binding_span),
+                        labels,
                     });
                 }
             }
@@ -3739,9 +3758,21 @@ mod tests {
         let incomplete = one_branch_skips_transfer.consumptions(body, &types);
         assert!(!incomplete.definitely_before(exit, &place));
         assert!(!incomplete.definitely_after(branch_transfers[0], &place));
-        assert!(one_branch_skips_transfer
+        let binding_span = graph
+            .nodes
+            .iter()
+            .find_map(|node| match node.action {
+                FlowAction::Bind { binding, .. } if binding == token => node.span,
+                _ => None,
+            })
+            .unwrap();
+        let error = one_branch_skips_transfer
             .check_linear_exit_obligations(body, &types, declarations)
-            .is_err());
+            .unwrap_err();
+        assert_eq!(error.span, Some(binding_span));
+        assert_eq!(error.labels.len(), 1);
+        let consumed = error.labels[0].0;
+        assert_eq!(&source[consumed.start..consumed.end], "token");
     }
 
     #[test]
