@@ -67,6 +67,11 @@ the checklist is committed alongside the implementation it tracks.
   and native match regressions; the broader checker-to-IR type/span maps remain
   part of open IR-02 work.
 
+- [x] **IR-02: Verify generated declaration nodes retain source spans.** Add a
+  focused generated-function lowering regression that resolves a typed node's
+  source ID back to generated source text and checks its exact literal span.
+  Imported source and declaration-span tests cover the same IR path for modules.
+
 - [x] **IR-02d: Retain named-call written order separately from operands.**
   Checked call nodes keep arguments in parameter declaration order and record
   the source-order permutation when all argument spans are available. This

@@ -32,6 +32,9 @@ uses name-based type resolution. It is not reachable from accepted source.
 
 Function declarations have dense `FunctionId` identities, assigned in sorted
 name order, and retain their source spans when source metadata is available.
+Generated function bodies retain source IDs and exact spans into their
+materialized text; imported declaration and call nodes retain their module
+source spans as well.
 IDs are local to a checked program, not persistent identities or cache keys.
 Globals and aggregate types also have dense IDs assigned by sorted name.
 Field and enum-variant IDs pair their owner's aggregate ID with their index

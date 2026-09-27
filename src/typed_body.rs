@@ -170,6 +170,25 @@ mod tests {
     }
 
     #[test]
+    fn generated_function_body_nodes_retain_generated_source_spans() {
+        let source = "(#gn make (name) `((#fn ,name () u64 (#return 5u64))))
+          (@make generated)
+          (#fn main () u64 (#return (#call generated (:))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["generated"];
+        let literal = body
+            .nodes
+            .iter()
+            .find(|node| matches!(node.kind, NodeKind::Literal(Expr::Integer(5))))
+            .unwrap_or_else(|| panic!("{}", checked.dump_typed_ir()));
+        let span = literal.span.unwrap();
+        assert_ne!(span.source_id, 0);
+        let generated_source = &program.source_files[span.source_id as usize].source;
+        assert_eq!(&generated_source[span.start..span.end], "5");
+    }
+
+    #[test]
     fn call_argument_order_is_separate_from_parameter_order() {
         let source = "(#fn combine ((first u64) (second u64) (third u64)) u64 (#return first))
           (#fn main () u64
