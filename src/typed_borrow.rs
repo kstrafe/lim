@@ -12,6 +12,7 @@ use crate::typed_place::Place;
 use crate::{Span, Type};
 
 const MAX_BORROW_ALTERNATIVES: usize = 1024;
+const MAX_ALIAS_CHAIN_DEPTH: usize = 128;
 
 #[derive(Debug)]
 pub(crate) struct BorrowConflict {
@@ -121,7 +122,7 @@ fn returned_borrows_with_bindings(
     bindings: &BoundBorrows,
 ) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
     if let Some(borrow) = direct_borrow(body, id) {
-        if let Some(resolved) = resolve_projected_borrow(body, &borrow, bindings) {
+        if let Some(resolved) = resolve_projected_borrow(body, &borrow, bindings)? {
             return bounded(resolved, body.nodes[id.0].span);
         }
         return Ok(vec![vec![borrow]]);
@@ -223,31 +224,87 @@ fn resolve_projected_borrow(
     body: &Body,
     borrow: &DirectBorrow,
     bindings: &BoundBorrows,
-) -> Option<Vec<Vec<DirectBorrow>>> {
+) -> Result<Option<Vec<Vec<DirectBorrow>>>, BorrowConflict> {
     let PlaceRoot::Local(binding) = borrow.place.root else {
-        return None;
+        return Ok(None);
     };
     if borrow.place.segments.is_empty()
         || !matches!(body.bindings[binding.0].ty, Type::Reference { .. })
     {
-        return None;
+        return Ok(None);
     }
-    let origins = bindings.get(&binding)?;
-    origins
-        .iter()
-        .map(|alternative| {
-            let [origin] = alternative.as_slice() else {
-                return None;
-            };
-            let mut place = origin.place.clone();
-            place.segments.extend(borrow.place.segments.iter().cloned());
-            Some(vec![DirectBorrow {
-                place,
-                mutable: borrow.mutable,
-                span: borrow.span,
-            }])
-        })
-        .collect()
+    let Some(places) = resolve_alias_places(
+        body,
+        &borrow.place,
+        bindings,
+        &mut HashSet::new(),
+        borrow.span,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(
+        places
+            .into_iter()
+            .map(|place| {
+                vec![DirectBorrow {
+                    place,
+                    mutable: borrow.mutable,
+                    span: borrow.span,
+                }]
+            })
+            .collect(),
+    ))
+}
+
+fn resolve_alias_places(
+    body: &Body,
+    place: &Place,
+    bindings: &BoundBorrows,
+    seen: &mut HashSet<BindingId>,
+    span: Option<Span>,
+) -> Result<Option<Vec<Place>>, BorrowConflict> {
+    let PlaceRoot::Local(binding) = place.root else {
+        return Ok(Some(vec![place.clone()]));
+    };
+    if place.segments.is_empty() || !matches!(body.bindings[binding.0].ty, Type::Reference { .. }) {
+        return Ok(Some(vec![place.clone()]));
+    }
+    let Some(origins) = bindings.get(&binding) else {
+        return Ok(None);
+    };
+    if seen.len() >= MAX_ALIAS_CHAIN_DEPTH {
+        return Err(BorrowConflict {
+            message: format!(
+                "call argument reference chain exceeds {MAX_ALIAS_CHAIN_DEPTH} bindings"
+            ),
+            span,
+            labels: Vec::new(),
+        });
+    }
+    if !seen.insert(binding) {
+        return Ok(None);
+    }
+    let mut resolved = Vec::new();
+    for alternative in origins {
+        let [origin] = alternative.as_slice() else {
+            seen.remove(&binding);
+            return Ok(None);
+        };
+        let mut next = origin.place.clone();
+        next.segments.extend(place.segments.iter().cloned());
+        let Some(places) = resolve_alias_places(body, &next, bindings, seen, span)? else {
+            seen.remove(&binding);
+            return Ok(None);
+        };
+        resolved.extend(places);
+        if resolved.len() > MAX_BORROW_ALTERNATIVES {
+            seen.remove(&binding);
+            return Err(complexity_error(span));
+        }
+    }
+    seen.remove(&binding);
+    Ok(Some(resolved))
 }
 
 fn combine_children(
@@ -777,5 +834,100 @@ mod tests {
             None,
         )
         .is_err());
+    }
+
+    #[test]
+    fn projected_borrow_follows_two_known_reference_bindings() {
+        let source = "(#struct Inner ((x u64)))
+          (#struct Outer ((inner Inner)))
+          (#fn main () u64
+            (#let-mut owner Outer (#struct-literal Outer
+              ((inner (#struct-literal Inner ((x 3u64)))))))
+            (#let outer-ref (#ref-mut Outer) (#borrow-mut owner))
+            (#let inner-ref (#ref-mut Inner)
+              (#borrow-mut (#get outer-ref inner)))
+            (#let value-ref (#ref u64) (#borrow (#get inner-ref x)))
+            (#drop value-ref)
+            (#drop inner-ref)
+            (#drop outer-ref)
+            (#forget owner)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let id = |name: &str| {
+            BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == name)
+                    .unwrap(),
+            )
+        };
+        let owner = id("owner");
+        let outer_ref = id("outer-ref");
+        let inner_ref = id("inner-ref");
+        let projection = |base: BindingId| {
+            body.nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| match &node.kind {
+                    NodeKind::Form { head, children, .. } if head == "get" => {
+                        matches!(&body.nodes[children[1].0].kind,
+                            NodeKind::Symbol { binding: Some(binding), .. } if *binding == base)
+                        .then_some(NodeId(index))
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let inner_place = Place::from_expression(body, projection(outer_ref)).unwrap();
+        let value_get = projection(inner_ref);
+        let value_borrow = body
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match &node.kind {
+                NodeKind::Form { head, children, .. }
+                    if head == "borrow" && children.get(1) == Some(&value_get) =>
+                {
+                    Some(NodeId(index))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let mut bindings = BoundBorrows::new();
+        bindings.insert(
+            outer_ref,
+            vec![vec![DirectBorrow {
+                place: Place::root(PlaceRoot::Local(owner)),
+                mutable: true,
+                span: None,
+            }]],
+        );
+        bindings.insert(
+            inner_ref,
+            vec![vec![DirectBorrow {
+                place: inner_place,
+                mutable: true,
+                span: None,
+            }]],
+        );
+        let resolved =
+            returned_borrows_with_bindings(body, value_borrow, "inspect", &bindings).unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0][0].place.root, PlaceRoot::Local(owner));
+        assert_eq!(resolved[0][0].place.segments.len(), 2);
+
+        bindings.insert(
+            outer_ref,
+            vec![vec![DirectBorrow {
+                place: Place::root(PlaceRoot::Local(inner_ref)),
+                mutable: true,
+                span: None,
+            }]],
+        );
+        let unresolved =
+            returned_borrows_with_bindings(body, value_borrow, "inspect", &bindings).unwrap();
+        assert_eq!(unresolved[0][0].place.root, PlaceRoot::Local(inner_ref));
     }
 }

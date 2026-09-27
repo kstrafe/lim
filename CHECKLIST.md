@@ -387,7 +387,15 @@ the checklist is committed alongside the implementation it tracks.
   referent origin before comparing call arguments. Keep unknown origins on the
   conservative compatibility path. Test a reference-to-struct field projecting
   to the original owner's place and an overlapping mutable argument. Longer
-  indirect chains and complete flow-sensitive enforcement remain in IR-04.
+  known chains are covered by IR-04z; full enforcement remains in IR-04.
+
+- [x] **IR-04z: Follow bounded chains of known reference origins.** Resolve
+  projected call borrows through successive reference bindings until they
+  reach a concrete owner place, preserving owner-qualified projection order.
+  Reject excessive alternatives, detect cycles without recursing forever, and
+  retain the conservative fallback for an unknown origin. Test a nested
+  reference-to-struct chain and a synthetic cycle. Full typed loan enforcement
+  remains open in IR-04.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
