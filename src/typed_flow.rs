@@ -19,9 +19,9 @@ pub(crate) enum FlowAction {
     Entry,
     Exit,
     Evaluate(NodeId),
-    /// A direct local is consumed by `#drop` or `#forget`.
+    /// A local place is consumed by `#drop` or `#forget`.
     Release {
-        binding: BindingId,
+        place: Place,
         value: NodeId,
     },
     Borrow {
@@ -260,7 +260,14 @@ impl FlowGraph {
                         replace_projected_origins(&mut state[binding.0], segments, incoming);
                     }
                 }
-                FlowAction::Release { binding, .. } => state[binding.0].clear(),
+                FlowAction::Release {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            segments,
+                        },
+                    ..
+                } => replace_projected_origins(&mut state[binding.0], segments, Vec::new()),
                 _ => {}
             }
             after[id.0] = Some(state.clone());
@@ -296,7 +303,7 @@ impl FlowGraph {
                         return Err(format!("typed flow evaluates invalid node {id:?}"));
                     }
                 }
-                FlowAction::Release { binding, value } => {
+                FlowAction::Release { place, value } => {
                     let Some(crate::typed_body::Node {
                         kind: NodeKind::Form { head, children, .. },
                         ty: Some(_),
@@ -307,9 +314,8 @@ impl FlowGraph {
                     };
                     if !matches!(head.as_str(), "drop" | "forget")
                         || children.len() != 2
-                        || !matches!(body.nodes.get(children[1].0).map(|node| &node.kind),
-                            Some(NodeKind::Symbol { binding: Some(found), .. }) if found == binding)
-                        || binding.0 >= body.bindings.len()
+                        || Place::from_expression(body, children[1]).as_ref() != Some(place)
+                        || !matches!(place.root, PlaceRoot::Local(binding) if binding.0 < body.bindings.len())
                     {
                         return Err(format!("typed flow release {value:?} has invalid metadata"));
                     }
@@ -1234,16 +1240,12 @@ impl Builder<'_> {
             NodeKind::Form { head, children, .. }
                 if matches!(head.as_str(), "drop" | "forget") && children.len() == 2 =>
             {
-                let action = match &self.body.nodes[children[1].0].kind {
-                    NodeKind::Symbol {
-                        binding: Some(binding),
-                        ..
-                    } => FlowAction::Release {
-                        binding: *binding,
+                let action = Place::from_expression(self.body, children[1])
+                    .filter(|place| matches!(place.root, PlaceRoot::Local(_)))
+                    .map_or(FlowAction::Evaluate(id), |place| FlowAction::Release {
+                        place,
                         value: id,
-                    },
-                    _ => FlowAction::Evaluate(id),
-                };
+                    });
                 let done = self.push(action, span, vec![next]);
                 self.expression(children[1], done, targets, None)
             }
@@ -1721,8 +1723,8 @@ mod tests {
             .nodes
             .iter()
             .position(|node| match node.action {
-                FlowAction::Release { binding, value } => {
-                    binding == view
+                FlowAction::Release { ref place, value } => {
+                    place == &Place::root(PlaceRoot::Local(view))
                         && matches!(&body.nodes[value.0].kind,
                         NodeKind::Form { head, .. } if head == "drop")
                 }
@@ -1762,8 +1764,8 @@ mod tests {
             .nodes
             .iter()
             .position(|node| {
-                matches!(node.action, FlowAction::Release { binding, value }
-                if binding == first && matches!(&body.nodes[value.0].kind,
+                matches!(node.action, FlowAction::Release { ref place, value }
+                if place == &Place::root(PlaceRoot::Local(first)) && matches!(&body.nodes[value.0].kind,
                     NodeKind::Form { head, .. } if head == "forget"))
             })
             .map(FlowNodeId)
@@ -1771,6 +1773,53 @@ mod tests {
         assert_eq!(origins.before(release, first).len(), 1);
         assert!(origins.after(release, first).is_empty());
         assert_eq!(origins.after(release, second).len(), 1);
+    }
+
+    #[test]
+    fn projected_release_clears_only_selected_aggregate_origin() {
+        let source = "(#struct Pair ((first (#ref u64)) (second (#ref u64))))
+          (#fn main () u64
+            (#let left u64 1u64)
+            (#let right u64 2u64)
+            (#let pair Pair (#struct-literal Pair
+              ((first (#borrow left)) (second (#borrow right)))))
+            (#forget (#get pair first))
+            (#forget (#get pair second))
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        let pair = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "pair")
+                .unwrap(),
+        );
+        let mut releases = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| match &node.action {
+                FlowAction::Release { place, .. }
+                    if place.root == PlaceRoot::Local(pair) && !place.segments.is_empty() =>
+                {
+                    Some((FlowNodeId(index), place.segments.clone()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        releases.sort_by_key(|(id, _)| id.0);
+        assert_eq!(releases.len(), 2);
+        for (release, path) in releases {
+            let before = origins.before(release, pair);
+            let after = origins.after(release, pair);
+            assert_eq!(before.len(), after.len() + 1);
+            assert!(after
+                .iter()
+                .all(|origin| !origin.storage.starts_with(&path)));
+        }
     }
 
     #[test]

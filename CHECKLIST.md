@@ -403,6 +403,13 @@ the checklist is committed alongside the implementation it tracks.
   preserving live aliases; tests cover both forms. Projected releases and
   full ownership enforcement remain in IR-04.
 
+- [x] **IR-04ab: Track projected releases by checked place.** Extend release
+  actions to resolved local field, payload, tuple, and array places. Clear only
+  origins stored below the selected projection; preserve unrelated fields and
+  conservatively retain dynamic-index alternatives. Test sequential release
+  of two aggregate-held references. Indirect release and full conflict checks
+  remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
