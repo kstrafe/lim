@@ -7,8 +7,8 @@ use std::collections::{HashSet, VecDeque};
 use crate::typed_body::{
     BindingId, Body, Control, Instruction, NodeId, NodeKind, NumericOpcode, PlaceRoot, Projection,
 };
-use crate::typed_ir::DeclarationId;
-use crate::typed_place::Place;
+use crate::typed_ir::{DeclarationId, FieldId};
+use crate::typed_place::{Place, Segment};
 use crate::Span;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -74,11 +74,13 @@ pub(crate) struct LoanOrigin {
     pub place: Place,
     pub mutable: bool,
     pub span: Option<Span>,
+    /// Position inside the value held by a binding, not the referent place.
+    pub storage: Vec<Segment>,
 }
 
 impl PartialEq for LoanOrigin {
     fn eq(&self, other: &Self) -> bool {
-        self.place == other.place && self.mutable == other.mutable
+        self.place == other.place && self.mutable == other.mutable && self.storage == other.storage
     }
 }
 
@@ -125,8 +127,9 @@ impl FlowLoanOrigins {
                         .iter()
                         .map(|origin| {
                             format!(
-                                "{:?} {} {:?}",
+                                "{:?} {:?} {} {:?}",
                                 origin.place,
+                                origin.storage,
                                 if origin.mutable { "mutable" } else { "shared" },
                                 origin.span
                             )
@@ -223,6 +226,10 @@ impl FlowGraph {
             match &self.nodes[id.0].action {
                 FlowAction::Bind { binding, value } => {
                     state[binding.0] = value_loan_origins(body, *value, &state);
+                }
+                FlowAction::Pattern { pattern, value } => {
+                    let origins = value_loan_origins(body, *value, &state);
+                    distribute_pattern_origins(body, *pattern, &origins, &mut state);
                 }
                 FlowAction::Assign {
                     place:
@@ -662,6 +669,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     place,
                     mutable: head == "borrow-mut",
                     span: node.span,
+                    storage: Vec::new(),
                 }]
             })
         }
@@ -702,8 +710,22 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 ) =>
         {
             let mut origins = Vec::new();
-            for child in children.iter().skip(1) {
-                merge_loan_origins(&mut origins, &value_loan_origins(body, *child, state));
+            // Tuple/array value forms carry an explicit type operand after
+            // the head. Patterns do not, so their slots start at child one.
+            let values_start = if matches!(head.as_str(), "tuple" | "array") {
+                2
+            } else {
+                1
+            };
+            for (index, child) in children.iter().skip(values_start).enumerate() {
+                let Some(slot) = aggregate_slot(body, head, children, index) else {
+                    continue;
+                };
+                let mut nested = value_loan_origins(body, *child, state);
+                for origin in &mut nested {
+                    origin.storage.insert(0, slot.clone());
+                }
+                merge_loan_origins(&mut origins, &nested);
             }
             origins
         }
@@ -720,6 +742,59 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
         },
         NodeKind::Labeled(_, inner) => value_loan_origins(body, *inner, state),
         _ => Vec::new(),
+    }
+}
+
+fn aggregate_slot(body: &Body, head: &str, children: &[NodeId], index: usize) -> Option<Segment> {
+    match children.first().map(|child| &body.nodes[child.0].kind) {
+        Some(NodeKind::Declaration(DeclarationId::Aggregate(owner))) => {
+            Some(Segment::Field(FieldId {
+                owner: *owner,
+                index,
+            }))
+        }
+        Some(NodeKind::Declaration(DeclarationId::Variant(variant))) => {
+            Some(Segment::Payload(*variant, index))
+        }
+        _ => match head {
+            "tuple" => Some(Segment::Tuple(index)),
+            "array" => Some(Segment::Index(index as u128)),
+            _ => None,
+        },
+    }
+}
+
+fn distribute_pattern_origins(
+    body: &Body,
+    pattern: NodeId,
+    origins: &[LoanOrigin],
+    state: &mut LoanState,
+) {
+    match &body.nodes[pattern.0].kind {
+        NodeKind::Symbol {
+            binding: Some(binding),
+            ..
+        } => state[binding.0] = origins.to_vec(),
+        NodeKind::Form { head, children, .. } => {
+            for (index, child) in children.iter().skip(1).enumerate() {
+                let Some(slot) = aggregate_slot(body, head, children, index) else {
+                    continue;
+                };
+                let nested = origins
+                    .iter()
+                    .filter_map(|origin| {
+                        if origin.storage.first() != Some(&slot) {
+                            return None;
+                        }
+                        let mut origin = origin.clone();
+                        origin.storage.remove(0);
+                        Some(origin)
+                    })
+                    .collect::<Vec<_>>();
+                distribute_pattern_origins(body, *child, &nested, state);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -1449,6 +1524,7 @@ mod tests {
             .collect::<Vec<_>>();
         sites.sort_unstable();
         assert_eq!(sites, ["(#borrow left)", "(#borrow right)"]);
+
         let drop = graph
             .nodes
             .iter()
@@ -1471,7 +1547,7 @@ mod tests {
             (#let left u64 1u64)
             (#let right u64 2u64)
             (#let pair Pair (#struct-literal Pair
-              ((first (#borrow left)) (second (#borrow right)))))
+              ((second (#borrow right)) (first (#borrow left)))))
             (#let (Pair first second) Pair pair)
             (#return (#u64.+.wrap (#deref first) (#deref second))))";
         let program = crate::parse_program(source).unwrap();
@@ -1499,6 +1575,21 @@ mod tests {
             .collect::<Vec<_>>();
         sites.sort_unstable();
         assert_eq!(sites, ["(#borrow left)", "(#borrow right)"]);
+
+        let pattern = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Pattern { .. }))
+            .map(FlowNodeId)
+            .unwrap();
+        for (name, expected) in [("first", "(#borrow left)"), ("second", "(#borrow right)")] {
+            let binding = BindingId(body.bindings.iter().position(|b| b.name == name).unwrap());
+            let loans = origins.after(pattern, binding);
+            assert_eq!(loans.len(), 1, "{name}");
+            assert!(loans[0].storage.is_empty());
+            let span = loans[0].span.unwrap();
+            assert_eq!(&source[span.start..span.end], expected);
+        }
     }
 
     #[test]
@@ -1533,6 +1624,110 @@ mod tests {
         assert_eq!(held.len(), 1);
         let span = held[0].span.unwrap();
         assert_eq!(&source[span.start..span.end], "(#borrow owner)");
+
+        let view = BindingId(body.bindings.iter().position(|b| b.name == "view").unwrap());
+        let pattern = graph
+            .nodes
+            .iter()
+            .position(|node| match node.action {
+                FlowAction::Pattern { pattern, .. } => {
+                    let mut bindings = HashSet::new();
+                    collect_pattern_bindings(body, pattern, &mut bindings);
+                    bindings.contains(&view)
+                }
+                _ => false,
+            })
+            .map(FlowNodeId)
+            .unwrap();
+        let payload = origins.after(pattern, view);
+        assert_eq!(payload.len(), 1);
+        assert!(payload[0].storage.is_empty());
+        assert_eq!(payload[0].place, held[0].place);
+    }
+
+    #[test]
+    fn variant_payload_origins_do_not_cross_match_arms() {
+        let source = "(#enum Choice ((Left (#ref u64)) (Right (#ref u64))))
+          (#fn main ((choose bool)) u64
+            (#let left u64 1u64)
+            (#let right u64 2u64)
+            (#let choice Choice (#if choose
+              (Left (#borrow left))
+              (Right (#borrow right))))
+            (#return (#match choice
+              (#case (Left left-view) (#deref left-view))
+              (#case (Right right-view) (#deref right-view)))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        for (name, expected) in [
+            ("left-view", "(#borrow left)"),
+            ("right-view", "(#borrow right)"),
+        ] {
+            let binding = BindingId(body.bindings.iter().position(|b| b.name == name).unwrap());
+            let node = graph
+                .nodes
+                .iter()
+                .position(|node| match node.action {
+                    FlowAction::Pattern { pattern, .. } => {
+                        let mut bindings = HashSet::new();
+                        collect_pattern_bindings(body, pattern, &mut bindings);
+                        bindings.contains(&binding)
+                    }
+                    _ => false,
+                })
+                .map(FlowNodeId)
+                .unwrap();
+            let held = origins.after(node, binding);
+            assert_eq!(held.len(), 1, "{name}");
+            let span = held[0].span.unwrap();
+            assert_eq!(&source[span.start..span.end], expected);
+        }
+    }
+
+    #[test]
+    fn positional_destructuring_keeps_tuple_and_array_origins_separate() {
+        for (ty, constructor, pattern) in [
+            (
+                "(#tuple (#ref u64) (#ref u64))",
+                "(#tuple (#tuple (#ref u64) (#ref u64)) (#borrow left) (#borrow right))",
+                "(#tuple first second)",
+            ),
+            (
+                "(#array (#ref u64) 2)",
+                "(#array (#array (#ref u64) 2) (#borrow left) (#borrow right))",
+                "(#array first second)",
+            ),
+        ] {
+            let source = format!(
+                "(#fn main () u64
+                  (#let left u64 1u64)
+                  (#let right u64 2u64)
+                  (#let aggregate {ty} {constructor})
+                  (#let {pattern} {ty} aggregate)
+                  (#return (#u64.+.wrap (#deref first) (#deref second))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let body = &checked.declarations().bodies["main"];
+            let graph = &checked.declarations().flows["main"];
+            let origins = graph.loan_origins(body);
+            let node = graph
+                .nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Pattern { .. }))
+                .map(FlowNodeId)
+                .unwrap();
+            for (name, expected) in [("first", "(#borrow left)"), ("second", "(#borrow right)")] {
+                let binding = BindingId(body.bindings.iter().position(|b| b.name == name).unwrap());
+                let held = origins.after(node, binding);
+                assert_eq!(held.len(), 1, "{ty} {name}");
+                let span = held[0].span.unwrap();
+                assert_eq!(&source[span.start..span.end], expected);
+            }
+        }
     }
 
     #[test]

@@ -123,6 +123,10 @@ referents, destructured payload identities, or scope-sensitive loan lifetimes.
 Constructor values for structs, enums, tuples, and arrays contribute their
 contained direct origins to the resulting aggregate binding; value-block
 results preserve those origins as well.
+Each origin also retains its structural storage path. Pattern transfers match
+owner-qualified fields, tuple and array positions, and variant payload IDs
+before assigning origins to destructured bindings, so other fields or variants
+cannot contaminate a binding's provenance.
 Read and write places now have structural identities: a `BindingId` or
 `GlobalId` root followed by owner-qualified field/variant IDs, tuple positions,
 or concrete/dynamic array indices. A dotted identifier remains one binding,

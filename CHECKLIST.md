@@ -262,8 +262,15 @@ the checklist is committed alongside the implementation it tracks.
 - [x] **IR-04q: Retain aggregate-held loan origins in typed flow.** Walk
   checked struct, enum, tuple, and array constructors, syntax field groups,
   and value-block results when computing a binding's direct origins. Test
-  exact source borrow spans inside struct fields and enum payloads. Mapping
-  individual destructured fields and indirect referents remains in IR-04.
+  exact source borrow spans inside struct fields and enum payloads. Individual
+  destructuring slots are covered by IR-04r; indirect referents remain in IR-04.
+
+- [x] **IR-04r: Map aggregate loan origins through destructuring.** Tag each
+  direct origin with its owner-qualified field, tuple, array, or variant-payload
+  storage path. Transfer only matching origins to pattern bindings, preserving
+  exact source spans. Test reordered named struct construction, tuple and array
+  positions, and distinct enum variants so payloads never cross match arms.
+  Alias-aware indirect referents and enforcing loan conflicts remain in IR-04.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
