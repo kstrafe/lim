@@ -387,6 +387,11 @@ the checklist is committed alongside the implementation it tracks.
   borrow span and reject overlapping mutable access without rejecting disjoint
   referents.
 
+- [x] **IR-04: Preserve struct-field loan paths in call analysis.** Attach
+  declaration-identity field slots to checked struct-constructor borrows and
+  distribute only matching paths through struct patterns. Reject a conflicting
+  extracted field borrow while allowing a disjoint sibling field.
+
 - [x] **IR-04: Propagate loans through explicit array-of construction.**
   Treat `#array-of` as an aggregate value with an explicit type operand and
   indexed reference slots, not as an opaque expression. Test that positional

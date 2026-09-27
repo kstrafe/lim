@@ -365,14 +365,7 @@ fn returned_borrows_with_bindings(
                 ))
             ) =>
         {
-            if head == "struct-literal"
-                || matches!(
-                    children.first().map(|child| &body.nodes[child.0].kind),
-                    Some(NodeKind::Declaration(
-                        DeclarationId::Variant(_) | DeclarationId::Aggregate(_)
-                    ))
-                )
-            {
+            if head == "struct-literal" {
                 return combine_children(
                     body,
                     children.iter().skip(1).copied(),
@@ -381,7 +374,16 @@ fn returned_borrows_with_bindings(
                     bindings,
                 );
             }
-            let start = constructor_values_start(node.ty.as_ref(), children.len());
+            let start = if matches!(
+                children.first().map(|child| &body.nodes[child.0].kind),
+                Some(NodeKind::Declaration(
+                    DeclarationId::Variant(_) | DeclarationId::Aggregate(_)
+                ))
+            ) {
+                1
+            } else {
+                constructor_values_start(node.ty.as_ref(), children.len())
+            };
             let mut alternatives = vec![Vec::new()];
             for (index, child) in children.iter().skip(start).enumerate() {
                 let slot = constructor_slot(body, head, children, index);
@@ -1364,6 +1366,28 @@ mod tests {
         let program = crate::parse_program(&overlapping).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
         assert!(error.contains("overlapping borrows"), "{error}");
+    }
+
+    #[test]
+    fn struct_destructuring_retains_field_loan_paths() {
+        let source = "(#struct Pair ((left (#ref u64)) (right (#ref u64))))
+          (#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut first u64 1u64)
+            (#let-mut second u64 2u64)
+            (#let pair Pair (#struct-literal Pair
+              ((left (#borrow first)) (right (#borrow second)))))
+            (#let (Pair left right) Pair pair)
+            (#return (#call inspect
+              (: left left : right (#borrow-mut first)))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+
+        let disjoint = source.replace(": left left", ": left right");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
 
     #[test]
