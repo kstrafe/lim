@@ -1163,6 +1163,16 @@ fn collect_reference_fields(
             return;
         }
     }
+    if let (crate::Type::Array(element, 1), Expr::List(items)) = (ty, value) {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if head == "array-repeat") {
+            if let Some(child) = items.get(if items.len() == 3 { 2 } else { 1 }) {
+                path.push(0);
+                collect_reference_fields(element, child, context, path, result);
+                path.pop();
+            }
+            return;
+        }
+    }
     let children = match ty {
         crate::Type::Tuple(fields) => fields.clone(),
         crate::Type::Array(element, count) => {
@@ -1800,6 +1810,7 @@ fn merge_branch_context(context: &mut Context, branches: &[Context]) {
 
 fn release_dropped_value(expression: &Expr, context: &mut Context) {
     let Expr::Symbol(name) = expression else {
+        release_projected_value(expression, context);
         return;
     };
     let name = name.clone();
@@ -1843,6 +1854,62 @@ fn release_dropped_value(expression: &Expr, context: &mut Context) {
     }
     context.mutable_references.remove(&name);
     context.reference_bindings.remove(&name);
+}
+
+fn release_projected_value(expression: &Expr, context: &mut Context) {
+    let Some((Expr::Symbol(root), segments)) = projection_path(expression) else {
+        return;
+    };
+    if segments.is_empty() {
+        return;
+    }
+    let Some(path) = segments
+        .iter()
+        .map(|segment| segment.parse::<usize>().ok())
+        .collect::<Option<Vec<_>>>()
+    else {
+        return;
+    };
+    let Some(fields) = context.reference_fields.get(root) else {
+        return;
+    };
+    let selected = fields
+        .keys()
+        .filter(|field_path| field_path.starts_with(&path))
+        .cloned()
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        return;
+    }
+    let released_loans = selected
+        .iter()
+        .flat_map(|field_path| &fields[field_path].1)
+        .cloned()
+        .collect::<Vec<_>>();
+    // A field origin alone is not authority to retire a loan: ensure this
+    // binding still owns every matching loan, including repeated references.
+    let Some(mut remaining) = context.reference_loans.get(root).cloned() else {
+        return;
+    };
+    for loan in &released_loans {
+        let Some(index) = remaining.iter().position(|held| held == loan) else {
+            return;
+        };
+        remaining.remove(index);
+    }
+    let fields = context.reference_fields.get_mut(root).unwrap();
+    for field_path in selected {
+        fields.remove(&field_path);
+    }
+    if fields.is_empty() {
+        context.reference_fields.remove(root);
+    }
+    // Keep an empty entry: dropping the aggregate later must not fall back
+    // to its conservative, possibly stale origin set and end an alias's loan.
+    context.reference_loans.insert(root.clone(), remaining);
+    for (_, loan) in released_loans {
+        context.loans.end(&loan);
+    }
 }
 
 enum ThreadMatchOperation {
@@ -2054,6 +2121,12 @@ fn static_index_segment(expression: &Expr) -> Option<String> {
     match expression {
         Expr::Integer(index) if *index >= 0 => Some(index.to_string()),
         Expr::UnsignedInteger(index) => Some(index.to_string()),
+        Expr::List(items)
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(head)) if head == "literal") =>
+        {
+            static_index_segment(&items[2])
+        }
         _ => None,
     }
 }
