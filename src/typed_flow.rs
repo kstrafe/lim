@@ -123,6 +123,44 @@ pub(crate) struct FlowReleases {
     definite_after: Vec<HashSet<Place>>,
 }
 
+/// Possible value consumptions from typed reads and explicit releases.
+pub(crate) struct FlowConsumptions {
+    before: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
+    after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
+}
+
+impl FlowConsumptions {
+    pub fn before(&self, node: FlowNodeId, place: &Place) -> Option<&[Option<Span>]> {
+        self.before[node.0].as_ref()?.get(place).map(Vec::as_slice)
+    }
+
+    pub fn after(&self, node: FlowNodeId, place: &Place) -> Option<&[Option<Span>]> {
+        self.after[node.0].as_ref()?.get(place).map(Vec::as_slice)
+    }
+
+    pub fn dump(&self) -> String {
+        use std::fmt::Write;
+        let mut output = String::new();
+        for (index, state) in self.after.iter().enumerate() {
+            let Some(state) = state else { continue };
+            let mut places = state.keys().collect::<Vec<_>>();
+            places.sort_by_key(|place| format!("{place:?}"));
+            for place in places {
+                let node = FlowNodeId(index);
+                writeln!(
+                    output,
+                    "  consumed {index} {place:?} {:?}->{:?}",
+                    self.before(node, place),
+                    self.after(node, place)
+                )
+                .unwrap();
+            }
+        }
+        output
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct ReleaseConflict {
     pub message: String,
     pub span: Option<Span>,
@@ -470,6 +508,168 @@ impl FlowGraph {
             definite_before,
             definite_after,
         }
+    }
+
+    /// Forward may-analysis of direct value transfers and explicit releases.
+    /// Other expression reads may be borrowing builtins (for example slice
+    /// indexing), so only a checked direct bind/assignment/pattern/return/
+    /// break value is classified as an implicit move for now.
+    pub fn consumptions(&self, body: &Body, types: &LinearTypes) -> FlowConsumptions {
+        let direct_transfers = self
+            .nodes
+            .iter()
+            .filter_map(|node| match node.action {
+                FlowAction::Bind { value, .. }
+                | FlowAction::Assign { value, .. }
+                | FlowAction::Pattern { value, .. } => Some(value),
+                FlowAction::Return(value) | FlowAction::Break(value) => value,
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        let mut before = vec![None; self.nodes.len()];
+        let mut after = vec![None; self.nodes.len()];
+        let mut queued = vec![false; self.nodes.len()];
+        let mut pending = VecDeque::from([self.entry]);
+        before[self.entry.0] = Some(HashMap::<Place, Vec<Option<Span>>>::new());
+        queued[self.entry.0] = true;
+        while let Some(id) = pending.pop_front() {
+            queued[id.0] = false;
+            let mut state = before[id.0].as_ref().unwrap().clone();
+            let node = &self.nodes[id.0];
+            match &node.action {
+                FlowAction::Read {
+                    value,
+                    place,
+                    place_base: false,
+                } if matches!(place.root, PlaceRoot::Local(_))
+                    && direct_transfers.contains(value)
+                    && body.nodes[value.0]
+                        .ty
+                        .as_ref()
+                        .is_some_and(|ty| types.is_linear(ty)) =>
+                {
+                    let spans = state.entry(place.clone()).or_default();
+                    if !spans.contains(&node.span) {
+                        spans.push(node.span);
+                    }
+                }
+                FlowAction::Release { place, value }
+                    if matches!(place.root, PlaceRoot::Local(_))
+                        && release_operand_is_linear(body, *value, types) =>
+                {
+                    let spans = state.entry(place.clone()).or_default();
+                    if !spans.contains(&node.span) {
+                        spans.push(node.span);
+                    }
+                }
+                FlowAction::Bind { binding, .. } => {
+                    state.retain(|place, _| place.root != PlaceRoot::Local(*binding));
+                }
+                FlowAction::Pattern { pattern, .. } => {
+                    let mut bindings = HashSet::new();
+                    collect_pattern_bindings(body, *pattern, &mut bindings);
+                    state.retain(|place, _| {
+                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                FlowAction::Assign { place, .. } => {
+                    if !place.segments.contains(&Segment::DynamicIndex) {
+                        state.retain(|moved, _| {
+                            moved.root != place.root || !moved.segments.starts_with(&place.segments)
+                        });
+                    }
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    state.retain(|place, _| {
+                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                _ => {}
+            }
+            after[id.0] = Some(state.clone());
+            for successor in &node.successors {
+                let changed = match &mut before[successor.0] {
+                    Some(existing) => {
+                        let mut changed = false;
+                        for (place, spans) in &state {
+                            let held = existing.entry(place.clone()).or_default();
+                            for span in spans {
+                                if !held.contains(span) {
+                                    held.push(*span);
+                                    changed = true;
+                                }
+                            }
+                        }
+                        changed
+                    }
+                    slot @ None => {
+                        *slot = Some(state.clone());
+                        true
+                    }
+                };
+                if changed && !queued[successor.0] {
+                    pending.push_back(*successor);
+                    queued[successor.0] = true;
+                }
+            }
+        }
+        FlowConsumptions { before, after }
+    }
+
+    /// Reject use or explicit destruction after a possible linear move on
+    /// any reachable predecessor path. Exit obligations remain with the
+    /// existing linear checker until the full ownership migration.
+    pub fn check_linear_consumptions(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+    ) -> Result<(), ReleaseConflict> {
+        if !self.nodes.iter().any(|node| match &node.action {
+            FlowAction::Read {
+                value,
+                place_base: false,
+                ..
+            } => body.nodes[value.0]
+                .ty
+                .as_ref()
+                .is_some_and(|ty| types.is_linear(ty)),
+            FlowAction::Release { value, .. } => release_operand_is_linear(body, *value, types),
+            _ => false,
+        }) {
+            return Ok(());
+        }
+        let moves = self.consumptions(body, types);
+        for (index, node) in self.nodes.iter().enumerate() {
+            let (place, message) = match &node.action {
+                FlowAction::Read {
+                    place,
+                    place_base: false,
+                    ..
+                } => (place, "cannot read a value after it was consumed"),
+                FlowAction::Release { place, .. } => {
+                    (place, "cannot destroy a value after it was consumed")
+                }
+                _ => continue,
+            };
+            let Some(state) = moves.before[index].as_ref() else {
+                continue;
+            };
+            let previous = state
+                .iter()
+                .filter(|(moved, _)| moved.overlaps(place))
+                .flat_map(|(_, spans)| spans)
+                .flatten()
+                .min_by_key(|span| (span.source_id, span.start));
+            let Some(previous) = previous else {
+                continue;
+            };
+            return Err(ReleaseConflict {
+                message: message.into(),
+                span: node.span,
+                labels: vec![(*previous, "value was consumed here".into())],
+            });
+        }
+        Ok(())
     }
 
     /// Reject a second explicit consumption of an overlapping linear place.
@@ -1082,6 +1282,16 @@ impl FlowGraph {
         }
         Ok(())
     }
+}
+
+fn release_operand_is_linear(body: &Body, value: NodeId, types: &LinearTypes) -> bool {
+    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+        return false;
+    };
+    children
+        .get(1)
+        .and_then(|operand| body.nodes[operand.0].ty.as_ref())
+        .is_some_and(|ty| types.is_linear(ty))
 }
 
 fn collect_pattern_bindings(body: &Body, id: NodeId, bindings: &mut HashSet<BindingId>) {
@@ -2348,6 +2558,91 @@ mod tests {
         assert!(graph.nodes.iter().any(|node| matches!(&node.action,
             FlowAction::Read { value, place_base: true, .. }
                 if matches!(&body.nodes[value.0].kind, NodeKind::Symbol { name, .. } if name == "pair-ref"))));
+    }
+
+    #[test]
+    fn direct_linear_transfer_records_origin_and_rejects_later_release() {
+        let source = "(#struct Token ((value u64)))
+          (#linear Token)
+          (#fn main () ()
+            (#let a Token (#struct-literal Token ((value 1u64))))
+            (#let b Token (#struct-literal Token ((value 2u64))))
+            (#let moved Token b)
+            (#forget moved)
+            (#forget a)
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut graph = FlowGraph::lower(body).unwrap();
+        let types = LinearTypes::from_program(&program);
+        graph.check_linear_consumptions(body, &types).unwrap();
+        let a = BindingId(body.bindings.iter().position(|b| b.name == "a").unwrap());
+        let b = BindingId(body.bindings.iter().position(|b| b.name == "b").unwrap());
+        let transfer = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(&node.action, FlowAction::Read { place, .. }
+                if place.root == PlaceRoot::Local(b))
+                .then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        let b_place = Place::root(PlaceRoot::Local(b));
+        let moves = graph.consumptions(body, &types);
+        assert!(moves.before(transfer, &b_place).is_none());
+        let origin = moves.after(transfer, &b_place).unwrap()[0].unwrap();
+        assert_eq!(&source[origin.start..origin.end], "b");
+        let FlowAction::Read { place, .. } = &mut graph.nodes[transfer.0].action else {
+            unreachable!()
+        };
+        place.root = PlaceRoot::Local(a);
+        let error = graph.check_linear_consumptions(body, &types).unwrap_err();
+        let span = error.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#forget a)");
+        let first = error.labels[0].0;
+        assert_eq!(&source[first.start..first.end], "b");
+    }
+
+    #[test]
+    fn direct_linear_transfers_join_from_both_branches() {
+        let source = "(#struct Token ((value u64)))
+          (#linear Token)
+          (#fn main ((flag bool)) ()
+            (#let token Token (#struct-literal Token ((value 7u64))))
+            (#if flag
+              (#block (#let moved Token token) (#forget moved) ())
+              (#block (#let moved Token token) (#forget moved) ()))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let types = LinearTypes::from_program(&program);
+        graph.check_linear_consumptions(body, &types).unwrap();
+        let token = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "token")
+                .unwrap(),
+        );
+        let exit = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Return(_)).then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        let place = Place::root(PlaceRoot::Local(token));
+        let moves = graph.consumptions(body, &types);
+        let origins = moves.before(exit, &place).unwrap();
+        assert_eq!(origins.len(), 2);
+        assert!(origins.iter().all(|span| {
+            let span = span.unwrap();
+            &source[span.start..span.end] == "token"
+        }));
     }
 
     #[test]

@@ -556,6 +556,15 @@ the checklist is committed alongside the implementation it tracks.
   binding verification. Test field distinctions and exact role metadata;
   implicit move classification remains in IR-04.
 
+- [x] **IR-04av: Track direct linear transfers on typed flow.** Classify
+  checked value reads used directly by bind, assignment, pattern, return, or
+  break as consuming when their type is linear; retain their source spans and
+  explicit linear releases through joins, replacement, and scope exit. Reject
+  a later overlapping read or release, while keeping Copy/reference reads and
+  borrowing builtins such as mutable-slice indexing non-consuming. Test a
+  transfer followed by destruction with both exact sites. Nested expressions,
+  calls, and complete exit obligations remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

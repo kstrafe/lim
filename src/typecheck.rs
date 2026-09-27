@@ -162,13 +162,14 @@ impl<'a> CheckedProgram<'a> {
     /// Inspect the retained body representation. This is a compiler debugging
     /// format, not a stable interchange format.
     pub fn dump_typed_ir(&self) -> String {
+        let linear_types = crate::linearcheck::LinearTypes::from_program(self.program);
         let mut names: Vec<_> = self.declarations.bodies.keys().collect();
         names.sort();
         names
             .into_iter()
             .map(|name| {
                 format!(
-                    "function {name}\n{}{}{}{}",
+                    "function {name}\n{}{}{}{}{}",
                     self.declarations.bodies[name].dump(),
                     self.declarations.flows[name].dump(&self.declarations.liveness[name]),
                     self.declarations.flows[name]
@@ -176,6 +177,9 @@ impl<'a> CheckedProgram<'a> {
                         .dump(),
                     self.declarations.flows[name]
                         .releases(&self.declarations.bodies[name])
+                        .dump(),
+                    self.declarations.flows[name]
+                        .consumptions(&self.declarations.bodies[name], &linear_types,)
                         .dump()
                 )
             })
@@ -969,6 +973,13 @@ fn check_types_inner(
             if let Some(body) = declarations.bodies.get(&function.name) {
                 declarations.flows[&function.name]
                     .check_linear_releases(body, &linear_types)
+                    .map_err(|error| {
+                        *diagnostic_span = error.span;
+                        *diagnostic_labels = error.labels;
+                        error.message
+                    })?;
+                declarations.flows[&function.name]
+                    .check_linear_consumptions(body, &linear_types)
                     .map_err(|error| {
                         *diagnostic_span = error.span;
                         *diagnostic_labels = error.labels;

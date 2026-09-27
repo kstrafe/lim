@@ -168,6 +168,12 @@ Place reads now also have explicit typed flow actions retaining their checked
 value and place IDs. A role bit distinguishes an intermediate place base or
 dedicated borrow/clone/release operand from a value read; the loan preflight
 uses only the latter, while binding liveness still sees both.
+Direct value transfers from a checked place into a binding, assignment,
+pattern, return, or break now contribute a possible linear-consumption fact on
+the typed graph. Explicit linear releases contribute the same fact. Later
+overlapping reads or releases are rejected with both source sites. This does
+not yet classify nested expression arguments or prove all exit obligations,
+so the syntax-side linear checker remains active.
 One typed borrow preflight compares direct `#borrow` and `#borrow-mut` call
 arguments using those place identities. It retains borrow origins through pure
 aggregate construction and expression-valued branches, comparing only loans
