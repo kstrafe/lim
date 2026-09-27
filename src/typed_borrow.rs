@@ -180,7 +180,7 @@ pub(crate) fn check_return_escapes(
         let FlowAction::Return(Some(value)) = &node.action else {
             continue;
         };
-        for origin in origins.value_before(body, FlowNodeId(index), *value) {
+        for origin in origins.value_before(body, flow, FlowNodeId(index), *value) {
             let PlaceRoot::Local(binding) = origin.place.root else {
                 continue;
             };

@@ -868,6 +868,13 @@ the checklist is committed alongside the implementation it tracks.
   pattern state. A regression exposed that limitation, so the legacy check is
   deliberately not bypassed.
 
+- [x] **IR-04bc: Evaluate conditional return values at their typed flow sites.**
+  For `#if`, `#match`, and labeled results, inspect each result expression at
+  its own flow event so arm-local pattern bindings and aliases remain available
+  before cleanup. Reject an enum payload reference escaping through a returned
+  match, and verify the return span plus original borrow label. Loop-break
+  result provenance and complete typed escape enforcement remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

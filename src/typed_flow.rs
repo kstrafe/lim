@@ -209,10 +209,33 @@ impl FlowReleases {
 }
 
 impl FlowLoanOrigins {
-    pub fn value_before(&self, body: &Body, node: FlowNodeId, value: NodeId) -> Vec<LoanOrigin> {
-        self.before[node.0]
-            .as_ref()
-            .map_or_else(Vec::new, |state| value_loan_origins(body, value, state))
+    pub fn value_before(
+        &self,
+        body: &Body,
+        flow: &FlowGraph,
+        node: FlowNodeId,
+        value: NodeId,
+    ) -> Vec<LoanOrigin> {
+        let mut results = Vec::new();
+        let mut alternatives = Vec::new();
+        collect_result_alternatives(body, value, &mut alternatives);
+        for alternative in alternatives {
+            for (index, event) in flow.nodes.iter().enumerate() {
+                if !flow_action_has_value(&event.action, alternative) {
+                    continue;
+                }
+                if let Some(state) = &self.before[index] {
+                    merge_loan_origins(&mut results, &value_loan_origins(body, alternative, state));
+                }
+            }
+        }
+        if results.is_empty() {
+            self.before[node.0]
+                .as_ref()
+                .map_or_else(Vec::new, |state| value_loan_origins(body, value, state))
+        } else {
+            results
+        }
     }
 
     pub fn before(&self, node: FlowNodeId, binding: BindingId) -> &[LoanOrigin] {
@@ -1661,6 +1684,48 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
         NodeKind::Labeled(_, inner) => value_loan_origins(body, *inner, state),
         _ => Vec::new(),
     }
+}
+
+fn collect_result_alternatives(body: &Body, id: NodeId, output: &mut Vec<NodeId>) {
+    match &body.nodes[id.0].kind {
+        NodeKind::If {
+            then_value,
+            else_value,
+            ..
+        } => {
+            collect_result_alternatives(body, *then_value, output);
+            if let Some(value) = else_value {
+                collect_result_alternatives(body, *value, output);
+            }
+        }
+        NodeKind::Match { arms, .. } => {
+            for arm in arms {
+                if let NodeKind::MatchArm { values, .. } = &body.nodes[arm.0].kind {
+                    if let Some(value) = values.last() {
+                        collect_result_alternatives(body, *value, output);
+                    }
+                }
+            }
+        }
+        NodeKind::Labeled(_, expression) => {
+            collect_result_alternatives(body, *expression, output);
+        }
+        _ => output.push(id),
+    }
+}
+
+fn flow_action_has_value(action: &FlowAction, value: NodeId) -> bool {
+    matches!(
+        action,
+        FlowAction::Evaluate(id) if *id == value
+    ) || matches!(
+        action,
+        FlowAction::Read { value: id, .. }
+            | FlowAction::Borrow { value: id, .. }
+            | FlowAction::Clone { value: id, .. }
+            | FlowAction::Release { value: id, .. }
+            if *id == value
+    )
 }
 
 /// Follow only known, direct reference origins. Unknown parameters, aggregate
