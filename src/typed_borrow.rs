@@ -1,7 +1,7 @@
 //! Checks simultaneous call-argument loans and live direct-loan conflicts
 //! using resolved places. Pure constructors preserve direct borrows through
-//! aggregates and conditional results. Indirect referents, complete move
-//! transfer, and reference-returning calls remain for IR-04.
+//! aggregates, conditional results, and reference-returning calls. Loop break
+//! values are transferred from their checked control-flow instructions.
 
 use std::collections::{HashMap, HashSet};
 
@@ -291,6 +291,9 @@ fn returned_borrows_with_bindings(
             }
             bounded(alternatives, node.span)
         }
+        NodeKind::Loop(instructions) => {
+            returned_loop_borrows(body, instructions, None, callee, bindings, node.span)
+        }
         NodeKind::Block(instructions) => {
             let mut local = bindings.clone();
             for instruction in instructions {
@@ -327,8 +330,12 @@ fn returned_borrows_with_bindings(
                 _ => Ok(vec![Vec::new()]),
             }
         }
-        NodeKind::Labeled(_, inner) => {
-            returned_borrows_with_bindings(body, *inner, callee, bindings)
+        NodeKind::Labeled(label, inner) => {
+            if let NodeKind::Loop(instructions) = &body.nodes[inner.0].kind {
+                returned_loop_borrows(body, instructions, Some(label), callee, bindings, node.span)
+            } else {
+                returned_borrows_with_bindings(body, *inner, callee, bindings)
+            }
         }
         NodeKind::Form { head, children, .. } if head == "unsafe" && children.len() == 2 => {
             returned_borrows_with_bindings(body, children[1], callee, bindings)
@@ -426,6 +433,70 @@ fn constructor_values_start(ty: Option<&Type>, child_count: usize) -> usize {
     } else {
         2
     }
+}
+
+fn returned_loop_borrows(
+    body: &Body,
+    instructions: &[crate::typed_body::Instruction],
+    label: Option<&str>,
+    callee: &str,
+    bindings: &BoundBorrows,
+    span: Option<Span>,
+) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
+    fn breaks(
+        instructions: &[crate::typed_body::Instruction],
+        label: Option<&str>,
+        nested_loops: usize,
+        values: &mut Vec<NodeId>,
+    ) {
+        for instruction in instructions {
+            match &instruction.control {
+                Control::Break(target, Some(value))
+                    if (label.is_some() && target.as_deref() == label)
+                        || (target.is_none() && nested_loops == 0) =>
+                {
+                    values.push(*value);
+                }
+                Control::Loop(body) | Control::While(_, body) => {
+                    breaks(body, label, nested_loops + 1, values);
+                }
+                Control::For(init, _, step, body) => {
+                    breaks(
+                        std::slice::from_ref(init.as_ref()),
+                        label,
+                        nested_loops + 1,
+                        values,
+                    );
+                    breaks(
+                        std::slice::from_ref(step.as_ref()),
+                        label,
+                        nested_loops + 1,
+                        values,
+                    );
+                    breaks(body, label, nested_loops + 1, values);
+                }
+                Control::Labeled(_, nested) => {
+                    breaks(
+                        std::slice::from_ref(nested.as_ref()),
+                        label,
+                        nested_loops,
+                        values,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut values = Vec::new();
+    breaks(instructions, label, 0, &mut values);
+    let mut alternatives = Vec::new();
+    for value in values {
+        alternatives.extend(returned_borrows_with_bindings(
+            body, value, callee, bindings,
+        )?);
+    }
+    bounded(alternatives, span)
 }
 
 fn constructor_slot(
@@ -1239,8 +1310,23 @@ mod tests {
             (#let-mut value u64 1u64)
             (#return (#call inspect (: left (#tuple (#borrow value)) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
-        let error = crate::CheckedProgram::validate(&program).err().unwrap();
-        assert!(error.contains("overlapping borrows"), "{error}");
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let second = error.2.unwrap();
+        assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
+        let first = error.3[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+
+        let disjoint = source
+            .replace(
+                "(#let-mut value u64 1u64)",
+                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+            )
+            .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
 
     #[test]
@@ -1252,8 +1338,23 @@ mod tests {
             (#let-mut value u64 1u64)
             (#return (#call inspect (: left (#array (#array (#ref u64) 1) (#borrow value)) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
-        let error = crate::CheckedProgram::validate(&program).err().unwrap();
-        assert!(error.contains("overlapping borrows"), "{error}");
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let second = error.2.unwrap();
+        assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
+        let first = error.3[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+
+        let disjoint = source
+            .replace(
+                "(#let-mut value u64 1u64)",
+                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+            )
+            .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
 
     #[test]
@@ -1461,6 +1562,35 @@ mod tests {
         assert!(error.contains("overlapping borrows"), "{error}");
 
         let disjoint = source.replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    #[test]
+    fn loop_break_reference_retains_call_argument_origin() {
+        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#call inspect
+              (: left (#loop (#break (#borrow value)))
+               : right (#borrow-mut value)))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let second = error.2.unwrap();
+        assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
+        let first = error.3[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+
+        let disjoint = source
+            .replace(
+                "(#let-mut value u64 1u64)",
+                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+            )
+            .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }

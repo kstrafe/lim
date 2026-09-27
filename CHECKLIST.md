@@ -402,6 +402,12 @@ the checklist is committed alongside the implementation it tracks.
   and destructuring nested patterns. Reject overlapping extracted references
   and accept an independent referent after a multi-level projection.
 
+- [x] **IR-04: Propagate direct loop-break borrow results into call analysis.**
+  Collect reachable value-carrying `#break`/`#break-to` exits for a loop
+  expression, without mistaking nested-loop exits for the outer result. Retain
+  borrow spans and reject conflicting call arguments while accepting disjoint
+  referents.
+
 - [x] **IR-04: Propagate loans through explicit array-of construction.**
   Treat `#array-of` as an aggregate value with an explicit type operand and
   indexed reference slots, not as an opaque expression. Test that positional
