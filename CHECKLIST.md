@@ -537,6 +537,11 @@ the checklist is committed alongside the implementation it tracks.
   report the clone and original mutable-borrow spans. Implicit read/move
   classification remains in IR-04.
 
+- [x] **IR-04as: Reject symbol reads through live mutable loans.** Compare
+  checked symbol-read binding IDs with direct origins held by live bindings;
+  preserve the read and borrow source spans. Keep shared-loan reads valid and
+  leave implicit move classification and projected/indirect reads to IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
