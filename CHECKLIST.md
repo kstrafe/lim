@@ -565,6 +565,12 @@ the checklist is committed alongside the implementation it tracks.
   transfer followed by destruction with both exact sites. Nested expressions,
   calls, and complete exit obligations remain in IR-04.
 
+- [x] **IR-04aw: Follow value-branch results in typed move transfer.** Trace
+  direct transfer roots through `#if`, `#match` arms, value blocks, labels,
+  and erased unsafe wrappers, classifying only their selected result reads as
+  moves. Preserve alternative source spans across joins; test conditional,
+  match, and block results. Calls and other nested expressions remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

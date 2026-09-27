@@ -171,8 +171,10 @@ uses only the latter, while binding liveness still sees both.
 Direct value transfers from a checked place into a binding, assignment,
 pattern, return, or break now contribute a possible linear-consumption fact on
 the typed graph. Explicit linear releases contribute the same fact. Later
-overlapping reads or releases are rejected with both source sites. This does
-not yet classify nested expression arguments or prove all exit obligations,
+overlapping reads or releases are rejected with both source sites. Direct
+transfer roots follow conditional branches, match arms, value blocks, labels,
+and unsafe wrappers through their selected results. This does not yet classify
+call arguments or other nested expression uses or prove all exit obligations,
 so the syntax-side linear checker remains active.
 One typed borrow preflight compares direct `#borrow` and `#borrow-mut` call
 arguments using those place identities. It retains borrow origins through pure

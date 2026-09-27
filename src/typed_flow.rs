@@ -515,7 +515,7 @@ impl FlowGraph {
     /// indexing), so only a checked direct bind/assignment/pattern/return/
     /// break value is classified as an implicit move for now.
     pub fn consumptions(&self, body: &Body, types: &LinearTypes) -> FlowConsumptions {
-        let direct_transfers = self
+        let transfer_roots = self
             .nodes
             .iter()
             .filter_map(|node| match node.action {
@@ -525,7 +525,51 @@ impl FlowGraph {
                 FlowAction::Return(value) | FlowAction::Break(value) => value,
                 _ => None,
             })
-            .collect::<HashSet<_>>();
+            .collect::<Vec<_>>();
+        let mut direct_transfers = HashSet::new();
+        let mut pending_values = transfer_roots;
+        while let Some(value) = pending_values.pop() {
+            if !direct_transfers.insert(value) {
+                continue;
+            }
+            match &body.nodes[value.0].kind {
+                NodeKind::If {
+                    then_value,
+                    else_value,
+                    ..
+                } => {
+                    pending_values.push(*then_value);
+                    if let Some(other) = else_value {
+                        pending_values.push(*other);
+                    }
+                }
+                NodeKind::Match { arms, .. } => {
+                    for arm in arms {
+                        if let NodeKind::MatchArm { values, .. } = &body.nodes[arm.0].kind {
+                            if let Some(result) = values.last() {
+                                pending_values.push(*result);
+                            }
+                        }
+                    }
+                }
+                NodeKind::Block(instructions) => {
+                    if let Some(Instruction {
+                        control: Control::Evaluate(result),
+                        ..
+                    }) = instructions.last()
+                    {
+                        pending_values.push(*result);
+                    }
+                }
+                NodeKind::Labeled(_, result) => pending_values.push(*result),
+                NodeKind::Form { head, children, .. } if head == "unsafe" => {
+                    if let Some(result) = children.get(1) {
+                        pending_values.push(*result);
+                    }
+                }
+                _ => {}
+            }
+        }
         let mut before = vec![None; self.nodes.len()];
         let mut after = vec![None; self.nodes.len()];
         let mut queued = vec![false; self.nodes.len()];
@@ -2643,6 +2687,89 @@ mod tests {
             let span = span.unwrap();
             &source[span.start..span.end] == "token"
         }));
+    }
+
+    #[test]
+    fn value_branch_result_transfers_are_counted_as_moves() {
+        let source = "(#struct Token ((value u64)))
+          (#linear Token)
+          (#fn main ((flag bool)) ()
+            (#let token Token (#struct-literal Token ((value 7u64))))
+            (#let result Token (#if flag token token))
+            (#forget result)
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let types = LinearTypes::from_program(&program);
+        graph.check_linear_consumptions(body, &types).unwrap();
+        let token = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "token")
+                .unwrap(),
+        );
+        let bind = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Bind { binding, .. }
+                if body.bindings[binding.0].name == "result")
+                .then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        let moves = graph.consumptions(body, &types);
+        let place = Place::root(PlaceRoot::Local(token));
+        assert_eq!(moves.before(bind, &place).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn match_and_block_results_transfer_direct_places() {
+        for (value, expected_origins) in [
+            ("(#match flag (#case true token) (#case false token))", 2),
+            ("(#block token)", 1),
+        ] {
+            let source = format!(
+                "(#struct Token ((value u64)))
+              (#linear Token)
+              (#fn main ((flag bool)) ()
+                (#let token Token (#struct-literal Token ((value 7u64))))
+                (#let result Token {value})
+                (#forget result)
+                (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let body = &checked.declarations().bodies["main"];
+            let graph = &checked.declarations().flows["main"];
+            let types = LinearTypes::from_program(&program);
+            graph.check_linear_consumptions(body, &types).unwrap();
+            let token = BindingId(
+                body.bindings
+                    .iter()
+                    .position(|b| b.name == "token")
+                    .unwrap(),
+            );
+            let bind = graph
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    matches!(node.action, FlowAction::Bind { binding, .. }
+                    if body.bindings[binding.0].name == "result")
+                    .then_some(FlowNodeId(index))
+                })
+                .unwrap();
+            let place = Place::root(PlaceRoot::Local(token));
+            let moves = graph.consumptions(body, &types);
+            assert_eq!(
+                moves.before(bind, &place).unwrap().len(),
+                expected_origins,
+                "{value}"
+            );
+        }
     }
 
     #[test]
