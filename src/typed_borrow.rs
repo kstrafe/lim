@@ -278,6 +278,11 @@ fn returned_borrows_with_bindings(
         NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
             returned_borrows_with_bindings(body, children[1], callee, bindings)
         }
+        NodeKind::Form { head, .. }
+            if head == "array-repeat" && matches!(node.ty, Some(Type::Array(_, 0))) =>
+        {
+            Ok(vec![Vec::new()])
+        }
         NodeKind::Form { head, children, .. }
             if matches!(
                 head.as_str(),
@@ -911,6 +916,19 @@ mod tests {
             let conflict = error.2.unwrap();
             assert_eq!(&source[conflict.start..conflict.end], "(#borrow-mut value)");
         }
+    }
+
+    #[test]
+    fn empty_repeated_array_does_not_retain_a_call_argument_borrow() {
+        let source = "(#fn inspect ((values (#array (#ref u64) 0)) (other (#ref-mut u64))) u64
+             (#forget values) (#forget other) (#return 0u64))
+          (#fn main () u64
+             (#let-mut value u64 1u64)
+             (#return (#call inspect
+               (: values (#array-repeat (#borrow value))
+                : other (#borrow-mut value)))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap();
     }
 
     #[test]

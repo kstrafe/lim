@@ -267,6 +267,11 @@ the checklist is committed alongside the implementation it tracks.
   preserving the originating borrow's span when a later mutable argument
   conflicts. Test both forms with exact second-argument diagnostics.
 
+- [x] **IR-04: Do not retain a zero-length repeated borrow.** The value
+  operand is evaluated, but a zero-element array stores no reference. Match
+  typed call-argument checking to aggregate loan transfer and accept a later
+  mutable argument borrowing the same owner. Keep nonempty repeats checked.
+
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
   retain condition/scrutinee/result node IDs and the pattern binding identities
