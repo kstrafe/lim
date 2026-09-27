@@ -540,6 +540,10 @@ impl FlowGraph {
                 transfer_roots.extend(children.iter().skip(1).copied());
             } else if node.ty.is_some() && matches!(head.as_str(), "tuple" | "array" | "array-of") {
                 transfer_roots.extend(children.iter().skip(2).copied());
+            } else if node.ty.is_some() && head == "slice-mut-split" {
+                if let Some(source) = children.get(1) {
+                    transfer_roots.push(*source);
+                }
             } else if node.ty.is_some() && head == "struct-literal" {
                 if let Some(fields) = children.get(2) {
                     if let NodeKind::Syntax(fields) = &body.nodes[fields.0].kind {
@@ -2911,6 +2915,47 @@ mod tests {
                 .unwrap_or_else(|| panic!("{kind}: no token move"));
             assert_eq!(origins.len(), 1, "{kind}");
         }
+    }
+
+    #[test]
+    fn mutable_slice_split_consumes_source_but_indexing_does_not() {
+        let source = "(#fn main () ()
+          (#let-mut values (#array u64 2) (#array-of (#array u64 2) 1u64 2u64))
+          (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
+          (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64))
+            (#slice-mut-split view 1usize))
+          (#let observed u64 (#deref (#slice-mut-idx left 0usize)))
+          (#forget left) (#forget right)
+          (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let types = LinearTypes::from_program(&program);
+        graph.check_linear_consumptions(body, &types).unwrap();
+        let view = BindingId(body.bindings.iter().position(|b| b.name == "view").unwrap());
+        let left = BindingId(body.bindings.iter().position(|b| b.name == "left").unwrap());
+        let split = graph.nodes.iter().enumerate().find_map(|(index, node)| {
+            matches!(node.action, FlowAction::Evaluate(id)
+                if matches!(&body.nodes[id.0].kind, NodeKind::Form { head, .. } if head == "slice-mut-split"))
+                .then_some(FlowNodeId(index))
+        }).unwrap();
+        let index = graph.nodes.iter().enumerate().find_map(|(index, node)| {
+            matches!(node.action, FlowAction::Evaluate(id)
+                if matches!(&body.nodes[id.0].kind, NodeKind::Form { head, .. } if head == "slice-mut-idx"))
+                .then_some(FlowNodeId(index))
+        }).unwrap();
+        let moves = graph.consumptions(body, &types);
+        assert_eq!(
+            moves
+                .before(split, &Place::root(PlaceRoot::Local(view)))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(moves
+            .after(index, &Place::root(PlaceRoot::Local(left)))
+            .is_none());
     }
 
     #[test]

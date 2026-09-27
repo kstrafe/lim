@@ -585,6 +585,12 @@ the checklist is committed alongside the implementation it tracks.
   test each constructor family with an explicit linear field. Non-constructor
   builtin operand modes remain in IR-04.
 
+- [x] **IR-04az: Retain the consuming mode of mutable-slice splitting.**
+  Treat the source of `#slice-mut-split` as a linear transfer in typed flow,
+  while leaving `#slice-mut-idx` and `#slice-mut-len` as borrowing reads.
+  Verify the split move and non-consuming index in one checked body. Other
+  builtin operand modes remain to be migrated in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
