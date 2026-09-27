@@ -69,3 +69,18 @@ fn repeating_copy_elements_and_shared_references_remains_valid() {
       (#return ()))";
     check_types(&parse_program(shared).unwrap()).unwrap();
 }
+
+#[test]
+fn contextual_single_slot_repeat_consumes_the_linear_source() {
+    let source = "(#struct Token ((value u64)))
+      (#linear Token)
+      (#fn main () ()
+        (#let token Token (#struct-literal Token ((value 7u64))))
+        (#let values (#array Token 1) (#array-repeat token))
+        (#forget token)
+        (#forget values)
+        (#return ()))";
+    let program = parse_program(source).unwrap();
+    let error = check_types(&program).unwrap_err();
+    assert!(error.contains("already consumed"), "{error}");
+}

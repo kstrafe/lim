@@ -932,7 +932,15 @@ fn check_expr(
                     check_expr(arg, bindings, moved, globals, false, types)?;
                 }
             } else if head == "array-repeat" {
-                if let Some(value) = items.get(2) {
+                let value_index = if items.len() == 3
+                    && matches!(items.get(1), Some(Expr::List(parts))
+                        if matches!(parts.first(), Some(Expr::Symbol(name)) if name == "array"))
+                {
+                    2
+                } else {
+                    1
+                };
+                if let Some(value) = items.get(value_index) {
                     check_expr(value, bindings, moved, globals, false, types)?;
                 }
             } else if head == "borrow" || head == "borrow-mut" {

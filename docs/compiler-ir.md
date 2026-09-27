@@ -180,6 +180,9 @@ transfer linear member values. Mutable-slice splitting consumes its source,
 while indexing and length inspection borrow it. Other builtin operand modes,
 nested expression uses, and complete exit obligations remain with the
 syntax-side linear checker.
+For remaining checked builtin forms, nested operands are treated as value
+inputs unless the form is known to borrow or inspect a place. Contextual
+one-slot `#array-repeat` consumes its source; the syntax-side checker agrees.
 Array repetition is checked separately: a zero- or multi-slot repeat requires
 a duplicable element. Mutable references are not duplicable even though they
 need no explicit destruction; nested aggregate members are checked too.

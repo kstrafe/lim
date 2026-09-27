@@ -565,6 +565,30 @@ impl FlowGraph {
                 )
             {
                 transfer_roots.extend(children.iter().skip(1).copied());
+            } else if node.ty.is_some()
+                && !matches!(
+                    head.as_str(),
+                    "get"
+                        | "get-payload"
+                        | "index"
+                        | "borrow"
+                        | "borrow-mut"
+                        | "clone"
+                        | "drop"
+                        | "forget"
+                        | "slice-mut-idx"
+                        | "slice-mut-len"
+                        | "addr-of"
+                        | "addr-of-mut"
+                        | "ptr-read"
+                        | "ptr-is-null"
+                        | "ptr-borrow"
+                        | "ptr-borrow-mut"
+                        | "ptr-write"
+                        | "deref"
+                )
+            {
+                transfer_roots.extend(children.iter().skip(1).copied());
             }
         }
         let mut direct_transfers = HashSet::new();
@@ -2956,6 +2980,43 @@ mod tests {
         assert!(moves
             .after(index, &Place::root(PlaceRoot::Local(left)))
             .is_none());
+    }
+
+    #[test]
+    fn one_slot_array_repeat_transfers_its_linear_value() {
+        let source = "(#struct Token ((value u64)))
+          (#linear Token)
+          (#fn main () ()
+            (#let token Token (#struct-literal Token ((value 7u64))))
+            (#let values (#array Token 1) (#array-repeat token))
+            (#forget values)
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let types = LinearTypes::from_program(&program);
+        graph.check_linear_consumptions(body, &types).unwrap();
+        let token = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "token")
+                .unwrap(),
+        );
+        let bind = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Bind { binding, .. }
+                if body.bindings[binding.0].name == "values")
+                .then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        let place = Place::root(PlaceRoot::Local(token));
+        let moves = graph.consumptions(body, &types);
+        let origin = moves.before(bind, &place).unwrap()[0].unwrap();
+        assert_eq!(&source[origin.start..origin.end], "token");
     }
 
     #[test]

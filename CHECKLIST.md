@@ -598,6 +598,13 @@ the checklist is committed alongside the implementation it tracks.
   enums, tuples, and arrays. Preserve Copy scalars and shared references;
   test exact source-underlined diagnostics.
 
+- [x] **IR-04ba: Classify value-mode builtin operands on typed flow.** Treat
+  nested checked builtin arguments as transfers by default while exempting
+  borrows, clones, destruction operands, place projections, and other
+  borrowing forms. Ensure a one-slot `#array-repeat` transfers its linear
+  source, and fix syntax-side contextual repeat analysis so a later use is
+  rejected. Keep unresolved builtin access modes in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
