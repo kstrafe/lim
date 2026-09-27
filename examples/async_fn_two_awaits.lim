@@ -1,4 +1,12 @@
 (#import "../library/tasks.lim")
+(#import "../library/linux_x86_64.lim")
+
+(#fn print-text ((text (#slice char))) ()
+  (#for-range (offset usize) 0usize (#slice-len text)
+    (#let byte u8 (#as (#deref (#slice-idx text offset)) u8))
+    (#assert (#i64.==
+      (#call linux-write-byte (#fn-args (source (#borrow byte)))) 1i64)))
+  (#return ()))
 
 ; A small wake context: the child records each time it asks to be polled again.
 (#struct Wake ((notifications (#cell u64))))
@@ -29,17 +37,23 @@
     (#return (#u64.+.wrap (#u64.+.wrap left right) extra))))
 
 (#fn main () u64
+  (#let start (#array char 6) "start\n")
+  (#call print-text (#fn-args (text (#slice-of (#borrow start)))))
   (#let wake Wake (#struct-literal Wake ((notifications (#cell 0u64)))))
   (#let first TwoStepsPoll
     (#call two-steps-poll (#fn-args
       (task (#call two-steps (#fn-args (extra 0u64))))
       (waker (#borrow wake)))))
   (#let-else (TwoStepsPending state1) TwoStepsPoll first (#unreachable))
+  (#let first-pending (#array char 16) "poll 1: pending\n")
+  (#call print-text (#fn-args (text (#slice-of (#borrow first-pending)))))
   (#let second TwoStepsPoll
     (#call two-steps-poll (#fn-args
       (task state1)
       (waker (#borrow wake)))))
   (#let-else (TwoStepsPending state2) TwoStepsPoll second (#unreachable))
+  (#let second-pending (#array char 16) "poll 2: pending\n")
+  (#call print-text (#fn-args (text (#slice-of (#borrow second-pending)))))
   (#let third TwoStepsPoll
     (#call two-steps-poll (#fn-args
       (task state2)
@@ -49,6 +63,8 @@
       (#case (TwoStepsReady value) value)
       (#case (TwoStepsPending state)
         (#block (#forget state) (#unreachable)))))
+  (#let ready (#array char 14) "poll 3: ready\n")
+  (#call print-text (#fn-args (text (#slice-of (#borrow ready)))))
   (#let notifications u64 (#cell-get (#get wake notifications)))
   (#forget wake)
   (#return (#u64.+.wrap result notifications)))

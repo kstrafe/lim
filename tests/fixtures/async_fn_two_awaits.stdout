@@ -1,0 +1,4 @@
+start
+poll 1: pending
+poll 2: pending
+poll 3: ready
