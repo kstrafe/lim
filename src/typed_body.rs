@@ -280,9 +280,36 @@ mod tests {
                     && operation.overflow == Overflow::Wrap
             })
         }));
+        assert!(overlay.by_id.values().any(|node| node.binding.is_some()));
         let increment = checked.declarations().function_id("increment");
         assert!(increment.is_some());
         assert!(overlay.by_id.values().any(|node| node.callee == increment));
+    }
+
+    #[test]
+    fn emission_overlay_keeps_shadowed_local_binding_ids_distinct() {
+        let source = "(#fn main () u64
+          (#let value u64 1u64)
+          (#block (#let value u64 2u64) value)
+          (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let function = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let overlay = body.emission_types(function).unwrap();
+        let bindings = overlay
+            .by_id
+            .values()
+            .filter_map(|node| node.binding)
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(bindings.len(), 2);
     }
 
     #[test]
@@ -801,6 +828,9 @@ pub(crate) struct EmissionTypes {
 #[derive(Default)]
 pub(crate) struct EmissionNode {
     pub ty: Option<Type>,
+    /// Retained for the upcoming BindingId-keyed local-slot migration.
+    #[allow(dead_code)]
+    pub binding: Option<BindingId>,
     pub numeric: Option<NumericOperation>,
     pub callee: Option<FunctionId>,
 }
@@ -1004,6 +1034,10 @@ impl Body {
                 } => (numeric.clone(), *callee),
                 _ => (None, None),
             };
+            let binding = match &node.kind {
+                NodeKind::Symbol { binding, .. } => *binding,
+                _ => None,
+            };
             let expression_id = node.expression_id.ok_or_else(|| {
                 format!("internal error: checked node {} has no expression ID", id.0)
             })?;
@@ -1023,6 +1057,7 @@ impl Body {
                     expression_id,
                     EmissionNode {
                         ty: node.ty.clone(),
+                        binding,
                         numeric,
                         callee,
                     },

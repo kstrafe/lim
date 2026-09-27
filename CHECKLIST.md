@@ -83,6 +83,11 @@ the checklist is committed alongside the implementation it tracks.
   Verify dense IDs and stable corresponding nodes across fresh parses, then run
   the complete library and native integration suites.
 
+- [x] **IR-02m: Retain local binding IDs in the emission bridge.** Carry each
+  resolved local `BindingId` alongside its checked type under the expression's
+  stable ID. Preserve the temporary address adapter for the legacy emitter;
+  verify local identity survives the bridge while keeping shadowing tests.
+
 - [x] **IR-02: Verify generated declaration nodes retain source spans.** Add a
   focused generated-function lowering regression that resolves a typed node's
   source ID back to generated source text and checks its exact literal span.

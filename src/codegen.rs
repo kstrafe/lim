@@ -5441,6 +5441,7 @@ fn checked_numeric_expressions_require_retained_operations() {
     let head = Expr::Symbol("u64.+.wrap".into());
     let missing = crate::typed_body::EmissionNode {
         ty: Some(Type::U64),
+        binding: None,
         numeric: None,
         callee: None,
     };
