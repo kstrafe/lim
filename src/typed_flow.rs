@@ -37,6 +37,9 @@ pub(crate) enum FlowAction {
         place: Place,
         mutable: bool,
     },
+    BorrowScopeEnd {
+        scope: NodeId,
+    },
     Clone {
         value: NodeId,
         place: Place,
@@ -400,6 +403,7 @@ struct Target {
     continue_to: Option<FlowNodeId>,
     break_result: Option<NodeId>,
     scope_depth: usize,
+    borrow_scope_depth: usize,
 }
 
 struct Builder<'a> {
@@ -407,6 +411,7 @@ struct Builder<'a> {
     nodes: Vec<FlowNode>,
     exit: FlowNodeId,
     active_scopes: Vec<Vec<BindingId>>,
+    active_borrow_scopes: Vec<NodeId>,
 }
 
 impl FlowGraph {
@@ -416,6 +421,7 @@ impl FlowGraph {
             nodes: Vec::new(),
             exit: FlowNodeId(0),
             active_scopes: Vec::new(),
+            active_borrow_scopes: Vec::new(),
         };
         builder.exit = builder.push(FlowAction::Exit, None, vec![]);
         let first = builder.scoped_instructions(&body.instructions, builder.exit, &[])?;
@@ -1370,7 +1376,7 @@ impl FlowGraph {
                     };
                     if !matches!(head.as_str(), "borrow" | "borrow-mut")
                         || (head == "borrow-mut") != *mutable
-                        || children.len() != 2
+                        || !matches!(children.len(), 2 | 3)
                         || Place::from_expression(body, children[1]).as_ref() != Some(place)
                     {
                         return Err(format!("typed flow borrow {value:?} has invalid metadata"));
@@ -1386,6 +1392,16 @@ impl FlowGraph {
                                 "typed flow borrows invalid parameter {binding:?}"
                             ));
                         }
+                    }
+                }
+                FlowAction::BorrowScopeEnd { scope } => {
+                    let Some(NodeKind::Form { head, children, .. }) =
+                        body.nodes.get(scope.0).map(|node| &node.kind)
+                    else {
+                        return Err(format!("typed flow ends invalid borrow scope {scope:?}"));
+                    };
+                    if !matches!(head.as_str(), "borrow" | "borrow-mut") || children.len() != 3 {
+                        return Err(format!("typed flow ends invalid borrow scope {scope:?}"));
                     }
                 }
                 FlowAction::Clone { value, place } => {
@@ -2603,7 +2619,24 @@ impl Builder<'_> {
         result
     }
 
-    fn cleanup_to(&mut self, depth: usize, mut next: FlowNodeId) -> FlowNodeId {
+    fn cleanup_to(
+        &mut self,
+        depth: usize,
+        borrow_scope_depth: usize,
+        mut next: FlowNodeId,
+    ) -> FlowNodeId {
+        let scopes = self.active_borrow_scopes[borrow_scope_depth..]
+            .iter()
+            .rev()
+            .copied()
+            .collect::<Vec<_>>();
+        for scope in scopes {
+            next = self.push(
+                FlowAction::BorrowScopeEnd { scope },
+                self.body.nodes[scope.0].span,
+                vec![next],
+            );
+        }
         for bindings in self.active_scopes[depth..].to_vec() {
             if !bindings.is_empty() {
                 next = self.push(FlowAction::ScopeExit(bindings), None, vec![next]);
@@ -2709,6 +2742,7 @@ impl Builder<'_> {
                     continue_to: Some(step_entry),
                     break_result: None,
                     scope_depth: self.active_scopes.len(),
+                    borrow_scope_depth: self.active_borrow_scopes.len(),
                 });
                 let body_entry = self.scoped_instructions(body, step_entry, &loop_targets)?;
                 self.nodes[decision.0].successors = vec![body_entry, after_loop];
@@ -2730,12 +2764,13 @@ impl Builder<'_> {
                         continue_to: None,
                         break_result: None,
                         scope_depth: self.active_scopes.len(),
+                        borrow_scope_depth: self.active_borrow_scopes.len(),
                     });
                     self.instruction(inner, next, &labeled, None)
                 }
             }
             Control::Return(value) => {
-                let cleanup = self.cleanup_to(0, self.exit);
+                let cleanup = self.cleanup_to(0, 0, self.exit);
                 let end = self.push(FlowAction::Return(*value), span, vec![cleanup]);
                 match value {
                     Some(value) => self.expression(*value, end, targets, None),
@@ -2751,7 +2786,11 @@ impl Builder<'_> {
                         None => target.continue_to.is_some(),
                     })
                     .ok_or_else(|| format!("typed flow has no break target for {label:?}"))?;
-                let cleanup = self.cleanup_to(target.scope_depth, target.break_to);
+                let cleanup = self.cleanup_to(
+                    target.scope_depth,
+                    target.borrow_scope_depth,
+                    target.break_to,
+                );
                 let end = self.push(
                     FlowAction::Break {
                         value: *value,
@@ -2773,10 +2812,14 @@ impl Builder<'_> {
                         Some(name) => target.name.as_deref() == Some(name),
                         None => target.continue_to.is_some(),
                     })
-                    .and_then(|target| target.continue_to.map(|next| (next, target.scope_depth)))
+                    .and_then(|target| {
+                        target
+                            .continue_to
+                            .map(|next| (next, target.scope_depth, target.borrow_scope_depth))
+                    })
                     .ok_or_else(|| format!("typed flow has no continue target for {label:?}"))?;
                 let end = self.push(FlowAction::Continue, span, vec![target.0]);
-                Ok(self.cleanup_to(target.1, end))
+                Ok(self.cleanup_to(target.1, target.2, end))
             }
             Control::Evaluate(value) => self.expression(*value, next, targets, None),
         }
@@ -2800,6 +2843,7 @@ impl Builder<'_> {
             continue_to: Some(condition_entry),
             break_result: None,
             scope_depth: self.active_scopes.len(),
+            borrow_scope_depth: self.active_borrow_scopes.len(),
         });
         let body_entry = self.scoped_instructions(body, condition_entry, &loop_targets)?;
         self.nodes[decision.0].successors = vec![body_entry, next];
@@ -2823,6 +2867,7 @@ impl Builder<'_> {
             continue_to: Some(header),
             break_result,
             scope_depth: self.active_scopes.len(),
+            borrow_scope_depth: self.active_borrow_scopes.len(),
         });
         let body_entry = self.scoped_instructions(body, header, &loop_targets)?;
         self.nodes[header.0].successors = vec![body_entry];
@@ -2906,6 +2951,27 @@ impl Builder<'_> {
                 );
                 let done = self.push(action, span, vec![next]);
                 self.expression(children[1], done, targets, None)
+            }
+            NodeKind::Form { head, children, .. }
+                if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() == 3 =>
+            {
+                let Some(place) = Place::from_expression(self.body, children[1]) else {
+                    return Err("typed scoped borrow has no resolved place".into());
+                };
+                let end = self.push(FlowAction::BorrowScopeEnd { scope: id }, span, vec![next]);
+                self.active_borrow_scopes.push(id);
+                let body = self.expression(children[2], end, targets, None)?;
+                self.active_borrow_scopes.pop();
+                let start = self.push(
+                    FlowAction::Borrow {
+                        value: id,
+                        place,
+                        mutable: head == "borrow-mut",
+                    },
+                    span,
+                    vec![body],
+                );
+                self.expression(children[1], start, targets, None)
             }
             NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
                 let action = Place::from_expression(self.body, children[1]).map_or(

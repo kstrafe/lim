@@ -44,6 +44,27 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
     }
     let origins = flow.loan_origins(body);
     let live = flow.liveness(body);
+    let scoped_ids = flow
+        .nodes
+        .iter()
+        .filter_map(|node| match node.action {
+            FlowAction::BorrowScopeEnd { scope } => Some(scope),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let scoped_places = flow
+        .nodes
+        .iter()
+        .filter_map(|node| match node.action {
+            FlowAction::Borrow {
+                value,
+                ref place,
+                mutable,
+            } if scoped_ids.contains(&value) => Some((value, (place.clone(), mutable, node.span))),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+    let scoped_before = scoped_borrows_before(flow, &scoped_ids);
     for (index, node) in flow.nodes.iter().enumerate() {
         let (place, access) = match &node.action {
             FlowAction::Read {
@@ -111,11 +132,16 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
                         AccessKind::Read => {
                             format!("cannot access '{owner}' while it is mutably borrowed")
                         }
+                        AccessKind::Borrow { mutable: true } if held.mutable => {
+                            format!("cannot borrow '{owner}' mutably because it is already borrowed mutably")
+                        }
                         AccessKind::Borrow { mutable: true } => {
                             format!("cannot borrow '{owner}' mutably while a live reference exists")
                         }
                         AccessKind::Borrow { mutable: false } => {
-                            format!("cannot borrow '{owner}' while a mutable reference exists")
+                            format!(
+                                "cannot borrow '{owner}' because it is already borrowed mutably"
+                            )
                         }
                         AccessKind::Clone => {
                             format!("cannot clone '{owner}' while it is mutably borrowed")
@@ -135,15 +161,126 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
                         span: node.span,
                         labels: held
                             .span
-                            .map(|span| (span, "conflicting reference originates here".into()))
+                            .map(|span| (span, "borrow begins here".into()))
                             .into_iter()
                             .collect(),
                     });
                 }
             }
         }
+        let mut active_scopes = scoped_before[index].iter().copied().collect::<Vec<_>>();
+        active_scopes.sort_by_key(|scope| scope.0);
+        for scope in active_scopes {
+            let Some((held_place, held_mutable, held_span)) = scoped_places.get(&scope) else {
+                continue;
+            };
+            let mutable_scope_access = *held_mutable
+                && matches!(
+                    access,
+                    AccessKind::Read | AccessKind::Clone | AccessKind::Write
+                )
+                && access_places.iter().any(|access| {
+                    held_place.root == access.root
+                        && access.segments.starts_with(&held_place.segments)
+                });
+            let held_is_parent_ancestor = matches!(access, AccessKind::Borrow { .. })
+                && reborrow_parent.is_some()
+                && *held_mutable
+                && access_places.iter().any(|access| {
+                    held_place.root == access.root
+                        && access.segments.starts_with(&held_place.segments)
+                });
+            if mutable_scope_access
+                || held_is_parent_ancestor
+                || !access_places.iter().any(|place| held_place.overlaps(place))
+            {
+                continue;
+            }
+            let conflicts = match access {
+                AccessKind::Read | AccessKind::Clone => *held_mutable,
+                AccessKind::Borrow { mutable } => *held_mutable || mutable,
+                AccessKind::Write | AccessKind::Release => true,
+            };
+            if !conflicts {
+                continue;
+            }
+            let owner = match &held_place.root {
+                PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
+                    body.bindings[binding.0].name.as_str()
+                }
+                PlaceRoot::Global(_) => "static",
+            };
+            let message = match access {
+                AccessKind::Read => format!("cannot access '{owner}' while it is mutably borrowed"),
+                AccessKind::Borrow { mutable: true } if *held_mutable => {
+                    format!(
+                        "cannot borrow '{owner}' mutably because it is already borrowed mutably"
+                    )
+                }
+                AccessKind::Borrow { mutable: true } => {
+                    format!("cannot borrow '{owner}' mutably while a live reference exists")
+                }
+                AccessKind::Borrow { mutable: false } => {
+                    format!("cannot borrow '{owner}' because it is already borrowed mutably")
+                }
+                AccessKind::Clone => format!("cannot clone '{owner}' while it is mutably borrowed"),
+                AccessKind::Write if *held_mutable => {
+                    format!("cannot mutate '{owner}' while it is mutably borrowed")
+                }
+                AccessKind::Write => {
+                    format!("cannot mutate '{owner}' while it is immutably borrowed")
+                }
+                AccessKind::Release => format!("cannot destroy '{owner}' while it is borrowed"),
+            };
+            return Err(BorrowConflict {
+                message: crate::analysis_error::failure!("{message}").message,
+                span: node.span,
+                labels: held_span
+                    .map(|span| (span, "borrow begins here".into()))
+                    .into_iter()
+                    .collect(),
+            });
+        }
     }
     Ok(())
+}
+
+fn scoped_borrows_before(flow: &FlowGraph, scoped_ids: &HashSet<NodeId>) -> Vec<HashSet<NodeId>> {
+    let mut predecessors = vec![Vec::new(); flow.nodes.len()];
+    for (index, node) in flow.nodes.iter().enumerate() {
+        for successor in &node.successors {
+            predecessors[successor.0].push(index);
+        }
+    }
+    let mut before = vec![HashSet::new(); flow.nodes.len()];
+    let mut after = before.clone();
+    loop {
+        let mut changed = false;
+        for (index, node) in flow.nodes.iter().enumerate() {
+            let mut incoming = HashSet::new();
+            for predecessor in &predecessors[index] {
+                incoming.extend(after[*predecessor].iter().copied());
+            }
+            let mut outgoing = incoming.clone();
+            match node.action {
+                FlowAction::Borrow { value, .. } if scoped_ids.contains(&value) => {
+                    outgoing.insert(value);
+                }
+                FlowAction::BorrowScopeEnd { scope } => {
+                    outgoing.remove(&scope);
+                }
+                _ => {}
+            }
+            if before[index] != incoming || after[index] != outgoing {
+                before[index] = incoming;
+                after[index] = outgoing;
+                changed = true;
+            }
+        }
+        if !changed {
+            return before;
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1027,6 +1164,71 @@ mod tests {
         assert_eq!(&source[span.start..span.end], "(#borrow right)");
         let first = error.labels[0].0;
         assert_eq!(&source[first.start..first.end], "(#borrow-mut left)");
+    }
+
+    #[test]
+    fn scoped_borrow_conflicts_are_checked_on_typed_control_flow() {
+        let source = "(#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#borrow value (#borrow-mut value 2u64))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("cannot borrow 'value' mutably while a live reference exists"));
+    }
+
+    #[test]
+    fn typed_scoped_borrow_ends_before_following_accesses() {
+        let source = "(#fn main () u64
+            (#let-mut value u64 1u64)
+            (#borrow value 2u64)
+            (#borrow-mut value 3u64)
+            (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap();
+    }
+
+    #[test]
+    fn mutable_scoped_borrow_authorizes_access_within_its_region() {
+        let source = "(#fn main () u64
+            (#let-mut value u64 1u64)
+            (#borrow-mut value (#block (#set value 2u64) value))
+            (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap();
+    }
+
+    #[test]
+    fn scoped_loan_remains_active_on_each_branch() {
+        let source = "(#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#borrow value
+              (#if true (#borrow-mut value 2u64) 3u64))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("cannot borrow 'value' mutably while a live reference exists"));
+    }
+
+    #[test]
+    fn scoped_loan_is_ended_at_a_branch_join() {
+        let source = "(#fn main () u64
+            (#let-mut value u64 1u64)
+            (#if true (#borrow value 2u64) 3u64)
+            (#borrow-mut value 4u64)
+            (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap();
+    }
+
+    #[test]
+    fn escaping_loop_exit_ends_the_scoped_loan() {
+        let source = "(#fn main () u64
+            (#let-mut value u64 1u64)
+            (#label outer
+              (#loop (#borrow-mut value (#block (#break-to outer) ()))))
+            (#borrow-mut value 2u64)
+            (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap();
     }
 
     #[test]

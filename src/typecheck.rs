@@ -1316,7 +1316,16 @@ fn check_types_inner(
                         .span
                         .and_then(|span| typed_operator_span(program, span))
                         .or(error.span);
-                    *diagnostic_labels = error.labels;
+                    *diagnostic_labels = error
+                        .labels
+                        .into_iter()
+                        .map(|(span, label)| {
+                            (
+                                typed_borrow_origin_span(program, span).unwrap_or(span),
+                                label,
+                            )
+                        })
+                        .collect();
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     error.message
                 })?;
@@ -1326,7 +1335,16 @@ fn check_types_inner(
                 )
                 .map_err(|error| {
                     *diagnostic_span = error.span;
-                    *diagnostic_labels = error.labels;
+                    *diagnostic_labels = error
+                        .labels
+                        .into_iter()
+                        .map(|(span, label)| {
+                            (
+                                typed_borrow_origin_span(program, span).unwrap_or(span),
+                                label,
+                            )
+                        })
+                        .collect();
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     error.message
                 })?;
@@ -1352,6 +1370,31 @@ fn typed_operator_span(program: &Program, span: crate::Span) -> Option<crate::Sp
     fn find(expression: &crate::SpannedExpr, span: crate::Span) -> Option<crate::Span> {
         if expression.span == span && matches!(expression.expr, Expr::List(_)) {
             return expression.children.first().map(|head| head.span);
+        }
+        expression
+            .children
+            .iter()
+            .find_map(|child| find(child, span))
+    }
+
+    program
+        .statement_expressions
+        .values()
+        .chain(program.declaration_expressions.values())
+        .find_map(|expression| find(expression, span))
+}
+
+fn typed_borrow_origin_span(program: &Program, span: crate::Span) -> Option<crate::Span> {
+    fn find(expression: &crate::SpannedExpr, span: crate::Span) -> Option<crate::Span> {
+        if expression.span == span {
+            if let Expr::List(items) = &expression.expr {
+                if items.len() == 3
+                    && matches!(items.first(), Some(Expr::Symbol(head))
+                        if matches!(head.as_str(), "#borrow" | "#borrow-mut" | "borrow" | "borrow-mut"))
+                {
+                    return expression.children.first().map(|head| head.span);
+                }
+            }
         }
         expression
             .children

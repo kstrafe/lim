@@ -1039,6 +1039,14 @@ the checklist is committed alongside the implementation it tracks.
   transitional syntax borrow checker, retaining generated invocation spans.
   Keep the syntax pass afterward for reborrow/alias cases not yet transferred.
 
+- [x] **IR-04cg: Represent lexical borrow bodies in typed control flow.** Lower
+  three-operand `#borrow` and `#borrow-mut` forms to explicit begin/end loan
+  events around their body. Run overlap checks over CFG paths, including
+  nested borrows and branches; insert cleanup events for returns and loop
+  exits that leave the region. Ensure the loan ends before later accesses,
+  preserve keyword-sized diagnostic spans, and verify typed diagnostics run
+  before the syntax fallback.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
