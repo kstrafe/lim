@@ -5243,6 +5243,41 @@ fn checked_numeric_metadata(
     Ok(numeric)
 }
 
+fn checked_numeric_operand_types(
+    items: &[Expr],
+    numeric: Option<&crate::typed_body::NumericOperation>,
+    emission: &crate::typed_body::EmissionTypes,
+    aliases: &HashMap<String, Type>,
+) -> Result<(), String> {
+    let Some(numeric) = numeric else {
+        return Ok(());
+    };
+    let expected = if matches!(
+        numeric.operation,
+        crate::typed_body::NumericOpcode::LogicalAnd | crate::typed_body::NumericOpcode::LogicalOr
+    ) {
+        Type::Bool
+    } else {
+        numeric.operand_type.clone()
+    };
+    for operand in items.iter().skip(1) {
+        let metadata = emission
+            .by_address
+            .get(&(std::ptr::from_ref(operand) as usize))
+            .ok_or_else(|| {
+                "internal error: checked numeric operand lost its metadata".to_owned()
+            })?;
+        let retained = metadata
+            .ty
+            .as_ref()
+            .ok_or_else(|| "internal error: checked numeric operand lost its type".to_owned())?;
+        if resolve_type(retained, aliases)? != expected {
+            return Err("internal error: checked numeric operand disagrees with its opcode".into());
+        }
+    }
+    Ok(())
+}
+
 fn checked_call_identity(
     metadata: Option<&crate::typed_body::EmissionNode>,
     declared_function: bool,
@@ -5462,6 +5497,54 @@ fn checked_numeric_result_types_agree_with_opcodes() {
     node.numeric = crate::typed_body::NumericOperation::parse("u32.!");
     node.ty = Some(Type::U32);
     checked_numeric_metadata(Some(&node), Some(&Expr::Symbol("u32.!".into()))).unwrap();
+}
+
+#[cfg(test)]
+#[test]
+fn checked_numeric_operands_require_retained_opcode_types() {
+    let items = vec![
+        Expr::Symbol("u32.+.wrap".into()),
+        Expr::Integer(1),
+        Expr::Integer(2),
+    ];
+    let numeric = crate::typed_body::NumericOperation::parse("u32.+.wrap").unwrap();
+    let aliases = HashMap::new();
+    let mut emission = crate::typed_body::EmissionTypes::default();
+    checked_numeric_operand_types(&items, None, &emission, &aliases).unwrap();
+    assert!(
+        checked_numeric_operand_types(&items, Some(&numeric), &emission, &aliases)
+            .unwrap_err()
+            .contains("lost its metadata")
+    );
+    for operand in items.iter().skip(1) {
+        emission.by_address.insert(
+            std::ptr::from_ref(operand) as usize,
+            crate::typed_body::EmissionNode::default(),
+        );
+    }
+    assert!(
+        checked_numeric_operand_types(&items, Some(&numeric), &emission, &aliases)
+            .unwrap_err()
+            .contains("lost its type")
+    );
+    let first = std::ptr::from_ref(&items[1]) as usize;
+    emission.by_address.get_mut(&first).unwrap().ty = Some(Type::U64);
+    assert!(
+        checked_numeric_operand_types(&items, Some(&numeric), &emission, &aliases)
+            .unwrap_err()
+            .contains("disagrees with its opcode")
+    );
+    emission.by_address.get_mut(&first).unwrap().ty = Some(Type::U32);
+    let second = std::ptr::from_ref(&items[2]) as usize;
+    emission.by_address.get_mut(&second).unwrap().ty = Some(Type::U32);
+    checked_numeric_operand_types(&items, Some(&numeric), &emission, &aliases).unwrap();
+
+    // Logical operators currently accept boolean operands even when their
+    // source qualifier names an integer type.
+    let logical = crate::typed_body::NumericOperation::parse("u64.&&").unwrap();
+    emission.by_address.get_mut(&first).unwrap().ty = Some(Type::Bool);
+    emission.by_address.get_mut(&second).unwrap().ty = Some(Type::Bool);
+    checked_numeric_operand_types(&items, Some(&logical), &emission, &aliases).unwrap();
 }
 
 impl FunctionContext {
@@ -8546,6 +8629,12 @@ impl FunctionContext {
                     .by_address
                     .get(&(std::ptr::from_ref(expression) as usize));
                 let numeric = checked_numeric_metadata(metadata, items.first())?;
+                checked_numeric_operand_types(
+                    items,
+                    numeric.as_ref(),
+                    &self.expression_types,
+                    &self.aliases,
+                )?;
                 let declared_function = matches!(items.first(), Some(Expr::Symbol(name)) if self.functions.contains_key(name));
                 let callee = checked_call_identity(metadata, declared_function)?;
                 if let Some(id) = callee {

@@ -153,6 +153,13 @@ the checklist is committed alongside the implementation it tracks.
   remain on the compatibility path. Test arithmetic, comparison, and integer
   bitwise-not cases, then run numeric differential and native examples.
 
+- [x] **IR-03l: Verify retained numeric operand types.** Require every
+  checked numeric operand to retain a type matching the typed opcode before
+  native emission; logical `&&`/`||` currently take `bool` operands even with
+  an integer source qualifier. Missing or mismatched metadata is an internal
+  error. Cover synthesized bypass, missing/type mismatch, valid arithmetic,
+  and logical operands without changing accepted source syntax.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
