@@ -160,6 +160,12 @@ the checklist is committed alongside the implementation it tracks.
   error. Cover synthesized bypass, missing/type mismatch, valid arithmetic,
   and logical operands without changing accepted source syntax.
 
+- [x] **IR-03m: Enforce checked identity on aggregate-call paths.** The
+  indirect-return dispatch guard and aggregate destination call now reject a
+  checked function call whose `FunctionId` was lost, matching ordinary scalar
+  emission. Backend-synthesized calls continue using name lookup. Extend the
+  mismatched-spelling identity regression to cover missing metadata.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

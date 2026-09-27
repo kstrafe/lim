@@ -188,11 +188,13 @@ fn resolve_call_abi(
 fn checked_callee(
     expression: &Expr,
     emission: &crate::typed_body::EmissionTypes,
-) -> Option<crate::typed_ir::FunctionId> {
-    emission
+    functions: &HashMap<String, FunctionAbi>,
+) -> Result<Option<crate::typed_ir::FunctionId>, String> {
+    let declared_function = matches!(expression, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(name)) if functions.contains_key(name)));
+    let metadata = emission
         .by_address
-        .get(&(std::ptr::from_ref(expression) as usize))
-        .and_then(|node| node.callee)
+        .get(&(std::ptr::from_ref(expression) as usize));
+    checked_call_identity(metadata, declared_function)
 }
 
 fn aggregate_call_abi<'a>(
@@ -207,7 +209,7 @@ fn aggregate_call_abi<'a>(
     let Some(Expr::Symbol(name)) = items.first() else {
         return Ok(None);
     };
-    match checked_callee(expression, emission) {
+    match checked_callee(expression, emission, functions)? {
         Some(id) => by_id
             .get(&id)
             .map(Some)
@@ -304,6 +306,14 @@ fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
             .unwrap()
             .indirect_return
     );
+    emission.by_address.insert(
+        std::ptr::from_ref(&expression) as usize,
+        crate::typed_body::EmissionNode::default(),
+    );
+    assert!(aggregate_call_abi(&expression, &emission, &by_name, &by_id)
+        .err()
+        .unwrap()
+        .contains("lost its function identity"));
 }
 
 enum ScalarRange {
@@ -14577,7 +14587,7 @@ impl FunctionContext {
         let Some(Expr::Symbol(name)) = items.first() else {
             return Err("aggregate call must start with a symbol".into());
         };
-        let callee = checked_callee(expression, &self.expression_types);
+        let callee = checked_callee(expression, &self.expression_types, &self.functions)?;
         self.call(name, &items[1..], Some(base), callee)
     }
 
