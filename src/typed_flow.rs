@@ -1540,6 +1540,17 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             value_loan_origins(body, children[1], state)
         }
         NodeKind::Form { head, children, .. }
+            if matches!(
+                head.as_str(),
+                "slice-of" | "slice-mut-of" | "slice-range" | "slice-idx" | "slice-mut-idx"
+            ) =>
+        {
+            children
+                .get(1)
+                .map(|source| value_loan_origins(body, *source, state))
+                .unwrap_or_default()
+        }
+        NodeKind::Form { head, children, .. }
             if matches!(head.as_str(), "get" | "get-payload" | "index") =>
         {
             let Some(base) = children.get(1) else {
@@ -3550,6 +3561,82 @@ mod tests {
         let held = origins.after(bind, selected);
         assert_eq!(held.len(), 2);
         assert!(held.iter().all(|origin| origin.storage.is_empty()));
+    }
+
+    #[test]
+    fn slice_views_and_element_references_keep_the_array_borrow_origin() {
+        let source = "(#fn main () u64
+          (#let values (#array u64 3)
+            (#array-of (#array u64 3) 1u64 2u64 3u64))
+          (#let view (#slice u64) (#slice-of (#borrow values)))
+          (#let tail (#slice u64) (#slice-range view 1usize 2usize))
+          (#let item (#ref u64) (#slice-idx tail 0usize))
+          (#return (#deref item)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        let values = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "values")
+                .unwrap(),
+        );
+        for name in ["view", "tail", "item"] {
+            let binding = BindingId(
+                body.bindings
+                    .iter()
+                    .position(|candidate| candidate.name == name)
+                    .unwrap(),
+            );
+            let bind = graph
+                .nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Bind { binding: id, .. } if id == binding))
+                .map(FlowNodeId)
+                .unwrap();
+            let held = origins.after(bind, binding);
+            assert_eq!(held.len(), 1, "{name}");
+            assert_eq!(held[0].place.root, PlaceRoot::Local(values));
+            let span = held[0].span.unwrap();
+            assert_eq!(&source[span.start..span.end], "(#borrow values)");
+        }
+    }
+
+    #[test]
+    fn mutable_slice_element_keeps_exclusive_array_origin() {
+        let source = "(#fn main () u64
+          (#let-mut values (#array u64 2)
+            (#array-of (#array u64 2) 1u64 2u64))
+          (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
+          (#deref-set (#slice-mut-idx view 0usize) 7u64)
+          (#forget view)
+          (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        let index = body
+            .nodes
+            .iter()
+            .position(
+                |node| matches!(&node.kind, NodeKind::Form { head, .. } if head == "slice-mut-idx"),
+            )
+            .map(NodeId)
+            .unwrap();
+        let event = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Evaluate(id) if id == index))
+            .map(FlowNodeId)
+            .unwrap();
+        let held = value_loan_origins(body, index, origins.before[event.0].as_ref().unwrap());
+        assert_eq!(held.len(), 1);
+        assert!(held[0].mutable);
+        let span = held[0].span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#borrow-mut values)");
     }
 
     #[test]

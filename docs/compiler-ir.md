@@ -148,6 +148,8 @@ results preserve those origins as well.
 Reference-returning checked calls conservatively merge origins reachable
 through their arguments. A direct result sheds any aggregate-storage path
 from its arguments; precise callee return summaries are not yet available.
+Slice creation, range, and element-reference forms forward the originating
+array loan through derived values; complete split/reborrow transfer is open.
 Each origin also retains its structural storage path. Pattern transfers match
 owner-qualified fields, tuple and array positions, and variant payload IDs
 before assigning origins to destructured bindings, so other fields or variants

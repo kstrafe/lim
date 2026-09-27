@@ -214,6 +214,8 @@ the checklist is committed alongside the implementation it tracks.
   returns, and unreachable paths. Retain loan and consumption origin spans.
   Acceptance: existing borrow/linearity tests and exact UI spans remain valid;
   add branch/loop aliasing and aggregate-reference propagation regressions.
+  A mutable reference bound from `#slice-mut-idx` still encounters a legacy
+  reborrow rejection; handle it with checked referent/place transfer.
 
 - [x] **IR-04: Classify contextual aggregate constructor operands on typed flow.**
   Use the checked array/tuple arity to distinguish a contextual first value
@@ -285,6 +287,11 @@ the checklist is committed alongside the implementation it tracks.
   storage paths for a direct reference result and keep original borrow spans.
   Test direct and aggregate arguments. Precise interprocedural summaries and
   alias-sensitive returns remain in the full IR-04 migration.
+
+- [x] **IR-04: Carry slice borrow provenance through derived views.** Preserve
+  the original array borrow and mutability through slice creation, range, and
+  element-reference expressions. Test immutable range/index chains and a
+  mutable indexed write. Bound mutable element reborrows remain in IR-04.
 
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
