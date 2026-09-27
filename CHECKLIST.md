@@ -1034,6 +1034,11 @@ the checklist is committed alongside the implementation it tracks.
   only for the linear-leaf exit obligations that consume it. Remove the unused
   second pass and verify branch and loop behavior on the obligation analysis.
 
+- [x] **IR-04cf: Select typed live-loan diagnostics before AST fallback.** Run
+  checked-place live-access and call-argument conflict checks before the
+  transitional syntax borrow checker, retaining generated invocation spans.
+  Keep the syntax pass afterward for reborrow/alias cases not yet transferred.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

@@ -101,23 +101,37 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
                     AccessKind::Write | AccessKind::Release => true,
                 };
                 if conflicts && access_places.iter().any(|place| held.place.overlaps(place)) {
-                    return Err(BorrowConflict {
-                        message: match access {
-                            AccessKind::Read => "cannot read a place while it is borrowed mutably",
-                            AccessKind::Borrow { .. } => {
-                                "cannot borrow a place while a conflicting live reference exists"
-                            }
-                            AccessKind::Clone => {
-                                "cannot clone a place while it is borrowed mutably"
-                            }
-                            AccessKind::Write => {
-                                "cannot write to a place while a live reference borrows it"
-                            }
-                            AccessKind::Release => {
-                                "cannot destroy a place while a live reference borrows it"
-                            }
+                    let owner = match &held.place.root {
+                        PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
+                            body.bindings[binding.0].name.as_str()
                         }
-                        .into(),
+                        PlaceRoot::Global(_) => "static",
+                    };
+                    let message = match access {
+                        AccessKind::Read => {
+                            format!("cannot access '{owner}' while it is mutably borrowed")
+                        }
+                        AccessKind::Borrow { mutable: true } => {
+                            format!("cannot borrow '{owner}' mutably while a live reference exists")
+                        }
+                        AccessKind::Borrow { mutable: false } => {
+                            format!("cannot borrow '{owner}' while a mutable reference exists")
+                        }
+                        AccessKind::Clone => {
+                            format!("cannot clone '{owner}' while it is mutably borrowed")
+                        }
+                        AccessKind::Write if held.mutable => {
+                            format!("cannot mutate '{owner}' while it is mutably borrowed")
+                        }
+                        AccessKind::Write => {
+                            format!("cannot mutate '{owner}' while it is immutably borrowed")
+                        }
+                        AccessKind::Release => {
+                            format!("cannot destroy '{owner}' while it is borrowed")
+                        }
+                    };
+                    return Err(BorrowConflict {
+                        message: crate::analysis_error::failure!("{message}").message,
                         span: node.span,
                         labels: held
                             .span
@@ -1209,7 +1223,7 @@ mod tests {
         };
         place.root = PlaceRoot::Local(left);
         let error = check_live_direct_loans(body, &flow).unwrap_err();
-        assert!(error.message.contains("cannot write"));
+        assert!(error.message.contains("cannot mutate"));
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end], "(#set right 3u64)");
         let first = error.labels[0].0;
@@ -1319,7 +1333,7 @@ mod tests {
         };
         place.root = PlaceRoot::Local(left);
         let error = check_live_direct_loans(body, &flow).unwrap_err();
-        assert!(error.message.contains("cannot read"));
+        assert!(error.message.contains("cannot access"));
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end], "right");
         let first = error.labels[0].0;

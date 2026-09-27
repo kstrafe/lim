@@ -1304,13 +1304,6 @@ fn check_types_inner(
             }
         }
     }
-    crate::borrowcheck::check_program_with_typed_returns(program, &declarations).map_err(
-        |error| {
-            *diagnostic_span = error.span;
-            *diagnostic_labels = error.labels;
-            error.message
-        },
-    )?;
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {
@@ -1319,8 +1312,12 @@ fn check_types_inner(
                     &declarations.flows[&function.name],
                 )
                 .map_err(|error| {
-                    *diagnostic_span = error.span;
+                    *diagnostic_span = error
+                        .span
+                        .and_then(|span| typed_operator_span(program, span))
+                        .or(error.span);
                     *diagnostic_labels = error.labels;
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     error.message
                 })?;
                 crate::typed_borrow::check_call_arguments(
@@ -1330,17 +1327,43 @@ fn check_types_inner(
                 .map_err(|error| {
                     *diagnostic_span = error.span;
                     *diagnostic_labels = error.labels;
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     error.message
                 })?;
             }
         }
     }
+    crate::borrowcheck::check_program_with_typed_returns(program, &declarations).map_err(
+        |error| {
+            *diagnostic_span = error.span;
+            *diagnostic_labels = error.labels;
+            error.message
+        },
+    )?;
     *diagnostic_code = crate::DiagnosticCode::Unsafe;
     crate::unsafecheck::check_program_with_span(program).map_err(|(message, span)| {
         *diagnostic_span = span;
         message
     })?;
     Ok(declarations)
+}
+
+fn typed_operator_span(program: &Program, span: crate::Span) -> Option<crate::Span> {
+    fn find(expression: &crate::SpannedExpr, span: crate::Span) -> Option<crate::Span> {
+        if expression.span == span && matches!(expression.expr, Expr::List(_)) {
+            return expression.children.first().map(|head| head.span);
+        }
+        expression
+            .children
+            .iter()
+            .find_map(|child| find(child, span))
+    }
+
+    program
+        .statement_expressions
+        .values()
+        .chain(program.declaration_expressions.values())
+        .find_map(|expression| find(expression, span))
 }
 
 fn check_opaque_access(
