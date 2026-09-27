@@ -1029,6 +1029,11 @@ the checklist is committed alongside the implementation it tracks.
   through that parent conflicts with the child loan while disjoint fields stay
   usable. Test overlapping nested projection and disjoint sibling projection.
 
+- [x] **IR-04ce: Avoid a duplicate direct-place must-analysis.** Keep generic
+  consumption origins as a may-analysis and run definite ownership dataflow
+  only for the linear-leaf exit obligations that consume it. Remove the unused
+  second pass and verify branch and loop behavior on the obligation analysis.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

@@ -135,8 +135,6 @@ pub(crate) struct FlowReleases {
 pub(crate) struct FlowConsumptions {
     before: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
-    definite_before: Vec<Option<HashSet<Place>>>,
-    definite_after: Vec<Option<HashSet<Place>>>,
 }
 
 impl FlowConsumptions {
@@ -146,18 +144,6 @@ impl FlowConsumptions {
 
     pub fn after(&self, node: FlowNodeId, place: &Place) -> Option<&[Option<Span>]> {
         self.after[node.0].as_ref()?.get(place).map(Vec::as_slice)
-    }
-
-    pub fn definitely_before(&self, node: FlowNodeId, place: &Place) -> bool {
-        self.definite_before[node.0]
-            .as_ref()
-            .is_some_and(|state| state.contains(place))
-    }
-
-    pub fn definitely_after(&self, node: FlowNodeId, place: &Place) -> bool {
-        self.definite_after[node.0]
-            .as_ref()
-            .is_some_and(|state| state.contains(place))
     }
 
     pub fn dump(&self) -> String {
@@ -873,106 +859,7 @@ impl FlowGraph {
                 }
             }
         }
-        let (definite_before, definite_after) =
-            self.definite_consumptions(body, types, &direct_transfers);
-        FlowConsumptions {
-            before,
-            after,
-            definite_before,
-            definite_after,
-        }
-    }
-
-    /// Must-analysis of the same checked transfer sites. Joins intersect the
-    /// places consumed on every incoming path; loops converge by shrinking
-    /// the definite set at their headers.
-    fn definite_consumptions(
-        &self,
-        body: &Body,
-        types: &LinearTypes,
-        direct_transfers: &HashSet<NodeId>,
-    ) -> (Vec<Option<HashSet<Place>>>, Vec<Option<HashSet<Place>>>) {
-        let mut before = vec![None; self.nodes.len()];
-        let mut after = vec![None; self.nodes.len()];
-        let mut queued = vec![false; self.nodes.len()];
-        let mut pending = VecDeque::from([self.entry]);
-        before[self.entry.0] = Some(HashSet::new());
-        queued[self.entry.0] = true;
-        while let Some(id) = pending.pop_front() {
-            queued[id.0] = false;
-            let mut state = before[id.0].as_ref().unwrap().clone();
-            let node = &self.nodes[id.0];
-            match &node.action {
-                FlowAction::Read {
-                    value,
-                    place,
-                    place_base: false,
-                } if matches!(place.root, PlaceRoot::Local(_))
-                    && direct_transfers.contains(value)
-                    && body.nodes[value.0]
-                        .ty
-                        .as_ref()
-                        .is_some_and(|ty| types.is_linear(ty)) =>
-                {
-                    state.insert(place.clone());
-                }
-                FlowAction::Release { place, value }
-                    if matches!(place.root, PlaceRoot::Local(_))
-                        && release_operand_is_linear(body, *value, types) =>
-                {
-                    state.insert(place.clone());
-                }
-                FlowAction::Bind { binding, .. } => {
-                    state.retain(|place| place.root != PlaceRoot::Local(*binding));
-                }
-                FlowAction::Pattern { pattern, .. } => {
-                    let mut bindings = HashSet::new();
-                    collect_pattern_bindings(body, *pattern, &mut bindings);
-                    state.retain(|place| {
-                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
-                    });
-                }
-                FlowAction::Assign { place, .. } => {
-                    if !place.segments.contains(&Segment::DynamicIndex) {
-                        state.retain(|moved| {
-                            moved.root != place.root || !moved.segments.starts_with(&place.segments)
-                        });
-                    }
-                }
-                FlowAction::ScopeExit(bindings) => {
-                    state.retain(|place| {
-                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
-                    });
-                }
-                _ => {}
-            }
-            after[id.0] = Some(state.clone());
-            for successor in &node.successors {
-                let changed = match &mut before[successor.0] {
-                    Some(existing) => {
-                        let intersection = existing
-                            .intersection(&state)
-                            .cloned()
-                            .collect::<HashSet<_>>();
-                        if intersection != *existing {
-                            *existing = intersection;
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    slot @ None => {
-                        *slot = Some(state.clone());
-                        true
-                    }
-                };
-                if changed && !queued[successor.0] {
-                    queued[successor.0] = true;
-                    pending.push_back(*successor);
-                }
-            }
-        }
-        (before, after)
+        FlowConsumptions { before, after }
     }
 
     /// Reject use or explicit destruction after a possible linear move on
@@ -3753,7 +3640,6 @@ mod tests {
             let span = span.unwrap();
             &source[span.start..span.end] == "token"
         }));
-        assert!(moves.definitely_before(exit, &place));
         graph
             .check_linear_exit_obligations(body, &types, declarations)
             .expect("both branch transfers satisfy the typed whole-value obligation");
@@ -3772,7 +3658,6 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(branch_transfers.len(), 2);
-        assert!(moves.definitely_after(branch_transfers[0], &place));
         let mut one_branch_skips_transfer = graph.clone();
         let FlowAction::Read { place_base, .. } =
             &mut one_branch_skips_transfer.nodes[branch_transfers[0].0].action
@@ -3780,9 +3665,6 @@ mod tests {
             unreachable!()
         };
         *place_base = true;
-        let incomplete = one_branch_skips_transfer.consumptions(body, &types);
-        assert!(!incomplete.definitely_before(exit, &place));
-        assert!(!incomplete.definitely_after(branch_transfers[0], &place));
         let binding_span = graph
             .nodes
             .iter()
@@ -3834,9 +3716,9 @@ mod tests {
             .map(FlowNodeId)
             .unwrap();
         let place = Place::root(PlaceRoot::Local(token));
-        assert!(graph
-            .consumptions(body, &types)
-            .definitely_before(header, &place));
+        let obligations = HashSet::from([place.clone()]);
+        let (before, _) = graph.obligation_consumptions(body, &types, &obligations);
+        assert!(before[header.0].as_ref().unwrap().contains(&place));
     }
 
     #[test]
@@ -3903,7 +3785,8 @@ mod tests {
             entry: FlowNodeId(0),
             exit: FlowNodeId(4),
         };
-        let (before, _) = graph.definite_consumptions(&body, &types, &HashSet::from([NodeId(0)]));
+        let (before, _) =
+            graph.obligation_consumptions(&body, &types, &HashSet::from([place.clone()]));
         assert!(!before[FlowNodeId(3).0].as_ref().unwrap().contains(&place));
     }
 
