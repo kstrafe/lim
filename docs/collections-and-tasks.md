@@ -123,11 +123,22 @@ Registration returns a `WakeToken4` containing a slot and generation;
 validity and retirement reject stale or out-of-range tokens. An active slot
 cannot be registered twice. Retirement advances the generation with
 saturation, so exhausted slots cannot wrap back to an old generation. The
-table is linear, but its fields and constructors are public in the current
-language: callers can still forge tokens or mutate authority state. It must
-not be treated as the final safe wake API. Opaque state, queue integration,
-non-busy waiting, and OS-operation ownership remain to be implemented.
+table is linear and opaque outside its defining module. Callers cannot forge
+tokens or mutate generation state. Non-busy waiting and OS-operation ownership
+remain separate work.
 `examples/wake_tokens.lim` exercises retirement and re-registration.
+
+`library/wake_ready4.lim` owns a `WakeTable4` and a four-slot coalescing ready
+set. Register a slot *before* polling. A local-waker callback calls
+`wake-ready4-notify` with its registered token; the queue validates the
+generation before recording a ready bit. After Pending, `wake-ready4-take`
+consumes the bit. A wake during polling remains visible, duplicates occupy
+one bit, and a retired token cannot affect a reused slot. Registration and
+retirement require a mutable queue reference; notify and take use a shared
+one. The opaque queue is local-only, not a cross-thread notifier.
+`examples/wake_ready4.lim` covers capacity, duplicates, and stale handles;
+`examples/async_registered_wake.lim` connects it to `@async-wake`. There is
+still no non-busy wait, OS readiness, or general task scheduler.
 
 ## Borrowed local wakers
 
@@ -163,10 +174,10 @@ signatures (substitute the concrete type names):
                        (metadata WakeMetadata)) () ...)
 ```
 
-The handle is only a *local wake adapter*. Its fields are public, so this does
-not make wake authority unforgeable; the callback must validate any token
-stored in metadata against the executor's live registration state. It does
-not provide a ready queue, lost-wakeup protection, or OS I/O registration.
+The handle is only a *local wake adapter*. Its fields are public, so callback
+metadata should carry an opaque `WakeToken4` and validate it against live
+registration state. The `wake_ready4` protocol supplies a bounded ready set;
+the adapter alone does not provide OS I/O registration or non-busy waiting.
 See `examples/local_waker.lim` for a complete runnable example.
 
 ## Explicit async composition
@@ -218,10 +229,11 @@ concrete waker type:
 The generated `pipeline-poll` takes `task` and `waker (#ref LocalWaker)`.
 Every named child poll must take those same argument names and waker type;
 the generated code forwards the borrow without retaining it. The child can
-use `wake-by-ref` before returning Pending. This is a cooperative protocol,
-not a guarantee against lost wakes: integration with a validated ready queue
-and registration ordering is still required. See
-`examples/async_wake_pipeline.lim` for a runnable Pending/wake/Ready cycle.
+use `wake-by-ref` before returning Pending. The poll driver must register a
+token before polling and consult its ready bit after Pending; see
+`examples/async_registered_wake.lim` for a runnable validated cycle. The
+bare `@async-wake` expansion does not perform registration itself. See
+`examples/async_wake_pipeline.lim` for the adapter-only cycle.
 
 ## Compiler-lowered async functions (sequential subset)
 

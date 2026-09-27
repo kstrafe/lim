@@ -618,7 +618,7 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   with field-sensitive loans. Reject escaping references and incompatible
   projections. Require cancellation to end internal loans before consuming
   their referents; test movement, cancellation, and storage lifetime.
-- [ ] **ASYNC-01d: Connect polling to wake registration.** Integrate local
+- [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
   entries harmless. Reject forged authority until module privacy or opaque

@@ -19,6 +19,9 @@
 (#fn wake-token4-generation ((token WakeToken4)) u64
   (#return (#get token generation)))
 
+(#fn wake-token4-slot ((token WakeToken4)) usize
+  (#return (#get token slot)))
+
 ; A valid but exhausted table for deterministic protocol tests.
 (#fn wake-table4-create-exhausted () WakeTable4
   (#return (#struct-literal WakeTable4

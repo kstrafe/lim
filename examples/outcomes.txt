@@ -15,8 +15,10 @@ exit 42 distributed_slice.lim - -
 exit 42 cooperative_tasks.lim - -
 exit 99 ready_queue.lim - -
 exit 42 wake_tokens.lim - -
+exit 42 wake_ready4.lim - -
 exit 42 local_waker.lim - -
 exit 42 async_wake_pipeline.lim - -
+exit 42 async_registered_wake.lim - -
 exit 42 async_fn.lim - -
 exit 42 async_fn_two_awaits.lim tests/fixtures/async_fn_two_awaits.stdout -
 exit 42 cell.lim - -
