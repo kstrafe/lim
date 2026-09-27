@@ -268,10 +268,13 @@ capture list is an error. Sequential stages preserve `#mut` parameters and
 locals run in the resume helper. Each async body still ends with one explicit
 `#return`; a direct `#await` in that return is lowered as a final stage.
 `#await` in a binding must still be the entire initializer of a top-level
-binding. Nested awaits, loops, and branches spanning suspension are not yet
-lowered. At most 32 awaits are accepted. References into pre-suspension locals
-cannot be retained in the frame; the ordinary borrow checker rejects them.
-Pinning and self-referential frames remain open work.
+binding. An `#if`, `#match`, or `#block` that contains no nested `#await` may
+run between stages; its retained values must still appear in explicit capture
+lists. Control flow whose branches themselves suspend and loops crossing a
+suspension are not yet lowered. At most 32 awaits are accepted. References
+into pre-suspension locals cannot be retained in the frame; the ordinary
+borrow checker rejects them. Pinning and self-referential frames remain open
+work.
 
 Cancellation is still explicit and caller-defined: a free-standing function
 must match each generated frame state, consume its captured values, and call

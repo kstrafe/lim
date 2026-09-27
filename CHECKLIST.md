@@ -834,6 +834,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   preserving explicit captures and the declared return type. Exercise a native
   Pending/resume cycle and inspect the generated helper; nested awaits within
   other expressions remain unsupported.
+- [x] **ASYNC-01b5: Preserve branch forms between sequential await stages.**
+  Carry `#if`, `#match`, and `#block` forms without nested awaits into the
+  appropriate start or resume helper. Require values used by later stages to
+  remain in explicit capture lists; verify a mutable branch update between two
+  awaits in a native Pending/resume regression. Branches containing suspension
+  and loop state across suspension remain open.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible

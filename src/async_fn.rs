@@ -74,6 +74,12 @@ fn mutable_assignment_target(expr: &Expr) -> Option<&str> {
     }
 }
 
+fn is_control_flow_statement(expr: &Expr) -> bool {
+    ["#if", "#match", "#block"]
+        .iter()
+        .any(|head| form(expr, head).is_some())
+}
+
 fn binding(expr: &Expr, context: &str) -> Result<Binding, String> {
     let items = form(expr, "#let")
         .or_else(|| form(expr, "#let-mut"))
@@ -256,9 +262,11 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
                     ));
                 }
                 prefix.push(expression_source(statement)?);
+            } else if is_control_flow_statement(statement) {
+                prefix.push(expression_source(statement)?);
             } else {
                 return Err(format!(
-                    "@async-fn between #await forms supports explicit #let bindings and assignments to mutable locals: {statement:?}"
+                    "@async-fn between #await forms supports explicit bindings, mutable assignments, and #if/#match/#block forms: {statement:?}"
                 ));
             }
             continue;
