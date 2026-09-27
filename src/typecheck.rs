@@ -168,11 +168,14 @@ impl<'a> CheckedProgram<'a> {
             .into_iter()
             .map(|name| {
                 format!(
-                    "function {name}\n{}{}{}",
+                    "function {name}\n{}{}{}{}",
                     self.declarations.bodies[name].dump(),
                     self.declarations.flows[name].dump(&self.declarations.liveness[name]),
                     self.declarations.flows[name]
                         .loan_origins(&self.declarations.bodies[name])
+                        .dump(),
+                    self.declarations.flows[name]
+                        .releases(&self.declarations.bodies[name])
                         .dump()
                 )
             })

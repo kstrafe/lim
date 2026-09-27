@@ -460,6 +460,13 @@ the checklist is committed alongside the implementation it tracks.
   Test a two-link reference chain and exact borrow metadata. This extends the
   observational transfer; complete enforcing ownership remains in IR-04.
 
+- [x] **IR-04ai: Retain explicit consumption on typed flow.** Propagate
+  checked places and all release spans for `#drop`/`#forget` through branch joins;
+  clear them on rebinding, definite replacement, and lexical scope exit.
+  Expose this observational state in the typed-IR dump and test single- and
+  dual-origin branch joins plus root cleanup. Moves through expressions and
+  calls, conflict enforcement, and exactly-once exit checks remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

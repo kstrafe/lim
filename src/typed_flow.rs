@@ -2,7 +2,7 @@
 //! Ownership passes can share these edges instead of reconstructing branch
 //! and loop behavior independently from syntax.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::typed_body::{
     BindingId, Body, Control, Instruction, NodeId, NodeKind, NumericOpcode, PlaceRoot, Projection,
@@ -104,6 +104,40 @@ type LoanState = Vec<Vec<LoanOrigin>>;
 pub(crate) struct FlowLoanOrigins {
     before: Vec<Option<LoanState>>,
     after: Vec<Option<LoanState>>,
+}
+
+/// May-consumed places after explicit `#drop`/`#forget`. This does not yet
+/// account for value moves through expressions or calls.
+pub(crate) struct FlowReleases {
+    before: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
+    after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
+}
+
+impl FlowReleases {
+    pub fn before(&self, node: FlowNodeId, place: &Place) -> Option<&[Option<Span>]> {
+        self.before[node.0].as_ref()?.get(place).map(Vec::as_slice)
+    }
+
+    pub fn after(&self, node: FlowNodeId, place: &Place) -> Option<&[Option<Span>]> {
+        self.after[node.0].as_ref()?.get(place).map(Vec::as_slice)
+    }
+
+    pub fn dump(&self) -> String {
+        use std::fmt::Write;
+        let mut output = String::new();
+        for (index, state) in self.after.iter().enumerate() {
+            let Some(state) = state else { continue };
+            let mut entries = state.iter().collect::<Vec<_>>();
+            entries.sort_by_key(|(place, _)| format!("{place:?}"));
+            for (place, _) in entries {
+                let node = FlowNodeId(index);
+                let prior = self.before(node, place);
+                let current = self.after(node, place);
+                writeln!(output, "  release {index} {place:?} {prior:?}->{current:?}").unwrap();
+            }
+        }
+        output
+    }
 }
 
 impl FlowLoanOrigins {
@@ -290,6 +324,83 @@ impl FlowGraph {
             }
         }
         FlowLoanOrigins { before, after }
+    }
+
+    /// Forward may-analysis of explicitly released places. Replacement and
+    /// lexical scope exit kill prior release facts; joins union them.
+    pub fn releases(&self, body: &Body) -> FlowReleases {
+        let mut before = vec![None; self.nodes.len()];
+        let mut after = vec![None; self.nodes.len()];
+        let mut queued = vec![false; self.nodes.len()];
+        let mut pending = VecDeque::from([self.entry]);
+        before[self.entry.0] = Some(HashMap::<Place, Vec<Option<Span>>>::new());
+        queued[self.entry.0] = true;
+        while let Some(id) = pending.pop_front() {
+            queued[id.0] = false;
+            let mut state = before[id.0].as_ref().unwrap().clone();
+            match &self.nodes[id.0].action {
+                FlowAction::Release { place, .. } => {
+                    let origins = state.entry(place.clone()).or_default();
+                    if !origins.contains(&self.nodes[id.0].span) {
+                        origins.push(self.nodes[id.0].span);
+                    }
+                }
+                FlowAction::Bind { binding, .. } => {
+                    state.retain(|place, _| place.root != PlaceRoot::Local(*binding));
+                }
+                FlowAction::Pattern { pattern, .. } => {
+                    let mut bindings = HashSet::new();
+                    collect_pattern_bindings(body, *pattern, &mut bindings);
+                    state.retain(|place, _| {
+                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                FlowAction::Assign { place, .. } => {
+                    // A dynamic index cannot replace a known element on every
+                    // path. A static replacement revives that place and its
+                    // descendants, not its previously consumed parent.
+                    if !place.segments.contains(&Segment::DynamicIndex) {
+                        state.retain(|released, _| {
+                            released.root != place.root
+                                || !released.segments.starts_with(&place.segments)
+                        });
+                    }
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    state.retain(|place, _| {
+                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                _ => {}
+            }
+            after[id.0] = Some(state.clone());
+            for successor in &self.nodes[id.0].successors {
+                let changed = match &mut before[successor.0] {
+                    Some(existing) => {
+                        let mut changed = false;
+                        for (place, spans) in &state {
+                            let held = existing.entry(place.clone()).or_default();
+                            for span in spans {
+                                if !held.contains(span) {
+                                    held.push(*span);
+                                    changed = true;
+                                }
+                            }
+                        }
+                        changed
+                    }
+                    slot @ None => {
+                        *slot = Some(state.clone());
+                        true
+                    }
+                };
+                if changed && !queued[successor.0] {
+                    pending.push_back(*successor);
+                    queued[successor.0] = true;
+                }
+            }
+        }
+        FlowReleases { before, after }
     }
 
     fn verify(&self, body: &Body) -> Result<(), String> {
@@ -2496,6 +2607,131 @@ mod tests {
         assert_eq!(origin.place.segments.len(), 2);
         assert!(!origin.mutable);
         assert!(origin.span.is_some());
+    }
+
+    #[test]
+    fn explicit_release_state_joins_and_clears_at_scope_exit() {
+        let source = "(#fn main ((flag bool)) u64
+          (#let-mut owner u64 1u64)
+          (#let view (#ref u64) (#borrow owner))
+          (#if flag (#block (#drop view)) (#block ()))
+          (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let view = BindingId(
+            body.bindings
+                .iter()
+                .position(|item| item.name == "view")
+                .unwrap(),
+        );
+        let place = Place::root(PlaceRoot::Local(view));
+        let releases = graph.releases(body);
+        let release = graph.nodes.iter().enumerate().find_map(|(index, node)| {
+            matches!(&node.action, FlowAction::Release { place: candidate, .. } if *candidate == place)
+                .then_some(FlowNodeId(index))
+        }).unwrap();
+        assert_eq!(
+            releases.after(release, &place),
+            Some([graph.nodes[release.0].span].as_slice())
+        );
+        let return_node = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Return(_)).then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        assert!(releases.before(return_node, &place).is_some());
+        assert!(releases.after(graph.exit, &place).is_none());
+    }
+
+    #[test]
+    fn release_join_retains_both_source_origins() {
+        let source = "(#fn main ((flag bool)) u64
+          (#let-mut owner u64 1u64)
+          (#let view (#ref u64) (#borrow owner))
+          (#if flag (#block (#drop view)) (#block (#drop view)))
+          (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let view = BindingId(
+            body.bindings
+                .iter()
+                .position(|item| item.name == "view")
+                .unwrap(),
+        );
+        let place = Place::root(PlaceRoot::Local(view));
+        let return_node = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Return(_)).then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        let releases = graph.releases(body);
+        let origins = releases.before(return_node, &place).unwrap();
+        assert_eq!(origins.len(), 2);
+        assert!(origins.iter().all(Option::is_some));
+        assert_ne!(origins[0], origins[1]);
+    }
+
+    #[test]
+    fn definite_projected_replacement_revives_released_slot() {
+        let old = Place {
+            root: PlaceRoot::Local(BindingId(0)),
+            segments: vec![Segment::Index(0)],
+        };
+        let graph_for = |replacement: Place| FlowGraph {
+            nodes: vec![
+                FlowNode {
+                    action: FlowAction::Exit,
+                    successors: vec![],
+                    span: None,
+                },
+                FlowNode {
+                    action: FlowAction::Assign {
+                        place: replacement,
+                        value: NodeId(0),
+                    },
+                    successors: vec![FlowNodeId(0)],
+                    span: None,
+                },
+                FlowNode {
+                    action: FlowAction::Release {
+                        place: old.clone(),
+                        value: NodeId(0),
+                    },
+                    successors: vec![FlowNodeId(1)],
+                    span: None,
+                },
+                FlowNode {
+                    action: FlowAction::Entry,
+                    successors: vec![FlowNodeId(2)],
+                    span: None,
+                },
+            ],
+            entry: FlowNodeId(3),
+            exit: FlowNodeId(0),
+        };
+        let body = Body::default();
+        assert!(graph_for(old.clone())
+            .releases(&body)
+            .after(FlowNodeId(1), &old)
+            .is_none());
+        let dynamic = Place {
+            root: old.root.clone(),
+            segments: vec![Segment::DynamicIndex],
+        };
+        assert!(graph_for(dynamic)
+            .releases(&body)
+            .after(FlowNodeId(1), &old)
+            .is_some());
     }
 
     #[test]
