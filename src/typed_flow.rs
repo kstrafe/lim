@@ -4289,4 +4289,47 @@ mod tests {
             .iter()
             .any(|node| matches!(node.action, FlowAction::Return(_))));
     }
+
+    #[test]
+    fn loop_local_reference_release_does_not_leak_to_the_next_iteration() {
+        let source = "(#fn main () u64
+          (#let-mut value u64 7u64)
+          (#let-mut count u64 0u64)
+          (#while (#u64.< count 2u64)
+            (#let view (#ref u64) (#borrow value))
+            (#let observed u64 (#deref view))
+            (#forget view)
+            (#set count (#u64.+.wrap count 1u64)))
+          (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let view = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "view")
+                .unwrap(),
+        );
+        let condition = NodeId(
+            body.nodes
+                .iter()
+                .position(
+                    |node| matches!(&node.kind, NodeKind::Form { head, .. } if head == "u64.<"),
+                )
+                .unwrap(),
+        );
+        let header = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Branch(value) if value == condition)
+                    .then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        let loans = graph.loan_origins(body);
+        assert!(loans.before(header, view).is_empty());
+        assert!(loans.after(header, view).is_empty());
+    }
 }

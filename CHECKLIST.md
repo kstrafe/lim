@@ -239,6 +239,12 @@ the checklist is committed alongside the implementation it tracks.
   Preserve remaining nested paths and add a conflicting projected-reference
   regression.
 
+- [x] **IR-04: Verify loop-local loan cleanup at typed loop headers.** Check
+  that a reference created and explicitly released within each iteration has
+  no origin at the loop condition or back edge, while the loop still passes
+  normal borrow checking. This covers bounded loop-state propagation; full
+  ownership transfer remains open.
+
 - [x] **IR-04: Classify contextual aggregate constructor operands on typed flow.**
   Use the checked array/tuple arity to distinguish a contextual first value
   from an explicit type operand. Track that first value as a linear transfer
