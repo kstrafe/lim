@@ -34,6 +34,32 @@ mod tests {
     }
 
     #[test]
+    fn match_arms_use_the_checked_scrutinee_node_type() {
+        let source = "(#enum Choice ((Value u64) Empty))
+          (#fn main () u64
+            (#let choice Choice (Value 42u64))
+            (#return (#match choice
+              (#case (Value payload) payload)
+              (#case Empty 0u64))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let scrutinee = body
+            .nodes
+            .iter()
+            .find_map(|node| match node.kind {
+                NodeKind::Match { value, .. } => Some(value),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            body.nodes[scrutinee.0].ty,
+            Some(Type::Named("Choice".into()))
+        );
+        assert!(crate::generate_assembly(&program).is_ok());
+    }
+
+    #[test]
     fn numeric_opcodes_round_trip_without_free_form_operation_names() {
         for spelling in [
             "+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "<", "<=", ">", ">=", "==", "!=",
@@ -1496,9 +1522,12 @@ impl Builder<'_> {
             }
             Expr::List(items) => {
                 if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match") {
-                    let ty = self.types[&(std::ptr::from_ref(&items[1]) as usize)].clone();
                     let head = self.expression(&items[0]);
                     let value = self.expression(&items[1]);
+                    let ty = self.body.nodes[value.0]
+                        .ty
+                        .clone()
+                        .expect("checked match scrutinee type");
                     let arms = items[2..]
                         .iter()
                         .map(|arm| self.match_arm(arm, &ty))

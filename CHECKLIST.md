@@ -61,6 +61,12 @@ the checklist is committed alongside the implementation it tracks.
   the rest of IR-02/03 is migrated. Cover deterministic node order across fresh
   parses and retain native examples and diagnostic tests.
 
+- [x] **IR-02j: Read match scrutinee types from checked nodes.** Lower the
+  scrutinee first, then use its retained node type to resolve match-pattern
+  identities. Do not look it up again by syntax address. Keep pattern binding
+  and native match regressions; the broader checker-to-IR type/span maps remain
+  part of open IR-02 work.
+
 - [x] **IR-02d: Retain named-call written order separately from operands.**
   Checked call nodes keep arguments in parameter declaration order and record
   the source-order permutation when all argument spans are available. This
@@ -1329,6 +1335,23 @@ and acceptance coverage.
   cold/warm runs, compare against the old sample with its limitations stated,
   and check runtime outputs and artifact sizes without timing gates in ordinary
   tests. Keep Nix and dependency-free Rust tooling.
+
+- [ ] **PERF-02: Measure compile-local symbol interning before adopting it.**
+  Count duplicate identifier allocations and AST/generator symbol clones on
+  representative cold/warm builds. Prototype a compilation-local interner
+  using only the standard library; compare wall time, allocations or peak
+  memory, and cache behavior against the current `String` AST. If beneficial,
+  use stable symbol IDs or shared immutable strings at the front-end boundary,
+  preserving source spelling and diagnostics. Avoid a process-global interner
+  that retains symbols between compilations; keep the simpler representation
+  if benchmarks show no material win.
+  Initial lexical counts on an i7-13700KF (one benchmark iteration) show
+  1,285 identifier tokens but only 516 distinct spellings in the 256-function
+  synthetic source, with 3,333 repeated text bytes. The measured lex and parse
+  phases together took about 0.56 ms versus about 19 ms end-to-end; this is
+  not an interning speedup measurement. The benchmark now reports repetition
+  for real collection and call-chain workloads too. A controlled A/B prototype
+  is still needed before changing the AST representation.
 
 ### Build outputs and developer tooling
 

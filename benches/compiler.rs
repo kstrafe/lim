@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     env, fs,
     hint::black_box,
     path::{Path, PathBuf},
@@ -18,6 +19,27 @@ fn measure(label: &str, iterations: usize, mut operation: impl FnMut()) -> Durat
         elapsed.as_nanos() as f64 / iterations as f64
     );
     elapsed
+}
+
+fn report_symbol_repetition(label: &str, source: &str) {
+    let tokens = lim::lex(source).expect("benchmark source lexes");
+    let symbols = tokens.iter().filter_map(|token| match &token.kind {
+        lim::TokenKind::Symbol(value) => Some(value.as_str()),
+        _ => None,
+    });
+    let mut unique = HashSet::new();
+    let mut occurrences = 0usize;
+    let mut repeated_bytes = 0usize;
+    for symbol in symbols {
+        occurrences += 1;
+        if !unique.insert(symbol) {
+            repeated_bytes += symbol.len();
+        }
+    }
+    println!(
+        "{label}.symbols occurrences={occurrences} unique={} repeated_text_bytes={repeated_bytes}",
+        unique.len()
+    );
 }
 
 fn temp_root() -> PathBuf {
@@ -123,6 +145,7 @@ fn main() {
     let shared_path = root.join("shared.lim");
     fs::write(&shared_path, "(#type SharedMarker u64)\n").unwrap();
     for (label, source) in [("small", &small), ("large", &large)] {
+        report_symbol_repetition(label, source);
         measure(&format!("{label}.lex"), iterations, || {
             black_box(lim::lex(black_box(source)).unwrap());
         });
@@ -210,6 +233,7 @@ fn main() {
     let config = lim::CompileConfig::default();
     for (label, aliases) in [("small", 4), ("large", 256)] {
         let generator_source = generator_program(aliases);
+        report_symbol_repetition(&format!("{label}.generator"), &generator_source);
         let generator_path = root.join(format!("generator-{label}.lim"));
         fs::write(&generator_path, &generator_source).unwrap();
         let generated_dir = root.join(format!("generator-output-{label}"));
@@ -276,10 +300,16 @@ fn main() {
         ("branch_call_chain", chain.as_str(), 42),
         ("generator_heavy", generated.as_str(), 42),
     ] {
+        report_symbol_repetition(name, source);
         let directory = root.join(name);
         fs::create_dir_all(&directory).unwrap();
         let path = directory.join("workload.lim");
         fs::write(&path, source).unwrap();
+        let source_path = if name == "vec_allocator" {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/vec_allocator.lim")
+        } else {
+            path
+        };
         for temperature in ["cold", "warm"] {
             measure(&format!("{name}.build-{temperature}"), iterations, || {
                 if temperature == "cold" {
@@ -288,7 +318,7 @@ fn main() {
                         fs::remove_dir_all(cache).unwrap();
                     }
                 }
-                let (_, binary) = compile_and_link(source, &path, &directory);
+                let (_, binary) = compile_and_link(source, &source_path, &directory);
                 assert_eq!(
                     Command::new(binary).status().unwrap().code(),
                     Some(expected)
