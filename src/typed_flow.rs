@@ -48,7 +48,7 @@ pub(crate) enum FlowAction {
     ScopeExit(Vec<BindingId>),
     Branch(NodeId),
     LoopHead,
-    Return,
+    Return(Option<NodeId>),
     Break,
     Continue,
     Diverge,
@@ -411,15 +411,23 @@ impl FlowGraph {
                         return Err(format!("typed flow references invalid node {id:?}"));
                     }
                 }
+                FlowAction::Return(value) => {
+                    if value
+                        .is_some_and(|id| body.nodes.get(id.0).is_none_or(|node| node.ty.is_none()))
+                    {
+                        return Err(format!(
+                            "typed flow return {index} references an invalid value"
+                        ));
+                    }
+                }
                 FlowAction::Entry
                 | FlowAction::Exit
                 | FlowAction::LoopHead
-                | FlowAction::Return
                 | FlowAction::Break
                 | FlowAction::Continue
                 | FlowAction::Diverge => {}
             }
-            if matches!(node.action, FlowAction::Return)
+            if matches!(node.action, FlowAction::Return(_))
                 && node.successors.as_slice() != [self.exit]
             {
                 return Err(format!("typed flow return {index} does not reach exit"));
@@ -1095,7 +1103,7 @@ impl Builder<'_> {
                 }
             }
             Control::Return(value) => {
-                let end = self.push(FlowAction::Return, span, vec![self.exit]);
+                let end = self.push(FlowAction::Return(*value), span, vec![self.exit]);
                 let end = self.cleanup_to(0, end);
                 match value {
                     Some(value) => self.expression(*value, end, targets, None),
@@ -1456,7 +1464,7 @@ mod tests {
             .nodes
             .iter()
             .enumerate()
-            .filter(|(_, node)| matches!(node.action, FlowAction::Return))
+            .filter(|(_, node)| matches!(node.action, FlowAction::Return(_)))
             .collect::<Vec<_>>();
         assert_eq!(returns.len(), 2);
         assert_eq!(
@@ -1466,6 +1474,34 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn return_action_retains_checked_value_identity() {
+        let source = "(#fn main ((value u64)) u64 (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let returns = graph
+            .nodes
+            .iter()
+            .filter_map(|node| match node.action {
+                FlowAction::Return(Some(value)) => Some(value),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(returns.len(), 1);
+        let value = returns[0];
+        assert!(matches!(
+            body.nodes[value.0].kind,
+            NodeKind::Symbol {
+                binding: Some(_),
+                ..
+            }
+        ));
+        let span = body.nodes[value.0].span.unwrap();
+        assert_eq!(&source[span.start..span.end], "value");
     }
 
     #[test]
@@ -2153,7 +2189,7 @@ mod tests {
             let return_node = graph
                 .nodes
                 .iter()
-                .position(|node| matches!(node.action, FlowAction::Return))
+                .position(|node| matches!(node.action, FlowAction::Return(_)))
                 .map(FlowNodeId)
                 .unwrap();
             assert_eq!(
@@ -2200,7 +2236,7 @@ mod tests {
             let return_node = graph
                 .nodes
                 .iter()
-                .position(|node| matches!(node.action, FlowAction::Return))
+                .position(|node| matches!(node.action, FlowAction::Return(_)))
                 .map(FlowNodeId)
                 .unwrap();
             assert!(origins.before(return_node, view).is_empty());
@@ -2319,7 +2355,7 @@ mod tests {
             assert!(reachable.contains(&node.successors[0]));
         }
         assert!(graph.nodes.iter().any(|node| {
-            matches!(node.action, FlowAction::Return) && node.successors == vec![graph.exit]
+            matches!(node.action, FlowAction::Return(_)) && node.successors == vec![graph.exit]
         }));
     }
 }

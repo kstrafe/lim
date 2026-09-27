@@ -118,6 +118,10 @@ Explicit `#clone` of a resolved place similarly retains a dedicated action
 with the checked place and source node; unresolved computed clone operands
 continue as evaluation nodes. This action does not yet replace the lexical
 linearity checker.
+Return actions retain their optional checked result node ID. The return
+expression is evaluated before scope cleanup, and the action follows cleanup
+on the edge to function exit; future ownership transfer can identify the
+escaping value without recovering it from source syntax.
 An observational forward may-analysis now tracks direct loan origins held by
 bindings, including simple aliases and conditional results. It unions origins
 at flow joins, retains the first exact borrow span, and clears a dropped

@@ -416,6 +416,11 @@ the checklist is committed alongside the implementation it tracks.
   clone with its source span; computed operands and ownership enforcement
   remain in IR-04.
 
+- [x] **IR-04ad: Retain checked values on return edges.** Carry the result
+  node ID on each typed return action and verify it refers to a checked value.
+  Preserve evaluation-before-cleanup order and test the exact source span of
+  the returned binding. Actual move/loan transfer still remains in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
