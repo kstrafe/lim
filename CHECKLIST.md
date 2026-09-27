@@ -374,6 +374,12 @@ the checklist is committed alongside the implementation it tracks.
   borrow and independent sibling references without changing ownership flow.
   Array, struct, and enum transfer parity remains under the broader IR-04 item.
 
+- [x] **IR-04: Preserve array loan slots during call-expression analysis.**
+  Transfer indexed borrow paths through array constructors and destructuring
+  before comparing call arguments. Reject a mutable borrow that aliases an
+  extracted element while accepting a sibling element borrowed from another
+  owner. Keep dynamic-index overlap conservative.
+
 - [x] **IR-04: Propagate loans through explicit array-of construction.**
   Treat `#array-of` as an aggregate value with an explicit type operand and
   indexed reference slots, not as an opaque expression. Test that positional

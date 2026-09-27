@@ -1312,6 +1312,30 @@ mod tests {
     }
 
     #[test]
+    fn array_destructuring_retains_element_loan_paths() {
+        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut first u64 1u64)
+            (#let-mut second u64 2u64)
+            (#let pair (#array (#ref u64) 2)
+              (#array (#array (#ref u64) 2)
+                (#borrow first) (#borrow second)))
+            (#let (#array left right) (#array (#ref u64) 2) pair)
+            (#return (#call inspect (: left left : right (#borrow-mut second)))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+
+        let overlapping = source.replace(
+            ": right (#borrow-mut second)",
+            ": right (#borrow-mut first)",
+        );
+        let program = crate::parse_program(&overlapping).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+    }
+
+    #[test]
     fn mutable_block_binding_retains_initial_borrow_origin() {
         let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
             (#drop left) (#drop right) (#return 0u64))
