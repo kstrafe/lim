@@ -104,3 +104,50 @@ fn ready_queue_state_cannot_be_implicitly_copied() {
         error.message
     );
 }
+
+#[test]
+fn queue_field_can_be_used_through_a_mutable_owner_reference() {
+    let source = format!(
+        "(#import \"{}/library/ready_queue.lim\")
+         (@ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue Enqueued Full Item Empty (a b))
+         (#struct Holder ((ready Queue)))
+         (#linear Holder)
+         (#fn push ((holder (#ref-mut Holder))) ()
+           (#let result QueueEnqueue
+             (#call queue-enqueue (#fn-args
+               (queue (#borrow-mut (#get holder ready))) (task-id 42u64))))
+           (#forget result) (#return ()))
+         (#fn pop ((holder (#ref-mut Holder))) u64
+           (#let result QueueDequeue
+             (#call queue-dequeue (#fn-args
+               (queue (#borrow-mut (#get holder ready))))))
+           (#return (#match result
+             (#case (Item value) value) (#case Empty 0u64))))
+         (#fn main () u64
+           (#let-mut holder Holder (#struct-literal Holder
+             ((ready (#call queue-create (#fn-args))))))
+           (#call push (#fn-args (holder (#borrow-mut holder))))
+           (#let value u64 (#call pop (#fn-args (holder (#borrow-mut holder)))))
+           (#forget holder) (#return value))",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let scratch = support::Scratch::new("ready-queue-field");
+    let assembly = lim::compile_source_to_assembly(
+        &source,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    let binary = scratch.path().join("program");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    assert_eq!(Command::new(binary).status().unwrap().code(), Some(42));
+}

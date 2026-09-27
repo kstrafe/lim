@@ -115,6 +115,17 @@ readiness registration, non-busy wait, or cancellation acknowledgment yet;
 none of the safe asynchronous-I/O guarantees in ASYNC-02 are provided by this
 queue alone. See `examples/ready_queue.lim` for a runnable wraparound case.
 
+`library/wake_tokens.lim` adds a separate concrete `WakeTable4` protocol.
+Registration returns a `WakeToken4` containing a slot and generation;
+validity and retirement reject stale or out-of-range tokens. An active slot
+cannot be registered twice. Retirement advances the generation with
+saturation, so exhausted slots cannot wrap back to an old generation. The
+table is linear, but its fields and constructors are public in the current
+language: callers can still forge tokens or mutate authority state. It must
+not be treated as the final safe wake API. Opaque state, queue integration,
+non-busy waiting, and OS-operation ownership remain to be implemented.
+`examples/wake_tokens.lim` exercises retirement and re-registration.
+
 ## Explicit async composition
 
 ```lisp syntax

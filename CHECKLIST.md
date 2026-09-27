@@ -449,6 +449,19 @@ is an independent documentation and parser-diagnostics task.
   Require explicit consumption or destruction of each queue owner. Test a
   native queue run and a rejected use after move; explicit cloning remains a
   separate user decision under the language's normal linearity rules.
+- [x] **ASYNC-02c: Add a concrete generational token protocol.** Provide a
+  four-slot linear table and Copyable slot/generation tokens. Explicit
+  registration, validity, and retirement operations reject out-of-range,
+  busy, stale, and exhausted slots; retirement saturates generation to avoid
+  wraparound reuse. Cover re-registration, stale rejection, exhaustion, and
+  borrowing a linear queue field through an owner reference in native tests.
+  This is not an unforgeable safe wake authority while
+  fields and constructors remain public.
+- [ ] **ASYNC-02d: Make wake authority opaque.** Add module-private fields or
+  compiler-owned opaque handles before task scheduling relies on token/table
+  invariants. Prevent safe callers from forging tokens, replacing generation
+  arrays, or cloning live authority. Preserve explicit inspectable operations
+  where possible, and test cross-module rejection and stale-handle behavior.
 - [ ] **ASYNC-01: Suspend arbitrary ordinary function bodies.** Complete the
   typed ownership/control-flow migration, then calculate live values and loans
   at suspension points. Define source syntax, borrowing across suspension, and
