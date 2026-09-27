@@ -326,7 +326,9 @@ The operations are `#addr-of`, `#addr-of-mut`, `#ptr-read`, `#ptr-write`, and
 `(#ptr-offset pointer element-index)`. `(#ptr-null (#ptr-mut T))` or
 `(#ptr-null (#ptr T))` constructs a typed null pointer; constructing one is
 safe, but dereferencing it is not. `(#ptr-is-null pointer)` safely tests
-whether a raw pointer is null without consuming it. The offset consumes a raw
+whether a raw pointer is null without consuming it. `(#ptr-address pointer)`
+returns the machine address as `usize` without dereferencing it; it can check
+Linux error-pointer returns before any access. The offset consumes a raw
 pointer and returns a pointer with the same mutability and pointee type; its
 index must be `usize`. Offsets use the pointee's byte width (for example,
 `*mut u8` advances one byte). Byte-offset multiplication and address addition
@@ -1553,6 +1555,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr u8) (#ptr-null (#ptr u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
+| `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr u8)))` (expression) | Converts a raw pointer to its machine address as `usize` without dereferencing it; useful for checking syscall error-pointer results before access. |
 | `#ptr-borrow` | `(#ptr-borrow reference-anchor pointer)` | `(#unsafe (#ptr-borrow owner pointer))` (expression) | Creates a shared reference tied to an existing reference's inferred borrow lifetime; caller must uphold pointer validity. |
 | `#ptr-borrow-mut` | `(#ptr-borrow-mut mutable-reference-anchor mutable-pointer)` | `(#unsafe (#ptr-borrow-mut owner pointer))` (expression) | Creates an exclusive reference tied to an anchor; caller must prove unique valid access. |
 | `#ptr-is-null` | `(#ptr-is-null pointer)` | `(#if (#ptr-is-null p) 0u64 1u64)` (expression) | Safely tests a raw pointer for null. |

@@ -5899,13 +5899,17 @@ fn list_expression(
                 _ => Err("ptr-null requires an explicit raw-pointer type".into()),
             }
         }
-        "ptr-is-null" => {
+        "ptr-address" | "ptr-is-null" => {
             require_arity(operator, items, 2)?;
             match expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )? {
-                Type::RawPointer { .. } => Ok(Type::Bool),
-                _ => Err("ptr-is-null requires a raw pointer".into()),
+                Type::RawPointer { .. } => Ok(if operator == "ptr-address" {
+                    Type::Usize
+                } else {
+                    Type::Bool
+                }),
+                _ => Err(format!("{operator} requires a raw pointer").into()),
             }
         }
         "ptr-borrow" | "ptr-borrow-mut" => {

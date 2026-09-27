@@ -278,7 +278,8 @@ and makes an old exhaustive cancellation match fail compilation until it is
 updated. `examples/async_fn.lim` shows one such function and a runnable
 Pending/resume cycle. `examples/async_fn_two_awaits.lim` shows two explicit
 capture lists and the start/Pending/Pending/Ready polling sequence. This
-lowering does not add a scheduler, OS readiness, or lost-wakeup protection.
+lowering does not itself add a scheduler or OS readiness. The explicit
+`wake_ready4` protocol can prevent lost wakes when used around polling.
 
 ## Cancellation and threads
 
@@ -291,9 +292,17 @@ intentionally bypasses cleanup; it is not a cancellation operation.
 
 A handler for an external operation must finish cancellation before releasing
 any borrowed storage the operation can still access. The compiler checks
-types, consumption, and borrows, not OS cancellation completion. There are no
-new safe asynchronous OS-operation builtins in this implementation. An
-executor's blocking run call cannot currently be externally interrupted.
+types, consumption, and borrows, not OS cancellation completion.
+`library/timer_reactor1.lim` provides a concrete one-shot Linux timer
+operation. It owns a timer fd, scratch mapping, and validated wake token.
+`timer-reactor1-wait` blocks in the kernel's `poll` rather than spinning;
+`timer-reactor1-poll` reads expiration only after readiness. The kernel does
+not retain the scratch buffer between calls, and `timer-reactor1-cancel`
+consumes the owner, closes the fd, and unmaps the buffer. Setup failures
+currently trap after cleaning up acquired resources; recoverable construction
+errors, multi-operation readiness, and general buffered asynchronous I/O
+remain open. An executor's blocking run call cannot currently be externally
+interrupted.
 
 `(@threaded-executor run Result jobs Worker)` expands an executor plus
 `(@thread-spawn (: task Worker : worker run))`. Each explicit spawn transfers the fixed job set
@@ -303,7 +312,8 @@ joins, and captured-reference restrictions come from the existing thread
 implementation. OS thread creation still uses its existing allocation path.
 
 Runnable examples: `distributed_errors.lim`, `distributed_slice.lim`,
-`local_waker.lim`, `async_wake_pipeline.lim`, `async_fn.lim`,
+`local_waker.lim`, `async_wake_pipeline.lim`, `async_registered_wake.lim`,
+`wake_ready4.lim`, `timer_reactor1.lim`, `async_fn.lim`,
 `async_fn_two_awaits.lim`,
 `cooperative_tasks.lim`, `async_pipeline.lim`, `task_cancellation.lim`, and
 `threaded_tasks.lim` in `examples/`.

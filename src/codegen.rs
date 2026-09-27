@@ -6246,10 +6246,6 @@ impl FunctionContext {
                     .filter(|ty| self.is_aggregate_type(ty))
                 {
                     self.expression_as_expected(expression, &ty)?;
-                } else if self.is_aggregate_type(&self.return_type) {
-                    self.return_value(expression)?;
-                } else if is_float_type(&self.return_type) {
-                    self.expression_as_float(expression, &self.return_type.clone())?;
                 } else {
                     self.expression(expression)?;
                 }
@@ -7693,7 +7689,9 @@ impl FunctionContext {
                 }
                 Ok(())
             }
-            _ => Err("large aggregate return constructor has the wrong type".into()),
+            _ => Err(format!(
+                "large aggregate return constructor '{constructor}' has the wrong type {ty:?}"
+            )),
         }
     }
 
@@ -9528,18 +9526,20 @@ impl FunctionContext {
                 self.output.push_str("    xor eax, eax\n");
                 Ok(())
             }
-            "ptr-is-null" => {
+            "ptr-address" | "ptr-is-null" => {
                 if items.len() != 2
                     || !matches!(
                         self.expression_type(&items[1]),
                         Some(Type::RawPointer { .. })
                     )
                 {
-                    return Err("ptr-is-null requires a raw pointer".into());
+                    return Err(format!("{operator} requires a raw pointer"));
                 }
                 self.expression(&items[1])?;
-                self.output
-                    .push_str("    test rax, rax\n    sete al\n    movzx eax, al\n");
+                if operator == "ptr-is-null" {
+                    self.output
+                        .push_str("    test rax, rax\n    sete al\n    movzx eax, al\n");
+                }
                 Ok(())
             }
             "ptr-borrow" | "ptr-borrow-mut" => {

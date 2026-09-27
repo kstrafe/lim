@@ -1,0 +1,95 @@
+;; One-shot Linux timer with owned kernel resources and a validated local wake.
+;; The kernel never retains the scratch mapping after a synchronous poll/read
+;; syscall returns. Cancel closes the fd before unmapping its storage.
+(#import "linux_x86_64.lim")
+(#import "wake_ready4.lim")
+
+(#struct TimerReactor1
+  ((fd i64) (memory (#ptr-mut u8)) (queue WakeReady4) (token WakeToken4)))
+(#opaque TimerReactor1)
+(#linear TimerReactor1)
+(#enum TimerWait1 (TimerWoken1 (TimerWaitFailed1 i64)))
+(#enum TimerPoll1 (TimerPending1 (TimerReady1 u64) (TimerPollFailed1 i64)))
+
+(#fn timer-reactor1-create ((nanoseconds u64)) TimerReactor1
+  (#assert (#bool.&& (#u64.> nanoseconds 0u64)
+                    (#u64.< nanoseconds 1000000000u64)))
+  (#let fd i64 (#call linux-timerfd-create (: clock-id 1i32 : flags 0i32)))
+  (#assert (#i64.>= fd 0i64))
+  (#let memory (#ptr-mut u8)
+    (#unsafe (#call linux-mmap
+      (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
+       : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+  (#let address i64 (#as (#ptr-address memory) i64))
+  (#if (#i64.< address 0i64)
+    (#block
+      (#assert (#i64.== (#call linux-close (: fd fd)) 0i64))
+      (#panic))
+    ())
+  ;; pollfd at bytes 0..7; itimerspec at 16..47.
+  (#for-range (position u64) 0u64 48u64
+    (#unsafe (#ptr-write
+      (#ptr-offset (#clone memory) (#as position usize)) 0u8)))
+  (#for-range (position u64) 0u64 4u64
+    (#unsafe (#ptr-write
+      (#ptr-offset (#clone memory) (#as position usize))
+      (#as (#u64.>> (#as fd u64) (#u64.*.wrap position 8u64)) u8))))
+  (#unsafe (#ptr-write (#ptr-offset (#clone memory) 4usize) 1u8))
+  (#for-range (position u64) 0u64 8u64
+    (#unsafe (#ptr-write
+      (#ptr-offset (#clone memory) (#as (#u64.+.wrap 40u64 position) usize))
+      (#as (#u64.>> nanoseconds (#u64.*.wrap position 8u64)) u8))))
+  (#let armed i64 (#unsafe (#linux-syscall i64
+    LINUX-SYS-TIMERFD-SETTIME
+    (fd 0i32 (#ptr-offset (#clone memory) 16usize) (#ptr-null (#ptr-mut u8))))))
+  (#if (#i64.< armed 0i64)
+    (#block
+      (#assert (#i64.== (#unsafe (#call linux-munmap
+        (: address (#clone memory) : length 4096usize))) 0i64))
+      (#assert (#i64.== (#call linux-close (: fd fd)) 0i64))
+      (#panic))
+    ())
+  (#let-mut queue WakeReady4 (#call wake-ready4-create (:)))
+  (#let registration WakeRegister4
+    (#call wake-ready4-register
+      (: queue (#borrow-mut queue) : slot 0usize)))
+  (#let token WakeToken4 (#match registration
+    (#case (WakeRegistered4 value) value)
+    (#case _ (#unreachable))))
+  (#return (#struct-literal TimerReactor1
+    ((fd fd) (memory memory) (queue queue) (token token)))))
+
+(#fn timer-reactor1-wait ((timer (#ref TimerReactor1))) TimerWait1
+  (#let result i64 (#unsafe (#call linux-poll
+    (: pollfds (#get timer memory) : count 1usize : timeout-ms -1i32))))
+  (#return (#if (#i64.== result 1i64)
+    (#if (#call wake-ready4-notify
+           (: queue (#borrow (#get timer queue)) : token (#get timer token)))
+      TimerWoken1
+      (TimerWaitFailed1 -22i64))
+    (TimerWaitFailed1 result))))
+
+(#fn timer-reactor1-poll ((timer (#ref TimerReactor1))) TimerPoll1
+  (#return (#if (#call wake-ready4-take
+                (: queue (#borrow (#get timer queue)) : token (#get timer token)))
+    (#block
+      (#let destination (#ptr-mut u8)
+        (#unsafe (#ptr-offset (#get timer memory) 64usize)))
+      (#let count i64 (#unsafe (#call linux-read
+        (: fd (#get timer fd) : destination destination : count 8usize))))
+      (#if (#i64.== count 8i64)
+        (TimerReady1 1u64)
+        (TimerPollFailed1 count)))
+    TimerPending1)))
+
+(#fn timer-reactor1-cancel ((timer TimerReactor1)) i64
+  (#let (TimerReactor1 fd memory queue token) TimerReactor1 timer)
+  (#let-mut queue WakeReady4 queue)
+  (#let retired WakeRetire4
+    (#call wake-ready4-retire (: queue (#borrow-mut queue) : token token)))
+  (#assert (#match retired (#case WakeRetired4 true) (#case WakeStale4 false)))
+  (#forget queue)
+  (#let closed i64 (#call linux-close (: fd fd)))
+  (#let unmapped i64 (#unsafe (#call linux-munmap
+    (: address memory : length 4096usize))))
+  (#return (#if (#i64.< closed 0i64) closed unmapped)))

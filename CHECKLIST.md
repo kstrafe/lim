@@ -628,6 +628,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   completion registration, and OS-operation ownership. Cancellation must not
   release buffers until completion/cancellation is acknowledged. Test stale
   wake handles, lost wakeups, capacity exhaustion, shutdown, and cancellation.
+- [x] **ASYNC-02a: Own one-shot timer readiness without retained buffers.**
+  Add a concrete Linux timerfd operation with an opaque linear owner, a
+  bounded registered wake, blocking kernel wait, explicit poll and cancellation,
+  and cleanup of fd and scratch mapping. Verify one-shot completion and
+  cancellation before completion in a native example. Keep ASYNC-02 open for
+  recoverable setup errors, multiple registered operations, buffered I/O
+  cancellation acknowledgment, and shutdown policy.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,

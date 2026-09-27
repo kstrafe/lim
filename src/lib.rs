@@ -3959,6 +3959,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "addr-of"
             | "addr-of-mut"
             | "ptr-read"
+            | "ptr-address"
             | "ptr-null"
             | "ptr-is-null"
             | "ptr-borrow"
@@ -9870,6 +9871,18 @@ mod tests {
         assert!(generate_assembly(&pointer_null_test)
             .unwrap()
             .contains("sete al"));
+
+        let pointer_address = parse_program(
+            "(#fn main () usize (#let pointer (#ptr u8) (#ptr-null (#ptr u8))) (#return (#ptr-address pointer)))",
+        )
+        .unwrap();
+        assert!(check_types(&pointer_address).is_ok());
+        assert!(generate_assembly(&pointer_address).is_ok());
+        let invalid_address =
+            parse_program("(#fn main () usize (#return (#ptr-address 1usize)))").unwrap();
+        assert!(check_types(&invalid_address)
+            .unwrap_err()
+            .contains("ptr-address requires a raw pointer"));
 
         let untyped_null_pointer =
             parse_program("(#fn bad () (#ptr u64) (#return (#ptr-null u64)))").unwrap();
