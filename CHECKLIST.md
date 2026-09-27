@@ -520,6 +520,12 @@ the checklist is committed alongside the implementation it tracks.
   holding a mutable reference, disjoint access, and a conflicting event with
   both exact spans. Indirect referents and complete move transfer remain open.
 
+- [x] **IR-04ap: Reject typed writes through live direct loans.** At checked
+  assignment events, compare the written place against origins held by live
+  bindings. Preserve the write and loan sites in diagnostics, and allow writes
+  to disjoint places. Test a shared reference followed by a checked-place
+  write conflict. Indirect referents and complete move transfer remain open.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

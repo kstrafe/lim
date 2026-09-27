@@ -1,7 +1,7 @@
-//! Checks simultaneous call-argument loans using resolved places. Pure
-//! constructors preserve direct borrows through aggregates and conditional
-//! results. Bindings inside value blocks retain their origins; general
-//! flow-sensitive bindings and call results remain for IR-04.
+//! Checks simultaneous call-argument loans and live direct-loan conflicts
+//! using resolved places. Pure constructors preserve direct borrows through
+//! aggregates and conditional results. Indirect referents, complete move
+//! transfer, and reference-returning calls remain for IR-04.
 
 use std::collections::{HashMap, HashSet};
 
@@ -21,34 +21,42 @@ pub(crate) struct BorrowConflict {
     pub labels: Vec<(Span, String)>,
 }
 
-/// Check direct loans retained by live bindings at each checked
-/// borrow event. A borrow through a reference is a reborrow: its referent is
-/// already protected by the source loan and needs separate transfer analysis.
+/// Check direct loans retained by live bindings at checked borrow and write
+/// events. A borrow through a reference is a reborrow: its referent is already
+/// protected by the source loan and needs separate transfer analysis.
 pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
-    if !flow
-        .nodes
-        .iter()
-        .any(|node| matches!(node.action, FlowAction::Borrow { .. }))
-    {
+    if !flow.nodes.iter().any(|node| {
+        matches!(
+            node.action,
+            FlowAction::Borrow { .. } | FlowAction::Assign { .. }
+        )
+    }) {
         return Ok(());
     }
     let origins = flow.loan_origins(body);
     let live = flow.liveness(body);
     for (index, node) in flow.nodes.iter().enumerate() {
-        let FlowAction::Borrow { place, mutable, .. } = &node.action else {
-            continue;
+        let (place, mutable, write) = match &node.action {
+            FlowAction::Borrow { place, mutable, .. } => (place, *mutable, false),
+            FlowAction::Assign { place, .. } => (place, true, true),
+            _ => continue,
         };
-        if matches!(place.root, PlaceRoot::Local(binding) if matches!(body.bindings[binding.0].ty, Type::Reference { .. }))
+        if !write
+            && matches!(place.root, PlaceRoot::Local(binding) if matches!(body.bindings[binding.0].ty, Type::Reference { .. }))
         {
             continue;
         }
         let event = FlowNodeId(index);
         for binding in live.before(event) {
             for held in origins.before(event, binding) {
-                if (held.mutable || *mutable) && held.place.overlaps(place) {
+                if (held.mutable || mutable) && held.place.overlaps(place) {
                     return Err(BorrowConflict {
-                        message: "cannot borrow a place while a conflicting live reference exists"
-                            .into(),
+                        message: if write {
+                            "cannot write to a place while a live reference borrows it"
+                        } else {
+                            "cannot borrow a place while a conflicting live reference exists"
+                        }
+                        .into(),
                         span: node.span,
                         labels: held
                             .span
@@ -612,6 +620,46 @@ mod tests {
         let error = check_live_direct_loans(body, &flow).unwrap_err();
         let span = error.labels[0].0;
         assert_eq!(&source[span.start..span.end], "(#borrow-mut left)");
+    }
+
+    #[test]
+    fn write_conflict_uses_checked_place_and_loan_origin() {
+        let source = "(#fn main () u64
+            (#let-mut left u64 1u64)
+            (#let-mut right u64 2u64)
+            (#let view (#ref u64) (#borrow left))
+            (#set right 3u64)
+            (#return (#deref view)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut flow = FlowGraph::lower(body).unwrap();
+        check_live_direct_loans(body, &flow).unwrap();
+        let left = BindingId(body.bindings.iter().position(|b| b.name == "left").unwrap());
+        let right = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "right")
+                .unwrap(),
+        );
+        let write = flow
+            .nodes
+            .iter_mut()
+            .find(|node| {
+                matches!(&node.action, FlowAction::Assign { place, .. }
+                if place.root == PlaceRoot::Local(right))
+            })
+            .unwrap();
+        let FlowAction::Assign { place, .. } = &mut write.action else {
+            unreachable!()
+        };
+        place.root = PlaceRoot::Local(left);
+        let error = check_live_direct_loans(body, &flow).unwrap_err();
+        assert!(error.message.contains("cannot write"));
+        let span = error.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#set right 3u64)");
+        let first = error.labels[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow left)");
     }
 
     #[test]
