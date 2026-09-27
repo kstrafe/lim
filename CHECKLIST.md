@@ -275,7 +275,15 @@ the checklist is committed alongside the implementation it tracks.
 - [x] **IR-04s: Verify branch-join loan release.** Exercise the shared typed
   flow with a direct reference dropped on both paths and on only one path.
   Require the forward loan state to be empty at the first join and retained at
-  the second. Scope exits, indirect origins, and enforcement remain in IR-04.
+  the second. Scope exits are covered by IR-04t; indirect origins and
+  enforcement remain in IR-04.
+
+- [x] **IR-04t: End typed loan state at lexical scope exits.** Retain explicit
+  scope-exit actions for value blocks, match arms and guard failure, loop
+  bodies, and for-loop initializer scopes. Route break, continue, and return
+  through cleanup for the scopes they leave. Clear binding-held direct origins
+  at those actions; test block fallthrough, break, continue, and for-range
+  scope boundaries. Indirect provenance and enforcing conflict checks remain.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and

@@ -36,6 +36,7 @@ pub(crate) enum FlowAction {
         pattern: NodeId,
         value: NodeId,
     },
+    ScopeExit(Vec<BindingId>),
     Branch(NodeId),
     LoopHead,
     Return,
@@ -172,12 +173,14 @@ struct Target {
     name: Option<String>,
     break_to: FlowNodeId,
     continue_to: Option<FlowNodeId>,
+    scope_depth: usize,
 }
 
 struct Builder<'a> {
     body: &'a Body,
     nodes: Vec<FlowNode>,
     exit: FlowNodeId,
+    active_scopes: Vec<Vec<BindingId>>,
 }
 
 impl FlowGraph {
@@ -186,6 +189,7 @@ impl FlowGraph {
             body,
             nodes: Vec::new(),
             exit: FlowNodeId(0),
+            active_scopes: Vec::new(),
         };
         builder.exit = builder.push(FlowAction::Exit, None, vec![]);
         let first = builder.instructions(&body.instructions, builder.exit, &[])?;
@@ -230,6 +234,11 @@ impl FlowGraph {
                 FlowAction::Pattern { pattern, value } => {
                     let origins = value_loan_origins(body, *value, &state);
                     distribute_pattern_origins(body, *pattern, &origins, &mut state);
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    for binding in bindings {
+                        state[binding.0].clear();
+                    }
                 }
                 FlowAction::Assign {
                     place:
@@ -345,6 +354,14 @@ impl FlowGraph {
                 FlowAction::Pattern { pattern, value } => {
                     if pattern.0 >= body.nodes.len() || value.0 >= body.nodes.len() {
                         return Err(format!("typed flow references invalid pattern {pattern:?}"));
+                    }
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    if bindings
+                        .iter()
+                        .any(|binding| binding.0 >= body.bindings.len())
+                    {
+                        return Err(format!("typed flow node {index} exits an invalid binding"));
                     }
                 }
                 FlowAction::Branch(id) => {
@@ -798,6 +815,28 @@ fn distribute_pattern_origins(
     }
 }
 
+fn direct_scope_bindings(body: &Body, instructions: &[Instruction]) -> Vec<BindingId> {
+    fn collect(body: &Body, instruction: &Instruction, bindings: &mut HashSet<BindingId>) {
+        match &instruction.control {
+            Control::Bind(binding, _, _) => {
+                bindings.insert(*binding);
+            }
+            Control::Destructure { pattern, .. } => {
+                collect_pattern_bindings(body, *pattern, bindings);
+            }
+            Control::Labeled(_, inner) => collect(body, inner, bindings),
+            _ => {}
+        }
+    }
+    let mut bindings = HashSet::new();
+    for instruction in instructions {
+        collect(body, instruction, &mut bindings);
+    }
+    let mut bindings = bindings.into_iter().collect::<Vec<_>>();
+    bindings.sort_by_key(|binding| binding.0);
+    bindings
+}
+
 impl Builder<'_> {
     fn push(
         &mut self,
@@ -812,6 +851,33 @@ impl Builder<'_> {
             span,
         });
         id
+    }
+
+    fn scoped_instructions(
+        &mut self,
+        instructions: &[Instruction],
+        next: FlowNodeId,
+        targets: &[Target],
+    ) -> Result<FlowNodeId, String> {
+        let bindings = direct_scope_bindings(self.body, instructions);
+        let after = if bindings.is_empty() {
+            next
+        } else {
+            self.push(FlowAction::ScopeExit(bindings.clone()), None, vec![next])
+        };
+        self.active_scopes.push(bindings);
+        let result = self.instructions(instructions, after, targets);
+        self.active_scopes.pop();
+        result
+    }
+
+    fn cleanup_to(&mut self, depth: usize, mut next: FlowNodeId) -> FlowNodeId {
+        for bindings in self.active_scopes[depth..].to_vec() {
+            if !bindings.is_empty() {
+                next = self.push(FlowAction::ScopeExit(bindings), None, vec![next]);
+            }
+        }
+        next
     }
 
     fn instructions(
@@ -861,7 +927,7 @@ impl Builder<'_> {
                     vec![next],
                 );
                 let decision = if let Some(otherwise) = otherwise {
-                    let failure = self.instructions(otherwise, next, targets)?;
+                    let failure = self.scoped_instructions(otherwise, next, targets)?;
                     self.push(FlowAction::Branch(*pattern), span, vec![bind, failure])
                 } else {
                     bind
@@ -889,18 +955,33 @@ impl Builder<'_> {
             }
             Control::Loop(body) => self.loop_body(body, next, targets, label, span),
             Control::For(init, condition, step, body) => {
+                let init_bindings =
+                    direct_scope_bindings(self.body, std::slice::from_ref(init.as_ref()));
+                let after_loop = if init_bindings.is_empty() {
+                    next
+                } else {
+                    self.push(
+                        FlowAction::ScopeExit(init_bindings.clone()),
+                        span,
+                        vec![next],
+                    )
+                };
+                self.active_scopes.push(init_bindings);
                 let decision = self.push(FlowAction::Branch(*condition), span, vec![]);
                 let condition_entry = self.expression(*condition, decision, targets, None)?;
                 let mut loop_targets = targets.to_vec();
                 let step_entry = self.instruction(step, condition_entry, targets, None)?;
                 loop_targets.push(Target {
                     name: label.map(str::to_owned),
-                    break_to: next,
+                    break_to: after_loop,
                     continue_to: Some(step_entry),
+                    scope_depth: self.active_scopes.len(),
                 });
-                let body_entry = self.instructions(body, step_entry, &loop_targets)?;
-                self.nodes[decision.0].successors = vec![body_entry, next];
-                self.instruction(init, condition_entry, targets, None)
+                let body_entry = self.scoped_instructions(body, step_entry, &loop_targets)?;
+                self.nodes[decision.0].successors = vec![body_entry, after_loop];
+                let entry = self.instruction(init, condition_entry, targets, None);
+                self.active_scopes.pop();
+                entry
             }
             Control::Labeled(name, inner) => {
                 if matches!(
@@ -914,12 +995,14 @@ impl Builder<'_> {
                         name: Some(name.clone()),
                         break_to: next,
                         continue_to: None,
+                        scope_depth: self.active_scopes.len(),
                     });
                     self.instruction(inner, next, &labeled, None)
                 }
             }
             Control::Return(value) => {
                 let end = self.push(FlowAction::Return, span, vec![self.exit]);
+                let end = self.cleanup_to(0, end);
                 match value {
                     Some(value) => self.expression(*value, end, targets, None),
                     None => Ok(end),
@@ -935,6 +1018,7 @@ impl Builder<'_> {
                     })
                     .ok_or_else(|| format!("typed flow has no break target for {label:?}"))?;
                 let end = self.push(FlowAction::Break, span, vec![target.break_to]);
+                let end = self.cleanup_to(target.scope_depth, end);
                 match value {
                     Some(value) => self.expression(*value, end, targets, None),
                     None => Ok(end),
@@ -948,9 +1032,10 @@ impl Builder<'_> {
                         Some(name) => target.name.as_deref() == Some(name),
                         None => target.continue_to.is_some(),
                     })
-                    .and_then(|target| target.continue_to)
+                    .and_then(|target| target.continue_to.map(|next| (next, target.scope_depth)))
                     .ok_or_else(|| format!("typed flow has no continue target for {label:?}"))?;
-                Ok(self.push(FlowAction::Continue, span, vec![target]))
+                let end = self.push(FlowAction::Continue, span, vec![target.0]);
+                Ok(self.cleanup_to(target.1, end))
             }
             Control::Evaluate(value) => self.expression(*value, next, targets, None),
         }
@@ -972,8 +1057,9 @@ impl Builder<'_> {
             name: label.map(str::to_owned),
             break_to: next,
             continue_to: Some(condition_entry),
+            scope_depth: self.active_scopes.len(),
         });
-        let body_entry = self.instructions(body, condition_entry, &loop_targets)?;
+        let body_entry = self.scoped_instructions(body, condition_entry, &loop_targets)?;
         self.nodes[decision.0].successors = vec![body_entry, next];
         Ok(condition_entry)
     }
@@ -992,8 +1078,9 @@ impl Builder<'_> {
             name: label.map(str::to_owned),
             break_to: next,
             continue_to: Some(header),
+            scope_depth: self.active_scopes.len(),
         });
-        let body_entry = self.instructions(body, header, &loop_targets)?;
+        let body_entry = self.scoped_instructions(body, header, &loop_targets)?;
         self.nodes[header.0].successors = vec![body_entry];
         Ok(header)
     }
@@ -1034,7 +1121,7 @@ impl Builder<'_> {
                 self.expression(*value, decision, targets, None)
             }
             NodeKind::MatchArm { .. } => Err("typed match arm has no dispatch".into()),
-            NodeKind::Block(body) => self.instructions(body, next, targets),
+            NodeKind::Block(body) => self.scoped_instructions(body, next, targets),
             NodeKind::Loop(body) => self.loop_body(body, next, targets, label, span),
             NodeKind::Labeled(name, value) => self.expression(*value, next, targets, Some(name)),
             NodeKind::Form {
@@ -1132,17 +1219,33 @@ impl Builder<'_> {
             }
             _ => return Err("typed match arm has an invalid shape".into()),
         };
-        let body_entry = self.expression(body, next, targets, None)?;
+        let mut bindings = HashSet::new();
+        collect_pattern_bindings(self.body, pattern, &mut bindings);
+        let mut bindings = bindings.into_iter().collect::<Vec<_>>();
+        bindings.sort_by_key(|binding| binding.0);
+        let success_end = if bindings.is_empty() {
+            next
+        } else {
+            self.push(FlowAction::ScopeExit(bindings.clone()), span, vec![next])
+        };
+        let failure_end = if bindings.is_empty() {
+            failure
+        } else {
+            self.push(FlowAction::ScopeExit(bindings.clone()), span, vec![failure])
+        };
+        self.active_scopes.push(bindings);
+        let body_entry = self.expression(body, success_end, targets, None)?;
         let success = if let Some(guard) = guard {
             let decision = self.push(
                 FlowAction::Branch(guard),
                 self.body.nodes[guard.0].span,
-                vec![body_entry, failure],
+                vec![body_entry, failure_end],
             );
             self.expression(guard, decision, targets, None)?
         } else {
             body_entry
         };
+        self.active_scopes.pop();
         let bound = self.push(
             FlowAction::Pattern {
                 pattern,
@@ -1327,7 +1430,12 @@ mod tests {
             pending.extend(graph.nodes[id.0].successors.iter().copied());
         }
         let guard = guard.expect("guard branch after pattern binding");
-        assert_eq!(graph.nodes[guard.0].successors[1], fallback);
+        let cleanup = graph.nodes[guard.0].successors[1];
+        assert!(matches!(
+            graph.nodes[cleanup.0].action,
+            FlowAction::ScopeExit(_)
+        ));
+        assert_eq!(graph.nodes[cleanup.0].successors, vec![fallback]);
         graph
             .check_definite_bindings(body, 0)
             .expect("guarded fallback has valid local scopes");
@@ -1756,6 +1864,103 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn lexical_scope_exit_clears_block_and_break_origins() {
+        for scope in [
+            "(#block (#let view (#ref u64) (#borrow owner)) (#deref view))",
+            "(#loop (#let view (#ref u64) (#borrow owner)) (#break))",
+        ] {
+            let source = format!(
+                "(#fn main () u64
+                  (#let-mut owner u64 1u64)
+                  {scope}
+                  (#return owner))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let body = &checked.declarations().bodies["main"];
+            let graph = &checked.declarations().flows["main"];
+            let view = BindingId(body.bindings.iter().position(|b| b.name == "view").unwrap());
+            let origins = graph.loan_origins(body);
+            let exit = graph
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| match &node.action {
+                    FlowAction::ScopeExit(bindings)
+                        if bindings.contains(&view)
+                            && !origins.before(FlowNodeId(index), view).is_empty() =>
+                    {
+                        Some(FlowNodeId(index))
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(origins.before(exit, view).len(), 1);
+            assert!(origins.after(exit, view).is_empty());
+            let return_node = graph
+                .nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Return))
+                .map(FlowNodeId)
+                .unwrap();
+            assert!(origins.before(return_node, view).is_empty());
+        }
+    }
+
+    #[test]
+    fn range_loop_initializer_scope_exits_on_fallthrough() {
+        let source = "(#fn main () u64
+          (#let-mut total u64 0u64)
+          (#for-range (i u64) 0u64 2u64
+            (#set total (#u64.+.wrap total i)))
+          (#return total))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let index = BindingId(body.bindings.iter().position(|b| b.name == "i").unwrap());
+        assert!(graph.nodes.iter().any(|node| matches!(&node.action,
+            FlowAction::ScopeExit(bindings) if bindings.contains(&index))));
+    }
+
+    #[test]
+    fn continue_clears_body_local_loan_before_next_iteration() {
+        let source = "(#fn main () u64
+          (#let-mut owner u64 1u64)
+          (#let-mut counter u64 0u64)
+          (#label outer (#loop
+            (#let view (#ref u64) (#borrow owner))
+            (#if (#u64.== counter 0u64)
+              (#block (#set counter 1u64) (#continue-to outer))
+              (#block (#break-to outer)))))
+          (#return owner))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let view = BindingId(body.bindings.iter().position(|b| b.name == "view").unwrap());
+        let origins = graph.loan_origins(body);
+        let cleanup = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match &node.action {
+                FlowAction::ScopeExit(bindings)
+                    if bindings.contains(&view)
+                        && node.successors.iter().any(|next| {
+                            matches!(graph.nodes[next.0].action, FlowAction::Continue)
+                        }) =>
+                {
+                    Some(FlowNodeId(index))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(origins.before(cleanup, view).len(), 1);
+        assert!(origins.after(cleanup, view).is_empty());
     }
 
     #[test]

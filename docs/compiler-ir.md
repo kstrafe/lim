@@ -119,7 +119,7 @@ bindings, including simple aliases and conditional results. It unions origins
 at flow joins, retains the first exact borrow span, and clears a dropped
 binding without clearing aliases. The typed-IR debug dump includes these
 states. It does not yet replace the lexical borrow checker or resolve indirect
-referents, destructured payload identities, or scope-sensitive loan lifetimes.
+referents or enforce complete loan lifetimes.
 Constructor values for structs, enums, tuples, and arrays contribute their
 contained direct origins to the resulting aggregate binding; value-block
 results preserve those origins as well.
@@ -127,6 +127,10 @@ Each origin also retains its structural storage path. Pattern transfers match
 owner-qualified fields, tuple and array positions, and variant payload IDs
 before assigning origins to destructured bindings, so other fields or variants
 cannot contaminate a binding's provenance.
+Explicit scope-exit flow actions clear origins of bindings declared in blocks,
+match arms, and loop scopes. Nonlocal break, continue, and return edges run
+the relevant cleanup actions too. These transitions make the observational
+state scope-aware; conflict enforcement is still pending.
 Read and write places now have structural identities: a `BindingId` or
 `GlobalId` root followed by owner-qualified field/variant IDs, tuple positions,
 or concrete/dynamic array indices. A dotted identifier remains one binding,
