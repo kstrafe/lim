@@ -470,6 +470,24 @@ mod checked_program_tests {
     }
 
     #[test]
+    fn typed_generated_return_escape_retains_invocation_label() {
+        let source = "(#gn make (name)
+            `((#fn ,name () (#ref u64)
+                (#let owner u64 1u64)
+                (#return (#borrow owner)))))
+          (@make generated)";
+        let program = crate::parse_program(source).unwrap();
+        let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
+        let span = span.unwrap();
+        assert_ne!(span.source_id, 0);
+        let generated = &program.source_files[span.source_id as usize].source;
+        assert!(generated[span.start..span.end].starts_with("(#return"));
+        assert!(labels.iter().any(|(label, _)| {
+            label.source_id == 0 && &source[label.start..label.end] == "(@make generated)"
+        }));
+    }
+
+    #[test]
     fn normal_compilation_checks_once_and_unchecked_emission_still_validates() {
         let source = "(#fn main () u64 (#return 42u64))";
         let directory = std::env::temp_dir().join(format!("lim-checked-{}", std::process::id()));
@@ -1251,6 +1269,7 @@ fn check_types_inner(
                     .map_err(|error| {
                         *diagnostic_span = error.span;
                         *diagnostic_labels = error.labels;
+                        record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                         error.message
                     })?;
             }

@@ -956,6 +956,11 @@ the checklist is committed alongside the implementation it tracks.
   Reject a local borrow returned under a reference alias with exact source
   locations; named aggregate fallback remains active.
 
+- [x] **IR-04br: Preserve generator invocation provenance in typed borrow errors.**
+  When typed return-origin analysis rejects code from a generator, keep the
+  generated return span primary and attach the source invocation as a secondary
+  label. Verify generated and caller source IDs and exact source fragments.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
