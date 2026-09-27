@@ -435,10 +435,23 @@ impl FlowGraph {
                 | FlowAction::Continue
                 | FlowAction::Diverge => {}
             }
-            if matches!(node.action, FlowAction::Return(_))
-                && node.successors.as_slice() != [self.exit]
-            {
-                return Err(format!("typed flow return {index} does not reach exit"));
+            if matches!(node.action, FlowAction::Return(_)) {
+                let mut next = node.successors.as_slice();
+                for _ in 0..=self.nodes.len() {
+                    let [successor] = next else {
+                        return Err(format!("typed flow return {index} does not reach exit"));
+                    };
+                    if *successor == self.exit {
+                        break;
+                    }
+                    if !matches!(self.nodes[successor.0].action, FlowAction::ScopeExit(_)) {
+                        return Err(format!("typed flow return {index} has invalid cleanup"));
+                    }
+                    next = &self.nodes[successor.0].successors;
+                }
+                if next != [self.exit] {
+                    return Err(format!("typed flow return {index} has cyclic cleanup"));
+                }
             }
         }
         Ok(())
@@ -1111,8 +1124,8 @@ impl Builder<'_> {
                 }
             }
             Control::Return(value) => {
-                let end = self.push(FlowAction::Return(*value), span, vec![self.exit]);
-                let end = self.cleanup_to(0, end);
+                let cleanup = self.cleanup_to(0, self.exit);
+                let end = self.push(FlowAction::Return(*value), span, vec![cleanup]);
                 match value {
                     Some(value) => self.expression(*value, end, targets, None),
                     None => Ok(end),
@@ -1127,8 +1140,8 @@ impl Builder<'_> {
                         None => target.continue_to.is_some(),
                     })
                     .ok_or_else(|| format!("typed flow has no break target for {label:?}"))?;
-                let end = self.push(FlowAction::Break(*value), span, vec![target.break_to]);
-                let end = self.cleanup_to(target.scope_depth, end);
+                let cleanup = self.cleanup_to(target.scope_depth, target.break_to);
+                let end = self.push(FlowAction::Break(*value), span, vec![cleanup]);
                 match value {
                     Some(value) => self.expression(*value, end, targets, None),
                     None => Ok(end),
@@ -1531,6 +1544,80 @@ mod tests {
         let value = values[0];
         let span = body.nodes[value.0].span.unwrap();
         assert_eq!(&source[span.start..span.end], "(#clone i)");
+    }
+
+    #[test]
+    fn break_observes_loans_before_scope_cleanup() {
+        let source = "(#fn main () u64
+            (#let owner u64 9u64)
+            (#return (#loop
+                (#let view (#ref u64) (#borrow owner))
+                (#break (#deref view)))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        let view = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "view")
+                .unwrap(),
+        );
+        let transfer = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Break(Some(_))))
+            .map(FlowNodeId)
+            .unwrap();
+        assert_eq!(origins.before(transfer, view).len(), 1);
+        let cleanup = graph.nodes[transfer.0].successors[0];
+        assert!(matches!(&graph.nodes[cleanup.0].action,
+            FlowAction::ScopeExit(bindings) if bindings.contains(&view)));
+        assert!(origins.after(cleanup, view).is_empty());
+    }
+
+    #[test]
+    fn return_transfer_precedes_nested_scope_cleanup() {
+        let mut body = Body::default();
+        body.bindings.push(crate::typed_body::Binding {
+            name: "value".into(),
+            ty: crate::Type::U64,
+        });
+        body.nodes.push(crate::typed_body::Node {
+            ty: Some(crate::Type::U64),
+            span: None,
+            kind: NodeKind::Literal(crate::Expr::Integer(7)),
+        });
+        body.nodes.push(crate::typed_body::Node {
+            ty: Some(crate::Type::Unit),
+            span: None,
+            kind: NodeKind::Block(vec![
+                Instruction {
+                    span: None,
+                    control: Control::Bind(BindingId(0), NodeId(0), false),
+                },
+                Instruction {
+                    span: None,
+                    control: Control::Return(Some(NodeId(0))),
+                },
+            ]),
+        });
+        body.instructions.push(Instruction {
+            span: None,
+            control: Control::Evaluate(NodeId(1)),
+        });
+        let graph = FlowGraph::lower(&body).unwrap();
+        let transfer = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Return(Some(NodeId(0)))))
+            .map(FlowNodeId)
+            .unwrap();
+        let cleanup = graph.nodes[transfer.0].successors[0];
+        assert!(matches!(&graph.nodes[cleanup.0].action,
+            FlowAction::ScopeExit(bindings) if bindings == &[BindingId(0)]));
+        assert_eq!(graph.nodes[cleanup.0].successors, vec![graph.exit]);
     }
 
     #[test]
@@ -2383,8 +2470,9 @@ mod tests {
             assert_eq!(node.successors.len(), 1);
             assert!(reachable.contains(&node.successors[0]));
         }
-        assert!(graph.nodes.iter().any(|node| {
-            matches!(node.action, FlowAction::Return(_)) && node.successors == vec![graph.exit]
-        }));
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|node| matches!(node.action, FlowAction::Return(_))));
     }
 }

@@ -422,9 +422,14 @@ the checklist is committed alongside the implementation it tracks.
   the returned binding. Actual move/loan transfer still remains in IR-04.
 
 - [x] **IR-04ae: Retain checked values on break edges.** Carry and verify the
-  optional loop-result node ID on typed `#break` actions, preserving the
-  existing evaluation and cleanup order. Test the value break in the native
-  loop-result example; move/loan transfer remains in IR-04.
+  optional loop-result node ID on typed `#break` actions. Test the value break
+  in the native loop-result example; move/loan transfer remains in IR-04.
+
+- [x] **IR-04af: Transfer control values before lexical cleanup.** Order
+  return and break edges as value evaluation, transfer action, then scope-exit
+  actions. Check return cleanup reaches function exit, and test a live loan at
+  a value break plus a nested return's cleanup edge. This keeps origin state
+  visible to future ownership transfer; actual enforcement remains in IR-04.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
