@@ -261,6 +261,13 @@ the checklist is committed alongside the implementation it tracks.
   keep the centralized type fallback. Preserve division, shifts, saturation,
   and numeric differential tests.
 
+- [x] **IR-03u: Pass numeric operand types directly to instruction selection.**
+  Carry the checked opcode's `Type` into unary, binary, shift, division, and
+  saturating arithmetic lowering instead of converting it to an identifier
+  and reparsing it. Retain spelling-based compatibility only when the backend
+  handles a synthesized expression with no checked opcode. Preserve numeric
+  differential and native example coverage.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
