@@ -412,6 +412,11 @@ the checklist is committed alongside the implementation it tracks.
   `#label`/`#break-to` path through the same checked loan transfer and verify
   its borrow origin is reported when a sibling mutable argument overlaps.
 
+- [x] **IR-04: Find loop-break results nested in branch expressions.** Walk
+  checked `#if`, `#match`, and block expressions inside loop bodies so a
+  value-carrying break in a branch retains its borrow origin. Do not mistake
+  inner-loop exits for outer-loop results.
+
 - [x] **IR-04: Propagate loans through explicit array-of construction.**
   Treat `#array-of` as an aggregate value with an explicit type operand and
   indexed reference slots, not as an opaque expression. Test that positional

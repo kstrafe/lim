@@ -443,7 +443,78 @@ fn returned_loop_borrows(
     bindings: &BoundBorrows,
     span: Option<Span>,
 ) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
-    fn breaks(
+    fn expression_breaks(
+        body: &Body,
+        expression: NodeId,
+        label: Option<&str>,
+        nested_loops: usize,
+        values: &mut Vec<NodeId>,
+    ) {
+        match &body.nodes[expression.0].kind {
+            NodeKind::If {
+                condition,
+                then_value,
+                else_value,
+                ..
+            } => {
+                expression_breaks(body, *condition, label, nested_loops, values);
+                expression_breaks(body, *then_value, label, nested_loops, values);
+                if let Some(value) = else_value {
+                    expression_breaks(body, *value, label, nested_loops, values);
+                }
+            }
+            NodeKind::Match { value, arms, .. } => {
+                expression_breaks(body, *value, label, nested_loops, values);
+                for arm in arms {
+                    if let NodeKind::MatchArm { values: arms, .. } = &body.nodes[arm.0].kind {
+                        for value in arms {
+                            expression_breaks(body, *value, label, nested_loops, values);
+                        }
+                    }
+                }
+            }
+            NodeKind::Block(instructions) => {
+                instruction_breaks(body, instructions, label, nested_loops, values);
+            }
+            NodeKind::Loop(instructions) => {
+                instruction_breaks(body, instructions, label, nested_loops + 1, values);
+            }
+            NodeKind::Labeled(loop_label, inner) => {
+                if let NodeKind::Loop(instructions) = &body.nodes[inner.0].kind {
+                    instruction_breaks(
+                        body,
+                        instructions,
+                        Some(loop_label),
+                        nested_loops + 1,
+                        values,
+                    );
+                } else {
+                    expression_breaks(body, *inner, label, nested_loops, values);
+                }
+            }
+            NodeKind::Form { children, .. } | NodeKind::Syntax(children) => {
+                for child in children {
+                    expression_breaks(body, *child, label, nested_loops, values);
+                }
+            }
+            NodeKind::Quoted(_, inner) => {
+                expression_breaks(body, *inner, label, nested_loops, values);
+            }
+            NodeKind::Declaration(_) | NodeKind::Symbol { .. } | NodeKind::Literal(_) => {}
+            NodeKind::MatchArm {
+                pattern,
+                values: arms,
+            } => {
+                expression_breaks(body, *pattern, label, nested_loops, values);
+                for value in arms {
+                    expression_breaks(body, *value, label, nested_loops, values);
+                }
+            }
+        }
+    }
+
+    fn instruction_breaks(
+        body: &Body,
         instructions: &[crate::typed_body::Instruction],
         label: Option<&str>,
         nested_loops: usize,
@@ -456,27 +527,45 @@ fn returned_loop_borrows(
                         || (target.is_none() && nested_loops == 0) =>
                 {
                     values.push(*value);
+                    expression_breaks(body, *value, label, nested_loops, values);
                 }
-                Control::Loop(body) | Control::While(_, body) => {
-                    breaks(body, label, nested_loops + 1, values);
+                Control::Break(_, Some(value))
+                | Control::Bind(_, value, _)
+                | Control::Assign(_, _, value)
+                | Control::Evaluate(value) => {
+                    expression_breaks(body, *value, label, nested_loops, values);
                 }
-                Control::For(init, _, step, body) => {
-                    breaks(
+                Control::Destructure { value, .. } => {
+                    expression_breaks(body, *value, label, nested_loops, values);
+                }
+                Control::Loop(loop_body) => {
+                    instruction_breaks(body, loop_body, label, nested_loops + 1, values);
+                }
+                Control::While(condition, loop_body) => {
+                    expression_breaks(body, *condition, label, nested_loops + 1, values);
+                    instruction_breaks(body, loop_body, label, nested_loops + 1, values);
+                }
+                Control::For(init, condition, step, loop_body) => {
+                    instruction_breaks(
+                        body,
                         std::slice::from_ref(init.as_ref()),
                         label,
                         nested_loops + 1,
                         values,
                     );
-                    breaks(
+                    expression_breaks(body, *condition, label, nested_loops + 1, values);
+                    instruction_breaks(
+                        body,
                         std::slice::from_ref(step.as_ref()),
                         label,
                         nested_loops + 1,
                         values,
                     );
-                    breaks(body, label, nested_loops + 1, values);
+                    instruction_breaks(body, loop_body, label, nested_loops + 1, values);
                 }
                 Control::Labeled(_, nested) => {
-                    breaks(
+                    instruction_breaks(
+                        body,
                         std::slice::from_ref(nested.as_ref()),
                         label,
                         nested_loops,
@@ -489,7 +578,7 @@ fn returned_loop_borrows(
     }
 
     let mut values = Vec::new();
-    breaks(instructions, label, 0, &mut values);
+    instruction_breaks(body, instructions, label, 0, &mut values);
     let mut alternatives = Vec::new();
     for value in values {
         alternatives.extend(returned_borrows_with_bindings(
@@ -1628,6 +1717,26 @@ mod tests {
             .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+
+        let branched = source.replace(
+            "(#loop (#break (#borrow value)))",
+            "(#loop (#if true
+              (#block (#break (#borrow value)))
+              (#block (#break (#borrow value)))))",
+        );
+        let program = crate::parse_program(&branched).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+
+        let matched = source.replace(
+            "(#loop (#break (#borrow value)))",
+            "(#loop (#match true
+              (#case true (#block (#break (#borrow value))))
+              (#case false (#block (#break (#borrow value))))))",
+        );
+        let program = crate::parse_program(&matched).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
     }
 
     #[test]
