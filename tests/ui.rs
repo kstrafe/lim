@@ -300,6 +300,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 5,
         },
         Case {
+            name: "use-after-reference-release",
+            diagnostic_code: "E4200",
+            offending_line: "  (#return (#deref view)))",
+            line_number: 5,
+        },
+        Case {
             name: "linear",
             diagnostic_code: "E4200",
             offending_line:
@@ -899,6 +905,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "match-reference-escape" => Some("(#match holder (#case (Has view) view))"),
             "borrow-conflict-field-name" => Some("owner"),
             "borrow-conflict-callee-name" => Some("owner"),
+            "use-after-reference-release" => Some("view"),
             "linear" => Some("resource"),
             "linear-partial-parent" => Some("pair"),
             "linear-copy-after-owner" => Some("(#get pair other)"),

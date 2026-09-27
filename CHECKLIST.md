@@ -272,6 +272,13 @@ the checklist is committed alongside the implementation it tracks.
   typed call-argument checking to aggregate loan transfer and accept a later
   mutable argument borrowing the same owner. Keep nonempty repeats checked.
 
+- [x] **IR-04: Invalidate explicitly released reference places.** Closing
+  a reference loan with `#drop` or `#forget` must not leave its handle usable
+  afterward. Track explicit releases of reference-bearing Copy places in the
+  transitional linear pass, including projections and clones, while retaining
+  Rust-like reuse of plain Copy scalars. Cover the stale-reference regression
+  and keep ordinary linear assignment/replacement behavior intact.
+
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
   retain condition/scrutinee/result node IDs and the pattern binding identities

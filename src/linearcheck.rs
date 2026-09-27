@@ -200,6 +200,9 @@ impl LinearTypes {
         let mut ty = self.binding_types.borrow().get(&place.binding.0)?.clone();
         for projection in &place.projections {
             ty = self.resolve_aliases(ty)?;
+            while let Type::Reference { target, .. } = ty {
+                ty = self.resolve_aliases(*target)?;
+            }
             ty = match (ty, projection) {
                 (Type::Named(name), Projection::Field(field)) => self
                     .struct_fields
@@ -658,6 +661,43 @@ fn contains_exclusive_reference(
     }
 }
 
+fn contains_reference(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool {
+    match ty {
+        Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_) => true,
+        Type::Tuple(items) => items
+            .iter()
+            .any(|item| contains_reference(item, types, seen)),
+        Type::Array(element, _) | Type::Atomic(element) => contains_reference(element, types, seen),
+        Type::Named(name) => {
+            if !seen.insert(name.clone()) {
+                return true;
+            }
+            let contains = types
+                .aliases
+                .get(name)
+                .map(|ty| contains_reference(ty, types, seen))
+                .or_else(|| {
+                    types
+                        .structs
+                        .get(name)
+                        .map(|fields| fields.iter().any(|ty| contains_reference(ty, types, seen)))
+                })
+                .or_else(|| {
+                    types.enums.get(name).map(|variants| {
+                        variants
+                            .values()
+                            .flatten()
+                            .any(|ty| contains_reference(ty, types, seen))
+                    })
+                })
+                .unwrap_or(false);
+            seen.remove(name);
+            contains
+        }
+        _ => false,
+    }
+}
+
 fn collect_typed_pattern_names(
     pattern: &Expr,
     ty: &Type,
@@ -672,12 +712,12 @@ fn collect_typed_pattern_names(
     }
     match pattern {
         Expr::Symbol(name) if name != "_" => {
+            types
+                .binding_types
+                .borrow_mut()
+                .insert(name.clone(), ty.clone());
             if is_linear(ty, types, &mut HashSet::new()) {
                 bindings.insert(name.clone());
-                types
-                    .binding_types
-                    .borrow_mut()
-                    .insert(name.clone(), ty.clone());
             }
         }
         Expr::List(parts) if !parts.is_empty() => {
@@ -749,17 +789,26 @@ fn check_expr(
 ) -> Result<(), Error> {
     let _site = Site::expression(expr).enter();
     match expr {
-        Expr::Symbol(name) if bindings.contains(name) && !place => {
-            if types
-                .place_type(&Place::root(name))
-                .is_some_and(|ty| !types.is_linear(&ty))
-            {
-                return Ok(());
+        Expr::Symbol(name) if types.binding_types.borrow().contains_key(name) => {
+            let key = Place::root(name);
+            let linear = types.place_type(&key).is_none_or(|ty| types.is_linear(&ty));
+            let conflicts = if place {
+                moved.iter().any(|prior| prior.covers(&key))
+            } else {
+                has_move_conflict(moved, &key)
+            };
+            if conflicts && (!place || !linear) {
+                return Err(if linear {
+                    failure!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy")
+                        .related(moved.prior(&key))
+                } else {
+                    failure!("value '{name}' was used after it was consumed")
+                        .related(moved.prior(&key))
+                });
             }
-            if has_move_conflict(moved, &Place::root(name)) {
-                return Err(failure!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy").related(moved.prior(&Place::root(name))));
+            if !place && linear {
+                moved.insert(key);
             }
-            moved.insert(Place::root(name));
         }
         Expr::List(items) if !items.is_empty() => {
             let head = match &items[0] {
@@ -770,16 +819,19 @@ fn check_expr(
                 if items.len() != 2 {
                     return Err("clone requires exactly one value".into());
                 }
-                check_clone(&items[1], bindings, moved)?;
+                check_clone(&items[1], bindings, moved, types)?;
             } else if matches!(head, "forget" | "drop") && items.len() == 2 {
                 if let Some(key) = place_key(&items[1]) {
                     let root = place_root(&key);
-                    if bindings.contains(root) {
+                    if types.binding_types.borrow().contains_key(root) {
                         if moved.iter().any(|existing| existing.covers(&key)) {
                             return Err(failure!("linear value '{key}' was already consumed")
                                 .related(moved.prior(&key)));
                         }
-                        if types.place_type(&key).is_none_or(|ty| types.is_linear(&ty)) {
+                        if types.place_type(&key).is_none_or(|ty| {
+                            types.is_linear(&ty)
+                                || contains_reference(&ty, types, &mut HashSet::new())
+                        }) {
                             moved.retain(|existing| !key.covers(existing));
                             moved.insert(key);
                         }
@@ -920,6 +972,16 @@ fn check_expr(
                         check_expr(base, bindings, moved, globals, false, types)?;
                     }
                 } else if let Some(base) = items.get(1) {
+                    if let Some(key) = place_key(expr) {
+                        if moved.iter().any(|prior| prior.covers(&key))
+                            && types
+                                .place_type(&key)
+                                .is_some_and(|ty| !types.is_linear(&ty))
+                        {
+                            return Err(failure!("value '{key}' was used after it was consumed")
+                                .related(moved.prior(&key)));
+                        }
+                    }
                     check_expr(base, bindings, moved, globals, true, types)?;
                 }
             } else if head == "slice-mut-split" && items.len() == 3 {
@@ -1039,9 +1101,17 @@ fn simple_place_name(expr: &Expr) -> Option<&str> {
     }
 }
 
-fn check_clone(expr: &Expr, bindings: &HashSet<String>, moved: &Moves) -> Result<(), Error> {
+fn check_clone(
+    expr: &Expr,
+    bindings: &HashSet<String>,
+    moved: &Moves,
+    types: &LinearTypes,
+) -> Result<(), Error> {
     if let Some(key) = place_key(expr) {
-        if bindings.contains(place_root(&key)) && has_move_conflict(moved, &key) {
+        if (bindings.contains(place_root(&key))
+            || types.binding_types.borrow().contains_key(place_root(&key)))
+            && has_move_conflict(moved, &key)
+        {
             return Err(
                 failure!("cannot clone moved linear value '{key}'").related(moved.prior(&key))
             );
