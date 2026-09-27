@@ -38,4 +38,5 @@
   (#let empty-ok bool (#match empty
     (#case QueueEmpty true)
     (#case (QueueItem _) false)))
+  (#forget queue)
   (#return (#if (#bool.&& (#bool.&& full-ok first-ok) empty-ok) total 0u64)))

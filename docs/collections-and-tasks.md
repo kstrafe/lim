@@ -105,6 +105,8 @@ entries identify slots for generation but are not runtime queue contents.
 reference and a `u64` `task-id`, returning `QueueEnqueued` or `QueueFull`.
 `queue-dequeue` takes the mutable reference and returns `(QueueItem task-id)`
 or `QueueEmpty`. The queue is FIFO, fixed-size, and has no dynamic allocation.
+Its generated type is `#linear`: a queue owner must be consumed or explicitly
+forgotten, and an implicit copy cannot duplicate its scheduling state.
 Its current aggregate-value update copies the fixed array on each operation,
 so this is a correctness foundation, not a constant-time scheduler queue.
 

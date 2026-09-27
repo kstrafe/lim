@@ -12,6 +12,7 @@
       (#struct ,name
         ((items (#array u64 ,(#gn-length slots)))
          (head u64) (tail u64) (length u64)))
+      (#linear ,name)
       (#fn ,create () ,name
         (#return (#struct-literal ,name
           ((items (#array-repeat 0u64))

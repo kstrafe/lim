@@ -444,6 +444,11 @@ is an independent documentation and parser-diagnostics task.
   zero capacity, and independent instantiations. This stores task IDs only;
   generational wake handles, non-busy waiting, OS registration, and safe
   cancellation remain in ASYNC-02.
+- [x] **ASYNC-02b: Keep ready-queue state linear.** Mark each generated
+  queue type `#linear` so implicit copies cannot duplicate scheduler state.
+  Require explicit consumption or destruction of each queue owner. Test a
+  native queue run and a rejected use after move; explicit cloning remains a
+  separate user decision under the language's normal linearity rules.
 - [ ] **ASYNC-01: Suspend arbitrary ordinary function bodies.** Complete the
   typed ownership/control-flow migration, then calculate live values and loans
   at suspension points. Define source syntax, borrowing across suspension, and

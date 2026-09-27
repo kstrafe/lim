@@ -76,3 +76,31 @@ fn distinct_ready_queue_instantiations_have_disjoint_generated_names() {
     )
     .unwrap();
 }
+
+#[test]
+fn ready_queue_state_cannot_be_implicitly_copied() {
+    let source = format!(
+        "(#import \"{}/library/ready_queue.lim\")
+         (@ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue Enqueued Full Item Empty (a))
+         (#fn main () u64
+           (#let queue Queue (#call queue-create (#fn-args)))
+           (#let moved Queue queue)
+           (#forget queue) (#forget moved) (#return 0u64))",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let scratch = support::Scratch::new("ready-queue-linear");
+    let error = lim::compile_source_to_assembly(
+        &source,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("queue")
+            && (error.message.contains("moved") || error.message.contains("consumed")),
+        "{}",
+        error.message
+    );
+}
