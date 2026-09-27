@@ -170,8 +170,9 @@ continue, and return edges run the relevant cleanup actions too. Root locals
 remain available at a return transfer and clear on the following exit edge.
 These transitions make the observational state scope-aware; conflict
 enforcement is still pending.
-The loop fixed-point regression confirms that an explicitly released
-iteration-local reference has no origin at the next loop condition.
+Loop fixed-point regressions confirm that an explicitly released
+iteration-local reference has no origin at the next loop condition, while an
+outer mutable loan remains live across loop back edges.
 Read and write places now have structural identities: a `BindingId` or
 `GlobalId` root followed by owner-qualified field/variant IDs, tuple positions,
 or concrete/dynamic array indices. A dotted identifier remains one binding,

@@ -4332,4 +4332,60 @@ mod tests {
         assert!(loans.before(header, view).is_empty());
         assert!(loans.after(header, view).is_empty());
     }
+
+    #[test]
+    fn outer_reference_origin_survives_typed_loop_back_edges() {
+        let source = "(#fn main () u64
+          (#let-mut value u64 7u64)
+          (#let view (#ref-mut u64) (#borrow-mut value))
+          (#let-mut count u64 0u64)
+          (#while (#u64.< count 2u64)
+            (#let observed u64 (#deref view))
+            (#set count (#u64.+.wrap count 1u64)))
+          (#forget view)
+          (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let view = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "view")
+                .unwrap(),
+        );
+        let value = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "value")
+                .unwrap(),
+        );
+        let condition = NodeId(
+            body.nodes
+                .iter()
+                .position(
+                    |node| matches!(&node.kind, NodeKind::Form { head, .. } if head == "u64.<"),
+                )
+                .unwrap(),
+        );
+        let header = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Branch(found) if found == condition)
+                    .then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        let loans = graph.loan_origins(body);
+        for loan in loans
+            .before(header, view)
+            .iter()
+            .chain(loans.after(header, view))
+        {
+            assert_eq!(loan.place.root, PlaceRoot::Local(value));
+            assert!(loan.mutable);
+        }
+        assert!(!loans.before(header, view).is_empty());
+    }
 }

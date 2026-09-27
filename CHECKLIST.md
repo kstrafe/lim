@@ -246,9 +246,9 @@ the checklist is committed alongside the implementation it tracks.
 
 - [x] **IR-04: Verify loop-local loan cleanup at typed loop headers.** Check
   that a reference created and explicitly released within each iteration has
-  no origin at the loop condition or back edge, while the loop still passes
-  normal borrow checking. This covers bounded loop-state propagation; full
-  ownership transfer remains open.
+  no origin at the loop condition or back edge, and that an outer mutable loan
+  remains live across the same fixed point. Both loops pass borrow checking.
+  This covers loop-state propagation; full ownership transfer remains open.
 
 - [x] **IR-04: Classify contextual aggregate constructor operands on typed flow.**
   Use the checked array/tuple arity to distinguish a contextual first value
