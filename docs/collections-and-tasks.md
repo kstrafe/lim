@@ -261,12 +261,13 @@ Later polls resume the stored state. Multiple sequential awaits are allowed.
 
 Each `#await` has the form
 `(#await (captured-name...) ChildTask PendingVariant ReadyVariant poll-function child-expression)`.
-Capture names refer to earlier explicitly typed parameters or `#let`
+Capture names refer to earlier explicitly typed parameters or `#let`/`#let-mut`
 bindings; they are not inferred. A value used later but omitted from the
-capture list is an error. Each async body currently consists of immutable
-top-level `#let` bindings and one final explicit `#return`; `#await` must be
-the entire initializer of a `#let`. Nested awaits, mutable locals, loops, and
-branches spanning suspension are not yet lowered. At most 32 awaits are
+capture list is an error. Sequential stages preserve `#mut` parameters and
+`#let-mut` local state across suspension; assignments to captured mutable
+locals run in the resume helper. Each async body still ends with one explicit
+`#return`, and `#await` must be the entire initializer of a top-level binding.
+Nested awaits, loops, and branches spanning suspension are not yet lowered. At most 32 awaits are
 accepted. References into pre-suspension locals cannot be retained in the
 frame; the ordinary borrow checker rejects them. Pinning and self-referential
 frames remain open work.

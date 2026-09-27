@@ -187,6 +187,64 @@ fn async_function_supports_multiple_awaits() {
 }
 
 #[test]
+fn async_function_carries_mutable_locals_across_pending_resume() {
+    let source = "(#struct Waker ((count u64)))
+      (#enum Step ((Waiting u64)))
+      (#linear Step)
+      (#enum StepPoll ((StepPending Step) (StepReady u64)))
+      (#fn step-poll ((task Step) (waker (#ref Waker))) StepPoll
+        (#return (#match task
+          (#case (Waiting count)
+            (#if (#u64.== count 0u64)
+              (StepPending (Waiting 1u64))
+              (StepReady count))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function
+        (#fn work ((#mut initial u64)) u64
+          (#let-mut total u64 initial)
+          (#let-mut result u64
+            (#await (total) Step StepPending StepReady step-poll (Waiting 0u64)))
+          (#set result (#u64.+.wrap result 0u64))
+          (#set total (#u64.+.wrap total result))
+          (#return total))))
+      (#fn main () u64
+        (#let waker Waker (#struct-literal Waker ((count 0u64))))
+        (#let first Poll
+          (#call poll (: task (#call work (: initial 2u64)) : waker (#borrow waker))))
+        (#let-else (Pending first-task) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task first-task : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending task) (#block (#forget task) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 3);
+    assert!(generated.contains("(#mut initial u64)"), "{generated}");
+    assert!(generated.contains("(#mut total u64)"), "{generated}");
+    assert!(generated.contains("(#mut result u64)"), "{generated}");
+}
+
+#[test]
+fn async_function_rejects_assignment_to_immutable_capture() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll (#return (ChildReady 1u64)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let total u64 2u64)
+          (#let result u64
+            (#await (total) Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#set total result)
+          (#return result))))";
+    let error = lim::parse_program(source).unwrap_err();
+    assert!(
+        error.contains("assignment to 'total' requires a mutable"),
+        "{error}"
+    );
+}
+
+#[test]
 fn async_function_can_suspend_at_each_await() {
     let original = example_without_cancel_work();
     let (prefix, _) = original.split_once("(#fn main () u64").unwrap();

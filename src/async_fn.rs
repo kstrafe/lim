@@ -7,9 +7,11 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{expression_source, normalize_keywords, parse_type, Expr};
 
+#[derive(Clone)]
 struct Binding {
     name: String,
     ty: String,
+    mutable: bool,
 }
 
 struct Stage {
@@ -55,9 +57,33 @@ fn has_await(expr: &Expr) -> bool {
     }
 }
 
+fn mutable_assignment_target(expr: &Expr) -> Option<&str> {
+    let Expr::List(items) = expr else {
+        return None;
+    };
+    if !matches!(
+        items.first(),
+        Some(Expr::Symbol(head))
+            if matches!(head.as_str(), "#set" | "set" | "#set-field" | "set-field" | "#set-index" | "set-index")
+    ) {
+        return None;
+    }
+    match items.get(1) {
+        Some(Expr::Symbol(name)) => Some(name),
+        _ => None,
+    }
+}
+
 fn binding(expr: &Expr, context: &str) -> Result<Binding, String> {
     let items = form(expr, "#let")
-        .ok_or_else(|| format!("@async-fn {context} supports only explicit #let bindings"))?;
+        .or_else(|| form(expr, "#let-mut"))
+        .or_else(|| form(expr, "let"))
+        .or_else(|| form(expr, "let-mut"))
+        .ok_or_else(|| {
+            format!(
+                "@async-fn {context} supports only explicit #let or #let-mut bindings: {expr:?}"
+            )
+        })?;
     if items.len() != 4 {
         return Err(format!(
             "@async-fn {context} requires (#let name Type value)"
@@ -68,6 +94,7 @@ fn binding(expr: &Expr, context: &str) -> Result<Binding, String> {
     Ok(Binding {
         name,
         ty: expression_source(&items[2])?,
+        mutable: matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let-mut" | "let-mut")),
     })
 }
 
@@ -76,25 +103,32 @@ fn parameters(expr: &Expr) -> Result<Vec<Binding>, String> {
         .iter()
         .map(|parameter| {
             let items = list(parameter, "function parameter")?;
-            if items.len() != 2 {
-                return Err("@async-fn parameters require (name Type); mutable parameters are not supported yet".into());
+            let mutable = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#mut" | "mut"));
+            let (name_index, type_index) = if mutable { (1, 2) } else { (0, 1) };
+            if items.len() != type_index + 1 {
+                return Err("@async-fn parameters require (name Type) or (#mut name Type)".into());
             }
-            let name = symbol(&items[0], "parameter name")?.to_owned();
-            parse_type(Some(&normalize_keywords(items[1].clone())))?;
+            let name = symbol(&items[name_index], "parameter name")?.to_owned();
+            parse_type(Some(&normalize_keywords(items[type_index].clone())))?;
             Ok(Binding {
                 name,
-                ty: expression_source(&items[1])?,
+                ty: expression_source(&items[type_index])?,
+                mutable,
             })
         })
         .collect()
 }
 
 fn signature(bindings: &[Binding]) -> String {
-    bindings
-        .iter()
-        .map(|binding| format!("({} {})", binding.name, binding.ty))
-        .collect::<Vec<_>>()
-        .join(" ")
+    bindings.iter().map(parameter).collect::<Vec<_>>().join(" ")
+}
+
+fn parameter(binding: &Binding) -> String {
+    if binding.mutable {
+        format!("(#mut {} {})", binding.name, binding.ty)
+    } else {
+        format!("({} {})", binding.name, binding.ty)
+    }
 }
 
 fn arguments(bindings: &[Binding]) -> String {
@@ -160,7 +194,14 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let mut known = HashMap::new();
     for parameter in &params {
         if known
-            .insert(parameter.name.clone(), parameter.ty.clone())
+            .insert(
+                parameter.name.clone(),
+                Binding {
+                    name: parameter.name.clone(),
+                    ty: parameter.ty.clone(),
+                    mutable: parameter.mutable,
+                },
+            )
             .is_some()
         {
             return Err(format!("@async-fn duplicate binding '{}'", parameter.name));
@@ -177,17 +218,40 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let mut prefix = Vec::new();
     for (source_index, statement) in body[..body.len() - 1].iter().enumerate() {
         if !has_await(statement) {
-            let local = binding(statement, "between #await forms")?;
-            if known.insert(local.name.clone(), local.ty.clone()).is_some() {
-                return Err(format!("@async-fn duplicate binding '{}'", local.name));
+            if form(statement, "#let")
+                .or_else(|| form(statement, "#let-mut"))
+                .or_else(|| form(statement, "let"))
+                .or_else(|| form(statement, "let-mut"))
+                .is_some()
+            {
+                let local = binding(statement, "between #await forms")?;
+                if known.insert(local.name.clone(), local.clone()).is_some() {
+                    return Err(format!("@async-fn duplicate binding '{}'", local.name));
+                }
+                prefix.push(expression_source(statement)?);
+            } else if let Some(name) = mutable_assignment_target(statement) {
+                if !known.get(name).is_some_and(|binding| binding.mutable) {
+                    return Err(format!(
+                        "@async-fn assignment to '{name}' requires a mutable #let or #mut parameter"
+                    ));
+                }
+                prefix.push(expression_source(statement)?);
+            } else {
+                return Err(format!(
+                    "@async-fn between #await forms supports explicit #let bindings and assignments to mutable locals: {statement:?}"
+                ));
             }
-            prefix.push(expression_source(statement)?);
             continue;
         }
         let local = binding(statement, "#await")?;
-        let let_form = form(statement, "#let").unwrap();
+        let let_form = form(statement, "#let")
+            .or_else(|| form(statement, "#let-mut"))
+            .or_else(|| form(statement, "let"))
+            .or_else(|| form(statement, "let-mut"))
+            .expect("binding statement was validated");
         let await_form = form(&let_form[3], "#await").ok_or_else(|| {
-            "@async-fn #await must be the entire initializer of a top-level #let".to_owned()
+            "@async-fn #await must be the entire initializer of a top-level #let or #let-mut"
+                .to_owned()
         })?;
         if await_form.len() != 7 {
             return Err("#await requires (#await (captures ...) ChildTask Pending Ready poll task-expression)".into());
@@ -199,7 +263,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         let mut captured = HashSet::new();
         for name in list(&await_form[1], "#await captures")? {
             let name = symbol(name, "captured name")?;
-            let ty = known.get(name).ok_or_else(|| {
+            let capture = known.get(name).ok_or_else(|| {
                 format!("@async-fn capture '{name}' is not an earlier parameter or #let")
             })?;
             if !captured.insert(name) {
@@ -207,7 +271,8 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             }
             captures.push(Binding {
                 name: name.to_owned(),
-                ty: ty.clone(),
+                ty: capture.ty.clone(),
+                mutable: capture.mutable,
             });
         }
         let child = expression_source(&await_form[2])?;
@@ -231,7 +296,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             value,
         });
         let local = &stages.last().unwrap().binding;
-        known.insert(local.name.clone(), local.ty.clone());
+        known.insert(local.name.clone(), local.clone());
         if stages.len() > 32 {
             return Err("@async-fn supports at most 32 suspension points".into());
         }
@@ -300,11 +365,10 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             format!("{} (#return ({ready} {returned}))", prefix.join(" "))
         };
         helpers.push(format!(
-            "(#fn {resume} ({} ({} {}) (waker (#ref {waker}))) {poll_result}
+            "(#fn {resume} ({} {} (waker (#ref {waker}))) {poll_result}
                {continuation})",
             signature(&stage.captures),
-            stage.binding.name,
-            stage.binding.ty
+            parameter(&stage.binding)
         ));
         helpers.push(format!(
             "(#fn {child_helper} ({} (lim.async.task {}) (waker (#ref {waker}))) {poll_result}
