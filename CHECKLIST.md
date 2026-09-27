@@ -931,6 +931,14 @@ the checklist is committed alongside the implementation it tracks.
   an explicitly constructed returned array containing a match-bound local
   reference and retain both error locations.
 
+- [x] **IR-04bn: Use typed origins for direct reference and slice returns.**
+  In normal compilation, bypass the AST return-escape rule only when the
+  declared result is a direct reference or slice type already checked against
+  typed loan origins. Keep the AST rule for standalone borrow-checker callers
+  and named aggregate results whose generated provenance is not yet complete.
+  Borrow/linearity regressions include generated allocator-backed vectors and
+  mutable-reference-bearing structs to guard that boundary.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

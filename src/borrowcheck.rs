@@ -331,6 +331,7 @@ struct Context {
     thread_task_loans: HashMap<String, Vec<(String, LoanKind)>>,
     thread_exclusive_owners: HashMap<String, usize>,
     return_contains_references: bool,
+    typed_return_escapes: bool,
     mutable_reference_types: HashSet<String>,
     program_items: Arc<Vec<Item>>,
 }
@@ -511,6 +512,19 @@ impl From<String> for BorrowDiagnostic {
 }
 
 pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
+    check_program_impl(program, false)
+}
+
+/// The ordinary compilation path has already checked return escapes against
+/// typed places and loan origins; standalone callers retain the legacy rule.
+pub(crate) fn check_program_with_typed_returns(program: &Program) -> Result<(), BorrowDiagnostic> {
+    check_program_impl(program, true)
+}
+
+fn check_program_impl(
+    program: &Program,
+    typed_return_escapes: bool,
+) -> Result<(), BorrowDiagnostic> {
     let globals = program
         .items
         .iter()
@@ -668,6 +682,13 @@ pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
                     &thread_join_functions,
                     &program.statement_spans,
                     &program.statement_expressions,
+                    typed_return_escapes
+                        && matches!(
+                            function.return_type,
+                            crate::Type::Reference { .. }
+                                | crate::Type::Slice(_)
+                                | crate::Type::MutableSlice(_)
+                        ),
                 )?;
             }
         }
@@ -689,6 +710,7 @@ fn check_function(
     thread_join_functions: &HashSet<String>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
     _statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
+    typed_return_escapes: bool,
 ) -> Result<(), BorrowDiagnostic> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
@@ -749,6 +771,7 @@ fn check_function(
         thread_task_loans: HashMap::new(),
         thread_exclusive_owners: HashMap::new(),
         return_contains_references: contains_reference_type(&function.return_type, reference_types),
+        typed_return_escapes,
         program_items: Arc::new(program.items.clone()),
     };
     for parameter in &function.parameters {
@@ -1028,11 +1051,13 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
         Statement::Labeled { statement, .. } => check_statement(statement, context)?,
         Statement::Return(Some(value)) => {
             check_expression(value, context)?;
-            for owner in reference_origins(value, context, context.return_contains_references) {
-                if !context.returnable.contains(&owner) {
-                    return Err(failure!(
-                        "cannot return a value retaining a reference to local '{owner}'"
-                    ));
+            if !context.typed_return_escapes {
+                for owner in reference_origins(value, context, context.return_contains_references) {
+                    if !context.returnable.contains(&owner) {
+                        return Err(failure!(
+                            "cannot return a value retaining a reference to local '{owner}'"
+                        ));
+                    }
                 }
             }
         }

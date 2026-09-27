@@ -1227,7 +1227,7 @@ fn check_types_inner(
             }
         }
     }
-    crate::borrowcheck::check_program(program).map_err(|error| {
+    crate::borrowcheck::check_program_with_typed_returns(program).map_err(|error| {
         *diagnostic_span = error.span;
         *diagnostic_labels = error.labels;
         error.message
