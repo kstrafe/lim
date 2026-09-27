@@ -181,7 +181,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     parse_type(Some(&normalize_keywords(invocation[3].clone())))?;
     let function = form(&invocation[4], "#fn")
         .ok_or_else(|| "@async-fn last argument must be a #fn declaration".to_owned())?;
-    if function.len() < 6 {
+    if function.len() < 5 {
         return Err("@async-fn #fn requires a name, parameters, result type, and body".into());
     }
     let start = symbol(&function[1], "function name")?;
@@ -210,13 +210,33 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let body = &function[4..];
     let last = form(body.last().unwrap(), "#return")
         .ok_or_else(|| "@async-fn body must end with (#return value)".to_owned())?;
-    if last.len() != 2 || has_await(&last[1]) {
-        return Err("@async-fn final #return requires one value and no nested #await".into());
+    if last.len() != 2 {
+        return Err("@async-fn final #return requires exactly one value".into());
     }
-    let returned = expression_source(&last[1])?;
+    let return_await = form(&last[1], "#await");
+    if has_await(&last[1]) && return_await.is_none() {
+        return Err(
+            "@async-fn supports #await directly in #return, not nested within another expression"
+                .into(),
+        );
+    }
+    let returned = if return_await.is_some() {
+        "lim.async.return-value".to_owned()
+    } else {
+        expression_source(&last[1])?
+    };
+    let mut statements = body[..body.len() - 1].to_vec();
+    if let Some(await_expression) = return_await {
+        statements.push(Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol("lim.async.return-value".into()),
+            function[3].clone(),
+            Expr::List(await_expression.to_vec()),
+        ]));
+    }
     let mut stages = Vec::new();
     let mut prefix = Vec::new();
-    for (source_index, statement) in body[..body.len() - 1].iter().enumerate() {
+    for (source_index, statement) in statements.iter().enumerate() {
         if !has_await(statement) {
             if form(statement, "#let")
                 .or_else(|| form(statement, "#let-mut"))
@@ -314,9 +334,10 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             .collect::<HashSet<_>>();
         for name in &stage.available {
             if !captured.contains(name.as_str())
-                && body[stage.source_index + 1..]
+                && statements[stage.source_index + 1..]
                     .iter()
                     .any(|statement| contains_symbol(statement, name))
+                || (!captured.contains(name.as_str()) && contains_symbol(&last[1], name))
             {
                 return Err(format!(
                     "@async-fn value '{name}' is used after #await but is absent from its capture list"

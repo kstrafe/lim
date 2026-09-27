@@ -824,11 +824,16 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   result, and acyclic stage helpers into the hashed generated-code cache.
   Verify immediate Ready, multiple Pending/resume cycles, empty captures,
   omitted capture and escaping-reference rejection, and manual cancellation.
-- [x] **ASYNC-01b: Carry mutable locals through sequential suspension.**
+- [x] **ASYNC-01b3: Carry mutable locals through sequential suspension.**
   Preserve mutable parameter and `#let-mut` metadata in generated helpers,
   allow explicit assignments to captured mutable locals between await stages,
   and keep captures explicit. A native Pending/resume regression mutates the
   retained value and checks the Ready result; existing async tests still pass.
+- [x] **ASYNC-01b4: Lower a direct await in the explicit return expression.**
+  Treat `(#return (#await ...))` as the final concrete state-machine stage,
+  preserving explicit captures and the declared return type. Exercise a native
+  Pending/resume cycle and inspect the generated helper; nested awaits within
+  other expressions remain unsupported.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible

@@ -266,11 +266,12 @@ bindings; they are not inferred. A value used later but omitted from the
 capture list is an error. Sequential stages preserve `#mut` parameters and
 `#let-mut` local state across suspension; assignments to captured mutable
 locals run in the resume helper. Each async body still ends with one explicit
-`#return`, and `#await` must be the entire initializer of a top-level binding.
-Nested awaits, loops, and branches spanning suspension are not yet lowered. At most 32 awaits are
-accepted. References into pre-suspension locals cannot be retained in the
-frame; the ordinary borrow checker rejects them. Pinning and self-referential
-frames remain open work.
+`#return`; a direct `#await` in that return is lowered as a final stage.
+`#await` in a binding must still be the entire initializer of a top-level
+binding. Nested awaits, loops, and branches spanning suspension are not yet
+lowered. At most 32 awaits are accepted. References into pre-suspension locals
+cannot be retained in the frame; the ordinary borrow checker rejects them.
+Pinning and self-referential frames remain open work.
 
 Cancellation is still explicit and caller-defined: a free-standing function
 must match each generated frame state, consume its captured values, and call

@@ -187,6 +187,42 @@ fn async_function_supports_multiple_awaits() {
 }
 
 #[test]
+fn async_function_awaits_directly_in_explicit_return() {
+    let source = "(#struct Waker ((count u64)))
+      (#enum Step ((Waiting u64)))
+      (#linear Step)
+      (#enum StepPoll ((StepPending Step) (StepReady u64)))
+      (#fn step-poll ((task Step) (waker (#ref Waker))) StepPoll
+        (#return (#match task
+          (#case (Waiting count)
+            (#if (#u64.== count 0u64)
+              (StepPending (Waiting 1u64))
+              (StepReady count))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function
+        (#fn work ((initial u64)) u64
+          (#return (#await (initial) Step StepPending StepReady step-poll (Waiting initial))))))
+      (#fn main () u64
+        (#let waker Waker (#struct-literal Waker ((count 0u64))))
+        (#let first Poll
+          (#call poll (: task (#call work (: initial 0u64)) : waker (#borrow waker))))
+        (#let-else (Pending first-task) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task first-task : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending task) (#block (#forget task) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 1);
+    assert!(generated.contains("(#fn poll-resume-0"), "{generated}");
+    assert!(
+        generated.contains("(#return (Ready lim.async.return-value))"),
+        "{generated}"
+    );
+}
+
+#[test]
 fn async_function_carries_mutable_locals_across_pending_resume() {
     let source = "(#struct Waker ((count u64)))
       (#enum Step ((Waiting u64)))
