@@ -236,6 +236,12 @@ the checklist is committed alongside the implementation it tracks.
   no backend-synthesized compatibility case is needed. Keep numeric cast
   differential and native compilation coverage passing.
 
+- [x] **IR-03q: Require retained types for explicit ownership operations.**
+  Require checked operand types for `#clone`, `#drop`, and `#forget` instead
+  of silently treating missing clone metadata as a plain read or missing
+  destruction metadata as `unit`. Preserve native linearity, custom clone,
+  and destruction examples.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

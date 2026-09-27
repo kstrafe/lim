@@ -9336,10 +9336,13 @@ impl FunctionContext {
                 if items.len() != 2 {
                     return Err("clone requires one value".into());
                 }
-                let clone_function = self.expression_type(&items[1]).and_then(|ty| match ty {
+                let ty = self.expression_type(&items[1]).ok_or_else(|| {
+                    "internal error: checked clone operand lost its type".to_owned()
+                })?;
+                let clone_function = match ty {
                     Type::Named(name) => Some(format!("{name}-clone")),
                     _ => None,
-                });
+                };
                 if let Some(function) =
                     clone_function.filter(|name| self.functions.contains_key(name))
                 {
@@ -9352,7 +9355,9 @@ impl FunctionContext {
                 if items.len() != 2 {
                     return Err("drop requires one value".into());
                 }
-                let ty = self.expression_type(&items[1]).unwrap_or(Type::Unit);
+                let ty = self.expression_type(&items[1]).ok_or_else(|| {
+                    "internal error: checked destruction operand lost its type".to_owned()
+                })?;
                 let before = self.stack_depth;
                 self.push_value_words(&items[1], &ty, false)?;
                 let words = self.stack_depth - before;
