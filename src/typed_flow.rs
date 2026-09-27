@@ -245,7 +245,13 @@ impl FlowLoanOrigins {
                                 evaluated = true;
                                 merge_loan_origins(
                                     &mut loop_results,
-                                    &value_loan_origins(body, alternative, state),
+                                    &value_loan_origins_at_events(
+                                        body,
+                                        flow,
+                                        self,
+                                        alternative,
+                                        state,
+                                    ),
                                 );
                             }
                         }
@@ -254,7 +260,7 @@ impl FlowLoanOrigins {
                 if !evaluated {
                     merge_loan_origins(
                         &mut loop_results,
-                        &value_loan_origins(body, *break_value, state),
+                        &value_loan_origins_at_events(body, flow, self, *break_value, state),
                     );
                 }
             }
@@ -271,14 +277,17 @@ impl FlowLoanOrigins {
                     continue;
                 }
                 if let Some(state) = &self.before[index] {
-                    merge_loan_origins(&mut results, &value_loan_origins(body, alternative, state));
+                    merge_loan_origins(
+                        &mut results,
+                        &value_loan_origins_at_events(body, flow, self, alternative, state),
+                    );
                 }
             }
         }
         if results.is_empty() {
-            self.before[node.0]
-                .as_ref()
-                .map_or_else(Vec::new, |state| value_loan_origins(body, value, state))
+            self.before[node.0].as_ref().map_or_else(Vec::new, |state| {
+                value_loan_origins_at_events(body, flow, self, value, state)
+            })
         } else {
             results
         }
@@ -1790,6 +1799,71 @@ fn flow_action_has_value(action: &FlowAction, value: NodeId) -> bool {
             | FlowAction::Release { value: id, .. }
             if *id == value
     )
+}
+
+fn value_loan_origins_at_events(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    value: NodeId,
+    state: &LoanState,
+) -> Vec<LoanOrigin> {
+    if matches!(
+        body.nodes[value.0].kind,
+        NodeKind::If { .. } | NodeKind::Match { .. } | NodeKind::Block(_) | NodeKind::Labeled(..)
+    ) {
+        let mut alternatives = Vec::new();
+        collect_result_alternatives(body, value, &mut alternatives);
+        let mut result = Vec::new();
+        for alternative in alternatives {
+            for (index, event) in flow.nodes.iter().enumerate() {
+                if flow_action_has_value(&event.action, alternative) {
+                    if let Some(state) = &origins.before[index] {
+                        merge_loan_origins(
+                            &mut result,
+                            &value_loan_origins_at_events(body, flow, origins, alternative, state),
+                        );
+                    }
+                }
+            }
+        }
+        if !result.is_empty() {
+            return result;
+        }
+    }
+    if let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind {
+        if matches!(
+            head.as_str(),
+            "tuple" | "array" | "array-of" | "struct-literal"
+        ) || matches!(
+            children.first().map(|child| &body.nodes[child.0].kind),
+            Some(NodeKind::Declaration(
+                DeclarationId::Aggregate(_) | DeclarationId::Variant(_)
+            ))
+        ) {
+            let node = &body.nodes[value.0];
+            let values_start = if head == "array-of" {
+                2
+            } else if matches!(head.as_str(), "tuple" | "array") {
+                constructor_values_start(node.ty.as_ref(), children.len())
+            } else {
+                1
+            };
+            let mut result = Vec::new();
+            for (index, child) in children.iter().skip(values_start).enumerate() {
+                let Some(slot) = aggregate_slot(body, head, children, index) else {
+                    continue;
+                };
+                let mut nested = value_loan_origins_at_events(body, flow, origins, *child, state);
+                for origin in &mut nested {
+                    origin.storage.insert(0, slot.clone());
+                }
+                merge_loan_origins(&mut result, &nested);
+            }
+            return result;
+        }
+    }
+    value_loan_origins(body, value, state)
 }
 
 /// Follow only known, direct reference origins. Unknown parameters, aggregate

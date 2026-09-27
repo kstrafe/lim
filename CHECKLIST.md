@@ -893,6 +893,12 @@ the checklist is committed alongside the implementation it tracks.
   `#return` statement now selected by typed-flow checking; retain the secondary
   label at the originating borrow and verify the exact underline width.
 
+- [x] **IR-04bg: Preserve branch-local origins inside returned aggregates.**
+  When a tuple, array, enum, or struct result contains a conditional expression,
+  recursively evaluate that child at its branch-specific flow event before
+  attaching its aggregate storage path. Reject a returned struct containing a
+  match-bound reference to a local owner and assert both diagnostic locations.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
