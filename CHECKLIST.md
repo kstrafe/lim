@@ -453,6 +453,13 @@ the checklist is committed alongside the implementation it tracks.
   it before function exit. Parameters remain separately seeded at entry;
   full ownership enforcement remains in IR-04.
 
+- [x] **IR-04ah: Preserve referent identity in stored projected borrows.**
+  Resolve known reference-binding chains when recording a direct borrow of a
+  projected field, retaining the original owner and owner-qualified path in
+  typed loan state. Keep unknown parameters and cyclic paths conservative.
+  Test a two-link reference chain and exact borrow metadata. This extends the
+  observational transfer; complete enforcing ownership remains in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

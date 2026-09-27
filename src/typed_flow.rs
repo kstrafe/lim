@@ -9,7 +9,7 @@ use crate::typed_body::{
 };
 use crate::typed_ir::{DeclarationId, FieldId};
 use crate::typed_place::{Place, Segment};
-use crate::Span;
+use crate::{Span, Type};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct FlowNodeId(pub usize);
@@ -776,12 +776,16 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() == 2 =>
         {
             Place::from_expression(body, children[1]).map_or_else(Vec::new, |place| {
-                vec![LoanOrigin {
-                    place,
-                    mutable: head == "borrow-mut",
-                    span: node.span,
-                    storage: Vec::new(),
-                }]
+                let places = resolve_known_referents(body, &place, state, &mut HashSet::new());
+                places
+                    .into_iter()
+                    .map(|place| LoanOrigin {
+                        place,
+                        mutable: head == "borrow-mut",
+                        span: node.span,
+                        storage: Vec::new(),
+                    })
+                    .collect()
             })
         }
         NodeKind::If {
@@ -883,6 +887,46 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
         NodeKind::Labeled(_, inner) => value_loan_origins(body, *inner, state),
         _ => Vec::new(),
     }
+}
+
+/// Follow only known, direct reference origins. Unknown parameters, aggregate
+/// slots, and cycles keep their original place for conservative analysis.
+fn resolve_known_referents(
+    body: &Body,
+    place: &Place,
+    state: &LoanState,
+    seen: &mut HashSet<BindingId>,
+) -> Vec<Place> {
+    let PlaceRoot::Local(binding) = place.root else {
+        return vec![place.clone()];
+    };
+    if place.segments.is_empty()
+        || !matches!(body.bindings[binding.0].ty, Type::Reference { .. })
+        || seen.len() >= 128
+        || !seen.insert(binding)
+    {
+        return vec![place.clone()];
+    }
+    let direct = state[binding.0]
+        .iter()
+        .filter(|origin| origin.storage.is_empty())
+        .collect::<Vec<_>>();
+    if direct.is_empty() || direct.len() != state[binding.0].len() {
+        seen.remove(&binding);
+        return vec![place.clone()];
+    }
+    let mut resolved = Vec::new();
+    for origin in direct {
+        let mut referent = origin.place.clone();
+        referent.segments.extend(place.segments.iter().cloned());
+        for next in resolve_known_referents(body, &referent, state, seen) {
+            if !resolved.contains(&next) {
+                resolved.push(next);
+            }
+        }
+    }
+    seen.remove(&binding);
+    resolved
 }
 
 fn aggregate_slot(body: &Body, head: &str, children: &[NodeId], index: usize) -> Option<Segment> {
@@ -2404,6 +2448,54 @@ mod tests {
         let index = BindingId(body.bindings.iter().position(|b| b.name == "i").unwrap());
         assert!(graph.nodes.iter().any(|node| matches!(&node.action,
             FlowAction::ScopeExit(bindings) if bindings.contains(&index))));
+    }
+
+    #[test]
+    fn stored_projected_borrow_resolves_through_reference_chain() {
+        let source = "(#struct Inner ((x u64)))
+          (#struct Outer ((inner Inner)))
+          (#fn main () u64
+            (#let-mut owner Outer (#struct-literal Outer
+              ((inner (#struct-literal Inner ((x 3u64)))))))
+            (#let outer-ref (#ref-mut Outer) (#borrow-mut owner))
+            (#let inner-ref (#ref-mut Inner) (#borrow-mut (#get outer-ref inner)))
+            (#let value-ref (#ref u64) (#borrow (#get inner-ref x)))
+            (#drop value-ref)
+            (#drop inner-ref)
+            (#drop outer-ref)
+            (#forget owner)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let binding = |name: &str| {
+            BindingId(
+                body.bindings
+                    .iter()
+                    .position(|item| item.name == name)
+                    .unwrap(),
+            )
+        };
+        let owner = binding("owner");
+        let value_ref = binding("value-ref");
+        let bind = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Bind { binding, .. } if binding == value_ref)
+                    .then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        let origins = graph.loan_origins(body);
+        let [origin] = origins.after(bind, value_ref) else {
+            panic!("projected borrow should retain one origin")
+        };
+        assert_eq!(origin.place.root, PlaceRoot::Local(owner));
+        assert_eq!(origin.place.segments.len(), 2);
+        assert!(!origin.mutable);
+        assert!(origin.span.is_some());
     }
 
     #[test]
