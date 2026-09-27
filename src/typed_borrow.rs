@@ -108,6 +108,7 @@ struct DirectBorrow {
     place: Place,
     mutable: bool,
     span: Option<Span>,
+    storage: Vec<crate::typed_place::Segment>,
 }
 
 pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
@@ -182,6 +183,7 @@ fn origin_alternatives(
                 place: origin.place.clone(),
                 mutable: origin.mutable,
                 span: origin.span,
+                storage: origin.storage.clone(),
             })
             .collect()]));
     }
@@ -192,6 +194,7 @@ fn origin_alternatives(
                 place: origin.place.clone(),
                 mutable: origin.mutable,
                 span: origin.span,
+                storage: origin.storage.clone(),
             }]
         })
         .collect();
@@ -221,6 +224,34 @@ fn returned_borrows_with_bindings(
             .get(binding)
             .cloned()
             .unwrap_or_else(|| vec![Vec::new()])),
+        NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "get" | "get-payload" | "index") =>
+        {
+            let Some(slot) =
+                Place::from_expression(body, id).and_then(|place| place.segments.last().cloned())
+            else {
+                return Ok(vec![Vec::new()]);
+            };
+            let Some(parent) = children.get(1) else {
+                return Ok(vec![Vec::new()]);
+            };
+            let mut alternatives = returned_borrows_with_bindings(body, *parent, callee, bindings)?;
+            for alternative in &mut alternatives {
+                alternative.retain_mut(|origin| {
+                    if !origin
+                        .storage
+                        .first()
+                        .is_some_and(|held| storage_segment_matches(&slot, held))
+                    {
+                        return false;
+                    }
+                    origin.storage.remove(0);
+                    true
+                });
+            }
+            alternatives.retain(|alternative| !alternative.is_empty());
+            Ok(alternatives)
+        }
         NodeKind::If {
             then_value,
             else_value,
@@ -343,6 +374,7 @@ fn resolve_projected_borrow(
                     place,
                     mutable: borrow.mutable,
                     span: borrow.span,
+                    storage: Vec::new(),
                 }]
             })
             .collect(),
@@ -476,10 +508,10 @@ fn bounded(
     Ok(unique)
 }
 
-fn borrow_key(borrows: &[DirectBorrow]) -> Vec<(Place, bool)> {
+fn borrow_key(borrows: &[DirectBorrow]) -> Vec<(Place, bool, Vec<crate::typed_place::Segment>)> {
     borrows
         .iter()
-        .map(|borrow| (borrow.place.clone(), borrow.mutable))
+        .map(|borrow| (borrow.place.clone(), borrow.mutable, borrow.storage.clone()))
         .collect()
 }
 
@@ -508,7 +540,20 @@ fn direct_borrow(body: &Body, id: NodeId) -> Option<DirectBorrow> {
         place: Place::from_expression(body, children[1])?,
         mutable: head == "borrow-mut",
         span: node.span,
+        storage: Vec::new(),
     })
+}
+
+fn storage_segment_matches(
+    wanted: &crate::typed_place::Segment,
+    held: &crate::typed_place::Segment,
+) -> bool {
+    use crate::typed_place::Segment;
+    wanted == held
+        || matches!(
+            (wanted, held),
+            (Segment::DynamicIndex, Segment::Index(_)) | (Segment::Index(_), Segment::DynamicIndex)
+        )
 }
 
 #[cfg(test)]
@@ -915,6 +960,41 @@ mod tests {
     }
 
     #[test]
+    fn projected_bound_reference_aggregate_conflicts_with_call_argument() {
+        let source = "(#struct Holder ((item (#ref u64)) (other (#ref u64))))
+          (#fn inspect ((item (#ref u64)) (right (#ref-mut u64))) u64
+            (#forget item) (#forget right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#let-mut other u64 2u64)
+            (#let holder Holder (#struct-literal Holder
+              ((item (#borrow value)) (other (#borrow other)))))
+            (#let result u64 (#call inspect
+              (: item (#get holder item) : right (#borrow-mut value))))
+            (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let conflict = error.2.unwrap();
+        assert_eq!(&source[conflict.start..conflict.end], "(#borrow-mut value)");
+        let first = error.3[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+
+        let disjoint = source
+            .replace(
+                "(#struct Holder ((item (#ref u64)) (other (#ref u64))))",
+                "(#struct Holder ((item (#ref u64)) (other u64)))",
+            )
+            .replace("(other (#borrow other))", "(other other)")
+            .replace("(#borrow-mut value))))", "(#borrow-mut other))))");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program)
+            .unwrap_or_else(|error| panic!("disjoint projection: {error}"));
+    }
+
+    #[test]
     fn array_constructors_expose_borrowed_call_arguments() {
         for constructor in [
             "(#array-of (#array (#ref u64) 1) (#borrow value))",
@@ -1082,6 +1162,7 @@ mod tests {
             place: Place::root(PlaceRoot::Local(BindingId(0))),
             mutable: false,
             span: None,
+            storage: Vec::new(),
         };
         let repeated = vec![vec![shared.clone()]; MAX_BORROW_ALTERNATIVES + 1];
         assert_eq!(bounded(repeated, None).unwrap().len(), 1);
@@ -1107,6 +1188,7 @@ mod tests {
                     place: Place::root(PlaceRoot::Local(BindingId(index))),
                     mutable: false,
                     span: None,
+                    storage: Vec::new(),
                 }]
             })
             .collect();
@@ -1164,6 +1246,7 @@ mod tests {
                 place: Place::root(PlaceRoot::Local(BindingId(binding))),
                 mutable: false,
                 span: None,
+                storage: Vec::new(),
             }]]
         };
         assert!(combine(alternatives.clone(), shared(0), "inspect", None).is_err());
@@ -1241,6 +1324,7 @@ mod tests {
                 place: Place::root(PlaceRoot::Local(pair)),
                 mutable: true,
                 span: None,
+                storage: Vec::new(),
             }]],
         );
         let projected = returned_borrows_with_bindings(body, borrow, "inspect", &bindings)
@@ -1255,6 +1339,7 @@ mod tests {
             place: projected.place.clone(),
             mutable: true,
             span: None,
+            storage: Vec::new(),
         };
         assert!(combine(
             vec![vec![projected]],
@@ -1331,6 +1416,7 @@ mod tests {
                 place: Place::root(PlaceRoot::Local(owner)),
                 mutable: true,
                 span: None,
+                storage: Vec::new(),
             }]],
         );
         bindings.insert(
@@ -1339,6 +1425,7 @@ mod tests {
                 place: inner_place,
                 mutable: true,
                 span: None,
+                storage: Vec::new(),
             }]],
         );
         let resolved =
@@ -1353,6 +1440,7 @@ mod tests {
                 place: Place::root(PlaceRoot::Local(inner_ref)),
                 mutable: true,
                 span: None,
+                storage: Vec::new(),
             }]],
         );
         let unresolved =

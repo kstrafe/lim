@@ -233,6 +233,12 @@ the checklist is committed alongside the implementation it tracks.
   retain exact borrow spans in conflict diagnostics. Correlated alternatives
   across conditional aggregate values remain for the full ownership transfer.
 
+- [x] **IR-04: Preserve aggregate storage paths through projected call values.**
+  Carry the checked field, tuple, payload, or index path with each aggregate
+  loan and select matching origins when a call receives a projected value.
+  Preserve remaining nested paths and add a conflicting projected-reference
+  regression.
+
 - [x] **IR-04: Classify contextual aggregate constructor operands on typed flow.**
   Use the checked array/tuple arity to distinguish a contextual first value
   from an explicit type operand. Track that first value as a linear transfer
