@@ -1,0 +1,41 @@
+(#import "../library/ready_queue.lim")
+(@ready-queue ReadyQueue ReadyQueueEnqueueResult ReadyQueueDequeueResult
+  ready-queue-create ready-queue-enqueue ready-queue-dequeue
+  QueueEnqueued QueueFull QueueItem QueueEmpty
+  (worker-a worker-b worker-c))
+
+(#fn main () u64
+  (#let-mut queue ReadyQueue (#call ready-queue-create (#fn-args )))
+  (#let first ReadyQueueEnqueueResult
+    (#call ready-queue-enqueue (#fn-args (queue (#borrow-mut queue)) (task-id 11u64))))
+  (#let second ReadyQueueEnqueueResult
+    (#call ready-queue-enqueue (#fn-args (queue (#borrow-mut queue)) (task-id 22u64))))
+  (#let third ReadyQueueEnqueueResult
+    (#call ready-queue-enqueue (#fn-args (queue (#borrow-mut queue)) (task-id 33u64))))
+  (#let full ReadyQueueEnqueueResult
+    (#call ready-queue-enqueue (#fn-args (queue (#borrow-mut queue)) (task-id 44u64))))
+  (#forget first) (#forget second) (#forget third)
+  (#let full-ok bool (#match full
+    (#case QueueFull true)
+    (#case QueueEnqueued false)))
+  (#let removed ReadyQueueDequeueResult
+    (#call ready-queue-dequeue (#fn-args (queue (#borrow-mut queue)))))
+  (#let first-ok bool (#match removed
+    (#case (QueueItem value) (#u64.== value 11u64))
+    (#case QueueEmpty false)))
+  (#let wrap ReadyQueueEnqueueResult
+    (#call ready-queue-enqueue (#fn-args (queue (#borrow-mut queue)) (task-id 44u64))))
+  (#forget wrap)
+  (#let-mut total u64 0u64)
+  (#while (#u64.!= (#clone (#get queue length)) 0u64)
+    (#let next ReadyQueueDequeueResult
+      (#call ready-queue-dequeue (#fn-args (queue (#borrow-mut queue)))))
+    (#set total (#match next
+      (#case (QueueItem value) (#u64.+.wrap total value))
+      (#case QueueEmpty total))))
+  (#let empty ReadyQueueDequeueResult
+    (#call ready-queue-dequeue (#fn-args (queue (#borrow-mut queue)))))
+  (#let empty-ok bool (#match empty
+    (#case QueueEmpty true)
+    (#case (QueueItem _) false)))
+  (#return (#if (#bool.&& (#bool.&& full-ok first-ok) empty-ok) total 0u64)))

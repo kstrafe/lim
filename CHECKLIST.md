@@ -437,6 +437,13 @@ is an independent documentation and parser-diagnostics task.
   executor generator with existing thread spawn/join support, retaining
   structural Send/Sync checks, mandatory joins, and explicit spawn errors.
   This is thread-owned execution, not a migrating worker-pool scheduler.
+- [x] **ASYNC-02a: Generate a concrete bounded ready queue.** Add an
+  inspectable user generator with literal capacity inputs and explicit names
+  for every generated declaration. Enqueue/dequeue return concrete Full/Empty
+  result enums, with native tests for FIFO order, wraparound, exhaustion,
+  zero capacity, and independent instantiations. This stores task IDs only;
+  generational wake handles, non-busy waiting, OS registration, and safe
+  cancellation remain in ASYNC-02.
 - [ ] **ASYNC-01: Suspend arbitrary ordinary function bodies.** Complete the
   typed ownership/control-flow migration, then calculate live values and loans
   at suspension points. Define source syntax, borrowing across suspension, and

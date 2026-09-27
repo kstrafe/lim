@@ -88,6 +88,31 @@ blocking I/O integration, timeout, or preemption. Task and result storage is
 inline; task implementations can still explicitly allocate if they choose.
 The local name `lim.executor.waiting` is reserved by this generator.
 
+## Bounded ready queue foundation
+
+```lisp syntax
+(@ready-queue ReadyQueue QueueEnqueue QueueDequeue
+  queue-create queue-enqueue queue-dequeue
+  QueueEnqueued QueueFull QueueItem QueueEmpty
+  (worker-a worker-b worker-c))
+```
+
+Import `library/ready_queue.lim` to use this generator. Every generated type,
+function, and variant name is an explicit literal argument, so multiple
+concrete queues can coexist. The final literal list fixes capacity; its
+entries identify slots for generation but are not runtime queue contents.
+`queue-create` makes an empty queue. `queue-enqueue` takes a mutable queue
+reference and a `u64` `task-id`, returning `QueueEnqueued` or `QueueFull`.
+`queue-dequeue` takes the mutable reference and returns `(QueueItem task-id)`
+or `QueueEmpty`. The queue is FIFO, fixed-size, and has no dynamic allocation.
+Its current aggregate-value update copies the fixed array on each operation,
+so this is a correctness foundation, not a constant-time scheduler queue.
+
+These `u64` values are not wake handles. There is no generation check, OS
+readiness registration, non-busy wait, or cancellation acknowledgment yet;
+none of the safe asynchronous-I/O guarantees in ASYNC-02 are provided by this
+queue alone. See `examples/ready_queue.lim` for a runnable wraparound case.
+
 ## Explicit async composition
 
 ```lisp syntax

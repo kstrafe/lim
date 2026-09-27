@@ -13,6 +13,7 @@ exit 42 alias.lim - -
 exit 42 distributed_errors.lim - -
 exit 42 distributed_slice.lim - -
 exit 42 cooperative_tasks.lim - -
+exit 99 ready_queue.lim - -
 exit 42 async_pipeline.lim - -
 exit 42 threaded_tasks.lim - -
 exit 42 kernel_threads.lim tests/fixtures/kernel_threads.stdout -
