@@ -397,6 +397,11 @@ the checklist is committed alongside the implementation it tracks.
   transfer matching loans through `#let-else` and match patterns. Reject a
   conflicting payload borrow and accept a disjoint referent.
 
+- [x] **IR-04: Preserve nested aggregate loan paths through patterns.** Keep
+  every field/payload/index segment while recursively constructing aggregates
+  and destructuring nested patterns. Reject overlapping extracted references
+  and accept an independent referent after a multi-level projection.
+
 - [x] **IR-04: Propagate loans through explicit array-of construction.**
   Treat `#array-of` as an aggregate value with an explicit type operand and
   indexed reference slots, not as an opaque expression. Test that positional

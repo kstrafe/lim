@@ -1443,6 +1443,29 @@ mod tests {
     }
 
     #[test]
+    fn nested_struct_patterns_retain_full_loan_path() {
+        let source = "(#struct Inner ((item (#ref u64))))
+          (#struct Outer ((inner Inner)))
+          (#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#let-mut other u64 2u64)
+            (#let inner Inner (#struct-literal Inner ((item (#borrow value)))))
+            (#let outer Outer (#struct-literal Outer ((inner inner))))
+            (#let (Outer (Inner left)) Outer outer)
+            (#return (#call inspect
+              (: left left : right (#borrow-mut value)))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+
+        let disjoint = source.replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    #[test]
     fn mutable_block_binding_retains_initial_borrow_origin() {
         let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
             (#drop left) (#drop right) (#return 0u64))
