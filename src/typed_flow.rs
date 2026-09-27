@@ -247,8 +247,13 @@ impl FlowGraph {
                             segments,
                         },
                     value,
-                } if segments.is_empty() => {
-                    state[binding.0] = value_loan_origins(body, *value, &state);
+                } => {
+                    let incoming = value_loan_origins(body, *value, &state);
+                    if segments.is_empty() {
+                        state[binding.0] = incoming;
+                    } else {
+                        replace_projected_origins(&mut state[binding.0], segments, incoming);
+                    }
                 }
                 FlowAction::Evaluate(value) => {
                     if let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind {
@@ -669,6 +674,29 @@ fn merge_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -
         }
     }
     changed
+}
+
+fn replace_projected_origins(
+    held: &mut Vec<LoanOrigin>,
+    path: &[Segment],
+    incoming: Vec<LoanOrigin>,
+) {
+    // A dynamic index may designate any element, so it cannot strongly kill
+    // the old origin of a particular element on every path.
+    if !path
+        .iter()
+        .any(|segment| matches!(segment, Segment::DynamicIndex))
+    {
+        held.retain(|origin| !origin.storage.starts_with(path));
+    }
+    for mut origin in incoming {
+        let mut storage = path.to_vec();
+        storage.extend(origin.storage);
+        origin.storage = storage;
+        if !held.contains(&origin) {
+            held.push(origin);
+        }
+    }
 }
 
 fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOrigin> {
@@ -1698,6 +1726,34 @@ mod tests {
             let span = loans[0].span.unwrap();
             assert_eq!(&source[span.start..span.end], expected);
         }
+    }
+
+    #[test]
+    fn projected_assignment_replaces_only_known_aggregate_loan_slot() {
+        let origin = |owner, storage| LoanOrigin {
+            place: Place::root(PlaceRoot::Local(BindingId(owner))),
+            mutable: false,
+            span: None,
+            storage,
+        };
+        let old_first = origin(1, vec![Segment::Tuple(0)]);
+        let old_second = origin(2, vec![Segment::Tuple(1)]);
+        let nested_first = origin(4, vec![Segment::Tuple(0), Segment::Index(2)]);
+        let mut held = vec![old_first.clone(), old_second.clone(), nested_first.clone()];
+        replace_projected_origins(&mut held, &[Segment::Tuple(0)], vec![origin(3, vec![])]);
+        assert!(!held.contains(&old_first));
+        assert!(!held.contains(&nested_first));
+        assert!(held.contains(&old_second));
+        assert!(held.contains(&origin(3, vec![Segment::Tuple(0)])));
+
+        let mut uncertain = vec![origin(1, vec![Segment::Index(0)])];
+        replace_projected_origins(
+            &mut uncertain,
+            &[Segment::DynamicIndex],
+            vec![origin(3, vec![])],
+        );
+        assert!(uncertain.contains(&origin(1, vec![Segment::Index(0)])));
+        assert!(uncertain.contains(&origin(3, vec![Segment::DynamicIndex])));
     }
 
     #[test]

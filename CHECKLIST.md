@@ -318,6 +318,14 @@ the checklist is committed alongside the implementation it tracks.
   dataflow for functions without calls or reference bindings. Multi-origin
   aliases, aggregate symbols, and indirect referents remain in IR-04.
 
+- [x] **IR-04v: Model projected replacement in typed loan state.** On a
+  statically known local field, tuple slot, payload, or array element write,
+  remove origins stored under that slot and prefix new value origins with the
+  projection. Keep old origins for dynamic indices, whose target is uncertain.
+  Unit-test static replacement, disjoint-slot preservation, and dynamic-index
+  conservatism. The language currently rejects replacing reference-containing
+  fields, so this is a flow-transfer invariant, not a new source capability.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
