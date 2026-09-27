@@ -1460,7 +1460,11 @@ impl Builder<'_> {
         let Some(ty) = ty else {
             return;
         };
-        if matches!(head.as_str(), "get" | "get-payload") {
+        if head == "struct-literal" {
+            if let Some(owner) = self.declarations.aggregate_id(ty) {
+                self.resolve_node(children[1], DeclarationId::Aggregate(owner));
+            }
+        } else if matches!(head.as_str(), "get" | "get-payload") {
             if let (Some(owner), Some(Expr::Symbol(name))) =
                 (self.body.nodes[children[1].0].ty.as_ref(), items.get(2))
             {

@@ -1578,6 +1578,9 @@ pub enum Item {
     LinearAnnotation {
         type_name: String,
     },
+    OpaqueAnnotation {
+        type_name: String,
+    },
     ThreadTask {
         name: String,
         worker: String,
@@ -2429,6 +2432,7 @@ fn parse_program_in_directory(
 fn item_declared_names(item: &Item) -> Vec<String> {
     match item {
         Item::LinearAnnotation { type_name } => vec![format!("$linear:{type_name}")],
+        Item::OpaqueAnnotation { type_name } => vec![format!("$opaque:{type_name}")],
         Item::Function(function) => vec![function.name.clone()],
         Item::Struct { name, .. }
         | Item::Enum { name, .. }
@@ -3876,6 +3880,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "static"
             | "unsafe-impl"
             | "linear"
+            | "opaque"
             | "thread-task"
             | "thread-task-spawn"
             | "thread-task-join"
@@ -5789,7 +5794,9 @@ fn specialize_generic_types(
                         &mut generated,
                     )?;
                 }
-                Item::UnsafeThreadAnnotation { .. } | Item::LinearAnnotation { .. } => {}
+                Item::UnsafeThreadAnnotation { .. }
+                | Item::LinearAnnotation { .. }
+                | Item::OpaqueAnnotation { .. } => {}
                 Item::ThreadTask { .. } => {}
             }
             Ok(())
@@ -5936,6 +5943,14 @@ fn parse_item(expression: &Expr) -> Result<Item, String> {
             }
             Ok(Item::LinearAnnotation {
                 type_name: expect_symbol(items.get(1), "linear type name")?.to_owned(),
+            })
+        }
+        "opaque" => {
+            if items.len() != 2 {
+                return Err("#opaque requires one concrete struct type name".into());
+            }
+            Ok(Item::OpaqueAnnotation {
+                type_name: expect_symbol(items.get(1), "opaque type name")?.to_owned(),
             })
         }
         "unsafe-impl" => {

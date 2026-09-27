@@ -1,0 +1,5 @@
+(#import "../../library/wake_tokens.lim")
+(#fn main () u64
+  (#let token WakeToken4
+    (#struct-literal WakeToken4 ((slot 0usize) (generation 1u64))))
+  (#return 0u64))

@@ -1547,6 +1547,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#memory-seq-cst` | `#memory-seq-cst` | `(#atomic-load r #memory-seq-cst)` (ordering operand) | Selects sequentially consistent ordering. |
 | `#mut` | `(#mut parameter Type)` | `(#fn advance ((#mut count u64)) u64 (#set count 1u64) (#return count))` (parameter list) | Marks a function parameter mutable; local mutable bindings use `#let-mut`. |
 | `#offset-of` | `(#offset-of ReprCType field)` | `(#offset-of Header payload)` (expression) | Computes a field's offset in the declared C layout; requires a `#repr-c` struct. |
+| `#opaque` | `(#opaque StructName)` | `(#struct Token ((slot u64))) (#opaque Token)` (top level) | Restricts construction, field access, and cloning of a linear struct to its defining source module; external code can use its public functions. The annotation must appear in the same source module as the concrete struct. |
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |

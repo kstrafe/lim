@@ -313,6 +313,13 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 8,
         },
         Case {
+            name: "opaque-token-constructor",
+            diagnostic_code: "E4000",
+            offending_line:
+                "    (#struct-literal WakeToken4 ((slot 0usize) (generation 1u64))))",
+            line_number: 4,
+        },
+        Case {
             name: "unsafe",
             diagnostic_code: "E4300",
             offending_line: "  (#return VALUE)",
@@ -889,6 +896,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "linear" => Some("resource"),
             "linear-partial-parent" => Some("pair"),
             "linear-copy-after-owner" => Some("(#get pair other)"),
+            "opaque-token-constructor" => Some("WakeToken4"),
             "generator" | "generator-imported" => Some("(@fail)"),
             "nonconstant-static" => Some("(#call get-value (:))"),
             "call-arguments" => Some("other"),

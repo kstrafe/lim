@@ -21,7 +21,9 @@
     (#case (WakeRegistered4 token) token)
     (#case _ (#unreachable))))
   (#let generation-changed bool
-    (#u64.> (#get fresh generation) (#get old generation)))
+    (#u64.>
+      (#call wake-token4-generation (: token fresh))
+      (#call wake-token4-generation (: token old))))
   (#let stale-retire WakeRetire4
     (#call wake-table4-retire (: table (#borrow-mut table) : token old)))
   (#let stale-retire-ok bool (#match stale-retire

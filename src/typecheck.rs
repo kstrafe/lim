@@ -400,6 +400,45 @@ fn check_types_inner(
             return Err(format!("duplicate #linear annotation for '{type_name}'"));
         }
     }
+    let mut opaque_annotations = HashSet::new();
+    for item in &program.items {
+        let Item::OpaqueAnnotation { type_name } = item else {
+            continue;
+        };
+        let key = format!("$opaque:{type_name}");
+        let occurrence = usize::from(opaque_annotations.contains(type_name));
+        *diagnostic_span = program
+            .declaration_occurrences
+            .get(&key)
+            .and_then(|sources| sources.get(occurrence))
+            .or_else(|| program.declaration_expressions.get(&key))
+            .and_then(|source| source.children.get(1))
+            .map(|source| source.span);
+        if !program.items.iter().any(|item| {
+            matches!(item, Item::Struct { name, type_parameters, .. }
+                if name == type_name && type_parameters.is_empty())
+        }) {
+            return Err(format!(
+                "#opaque requires a concrete struct type, got '{type_name}'"
+            ));
+        }
+        if program
+            .declaration_spans
+            .get(&key)
+            .map(|span| span.source_id)
+            != program
+                .declaration_spans
+                .get(type_name)
+                .map(|span| span.source_id)
+        {
+            return Err(format!(
+                "#opaque for '{type_name}' must be declared in the type's source module"
+            ));
+        }
+        if !opaque_annotations.insert(type_name.clone()) {
+            return Err(format!("duplicate #opaque annotation for '{type_name}'"));
+        }
+    }
     *diagnostic_span = None;
     let mut unsafe_thread_properties = HashSet::new();
     for item in &program.items {
@@ -807,6 +846,7 @@ fn check_types_inner(
             | Item::Enum { .. }
             | Item::UnsafeThreadAnnotation { .. }
             | Item::LinearAnnotation { .. }
+            | Item::OpaqueAnnotation { .. }
             | Item::ThreadTask { .. } => {}
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
                 let ty = globals.get(name).expect("global type collected");
@@ -903,6 +943,14 @@ fn check_types_inner(
         &functions.expression_types.into_inner(),
         &functions.source_spans.into_inner(),
     )?;
+    *diagnostic_code = crate::DiagnosticCode::Type;
+    check_opaque_access(
+        program,
+        &declarations,
+        &opaque_annotations,
+        diagnostic_span,
+        diagnostic_labels,
+    )?;
     check_thread_task_ownership(
         program,
         &declarations.aliases,
@@ -956,6 +1004,226 @@ fn check_types_inner(
         message
     })?;
     Ok(declarations)
+}
+
+fn check_opaque_access(
+    program: &Program,
+    declarations: &Declarations,
+    opaque: &HashSet<String>,
+    diagnostic_span: &mut Option<crate::Span>,
+    diagnostic_labels: &mut Vec<(crate::Span, String)>,
+) -> Result<(), String> {
+    use crate::typed_body::NodeKind;
+    use crate::typed_flow::FlowAction;
+    use crate::typed_ir::DeclarationId;
+    use crate::typed_place::Segment;
+
+    if opaque.is_empty() {
+        return Ok(());
+    }
+    fn initializer_type(expr: &Expr, declarations: &Declarations) -> Option<Type> {
+        match expr {
+            Expr::Symbol(name) => declarations.globals.get(name).cloned(),
+            Expr::List(items) => match items.first()? {
+                Expr::Symbol(head) if matches!(head.as_str(), "#get" | "get") => {
+                    let base = initializer_type(items.get(1)?, declarations)?;
+                    let base = crate::typed_ir::resolve_type(&base, &declarations.aliases).ok()?;
+                    let Type::Named(owner) = (match base {
+                        Type::Reference { target, .. } => *target,
+                        other => other,
+                    }) else {
+                        return None;
+                    };
+                    let Expr::Symbol(field) = items.get(2)? else {
+                        return None;
+                    };
+                    declarations
+                        .structs
+                        .get(&owner)?
+                        .iter()
+                        .find(|entry| &entry.name == field)
+                        .map(|entry| entry.ty.clone())
+                }
+                Expr::Symbol(head)
+                    if matches!(
+                        head.as_str(),
+                        "#borrow"
+                            | "#borrow-mut"
+                            | "#clone"
+                            | "#deref"
+                            | "borrow"
+                            | "borrow-mut"
+                            | "clone"
+                            | "deref"
+                    ) =>
+                {
+                    initializer_type(items.get(1)?, declarations)
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+    fn find_private_initializer_access<'a>(
+        source: &'a crate::SpannedExpr,
+        opaque: &HashSet<String>,
+        declarations: &Declarations,
+    ) -> Option<(String, &'static str, crate::Span)> {
+        if let Expr::List(items) = &source.expr {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#struct-literal" | "struct-literal"))
+            {
+                if let Some(Expr::Symbol(name)) = items.get(1) {
+                    if opaque.contains(name) {
+                        let span = source
+                            .children
+                            .get(1)
+                            .map_or(source.span, |child| child.span);
+                        return Some((name.clone(), "construct", span));
+                    }
+                }
+            }
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#get" | "get"))
+            {
+                if let Some(Type::Named(owner)) = items
+                    .get(1)
+                    .and_then(|base| initializer_type(base, declarations))
+                    .and_then(|ty| crate::typed_ir::resolve_type(&ty, &declarations.aliases).ok())
+                    .map(|ty| match ty {
+                        Type::Reference { target, .. } => *target,
+                        other => other,
+                    })
+                {
+                    if opaque.contains(&owner) {
+                        let span = source
+                            .children
+                            .get(2)
+                            .map_or(source.span, |child| child.span);
+                        return Some((owner, "access fields of", span));
+                    }
+                }
+            }
+        }
+        source
+            .children
+            .iter()
+            .find_map(|child| find_private_initializer_access(child, opaque, declarations))
+    }
+    for item in &program.items {
+        let name = match item {
+            Item::Let { name, .. } | Item::Static { name, .. } => name,
+            _ => continue,
+        };
+        let Some(source) = program.declaration_expressions.get(name) else {
+            continue;
+        };
+        let Some((owner, action, span)) =
+            find_private_initializer_access(source, opaque, declarations)
+        else {
+            continue;
+        };
+        let defining = program.declaration_spans.get(&owner).copied();
+        if Some(span.source_id) == defining.map(|span| span.source_id) {
+            continue;
+        }
+        *diagnostic_span = Some(span);
+        if let Some(defining) = defining {
+            diagnostic_labels.push((defining, "opaque type declared here".into()));
+        }
+        return Err(format!(
+            "cannot {action} opaque type '{owner}' outside its defining module"
+        ));
+    }
+    let linear = crate::linearcheck::LinearTypes::from_program(program);
+    for (function_name, body) in &declarations.bodies {
+        let fallback = program.declaration_spans.get(function_name).copied();
+        for node in &body.nodes {
+            let NodeKind::Form { head, children, .. } = &node.kind else {
+                continue;
+            };
+            let access = match head.as_str() {
+                "struct-literal" => children.get(1).and_then(|id| {
+                    let NodeKind::Declaration(DeclarationId::Aggregate(owner)) =
+                        body.nodes[id.0].kind
+                    else {
+                        return None;
+                    };
+                    let name = declarations.declaration_name(DeclarationId::Aggregate(owner));
+                    Some((name.to_owned(), "construct", body.nodes[id.0].span))
+                }),
+                "get" => children.get(2).and_then(|id| {
+                    let NodeKind::Declaration(DeclarationId::Field(field)) = body.nodes[id.0].kind
+                    else {
+                        return None;
+                    };
+                    let name = declarations.declaration_name(DeclarationId::Aggregate(field.owner));
+                    Some((name.to_owned(), "access fields of", body.nodes[id.0].span))
+                }),
+                "clone" if node.ty.as_ref().is_some_and(|ty| linear.is_linear(ty)) => {
+                    let ty = node.ty.as_ref().and_then(|ty| {
+                        crate::typed_ir::resolve_type(ty, &declarations.aliases).ok()
+                    });
+                    ty.and_then(|ty| match ty {
+                        Type::Named(name) => Some((name, "clone", node.span)),
+                        _ => None,
+                    })
+                }
+                _ => children.first().and_then(|id| {
+                    let NodeKind::Declaration(DeclarationId::Aggregate(owner)) =
+                        body.nodes[id.0].kind
+                    else {
+                        return None;
+                    };
+                    let name = declarations.declaration_name(DeclarationId::Aggregate(owner));
+                    Some((name.to_owned(), "construct", body.nodes[id.0].span))
+                }),
+            };
+            let Some((name, action, precise)) = access else {
+                continue;
+            };
+            if !opaque.contains(&name) {
+                continue;
+            }
+            let use_span = precise.or(node.span).or(fallback);
+            let defining = program.declaration_spans.get(&name).copied();
+            if use_span.map(|span| span.source_id) == defining.map(|span| span.source_id) {
+                continue;
+            }
+            *diagnostic_span = use_span;
+            if let Some(span) = defining {
+                diagnostic_labels.push((span, "opaque type declared here".into()));
+            }
+            return Err(format!(
+                "cannot {action} opaque type '{name}' outside its defining module"
+            ));
+        }
+        for node in &declarations.flows[function_name].nodes {
+            let FlowAction::Assign { place, .. } = &node.action else {
+                continue;
+            };
+            for segment in &place.segments {
+                let Segment::Field(field) = segment else {
+                    continue;
+                };
+                let name = declarations.declaration_name(DeclarationId::Aggregate(field.owner));
+                if !opaque.contains(name) {
+                    continue;
+                }
+                let use_span = node.span.or(fallback);
+                let defining = program.declaration_spans.get(name).copied();
+                if use_span.map(|span| span.source_id) == defining.map(|span| span.source_id) {
+                    continue;
+                }
+                *diagnostic_span = use_span;
+                if let Some(span) = defining {
+                    diagnostic_labels.push((span, "opaque type declared here".into()));
+                }
+                return Err(format!(
+                    "cannot mutate fields of opaque type '{name}' outside its defining module"
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn check_thread_task_ownership(
@@ -1134,6 +1402,7 @@ fn check_thread_task_ownership(
             }
             Item::UnsafeThreadAnnotation { .. }
             | Item::LinearAnnotation { .. }
+            | Item::OpaqueAnnotation { .. }
             | Item::ThreadTask { .. } => {}
         }
     }

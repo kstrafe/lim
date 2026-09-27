@@ -2,8 +2,10 @@
 ;; generation; stale tokens are rejected after retirement and re-registration.
 ;; This module does not own tasks, I/O operations, or a ready queue.
 (#struct WakeToken4 ((slot usize) (generation u64)))
+(#opaque WakeToken4)
 (#struct WakeTable4
   ((generations (#array u64 4)) (active (#array bool 4))))
+(#opaque WakeTable4)
 (#linear WakeTable4)
 (#enum WakeRegister4
   ((WakeRegistered4 WakeToken4) WakeBusy4 WakeInvalid4 WakeExhausted4))
@@ -12,6 +14,16 @@
 (#fn wake-table4-create () WakeTable4
   (#return (#struct-literal WakeTable4
     ((generations (#array-repeat 1u64))
+     (active (#array-repeat false))))))
+
+(#fn wake-token4-generation ((token WakeToken4)) u64
+  (#return (#get token generation)))
+
+; A valid but exhausted table for deterministic protocol tests.
+(#fn wake-table4-create-exhausted () WakeTable4
+  (#return (#struct-literal WakeTable4
+    ((generations (#array-of (#array u64 4)
+      1u64 18446744073709551615u64 1u64 1u64))
      (active (#array-repeat false))))))
 
 (#fn wake-table4-register ((table (#ref-mut WakeTable4)) (slot usize)) WakeRegister4

@@ -570,7 +570,7 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   borrowing a linear queue field through an owner reference in native tests.
   This is not an unforgeable safe wake authority while
   fields and constructors remain public.
-- [ ] **ASYNC-02d: Make wake authority opaque.** Add module-private fields or
+- [x] **ASYNC-02d: Make wake authority opaque.** Add module-private fields or
   compiler-owned opaque handles before task scheduling relies on token/table
   invariants. Prevent safe callers from forging tokens, replacing generation
   arrays, or cloning live authority. Preserve explicit inspectable operations
