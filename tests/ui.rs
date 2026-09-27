@@ -216,6 +216,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 1,
         },
         Case {
+            name: "array-repeat-linear",
+            diagnostic_code: "E4200",
+            offending_line: "  (#let values (#array Token 2) (#array-repeat (#struct-literal Token ((value 1u64)))))",
+            line_number: 4,
+        },
+        Case {
             name: "atomic-invalid-load-order",
             diagnostic_code: "E4000",
             offending_line: "  (#atomic-load (#borrow counter) #memory-release)",
@@ -904,6 +910,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "call-missing-argument" => Some("#call"),
             "type-as-constructor" => Some("Point"),
             "aggregate-layout-overflow" => Some("(#fn main ((values (#array (#array u64 18446744073709551615) 2))) () (#return ()))"),
+            "array-repeat-linear" => Some("(#array-repeat (#struct-literal Token ((value 1u64))))"),
             "atomic-invalid-load-order" => Some("(#atomic-load (#borrow counter) #memory-release)"),
             "shadowed-name-type-error" => Some("value"),
             "reordered-named-argument-error" => Some("1u64"),

@@ -968,6 +968,31 @@ fn check_types_inner(
         message
     })?;
     let linear_types = crate::linearcheck::LinearTypes::from_program(program);
+    for body in declarations.bodies.values() {
+        for node in &body.nodes {
+            let crate::typed_body::NodeKind::Form { head, .. } = &node.kind else {
+                continue;
+            };
+            if head != "array-repeat" {
+                continue;
+            }
+            let Some(ty) = node.ty.as_ref() else {
+                continue;
+            };
+            let Ok(Type::Array(element, length)) =
+                crate::typed_ir::resolve_type(ty, &declarations.aliases)
+            else {
+                continue;
+            };
+            if length != 1 && !linear_types.can_repeat(&element) {
+                *diagnostic_span = node.span;
+                return Err(
+                    "#array-repeat requires a Copy element unless the array length is exactly one"
+                        .into(),
+                );
+            }
+        }
+    }
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {

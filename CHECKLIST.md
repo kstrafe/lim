@@ -591,6 +591,13 @@ the checklist is committed alongside the implementation it tracks.
   Verify the split move and non-consuming index in one checked body. Other
   builtin operand modes remain to be migrated in IR-04.
 
+- [x] **LINEAR-ARRAY-01: Reject repetition of non-Copy ownership.** A
+  repeated array element must be duplicable unless the array has exactly one
+  slot. Reject zero- or multi-slot repetition of explicit/structural linear
+  values and mutable references, including references nested in structs,
+  enums, tuples, and arrays. Preserve Copy scalars and shared references;
+  test exact source-underlined diagnostics.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

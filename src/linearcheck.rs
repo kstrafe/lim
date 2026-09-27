@@ -176,6 +176,13 @@ impl LinearTypes {
         is_linear(ty, self, &mut HashSet::new())
     }
 
+    /// A value can be repeated only when no element requires unique ownership
+    /// or exclusive reference identity. References need no explicit cleanup,
+    /// but mutable references still cannot be duplicated.
+    pub(crate) fn can_repeat(&self, ty: &Type) -> bool {
+        !self.is_linear(ty) && !contains_exclusive_reference(ty, self, &mut HashSet::new())
+    }
+
     fn binding_consumed(&self, name: &str, moved: &Moves) -> bool {
         let root = Place::root(name);
         if moved.contains(&root) {
@@ -606,6 +613,45 @@ fn is_linear(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool
             }
         }
         Type::Generic(_) | Type::Never => true,
+    }
+}
+
+fn contains_exclusive_reference(
+    ty: &Type,
+    types: &LinearTypes,
+    seen: &mut HashSet<String>,
+) -> bool {
+    match ty {
+        Type::Reference { mutable: true, .. } => true,
+        Type::Tuple(items) => items
+            .iter()
+            .any(|item| contains_exclusive_reference(item, types, seen)),
+        Type::Array(element, _) => contains_exclusive_reference(element, types, seen),
+        Type::Named(name) => {
+            if !seen.insert(name.clone()) {
+                return true;
+            }
+            let result = if let Some(alias) = types.aliases.get(name) {
+                contains_exclusive_reference(alias, types, seen)
+            } else if let Some(fields) = types.structs.get(name) {
+                fields
+                    .iter()
+                    .any(|field| contains_exclusive_reference(field, types, seen))
+            } else if let Some(variants) = types.enums.get(name) {
+                variants
+                    .values()
+                    .flatten()
+                    .any(|field| contains_exclusive_reference(field, types, seen))
+            } else {
+                true
+            };
+            seen.remove(name);
+            result
+        }
+        Type::Generic(_) => true,
+        // Raw pointers and shared references/slices carry no exclusive loan;
+        // the target type does not change whether the handle can be copied.
+        _ => false,
     }
 }
 

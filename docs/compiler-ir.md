@@ -180,6 +180,9 @@ transfer linear member values. Mutable-slice splitting consumes its source,
 while indexing and length inspection borrow it. Other builtin operand modes,
 nested expression uses, and complete exit obligations remain with the
 syntax-side linear checker.
+Array repetition is checked separately: a zero- or multi-slot repeat requires
+a duplicable element. Mutable references are not duplicable even though they
+need no explicit destruction; nested aggregate members are checked too.
 One typed borrow preflight compares direct `#borrow` and `#borrow-mut` call
 arguments using those place identities. It retains borrow origins through pure
 aggregate construction and expression-valued branches, comparing only loans
