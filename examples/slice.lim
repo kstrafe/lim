@@ -6,5 +6,5 @@
     (#array (#array u64 3) 10u64 20u64 30u64))
   (#let view (#slice u64) (#slice-of (#borrow values)))
   (#return (#u64.+.wrap
-    (#call second (#fn-args (view view)))
+    (#call second (: view view))
     (#as (#slice-len view) u64))))

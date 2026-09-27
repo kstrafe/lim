@@ -148,10 +148,9 @@ fn block_local_reference_cannot_be_passed_to_a_call() {
     let program = crate::parse_program(
         "(#fn read ((value (#ref u64))) u64 (#return (#deref value)))
          (#fn main () u64
-           (#return (#call read (#fn-args
-             (value (#block
+           (#return (#call read (: value (#block
                (#let (#tuple local) (#tuple u64) (#tuple 7u64))
-               (#borrow local)))))))",
+               (#borrow local))))))",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -166,10 +165,9 @@ fn aliased_reference_parameter_cannot_hide_block_local_escape() {
         "(#type WordRef (#ref u64))
          (#fn read ((value WordRef)) u64 (#return (#deref value)))
          (#fn main () u64
-           (#return (#call read (#fn-args
-             (value (#block
+           (#return (#call read (: value (#block
                (#let (#tuple local) (#tuple u64) (#tuple 7u64))
-               (#borrow local)))))))",
+               (#borrow local))))))",
     )
     .unwrap();
     let error = check_program(&program).unwrap_err();
@@ -182,11 +180,10 @@ fn scalar_result_from_block_local_reference_can_be_passed_to_a_call() {
     let program = crate::parse_program(
         "(#fn identity ((value u64)) u64 (#return value))
          (#fn main () u64
-           (#return (#call identity (#fn-args
-             (value (#block
+           (#return (#call identity (: value (#block
                (#let local u64 42u64)
                (#let alias (#ref u64) (#borrow local))
-               (#deref alias)))))))",
+               (#deref alias))))))",
     )
     .unwrap();
     assert!(crate::typecheck::CheckedProgram::validate(&program).is_ok());
@@ -225,7 +222,7 @@ fn matched_reference_payload_from_parameter_can_return() {
          (#fn main () u64
            (#let owner u64 42u64)
            (#let selected (#ref u64)
-             (#call select (#fn-args (source (#borrow owner)))))
+             (#call select (: source (#borrow owner))))
            (#return (#deref selected)))",
     )
     .unwrap();
@@ -2040,7 +2037,7 @@ fn contains_mutable_reference(
 ) -> bool {
     match ty {
         crate::Type::Reference { mutable, .. } => *mutable,
-        crate::Type::Array(element, _) | crate::Type::Cell(element) => {
+        crate::Type::Array(element, _) => {
             contains_mutable_reference(element, reference_types, mutable_reference_types)
         }
         crate::Type::Tuple(fields) => fields.iter().any(|field| {
@@ -2342,9 +2339,6 @@ fn reference_origins(
             if operator == "deref" && items.len() == 2 {
                 return reference_origins(&items[1], context, true);
             }
-            if operator == "cell-get" && items.len() == 2 {
-                return reference_origins(&items[1], context, true);
-            }
             if matches!(operator.as_str(), "tuple" | "array" | "array-repeat") {
                 return items
                     .iter()
@@ -2410,9 +2404,7 @@ fn type_contains_reference(ty: &crate::Type, items: &[Item], seen: &mut HashSet<
         crate::Type::Reference { .. } | crate::Type::Slice(_) | crate::Type::MutableSlice(_) => {
             true
         }
-        crate::Type::Array(element, _) | crate::Type::Cell(element) => {
-            type_contains_reference(element, items, seen)
-        }
+        crate::Type::Array(element, _) => type_contains_reference(element, items, seen),
         crate::Type::Tuple(fields) => fields
             .iter()
             .any(|field| type_contains_reference(field, items, seen)),
@@ -2457,9 +2449,7 @@ fn type_contains_mutable_reference(
         crate::Type::Slice(_) => false,
         crate::Type::MutableSlice(_) => true,
         crate::Type::Reference { mutable: false, .. } | crate::Type::RawPointer { .. } => false,
-        crate::Type::Array(element, _) | crate::Type::Cell(element) => {
-            type_contains_mutable_reference(element, items, seen)
-        }
+        crate::Type::Array(element, _) => type_contains_mutable_reference(element, items, seen),
         crate::Type::Tuple(fields) => fields
             .iter()
             .any(|field| type_contains_mutable_reference(field, items, seen)),
@@ -2499,9 +2489,7 @@ fn contains_reference_type(ty: &crate::Type, reference_types: &HashSet<String>) 
         crate::Type::Reference { .. } | crate::Type::Slice(_) | crate::Type::MutableSlice(_) => {
             true
         }
-        crate::Type::Array(element, _) | crate::Type::Cell(element) => {
-            contains_reference_type(element, reference_types)
-        }
+        crate::Type::Array(element, _) => contains_reference_type(element, reference_types),
         crate::Type::Tuple(fields) => fields
             .iter()
             .any(|field| contains_reference_type(field, reference_types)),

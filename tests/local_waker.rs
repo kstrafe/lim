@@ -40,8 +40,7 @@ fn generated_local_waker_cannot_outlive_its_executor() {
     let error = compile_error(
         "(#fn escape () LocalWake
            (#let executor WakeExecutor (#struct-literal WakeExecutor ((count 0u64))))
-           (#return (#call local-wake-create (#fn-args
-             (executor (#borrow executor)) (metadata 1u64)))))
+           (#return (#call local-wake-create (: executor (#borrow executor) : metadata 1u64))))
          (#fn main () u64 (#return 0u64))",
     );
     assert!(
@@ -54,7 +53,7 @@ fn generated_local_waker_cannot_outlive_its_executor() {
 fn generated_local_waker_is_not_send_even_for_a_sync_executor() {
     let error = compile_error(
         "(#fn worker ((waker LocalWake)) u64
-           (#call local-wake-destroy (#fn-args (waker waker)))
+           (#call local-wake-destroy (: waker waker))
            (#return 0u64))
          (@thread-spawn WakeWorker worker)
          (#fn main () u64 (#return 0u64))",
@@ -65,10 +64,15 @@ fn generated_local_waker_is_not_send_even_for_a_sync_executor() {
 #[test]
 fn generated_local_waker_is_inspectable_and_reports_shape_errors() {
     let scratch = support::Scratch::new("local-waker-generated");
-    let source = include_str!("../examples/local_waker.lim").replace(
-        "../library/local_waker.lim",
-        &format!("{}/library/local_waker.lim", env!("CARGO_MANIFEST_DIR")),
-    );
+    let source = include_str!("../examples/local_waker.lim")
+        .replace(
+            "../library/local_waker.lim",
+            &format!("{}/library/local_waker.lim", env!("CARGO_MANIFEST_DIR")),
+        )
+        .replace(
+            "../library/cell.lim",
+            &format!("{}/library/cell.lim", env!("CARGO_MANIFEST_DIR")),
+        );
     let input = scratch.path().join("main.lim");
     fs::write(&input, source).unwrap();
     let (status, _, error) = support::run(

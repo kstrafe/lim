@@ -240,7 +240,7 @@ and undergoes normal type, borrow, linearity, and code generation checks:
     (#return (#u64.+.wrap value offset))))
 ```
 
-`(#call work (#fn-args (offset 1u64)))` creates a `Work` frame. It does not
+`(#call work (: offset 1u64))` creates a `Work` frame. It does not
 execute the body. `work-poll` takes `(task Work)` and
 `(waker (#ref LocalWaker))`, consumes the old frame, and returns `WorkPending`
 with a new frame or `WorkReady` with the result. The child poll must accept

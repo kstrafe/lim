@@ -54,34 +54,36 @@ Dynamic allocation follows the concrete allocator ABI in
 generated collections retain an immutable allocator reference; interior
 mutability belongs to the allocator implementation.
 
-`(#cell T)` is a single-threaded interior-mutable storage cell for supported
-scalar values (`T` must be numeric, `bool`, `char`, a raw pointer, or a
-fieldless enum). `(#cell value)` constructs one when the expected type is
-`(#cell T)`; `#cell-get` reads its
-current value, and `#cell-set` replaces that value. A cell never returns a
-reference to its contents, so allocator state may be shared immutably while a
-cursor changes through the cell:
+`@cell` is a user-defined generator in `library/cell.lim`, not a builtin
+type. Each invocation explicitly names the concrete type and three
+free-standing functions. It currently accepts the integer widths supported
+by `#atomic` (`i8/i16/i32/i64`, `u8/u16/u32/u64`, and `usize`); it does not
+support floats, pointers, or enums. The generated get/set functions take a
+shared reference to the concrete cell and never return a reference to its
+contents:
 
 ```lisp library
-(#struct Arena ((cursor (#cell u64))))
-(#struct VecU64Arena ((allocator (#ref Arena)) (length u64)))
-
-(#fn VecU64Arena-reserve ((vector (#ref VecU64Arena)) (count u64)) u64
-  (#cell-set
-    (#get (#get vector allocator) cursor)
-    (#u64.+.wrap (#cell-get (#get (#get vector allocator) cursor)) count))
-  (#return (#cell-get (#get (#get vector allocator) cursor))))
+(#import "../library/cell.lim")
+(@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(#struct Arena ((cursor CellU64)))
+(#fn advance ((cursor (#ref CellU64))) u64
+  (#let next u64 (#u64.+.wrap
+    (#call CellU64-get (: cell (#clone cursor))) 1u64))
+  (#call CellU64-set (: cell (#clone cursor) : value next))
+  (#return next))
 ```
 
 An aggregate that stores a reference retains a borrow of its owner for the
 rest of the containing function. It cannot be returned if that borrow points
 to a local, and reference-bearing fields cannot be replaced. Mutable
 references may be stored in structs and enum payloads; they retain an
-exclusive borrow of their source and cannot be cloned. `#cell` is not
-thread-safe and provides no synchronization.
+exclusive borrow of their source and cannot be cloned. The generated cell is
+linear, but its relaxed atomic storage makes it both `Send` and `Sync`. A
+read-modify-write sequence such as `advance` is not an atomic increment; use
+`#atomic-fetch-add` when multiple threads must update one counter.
 
-For shared mutable state, use an explicit atomic scalar rather than `#cell`.
-The initial atomic API supports `i8/i16/i32/i64`, `u8/u16/u32/u64`, and
+For coordinated shared mutable state, use explicit atomic operations.
+The atomic API supports `i8/i16/i32/i64`, `u8/u16/u32/u64`, and
 `usize`. Each operation uses the width's naturally aligned x86 memory access;
 Lim's current local and aggregate storage is at least eight-byte aligned:
 
@@ -142,7 +144,8 @@ derives both properties recursively for structs, enums, tuples, and arrays:
 
 - Scalar types are `Send + Sync`.
 - Raw pointers are neither `Send` nor `Sync`.
-- `(#cell T)` is `Send` when `T` is `Send`, but is never `Sync`.
+- Generated `@cell` types use relaxed atomic storage and are `Send + Sync` for
+  their supported integer widths.
 - `(#atomic T)` is both `Send` and `Sync` only for the supported atomic integer
   widths listed below.
 - `(#ref T)` is `Send` when `T` is `Sync`, and is `Sync` when `T` is `Sync`.
@@ -307,7 +310,7 @@ does not make its body implicitly unsafe: raw operations still need a block.
 (#fn main () u64
   (#let value u8 42u8)
   (#return (#as (#unsafe
-    (#call read-byte (#fn-args (pointer (#addr-of value))))) u64)))
+    (#call read-byte (: pointer (#addr-of value)))) u64)))
 ```
 
 Imports and generated declarations preserve the calling requirement. Implicit
@@ -1014,7 +1017,22 @@ The canonical form is:
   (#return total))
 ```
 
-The parameter list is a list of `(name Type)` pairs.  Parameters may be
+The parameter list is a list of `(name Type)` pairs. A colon-prefixed list
+is equivalent and avoids repeating parentheses around each pair:
+
+```lisp run=42
+(#fn add (: left u32 : right u32) u32
+  (#return (#u32.+.wrap left right)))
+(#fn main () u64
+  (#return (#as (#call add (: right 2u32 : left 40u32)) u64)))
+```
+
+At one list depth, `(: left u32 : right u32)` expands to
+`((left u32) (right u32))`. A colon must be the first token after `(` at
+that depth; `(left : u32)` is invalid. Nested lists have their own depth, so
+their colons do not affect the enclosing list. Empty or adjacent groups and
+a trailing colon are rejected; `(:)` is an empty list. This syntax works in
+other lists of groups too. Parameters may be
 marked mutable:
 
 ```lisp library
@@ -1024,16 +1042,17 @@ marked mutable:
 ```
 
 Function calls also name every argument explicitly. Use `#call` with a
-`#fn-args` list; each argument label must match a parameter in the declaration:
+colon-prefixed argument list; each argument label must match a parameter in
+the declaration:
 
 ```lisp syntax
-(#call add (#fn-args (left 20u32) (right 22u32)))
+(#call add (: left 20u32 : right 22u32))
 ```
 
-This is the only function-call spelling. Positional call forms are rejected,
-including calls with no arguments, which use `(#call function (#fn-args))`.
+Positional call forms are rejected. Calls with no arguments use
+`(#call function (:))`.
 Named argument expressions are evaluated in the function's parameter
-declaration order, regardless of the order of labels in `#fn-args`. `#struct-literal`
+declaration order, regardless of the order of labels at the call site. `#struct-literal`
 field expressions are evaluated in the struct's field declaration order,
 regardless of their written order. The compiler checks and lowers expressions
 in these same orders; labels select destinations and do not control effects.
@@ -1052,7 +1071,7 @@ pointers only. By-value aggregate FFI signatures remain rejected. Calls are unsa
 ```lisp run=42
 (#extern-fn #abi-c abs ((value i32)) i32)
 (#fn main () u64
-  (#return (#as (#unsafe (#call abs (#fn-args (value -42i32)))) u64)))
+  (#return (#as (#unsafe (#call abs (: value -42i32))) u64)))
 ```
 
 Binary compilation links statically without libc or pthread when the assembled
@@ -1419,7 +1438,7 @@ explicitly:
   (#return value))
 
 (#fn main () u64
-  (#return (#call increment (#fn-args (value 41u64)))))
+  (#return (#call increment (: value 41u64))))
 ```
 
 Generator expressions instead run at compile time. Here a helper checks its
@@ -1468,12 +1487,9 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#borrow-mut` | `(#borrow-mut place)` or `(#borrow-mut place body)` | `(#let r (#ref-mut u64) (#borrow-mut value))` (binding) | Creates an exclusive mutable reference, or scopes a mutable borrow around a body. |
 | `#break` | `(#break)` or `(#break value)` | `(#loop (#break 42u64))` (expression in a function) | Exits the innermost loop, optionally supplying its expression value. |
 | `#break-to` | `(#break-to label)` or `(#break-to label value)` | `(#break-to outer 42u64)` (labeled loop body) | Exits a named enclosing loop, optionally with a loop value. |
-| `#call` | `(#call function (#fn-args (name value)...))` | `(#call add (#fn-args (left 20u64) (right 22u64)))` (expression) | Calls a statically named function; every argument is named and checked against its signature. |
+| `#call` | `(#call function (: name value : ...))` | `(#call add (: left 20u64 : right 22u64))` (expression) | Calls a statically named function; every argument is named and checked against its signature. |
 | `#capability` | `(#capability name Type ((operation (Args...) Result)...))` | `(#capability ordered u64 ((less ((#ref u64) (#ref u64)) bool)))` (declaration) | Declares a generator-time signature contract that a concrete type may satisfy. |
 | `#case` | `(#case pattern body)` or `(#case pattern (#when guard) body)` | `(#case (Some x) x)` (inside `#match`) | Introduces one explicit match arm. |
-| `#cell` | `(#cell ScalarType)` as a type; `(#cell initial-value)` as an expression | `(#let-mut c (#cell u64) (#cell 0u64))` (binding) | Declares or constructs single-threaded interior-mutable scalar storage; context distinguishes type from value. |
-| `#cell-get` | `(#cell-get cell-place)` | `(#cell-get c)` (expression) | Reads the current Cell value. |
-| `#cell-set` | `(#cell-set cell-place new-value)` | `(#cell-set c 9u64)` (statement) | Replaces a Cell value and yields unit. |
 | `#cfg-and` | `(#cfg-and condition...)` | `(#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))` (cfg condition) | Combines conditions with logical AND; requires at least one condition. |
 | `#cfg-else` | `(#cfg-else form...)` | `(#cfg-else (#fn fallback () () (#return ())))` (last `#cfg-if` branch) | Supplies forms when the preceding `#cfg-if` condition is false. |
 | `#cfg-if` | `(#cfg-if condition form... [(#cfg-else form...)])` | `(#cfg-if (#cfg-is #os linux) (#fn os-call () () (#return ())))` (top level) | Includes only the selected top-level forms before imports and semantic checks. |
@@ -1489,9 +1505,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#deref-set` | `(#deref-set mutable-reference value)` | `(#deref-set r 7u64)` (statement) | Writes through a mutable Lim reference. |
 | `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly consumes and discards a value without calling user destruction code. |
 | `#enum` | `(#enum Name [#repr-c] ((Variant [discriminant] PayloadType...)...))` | `(#enum Maybe ((Some u64) None))` (top level) | Declares a concrete enum; variants can carry typed payloads and explicit discriminants. |
-| `#extern-fn` | `(#extern-fn #abi-c name ((arg Type)...) ReturnType)` | `(#extern-fn #abi-c c_abs ((value i32)) i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
-| `#fn` | `(#fn name ((arg Type)...) ReturnType body...)` | `(#fn add ((a u64) (b u64)) u64 (#return (#u64.+.wrap a b)))` (top level) | Declares a monomorphic function with explicit parameter/return types and body. |
-| `#fn-args` | `(#fn-args (parameter value)...)` | `(#call id (#fn-args (value 42u64)))` (inside `#call`) | Names each call argument; order at the call site need not match declaration order. |
+| `#extern-fn` | `(#extern-fn #abi-c name (: arg Type : ...) ReturnType)`; the parameter list may also use nested pairs | `(#extern-fn #abi-c c_abs (: value i32) i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
+| `#fn` | `(#fn name (: arg Type : ...) ReturnType body...)`; the parameter list may also use nested pairs | `(#fn add (: a u64 : b u64) u64 (#return (#u64.+.wrap a b)))` (top level) | Declares a monomorphic function with explicit parameter/return types and body. |
 | `#for` | `(#for init condition step body...)` | `(#for (#let-mut i u64 0u64) (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)) (#set sum (#u64.+.wrap sum i)))` (statement) | Runs an explicitly structured init/condition/step loop. |
 | `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i u64) 0u64 4u64 (#set sum (#u64.+.wrap sum i)))` (statement) | Iterates a typed, half-open range `[start, end)`. |
 | `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Consumes a value without cleanup; use after explicit resource release. Lim never inserts destructors. Task handles/results cannot be forgotten. |
@@ -2031,7 +2046,7 @@ successes, intentional traps, and compiler/linker/timeout failures separately.
 Spawn and join are ordinary named calls, including when the compiler derives
 their signatures from a short `#thread-task` declaration. Spawn uses the
 worker's parameter names; join uses `task`. For example, write
-`(#call Task-join (#fn-args (task handle)))`. Generated enum variants in
+`(#call Task-join (: task handle))`. Generated enum variants in
 `#case` patterns retain their constructor syntax. There is no positional-call
 exception for generated thread functions.
 # Floating-point global evaluation

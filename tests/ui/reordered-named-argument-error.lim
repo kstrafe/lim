@@ -1,4 +1,4 @@
 (#fn combine ((left u64) (right bool)) u64 (#return left))
 (#fn main () u64
-  (#return (#call combine (#fn-args (right 1u64) (left 2u64))))
+  (#return (#call combine (: right 1u64 : left 2u64)))
 )

@@ -14,6 +14,6 @@
   main
   ()
   u64
-  (#call noop (#fn-args ))
+  (#call noop (:))
   (#return 42)
 )

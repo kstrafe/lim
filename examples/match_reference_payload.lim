@@ -8,5 +8,5 @@
 (#fn main () u64
   (#let owner u64 42u64)
   (#let selected (#ref u64)
-    (#call select (#fn-args (source (#borrow owner)))))
+    (#call select (: source (#borrow owner))))
   (#return (#deref selected)))

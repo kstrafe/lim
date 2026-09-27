@@ -10,7 +10,9 @@ An allocator is an ordinary user-defined value with a stable concrete type.
 Collections store an immutable reference to that value:
 
 ```lisp library
-(#struct AllocatorU64 ((cursor (#cell usize))))
+(#import "../library/cell.lim")
+(@cell usize CellUsize CellUsize-create CellUsize-get CellUsize-set)
+(#struct AllocatorU64 ((cursor CellUsize)))
 (#struct VecU64 ((allocator (#ref AllocatorU64))
                  (pointer (#ptr-mut u64))
                  (length usize)
@@ -18,8 +20,8 @@ Collections store an immutable reference to that value:
 ```
 
 The reference is immutable at the type level. Allocator implementations use
-explicit interior-mutable state such as `#cell` or a user-defined generated
-cell type to track their allocation state. The allocator type is part of the
+explicit interior-mutable state such as the generated `@cell` type to track
+their allocation state. The allocator type is part of the
 collection's concrete generated type, so two allocator instances cannot be
 accidentally mixed.
 

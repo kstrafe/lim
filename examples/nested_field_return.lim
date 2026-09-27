@@ -10,5 +10,5 @@
   (#return (#get (#get value inner) payload)))
 
 (#fn main () u64
-  (#let value (#array u64 7) (#call project (#fn-args )))
+  (#let value (#array u64 7) (#call project (:)))
   (#return (#index value 6u64)))

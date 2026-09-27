@@ -10,4 +10,4 @@
       (#case (ParseFailure number) number))))
 
 (#fn main () u64
-  (#return (#call code (#fn-args (error (FileFailure 42u32))))))
+  (#return (#call code (: error (FileFailure 42u32)))))

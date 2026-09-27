@@ -18,7 +18,7 @@
     #return
     (
       #index
-      (#call make (#fn-args ))
+      (#call make (:))
       1
     )
   )

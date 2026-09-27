@@ -1,4 +1,6 @@
-(#struct SystemAllocator ((identity u64) (destructions (#cell u64))))
+(#import "../library/cell.lim")
+(@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(#struct SystemAllocator ((identity u64) (destructions CellU64)))
 (#enum AllocError (OutOfMemory))
 (@result (#ptr-mut u64) AllocError AllocResult)
 (@vec u64 SystemAllocator VecU64)
@@ -16,61 +18,65 @@
 (#fn system-alloc
   ((allocator (#ref SystemAllocator)) (layout usize) (alignment usize))
   AllocResult
-  (#let pointer (#ptr-mut u64) (#unsafe (#call malloc (#fn-args (size layout)))))
+  (#let pointer (#ptr-mut u64) (#unsafe (#call malloc (: size layout))))
   (#return
     (#if (#ptr-is-null pointer)
-      (#block (#forget pointer) (#call AllocResult-err (#fn-args (error OutOfMemory))))
-      (#call AllocResult-ok (#fn-args (value pointer))))))
+      (#block (#forget pointer) (#call AllocResult-err (: error OutOfMemory)))
+      (#call AllocResult-ok (: value pointer)))))
 
 (#fn system-grow
   ((allocator (#ref SystemAllocator)) (pointer (#ptr-mut u64))
    (old-layout usize) (new-layout usize) (alignment usize))
   AllocResult
   (#let new-pointer (#ptr-mut u64)
-    (#unsafe (#call realloc (#fn-args (pointer pointer) (size new-layout)))))
+    (#unsafe (#call realloc (: pointer pointer : size new-layout))))
   (#return
     (#if (#ptr-is-null new-pointer)
-      (#block (#forget new-pointer) (#call AllocResult-err (#fn-args (error OutOfMemory))))
-      (#call AllocResult-ok (#fn-args (value new-pointer))))))
+      (#block (#forget new-pointer) (#call AllocResult-err (: error OutOfMemory)))
+      (#call AllocResult-ok (: value new-pointer)))))
 
 (#fn system-dealloc
   ((allocator (#ref SystemAllocator)) (pointer (#ptr-mut u64))
    (layout usize) (alignment usize))
   ()
-  (#unsafe (#call free (#fn-args (pointer pointer))))
+  (#unsafe (#call free (: pointer pointer)))
   (#return ()))
 
 (#fn drop-u64 ((allocator (#ref SystemAllocator)) (value u64)) ()
-  (#cell-set (#get allocator destructions)
-    (#u64.+.wrap (#cell-get (#get allocator destructions)) 1u64))
+  (#let cell (#ref CellU64) (#borrow (#get allocator destructions)))
+  (#call CellU64-set (: cell (#clone cell) : value (#u64.+.wrap (#call CellU64-get (: cell cell)) 1u64)))
   (#return ()))
 
 (#fn main () u64
-  (#let-mut allocator SystemAllocator (#struct-literal SystemAllocator ((identity 0u64) (destructions (#cell 0u64)))))
-  (#let-mut vector VecU64 (#call VecU64-new (#fn-args (allocator (#borrow allocator)))))
-  (#let first VecU64-PushResult (#call VecU64-push (#fn-args (vector (#borrow-mut vector)) (element 33u64))))
+  (#let-mut allocator SystemAllocator (#struct-literal SystemAllocator
+    ((identity 0u64) (destructions
+      (#call CellU64-create (: value 0u64))))))
+  (#let-mut vector VecU64 (#call VecU64-new (: allocator (#borrow allocator))))
+  (#let first VecU64-PushResult (#call VecU64-push (: vector (#borrow-mut vector) : element 33u64)))
   (#forget first)
-  (#let second VecU64-PushResult (#call VecU64-push (#fn-args (vector (#borrow-mut vector)) (element 11u64))))
+  (#let second VecU64-PushResult (#call VecU64-push (: vector (#borrow-mut vector) : element 11u64)))
   (#forget second)
-  (#let third VecU64-PushResult (#call VecU64-push (#fn-args (vector (#borrow-mut vector)) (element 22u64))))
+  (#let third VecU64-PushResult (#call VecU64-push (: vector (#borrow-mut vector) : element 22u64)))
   (#forget third)
-  (#call VecU64-sort (#fn-args (vector (#borrow-mut vector))))
-  (#let read VecU64-GetResult (#call VecU64-get (#fn-args (vector (#borrow vector)) (index 1usize))))
+  (#call VecU64-sort (: vector (#borrow-mut vector)))
+  (#let read VecU64-GetResult (#call VecU64-get (: vector (#borrow vector) : index 1usize)))
   (#let read-value u64
     (#match read
       (#case (VecU64-GetResult-some reference) (#deref reference))
       (#case VecU64-GetResult-none 0u64)))
   (#assert (#u64.== read-value 22u64))
   (#let replacement VecU64-SetResult
-    (#call VecU64-set (#fn-args (vector (#borrow-mut vector)) (index 1usize) (value 44u64))))
+    (#call VecU64-set (: vector (#borrow-mut vector) : index 1usize : value 44u64)))
   (#forget replacement)
-  (#let popped VecU64-PopResult (#call VecU64-pop (#fn-args (vector (#borrow-mut vector)))))
+  (#let popped VecU64-PopResult (#call VecU64-pop (: vector (#borrow-mut vector))))
   (#assert
     (#match popped
       (#case (VecU64-PopResult-some value)
-        (#block (#call drop-u64 (#fn-args (allocator (#borrow allocator)) (value value))) true))
+        (#block (#call drop-u64 (: allocator (#borrow allocator) : value value)) true))
       (#case VecU64-PopResult-none false)))
-  (#call VecU64-free (#fn-args (vector vector)))
-  (#let destruction-count u64 (#cell-get (#get allocator destructions)))
+  (#call VecU64-free (: vector vector))
+  (#let allocator-ref (#ref SystemAllocator) (#borrow allocator))
+  (#let destruction-count u64 (#call CellU64-get (: cell (#borrow (#get allocator-ref destructions)))))
+  (#drop allocator-ref)
   (#forget allocator)
   (#return destruction-count))

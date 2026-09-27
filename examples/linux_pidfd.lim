@@ -1,43 +1,36 @@
 (#import "../library/linux_x86_64.lim")
 
 (#fn main () u64
-  (#let pid i64 (#call linux-getpid (#fn-args)))
+  (#let pid i64 (#call linux-getpid (:)))
   (#let invalid-pid i64
-    (#call linux-pidfd-open (#fn-args (pid 0i64) (flags 0u32))))
+    (#call linux-pidfd-open (: pid 0i64 : flags 0u32)))
   (#let invalid-open-flags i64
-    (#call linux-pidfd-open (#fn-args (pid pid) (flags 1u32))))
+    (#call linux-pidfd-open (: pid pid : flags 1u32)))
   (#let pidfd i64
-    (#call linux-pidfd-open (#fn-args (pid pid) (flags 0u32))))
+    (#call linux-pidfd-open (: pid pid : flags 0u32)))
   (#let no-info (#ptr-mut u8) (#ptr-null (#ptr-mut u8)))
   ; Signal zero checks the target without delivering a signal.
   (#let self-alive i64
-    (#unsafe (#call linux-pidfd-send-signal (#fn-args
-      (pidfd pidfd) (signal 0i32) (info no-info) (flags 0u32)))))
+    (#unsafe (#call linux-pidfd-send-signal (: pidfd pidfd : signal 0i32 : info no-info : flags 0u32))))
   (#let invalid-signal i64
-    (#unsafe (#call linux-pidfd-send-signal (#fn-args
-      (pidfd pidfd) (signal 999i32) (info no-info) (flags 0u32)))))
+    (#unsafe (#call linux-pidfd-send-signal (: pidfd pidfd : signal 999i32 : info no-info : flags 0u32))))
   (#let invalid-signal-fd i64
-    (#unsafe (#call linux-pidfd-send-signal (#fn-args
-      (pidfd -1i64) (signal 0i32) (info no-info) (flags 0u32)))))
+    (#unsafe (#call linux-pidfd-send-signal (: pidfd -1i64 : signal 0i32 : info no-info : flags 0u32))))
   (#let invalid-getfd i64
-    (#call linux-pidfd-getfd (#fn-args
-      (pidfd -1i64) (target-fd pidfd) (flags 0u32))))
+    (#call linux-pidfd-getfd (: pidfd -1i64 : target-fd pidfd : flags 0u32)))
   (#let duplicated i64
-    (#call linux-pidfd-getfd (#fn-args
-      (pidfd pidfd) (target-fd pidfd) (flags 0u32))))
+    (#call linux-pidfd-getfd (: pidfd pidfd : target-fd pidfd : flags 0u32)))
   (#let duplicate-flags i64
     (#if (#i64.>= duplicated 0i64)
-      (#unsafe (#call linux-fcntl (#fn-args
-        (fd duplicated) (command 1i32) (argument 0usize))))
+      (#unsafe (#call linux-fcntl (: fd duplicated : command 1i32 : argument 0usize)))
       -1i64))
   (#let duplicate-closed i64
     (#if (#i64.>= duplicated 0i64)
-      (#call linux-close (#fn-args (fd duplicated)))
+      (#call linux-close (: fd duplicated))
       -1i64))
-  (#let original-closed i64 (#call linux-close (#fn-args (fd pidfd))))
+  (#let original-closed i64 (#call linux-close (: fd pidfd)))
   (#let closed-pidfd-signal i64
-    (#unsafe (#call linux-pidfd-send-signal (#fn-args
-      (pidfd pidfd) (signal 0i32) (info no-info) (flags 0u32)))))
+    (#unsafe (#call linux-pidfd-send-signal (: pidfd pidfd : signal 0i32 : info no-info : flags 0u32))))
   (#let getfd-ok bool
     (#bool.|| (#i64.== duplicated -1i64)
       (#bool.&& (#i64.>= duplicated 0i64)
@@ -60,10 +53,10 @@
       (#block
         (#let-mut byte u8 80u8)
         (#let first-write i64
-          (#call linux-write-byte (#fn-args (source (#borrow byte)))))
+          (#call linux-write-byte (: source (#borrow byte))))
         (#set byte 10u8)
         (#let second-write i64
-          (#call linux-write-byte (#fn-args (source (#borrow byte)))))
+          (#call linux-write-byte (: source (#borrow byte))))
         (#if (#bool.&& (#i64.== first-write 1i64)
             (#i64.== second-write 1i64)) 42u64 1u64))
       1u64)))

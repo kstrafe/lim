@@ -11,4 +11,4 @@
       (#case _ 0))))
 
 (#fn main () u64
-  (#return (#u64.+.wrap (#call classify (#fn-args (value 7))) (#call wide-classify (#fn-args (value 1))))))
+  (#return (#u64.+.wrap (#call classify (: value 7)) (#call wide-classify (: value 1)))))

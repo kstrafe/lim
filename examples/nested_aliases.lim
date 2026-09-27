@@ -7,10 +7,10 @@
 
 (#fn first-word ((values Words)) Word
   (#return (#call read-word
-    (#fn-args (value (#slice-idx values 0usize))))))
+    (: value (#slice-idx values 0usize)))))
 
 (#fn main () u64
   (#let values (#array Word 2)
     (#array-of (#array Word 2) 42u64 7u64))
   (#let view Words (#slice-of (#borrow values)))
-  (#return (#call first-word (#fn-args (values view)))))
+  (#return (#call first-word (: values view))))

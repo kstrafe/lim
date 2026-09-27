@@ -7,5 +7,5 @@
   (#return 41))
 
 (#fn main () u64
-  (#let marker Marker (#call make (#fn-args )))
-  (#return (#call consume (#fn-args (marker marker)))))
+  (#let marker Marker (#call make (:)))
+  (#return (#call consume (: marker marker))))

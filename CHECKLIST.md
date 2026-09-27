@@ -590,7 +590,7 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] Nix development shell with the Rust toolchain.
 - [x] Explicit `#`-prefixed builtin syntax; legacy unprefixed forms rejected.
 - [x] Explicit typed bindings, free-standing functions, and explicit returns.
-- [x] Require named function arguments using `#call` and `#fn-args`; reject
+- [x] Require named function arguments using `#call` and `(: name value ...)`; reject
   positional calls and validate argument labels at compile time.
 - [x] Builtin scalar types through 128-bit integers, floats, `bool`, `char`,
   unit, and never.
@@ -1412,7 +1412,7 @@ commit, documentation, and focused regression coverage.
   table, while `examples/atomic_claim.lim` still invokes spawn/join positionally.
   Include generated spawn/join signatures in canonical call normalization,
   using the inspectable generated declarations as the contract. Require
-  `#call` with `#fn-args` at user call sites, without changing `#case` patterns
+  `#call` with named argument lists at user call sites, without changing `#case` patterns
   or turning enum constructors into functions. Acceptance: migrate every
   affected example and documentation fence; test reordered worker arguments,
   missing/duplicate/unknown names, unsafe obligations where applicable,

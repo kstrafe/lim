@@ -5,4 +5,4 @@
   (#let values (#array u64 8)
     (#array (#array u64 8)
       1u64 2u64 3u64 4u64 5u64 6u64 7u64 42u64))
-  (#return (#call consume (#fn-args (values values) (scale 1.0f64)))))
+  (#return (#call consume (: values values : scale 1.0f64))))

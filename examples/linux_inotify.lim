@@ -35,20 +35,14 @@
         (#ptr-write (#ptr-offset paths 29usize) 109u8)
         ())))
   (#let directory-created i64
-    (#unsafe (#call linux-mkdirat (#fn-args
-      (directory -100i64) (path paths) (mode 448u32)))))
+    (#unsafe (#call linux-mkdirat (: directory -100i64 : path paths : mode 448u32))))
   (#let notification-fd i64
-    (#unsafe (#call linux-inotify-init1 (#fn-args (flags 526336i32)))))
+    (#unsafe (#call linux-inotify-init1 (: flags 526336i32))))
   (#let watch i64
-    (#unsafe (#call linux-inotify-add-watch (#fn-args
-      (fd notification-fd) (path paths) (mask 768u32)))))
+    (#unsafe (#call linux-inotify-add-watch (: fd notification-fd : path paths : mask 768u32))))
   (#let file-fd i64
-    (#unsafe (#call linux-openat (#fn-args
-      (directory -100i64)
-      (path (#ptr-offset paths 16usize))
-      (flags 524481i32)
-      (mode 384u32)))))
-  (#let file-closed i64 (#call linux-close (#fn-args (fd file-fd))))
+    (#unsafe (#call linux-openat (: directory -100i64 : path (#ptr-offset paths 16usize) : flags 524481i32 : mode 384u32))))
+  (#let file-closed i64 (#call linux-close (: fd file-fd)))
   (#let create-event-size i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-READ
       (notification-fd events 1024usize))))
@@ -60,10 +54,7 @@
   (#let create-event-name u32
     (#unsafe (#ptr-read (#ptr-offset events 4usize))))
   (#let file-removed i64
-    (#unsafe (#call linux-unlinkat (#fn-args
-      (directory -100i64)
-      (path (#ptr-offset paths 16usize))
-      (flags 0i32)))))
+    (#unsafe (#call linux-unlinkat (: directory -100i64 : path (#ptr-offset paths 16usize) : flags 0i32))))
   (#let delete-event-size i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-READ
       (notification-fd (#ptr-offset events 16usize) 1024usize))))
@@ -72,13 +63,11 @@
   (#let delete-event-mask u32
     (#unsafe (#ptr-read (#ptr-offset events 17usize))))
   (#let watch-removed i64
-    (#unsafe (#call linux-inotify-rm-watch (#fn-args
-      (fd notification-fd) (watch watch)))))
+    (#unsafe (#call linux-inotify-rm-watch (: fd notification-fd : watch watch))))
   (#let notification-closed i64
-    (#call linux-close (#fn-args (fd notification-fd))))
+    (#call linux-close (: fd notification-fd)))
   (#let directory-removed i64
-    (#unsafe (#call linux-unlinkat (#fn-args
-      (directory -100i64) (path paths) (flags 512i32)))))
+    (#unsafe (#call linux-unlinkat (: directory -100i64 : path paths : flags 512i32))))
   (#let events-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (events 4096usize))))
   (#let paths-unmapped i64

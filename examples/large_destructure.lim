@@ -11,5 +11,5 @@
     values)
   (#let (#array a b c d e f result)
     (#array u64 7)
-    (#call make (#fn-args )))
+    (#call make (:)))
   (#return (#u64.+.wrap last result)))

@@ -13,9 +13,9 @@
 (#fn main () u64
   (#return
     (#u64.+.wrap
-      (#match (#call make-tuple (#fn-args ))
+      (#match (#call make-tuple (:))
         (#case (#tuple first second third fourth fifth sixth last) last)
         (#case _ 0u64))
-      (#match (#call make-struct (#fn-args ))
+      (#match (#call make-struct (:))
         (#case (Large first second third fourth fifth sixth last) last)
         (#case _ 0u64)))))

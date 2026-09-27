@@ -2,6 +2,4 @@
   (#forget left) (#forget right) (#return 0u64))
 (#fn main () u64
   (#let-mut value u64 1u64)
-  (#return (#call inspect (#fn-args
-    (left (#borrow-mut value))
-    (right (#borrow value))))))
+  (#return (#call inspect (: left (#borrow-mut value) : right (#borrow value)))))

@@ -146,8 +146,8 @@ mod tests {
             include_str!("../tests/ui/linear.lim"),
             include_str!("../tests/ui/unsafe-pointer-op.lim"),
             include_str!("../tests/ui/unsafe-external-call.lim"),
-            "(#fn use ((a (#cell u64)) (b (#cell u64))) () (#forget a) (#forget b) (#return ())) (#fn main () () (#let a.b (#cell u64) (#cell 1u64)) (#call use (#fn-args (b a.b) (a a.b))) (#return ()))",
-            "(#fn main () u64 (#let a (#cell u64) (#cell 1u64)) (#forget a) (#let a (#cell u64) (#cell 2u64)) (#forget a) (#forget a) (#return 0u64))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#fn use ((a Resource) (b Resource)) () (#forget a) (#forget b) (#return ())) (#fn main () () (#let a.b Resource (#struct-literal Resource ((value 1u64)))) (#call use (: b a.b : a a.b)) (#return ()))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#fn main () u64 (#let a Resource (#struct-literal Resource ((value 1u64)))) (#forget a) (#let a Resource (#struct-literal Resource ((value 2u64)))) (#forget a) (#forget a) (#return 0u64))",
             "(#fn read ((p (#ptr u64))) u64 (#let first u64 (#unsafe (#ptr-read p))) (#return (#ptr-read p)))",
             "(#fn read ((p (#ptr u64))) u64 (#return (#match true (#case true (#ptr-read p)) (#case false 0u64))))",
         ];

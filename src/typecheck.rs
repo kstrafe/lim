@@ -199,12 +199,12 @@ mod checked_program_tests {
         let cases = [
             ("(#fn main () u64 (#let value u64 (#u64.+.wrap 1u64 false)) (#return value))", "false"),
             ("(#fn main () u64 (#let value u64 1u64) (#let value bool false) (#return (#u64.+.wrap 2u64 value)))", "value"),
-            ("(#fn add ((first u64) (second u64)) u64 (#return (#u64.+.wrap first second))) (#fn main () u64 (#return (#call add (#fn-args (second false) (first 1u64)))))", "false"),
+            ("(#fn add ((first u64) (second u64)) u64 (#return (#u64.+.wrap first second))) (#fn main () u64 (#return (#call add (: second false : first 1u64))))", "false"),
             ("(#struct Inner ((value u64))) (#struct Outer ((first Inner) (second Inner))) (#fn main () Outer (#return (#struct-literal Outer ((first (#struct-literal Inner ((value 1u64)))) (second (#struct-literal Inner ((value false))))))))", "false"),
             ("(#fn main () u64 (#let-mut value u64 0u64) (#let shared (#ref u64) (#borrow value)) (#let mutable (#ref-mut u64) (#borrow-mut shared)) (#return 0u64))", "shared"),
             ("(#fn main () u64 (#return (#get (#tuple (#tuple u64 u64) 1u64 false) 0)))", "false"),
             ("(#fn main () u64 (#return (#u64.+.wrap (#if false 1u64 2u64) false)))", "false"),
-            ("(#fn choose ((flag bool) (value u64)) u64 (#return value)) (#fn main () u64 (#return (#call choose (#fn-args (value false) (flag false)))))", "false"),
+            ("(#fn choose ((flag bool) (value u64)) u64 (#return value)) (#fn main () u64 (#return (#call choose (: value false : flag false))))", "false"),
             ("(#struct Point ((value u64))) (#fn main () u64 (#let-mut owner Point (#struct-literal Point ((value 1u64)))) (#let shared (#ref Point) (#borrow owner)) (#let exclusive (#ref-mut u64) (#borrow-mut (#get shared value))) (#return 0u64))", "(#get shared value)"),
             ("(#fn main () u64 (#return (#block (#let value u64 1u64) (#u64.+.wrap value 2u64) (#let value bool false) (#u64.+.wrap value 2u64))))", "value"),
         ];
@@ -234,7 +234,7 @@ mod checked_program_tests {
             if source.contains("(#fn choose") {
                 assert_eq!(
                     span.start,
-                    source.find("(value false)").unwrap() + "(value ".len()
+                    source.find(": value false").unwrap() + ": value ".len()
                 );
             }
             if source.contains("(#return (#block") {
@@ -1141,7 +1141,6 @@ fn type_mentions_task(
         }
         Type::Reference { target, .. }
         | Type::RawPointer { target, .. }
-        | Type::Cell(target)
         | Type::Array(target, _) => type_mentions_task(target, tasks, enums, seen),
         Type::Tuple(fields) => fields
             .iter()
@@ -2017,12 +2016,6 @@ fn type_has_thread_property_inner(
         | Type::F64 => Ok(true),
         Type::Generic(_) => Ok(false),
         Type::RawPointer { .. } => Ok(false),
-        Type::Cell(inner) => match property {
-            ThreadProperty::Send => {
-                type_has_thread_property_inner(inner, property, structs, enums, overrides, active)
-            }
-            ThreadProperty::Sync => Ok(false),
-        },
         Type::Reference { mutable, target } => match (property, mutable) {
             (ThreadProperty::Send, false) | (ThreadProperty::Sync, _) => {
                 type_has_thread_property_inner(
@@ -2844,7 +2837,7 @@ fn semantic_expression_source<'a>(
                             source.children.get(1)
                         } else {
                             let name = functions.get(function)?.parameter_names.get(index - 1)?;
-                            source.children.get(2)?.children.iter().skip(1).find_map(|argument| {
+                            source.children.get(2)?.children.iter().find_map(|argument| {
                                 matches!(&argument.children.first()?.expr, Expr::Symbol(label) if label_matches(label, name))
                                     .then(|| argument.children.get(1)).flatten()
                             })
@@ -3200,7 +3193,7 @@ fn named_call_argument_span(
             && matches!(items.get(1), Some(Expr::Symbol(callee)) if callee == function_name)
         {
             let arguments = expression.children.get(2)?;
-            if let Some(value) = arguments.children.iter().skip(1).find_map(|argument| {
+            if let Some(value) = arguments.children.iter().find_map(|argument| {
                 let Expr::List(parts) = &argument.expr else {
                     return None;
                 };
@@ -3488,7 +3481,6 @@ fn first_unresolved_type<'a>(
         }
         Type::Reference { target, .. }
         | Type::RawPointer { target, .. }
-        | Type::Cell(target)
         | Type::Slice(target)
         | Type::MutableSlice(target)
         | Type::Atomic(target)
@@ -4723,7 +4715,6 @@ fn type_contains_thread_task_value(
         }
         Type::Reference { target, .. }
         | Type::RawPointer { target, .. }
-        | Type::Cell(target)
         | Type::Array(target, _) => {
             type_contains_thread_task_value(target, functions, enums, aliases, seen)
         }
@@ -4964,59 +4955,6 @@ fn list_expression(
                     ));
                 }
             }
-            Ok(Type::Unit)
-        }
-        "cell" => {
-            require_arity(operator, items, 2)?;
-            let expected_inner = match expected {
-                Some(Type::Cell(inner)) => Some(inner.as_ref()),
-                _ => None,
-            };
-            let inner = expression(
-                &items[1],
-                variables,
-                functions,
-                structs,
-                enums,
-                mutable,
-                aliases,
-                expected_inner,
-            )?;
-            if !is_cell_value_type(&inner, enums) {
-                return Err(semantic_format!(
-                    "cell does not support values of type {inner:?}"
-                ));
-            }
-            Ok(Type::Cell(Box::new(inner)))
-        }
-        "cell-get" => {
-            require_arity(operator, items, 2)?;
-            match expression(
-                &items[1], variables, functions, structs, enums, mutable, aliases, None,
-            )? {
-                Type::Cell(inner) => Ok(*inner),
-                _ => Err("cell-get requires a cell place".into()),
-            }
-        }
-        "cell-set" => {
-            require_arity(operator, items, 3)?;
-            let Type::Cell(inner) = expression(
-                &items[1], variables, functions, structs, enums, mutable, aliases, None,
-            )?
-            else {
-                return Err("cell-set requires a cell place".into());
-            };
-            let actual = expression(
-                &items[2],
-                variables,
-                functions,
-                structs,
-                enums,
-                mutable,
-                aliases,
-                Some(&inner),
-            )?;
-            require_type(&actual, &inner, "cell-set value")?;
             Ok(Type::Unit)
         }
         "-" if items.len() == 2 => {
@@ -7423,7 +7361,6 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
             mutable: *mutable,
             target: Box::new(substitute_type(target, substitutions)),
         },
-        Type::Cell(target) => Type::Cell(Box::new(substitute_type(target, substitutions))),
         Type::Atomic(target) => Type::Atomic(Box::new(substitute_type(target, substitutions))),
         _ => ty.clone(),
     }
@@ -7591,17 +7528,6 @@ fn is_scalar_reference_target(ty: &Type, enums: &HashMap<String, Vec<EnumVariant
             .is_some_and(|variants| variants.iter().all(|variant| variant.fields.is_empty())))
 }
 
-fn is_cell_value_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> bool {
-    if matches!(ty, Type::Cell(_)) {
-        return false;
-    }
-    (is_numeric(ty) && !matches!(ty, Type::I128 | Type::U128))
-        || matches!(ty, Type::Bool | Type::Char | Type::RawPointer { .. })
-        || matches!(ty, Type::Named(name) if enums
-            .get(name)
-            .is_some_and(|variants| variants.iter().all(|variant| variant.fields.is_empty())))
-}
-
 fn contains_reference_type(
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
@@ -7610,9 +7536,7 @@ fn contains_reference_type(
 ) -> bool {
     match ty {
         Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_) => true,
-        Type::Array(element, _) | Type::Cell(element) => {
-            contains_reference_type(element, structs, enums, seen)
-        }
+        Type::Array(element, _) => contains_reference_type(element, structs, enums, seen),
         Type::Tuple(fields) => fields
             .iter()
             .any(|field| contains_reference_type(field, structs, enums, seen)),
@@ -7644,9 +7568,7 @@ fn type_contains_mutable_reference(
         Type::Reference { mutable: true, .. } => true,
         Type::MutableSlice(_) => true,
         Type::Reference { mutable: false, .. } | Type::RawPointer { .. } => false,
-        Type::Array(element, _) | Type::Cell(element) => {
-            type_contains_mutable_reference(element, structs, enums, seen)
-        }
+        Type::Array(element, _) => type_contains_mutable_reference(element, structs, enums, seen),
         Type::Tuple(fields) => fields
             .iter()
             .any(|field| type_contains_mutable_reference(field, structs, enums, seen)),
@@ -7693,7 +7615,6 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::MutableSlice(_) => "mutable slice",
         Type::Atomic(_) => "atomic",
         Type::RawPointer { .. } => "raw pointer",
-        Type::Cell(_) => "interior mutable cell",
         Type::Generic(name) | Type::Named(name) => name,
         Type::Array(_, _) | Type::Tuple(_) => {
             return Err(semantic_format!(

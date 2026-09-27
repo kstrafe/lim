@@ -13,6 +13,10 @@ fn wake_aware_pipeline_is_generated_and_runs() {
         .replace(
             "../library/local_waker.lim",
             &format!("{}/library/local_waker.lim", env!("CARGO_MANIFEST_DIR")),
+        )
+        .replace(
+            "../library/cell.lim",
+            &format!("{}/library/cell.lim", env!("CARGO_MANIFEST_DIR")),
         );
     let input = scratch.path().join("main.lim");
     let program = scratch.path().join("program");

@@ -32,9 +32,9 @@
     (#u64.+.wrap
       (#index copied 0)
       (#u64.+.wrap
-        (#index (#call return-values (#fn-args)) 2)
+        (#index (#call return-values (:)) 2)
         (#u64.+.wrap
-          (#call take (#fn-args (values (#unsafe Values)) (point (#unsafe Origin))))
+          (#call take (: values (#unsafe Values) : point (#unsafe Origin)))
           (#u64.+.wrap
-            (#call read-choice (#fn-args (choice copied-choice)))
-            (#call read-choice (#fn-args (choice (#call return-choice (#fn-args)))))))))))
+            (#call read-choice (: choice copied-choice))
+            (#call read-choice (: choice (#call return-choice (:))))))))))

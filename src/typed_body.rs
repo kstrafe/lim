@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn nodes_keep_contextual_types_numeric_modes_and_reordered_call_spans() {
         let source = "(#fn add ((left u32) (right u32)) u32 (#return (#u32.+.saturate left right)))
-          (#fn main () u32 (#let x u32 40) (#return (#call add (#fn-args (right 2) (left x)))))";
+          (#fn main () u32 (#let x u32 40) (#return (#call add (: right 2 : left x))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -120,7 +120,7 @@ mod tests {
     fn call_argument_order_is_separate_from_parameter_order() {
         let source = "(#fn combine ((first u64) (second u64) (third u64)) u64 (#return first))
           (#fn main () u64
-            (#return (#call combine (#fn-args (third 3u64) (first 1u64) (second 2u64)))))";
+            (#return (#call combine (: third 3u64 : first 1u64 : second 2u64))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
@@ -153,7 +153,7 @@ mod tests {
     fn call_without_arguments_has_empty_written_order() {
         let program = crate::parse_program(
             "(#fn value () u64 (#return 42u64))
-             (#fn main () u64 (#return (#call value (#fn-args))))",
+             (#fn main () u64 (#return (#call value (:))))",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -174,7 +174,7 @@ mod tests {
         let source = "(#fn increment ((value u32)) u32 (#return (#u32.+.wrap value 1u32)))\n\
           (#fn main () u32\n\
             (#let value u32 40)\n\
-            (#return (#call increment (#fn-args (value (#u32.+.wrap value 2))))))";
+            (#return (#call increment (: value (#u32.+.wrap value 2)))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let function = program

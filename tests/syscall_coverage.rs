@@ -14,7 +14,6 @@ fn raw_memory_wrappers_expose_caller_safety_obligations() {
         match ty {
             lim::Type::RawPointer { .. } => true,
             lim::Type::Reference { target, .. }
-            | lim::Type::Cell(target)
             | lim::Type::Slice(target)
             | lim::Type::MutableSlice(target)
             | lim::Type::Atomic(target)
@@ -330,6 +329,6 @@ fn library_sources_do_not_declare_ffi() {
 
 #[test]
 fn comments_strings_and_quoted_calls_are_not_runtime_evidence() {
-    let found = calls("; (#call comment (#fn-args))\n\"(#call string (#fn-args))\"\n'(#call quoted (#fn-args))\n(#fn f () () (#call real (#fn-args)) (#return ()))");
+    let found = calls("; (#call comment (:))\n\"(#call string (:))\"\n'(#call quoted (:))\n(#fn f () () (#call real (:)) (#return ()))");
     assert_eq!(found, BTreeSet::from(["real".to_owned()]));
 }

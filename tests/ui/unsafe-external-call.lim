@@ -1,4 +1,4 @@
 (#extern-fn #abi-c external-value ((value i32)) i32)
 (#fn main () u64
-  (#let result i32 (#call external-value (#fn-args (value 1i32))))
+  (#let result i32 (#call external-value (: value 1i32)))
   (#return 0u64))

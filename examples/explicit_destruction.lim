@@ -1,32 +1,40 @@
-(#struct Resource ((owned (#cell u64))))
+(#import "../library/cell.lim")
+(@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(#struct Resource ((owned u64)))
+(#linear Resource)
 (#struct Bundle ((left Resource) (right Resource)))
-(#struct Counter ((total (#cell u64))))
+(#struct Counter ((total CellU64)))
 
 (#fn Resource-destroy ((counter (#ref Counter)) (value Resource)) ()
   (#let (Resource owned) Resource value)
-  (#cell-set (#get counter total)
-    (#u64.+.wrap (#cell-get (#get counter total)) 1u64))
+  (#let cell (#ref CellU64) (#borrow (#get counter total)))
+  (#call CellU64-set (: cell (#clone cell) : value (#u64.+.wrap (#call CellU64-get (: cell cell)) 1u64)))
   (#forget owned)
   (#return ()))
 
 (#fn Bundle-destroy ((counter (#ref Counter)) (value Bundle)) ()
   (#let (Bundle left right) Bundle value)
-  (#call Resource-destroy (#fn-args (counter (#clone counter)) (value left)))
-  (#call Resource-destroy (#fn-args (counter (#clone counter)) (value right)))
+  (#call Resource-destroy (: counter (#clone counter) : value left))
+  (#call Resource-destroy (: counter (#clone counter) : value right))
   (#return ()))
 
 (#fn make-bundle () Bundle
   (#return
-    (#struct-literal Bundle ((left (#struct-literal Resource ((owned (#cell 0u64))))) (right (#struct-literal Resource ((owned (#cell 0u64)))))))))
+    (#struct-literal Bundle
+      ((left (#struct-literal Resource ((owned 0u64))))
+       (right (#struct-literal Resource ((owned 0u64))))))))
 
 (#fn pass-through ((value Bundle)) Bundle
   (#return value))
 
 (#fn main () u64
-  (#let-mut counter Counter (#struct-literal Counter ((total (#cell 0u64)))))
-  (#let bundle Bundle (#call make-bundle (#fn-args )))
-  (#let moved Bundle (#call pass-through (#fn-args (value bundle))))
-  (#call Bundle-destroy (#fn-args (counter (#borrow counter)) (value moved)))
-  (#let destroyed u64 (#cell-get (#get counter total)))
+  (#let-mut counter Counter (#struct-literal Counter ((total
+    (#call CellU64-create (: value 0u64))))))
+  (#let bundle Bundle (#call make-bundle (:)))
+  (#let moved Bundle (#call pass-through (: value bundle)))
+  (#call Bundle-destroy (: counter (#borrow counter) : value moved))
+  (#let counter-ref (#ref Counter) (#borrow counter))
+  (#let destroyed u64 (#call CellU64-get (: cell (#borrow (#get counter-ref total)))))
+  (#drop counter-ref)
   (#forget counter)
   (#return destroyed))

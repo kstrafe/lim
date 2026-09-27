@@ -2,4 +2,4 @@
   (#return (#u128.*.wrap left right)))
 
 (#fn main () u64
-  (#return (#as (#call multiply (#fn-args (left 6u128) (right 7u128))) u64)))
+  (#return (#as (#call multiply (: left 6u128 : right 7u128)) u64)))

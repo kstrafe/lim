@@ -22,9 +22,7 @@
   (#return ()))
 
 (#fn main () u64
-  (#let memory (#ptr-mut u8) (#unsafe (#call linux-mmap (#fn-args
-    (address (#ptr-null (#ptr-mut u8))) (length 69632usize)
-    (protection 3u32) (flags 34u32) (fd -1i64) (offset 0i64)))))
+  (#let memory (#ptr-mut u8) (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut u8)) : length 69632usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   (#assert (#unsafe (#asm bool ((rdi memory))
     "cmp rdi, -4095\nsetb al\nmovzx eax, al")))
   (#let words (#ptr-mut i64) (#unsafe (#asm (#ptr-mut i64)
@@ -39,9 +37,9 @@
   (#let unblocked-mask (#ptr-mut i64) (#unsafe (#ptr-offset words 30usize)))
   (#let observed-mask (#ptr-mut i64) (#unsafe (#ptr-offset words 31usize)))
   (#let pending (#ptr-mut i64) (#unsafe (#ptr-offset words 51usize)))
-  (#let thread i32 (#as (#call linux-gettid (#fn-args)) i32))
-  (#let process i64 (#call linux-getpid (#fn-args)))
-  (#let uid i64 (#call linux-getuid (#fn-args)))
+  (#let thread i32 (#as (#call linux-gettid (:)) i32))
+  (#let process i64 (#call linux-getpid (:)))
+  (#let uid i64 (#call linux-getuid (:)))
 
   ; The callback is raw Linux x86-64 code, not a Lim function pointer. Its
   ; SA_SIGINFO third argument points to ucontext: uc_stack.ss_sp is at +16.
@@ -57,91 +55,61 @@
   ; Flags: SA_SIGINFO | SA_RESTORER | SA_ONSTACK. The restorer enters syscall
   ; 15 at the kernel's signal-frame stack position; an ordinary Lim function
   ; wrapper would add its own prologue and is not a valid substitute.
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (#fn-args
-    (how 2usize) (signal-set null-word) (old-set original-mask)
-    (sigset-size 8usize)))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set null-word : old-set original-mask : sigset-size 8usize))) 0i64))
   (#unsafe (#block
     (#ptr-write blocked-mask (#i64.| (#ptr-read original-mask) 512i64))
     (#ptr-write unblocked-mask (#i64.& (#ptr-read original-mask) -513i64))))
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (#fn-args
-    (how 2usize) (signal-set blocked-mask) (old-set null-word)
-    (sigset-size 8usize)))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (#fn-args
-    (new-stack requested) (old-stack memory)))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigaction (#fn-args
-    (signal 10i64) (action action) (old-action original-action)
-    (sigset-size 8usize)))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set blocked-mask : old-set null-word : sigset-size 8usize))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (: new-stack requested : old-stack memory))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigaction (: signal 10i64 : action action : old-action original-action : sigset-size 8usize))) 0i64))
 
   ; Invalid mask size and unreadable mask fail without sleeping or delivery.
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigsuspend (#fn-args
-    (signal-set unblocked-mask) (sigset-size 4usize)))) -22i64))
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigsuspend (#fn-args
-    (signal-set null-word) (sigset-size 8usize)))) -14i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigsuspend (: signal-set unblocked-mask : sigset-size 4usize))) -22i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigsuspend (: signal-set null-word : sigset-size 8usize))) -14i64))
   ; First delivery is unblocked and synchronous with the self-tkill return.
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (#fn-args
-    (how 2usize) (signal-set unblocked-mask) (old-set null-word)
-    (sigset-size 8usize)))) 0i64))
-  (#assert (#i64.== (#call linux-tkill (#fn-args (thread thread) (signal 10i32))) 0i64))
-  (#unsafe (#call check-handler (#fn-args (memory memory) (count 1u64))))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set unblocked-mask : old-set null-word : sigset-size 8usize))) 0i64))
+  (#assert (#i64.== (#call linux-tkill (: thread thread : signal 10i32)) 0i64))
+  (#unsafe (#call check-handler (: memory memory : count 1u64)))
   ; Second delivery is held pending until sigsuspend atomically replaces the
   ; mask. No sleep or cross-process scheduling assumption is needed.
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (#fn-args
-    (how 2usize) (signal-set blocked-mask) (old-set null-word)
-    (sigset-size 8usize)))) 0i64))
-  (#assert (#i64.== (#call linux-tkill (#fn-args (thread thread) (signal 10i32))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set blocked-mask : old-set null-word : sigset-size 8usize))) 0i64))
+  (#assert (#i64.== (#call linux-tkill (: thread thread : signal 10i32)) 0i64))
   (#assert (#u64.== (#unsafe (#asm u64 ((rdi memory))
     "mov rax, QWORD PTR [rdi+272]")) 1u64))
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigpending (#fn-args
-    (signal-set pending) (sigset-size 8usize)))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigpending (: signal-set pending : sigset-size 8usize))) 0i64))
   (#assert (#i64.== (#i64.& (#unsafe (#ptr-read pending)) 512i64) 512i64))
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigsuspend (#fn-args
-    (signal-set unblocked-mask) (sigset-size 8usize)))) -4i64))
-  (#unsafe (#call check-handler (#fn-args (memory memory) (count 2u64))))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigsuspend (: signal-set unblocked-mask : sigset-size 8usize))) -4i64))
+  (#unsafe (#call check-handler (: memory memory : count 2u64)))
   (#assert (#unsafe (#asm bool ((rdi memory) (rsi process) (rdx uid))
     "cmp DWORD PTR [rdi+352], esi\nsete al\ncmp DWORD PTR [rdi+356], edx\nsete dl\nand al, dl\nmovzx eax, al")))
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (#fn-args
-    (how 2usize) (signal-set null-word) (old-set observed-mask)
-    (sigset-size 8usize)))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set null-word : old-set observed-mask : sigset-size 8usize))) 0i64))
   (#assert (#i64.== (#unsafe (#ptr-read observed-mask)) (#unsafe (#ptr-read blocked-mask))))
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigpending (#fn-args
-    (signal-set pending) (sigset-size 8usize)))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigpending (: signal-set pending : sigset-size 8usize))) 0i64))
   (#assert (#i64.== (#i64.& (#unsafe (#ptr-read pending)) 512i64) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (#fn-args
-    (new-stack null) (old-stack (#ptr-offset memory 96usize))))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (: new-stack null : old-stack (#ptr-offset memory 96usize)))) 0i64))
   (#assert (#u32.== (#unsafe (#asm u32 ((rdi memory))
     "mov eax, DWORD PTR [rdi+104]")) 0u32))
 
   ; Keep SIGUSR1 blocked until the old action and stack have been restored.
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigaction (#fn-args
-    (signal 10i64) (action original-action) (old-action null-word)
-    (sigset-size 8usize)))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigaction (#fn-args
-    (signal 10i64) (action null-word) (old-action (#ptr-offset words 24usize))
-    (sigset-size 8usize)))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigaction (: signal 10i64 : action original-action : old-action null-word : sigset-size 8usize))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigaction (: signal 10i64 : action null-word : old-action (#ptr-offset words 24usize) : sigset-size 8usize))) 0i64))
   (#for-range (slot usize) 0usize 4usize
     (#assert (#i64.==
       (#unsafe (#ptr-read (#ptr-offset original-action slot)))
       (#unsafe (#ptr-read (#ptr-offset words (#usize.+.wrap 24usize slot)))))))
-  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (#fn-args
-    (new-stack memory) (old-stack null)))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (#fn-args
-    (new-stack null) (old-stack (#ptr-offset memory 96usize))))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (: new-stack memory : old-stack null))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-sigaltstack (: new-stack null : old-stack (#ptr-offset memory 96usize)))) 0i64))
   (#for-range (slot usize) 0usize 24usize
     (#if (#bool.|| (#usize.< slot 12usize) (#usize.>= slot 16usize))
       (#assert (#u8.==
         (#unsafe (#ptr-read (#ptr-offset memory slot)))
         (#unsafe (#ptr-read (#ptr-offset memory (#usize.+.wrap 96usize slot)))))) ()))
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (#fn-args
-    (how 2usize) (signal-set original-mask) (old-set null-word)
-    (sigset-size 8usize)))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (#fn-args
-    (how 2usize) (signal-set null-word) (old-set observed-mask)
-    (sigset-size 8usize)))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set original-mask : old-set null-word : sigset-size 8usize))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set null-word : old-set observed-mask : sigset-size 8usize))) 0i64))
   (#assert (#i64.== (#unsafe (#ptr-read observed-mask)) (#unsafe (#ptr-read original-mask))))
-  (#assert (#i64.== (#unsafe (#call linux-munmap (#fn-args
-    (address memory) (length 69632usize)))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-munmap (: address memory : length 69632usize))) 0i64))
   (#let letter u8 83u8)
   (#let newline u8 10u8)
-  (#assert (#i64.== (#call linux-write-byte (#fn-args (source (#borrow letter)))) 1i64))
-  (#assert (#i64.== (#call linux-write-byte (#fn-args (source (#borrow newline)))) 1i64))
+  (#assert (#i64.== (#call linux-write-byte (: source (#borrow letter))) 1i64))
+  (#assert (#i64.== (#call linux-write-byte (: source (#borrow newline))) 1i64))
   (#return 42u64))

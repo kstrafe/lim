@@ -11,18 +11,15 @@ fn source(body: &str) -> String {
 #[test]
 fn explicit_cancellation_consumes_a_task_and_runs_its_handler() {
     let scratch = support::Scratch::new("task-cancel");
-    let source = source(
-        "(#struct Flag ((released (#cell u64))))
-      (@task (Held HeldPoll HeldPending HeldReady) u64 ((Holding (#ref Flag))))
-      (#fn release ((task (#ref Flag))) () (#cell-set (#get task released) 42u64) (#return ()))
-      (@task-cancel cancel Held ((Holding release)))
-      (#fn main () u64
-        (#let flag Flag (#struct-literal Flag ((released (#cell 0u64)))))
-        (#call cancel (#fn-args (task (Holding (#borrow flag)))))
-        (#let result u64 (#cell-get (#get flag released)))
-        (#forget flag)
-        (#return result))",
-    );
+    let source = include_str!("../examples/task_cancellation.lim")
+        .replace(
+            "../library/tasks.lim",
+            &format!("{}/library/tasks.lim", env!("CARGO_MANIFEST_DIR")),
+        )
+        .replace(
+            "../library/cell.lim",
+            &format!("{}/library/cell.lim", env!("CARGO_MANIFEST_DIR")),
+        );
     fs::write(scratch.path().join("main.lim"), source).unwrap();
     let build = support::run(
         Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -67,8 +64,8 @@ fn generated_tasks_preserve_borrow_linearity_exhaustiveness_and_send_checks() {
             "(@task (Held Poll Pending Ready) u64 ((Holding u64)))
           (#fn poll ((task Held)) Poll (#forget task) (#return (Ready 1u64)))
           (#fn main () u64 (#let task Held (Holding 1u64))
-            (#let first Poll (#call poll (#fn-args (task task))))
-            (#let second Poll (#call poll (#fn-args (task task))))
+            (#let first Poll (#call poll (: task task)))
+            (#let second Poll (#call poll (: task task)))
             (#forget first) (#forget second) (#return 0u64))",
             "more than once",
         ),
@@ -79,7 +76,7 @@ fn generated_tasks_preserve_borrow_linearity_exhaustiveness_and_send_checks() {
             "exhaustive",
         ),
         (
-            "(@task (Held Poll Pending Ready) u64 ((Holding (#ref (#cell u64)))))
+            "(@task (Held Poll Pending Ready) u64 ((Holding (#ref (#ptr u8)))))
           (#fn poll ((task Held)) Poll (#forget task) (#return (Ready 1u64)))
           (@threaded-executor run Results ((held Held Poll Pending Ready poll u64)) Worker)",
             "Send",

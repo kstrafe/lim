@@ -9,22 +9,22 @@
 (#fn main () u64
   (#let-mut state (#atomic u64) (#atomic-init u64 0u64))
   (#let winners u64
-    (#match (#call FirstClaim-spawn (#fn-args (state (#borrow state))))
+    (#match (#call FirstClaim-spawn (: state (#borrow state)))
       (#case (FirstClaim-spawn-ok first)
-        (#match (#call SecondClaim-spawn (#fn-args (state (#borrow state))))
+        (#match (#call SecondClaim-spawn (: state (#borrow state)))
           (#case (SecondClaim-spawn-ok second)
             (#block
               (#let a u64
-                (#match (#call FirstClaim-join (#fn-args (task first)))
+                (#match (#call FirstClaim-join (: task first))
                   (#case (FirstClaim-join-ok result) result)
                   (#case (FirstClaim-join-error (#tuple retry error)) (#panic))))
               (#let b u64
-                (#match (#call SecondClaim-join (#fn-args (task second)))
+                (#match (#call SecondClaim-join (: task second))
                   (#case (SecondClaim-join-ok result) result)
                   (#case (SecondClaim-join-error (#tuple retry error)) (#panic))))
               (#u64.+.wrap a b)))
           (#case (SecondClaim-spawn-error _)
-            (#match (#call FirstClaim-join (#fn-args (task first)))
+            (#match (#call FirstClaim-join (: task first))
               (#case (FirstClaim-join-ok _) (#panic))
               (#case (FirstClaim-join-error (#tuple retry error)) (#panic))))))
       (#case (FirstClaim-spawn-error _) (#panic))))

@@ -12,9 +12,9 @@
 
 (#fn main () u64
   (#return
-    (#match (#call Worker-spawn (#fn-args (number (Number 42u64))))
+    (#match (#call Worker-spawn (: number (Number 42u64)))
       (#case (Worker-spawn-ok thread)
-        (#match (#call Worker-join (#fn-args (task thread)))
+        (#match (#call Worker-join (: task thread))
           (#case (Worker-join-ok results) (#get results number))
           (#case (Worker-join-error (#tuple retry error)) (#panic))))
       (#case (Worker-spawn-error error) (#panic)))))

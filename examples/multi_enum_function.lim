@@ -49,6 +49,6 @@
   u64
   (
     #return
-    (#call sum (#fn-args (value (#call make (#fn-args )))))
+    (#call sum (: value (#call make (:))))
   )
 )

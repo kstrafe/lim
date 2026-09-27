@@ -62,9 +62,9 @@ fn runs(binary: &Path, stdout: &[u8]) {
 
 fn joined(task: &str, arguments: &str) -> String {
     format!(
-        "(#match (#call {task}-spawn (#fn-args {arguments}))
+        "(#match (#call {task}-spawn ( {arguments}))
       (#case ({task}-spawn-ok handle)
-        (#match (#call {task}-join (#fn-args (task handle)))
+        (#match (#call {task}-join (: task handle))
           (#case ({task}-join-ok result) result)
           (#case ({task}-join-error (#tuple retry error)) (#panic))))
       (#case ({task}-spawn-error error) (#panic)))"
@@ -153,8 +153,8 @@ fn thread_argument_result_layouts_and_nested_workers_run() {
 fn foreign_worker_calls_are_rejected_transitively() {
     let scratch = support::Scratch::new("kernel-thread-ffi");
     let source = "(#extern-fn #abi-c abs ((value i32)) i32)
-      (#fn helper () i32 (#return (#unsafe (#call abs (#fn-args (value -42i32))))))
-      (#fn work () i32 (#return (#call helper (#fn-args))))
+      (#fn helper () i32 (#return (#unsafe (#call abs (: value -42i32)))))
+      (#fn work () i32 (#return (#call helper (:))))
       (@thread-spawn Work work)";
     let error = assembly(source, &scratch.path().join("input.lim"), scratch.path()).unwrap_err();
     assert!(
@@ -171,7 +171,7 @@ fn large_worker_frames_size_the_mapping_from_the_call_graph() {
         "(#fn large-frame ((value u64)) u64
       (#let values (#array u64 16384) (#array-repeat value))
       (#let result u64 (#index values 16383usize)) (#forget values) (#return result))
-      (#fn work ((value u64)) u64 (#return (#call large-frame (#fn-args (value value)))))
+      (#fn work ((value u64)) u64 (#return (#call large-frame (: value value))))
       (@thread-spawn Work work)
       (#fn main () u64 (#return {}))",
         joined("Work", "(value 42u64)")
@@ -262,7 +262,7 @@ fn trace_kernel_thread_lifecycle_and_inject_spawn_failures() {
         let source = format!(
             "(#fn work () u64 (#return 42u64)) (@thread-spawn Work work)
           (#fn main () u64
-            (#return (#match (#call Work-spawn (#fn-args))
+            (#return (#match (#call Work-spawn (:))
               (#case (Work-spawn-ok task) (#panic))
               (#case (Work-spawn-error error)
                 (#match error (#case Work-spawn-{expected}-error 42u64) (#case _ (#panic)))))))"
@@ -304,9 +304,9 @@ fn join_retries_transient_errors_and_retains_the_handle_on_other_errors() {
     let scratch = support::Scratch::new("kernel-thread-join-errors");
     let source = "(#fn work () u64 (#return 42u64)) (@thread-spawn Work work)
       (#fn main () u64
-        (#return (#match (#call Work-spawn (#fn-args))
+        (#return (#match (#call Work-spawn (:))
           (#case (Work-spawn-ok task)
-            (#match (#call Work-join (#fn-args (task task)))
+            (#match (#call Work-join (: task task))
               (#case (Work-join-ok value) value)
               (#case (Work-join-error (#tuple retry error))
                 (#block
@@ -314,7 +314,7 @@ fn join_retries_transient_errors_and_retains_the_handle_on_other_errors() {
                   (#let letter u8 82u8)
                   (#assert (#i64.== (#unsafe (#asm i64
                     ((rax 1usize) (rdi 1usize) (rsi (#addr-of letter)) (rdx 1usize)) \"syscall\")) 1i64))
-                  (#match (#call Work-join (#fn-args (task retry)))
+                  (#match (#call Work-join (: task retry))
                     (#case (Work-join-ok value) value)
                     (#case (Work-join-error (#tuple still-owned code)) (#panic)))))))
           (#case (Work-spawn-error error) (#panic)))))";

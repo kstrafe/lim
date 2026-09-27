@@ -8,6 +8,6 @@
 
 (#fn main () u64
   (#return
-    (#call add-inner-and-tail (#fn-args (value (#tuple (#tuple (#tuple u64 u64) u64)
+    (#call add-inner-and-tail (: value (#tuple (#tuple (#tuple u64 u64) u64)
         (#tuple (#tuple u64 u64) 10 20)
-        32))))))
+        32)))))

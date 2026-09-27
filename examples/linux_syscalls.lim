@@ -4,51 +4,46 @@
   (#return (#i64.== status -9i64)))
 
 (#fn main () u64
-  (#let pid i64 (#call linux-getpid (#fn-args)))
+  (#let pid i64 (#call linux-getpid (:)))
   (#let asm_pid i64
     (#unsafe (#asm i64 ((rax LINUX-SYS-GETPID)) "syscall")))
-  (#let uid i64 (#call linux-getuid (#fn-args)))
-  (#let gid i64 (#call linux-getgid (#fn-args)))
-  (#let euid i64 (#call linux-geteuid (#fn-args)))
-  (#let egid i64 (#call linux-getegid (#fn-args)))
-  (#let ppid i64 (#call linux-getppid (#fn-args)))
-  (#let pgrp i64 (#call linux-getpgrp (#fn-args)))
-  (#let queried-pgrp i64 (#call linux-getpgid (#fn-args (pid pid))))
-  (#let sid i64 (#call linux-getsid (#fn-args (pid pid))))
-  (#let priority i64 (#call linux-getpriority (#fn-args (which 0i64) (who 0i64))))
-  (#let tid i64 (#call linux-gettid (#fn-args)))
-  (#let yielded i64 (#call linux-sched-yield (#fn-args)))
+  (#let uid i64 (#call linux-getuid (:)))
+  (#let gid i64 (#call linux-getgid (:)))
+  (#let euid i64 (#call linux-geteuid (:)))
+  (#let egid i64 (#call linux-getegid (:)))
+  (#let ppid i64 (#call linux-getppid (:)))
+  (#let pgrp i64 (#call linux-getpgrp (:)))
+  (#let queried-pgrp i64 (#call linux-getpgid (: pid pid)))
+  (#let sid i64 (#call linux-getsid (: pid pid)))
+  (#let priority i64 (#call linux-getpriority (: which 0i64 : who 0i64)))
+  (#let tid i64 (#call linux-gettid (:)))
+  (#let yielded i64 (#call linux-sched-yield (:)))
   (#let alive i64
-    (#call linux-kill (#fn-args (pid pid) (signal 0i32))))
+    (#call linux-kill (: pid pid : signal 0i32)))
   (#let failed_close i64
-    (#call linux-close (#fn-args (fd 999999i64))))
+    (#call linux-close (: fd 999999i64)))
   (#let failed_dup i64
-    (#call linux-dup (#fn-args (fd 999999i64))))
+    (#call linux-dup (: fd 999999i64)))
   (#let failed_seek i64
-    (#call linux-lseek (#fn-args (fd 999999i64) (offset 0i64) (whence 0i64))))
+    (#call linux-lseek (: fd 999999i64 : offset 0i64 : whence 0i64)))
   (#let failed_sync i64
-    (#call linux-fsync (#fn-args (fd 999999i64))))
+    (#call linux-fsync (: fd 999999i64)))
   (#let failed_truncate i64
-    (#call linux-ftruncate (#fn-args (fd 999999i64) (length 0i64))))
+    (#call linux-ftruncate (: fd 999999i64 : length 0i64)))
   (#let failed_fstat i64
-    (#unsafe (#call linux-fstat (#fn-args (fd 999999i64)
-      (metadata (#ptr-null (#ptr-mut i64)))))))
+    (#unsafe (#call linux-fstat (: fd 999999i64 : metadata (#ptr-null (#ptr-mut i64))))))
   (#let failed_ioctl i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-IOCTL (999999i64 0usize 0usize))))
   (#let failed_fcntl i64
-    (#unsafe (#call linux-fcntl (#fn-args
-      (fd 999999i64) (command 1i32) (argument 0usize)))))
+    (#unsafe (#call linux-fcntl (: fd 999999i64 : command 1i32 : argument 0usize))))
   (#let failed_flock i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-FLOCK (999999i64 2usize))))
   (#let failed_fdatasync i64
-    (#call linux-fdatasync (#fn-args (fd 999999i64))))
+    (#call linux-fdatasync (: fd 999999i64)))
   (#let failed_openat i64
-    (#unsafe (#call linux-openat (#fn-args
-      (directory -100i64) (path (#ptr-null (#ptr-mut u8)))
-      (flags 0i32) (mode 0u32)))))
+    (#unsafe (#call linux-openat (: directory -100i64 : path (#ptr-null (#ptr-mut u8)) : flags 0i32 : mode 0u32))))
   (#let failed_unlinkat i64
-    (#unsafe (#call linux-unlinkat (#fn-args
-      (directory -100i64) (path (#ptr-null (#ptr-mut u8))) (flags 0i32)))))
+    (#unsafe (#call linux-unlinkat (: directory -100i64 : path (#ptr-null (#ptr-mut u8)) : flags 0i32))))
   (#let failed_fchdir i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-FCHDIR (999999i64))))
   (#let failed_fchmod i64
@@ -73,38 +68,30 @@
     (#unsafe (#linux-syscall (#ptr-mut u32) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let getresuid-result i64
-    (#unsafe (#call linux-getresuid (#fn-args
-      (real identity-memory)
-      (effective (#ptr-offset identity-memory 1usize))
-      (saved (#ptr-offset identity-memory 2usize))))))
+    (#unsafe (#call linux-getresuid (: real identity-memory : effective (#ptr-offset identity-memory 1usize) : saved (#ptr-offset identity-memory 2usize)))))
   (#let real-uid u32 (#unsafe (#ptr-read identity-memory)))
   (#let effective-uid u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 1usize))))
   (#let saved-uid u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 2usize))))
   (#let getresgid-result i64
-    (#unsafe (#call linux-getresgid (#fn-args
-      (real identity-memory)
-      (effective (#ptr-offset identity-memory 1usize))
-      (saved (#ptr-offset identity-memory 2usize))))))
+    (#unsafe (#call linux-getresgid (: real identity-memory : effective (#ptr-offset identity-memory 1usize) : saved (#ptr-offset identity-memory 2usize)))))
   (#let real-gid u32 (#unsafe (#ptr-read identity-memory)))
   (#let effective-gid u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 1usize))))
   (#let saved-gid u32
     (#unsafe (#ptr-read (#ptr-offset identity-memory 2usize))))
   (#let supplementary-groups i64
-    (#unsafe (#call linux-getgroups (#fn-args
-      (size 0i32) (groups (#ptr-null (#ptr-mut u32)))))))
+    (#unsafe (#call linux-getgroups (: size 0i32 : groups (#ptr-null (#ptr-mut u32))))))
   (#let invalid-groups-size i64
-    (#unsafe (#call linux-getgroups (#fn-args
-      (size -1i32) (groups (#ptr-null (#ptr-mut u32)))))))
+    (#unsafe (#call linux-getgroups (: size -1i32 : groups (#ptr-null (#ptr-mut u32))))))
   (#let identity-memory-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (identity-memory 4096usize))))
   (#let-mut mapping (#ptr-mut u8)
     (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let uname-result i64
-    (#unsafe (#call linux-uname (#fn-args (buffer mapping)))))
+    (#unsafe (#call linux-uname (: buffer mapping))))
   (#let uname-first-byte u8 (#unsafe (#ptr-read mapping)))
   (#let uname-second-byte u8
     (#unsafe (#ptr-read (#ptr-offset mapping 1usize))))
@@ -117,8 +104,7 @@
   (#let uname-terminator u8
     (#unsafe (#ptr-read (#ptr-offset mapping 5usize))))
   (#let random-buffer-count i64
-    (#unsafe (#call linux-getrandom (#fn-args
-      (destination mapping) (size 4usize) (flags 0u32)))))
+    (#unsafe (#call linux-getrandom (: destination mapping : size 4usize : flags 0u32))))
   (#unsafe
     (#block
       (#ptr-write mapping 47u8)
@@ -133,10 +119,9 @@
       (#ptr-write (#ptr-offset mapping 9usize) 0u8)
       ()))
   (#let null-device i64
-    (#unsafe (#call linux-openat (#fn-args
-      (directory -100i64) (path mapping) (flags 0i32) (mode 0u32)))))
+    (#unsafe (#call linux-openat (: directory -100i64 : path mapping : flags 0i32 : mode 0u32))))
   (#let close-null-device i64
-    (#call linux-close (#fn-args (fd null-device))))
+    (#call linux-close (: fd null-device)))
   (#unsafe
     (#block
       (#ptr-write (#ptr-offset mapping 1usize) 112u8)
@@ -155,9 +140,7 @@
       (#ptr-write (#ptr-offset mapping 14usize) 0u8)
       ()))
   (#let readlink-count i64
-    (#unsafe (#call linux-readlinkat (#fn-args
-      (directory -100i64) (path mapping)
-      (destination (#ptr-offset mapping 64usize)) (size 256usize)))))
+    (#unsafe (#call linux-readlinkat (: directory -100i64 : path mapping : destination (#ptr-offset mapping 64usize) : size 256usize))))
   (#let link-first-byte u8
     (#unsafe (#ptr-read (#ptr-offset mapping 64usize))))
   (#let cwd-result i64
@@ -169,16 +152,13 @@
   (#let unprotected i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MPROTECT (mapping 4096usize 3usize))))
   (#let advised i64
-    (#unsafe (#call linux-madvise (#fn-args
-      (address mapping) (length 4096usize) (advice 0i32)))))
+    (#unsafe (#call linux-madvise (: address mapping : length 4096usize : advice 0i32))))
   (#let edge-written ()
     (#unsafe (#ptr-write (#ptr-offset mapping 4095usize) 42u8)))
   (#let edge-byte u8
     (#unsafe (#ptr-read (#ptr-offset mapping 4095usize))))
   (#let remapped (#ptr-mut u8)
-    (#unsafe (#call linux-mremap (#fn-args
-      (old-address mapping) (old-length 4096usize) (new-length 8192usize)
-      (flags 1u32) (new-address (#ptr-null (#ptr-mut u8)))))))
+    (#unsafe (#call linux-mremap (: old-address mapping : old-length 4096usize : new-length 8192usize : flags 1u32 : new-address (#ptr-null (#ptr-mut u8))))))
   (#set mapping remapped)
   (#let preserved-edge u8
     (#unsafe (#ptr-read (#ptr-offset mapping 4095usize))))
@@ -231,9 +211,9 @@
   (#let pipe-payload-read i32
     (#unsafe (#ptr-read (#ptr-offset pipe-memory 8usize))))
   (#let pipe-read-close i64
-    (#call linux-close (#fn-args (fd pipe-read-fd))))
+    (#call linux-close (: fd pipe-read-fd)))
   (#let pipe-write-close i64
-    (#call linux-close (#fn-args (fd pipe-write-fd))))
+    (#call linux-close (: fd pipe-write-fd)))
   (#let pipe-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (pipe-memory 4096usize))))
   (#let event-memory (#ptr-mut u64)
@@ -250,13 +230,13 @@
       (event-descriptor event-memory 8usize))))
   (#let event-payload u64 (#unsafe (#ptr-read event-memory)))
   (#let event-closed i64
-    (#call linux-close (#fn-args (fd event-descriptor))))
+    (#call linux-close (: fd event-descriptor)))
   (#let event-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (event-memory 4096usize))))
   (#let-mut time LinuxTimespec
     (#struct-literal LinuxTimespec ((seconds 0i64) (nanoseconds 0i64))))
   (#let clock i64
-    (#call linux-clock-gettime (#fn-args (clock-id 0i64) (time (#borrow-mut time)))))
+    (#call linux-clock-gettime (: clock-id 0i64 : time (#borrow-mut time))))
   (#let seconds i64 (#get time seconds))
   (#let nanoseconds i64 (#get time nanoseconds))
   (#let-mut zero-request LinuxTimespec
@@ -264,12 +244,10 @@
   (#let-mut zero-remaining LinuxTimespec
     (#struct-literal LinuxTimespec ((seconds 0i64) (nanoseconds 0i64))))
   (#let slept i64
-    (#call linux-nanosleep (#fn-args
-      (request (#borrow zero-request))
-      (remaining (#borrow-mut zero-remaining)))))
+    (#call linux-nanosleep (: request (#borrow zero-request) : remaining (#borrow-mut zero-remaining))))
   (#let-mut random-byte u8 0u8)
   (#let random-result i64
-    (#call linux-getrandom-byte (#fn-args (destination (#borrow-mut random-byte)))))
+    (#call linux-getrandom-byte (: destination (#borrow-mut random-byte))))
   (#let remaining-seconds i64 (#get zero-remaining seconds))
   (#let remaining-nanoseconds i64 (#get zero-remaining nanoseconds))
   (#let identity-ok bool
@@ -318,17 +296,17 @@
             (#bool.&& (#u8.== uname-fifth-byte 120u8)
               (#u8.== uname-terminator 0u8)))))))
   (#let extra-descriptor-errors-ok bool
-    (#bool.&& (#call is-ebadf (#fn-args (status failed_fstat)))
-      (#bool.&& (#call is-ebadf (#fn-args (status failed_ioctl)))
-        (#bool.&& (#call is-ebadf (#fn-args (status failed_fcntl)))
-          (#bool.&& (#call is-ebadf (#fn-args (status failed_flock)))
-            (#bool.&& (#call is-ebadf (#fn-args (status failed_fdatasync)))
-              (#bool.&& (#call is-ebadf (#fn-args (status failed_fchdir)))
-                (#bool.&& (#call is-ebadf (#fn-args (status failed_fchmod)))
-                  (#bool.&& (#call is-ebadf (#fn-args (status failed_fchown)))
-                    (#bool.&& (#call is-ebadf (#fn-args (status failed_getdents)))
-                      (#bool.&& (#call is-ebadf (#fn-args (status failed_fallocate)))
-                        (#bool.&& (#call is-ebadf (#fn-args (status failed_dup2)))
+    (#bool.&& (#call is-ebadf (: status failed_fstat))
+      (#bool.&& (#call is-ebadf (: status failed_ioctl))
+        (#bool.&& (#call is-ebadf (: status failed_fcntl))
+          (#bool.&& (#call is-ebadf (: status failed_flock))
+            (#bool.&& (#call is-ebadf (: status failed_fdatasync))
+              (#bool.&& (#call is-ebadf (: status failed_fchdir))
+                (#bool.&& (#call is-ebadf (: status failed_fchmod))
+                  (#bool.&& (#call is-ebadf (: status failed_fchown))
+                    (#bool.&& (#call is-ebadf (: status failed_getdents))
+                      (#bool.&& (#call is-ebadf (: status failed_fallocate))
+                        (#bool.&& (#call is-ebadf (: status failed_dup2))
                           (#bool.&& (#i64.== failed_openat -14i64)
                             (#i64.== failed_unlinkat -14i64))))))))))))))
   (#let path-queries-ok bool

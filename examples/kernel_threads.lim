@@ -3,8 +3,8 @@
 ;; Both participants must run: the worker announces readiness, and the parent
 ;; releases it before joining. PID is shared; TID and stack are per-thread.
 (#fn kernel-worker ((pid i64) (parent-tid i64) (gate (#ref (#atomic u64))) (round u64)) u64
-  (#assert (#i64.== (#call linux-getpid (#fn-args)) pid))
-  (#assert (#i64.!= (#call linux-gettid (#fn-args)) parent-tid))
+  (#assert (#i64.== (#call linux-getpid (:)) pid))
+  (#assert (#i64.!= (#call linux-gettid (:)) parent-tid))
   ;; Raw Lim workers have no libc TLS and must not inherit the parent's FS base.
   (#let-mut fs-base usize 1usize)
   (#assert (#i64.== (#unsafe (#asm i64
@@ -12,34 +12,34 @@
   (#assert (#usize.== fs-base 0usize))
   (#atomic-store gate 1u64 #memory-release)
   (#while (#u64.!= (#atomic-load gate #memory-acquire) 2u64)
-    (#drop (#call linux-sched-yield (#fn-args))))
+    (#drop (#call linux-sched-yield (:))))
   (#if (#u64.== round 0u64)
     (#block
       (#let letter u8 84u8)
       (#let newline u8 10u8)
-      (#assert (#i64.== (#call linux-write-byte (#fn-args (source (#borrow letter)))) 1i64))
-      (#assert (#i64.== (#call linux-write-byte (#fn-args (source (#borrow newline)))) 1i64))))
+      (#assert (#i64.== (#call linux-write-byte (: source (#borrow letter))) 1i64))
+      (#assert (#i64.== (#call linux-write-byte (: source (#borrow newline))) 1i64))))
   (#return 42u64))
 
 (@thread-spawn KernelWorker kernel-worker)
 
 (#fn wait-ready ((gate (#ref (#atomic u64)))) ()
   (#while (#u64.!= (#atomic-load gate #memory-acquire) 1u64)
-    (#drop (#call linux-sched-yield (#fn-args))))
+    (#drop (#call linux-sched-yield (:))))
   (#return ()))
 
 (#fn run-round ((round u64)) ()
-  (#let pid i64 (#call linux-getpid (#fn-args)))
-  (#let tid i64 (#call linux-gettid (#fn-args)))
+  (#let pid i64 (#call linux-getpid (:)))
+  (#let tid i64 (#call linux-gettid (:)))
   (#let gate (#atomic u64) (#atomic-init u64 0u64))
   (#atomic-store (#borrow gate) 0u64 #memory-release)
   (#match (#call KernelWorker-spawn
-    (#fn-args (pid pid) (parent-tid tid) (gate (#borrow gate)) (round round)))
+    (: pid pid : parent-tid tid : gate (#borrow gate) : round round))
     (#case (KernelWorker-spawn-ok worker)
       (#block
-        (#call wait-ready (#fn-args (gate (#borrow gate))))
+        (#call wait-ready (: gate (#borrow gate)))
         (#atomic-store (#borrow gate) 2u64 #memory-release)
-        (#match (#call KernelWorker-join (#fn-args (task worker)))
+        (#match (#call KernelWorker-join (: task worker))
           (#case (KernelWorker-join-ok value) (#assert (#u64.== value 42u64)))
           (#case (KernelWorker-join-error (#tuple retry error)) (#panic)))))
     (#case (KernelWorker-spawn-error error) (#panic)))
@@ -49,6 +49,6 @@
 (#fn main () u64
   (#let-mut round u64 0u64)
   (#while (#u64.< round 32u64)
-    (#call run-round (#fn-args (round round)))
+    (#call run-round (: round round))
     (#set round (#u64.+.wrap round 1u64)))
   (#return 42u64))

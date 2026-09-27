@@ -2,4 +2,4 @@
 
 (#fn main () u64
   (#return
-    (#as (#call Result-unwrap-err-or (#fn-args (value (#call Result-err (#fn-args (error 7)))) (fallback 0))) u64)))
+    (#as (#call Result-unwrap-err-or (: value (#call Result-err (: error 7)) : fallback 0)) u64)))

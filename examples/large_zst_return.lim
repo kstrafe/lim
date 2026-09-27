@@ -12,8 +12,8 @@
       1u64 2u64 3u64 4u64 5u64 6u64 40u64 ())))
 
 (#fn main () u64
-  (#let value LargeWithUnit (#call make (#fn-args )))
-  (#let tuple (#tuple u64 u64 u64 u64 u64 u64 u64 ()) (#call make-tuple (#fn-args )))
+  (#let value LargeWithUnit (#call make (:)))
+  (#let tuple (#tuple u64 u64 u64 u64 u64 u64 u64 ()) (#call make-tuple (:)))
   (#return
     (#u64.+.wrap
       (#u64.+.wrap (#get value a) (#get value g))

@@ -9,7 +9,7 @@
     #let
     value
     Maybe?
-    (#call Maybe?-construct (#fn-args (value 42)))
+    (#call Maybe?-construct (: value 42))
   )
   (
     #return

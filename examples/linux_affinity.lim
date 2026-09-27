@@ -8,15 +8,12 @@
     (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let queried i64
-    (#unsafe (#call linux-sched-getaffinity (#fn-args
-      (pid 0i64) (size 128usize) (mask before)))))
+    (#unsafe (#call linux-sched-getaffinity (: pid 0i64 : size 128usize : mask before))))
   (#let affinity-restored i64
-    (#unsafe (#call linux-sched-setaffinity (#fn-args
-      (pid 0i64) (size 128usize) (mask before)))))
-  (#let yielded i64 (#call linux-sched-yield (#fn-args)))
+    (#unsafe (#call linux-sched-setaffinity (: pid 0i64 : size 128usize : mask before))))
+  (#let yielded i64 (#call linux-sched-yield (:)))
   (#let queried-again i64
-    (#unsafe (#call linux-sched-getaffinity (#fn-args
-      (pid 0i64) (size 128usize) (mask after)))))
+    (#unsafe (#call linux-sched-getaffinity (: pid 0i64 : size 128usize : mask after))))
   (#let word-0-before u64 (#unsafe (#ptr-read before)))
   (#let word-0-after u64 (#unsafe (#ptr-read after)))
   (#let word-1-before u64 (#unsafe (#ptr-read (#ptr-offset before 1usize))))

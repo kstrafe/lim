@@ -49,7 +49,7 @@ fn local_array_borrow_to_slice_in_helper() {
 (#fn main () u64
   (#let values (#array u64 3)
     (#array-of (#array u64 3) 10u64 20u64 42u64))
-  (#return (#call read-third (#fn-args (values (#borrow values)))))
+  (#return (#call read-third (: values (#borrow values))))
 )
 "#,
         42,
@@ -70,7 +70,7 @@ fn static_array_borrow_to_slice_in_helper() {
 
 (#fn main () u64
   (#return (#unsafe
-    (#call read-third (#fn-args (values (#borrow Values))))))
+    (#call read-third (: values (#borrow Values)))))
 )
 "#,
         42,
@@ -90,7 +90,7 @@ fn range_and_index_preserve_slice_layout_across_calls() {
   (#let values (#array u64 4)
     (#array-of (#array u64 4) 5u64 10u64 42u64 80u64))
   (#let view (#slice u64) (#slice-of (#borrow values)))
-  (#return (#call middle (#fn-args (values view))))
+  (#return (#call middle (: values view)))
 )
 "#,
         42,
@@ -119,7 +119,7 @@ fn mutable_slice_split_and_index_preserve_layout_across_calls() {
   (#let-mut values (#array u64 4)
     (#array-of (#array u64 4) 1u64 2u64 3u64 4u64))
   (#let whole (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
-  (#return (#call update-halves (#fn-args (whole whole))))
+  (#return (#call update-halves (: whole whole)))
 )
 "#,
         42,

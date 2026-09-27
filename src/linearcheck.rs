@@ -447,7 +447,7 @@ fn is_linear(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool
                 true
             }
         }
-        Type::Cell(_) | Type::Generic(_) | Type::Never => true,
+        Type::Generic(_) | Type::Never => true,
     }
 }
 
@@ -680,10 +680,6 @@ fn check_expr(
                 check_expr(&items[2], bindings, moved, globals, false)?;
             } else if head == "slice-mut-len" && items.len() == 2 {
                 check_expr(&items[1], bindings, moved, globals, true)?;
-            } else if head == "cell-get" {
-                for arg in items.iter().skip(1) {
-                    check_expr(arg, bindings, moved, globals, true)?;
-                }
             } else if head == "tuple" || head == "array" {
                 for arg in items.iter().skip(2) {
                     check_expr(arg, bindings, moved, globals, false)?;
@@ -995,12 +991,12 @@ mod tests {
 
     #[test]
     fn dotted_bindings_move_independently_of_fields_and_shadowing() {
-        let source = "(#struct R ((b (#cell u64))))
+        let source = "(#struct R ((b u64))) (#linear R)
           (#fn main () u64
-            (#let a R (#struct-literal R ((b (#cell 1u64)))))
-            (#let a.b (#cell u64) (#cell 2u64))
+            (#let a R (#struct-literal R ((b 1u64))))
+            (#let a.b R (#struct-literal R ((b 2u64))))
             (#forget (#get a b)) (#forget a.b) (#forget a)
-            (#let a.b (#cell u64) (#cell 3u64))
+            (#let a.b R (#struct-literal R ((b 3u64))))
             (#forget a.b) (#return 0u64))";
         check_types(&parse_program(source).unwrap()).unwrap();
         let duplicate = source.replace(
@@ -1013,7 +1009,7 @@ mod tests {
     #[test]
     fn values_are_linear_and_clone_is_explicit() {
         let duplicate = parse_program(
-            "(#struct Resource ((value (#cell u64)))) (#fn consume ((value Resource)) () (#forget value) (#return ())) (#fn main () u64 (#let value Resource (#struct-literal Resource ((value (#cell 20u64))))) (#call consume (#fn-args (value value))) (#call consume (#fn-args (value value))) (#return 0u64))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#fn consume ((value Resource)) () (#forget value) (#return ())) (#fn main () u64 (#let value Resource (#struct-literal Resource ((value 20u64)))) (#call consume (: value value)) (#call consume (: value value)) (#return 0u64))",
         ).unwrap();
         assert!(check_types(&duplicate)
             .unwrap_err()
@@ -1029,7 +1025,7 @@ mod tests {
     #[test]
     fn cloning_a_moved_value_is_rejected() {
         let program = parse_program(
-            "(#struct Resource ((value (#cell u64)))) (#fn consume ((value Resource)) Resource (#return value)) (#fn inspect ((value Resource)) u64 (#forget value) (#return 0u64)) (#fn main () u64 (#let value Resource (#struct-literal Resource ((value (#cell 1u64))))) (#let moved Resource (#call consume (#fn-args (value value)))) (#forget moved) (#return (#call inspect (#fn-args (value (#clone value))))))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#fn consume ((value Resource)) Resource (#return value)) (#fn inspect ((value Resource)) u64 (#forget value) (#return 0u64)) (#fn main () u64 (#let value Resource (#struct-literal Resource ((value 1u64)))) (#let moved Resource (#call consume (: value value))) (#forget moved) (#return (#call inspect (: value (#clone value)))))",
         )
         .unwrap();
         let error = check_types(&program).unwrap_err();
@@ -1072,7 +1068,7 @@ mod tests {
     #[test]
     fn named_clone_functions_define_deep_clone_behavior() {
         let program = parse_program(
-            "(#struct Point ((x u64))) (#fn Point-clone ((source Point)) Point (#return source)) (#fn consume ((point Point)) u64 (#let result u64 (#get point x)) (#forget point) (#return result)) (#fn main () u64 (#let value Point (#struct-literal Point ((x 4)))) (#let result u64 (#call consume (#fn-args (point (#clone value))))) (#forget value) (#return result))",
+            "(#struct Point ((x u64))) (#fn Point-clone ((source Point)) Point (#return source)) (#fn consume ((point Point)) u64 (#let result u64 (#get point x)) (#forget point) (#return result)) (#fn main () u64 (#let value Point (#struct-literal Point ((x 4)))) (#let result u64 (#call consume (: point (#clone value)))) (#forget value) (#return result))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -1084,7 +1080,7 @@ mod tests {
     #[test]
     fn field_values_are_moved_independently_and_can_be_cloned() {
         let duplicate = parse_program(
-            "(#struct Resource ((value (#cell u64)))) (#fn use ((resource Resource)) () (#forget resource) (#return ())) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value (#cell 20u64))))) (#call use (#fn-args (resource resource))) (#call use (#fn-args (resource resource))) (#return 0u64))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#fn use ((resource Resource)) () (#forget resource) (#return ())) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value 20u64)))) (#call use (: resource resource)) (#call use (: resource resource)) (#return 0u64))",
         )
         .unwrap();
         assert!(check_types(&duplicate)
@@ -1092,7 +1088,7 @@ mod tests {
             .contains("linear value 'resource' was used more than once"));
 
         let cloned = parse_program(
-            "(#struct Resource ((value (#cell u64)))) (#struct Point ((x Resource) (y u64))) (#fn main () u64 (#let point Point (#struct-literal Point ((x (#struct-literal Resource ((value (#cell 20u64))))) (y 22u64)))) (#forget (#clone (#get point x))) (#forget point) (#return 0u64))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#struct Point ((x Resource) (y u64))) (#fn main () u64 (#let point Point (#struct-literal Point ((x (#struct-literal Resource ((value 20u64)))) (y 22u64)))) (#forget (#clone (#get point x))) (#forget point) (#return 0u64))",
         )
         .unwrap();
         assert!(check_types(&cloned).is_ok());
@@ -1100,7 +1096,7 @@ mod tests {
 
     #[test]
     fn repeated_linear_field_move_highlights_the_repeated_projection() {
-        let source = "(#struct Resource ((value (#cell u64))))\n(#struct Pair ((item Resource) (other u64)))\n(#fn main () u64\n  (#let pair Pair (#struct-literal Pair ((item (#struct-literal Resource ((value (#cell 1u64))))) (other 0u64))))\n  (#let first Resource (#get pair item))\n  (#let second Resource (#get pair item))\n  (#forget first)\n  (#forget second)\n  (#forget pair)\n  (#return 0u64))";
+        let source = "(#struct Resource ((value u64)))\n(#linear Resource)\n(#struct Pair ((item Resource) (other u64)))\n(#fn main () u64\n  (#let pair Pair (#struct-literal Pair ((item (#struct-literal Resource ((value 1u64)))) (other 0u64))))\n  (#let first Resource (#get pair item))\n  (#let second Resource (#get pair item))\n  (#forget first)\n  (#forget second)\n  (#forget pair)\n  (#return 0u64))";
         let program = parse_program(source).unwrap();
         let (error, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
         assert!(error.contains("linear projection 'pair.item' was used more than once"));
@@ -1110,7 +1106,7 @@ mod tests {
 
     #[test]
     fn repeated_linear_array_move_highlights_the_repeated_index() {
-        let source = "(#fn main () u64\n  (#let values (#array (#cell u64) 2) (#array (#array (#cell u64) 2) (#cell 1u64) (#cell 2u64)))\n  (#let first (#cell u64) (#index values 0))\n  (#let second (#cell u64) (#index values 0))\n  (#forget first)\n  (#forget second)\n  (#forget values)\n  (#return 0u64))";
+        let source = "(#struct Resource ((value u64)))\n(#linear Resource)\n(#fn main () u64\n  (#let values (#array Resource 2) (#array-of (#array Resource 2) (#struct-literal Resource ((value 1u64))) (#struct-literal Resource ((value 2u64)))))\n  (#let first Resource (#index values 0))\n  (#let second Resource (#index values 0))\n  (#forget first)\n  (#forget second)\n  (#forget values)\n  (#return 0u64))";
         let program = parse_program(source).unwrap();
         let (error, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
         assert!(error.contains("linear projection 'values[0]' was used more than once"));
@@ -1121,14 +1117,14 @@ mod tests {
     #[test]
     fn linear_values_must_be_consumed_before_return() {
         let leaked = parse_program(
-            "(#struct Resource ((value (#cell u64)))) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value (#cell 1u64))))) (#return 0u64))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return 0u64))",
         ).unwrap();
         assert!(check_types(&leaked)
             .unwrap_err()
             .contains("must be consumed before returning"));
 
         let forgotten = parse_program(
-            "(#struct Resource ((value (#cell u64)))) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value (#cell 1u64))))) (#forget resource) (#return 0u64))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#forget resource) (#return 0u64))",
         ).unwrap();
         assert!(check_types(&forgotten).is_ok());
 
@@ -1139,7 +1135,7 @@ mod tests {
 
     #[test]
     fn linearity_diagnostics_point_to_the_exact_binding() {
-        let source = "(#struct Resource ((value (#cell u64))))\n(#fn main () u64\n  (#let resource Resource (#struct-literal Resource ((value (#cell 1u64)))))\n  (#return 0u64))";
+        let source = "(#struct Resource ((value u64)))\n(#linear Resource)\n(#fn main () u64\n  (#let resource Resource (#struct-literal Resource ((value 1u64))))\n  (#return 0u64))";
         let program = parse_program(source).unwrap();
         let (_, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
         let span = span.expect("unconsumed local has a structured span");
@@ -1149,26 +1145,26 @@ mod tests {
     #[test]
     fn linearity_is_checked_at_scope_exits_and_control_flow_joins() {
         let escaping = parse_program(
-            "(#struct Resource ((value (#cell u64)))) (#fn main () u64 (#return (#block (#let resource Resource (#struct-literal Resource ((value (#cell 1u64))))) 0u64)))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#fn main () u64 (#return (#block (#let resource Resource (#struct-literal Resource ((value 1u64)))) 0u64)))",
         ).unwrap();
         assert!(check_types(&escaping)
             .unwrap_err()
             .contains("before leaving its scope"));
 
         let branch_leak = parse_program(
-            "(#struct Resource ((value (#cell u64)))) (#fn consume ((value Resource)) u64 (#forget value) (#return 1u64)) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value (#cell 1u64))))) (#return (#if true (#call consume (#fn-args (value resource))) 0u64)))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#fn consume ((value Resource)) u64 (#forget value) (#return 1u64)) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return (#if true (#call consume (: value resource)) 0u64)))",
         ).unwrap();
         assert!(check_types(&branch_leak)
             .unwrap_err()
             .contains("consumed consistently on every control-flow path"));
 
         let both_branches_consume = parse_program(
-            "(#struct Resource ((value (#cell u64)))) (#fn consume ((value Resource)) u64 (#forget value) (#return 1u64)) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value (#cell 1u64))))) (#return (#if true (#call consume (#fn-args (value resource))) (#call consume (#fn-args (value resource))))))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#fn consume ((value Resource)) u64 (#forget value) (#return 1u64)) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return (#if true (#call consume (: value resource)) (#call consume (: value resource)))))",
         ).unwrap();
         assert!(check_types(&both_branches_consume).is_ok());
 
         let different_fields = parse_program(
-            "(#struct Resource ((value (#cell u64)))) (#struct Pair ((left Resource) (right Resource))) (#fn main () u64 (#let pair Pair (#struct-literal Pair ((left (#struct-literal Resource ((value (#cell 1u64))))) (right (#struct-literal Resource ((value (#cell 2u64)))))))) (#return (#if true (#block (#forget (#get pair left)) 1u64) (#block (#forget (#get pair right)) 2u64))))",
+            "(#struct Resource ((value u64))) (#linear Resource) (#struct Pair ((left Resource) (right Resource))) (#fn main () u64 (#let pair Pair (#struct-literal Pair ((left (#struct-literal Resource ((value 1u64)))) (right (#struct-literal Resource ((value 2u64))))))) (#return (#if true (#block (#forget (#get pair left)) 1u64) (#block (#forget (#get pair right)) 2u64))))",
         ).unwrap();
         let error = check_types(&different_fields).unwrap_err();
         assert!(
@@ -1180,7 +1176,7 @@ mod tests {
     #[test]
     fn thread_tasks_cannot_be_forgotten_instead_of_joined() {
         let program = parse_program(
-            "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#let result Task-spawn-result (#call Task-spawn (#fn-args (value 1u64)))) (#forget result) (#return 0u64))",
+            "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker) (#fn main () u64 (#let result Task-spawn-result (#call Task-spawn (: value 1u64))) (#forget result) (#return 0u64))",
         ).unwrap();
         let error = check_types(&program).unwrap_err();
         assert!(

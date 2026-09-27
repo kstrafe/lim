@@ -259,7 +259,6 @@ pub(crate) fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result
                 Type::MutableSlice(Box::new(resolve(element, aliases, seen)?))
             }
             Type::Atomic(element) => Type::Atomic(Box::new(resolve(element, aliases, seen)?)),
-            Type::Cell(element) => Type::Cell(Box::new(resolve(element, aliases, seen)?)),
             Type::Reference { mutable, target } => Type::Reference {
                 mutable: *mutable,
                 target: Box::new(resolve(target, aliases, seen)?),
@@ -346,7 +345,6 @@ mod tests {
             Type::Slice(Box::new(ty.clone())),
             Type::MutableSlice(Box::new(ty.clone())),
             Type::Atomic(Box::new(ty.clone())),
-            Type::Cell(Box::new(ty.clone())),
             Type::Reference {
                 mutable: false,
                 target: Box::new(ty.clone()),

@@ -19,14 +19,14 @@
     #let
     value
     Maybe?
-    (#call identity (#fn-args (value (#call Maybe?-construct (#fn-args (value 42))))))
+    (#call identity (: value (#call Maybe?-construct (: value 42))))
   )
   (
     #return
     (
       #if
-      (#call Maybe?-is-some (#fn-args (value (#clone value))))
-      (#call Maybe?-unwrap-or (#fn-args (value value) (fallback 0)))
+      (#call Maybe?-is-some (: value (#clone value)))
+      (#call Maybe?-unwrap-or (: value value : fallback 0))
       0
     )
   )

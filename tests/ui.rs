@@ -145,7 +145,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "unknown-function",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#call missing (#fn-args)))",
+            offending_line: "  (#return (#call missing (:)))",
             line_number: 2,
         },
         Case {
@@ -181,25 +181,25 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "call-arguments",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#call take (#fn-args (other 42u64))))",
+            offending_line: "  (#return (#call take (: other 42u64)))",
             line_number: 4,
         },
         Case {
             name: "call-argument-type-mismatch",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#call consume (#fn-args (first true) (value false))))",
+            offending_line: "  (#return (#call consume (: first true : value false)))",
             line_number: 3,
         },
         Case {
             name: "call-missing-argument",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#call take (#fn-args )))",
+            offending_line: "  (#return (#call take (:)))",
             line_number: 4,
         },
         Case {
             name: "call-duplicate-argument",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#call take (#fn-args (value 1u64) (value 2u64))))",
+            offending_line: "  (#return (#call take (: value 1u64 : value 2u64)))",
             line_number: 4,
         },
         Case {
@@ -224,13 +224,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "shadowed-name-type-error",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#block (#let value bool true) (#call needs-value (#fn-args (input value)))))",
+            offending_line: "  (#return (#block (#let value bool true) (#call needs-value (: input value))))",
             line_number: 4,
         },
         Case {
             name: "reordered-named-argument-error",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#call combine (#fn-args (right 1u64) (left 2u64))))",
+            offending_line: "  (#return (#call combine (: right 1u64 : left 2u64)))",
             line_number: 3,
         },
         Case {
@@ -266,8 +266,8 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "overlapping-call-borrows",
             diagnostic_code: "E4100",
-            offending_line: "    (right (#borrow value))))))",
-            line_number: 7,
+            offending_line: "  (#return (#call inspect (: left (#borrow-mut value) : right (#borrow value)))))",
+            line_number: 5,
         },
         Case {
             name: "block-reference-escape",
@@ -290,15 +290,15 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "borrow-conflict-callee-name",
             diagnostic_code: "E4100",
-            offending_line: "  (#return (#call owner (#fn-args (arg owner))))",
+            offending_line: "  (#return (#call owner (: arg owner)))",
             line_number: 5,
         },
         Case {
             name: "linear",
             diagnostic_code: "E4200",
             offending_line:
-                "  (#let resource Resource (#struct-literal Resource ((value (#cell 1u64)))))",
-            line_number: 3,
+                "  (#let resource Resource (#struct-literal Resource ((value 1u64))))",
+            line_number: 4,
         },
         Case {
             name: "unsafe",
@@ -309,13 +309,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "unsafe-external-call",
             diagnostic_code: "E4300",
-            offending_line: "  (#let result i32 (#call external-value (#fn-args (value 1i32))))",
+            offending_line: "  (#let result i32 (#call external-value (: value 1i32)))",
             line_number: 3,
         },
         Case {
             name: "unsafe-function-call",
             diagnostic_code: "E4300",
-            offending_line: "  (#return (#call answer (#fn-args))))",
+            offending_line: "  (#return (#call answer (:))))",
             line_number: 3,
         },
         Case {
@@ -388,13 +388,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "nonconstant-static",
             diagnostic_code: "E5000",
-            offending_line: "(#static VALUE u64 (#call get-value (#fn-args)))",
+            offending_line: "(#static VALUE u64 (#call get-value (:)))",
             line_number: 2,
         },
         Case {
             name: "recursive-call",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#call worker (#fn-args)))",
+            offending_line: "  (#return (#call worker (:)))",
             line_number: 2,
         },
         Case {
@@ -876,10 +876,10 @@ fn compilation_errors_render_the_offending_source_line() {
             "borrow-conflict-callee-name" => Some("owner"),
             "linear" => Some("resource"),
             "generator" | "generator-imported" => Some("(@fail)"),
-            "nonconstant-static" => Some("(#call get-value (#fn-args))"),
+            "nonconstant-static" => Some("(#call get-value (:))"),
             "call-arguments" => Some("other"),
             "call-argument-type-mismatch" => Some("false"),
-            "call-missing-argument" => Some("#fn-args"),
+            "call-missing-argument" => Some("#call"),
             "type-as-constructor" => Some("Point"),
             "aggregate-layout-overflow" => Some("(#fn main ((values (#array (#array u64 18446744073709551615) 2))) () (#return ()))"),
             "atomic-invalid-load-order" => Some("(#atomic-load (#borrow counter) #memory-release)"),

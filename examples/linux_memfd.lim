@@ -25,26 +25,21 @@
       ()))
   (#let descriptor i64
     (#unsafe (#call linux-memfd-create
-      (#fn-args (name path-memory) (flags 1u32)))))
+      (: name path-memory : flags 1u32))))
   (#let descriptor-flags i64
-    (#unsafe (#call linux-fcntl (#fn-args (fd descriptor) (command 1i32) (argument 0usize)))))
+    (#unsafe (#call linux-fcntl (: fd descriptor : command 1i32 : argument 0usize))))
   (#let written i64
-    (#unsafe (#call linux-write (#fn-args (fd descriptor)
-      (source (#ptr-offset path-memory 16usize)) (count 4usize)))))
+    (#unsafe (#call linux-write (: fd descriptor : source (#ptr-offset path-memory 16usize) : count 4usize))))
   (#let positioned-written i64
-    (#unsafe (#call linux-pwrite64 (#fn-args (fd descriptor)
-      (source (#ptr-offset path-memory 16usize))
-      (count 4usize) (offset 4i64)))))
+    (#unsafe (#call linux-pwrite64 (: fd descriptor : source (#ptr-offset path-memory 16usize) : count 4usize : offset 4i64))))
   (#let position-after-pwrite i64
-    (#call linux-lseek (#fn-args (fd descriptor) (offset 0i64) (whence 1i64))))
+    (#call linux-lseek (: fd descriptor : offset 0i64 : whence 1i64)))
   (#let seek-start i64
-    (#call linux-lseek (#fn-args (fd descriptor) (offset 0i64) (whence 0i64))))
+    (#call linux-lseek (: fd descriptor : offset 0i64 : whence 0i64)))
   (#let bytes-read i64
-    (#unsafe (#call linux-pread64 (#fn-args (fd descriptor)
-      (destination (#ptr-offset path-memory 32usize))
-      (count 4usize) (offset 4i64)))))
+    (#unsafe (#call linux-pread64 (: fd descriptor : destination (#ptr-offset path-memory 32usize) : count 4usize : offset 4i64))))
   (#let position-after-pread i64
-    (#call linux-lseek (#fn-args (fd descriptor) (offset 0i64) (whence 1i64))))
+    (#call linux-lseek (: fd descriptor : offset 0i64 : whence 1i64)))
   (#let byte-0 u8
     (#unsafe (#ptr-read (#ptr-offset path-memory 32usize))))
   (#let byte-1 u8
@@ -54,94 +49,80 @@
   (#let byte-3 u8
     (#unsafe (#ptr-read (#ptr-offset path-memory 35usize))))
   (#let file-advice i64
-    (#call linux-fadvise64 (#fn-args
-      (fd descriptor) (offset 0i64) (length 8i64) (advice 2i32))))
+    (#call linux-fadvise64 (: fd descriptor : offset 0i64 : length 8i64 : advice 2i32)))
   (#let lock-acquired i64
-    (#call linux-flock (#fn-args (fd descriptor) (operation 2i32))))
+    (#call linux-flock (: fd descriptor : operation 2i32)))
   (#let lock-released i64
-    (#call linux-flock (#fn-args (fd descriptor) (operation 8i32))))
+    (#call linux-flock (: fd descriptor : operation 8i32)))
   (#let permissions-changed i64
-    (#call linux-fchmod (#fn-args (fd descriptor) (mode 384u32))))
+    (#call linux-fchmod (: fd descriptor : mode 384u32)))
   (#let owner-changed i64
-    (#call linux-fchown (#fn-args (fd descriptor)
-      (owner (#call linux-getuid (#fn-args)))
-      (group (#call linux-getgid (#fn-args))))))
+    (#call linux-fchown (: fd descriptor : owner (#call linux-getuid (:)) : group (#call linux-getgid (:)))))
   (#let allocated i64
-    (#call linux-fallocate (#fn-args
-      (fd descriptor) (mode 0i32) (offset 8i64) (length 4i64))))
+    (#call linux-fallocate (: fd descriptor : mode 0i32 : offset 8i64 : length 4i64)))
   (#let duplicate-same-fd i64
-    (#call linux-dup2 (#fn-args (source descriptor) (destination descriptor))))
+    (#call linux-dup2 (: source descriptor : destination descriptor)))
   (#let duplicate-destination i64
-    (#call linux-dup (#fn-args (fd descriptor))))
+    (#call linux-dup (: fd descriptor)))
   (#let invalid-dup3 i64
-    (#call linux-dup3 (#fn-args
-      (source descriptor) (destination descriptor) (flags 0i32))))
+    (#call linux-dup3 (: source descriptor : destination descriptor : flags 0i32)))
   (#let duplicated i64
-    (#call linux-dup3 (#fn-args
-      (source descriptor) (destination duplicate-destination)
-      (flags 524288i32))))
+    (#call linux-dup3 (: source descriptor : destination duplicate-destination : flags 524288i32)))
   (#let duplicate-flags i64
-    (#unsafe (#call linux-fcntl (#fn-args
-      (fd duplicate-destination) (command 1i32) (argument 0usize)))))
+    (#unsafe (#call linux-fcntl (: fd duplicate-destination : command 1i32 : argument 0usize))))
   (#let duplicate-position i64
-    (#call linux-lseek (#fn-args
-      (fd duplicate-destination) (offset 0i64) (whence 1i64))))
+    (#call linux-lseek (: fd duplicate-destination : offset 0i64 : whence 1i64)))
   (#let readahead-result i64
-    (#call linux-readahead (#fn-args
-      (fd descriptor) (offset 0i64) (count 8usize))))
+    (#call linux-readahead (: fd descriptor : offset 0i64 : count 8usize)))
   (#let range-sync-result i64
-    (#call linux-sync-file-range (#fn-args
-      (fd descriptor) (offset 0i64) (length 8i64) (flags 2u32))))
+    (#call linux-sync-file-range (: fd descriptor : offset 0i64 : length 8i64 : flags 2u32)))
   (#let filesystem-sync-result i64
-    (#call linux-syncfs (#fn-args (fd descriptor))))
+    (#call linux-syncfs (: fd descriptor)))
   (#let invalid-close-range i64
-    (#call linux-close-range (#fn-args
-      (first 2u32) (last 1u32) (flags 0u32))))
+    (#call linux-close-range (: first 2u32 : last 1u32 : flags 0u32)))
   (#let duplicate-range-closed i64
-    (#call linux-close-range (#fn-args
-      (first (#as duplicate-destination u32))
-      (last (#as duplicate-destination u32)) (flags 0u32))))
+    (#call linux-close-range (: first (#as duplicate-destination u32) : last (#as duplicate-destination u32) : flags 0u32)))
   (#let duplicate-now-closed i64
-    (#call linux-close (#fn-args (fd duplicate-destination))))
+    (#call linux-close (: fd duplicate-destination)))
   (#let stat-memory (#ptr-mut i64)
     (#unsafe (#linux-syscall (#ptr-mut i64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let stat-result i64
     (#unsafe (#call linux-fstat
-      (#fn-args (fd descriptor) (metadata stat-memory)))))
+      (: fd descriptor : metadata stat-memory))))
   (#let file-size i64
     (#unsafe (#ptr-read (#ptr-offset stat-memory 6usize))))
   (#let end-before-truncate i64
-    (#call linux-lseek (#fn-args (fd descriptor) (offset 0i64) (whence 2i64))))
+    (#call linux-lseek (: fd descriptor : offset 0i64 : whence 2i64)))
   (#let truncated i64
-    (#call linux-ftruncate (#fn-args (fd descriptor) (length 2i64))))
+    (#call linux-ftruncate (: fd descriptor : length 2i64)))
   (#let end-after-truncate i64
-    (#call linux-lseek (#fn-args (fd descriptor) (offset 0i64) (whence 2i64))))
-  (#let synced i64 (#call linux-fsync (#fn-args (fd descriptor))))
+    (#call linux-lseek (: fd descriptor : offset 0i64 : whence 2i64)))
+  (#let synced i64 (#call linux-fsync (: fd descriptor)))
   (#let data-synced i64
-    (#call linux-fdatasync (#fn-args (fd descriptor))))
-  (#let closed i64 (#call linux-close (#fn-args (fd descriptor))))
+    (#call linux-fdatasync (: fd descriptor)))
+  (#let closed i64 (#call linux-close (: fd descriptor)))
   (#let path-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (path-memory 4096usize))))
   (#let stat-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (stat-memory 4096usize))))
   (#let descriptor-ok bool
     (#bool.&& (#i64.>= descriptor 0i64)
-      (#call syscall-is (#fn-args (actual descriptor-flags) (expected 1i64)))))
+      (#call syscall-is (: actual descriptor-flags : expected 1i64))))
   (#let contents-ok bool
-    (#bool.&& (#call syscall-is (#fn-args (actual written) (expected 4i64)))
-      (#bool.&& (#call syscall-is (#fn-args (actual positioned-written) (expected 4i64)))
-        (#bool.&& (#call syscall-is (#fn-args (actual position-after-pwrite) (expected 4i64)))
-          (#bool.&& (#call syscall-is (#fn-args (actual seek-start) (expected 0i64)))
-            (#bool.&& (#call syscall-is (#fn-args (actual bytes-read) (expected 4i64)))
-              (#bool.&& (#call syscall-is (#fn-args (actual position-after-pread) (expected 0i64)))
+    (#bool.&& (#call syscall-is (: actual written : expected 4i64))
+      (#bool.&& (#call syscall-is (: actual positioned-written : expected 4i64))
+        (#bool.&& (#call syscall-is (: actual position-after-pwrite : expected 4i64))
+          (#bool.&& (#call syscall-is (: actual seek-start : expected 0i64))
+            (#bool.&& (#call syscall-is (: actual bytes-read : expected 4i64))
+              (#bool.&& (#call syscall-is (: actual position-after-pread : expected 0i64))
                 (#bool.&& (#u8.== byte-0 76u8)
                   (#bool.&& (#u8.== byte-1 73u8)
                     (#bool.&& (#u8.== byte-2 77u8) (#u8.== byte-3 33u8)))))))))))
   (#let metadata-ok bool
-    (#bool.&& (#call syscall-is (#fn-args (actual stat-result) (expected 0i64)))
-      (#bool.&& (#call syscall-is (#fn-args (actual file-size) (expected 12i64)))
-        (#call syscall-is (#fn-args (actual end-before-truncate) (expected 12i64))))))
+    (#bool.&& (#call syscall-is (: actual stat-result : expected 0i64))
+      (#bool.&& (#call syscall-is (: actual file-size : expected 12i64))
+        (#call syscall-is (: actual end-before-truncate : expected 12i64)))))
   (#let descriptor-range-ok bool
     (#bool.&& (#i64.>= duplicate-destination 0i64)
       (#bool.&& (#i64.== invalid-dup3 -22i64)
@@ -155,20 +136,20 @@
                       (#bool.&& (#i64.== duplicate-range-closed 0i64)
                         (#i64.== duplicate-now-closed -9i64))))))))))))
   (#let updates-ok bool
-    (#bool.&& (#call syscall-is (#fn-args (actual file-advice) (expected 0i64)))
-      (#bool.&& (#call syscall-is (#fn-args (actual lock-acquired) (expected 0i64)))
-        (#bool.&& (#call syscall-is (#fn-args (actual lock-released) (expected 0i64)))
-          (#bool.&& (#call syscall-is (#fn-args (actual permissions-changed) (expected 0i64)))
-            (#bool.&& (#call syscall-is (#fn-args (actual owner-changed) (expected 0i64)))
-              (#bool.&& (#call syscall-is (#fn-args (actual allocated) (expected 0i64)))
-                (#bool.&& (#call syscall-is (#fn-args (actual duplicate-same-fd) (expected descriptor)))
-                  (#bool.&& (#call syscall-is (#fn-args (actual truncated) (expected 0i64)))
-                    (#bool.&& (#call syscall-is (#fn-args (actual end-after-truncate) (expected 2i64)))
-                      (#bool.&& (#call syscall-is (#fn-args (actual synced) (expected 0i64)))
-                        (#bool.&& (#call syscall-is (#fn-args (actual data-synced) (expected 0i64)))
-                          (#bool.&& (#call syscall-is (#fn-args (actual closed) (expected 0i64)))
-                            (#bool.&& (#call syscall-is (#fn-args (actual path-unmapped) (expected 0i64)))
-                              (#call syscall-is (#fn-args (actual stat-unmapped) (expected 0i64)))))))))))))))))
+    (#bool.&& (#call syscall-is (: actual file-advice : expected 0i64))
+      (#bool.&& (#call syscall-is (: actual lock-acquired : expected 0i64))
+        (#bool.&& (#call syscall-is (: actual lock-released : expected 0i64))
+          (#bool.&& (#call syscall-is (: actual permissions-changed : expected 0i64))
+            (#bool.&& (#call syscall-is (: actual owner-changed : expected 0i64))
+              (#bool.&& (#call syscall-is (: actual allocated : expected 0i64))
+                (#bool.&& (#call syscall-is (: actual duplicate-same-fd : expected descriptor))
+                  (#bool.&& (#call syscall-is (: actual truncated : expected 0i64))
+                    (#bool.&& (#call syscall-is (: actual end-after-truncate : expected 2i64))
+                      (#bool.&& (#call syscall-is (: actual synced : expected 0i64))
+                        (#bool.&& (#call syscall-is (: actual data-synced : expected 0i64))
+                          (#bool.&& (#call syscall-is (: actual closed : expected 0i64))
+                            (#bool.&& (#call syscall-is (: actual path-unmapped : expected 0i64))
+                              (#call syscall-is (: actual stat-unmapped : expected 0i64))))))))))))))))
   (#return
     (#if (#bool.&& descriptor-ok (#bool.&& contents-ok
       (#bool.&& metadata-ok (#bool.&& descriptor-range-ok updates-ok))))

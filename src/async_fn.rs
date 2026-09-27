@@ -116,7 +116,7 @@ fn types(bindings: &[Binding]) -> String {
 fn named_arguments(bindings: &[Binding]) -> String {
     bindings
         .iter()
-        .map(|binding| format!("({} {})", binding.name, binding.name))
+        .map(|binding| format!(": {} {}", binding.name, binding.name))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -290,7 +290,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         ));
         let continuation = if let Some(next) = stages.get(index + 1) {
             format!(
-                "{} (#return (#call {poll}-child-{} (#fn-args {} (lim.async.task {}) (waker waker))))",
+                "{} (#return (#call {poll}-child-{} ({} : lim.async.task {} : waker waker)))",
                 next.prefix.join(" "),
                 index + 1,
                 named_arguments(&next.captures),
@@ -309,11 +309,11 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         helpers.push(format!(
             "(#fn {child_helper} ({} (lim.async.task {}) (waker (#ref {waker}))) {poll_result}
                (#return (#match
-                 (#call {} (#fn-args (task lim.async.task) (waker waker)))
+                 (#call {} (: task lim.async.task : waker waker))
                  (#case ({} lim.async.child)
                    ({pending} ({await_variant} {} lim.async.child)))
                  (#case ({} lim.async.value)
-                   (#call {resume} (#fn-args {} ({} lim.async.value) (waker waker)))))))",
+                   (#call {resume} ({} : {} lim.async.value : waker waker))))))",
             signature(&stage.captures),
             stage.child,
             stage.poll,
@@ -325,14 +325,14 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         ));
         await_cases.push(format!(
             "(#case ({await_variant} {} lim.async.child)
-               (#call {child_helper} (#fn-args {} (lim.async.task lim.async.child) (waker waker))))",
+               (#call {child_helper} ({} : lim.async.task lim.async.child : waker waker)))",
             arguments(&stage.captures),
             named_arguments(&stage.captures),
         ));
     }
     let first = &stages[0];
     let start_case = format!(
-        "(#case ({start_variant} {}) (#call {start_helper} (#fn-args {} (waker waker))))",
+        "(#case ({start_variant} {}) (#call {start_helper} ({} : waker waker)))",
         arguments(&params),
         named_arguments(&params),
     );
@@ -344,7 +344,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
          {}
          (#fn {start_helper} ({} (waker (#ref {waker}))) {poll_result}
            {}
-           (#return (#call {poll}-child-0 (#fn-args {} (lim.async.task {}) (waker waker)))))
+           (#return (#call {poll}-child-0 ({} : lim.async.task {} : waker waker))))
          (#fn {poll} ((task {frame}) (waker (#ref {waker}))) {poll_result}
            (#return (#match task {start_case} {})))",
         variants.join(" "),

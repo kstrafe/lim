@@ -12,6 +12,10 @@ fn example_source() -> String {
             "../library/local_waker.lim",
             &format!("{}/library/local_waker.lim", env!("CARGO_MANIFEST_DIR")),
         )
+        .replace(
+            "../library/cell.lim",
+            &format!("{}/library/cell.lim", env!("CARGO_MANIFEST_DIR")),
+        )
 }
 
 fn example_without_cancel_work() -> String {
@@ -19,7 +23,7 @@ fn example_without_cancel_work() -> String {
     let (prefix, rest) = original.split_once("(#fn cancel-work").unwrap();
     let (_, main) = rest.split_once("(#fn main () u64").unwrap();
     let main = format!("(#fn main () u64{main}").replace(
-        "  (#call cancel-work (#fn-args\n    (task (#call work (#fn-args (offset 99u64))))))\n",
+        "  (#call cancel-work (: task (#call work (: offset 99u64))))\n",
         "",
     );
     format!("{prefix}{main}")
@@ -79,21 +83,18 @@ fn async_function_can_complete_without_suspension() {
     let source = format!(
         "{} (#fn main () u64
            (#let executor Executor
-             (#struct-literal Executor ((notifications (#cell 0u64)))))
+             (#struct-literal Executor ((notifications
+               (#call CellU64-create (: value 0u64))))))
            (#let waker LocalWaker
-             (#call local-waker-create (#fn-args
-               (executor (#borrow executor))
-               (metadata (#struct-literal WakeMetadata ((amount 1u64)))))))
+             (#call local-waker-create (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
            (#let result WorkPoll
-             (#call work-poll (#fn-args
-               (task (#call work (#fn-args (offset 1u64))))
-               (waker (#borrow waker)))))
+             (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
            (#let value u64
              (#match result
                (#case (WorkReady value) value)
                (#case (WorkPending task)
                  (#block (#forget task) (#unreachable)))))
-           (#call local-waker-destroy (#fn-args (waker waker)))
+           (#call local-waker-destroy (: waker waker))
            (#forget executor)
            (#return value))",
         prefix.replace(
@@ -164,8 +165,7 @@ fn async_function_accepts_no_arguments_or_captures() {
       (#fn main () u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
         (#let outcome Poll
-          (#call poll (#fn-args
-            (task (#call work (#fn-args))) (waker (#borrow waker)))))
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
         (#let result u64
           (#match outcome
             (#case (Ready value) value)
@@ -201,30 +201,27 @@ fn async_function_can_suspend_at_each_await() {
     let source = format!(
         "{prefix} (#fn main () u64
            (#let executor Executor
-             (#struct-literal Executor ((notifications (#cell 0u64)))))
+             (#struct-literal Executor ((notifications
+               (#call CellU64-create (: value 0u64))))))
            (#let waker LocalWaker
-             (#call local-waker-create (#fn-args
-               (executor (#borrow executor))
-               (metadata (#struct-literal WakeMetadata ((amount 1u64)))))))
+             (#call local-waker-create (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
            (#let first WorkPoll
-             (#call work-poll (#fn-args
-               (task (#call work (#fn-args (offset 1u64))))
-               (waker (#borrow waker)))))
+             (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
            (#let-else (WorkPending first-task) WorkPoll first (#unreachable))
            (#let second WorkPoll
-             (#call work-poll (#fn-args
-               (task first-task) (waker (#borrow waker)))))
+             (#call work-poll (: task first-task : waker (#borrow waker))))
            (#let-else (WorkPending second-task) WorkPoll second (#unreachable))
            (#let third WorkPoll
-             (#call work-poll (#fn-args
-               (task second-task) (waker (#borrow waker)))))
+             (#call work-poll (: task second-task : waker (#borrow waker))))
            (#let value u64
              (#match third
                (#case (WorkReady result) result)
                (#case (WorkPending task)
                  (#block (#forget task) (#unreachable)))))
-           (#call local-waker-destroy (#fn-args (waker waker)))
-           (#let notifications u64 (#cell-get (#get executor notifications)))
+           (#call local-waker-destroy (: waker waker))
+           (#let executor-ref (#ref Executor) (#borrow executor))
+           (#let notifications u64 (#call CellU64-get (: cell (#borrow (#get executor-ref notifications)))))
+           (#drop executor-ref)
            (#forget executor)
            (#return (#u64.+.wrap value notifications)))"
     );
@@ -238,19 +235,18 @@ fn async_function_pending_state_can_be_cancelled_explicitly() {
     let source = format!(
         "{prefix} (#fn main () u64
            (#let executor Executor
-             (#struct-literal Executor ((notifications (#cell 0u64)))))
+             (#struct-literal Executor ((notifications
+               (#call CellU64-create (: value 0u64))))))
            (#let waker LocalWaker
-             (#call local-waker-create (#fn-args
-               (executor (#borrow executor))
-               (metadata (#struct-literal WakeMetadata ((amount 1u64)))))))
+             (#call local-waker-create (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
            (#let first WorkPoll
-             (#call work-poll (#fn-args
-               (task (#call work (#fn-args (offset 1u64))))
-               (waker (#borrow waker)))))
+             (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
            (#let-else (WorkPending pending) WorkPoll first (#unreachable))
-           (#call cancel-work (#fn-args (task pending)))
-           (#call local-waker-destroy (#fn-args (waker waker)))
-           (#let notifications u64 (#cell-get (#get executor notifications)))
+           (#call cancel-work (: task pending))
+           (#call local-waker-destroy (: waker waker))
+           (#let executor-ref (#ref Executor) (#borrow executor))
+           (#let notifications u64 (#call CellU64-get (: cell (#borrow (#get executor-ref notifications)))))
+           (#drop executor-ref)
            (#forget executor)
            (#return notifications))"
     );

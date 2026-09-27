@@ -27,7 +27,7 @@
     #let
     point
     Point
-    (#call make_point (#fn-args ))
+    (#call make_point (:))
   )
   (
     #return

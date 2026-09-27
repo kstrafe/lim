@@ -6,4 +6,4 @@
   (#return 42u64))
 
 (#fn main () u64
-  (#return (#call classify (#fn-args (value Green)))))
+  (#return (#call classify (: value Green))))

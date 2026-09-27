@@ -56,8 +56,8 @@ fn aliases_and_references_resolve_field_identity_to_its_owner() {
         (#let item LeftAlias (#struct-literal Left ((value 42u64))))
         (#let right Right (#struct-literal Right ((value 1u64))))
         (#return (#u64.+.wrap
-          (#call read (#fn-args (item (#borrow item))))
-          (#call read-right (#fn-args (item (#borrow right)))))))";
+          (#call read (: item (#borrow item)))
+          (#call read-right (: item (#borrow right))))))";
     let dump = checked_dump(source);
     assert!(
         dump.contains("Declaration(Field(FieldId { owner: AggregateId(0), index: 0 }))"),
@@ -159,7 +159,7 @@ fn imported_static_access_retains_its_imported_source_location() {
     let scratch = support::Scratch::new("imported-static-unsafe");
     let module = "(#static TOTAL u64 40u64)\n(#fn read () u64 (#return TOTAL))";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let root = "(#import \"module.lim\")\n(#fn main () u64 (#return (#call read (#fn-args))))";
+    let root = "(#import \"module.lim\")\n(#fn main () u64 (#return (#call read (:))))";
     let error = lim::compile_source_to_assembly(
         root,
         &scratch.path().join("main.lim"),
@@ -184,7 +184,7 @@ fn generated_static_access_still_requires_unsafe() {
     let source =
         "(#gn make (name) `((#static TOTAL u64 1u64) (#fn ,name () u64 (#return TOTAL))))\n\
       (@make read)\n\
-      (#fn main () u64 (#return (#call read (#fn-args))))";
+      (#fn main () u64 (#return (#call read (:))))";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("generated-static.lim"),
@@ -219,7 +219,7 @@ fn imported_declaration_nodes_retain_source_spans_and_deterministic_ids() {
       (#fn imported () u64\n\
         (#return (#u64.+.wrap (#get (#struct-literal Record ((value 40u64))) value) (#unsafe BASE))))";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let root = "(#import \"module.lim\")\n(#fn main () u64 (#return (#call imported (#fn-args))))";
+    let root = "(#import \"module.lim\")\n(#fn main () u64 (#return (#call imported (:))))";
     let path = scratch.path().join("main.lim");
     let parse_dump = || {
         let program = lim::parse_program_from_path(root, &path).expect("parse imported source");

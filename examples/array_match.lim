@@ -5,4 +5,4 @@
       (#case _ 0))))
 
 (#fn main () u64
-  (#return (#call classify (#fn-args (value (#array (#array u64 3) 10 32 12))))))
+  (#return (#call classify (: value (#array (#array u64 3) 10 32 12)))))

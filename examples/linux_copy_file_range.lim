@@ -28,30 +28,18 @@
         (#ptr-write (#ptr-offset offsets 1usize) 0i64)
         ())))
   (#let source-fd i64
-    (#unsafe (#call linux-memfd-create (#fn-args
-      (name memory) (flags 1u32)))))
+    (#unsafe (#call linux-memfd-create (: name memory : flags 1u32))))
   (#let destination-fd i64
-    (#unsafe (#call linux-memfd-create (#fn-args
-      (name (#ptr-offset memory 8usize)) (flags 1u32)))))
+    (#unsafe (#call linux-memfd-create (: name (#ptr-offset memory 8usize) : flags 1u32))))
   (#let payload-written i64
-    (#unsafe (#call linux-write (#fn-args
-      (fd source-fd) (source (#ptr-offset memory 32usize)) (count 8usize)))))
+    (#unsafe (#call linux-write (: fd source-fd : source (#ptr-offset memory 32usize) : count 8usize))))
   (#let copied i64
-    (#unsafe (#call linux-copy-file-range (#fn-args
-      (input source-fd)
-      (input-offset offsets)
-      (output destination-fd)
-      (output-offset (#ptr-offset offsets 1usize))
-      (count 8usize)
-      (flags 0u32)))))
+    (#unsafe (#call linux-copy-file-range (: input source-fd : input-offset offsets : output destination-fd : output-offset (#ptr-offset offsets 1usize) : count 8usize : flags 0u32))))
   (#let copied-input-offset i64 (#unsafe (#ptr-read offsets)))
   (#let copied-output-offset i64
     (#unsafe (#ptr-read (#ptr-offset offsets 1usize))))
   (#let payload-read i64
-    (#unsafe (#call linux-read (#fn-args
-      (fd destination-fd)
-      (destination (#ptr-offset memory 64usize))
-      (count 8usize)))))
+    (#unsafe (#call linux-read (: fd destination-fd : destination (#ptr-offset memory 64usize) : count 8usize))))
   (#let byte-0 u8 (#unsafe (#ptr-read (#ptr-offset memory 64usize))))
   (#let byte-1 u8 (#unsafe (#ptr-read (#ptr-offset memory 65usize))))
   (#let byte-2 u8 (#unsafe (#ptr-read (#ptr-offset memory 66usize))))
@@ -60,9 +48,9 @@
   (#let byte-5 u8 (#unsafe (#ptr-read (#ptr-offset memory 69usize))))
   (#let byte-6 u8 (#unsafe (#ptr-read (#ptr-offset memory 70usize))))
   (#let byte-7 u8 (#unsafe (#ptr-read (#ptr-offset memory 71usize))))
-  (#let source-closed i64 (#call linux-close (#fn-args (fd source-fd))))
+  (#let source-closed i64 (#call linux-close (: fd source-fd)))
   (#let destination-closed i64
-    (#call linux-close (#fn-args (fd destination-fd))))
+    (#call linux-close (: fd destination-fd)))
   (#let memory-unmapped i64
     (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
   (#let offsets-unmapped i64

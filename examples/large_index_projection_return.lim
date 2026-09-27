@@ -16,5 +16,5 @@
   (#return (#index (#get value payload) 1u64)))
 
 (#fn main () u64
-  (#let value (#array u64 7) (#call nested-project (#fn-args )))
+  (#let value (#array u64 7) (#call nested-project (:)))
   (#return (#index value 6u64)))

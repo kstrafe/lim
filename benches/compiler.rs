@@ -256,11 +256,11 @@ fn main() {
     let mut chain = String::from("(#fn step-0 () u64 (#return 42u64))\n");
     for index in 1..64 {
         chain.push_str(&format!(
-            "(#fn step-{index} () u64 (#return (#if true (#call step-{} (#fn-args)) 0u64)))\n",
+            "(#fn step-{index} () u64 (#return (#if true (#call step-{} (:)) 0u64)))\n",
             index - 1
         ));
     }
-    chain.push_str("(#fn main () u64 (#return (#call step-63 (#fn-args))))");
+    chain.push_str("(#fn main () u64 (#return (#call step-63 (:))))");
     let generated = generator_program(256);
     for (name, source, expected) in [
         (

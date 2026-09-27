@@ -39,7 +39,7 @@
          (#block
            (#set lim.executor.waiting true)
            (#call ,(#gn-call task-sixth job)
-             (#fn-args (task lim.executor.task)))))
+             (: task lim.executor.task))))
        (#case (,(#gn-call task-fifth job) lim.executor.value)
          (,(#gn-call task-fifth job) lim.executor.value)))))
 
@@ -78,7 +78,7 @@
       `(,(#gn-call task-third names)
          (,(#gn-call task-second continuation)
            (#call ,(#gn-call task-third continuation)
-             (#fn-args (value lim.async.value)))))
+             (: value lim.async.value))))
       (#gn-error "async continuation must be (#return) or (#then State function)"))))
 
 (#gn-fn async-poll-case (names stage)
@@ -86,7 +86,7 @@
     `(#case (,(#gn-first stage) lim.async.task)
        (#match
          (#call ,(#gn-call task-fifth (#gn-call task-second stage))
-           (#fn-args (task lim.async.task)))
+           (: task lim.async.task))
          (#case (,(#gn-call task-third (#gn-call task-second stage)) lim.async.task)
            (,(#gn-call task-third names) (,(#gn-first stage) lim.async.task)))
          (#case (,(#gn-call task-fourth (#gn-call task-second stage)) lim.async.value)
@@ -107,7 +107,7 @@
     `(#case (,(#gn-first stage) lim.async.task)
        (#match
          (#call ,(#gn-call task-fifth (#gn-call task-second stage))
-           (#fn-args (task lim.async.task) (waker waker)))
+           (: task lim.async.task : waker waker))
          (#case (,(#gn-call task-third (#gn-call task-second stage)) lim.async.task)
            (,(#gn-call task-third names) (,(#gn-first stage) lim.async.task)))
          (#case (,(#gn-call task-fourth (#gn-call task-second stage)) lim.async.value)
@@ -126,7 +126,7 @@
 ;; before returning and releasing the state's retained borrows.
 (#gn-fn task-cancel-case (entry)
   `(#case (,(#gn-first entry) lim.cancel.task)
-     (#call ,(#gn-call task-second entry) (#fn-args (task lim.cancel.task)))))
+     (#call ,(#gn-call task-second entry) (: task lim.cancel.task))))
 
 (#gn task-cancel (cancel task states)
   `((#fn ,cancel ((task ,task)) ()

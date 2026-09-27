@@ -6,4 +6,4 @@
   (#return value))
 
 (#fn main () u64
-  (#return (#index (#index (#call nested-values (#fn-args )) 1) 0)))
+  (#return (#index (#index (#call nested-values (:)) 1) 0)))

@@ -435,7 +435,7 @@ mod tests {
                (#forget left) (#forget right) (#return 0u64))
              (#fn main () u64
                (#let-mut value u64 1u64)
-               (#return (#call inspect (#fn-args {args}))))"
+               (#return (#call inspect ( {args}))))"
         )
     }
 
@@ -460,8 +460,7 @@ mod tests {
             (#return (#u64.+.wrap (#deref left) (#deref right))))
           (#fn main () u64
             (#let value u64 1u64)
-            (#return (#call inspect (#fn-args
-              (left (#borrow value)) (right (#borrow value))))))";
+            (#return (#call inspect (: left (#borrow value) : right (#borrow value)))))";
         let program = crate::parse_program(source).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
@@ -474,15 +473,13 @@ mod tests {
           (#fn main () u64
             (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
             (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
-            (#return (#call inspect (#fn-args
-              (left (#borrow-mut (#get pair-ref left)))
-              (right (#borrow (#get pair-ref right)))))))";
+            (#return (#call inspect (: left (#borrow-mut (#get pair-ref left)) : right (#borrow (#get pair-ref right))))))";
         let program = crate::parse_program(source).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
 
         let overlapping = source.replace(
-            "(right (#borrow (#get pair-ref right)))",
-            "(right (#borrow (#get pair-ref left)))",
+            ": right (#borrow (#get pair-ref right))",
+            ": right (#borrow (#get pair-ref left))",
         );
         let program = crate::parse_program(&overlapping).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
@@ -497,9 +494,7 @@ mod tests {
             (#drop item) (#drop right) (#return 0u64))
           (#fn main () u64
             (#let-mut value u64 1u64)
-            (#return (#call inspect (#fn-args
-              (holder (#struct-literal Holder ((item (#borrow value)))))
-              (right (#borrow-mut value))))))";
+            (#return (#call inspect (: holder (#struct-literal Holder ((item (#borrow value)))) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
             .err()
@@ -516,9 +511,7 @@ mod tests {
           (#fn main () u64
             (#let-mut first u64 1u64)
             (#let-mut second u64 2u64)
-            (#return (#call inspect (#fn-args
-              (left (#if true (#borrow-mut first) (#borrow-mut second)))
-              (right (#borrow second))))))";
+            (#return (#call inspect (: left (#if true (#borrow-mut first) (#borrow-mut second)) : right (#borrow second)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
         assert!(error.contains("overlapping borrows"), "{error}");
@@ -528,7 +521,7 @@ mod tests {
                 "(#let-mut second u64 2u64)",
                 "(#let-mut second u64 2u64) (#let-mut third u64 3u64)",
             )
-            .replace("(right (#borrow second))", "(right (#borrow third))");
+            .replace(": right (#borrow second)", ": right (#borrow third)");
         let program = crate::parse_program(&disjoint).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
@@ -540,9 +533,7 @@ mod tests {
             (#drop item) (#drop right) (#return 0u64))
           (#fn main () u64
             (#let-mut value u64 1u64)
-            (#return (#call inspect (#fn-args
-              (left (#tuple (#borrow value)))
-              (right (#borrow-mut value))))))";
+            (#return (#call inspect (: left (#tuple (#borrow value)) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
         assert!(error.contains("overlapping borrows"), "{error}");
@@ -555,9 +546,7 @@ mod tests {
             (#drop item) (#drop right) (#return 0u64))
           (#fn main () u64
             (#let-mut value u64 1u64)
-            (#return (#call inspect (#fn-args
-              (left (#array (#array (#ref u64) 1) (#borrow value)))
-              (right (#borrow-mut value))))))";
+            (#return (#call inspect (: left (#array (#array (#ref u64) 1) (#borrow value)) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
         assert!(error.contains("overlapping borrows"), "{error}");
@@ -571,9 +560,7 @@ mod tests {
             (#drop item) (#drop right) (#return 0u64))
           (#fn main () u64
             (#let-mut value u64 1u64)
-            (#return (#call inspect (#fn-args
-              (left (Has (#borrow value)))
-              (right (#borrow-mut value))))))";
+            (#return (#call inspect (: left (Has (#borrow value)) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
         assert!(error.contains("overlapping borrows"), "{error}");
@@ -586,11 +573,9 @@ mod tests {
           (#fn main () u64
             (#let-mut first u64 1u64)
             (#let-mut second u64 2u64)
-            (#return (#call inspect (#fn-args
-              (left (#match true
+            (#return (#call inspect (: left (#match true
                 (#case true (#borrow first))
-                (#case false (#borrow second))))
-              (right (#borrow-mut first))))))";
+                (#case false (#borrow second))) : right (#borrow-mut first)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
         assert!(error.contains("overlapping borrows"), "{error}");
@@ -602,9 +587,7 @@ mod tests {
             (#drop left) (#drop right) (#return 0u64))
           (#fn main () u64
             (#let-mut value u64 1u64)
-            (#return (#call inspect (#fn-args
-              (left (#block (#let view (#ref u64) (#borrow value)) view))
-              (right (#borrow-mut value))))))";
+            (#return (#call inspect (: left (#block (#let view (#ref u64) (#borrow value)) view) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
             .err()
@@ -622,11 +605,9 @@ mod tests {
             (#drop left) (#drop right) (#return 0u64))
           (#fn main () u64
             (#let-mut value u64 1u64)
-            (#return (#call inspect (#fn-args
-              (left (#block
+            (#return (#call inspect (: left (#block
                 (#let-mut view (#ref u64) (#borrow value))
-                view))
-              (right (#borrow-mut value))))))";
+                view) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
             .err()
@@ -640,7 +621,7 @@ mod tests {
                 "(#let-mut value u64 1u64)",
                 "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
             )
-            .replace("(right (#borrow-mut value))", "(right (#borrow-mut other))");
+            .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
@@ -689,8 +670,7 @@ mod tests {
           (#fn main () u64
             (#let-mut value u64 1u64)
             (#let view (#ref u64) (#borrow value))
-            (#return (#call inspect (#fn-args
-              (left view) (right (#borrow-mut value))))))";
+            (#return (#call inspect (: left view : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
             .err()
@@ -706,7 +686,7 @@ mod tests {
                 "(#let-mut value u64 1u64)",
                 "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
             )
-            .replace("(right (#borrow-mut value))", "(right (#borrow-mut other))");
+            .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
@@ -748,8 +728,7 @@ mod tests {
             (#let view (#ref-mut u64)
               (#if flag (#borrow-mut left) (#borrow-mut right)))
             (#let-mut third u64 3u64)
-            (#return (#call inspect (#fn-args
-              (first view) (second (#borrow third))))))";
+            (#return (#call inspect (: first view : second (#borrow third)))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];

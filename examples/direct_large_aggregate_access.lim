@@ -13,5 +13,5 @@
 (#fn main () u64
   (#return
     (#u64.+.wrap
-      (#get (#call make-tuple (#fn-args )) 6)
-      (#get (#call make-struct (#fn-args )) g))))
+      (#get (#call make-tuple (:)) 6)
+      (#get (#call make-struct (:)) g))))

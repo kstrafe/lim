@@ -3,21 +3,15 @@
 ; This executable only reapplies its current identity. Never use it as setuid.
 ; SAFETY: memory supplies six exclusively writable u32 slots.
 (#unsafe-fn identity-snapshot ((memory (#ptr-mut u32))) ()
-  (#assert (#i64.== (#unsafe (#call linux-getresuid (#fn-args
-    (real memory)
-    (effective (#unsafe (#ptr-offset memory 1usize)))
-    (saved (#unsafe (#ptr-offset memory 2usize)))))) 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-getresgid (#fn-args
-    (real (#unsafe (#ptr-offset memory 3usize)))
-    (effective (#unsafe (#ptr-offset memory 4usize)))
-    (saved (#unsafe (#ptr-offset memory 5usize)))))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-getresuid (: real memory : effective (#unsafe (#ptr-offset memory 1usize)) : saved (#unsafe (#ptr-offset memory 2usize))))) 0i64))
+  (#assert (#i64.== (#unsafe (#call linux-getresgid (: real (#unsafe (#ptr-offset memory 3usize)) : effective (#unsafe (#ptr-offset memory 4usize)) : saved (#unsafe (#ptr-offset memory 5usize))))) 0i64))
   (#return ()))
 
 (#fn main () u64
   (#let memory (#ptr-mut u32)
     (#unsafe (#linux-syscall (#ptr-mut u32) LINUX-SYS-MMAP
       (0usize 4096usize 3u32 34u32 -1i64 0i64))))
-  (#unsafe (#call identity-snapshot (#fn-args (memory memory))))
+  (#unsafe (#call identity-snapshot (: memory memory)))
   (#let uid u32 (#unsafe (#ptr-read memory)))
   (#let gid u32 (#unsafe (#ptr-read (#ptr-offset memory 3usize))))
   ; Check preconditions before calling setters: no differing saved/effective IDs.
@@ -26,25 +20,25 @@
   (#for-range (word usize) 4usize 6usize
     (#assert (#u32.== gid (#unsafe (#ptr-read (#ptr-offset memory word))))))
   ; Invalid all-ones filesystem IDs query the old ID without changing it.
-  (#let fsuid i64 (#call linux-setfsuid (#fn-args (uid 4294967295u32))))
-  (#let fsgid i64 (#call linux-setfsgid (#fn-args (gid 4294967295u32))))
+  (#let fsuid i64 (#call linux-setfsuid (: uid 4294967295u32)))
+  (#let fsgid i64 (#call linux-setfsgid (: gid 4294967295u32)))
   (#assert (#i64.== fsuid (#as uid i64)))
   (#assert (#i64.== fsgid (#as gid i64)))
-  (#assert (#i64.== (#call linux-setuid (#fn-args (uid uid))) 0i64))
-  (#assert (#i64.== (#call linux-setgid (#fn-args (gid gid))) 0i64))
-  (#assert (#i64.== (#call linux-setreuid (#fn-args (real 4294967295u32) (effective 4294967295u32))) 0i64))
-  (#assert (#i64.== (#call linux-setregid (#fn-args (real 4294967295u32) (effective 4294967295u32))) 0i64))
-  (#assert (#i64.== (#call linux-setresuid (#fn-args (real 4294967295u32) (effective 4294967295u32) (saved 4294967295u32))) 0i64))
-  (#assert (#i64.== (#call linux-setresgid (#fn-args (real 4294967295u32) (effective 4294967295u32) (saved 4294967295u32))) 0i64))
+  (#assert (#i64.== (#call linux-setuid (: uid uid)) 0i64))
+  (#assert (#i64.== (#call linux-setgid (: gid gid)) 0i64))
+  (#assert (#i64.== (#call linux-setreuid (: real 4294967295u32 : effective 4294967295u32)) 0i64))
+  (#assert (#i64.== (#call linux-setregid (: real 4294967295u32 : effective 4294967295u32)) 0i64))
+  (#assert (#i64.== (#call linux-setresuid (: real 4294967295u32 : effective 4294967295u32 : saved 4294967295u32)) 0i64))
+  (#assert (#i64.== (#call linux-setresgid (: real 4294967295u32 : effective 4294967295u32 : saved 4294967295u32)) 0i64))
   ; setuid/setgid reject all-ones rather than treating it as "unchanged".
-  (#assert (#i64.== (#call linux-setuid (#fn-args (uid 4294967295u32))) -22i64))
-  (#assert (#i64.== (#call linux-setgid (#fn-args (gid 4294967295u32))) -22i64))
-  (#assert (#i64.== (#call linux-setfsuid (#fn-args (uid uid))) fsuid))
-  (#assert (#i64.== (#call linux-setfsgid (#fn-args (gid gid))) fsgid))
-  (#assert (#i64.== (#call linux-setfsuid (#fn-args (uid 4294967295u32))) fsuid))
-  (#assert (#i64.== (#call linux-setfsgid (#fn-args (gid 4294967295u32))) fsgid))
+  (#assert (#i64.== (#call linux-setuid (: uid 4294967295u32)) -22i64))
+  (#assert (#i64.== (#call linux-setgid (: gid 4294967295u32)) -22i64))
+  (#assert (#i64.== (#call linux-setfsuid (: uid uid)) fsuid))
+  (#assert (#i64.== (#call linux-setfsgid (: gid gid)) fsgid))
+  (#assert (#i64.== (#call linux-setfsuid (: uid 4294967295u32)) fsuid))
+  (#assert (#i64.== (#call linux-setfsgid (: gid 4294967295u32)) fsgid))
   (#let after (#ptr-mut u32) (#unsafe (#ptr-offset memory 6usize)))
-  (#unsafe (#call identity-snapshot (#fn-args (memory after))))
+  (#unsafe (#call identity-snapshot (: memory after)))
   (#for-range (word usize) 0usize 6usize
     (#assert (#u32.==
       (#unsafe (#ptr-read (#ptr-offset memory word)))
@@ -53,8 +47,6 @@
     (memory 4096usize))) 0i64))
   (#let letter u8 85u8)
   (#let newline u8 10u8)
-  (#assert (#i64.== (#call linux-write-byte (#fn-args
-    (source (#borrow letter)))) 1i64))
-  (#assert (#i64.== (#call linux-write-byte (#fn-args
-    (source (#borrow newline)))) 1i64))
+  (#assert (#i64.== (#call linux-write-byte (: source (#borrow letter))) 1i64))
+  (#assert (#i64.== (#call linux-write-byte (: source (#borrow newline))) 1i64))
   (#return 42u64))

@@ -41,10 +41,10 @@
     #let
     value
     (#tuple u64 f32)
-    (#call make (#fn-args ))
+    (#call make (:))
   )
   (
     #return
-    (#call consume (#fn-args (value value)))
+    (#call consume (: value value))
   )
 )

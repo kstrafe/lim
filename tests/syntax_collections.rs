@@ -91,7 +91,8 @@ fn cfg_selection_and_external_prefixes_apply_before_freezing() {
       (#fn value () u64 (#return (#match (Stable 42u64) (#case (Stable n) n) (#case _ 0u64))))",
     )
     .unwrap();
-    let source = "(#import-external \"module.lim\" ext-) (#fn main () u64 (#return (#call ext-value (#fn-args))))";
+    let source =
+        "(#import-external \"module.lim\" ext-) (#fn main () u64 (#return (#call ext-value (:))))";
     let mut config = lim::CompileConfig::default();
     config.set("extra", "no");
     let first = lim::compile_source_to_assembly(

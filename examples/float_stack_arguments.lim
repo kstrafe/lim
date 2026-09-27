@@ -6,4 +6,4 @@
 
 (#fn main () u64
   (#return
-    (#call ninth (#fn-args (first 1.0f64) (second 2.0f64) (third 3.0f64) (fourth 4.0f64) (fifth 5.0f64) (sixth 6.0f64) (seventh 7.0f64) (eighth 8.0f64) (ninth 9.0f64)))))
+    (#call ninth (: first 1.0f64 : second 2.0f64 : third 3.0f64 : fourth 4.0f64 : fifth 5.0f64 : sixth 6.0f64 : seventh 7.0f64 : eighth 8.0f64 : ninth 9.0f64))))

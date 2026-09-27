@@ -2,7 +2,7 @@
   (#return (#unreachable)))
 
 (#fn choose ((condition bool)) u64
-  (#return (#if condition 42 (#call abort (#fn-args )))))
+  (#return (#if condition 42 (#call abort (:)))))
 
 (#fn main () u64
-  (#return (#call choose (#fn-args (condition false)))))
+  (#return (#call choose (: condition false))))

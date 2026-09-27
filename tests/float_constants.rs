@@ -51,7 +51,7 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
     );
     for invalid in [
         "(#const A f64 B) (#const B f64 A)",
-        "(#fn value () f64 (#return 1.0f64)) (#const A f64 (#call value (#fn-args)))",
+        "(#fn value () f64 (#return 1.0f64)) (#const A f64 (#call value (:)))",
     ] {
         let error = lim::compile_source_to_assembly(
             invalid,

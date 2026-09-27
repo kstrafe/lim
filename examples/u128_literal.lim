@@ -15,7 +15,7 @@
     #return
     (
       #as
-      (#call make (#fn-args ))
+      (#call make (:))
       u64
     )
   )
