@@ -127,7 +127,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         || !matches!(invocation[0], Expr::At)
         || !matches!(&invocation[1], Expr::Symbol(name) if name == "async-fn")
     {
-        return Err("@async-fn requires (@async-fn (Frame Poll Pending Ready poll) Waker (#fn name ((arg Type) ...) Result ...))".into());
+        return Err("@async-fn requires (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function (#fn name ((arg Type) ...) Result ...)))".into());
     }
     let names = list(&invocation[2], "generated names")?;
     if names.len() != 5 {

@@ -232,12 +232,11 @@ name), and named poll/stage helpers. The emitted Lim is cached in `.lim/cache`
 and undergoes normal type, borrow, linearity, and code generation checks:
 
 ```lisp syntax
-(@async-fn (Work WorkPoll WorkPending WorkReady work-poll) LocalWaker
-  (#fn work ((offset u64)) u64
+(@async-fn (: names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset u64)) u64
     (#let child Step (Waiting 1u64))
     (#let value u64
       (#await (offset) Step StepPending StepReady step-poll child))
-    (#return (#u64.+.wrap value offset))))
+    (#return (#u64.+.wrap value offset)))))
 ```
 
 `(#call work (: offset 1u64))` creates a `Work` frame. It does not
@@ -285,7 +284,7 @@ new safe asynchronous OS-operation builtins in this implementation. An
 executor's blocking run call cannot currently be externally interrupted.
 
 `(@threaded-executor run Result jobs Worker)` expands an executor plus
-`(@thread-spawn Worker run)`. Each explicit spawn transfers the fixed job set
+`(@thread-spawn (: task Worker : worker run))`. Each explicit spawn transfers the fixed job set
 to one OS worker. Multiple spawns can run concurrently; this is not task
 migration or a worker pool. Structural Send/Sync, spawn failures, mandatory
 joins, and captured-reference restrictions come from the existing thread

@@ -1,4 +1,4 @@
-(@optional u64 Maybe?)
+(@optional (: type u64 : name Maybe?))
 
 (
   #fn

@@ -3,8 +3,8 @@
     (#atomic-compare-exchange state 0u64 42u64 #memory-acq-rel #memory-acquire))
   (#return (#if won 1u64 0u64)))
 
-(@thread-spawn FirstClaim claim)
-(@thread-spawn SecondClaim claim)
+(@thread-spawn (: task FirstClaim : worker claim))
+(@thread-spawn (: task SecondClaim : worker claim))
 
 (#fn main () u64
   (#let-mut state (#atomic u64) (#atomic-init u64 0u64))

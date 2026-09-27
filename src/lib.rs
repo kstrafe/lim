@@ -913,7 +913,7 @@ pub enum Expr {
         label: String,
         expression: Box<Expr>,
     },
-    /// The generated-code sigil in source, e.g. `(@optional T T?)`.
+    /// The generated-code sigil in source, e.g. `(@optional (: type T : name T?))`.
     At,
     Quote(Box<Expr>),
     QuasiQuote(Box<Expr>),
@@ -2248,7 +2248,16 @@ fn parse_program_in_directory(
             &mut statement_expressions,
         );
         let source_expression = expression.clone();
-        let mut expression = normalize_keywords(expression.expr);
+        let normalized_invocation = normalize_builtin_generator_invocation(&expression.expr)
+            .map_err(|error| {
+                attach_span_to_source_error_kind(
+                    error,
+                    form_span,
+                    &source_files,
+                    "generator error: ",
+                )
+            })?;
+        let mut expression = normalize_keywords(normalized_invocation.clone());
         normalize_match_cases_expr(&mut expression);
         let mut generated_declarations = HashMap::new();
         if let Expr::List(forms) = &expression {
@@ -2270,7 +2279,7 @@ fn parse_program_in_directory(
                     )
                 ) {
                     let generated_text = if kind == Some("async-fn") {
-                        async_fn::generated_source(&source_expression.expr).ok()
+                        async_fn::generated_source(&normalized_invocation).ok()
                     } else {
                         kind.and_then(|kind| {
                             materialize_builtin_generated_source(kind, forms, &worker_functions)
@@ -2321,7 +2330,7 @@ fn parse_program_in_directory(
             if matches!(forms.first(), Some(Expr::At)) {
                 let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn")
                 {
-                    async_fn::generated_source(&source_expression.expr)
+                    async_fn::generated_source(&normalized_invocation)
                         .and_then(|source| parse_generated_source_items(&source))
                 } else {
                     parse_generated_items(forms)
@@ -2547,7 +2556,7 @@ fn thread_task_function_signatures(
 #[test]
 fn synthesized_thread_calls_require_named_arguments() {
     let prefix =
-        "(#fn worker ((left u64) (right u64)) u64 (#return left)) (@thread-spawn Task worker)";
+        "(#fn worker ((left u64) (right u64)) u64 (#return left)) (@thread-spawn (: task Task : worker worker))";
     let program = |call: &str| {
         format!(
             "{prefix} (#fn main () () (#let result Task-spawn-result {call}) (#return (#panic)))"
@@ -3691,6 +3700,17 @@ fn validate_prefixed_forms(expression: &Expr) -> Result<(), String> {
     let Expr::List(items) = expression else {
         return Ok(());
     };
+    if matches!(items.first(), Some(Expr::At)) {
+        let normalized = normalize_builtin_generator_invocation(expression)?;
+        if normalized != *expression {
+            if let Expr::List(values) = normalized {
+                for value in values.iter().skip(2) {
+                    validate_prefixed_forms(value)?;
+                }
+            }
+            return Ok(());
+        }
+    }
     if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#fn" || name == "#unsafe-fn" || name == "#extern-fn")
     {
         let parameter_index = if matches!(items.first(), Some(Expr::Symbol(name)) if name == "#extern-fn")
@@ -4807,8 +4827,8 @@ fn write_generated_sources_in_directory(
         .unwrap_or_else(|| directory.join("cache"));
     for expression in expanded {
         let invocation = expression_source(&expression.expr)?;
-        let original = expression.expr.clone();
-        let Expr::List(forms) = normalize_keywords(expression.expr) else {
+        let original = normalize_builtin_generator_invocation(&expression.expr)?;
+        let Expr::List(forms) = normalize_keywords(original.clone()) else {
             continue;
         };
         if !matches!(forms.first(), Some(Expr::At)) {
@@ -4922,6 +4942,72 @@ fn materialize_builtin_generated_source(
     } else {
         Err(format!("unknown builtin generated declaration '@{kind}'"))
     }
+}
+
+/// Turn a built-in generator's named syntax arguments into its internal
+/// declaration order. User-defined generators continue to receive literals.
+fn normalize_builtin_generator_invocation(expression: &Expr) -> Result<Expr, String> {
+    let Expr::List(items) = expression else {
+        return Ok(expression.clone());
+    };
+    if !matches!(items.first(), Some(Expr::At)) {
+        return Ok(expression.clone());
+    }
+    let Some(Expr::Symbol(kind)) = items.get(1) else {
+        return Ok(expression.clone());
+    };
+    let keys: &[&str] = match kind.as_str() {
+        "optional" => &["type", "name"],
+        "result" => &["ok", "error", "name"],
+        "thread-spawn" => &["task", "worker"],
+        "vec" => &["element", "allocator", "name"],
+        "vec-alloc" => &[
+            "element",
+            "allocator",
+            "vector",
+            "alloc-result",
+            "alloc-error",
+            "alloc",
+            "grow",
+            "dealloc",
+            "destroy",
+        ],
+        "vec-sort" => &["element", "vector", "comparator"],
+        "async-fn" => &["names", "waker", "function"],
+        _ => return Ok(expression.clone()),
+    };
+    let Some(Expr::List(arguments)) = items.get(2) else {
+        return Err(format!(
+            "@{kind} requires a named argument list (: key value : ...)"
+        ));
+    };
+    if items.len() != 3 {
+        return Err(format!("@{kind} requires exactly one named argument list"));
+    }
+    let mut values = HashMap::new();
+    for argument in arguments {
+        let Expr::List(pair) = argument else {
+            return Err(format!("@{kind} arguments must be (: key value : ...)"));
+        };
+        let [Expr::Symbol(key), value] = pair.as_slice() else {
+            return Err(format!("@{kind} arguments must be (: key value : ...)"));
+        };
+        if !keys.contains(&key.as_str()) {
+            return Err(format!("@{kind} has no argument '{key}'"));
+        }
+        if values.insert(key.as_str(), value.clone()).is_some() {
+            return Err(format!("@{kind} repeats argument '{key}'"));
+        }
+    }
+    let mut normalized = vec![Expr::At, Expr::Symbol(kind.clone())];
+    for key in keys {
+        normalized.push(
+            values
+                .remove(key)
+                .ok_or_else(|| format!("@{kind} is missing argument '{key}'"))?,
+        );
+    }
+    Ok(Expr::List(normalized))
 }
 
 pub(crate) fn expression_source(expression: &Expr) -> Result<String, String> {
@@ -5924,7 +6010,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
         "optional" => {
             if items.len() != 4 {
                 return Err(
-                    "generated declaration must have the form (@optional Type OptionalType)".into(),
+                    "generated declaration must have the form (@optional (: type Type : name OptionalType))".into(),
                 );
             }
             let payload = parse_type(items.get(2))?;
@@ -5950,7 +6036,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
         "result" => {
             if items.len() != 5 {
                 return Err(
-                    "generated declaration must have the form (@result OkType ErrType ResultType)"
+                    "generated declaration must have the form (@result (: ok OkType : error ErrType : name ResultType))"
                         .into(),
                 );
             }
@@ -5978,7 +6064,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
         "thread-spawn" => {
             if items.len() != 4 {
                 return Err(
-                    "generated declaration must have the form (@thread-spawn TaskType worker-function)".into(),
+                    "generated declaration must have the form (@thread-spawn (: task TaskType : worker worker-function))".into(),
                 );
             }
             Ok(Item::ThreadTask {
@@ -5990,7 +6076,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
         "vec" => {
             if items.len() != 5 {
                 return Err(
-                    "generated declaration must have the form (@vec Element Allocator VecType)"
+                    "generated declaration must have the form (@vec (: element Element : allocator Allocator : name VecType))"
                         .into(),
                 );
             }
@@ -6030,7 +6116,7 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
         "vec-sort" => {
             if items.len() != 5 {
                 return Err(
-                    "generated declaration must have the form (@vec-sort Element VecType Comparator)"
+                    "generated declaration must have the form (@vec-sort (: element Element : vector VecType : comparator Comparator))"
                         .into(),
                 );
             }
@@ -6176,7 +6262,7 @@ fn generated_vec_source(items: &[Expr]) -> Result<String, String> {
 
 fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
     if items.len() != 11 {
-        return Err("generated declaration must have the form (@vec-alloc Element Allocator Vec AllocResult AllocError alloc grow dealloc destroy)".into());
+        return Err("generated declaration must have the form (@vec-alloc (: element Element : allocator Allocator : vector Vec : alloc-result AllocResult : alloc-error AllocError : alloc alloc : grow grow : dealloc dealloc : destroy destroy))".into());
     }
     let element = type_source(&parse_type(items.get(2))?);
     let allocator = expect_symbol(items.get(3), "vector allocator type")?;
@@ -6370,7 +6456,7 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
 fn generated_vec_sort_source(items: &[Expr]) -> Result<String, String> {
     if items.len() != 5 {
         return Err(
-            "generated declaration must have the form (@vec-sort Element VecType Comparator)"
+            "generated declaration must have the form (@vec-sort (: element Element : vector VecType : comparator Comparator))"
                 .into(),
         );
     }
@@ -8210,9 +8296,9 @@ mod tests {
         assert_eq!(tokens[1].kind, TokenKind::Symbol("#fn".into()));
         assert_eq!(tokens[6].kind, TokenKind::Symbol("i32".into()));
 
-        let generated = lex("(@optional MyType MyType?)").unwrap();
+        let generated = lex("(@optional (: type MyType : name MyType?))").unwrap();
         assert_eq!(generated[1].kind, TokenKind::At);
-        assert_eq!(generated[4].kind, TokenKind::Symbol("MyType?".into()));
+        assert_eq!(generated[9].kind, TokenKind::Symbol("MyType?".into()));
     }
 
     #[test]
@@ -9224,7 +9310,7 @@ mod tests {
     #[test]
     fn thread_spawn_generator_requires_send_worker_inputs_and_output() {
         let valid = parse_program(
-            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn IncrementTask increment)",
+            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn (: task IncrementTask : worker increment))",
         )
         .unwrap();
         assert!(check_types(&valid).is_ok(), "{:?}", check_types(&valid));
@@ -9241,7 +9327,7 @@ mod tests {
         assert!(assembly.contains(".Llim_thread_entry_IncrementTask"));
 
         let api = parse_program(
-            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn IncrementTask increment) (#fn main () u64 (#return (#match (#call IncrementTask-spawn (: value 41)) (#case (IncrementTask-spawn-ok task) (#match (#call IncrementTask-join (: task task)) (#case (IncrementTask-join-ok value) value) (#case (IncrementTask-join-error (#tuple retry error)) (#panic)))) (#case (IncrementTask-spawn-error error) (#panic)))))",
+            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn (: task IncrementTask : worker increment)) (#fn main () u64 (#return (#match (#call IncrementTask-spawn (: value 41)) (#case (IncrementTask-spawn-ok task) (#match (#call IncrementTask-join (: task task)) (#case (IncrementTask-join-ok value) value) (#case (IncrementTask-join-error (#tuple retry error)) (#panic)))) (#case (IncrementTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
         assert!(check_types(&api).is_ok(), "{:?}", check_types(&api));
@@ -9250,7 +9336,7 @@ mod tests {
         assert!(api_assembly.contains("ud2"));
 
         let non_send_input = parse_program(
-            "(#fn inspect ((pointer (#ptr u64))) u64 (#return (#unsafe (#ptr-read pointer)))) (@thread-spawn PointerTask inspect)",
+            "(#fn inspect ((pointer (#ptr u64))) u64 (#return (#unsafe (#ptr-read pointer)))) (@thread-spawn (: task PointerTask : worker inspect))",
         )
         .unwrap();
         assert!(check_types(&non_send_input)
@@ -9258,19 +9344,19 @@ mod tests {
             .contains("parameter 'pointer' does not implement Send"));
 
         let unsafe_send_input = parse_program(
-            "(#struct NativeToken ((pointer (#ptr u64)))) (#unsafe-impl #send NativeToken) (#fn inspect ((token NativeToken)) u64 (#return 0)) (@thread-spawn TokenTask inspect)",
+            "(#struct NativeToken ((pointer (#ptr u64)))) (#unsafe-impl #send NativeToken) (#fn inspect ((token NativeToken)) u64 (#return 0)) (@thread-spawn (: task TokenTask : worker inspect))",
         )
         .unwrap();
         assert!(check_types(&unsafe_send_input).is_ok());
 
         let unsafe_sync_reference = parse_program(
-            "(#struct NativeShared ((pointer (#ptr u64)))) (#unsafe-impl #sync NativeShared) (#fn inspect ((value (#ref NativeShared))) u64 (#return 0)) (@thread-spawn InspectTask inspect)",
+            "(#struct NativeShared ((pointer (#ptr u64)))) (#unsafe-impl #sync NativeShared) (#fn inspect ((value (#ref NativeShared))) u64 (#return 0)) (@thread-spawn (: task InspectTask : worker inspect))",
         )
         .unwrap();
         assert!(check_types(&unsafe_sync_reference).is_ok());
 
         let missing_sync_reference = parse_program(
-            "(#struct NativeShared ((pointer (#ptr u64)))) (#fn inspect ((value (#ref NativeShared))) u64 (#return 0)) (@thread-spawn InspectTask inspect)",
+            "(#struct NativeShared ((pointer (#ptr u64)))) (#fn inspect ((value (#ref NativeShared))) u64 (#return 0)) (@thread-spawn (: task InspectTask : worker inspect))",
         )
         .unwrap();
         assert!(check_types(&missing_sync_reference)
@@ -9278,7 +9364,7 @@ mod tests {
             .contains("parameter 'value' does not implement Send"));
 
         let reference_return = parse_program(
-            "(#fn identity ((value (#ref u64))) (#ref u64) (#return value)) (@thread-spawn IdentityTask identity)",
+            "(#fn identity ((value (#ref u64))) (#ref u64) (#return value)) (@thread-spawn (: task IdentityTask : worker identity))",
         )
         .unwrap();
         assert!(check_types(&reference_return)
@@ -9286,7 +9372,7 @@ mod tests {
             .contains("cannot return reference-containing values"));
 
         let forgotten_spawn_result = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#forget result) (#return 0))",
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#forget result) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&forgotten_spawn_result)
@@ -9294,7 +9380,7 @@ mod tests {
             .contains("cannot be dropped or forgotten; match and join them"));
 
         let forgotten_nested_spawn_result = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#forget (#tuple (#tuple WorkTask-spawn-result u64) result 0)) (#return 0))",
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#forget (#tuple (#tuple WorkTask-spawn-result u64) result 0)) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&forgotten_nested_spawn_result)
@@ -9302,7 +9388,7 @@ mod tests {
             .contains("cannot be dropped or forgotten; match and join them"));
 
         let discarded_spawn_handle = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#return (#match result (#case _ 0))))",
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#return (#match result (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&discarded_spawn_handle)
@@ -9310,7 +9396,7 @@ mod tests {
             .contains("must explicitly handle variant 'WorkTask-spawn-ok'"));
 
         let discarded_join_error_handle = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#return (#match (#call WorkTask-spawn (: value 1)) (#case (WorkTask-spawn-ok task) (#match (#call WorkTask-join (: task task)) (#case (WorkTask-join-ok value) value) (#case (WorkTask-join-error (#tuple _ error)) (#panic)))) (#case (WorkTask-spawn-error error) (#panic)))))",
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () u64 (#return (#match (#call WorkTask-spawn (: value 1)) (#case (WorkTask-spawn-ok task) (#match (#call WorkTask-join (: task task)) (#case (WorkTask-join-ok value) value) (#case (WorkTask-join-error (#tuple _ error)) (#panic)))) (#case (WorkTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
         assert!(check_types(&discarded_join_error_handle)
@@ -9318,14 +9404,15 @@ mod tests {
             .contains("must bind its task handle instead of discarding it"));
 
         let forged_task = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn WorkTask work) (#fn main () u64 (#let task WorkTask (WorkTask (#ptr-null (#ptr-mut ())))) (#return 0))",
+            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () u64 (#let task WorkTask (WorkTask (#ptr-null (#ptr-mut ())))) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&forged_task)
             .unwrap_err()
             .contains("thread task type 'WorkTask' is opaque"));
 
-        let unknown_worker = parse_program("(@thread-spawn MissingTask missing-worker)").unwrap();
+        let unknown_worker =
+            parse_program("(@thread-spawn (: task MissingTask : worker missing-worker))").unwrap();
         assert!(check_types(&unknown_worker)
             .unwrap_err()
             .contains("unknown worker function 'missing-worker'"));
@@ -9336,7 +9423,7 @@ mod tests {
         let program = parse_program(
             r#"(#struct Shared ((value u64)))
 (#fn read ((value (#ref Shared))) u64 (#return (#get value value)))
-(@thread-spawn ReadTask read)
+(@thread-spawn (: task ReadTask : worker read))
 (#fn main () u64
   (#let-mut shared Shared (#struct-literal Shared ((value 1))))
   (#let spawned ReadTask-spawn-result (#call ReadTask-spawn (: value (#borrow shared))))
@@ -9364,7 +9451,7 @@ mod tests {
         let program = parse_program(
             r#"(#struct Shared ((value u64)))
 (#fn read-mut ((value (#ref-mut Shared))) u64 (#return (#get value value)))
-(@thread-spawn MutTask read-mut)
+(@thread-spawn (: task MutTask : worker read-mut))
 (#fn main () u64
   (#let-mut shared Shared (#struct-literal Shared ((value 1))))
   (#let spawned MutTask-spawn-result (#call MutTask-spawn (: value (#borrow-mut shared))))
@@ -10760,7 +10847,7 @@ mod tests {
     #[test]
     fn expands_optional_generated_declarations() {
         let program = parse_program(
-            "(@optional u64 Maybe?) (#fn main () u64 (#let value Maybe? (#call Maybe?-construct (: value 42))) (#return (#if (#call Maybe?-is-some (: value (#clone value))) (#call Maybe?-unwrap-or (: value value : fallback 0)) 0)))",
+            "(@optional (: type u64 : name Maybe?)) (#fn main () u64 (#let value Maybe? (#call Maybe?-construct (: value 42))) (#return (#if (#call Maybe?-is-some (: value (#clone value))) (#call Maybe?-unwrap-or (: value value : fallback 0)) 0)))",
         )
         .unwrap();
         assert!(program.items.iter().any(|item| {
@@ -10780,11 +10867,79 @@ mod tests {
     }
 
     #[test]
+    fn builtin_generators_require_complete_named_arguments() {
+        let cases = [
+            (
+                "(@optional (: name Maybe : type u64))",
+                "(@ optional u64 Maybe)",
+            ),
+            (
+                "(@result (: name Outcome : error u32 : ok u64))",
+                "(@ result u64 u32 Outcome)",
+            ),
+            (
+                "(@thread-spawn (: worker work : task Task))",
+                "(@ thread-spawn Task work)",
+            ),
+            (
+                "(@vec (: name VecU64 : allocator Arena : element u64))",
+                "(@ vec u64 Arena VecU64)",
+            ),
+            (
+                "(@vec-sort (: comparator less : vector VecU64 : element u64))",
+                "(@ vec-sort u64 VecU64 less)",
+            ),
+            (
+                "(@vec-alloc (: destroy drop-item : dealloc release : grow grow : alloc allocate : alloc-error AllocError : alloc-result AllocResult : vector VecU64 : allocator Arena : element u64))",
+                "(@ vec-alloc u64 Arena VecU64 AllocResult AllocError allocate grow release drop-item)",
+            ),
+            (
+                "(@async-fn (: function (#fn work () u64 (#return 1)) : waker Wake : names (Frame Poll Pending Ready poll)))",
+                "(@ async-fn (Frame Poll Pending Ready poll) Wake (#fn work () u64 (#return 1)))",
+            ),
+        ];
+        for (source, expected) in cases {
+            let form = &parse(source).unwrap()[0].expr;
+            let normalized = normalize_builtin_generator_invocation(form).unwrap();
+            assert_eq!(expression_source(&normalized).unwrap(), expected);
+        }
+        let reordered = parse_program(
+            "(@optional (: name Maybe : type u64))
+             (#fn work () u64 (#return 1u64))
+             (@thread-spawn (: worker work : task Work))",
+        )
+        .unwrap();
+        assert!(reordered
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::Enum { name, .. } if name == "Maybe")));
+        assert!(reordered
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::ThreadTask { name, .. } if name == "Work")));
+        for (source, message) in [
+            ("(@optional u64 Maybe)", "requires a named argument list"),
+            ("(@optional (: type u64))", "missing argument 'name'"),
+            (
+                "(@optional (: type u64 : name Maybe : name Other))",
+                "repeats argument 'name'",
+            ),
+            (
+                "(@optional (: type u64 : renamed Maybe))",
+                "has no argument 'renamed'",
+            ),
+        ] {
+            let error = parse_program(source).unwrap_err();
+            assert!(error.contains(message), "{source}: {error}");
+        }
+    }
+
+    #[test]
     fn materializes_strict_optional_source_with_explicit_returns() {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-optional-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        write_generated_sources("(@optional u64 Maybe?)", &directory).unwrap();
+        write_generated_sources("(@optional (: type u64 : name Maybe?))", &directory).unwrap();
         let (_, generated) = read_cached_generated_source(&directory, "Maybe?-construct");
         assert!(generated.contains("#enum"));
         assert!(generated.contains("#return"));
@@ -10800,7 +10955,8 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-result-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        write_generated_sources("(@result u64 u32 Result)", &directory).unwrap();
+        write_generated_sources("(@result (: ok u64 : error u32 : name Result))", &directory)
+            .unwrap();
         let (_, generated) = read_cached_generated_source(&directory, "Result-ok-value");
         assert!(generated.contains("Result-ok-value"));
         assert!(generated.contains("Result-unwrap-or"));
@@ -10831,7 +10987,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-thread-spawn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn Task worker)";
+        let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn (: task Task : worker worker))";
         write_generated_sources(source, &directory).unwrap();
         let (path, generated) =
             read_cached_generated_source(&directory, "#thread-task Task worker");
@@ -10874,7 +11030,7 @@ mod tests {
     #[test]
     fn expands_allocator_backed_vec_with_explicit_allocator_borrow() {
         let program = parse_program(
-            "(#struct Arena ((cursor u64))) (@vec u64 Arena VecU64) (#fn main () usize (#let-mut arena Arena (#struct-literal Arena ((cursor 0)))) (#let-mut value u64 0) (#let vector VecU64 (#call VecU64-new-with-storage (: allocator (#borrow arena) : pointer (#unsafe (#addr-of-mut value)) : capacity 4))) (#return (#call VecU64-capacity (: vector (#borrow vector)))))",
+            "(#struct Arena ((cursor u64))) (@vec (: element u64 : allocator Arena : name VecU64)) (#fn main () usize (#let-mut arena Arena (#struct-literal Arena ((cursor 0)))) (#let-mut value u64 0) (#let vector VecU64 (#call VecU64-new-with-storage (: allocator (#borrow arena) : pointer (#unsafe (#addr-of-mut value)) : capacity 4))) (#return (#call VecU64-capacity (: vector (#borrow vector)))))",
         )
         .unwrap();
         assert!(program
@@ -10943,7 +11099,7 @@ mod tests {
     #[test]
     fn vec_sort_expansion_calls_and_typechecks_its_literal_comparator() {
         let valid = parse_program(
-            "(#struct Arena ((cursor u64))) (@vec u64 Arena VecU64) (@vec-sort u64 VecU64 compare-u64) (#fn compare-u64 ((left (#ref u64)) (right (#ref u64))) bool (#return (#u64.< (#deref left) (#deref right)))) (#fn main () u64 (#return 0u64))",
+            "(#struct Arena ((cursor u64))) (@vec (: element u64 : allocator Arena : name VecU64)) (@vec-sort (: element u64 : vector VecU64 : comparator compare-u64)) (#fn compare-u64 ((left (#ref u64)) (right (#ref u64))) bool (#return (#u64.< (#deref left) (#deref right)))) (#fn main () u64 (#return 0u64))",
         )
         .unwrap();
         let checked = check_types(&valid);
@@ -10951,7 +11107,7 @@ mod tests {
         assert!(generate_assembly(&valid).is_ok());
 
         let invalid = parse_program(
-            "(#struct Arena ((cursor u64))) (@vec u64 Arena VecU64) (@vec-sort u64 VecU64 compare-u64) (#fn compare-u64 ((left u64) (right u64)) bool (#return (#u64.< left right))) (#fn main () u64 (#return 0u64))",
+            "(#struct Arena ((cursor u64))) (@vec (: element u64 : allocator Arena : name VecU64)) (@vec-sort (: element u64 : vector VecU64 : comparator compare-u64)) (#fn compare-u64 ((left u64) (right u64)) bool (#return (#u64.< left right))) (#fn main () u64 (#return 0u64))",
         )
         .unwrap();
         let error = check_types(&invalid).unwrap_err();
@@ -10966,12 +11122,20 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-vec-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        write_generated_sources("(@vec u64 Arena VecU64)", &directory).unwrap();
+        write_generated_sources(
+            "(@vec (: element u64 : allocator Arena : name VecU64))",
+            &directory,
+        )
+        .unwrap();
         let (_, generated) = read_cached_generated_source(&directory, "VecU64-new-with-storage");
         assert!(generated.contains("(#struct VecU64"));
         assert!(generated.contains("VecU64-new-with-storage"));
         assert!(generated.contains("(#ref Arena)"));
-        write_generated_sources("(@vec-sort u64 VecU64 compare-u64)", &directory).unwrap();
+        write_generated_sources(
+            "(@vec-sort (: element u64 : vector VecU64 : comparator compare-u64))",
+            &directory,
+        )
+        .unwrap();
         let (_, sort) = read_cached_generated_source(&directory, "VecU64-sort");
         assert!(sort.contains("VecU64-sort"));
         assert!(sort.contains("(#call compare-u64"));
@@ -10984,9 +11148,9 @@ mod tests {
             r#"
 (#struct Arena ((cursor u64)))
 (#enum AllocError (OutOfMemory))
-(@result (#ptr-mut u64) AllocError AllocResult)
-(@vec u64 Arena VecU64)
-(@vec-alloc u64 Arena VecU64 AllocResult AllocError arena-alloc arena-grow arena-dealloc drop-u64)
+(@result (: ok (#ptr-mut u64) : error AllocError : name AllocResult))
+(@vec (: element u64 : allocator Arena : name VecU64))
+(@vec-alloc (: element u64 : allocator Arena : vector VecU64 : alloc-result AllocResult : alloc-error AllocError : alloc arena-alloc : grow arena-grow : dealloc arena-dealloc : destroy drop-u64))
 (#fn arena-alloc ((allocator (#ref Arena)) (layout usize) (alignment usize)) AllocResult
   (#return (#call AllocResult-err (: error OutOfMemory))))
 (#fn arena-grow
@@ -11064,7 +11228,7 @@ mod tests {
     #[test]
     fn rejects_allocator_backed_vector_outliving_its_allocator() {
         let program = parse_program(
-            "(#struct Arena ((cursor u64))) (@vec u64 Arena VecU64) (#fn escape () VecU64 (#let arena Arena (#struct-literal Arena ((cursor 0u64)))) (#return (#call VecU64-new-with-storage (: allocator (#borrow arena) : pointer (#ptr-null (#ptr-mut u64)) : capacity 0usize))))",
+            "(#struct Arena ((cursor u64))) (@vec (: element u64 : allocator Arena : name VecU64)) (#fn escape () VecU64 (#let arena Arena (#struct-literal Arena ((cursor 0u64)))) (#return (#call VecU64-new-with-storage (: allocator (#borrow arena) : pointer (#ptr-null (#ptr-mut u64)) : capacity 0usize))))",
         )
         .unwrap();
         let error = check_types(&program).unwrap_err();
@@ -11074,7 +11238,7 @@ mod tests {
     #[test]
     fn lowers_if_let_to_native_match() {
         let program = parse_program(
-            "(@optional u64 Maybe?) (#fn main () u64 (#let value Maybe? (#call Maybe?-construct (: value 42))) (#return (#if-let (Maybe?-some payload) value payload 0)))",
+            "(@optional (: type u64 : name Maybe?)) (#fn main () u64 (#let value Maybe? (#call Maybe?-construct (: value 42))) (#return (#if-let (Maybe?-some payload) value payload 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -11084,7 +11248,7 @@ mod tests {
     #[test]
     fn expands_result_generated_declarations() {
         let program = parse_program(
-            "(@result u64 u32 Result) (#fn classify ((value Result)) u64 (#return (#match value (#case (Result-ok-value 42) 1) (#case (Result-err-value _) 0)))) (#fn main () u64 (#let value Result (#call Result-ok (: value 42))) (#return (#call classify (: value value))))",
+            "(@result (: ok u64 : error u32 : name Result)) (#fn classify ((value Result)) u64 (#return (#match value (#case (Result-ok-value 42) 1) (#case (Result-err-value _) 0)))) (#fn main () u64 (#let value Result (#call Result-ok (: value 42))) (#return (#call classify (: value value))))",
         )
         .unwrap();
         let type_result = check_types(&program);
@@ -11095,7 +11259,7 @@ mod tests {
     #[test]
     fn lowers_while_let_with_match_guard() {
         let program = parse_program(
-            "(@optional u64 Maybe?) (#fn main () u64 (#let-mut value Maybe? (#call Maybe?-construct (: value 42))) (#let-mut total u64 0) (#while-let (Maybe?-some payload) value (#set total (#u64.+.wrap  total payload)) (#set value Maybe?-none)) (#return total))",
+            "(@optional (: type u64 : name Maybe?)) (#fn main () u64 (#let-mut value Maybe? (#call Maybe?-construct (: value 42))) (#let-mut total u64 0) (#while-let (Maybe?-some payload) value (#set total (#u64.+.wrap  total payload)) (#set value Maybe?-none)) (#return total))",
         )
         .unwrap();
         let type_result = check_types(&program);

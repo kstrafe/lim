@@ -6,7 +6,7 @@ fn reports_hits_misses_damage_and_dependency_identity_separately() {
     let scratch = support::Scratch::new("cache-report");
     let root = scratch.path();
     let input = root.join("main.lim");
-    let source = "(#gn-fn answer () 42) (#gn value () `((#const Answer u64 ,(#gn-call answer)))) (@value) (@optional u64 Maybe) (#fn main () u64 (#return Answer))";
+    let source = "(#gn-fn answer () 42) (#gn value () `((#const Answer u64 ,(#gn-call answer)))) (@value) (@optional (: type u64 : name Maybe)) (#fn main () u64 (#return Answer))";
     fs::write(&input, &source).unwrap();
     let run = |cfg: &str| {
         let (status, out, err) = support::run(

@@ -131,14 +131,13 @@ fn async_function_rejects_reference_to_pre_suspension_local() {
         (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
         (#fn child-poll ((task Child) (waker (#ref Waker))) ChildPoll
           (#return (ChildPending task)))
-        (@async-fn (Frame Poll Pending Ready poll) Waker
-          (#fn make () u64
+        (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function (#fn make () u64
             (#let owner u64 1u64)
             (#let view (#ref u64) (#borrow owner))
             (#let child Child (Waiting 1u64))
             (#let value u64
               (#await (view) Child ChildPending ChildReady child-poll child))
-            (#return (#deref view))))
+            (#return (#deref view)))))
         (#fn main () u64 (#return 0u64))";
     let program = lim::parse_program(source).unwrap();
     let error = lim::check_types(&program).unwrap_err();
@@ -157,11 +156,10 @@ fn async_function_accepts_no_arguments_or_captures() {
       (#fn child-poll ((task Child) (waker (#ref Waker))) ChildPoll
         (#forget task)
         (#return (ChildReady 7u64)))
-      (@async-fn (Frame Poll Pending Ready poll) Waker
-        (#fn work () u64
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function (#fn work () u64
           (#let value u64
             (#await () Child ChildPending ChildReady child-poll (Waiting 0u64)))
-          (#return value)))
+          (#return value))))
       (#fn main () u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
         (#let outcome Poll

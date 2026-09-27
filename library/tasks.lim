@@ -137,4 +137,4 @@
 ;; Existing @thread-spawn Send checks, errors, and mandatory joining apply.
 (#gn threaded-executor (run result jobs thread)
   `((@executor ,run ,result ,jobs)
-    (@thread-spawn ,thread ,run)))
+    (@thread-spawn (: task ,thread : worker ,run))))

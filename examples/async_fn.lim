@@ -37,12 +37,11 @@
           (#call local-waker-wake-by-ref (: waker waker))
           (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
 
-(@async-fn (Work WorkPoll WorkPending WorkReady work-poll) LocalWaker
-  (#fn work ((offset u64)) u64
+(@async-fn (: names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset u64)) u64
     (#let step Step (Waiting 1u64))
     (#let value u64
       (#await (offset) Step StepPending StepReady step-poll step))
-    (#return (#u64.+.wrap value offset))))
+    (#return (#u64.+.wrap value offset)))))
 
 (#fn cancel-step ((task Step)) ()
   (#match task

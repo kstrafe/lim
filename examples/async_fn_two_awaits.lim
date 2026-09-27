@@ -29,16 +29,14 @@
 
 ; @async-fn generates TwoSteps, TwoStepsPoll, and the start/poll functions.
 ; Each #await lists the locals it must carry across that suspension point.
-(@async-fn
-  (TwoSteps TwoStepsPoll TwoStepsPending TwoStepsReady two-steps-poll) Wake
-  (#fn two-steps ((extra u64)) u64
+(@async-fn (: names (TwoSteps TwoStepsPoll TwoStepsPending TwoStepsReady two-steps-poll) : waker Wake : function (#fn two-steps ((extra u64)) u64
     (#let first Step (Waiting 1u64))
     (#let left u64
       (#await (extra) Step StepPending StepReady step-poll first))
     (#let second Step (Waiting 1u64))
     (#let right u64
       (#await (extra left) Step StepPending StepReady step-poll second))
-    (#return (#u64.+.wrap (#u64.+.wrap left right) extra))))
+    (#return (#u64.+.wrap (#u64.+.wrap left right) extra)))))
 
 (#fn main () u64
   (#let start (#array char 6) "start\n")

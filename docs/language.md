@@ -165,7 +165,7 @@ These declarations are promises by the author and override the structural
 result for that property. They must only be used when the type's invariants
 make cross-thread transfer or shared access sound. Generic-type overrides are
 currently rejected; duplicate or undeclared targets are errors. The
-`@thread-spawn TaskType worker-function` declaration validates a monomorphic
+`@thread-spawn` with `(: task TaskType : worker worker-function)` validates a monomorphic
 worker's parameter and return types against `Send`. It generates
 `TaskType-spawn` and `TaskType-join` functions and a private native thread entry
 point; user code never passes a function pointer. Spawn arguments are copied
@@ -213,7 +213,7 @@ stdout. `tests/kernel_threads.rs` checks static ELF linkage, argument/result
 layouts, nested workers, large stack frames, and an actual guard-page fault.
 Its opt-in ptrace tests also verify kernel calls and inject spawn/join failures.
 
-For inspection, `@thread-spawn TaskType worker` materializes in `.lim/` as a
+For inspection, `(@thread-spawn (: task TaskType : worker worker))` materializes in `.lim/` as a
 `#thread-task` declaration containing explicit `#thread-task-spawn` and
 `#thread-task-join` builtin signatures, followed by `#enum` declarations for
 their results. The spawn signature exposes `TaskType-spawn`; its result enum
@@ -990,11 +990,11 @@ returns; it does not extend the referent's lifetime. Slices remain immutable.
 
 User-defined names refer to concrete structs, enums, and aliases.  Generic
 declarations and angle-bracket applications are not part of Lim.  Generators
-create concrete specializations explicitly, such as `(@vec u64 Alloc VecU64)`.
+create concrete specializations explicitly, such as `(@vec (: element u64 : allocator Alloc : name VecU64))`.
 Allocator-backed collections add their concrete operations explicitly with
-`(@vec-alloc u64 Alloc VecU64 AllocResult AllocError alloc grow dealloc destroy)`;
+`(@vec-alloc (: element u64 : allocator Alloc : vector VecU64 : alloc-result AllocResult : alloc-error AllocError : alloc alloc : grow grow : dealloc dealloc : destroy destroy))`;
 the generated API includes `VecU64-new`, `-reserve`, `-push`, `-get`,
-`-get-mut`, `-set`, `-pop`, and `-free`. `(@vec-sort u64 VecU64 compare-u64)`
+`-get-mut`, `-set`, `-pop`, and `-free`. `(@vec-sort (: element u64 : vector VecU64 : comparator compare-u64))`
 adds `VecU64-sort`; its named comparator accepts two immutable element
 references and returns `bool`. Allocation failure and capacity
 overflow are returned in generated result types. See [the allocator ABI](allocator.md)
@@ -1748,22 +1748,24 @@ are not inferred.
 
 ## Generated declarations
 
-`@` marks a generated declaration.  The built-in generated forms are
-top-level `@optional` and `@result`.
+`@` marks a generated declaration. Compiler-provided generators take one
+colon-prefixed list of named literal arguments. Keys may be written in any
+order, but every required key must appear exactly once. User-defined `#gn`
+generators retain their own positional literal interface. For example:
 
 ```lisp library
-(@optional u64 Maybe?)
-(@result u64 u32 Result)
+(@optional (: type u64 : name Maybe?))
+(@result (: ok u64 : error u32 : name Result))
 ```
 
-`@optional T Name` creates an enum with `Name-some` and `Name-none`, plus
+`(@optional (: type T : name Name))` creates an enum with `Name-some` and `Name-none`, plus
 free-standing helpers:
 
 - `Name-construct`
 - `Name-is-some`
 - `Name-unwrap-or`
 
-`@result Ok Err Name` creates `Name-ok-value` and `Name-err-value`, plus:
+`(@result (: ok Ok : error Err : name Name))` creates `Name-ok-value` and `Name-err-value`, plus:
 
 - `Name-ok` and `Name-err` constructors;
 - `Name-is-ok`;

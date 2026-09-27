@@ -7,7 +7,7 @@ and a dependency-free Rust compiler. The native backend emits inspectable
 x86-64 System V assembly, then encodes and links ELF binaries internally.
 
 Lim uses concrete generated code instead of user-facing generic types. A
-generator invocation such as `(@optional u64 MaybeU64)` emits a concrete type
+generator invocation such as `(@optional (: type u64 : name MaybeU64))` emits a concrete type
 and its functions. Generators are pure, interpreted at compile time, and use
 the restricted `#gn-*` operation set.
 

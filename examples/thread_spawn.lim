@@ -20,12 +20,12 @@
 (#fn sum-seven ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64)) u64
   (#return (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap a b) c) d) e) f) g)))
 
-(@thread-spawn ReadValueTask read-value)
-(@thread-spawn ScaleTask scale)
-(@thread-spawn NoopTask noop)
-(@thread-spawn PairTask add-pair)
-(@thread-spawn LargeTask pass-large)
-(@thread-spawn SumSevenTask sum-seven)
+(@thread-spawn (: task ReadValueTask : worker read-value))
+(@thread-spawn (: task ScaleTask : worker scale))
+(@thread-spawn (: task NoopTask : worker noop))
+(@thread-spawn (: task PairTask : worker add-pair))
+(@thread-spawn (: task LargeTask : worker pass-large))
+(@thread-spawn (: task SumSevenTask : worker sum-seven))
 
 (#fn main () u64
   (#let-mut shared SharedValue (#struct-literal SharedValue ((value 42))))

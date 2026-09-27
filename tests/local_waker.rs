@@ -55,7 +55,7 @@ fn generated_local_waker_is_not_send_even_for_a_sync_executor() {
         "(#fn worker ((waker LocalWake)) u64
            (#call local-wake-destroy (: waker waker))
            (#return 0u64))
-         (@thread-spawn WakeWorker worker)
+         (@thread-spawn (: task WakeWorker : worker worker))
          (#fn main () u64 (#return 0u64))",
     );
     assert!(error.contains("does not implement Send"), "{error}");

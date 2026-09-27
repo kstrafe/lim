@@ -35,7 +35,7 @@ ownership rule.
 The concrete representation is declared first:
 
 ```lisp syntax
-(@vec ElementType AllocatorType ConcreteVecType)
+(@vec (: element ElementType : allocator AllocatorType : name ConcreteVecType))
 ```
 
 It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
@@ -43,8 +43,7 @@ It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
 `-capacity`. The allocator-backed API is then generated separately:
 
 ```lisp syntax
-(@vec-alloc ElementType AllocatorType ConcreteVecType
-  AllocResult AllocError alloc-name grow-name dealloc-name destroy-name)
+(@vec-alloc (: element ElementType : allocator AllocatorType : vector ConcreteVecType : alloc-result AllocResult : alloc-error AllocError : alloc alloc-name : grow grow-name : dealloc dealloc-name : destroy destroy-name))
 ```
 
 The allocation result must contain `(#ptr-mut ElementType)` on success and
@@ -70,7 +69,7 @@ Sorting is generated separately and takes a comparator name as a literal
 input:
 
 ```lisp syntax
-(@vec-sort ElementType ConcreteVecType comparator-name)
+(@vec-sort (: element ElementType : vector ConcreteVecType : comparator comparator-name))
 ```
 
 The comparator must have the concrete signature
@@ -88,7 +87,7 @@ whose names are supplied as literal generator arguments:
 
 ```lisp syntax
 (#enum AllocError (OutOfMemory))
-(@result (#ptr-mut u8) AllocError AllocResult)
+(@result (: ok (#ptr-mut u8) : error AllocError : name AllocResult))
 
 (#fn allocator-alloc
   ((allocator (#ref AllocatorU64)) (layout usize) (alignment usize))
