@@ -467,6 +467,14 @@ the checklist is committed alongside the implementation it tracks.
   dual-origin branch joins plus root cleanup. Moves through expressions and
   calls, conflict enforcement, and exactly-once exit checks remain in IR-04.
 
+- [x] **IR-04aj: Distinguish definite from possible explicit release.** Add a
+  backward-edge-safe must-analysis over checked places, intersecting reachable
+  predecessor states and killing facts on rebinding, replacement, and scope
+  exit. Test one-sided and two-sided branch releases plus a zero-iteration
+  loop. Retain all possible origin spans separately for future diagnostics.
+  This does not yet classify Copy versus linear values or transfer implicit
+  moves, so the existing checker remains the enforcing path.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

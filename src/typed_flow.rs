@@ -111,6 +111,8 @@ pub(crate) struct FlowLoanOrigins {
 pub(crate) struct FlowReleases {
     before: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
+    definite_before: Vec<HashSet<Place>>,
+    definite_after: Vec<HashSet<Place>>,
 }
 
 impl FlowReleases {
@@ -120,6 +122,14 @@ impl FlowReleases {
 
     pub fn after(&self, node: FlowNodeId, place: &Place) -> Option<&[Option<Span>]> {
         self.after[node.0].as_ref()?.get(place).map(Vec::as_slice)
+    }
+
+    pub fn definitely_before(&self, node: FlowNodeId, place: &Place) -> bool {
+        self.definite_before[node.0].contains(place)
+    }
+
+    pub fn definitely_after(&self, node: FlowNodeId, place: &Place) -> bool {
+        self.definite_after[node.0].contains(place)
     }
 
     pub fn dump(&self) -> String {
@@ -133,7 +143,13 @@ impl FlowReleases {
                 let node = FlowNodeId(index);
                 let prior = self.before(node, place);
                 let current = self.after(node, place);
-                writeln!(output, "  release {index} {place:?} {prior:?}->{current:?}").unwrap();
+                writeln!(
+                    output,
+                    "  release {index} {place:?} {prior:?}->{current:?} definite={}->{}",
+                    self.definitely_before(node, place),
+                    self.definitely_after(node, place)
+                )
+                .unwrap();
             }
         }
         output
@@ -400,7 +416,108 @@ impl FlowGraph {
                 }
             }
         }
-        FlowReleases { before, after }
+        let (definite_before, definite_after) = self.definite_releases(body);
+        FlowReleases {
+            before,
+            after,
+            definite_before,
+            definite_after,
+        }
+    }
+
+    fn definite_releases(&self, body: &Body) -> (Vec<HashSet<Place>>, Vec<HashSet<Place>>) {
+        let reachable = self.reachable();
+        let mut predecessors = vec![Vec::new(); self.nodes.len()];
+        let universe = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| match &node.action {
+                FlowAction::Release { place, .. } if reachable.contains(&FlowNodeId(index)) => {
+                    Some(place.clone())
+                }
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        for (index, node) in self.nodes.iter().enumerate() {
+            if reachable.contains(&FlowNodeId(index)) {
+                for successor in &node.successors {
+                    predecessors[successor.0].push(FlowNodeId(index));
+                }
+            }
+        }
+        // Must-analysis starts at top except at entry, then intersects all
+        // reachable incoming paths until loop back edges reach a fixed point.
+        let mut before = vec![universe.clone(); self.nodes.len()];
+        let mut after = vec![universe; self.nodes.len()];
+        before[self.entry.0].clear();
+        let mut pending = VecDeque::from([self.entry]);
+        let mut queued = vec![false; self.nodes.len()];
+        let mut visited = vec![false; self.nodes.len()];
+        queued[self.entry.0] = true;
+        while let Some(id) = pending.pop_front() {
+            queued[id.0] = false;
+            let incoming = if id == self.entry {
+                HashSet::new()
+            } else {
+                let mut paths = predecessors[id.0].iter();
+                let Some(first) = paths.next() else { continue };
+                let mut intersection = after[first.0].clone();
+                for predecessor in paths {
+                    intersection.retain(|place| after[predecessor.0].contains(place));
+                }
+                intersection
+            };
+            let mut outgoing = incoming.clone();
+            match &self.nodes[id.0].action {
+                FlowAction::Release { place, .. } => {
+                    outgoing.insert(place.clone());
+                }
+                FlowAction::Bind { binding, .. } => {
+                    outgoing.retain(|place| place.root != PlaceRoot::Local(*binding));
+                }
+                FlowAction::Pattern { pattern, .. } => {
+                    let mut bindings = HashSet::new();
+                    collect_pattern_bindings(body, *pattern, &mut bindings);
+                    outgoing.retain(|place| {
+                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                FlowAction::Assign { place, .. } => {
+                    if !place.segments.contains(&Segment::DynamicIndex) {
+                        outgoing.retain(|released| {
+                            released.root != place.root
+                                || !released.segments.starts_with(&place.segments)
+                        });
+                    }
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    outgoing.retain(|place| {
+                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                _ => {}
+            }
+            let changed = !visited[id.0] || before[id.0] != incoming || after[id.0] != outgoing;
+            visited[id.0] = true;
+            before[id.0] = incoming;
+            after[id.0] = outgoing;
+            if changed {
+                for successor in &self.nodes[id.0].successors {
+                    if !queued[successor.0] {
+                        queued[successor.0] = true;
+                        pending.push_back(*successor);
+                    }
+                }
+            }
+        }
+        for index in 0..self.nodes.len() {
+            if !reachable.contains(&FlowNodeId(index)) {
+                before[index].clear();
+                after[index].clear();
+            }
+        }
+        (before, after)
     }
 
     fn verify(&self, body: &Body) -> Result<(), String> {
@@ -2645,6 +2762,7 @@ mod tests {
             })
             .unwrap();
         assert!(releases.before(return_node, &place).is_some());
+        assert!(!releases.definitely_before(return_node, &place));
         assert!(releases.after(graph.exit, &place).is_none());
     }
 
@@ -2679,6 +2797,7 @@ mod tests {
         assert_eq!(origins.len(), 2);
         assert!(origins.iter().all(Option::is_some));
         assert_ne!(origins[0], origins[1]);
+        assert!(releases.definitely_before(return_node, &place));
     }
 
     #[test]
@@ -2732,6 +2851,62 @@ mod tests {
             .releases(&body)
             .after(FlowNodeId(1), &old)
             .is_some());
+        assert!(!graph_for(old.clone())
+            .releases(&body)
+            .definitely_after(FlowNodeId(1), &old));
+    }
+
+    #[test]
+    fn definite_release_fixed_point_respects_zero_iteration_path() {
+        let place = Place::root(PlaceRoot::Local(BindingId(0)));
+        let graph = FlowGraph {
+            nodes: vec![
+                FlowNode {
+                    action: FlowAction::Exit,
+                    successors: vec![],
+                    span: None,
+                },
+                FlowNode {
+                    action: FlowAction::Branch(NodeId(0)),
+                    successors: vec![FlowNodeId(2), FlowNodeId(0)],
+                    span: None,
+                },
+                FlowNode {
+                    action: FlowAction::Release {
+                        place: place.clone(),
+                        value: NodeId(0),
+                    },
+                    successors: vec![FlowNodeId(1)],
+                    span: None,
+                },
+                FlowNode {
+                    action: FlowAction::Entry,
+                    successors: vec![FlowNodeId(1)],
+                    span: None,
+                },
+            ],
+            entry: FlowNodeId(3),
+            exit: FlowNodeId(0),
+        };
+        let releases = graph.releases(&Body::default());
+        assert!(releases.definitely_after(FlowNodeId(2), &place));
+        assert!(releases.before(graph.exit, &place).is_some());
+        assert!(!releases.definitely_before(graph.exit, &place));
+
+        // Moving the release before the loop makes it unavoidable even when
+        // the body executes zero or many times.
+        let mut before_loop = graph.clone();
+        before_loop.nodes.push(FlowNode {
+            action: FlowAction::Release {
+                place: place.clone(),
+                value: NodeId(0),
+            },
+            successors: vec![FlowNodeId(1)],
+            span: None,
+        });
+        before_loop.nodes[before_loop.entry.0].successors = vec![FlowNodeId(4)];
+        let releases = before_loop.releases(&Body::default());
+        assert!(releases.definitely_before(before_loop.exit, &place));
     }
 
     #[test]
