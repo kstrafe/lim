@@ -909,6 +909,12 @@ the checklist is committed alongside the implementation it tracks.
   Reject an arm-bound local reference returned through an identity function
   and verify the return and original borrow spans.
 
+- [x] **IR-04bj: Project fields from branch-produced aggregates.** Derive the
+  checked field, tuple, payload, or index segment even when the aggregate base
+  is itself a conditional result rather than a place. Select the matching
+  retained loan slot and reject a match-produced wrapper field escaping its
+  local referent.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

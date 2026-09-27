@@ -1801,6 +1801,41 @@ fn flow_action_has_value(action: &FlowAction, value: NodeId) -> bool {
     )
 }
 
+fn value_projection(body: &Body, value: NodeId) -> Option<Segment> {
+    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+        return None;
+    };
+    match head.as_str() {
+        "get" => match &body.nodes[children.get(2)?.0].kind {
+            NodeKind::Declaration(DeclarationId::Field(field)) => Some(Segment::Field(*field)),
+            NodeKind::Literal(crate::Expr::Integer(index)) => {
+                usize::try_from(*index).ok().map(Segment::Tuple)
+            }
+            _ => None,
+        },
+        "get-payload" => {
+            let NodeKind::Declaration(DeclarationId::Variant(variant)) =
+                body.nodes[children.get(2)?.0].kind
+            else {
+                return None;
+            };
+            let NodeKind::Literal(crate::Expr::Integer(index)) =
+                &body.nodes[children.get(3)?.0].kind
+            else {
+                return None;
+            };
+            Some(Segment::Payload(variant, usize::try_from(*index).ok()?))
+        }
+        "index" => match &body.nodes[children.get(2)?.0].kind {
+            NodeKind::Literal(crate::Expr::Integer(index)) => {
+                u128::try_from(*index).ok().map(Segment::Index)
+            }
+            _ => Some(Segment::DynamicIndex),
+        },
+        _ => None,
+    }
+}
+
 fn value_loan_origins_at_events(
     body: &Body,
     flow: &FlowGraph,
@@ -1867,6 +1902,7 @@ fn value_loan_origins_at_events(
             };
             let Some(slot) = Place::from_expression(body, value)
                 .and_then(|place| place.segments.last().cloned())
+                .or_else(|| value_projection(body, value))
             else {
                 return Vec::new();
             };

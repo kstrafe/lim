@@ -365,6 +365,29 @@ mod checked_program_tests {
     }
 
     #[test]
+    fn typed_projected_return_uses_nested_match_loan_state() {
+        let source = "(#struct RefBox ((view (#ref u64))))
+          (#enum Holder ((Has RefBox)))
+          (#fn escape () (#ref u64)
+            (#let owner u64 1u64)
+            (#let holder Holder
+              (Has (#struct-literal RefBox ((view (#borrow owner))))))
+            (#return (#get
+              (#match holder (#case (Has boxed) boxed)) view)))";
+        let program = crate::parse_program(source).unwrap();
+        let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+        let span = span.unwrap();
+        assert!(
+            source[span.start..span.end].starts_with("(#return (#get"),
+            "{message}: {}",
+            &source[span.start..span.end]
+        );
+        assert!(labels
+            .iter()
+            .any(|(origin, _)| { &source[origin.start..origin.end] == "(#borrow owner)" }));
+    }
+
+    #[test]
     fn normal_compilation_checks_once_and_unchecked_emission_still_validates() {
         let source = "(#fn main () u64 (#return 42u64))";
         let directory = std::env::temp_dir().join(format!("lim-checked-{}", std::process::id()));
