@@ -928,7 +928,16 @@ fn check_expr(
             } else if head == "slice-mut-len" && items.len() == 2 {
                 check_expr(&items[1], bindings, moved, globals, true, types)?;
             } else if head == "tuple" || head == "array" {
-                for arg in items.iter().skip(2) {
+                // Explicit constructor types are lists, while a bare first
+                // operand in a contextual constructor is always a value.
+                // List-valued contextual operands need checked metadata and
+                // remain part of the typed-flow migration.
+                let value_start = if matches!(items.get(1), Some(Expr::List(_))) {
+                    2
+                } else {
+                    1
+                };
+                for arg in items.iter().skip(value_start) {
                     check_expr(arg, bindings, moved, globals, false, types)?;
                 }
             } else if head == "array-repeat" {

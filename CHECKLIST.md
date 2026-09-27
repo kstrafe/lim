@@ -222,6 +222,12 @@ the checklist is committed alongside the implementation it tracks.
   later release of the transferred value. The syntax-side ownership checker
   still needs complete migration for accepting every valid contextual move.
 
+- [x] **IR-04: Accept bare contextual aggregate moves in legacy ownership.**
+  A bare first operand of `#array` or `#tuple` cannot be an explicit type
+  expression, so consume it in the syntax-side checker. Test accepted
+  single transfers and rejected later reuse. List-valued contextual operands
+  still require checked constructor metadata in the full IR-04 migration.
+
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
   retain condition/scrutinee/result node IDs and the pattern binding identities
