@@ -13583,57 +13583,7 @@ impl FunctionContext {
     }
 
     fn expression_float_type(&self, expression: &Expr) -> Option<Type> {
-        match expression {
-            Expr::Float(_) => Some(Type::F64),
-            Expr::Symbol(name) => self
-                .local_types
-                .get(name)
-                .filter(|ty| is_float_type(ty))
-                .cloned()
-                .or_else(|| {
-                    self.global_types
-                        .get(name)
-                        .filter(|ty| is_float_type(ty))
-                        .cloned()
-                }),
-            Expr::List(items) => match items.first() {
-                Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "literal" | "as") => {
-                    self.expression_type(expression).filter(is_float_type)
-                }
-                Some(Expr::Symbol(operator))
-                    if matches!(
-                        operator_base(operator.as_str()),
-                        "+" | "-" | "*" | "/" | "%"
-                    ) =>
-                {
-                    items
-                        .get(1)
-                        .and_then(|value| self.expression_float_type(value))
-                }
-                Some(Expr::Symbol(operator)) if operator == "if" && items.len() == 4 => self
-                    .expression_float_type(&items[2])
-                    .or_else(|| self.expression_float_type(&items[3])),
-                Some(Expr::Symbol(operator)) if operator == "match" => items[2..]
-                    .iter()
-                    .filter_map(|arm| match arm {
-                        Expr::List(arm) if arm.len() == 2 => self.expression_float_type(&arm[1]),
-                        _ => None,
-                    })
-                    .next(),
-                Some(Expr::Symbol(operator))
-                    if matches!(operator_base(operator.as_str()), "index" | "get") =>
-                {
-                    self.expression_type(expression).filter(is_float_type)
-                }
-                Some(Expr::Symbol(operator)) => self
-                    .functions
-                    .get(operator)
-                    .map(|function| function.return_type.clone())
-                    .filter(is_float_type),
-                _ => None,
-            },
-            _ => None,
-        }
+        self.expression_type(expression).filter(is_float_type)
     }
 
     fn expression_as_float(&mut self, expression: &Expr, ty: &Type) -> Result<(), String> {

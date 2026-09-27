@@ -248,6 +248,12 @@ the checklist is committed alongside the implementation it tracks.
   selecting scalar SSE instructions. Preserve the numeric differential suite
   and native floating examples.
 
+- [x] **IR-03s: Use retained expression types for float classification.**
+  Remove the separate syntax-recursive float-type walker and classify floats
+  through the shared expression type path, which reads checked metadata by
+  stable ID before its synthesized-expression fallback. Preserve f32/f64,
+  branch, call, and aggregate native cases.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
