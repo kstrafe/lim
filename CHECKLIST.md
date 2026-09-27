@@ -981,6 +981,12 @@ the checklist is committed alongside the implementation it tracks.
   two-helper accepted local use and a local borrow rejected when the returned
   aggregate escapes, with the typed diagnostic identifying the local owner.
 
+- [x] **IR-04bv: Select typed escape checking for summarized aggregate returns.**
+  Bypass the syntax-side return escape check when every reference-bearing
+  aggregate call in a function has a checked body summary. Retain the legacy
+  safeguard for opaque external aggregate-returning calls. Verify that a local
+  borrow escaping through internal helper chains is rejected by typed flow.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

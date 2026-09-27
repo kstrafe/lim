@@ -1295,11 +1295,13 @@ fn check_types_inner(
             }
         }
     }
-    crate::borrowcheck::check_program_with_typed_returns(program).map_err(|error| {
-        *diagnostic_span = error.span;
-        *diagnostic_labels = error.labels;
-        error.message
-    })?;
+    crate::borrowcheck::check_program_with_typed_returns(program, &declarations).map_err(
+        |error| {
+            *diagnostic_span = error.span;
+            *diagnostic_labels = error.labels;
+            error.message
+        },
+    )?;
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {

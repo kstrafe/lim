@@ -513,18 +513,22 @@ impl From<String> for BorrowDiagnostic {
 
 #[cfg(test)]
 pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
-    check_program_impl(program, false)
+    check_program_impl(program, false, None)
 }
 
 /// The ordinary compilation path has already checked return escapes against
 /// typed places and loan origins; standalone callers retain the legacy rule.
-pub(crate) fn check_program_with_typed_returns(program: &Program) -> Result<(), BorrowDiagnostic> {
-    check_program_impl(program, true)
+pub(crate) fn check_program_with_typed_returns(
+    program: &Program,
+    declarations: &crate::typed_ir::Declarations,
+) -> Result<(), BorrowDiagnostic> {
+    check_program_impl(program, true, Some(declarations))
 }
 
 fn check_program_impl(
     program: &Program,
     typed_return_escapes: bool,
+    declarations: Option<&crate::typed_ir::Declarations>,
 ) -> Result<(), BorrowDiagnostic> {
     let globals = program
         .items
@@ -684,16 +688,64 @@ fn check_program_impl(
                     &program.statement_spans,
                     &program.statement_expressions,
                     typed_return_escapes
-                        && direct_reference_return(
+                        && (direct_reference_return(
                             &function.return_type,
                             &program.items,
                             &mut HashSet::new(),
-                        ),
+                        ) || typed_aggregate_return_is_complete(
+                            function,
+                            declarations,
+                            &reference_types,
+                            &program.items,
+                        )),
                 )?;
             }
         }
     }
     Ok(())
+}
+
+/// Typed return provenance is complete for an aggregate result only when all
+/// reference-bearing aggregate calls in the body have an implementation
+/// summary. Keep the legacy escape check for opaque external aggregate calls.
+fn typed_aggregate_return_is_complete(
+    function: &Function,
+    declarations: Option<&crate::typed_ir::Declarations>,
+    reference_types: &HashSet<String>,
+    items: &[Item],
+) -> bool {
+    if !contains_reference_type(&function.return_type, reference_types)
+        || direct_reference_return(&function.return_type, items, &mut HashSet::new())
+    {
+        return false;
+    }
+    let Some(declarations) = declarations else {
+        return false;
+    };
+    let Some(body) = declarations.bodies.get(&function.name) else {
+        return false;
+    };
+    !body.nodes.iter().any(|node| {
+        let (
+            Some(ty),
+            crate::typed_body::NodeKind::Form {
+                callee: Some(callee),
+                ..
+            },
+        ) = (&node.ty, &node.kind)
+        else {
+            return false;
+        };
+        let reference_bearing_aggregate = match ty {
+            crate::Type::Named(name) => reference_types.contains(name),
+            crate::Type::Array(element, _) => contains_reference_type(element, reference_types),
+            crate::Type::Tuple(elements) => elements
+                .iter()
+                .any(|element| contains_reference_type(element, reference_types)),
+            _ => false,
+        };
+        reference_bearing_aggregate && !body.call_return_origins.contains_key(callee)
+    })
 }
 
 fn check_function(
