@@ -159,15 +159,35 @@ fn intern_expr(expression: &lim::Expr, symbols: &mut LocalSymbols) -> InternedKi
 }
 
 fn ast_symbol_stats(nodes: &[lim::SpannedExpr]) -> (usize, usize, usize) {
+    fn visit_expr<'a>(
+        expression: &'a lim::Expr,
+        counts: &mut HashMap<&'a str, usize>,
+        bytes: &mut usize,
+    ) {
+        match expression {
+            lim::Expr::Symbol(text) => {
+                *counts.entry(text).or_default() += 1;
+                *bytes += text.len();
+            }
+            lim::Expr::List(items) => {
+                for item in items {
+                    visit_expr(item, counts, bytes);
+                }
+            }
+            lim::Expr::Quote(value)
+            | lim::Expr::QuasiQuote(value)
+            | lim::Expr::Unquote(value)
+            | lim::Expr::UnquoteSplicing(value) => visit_expr(value, counts, bytes),
+            lim::Expr::Labeled { expression, .. } => visit_expr(expression, counts, bytes),
+            _ => {}
+        }
+    }
     fn visit<'a>(
         node: &'a lim::SpannedExpr,
         counts: &mut HashMap<&'a str, usize>,
         bytes: &mut usize,
     ) {
-        if let lim::Expr::Symbol(text) = &node.expr {
-            *counts.entry(text).or_default() += 1;
-            *bytes += text.len();
-        }
+        visit_expr(&node.expr, counts, bytes);
         for child in &node.children {
             visit(child, counts, bytes);
         }
@@ -187,11 +207,76 @@ fn ast_symbol_stats(nodes: &[lim::SpannedExpr]) -> (usize, usize, usize) {
     )
 }
 
+fn report_parsed_symbols(label: &str, source: &str) {
+    let parsed = lim::parse(source).expect("benchmark syntax parses");
+    let (duplicates, repeated_bytes, unique_bytes) = ast_symbol_stats(&parsed);
+    println!(
+        "{label}.ast-identifiers symbol_nodes={} duplicate_allocations_est={duplicates} repeated_text_bytes={repeated_bytes} unique_text_bytes={unique_bytes}",
+        count_ast_symbols(&parsed)
+    );
+}
+
+fn count_ast_symbols(nodes: &[lim::SpannedExpr]) -> usize {
+    fn count_expr(expression: &lim::Expr) -> usize {
+        match expression {
+            lim::Expr::Symbol(_) => 1,
+            lim::Expr::List(items) => items.iter().map(count_expr).sum(),
+            lim::Expr::Quote(value)
+            | lim::Expr::QuasiQuote(value)
+            | lim::Expr::Unquote(value)
+            | lim::Expr::UnquoteSplicing(value) => count_expr(value),
+            lim::Expr::Labeled { expression, .. } => count_expr(expression),
+            _ => 0,
+        }
+    }
+    fn visit(node: &lim::SpannedExpr) -> usize {
+        count_expr(&node.expr) + node.children.iter().map(visit).sum::<usize>()
+    }
+    nodes.iter().map(visit).sum()
+}
+
+fn generated_syntax(aliases: usize) -> String {
+    (0..aliases)
+        .map(|index| format!("(#type Generated{index} u64)\n"))
+        .collect()
+}
+
+fn report_generated_symbols(label: &str, source: &str) {
+    let nodes = lim::parse(source).expect("benchmark generated syntax parses");
+    let (duplicates, repeated_bytes, unique_bytes) = ast_symbol_stats(&nodes);
+    let occurrences = count_ast_symbols(&nodes);
+    println!(
+        "{label}.generated-syntax-est forms={} identifier_nodes={occurrences} duplicate_allocations_est={duplicates} repeated_text_bytes={repeated_bytes} unique_text_bytes={unique_bytes}",
+        source.lines().count()
+    );
+}
+
+fn report_cache_decisions(label: &str, report: &str) {
+    let mut decisions = HashMap::<&str, usize>::new();
+    for event in report.split("\"decision\":\"").skip(1) {
+        if let Some(decision) = event.split('\"').next() {
+            *decisions.entry(decision).or_default() += 1;
+        }
+    }
+    println!("{label}.cache-decisions {decisions:?}");
+}
+
 fn benchmark_ast_interning(label: &str, source: &str, iterations: usize) {
     let parsed = lim::parse(black_box(source)).unwrap();
     let (duplicates, repeated_bytes, unique_bytes) = ast_symbol_stats(&parsed);
     println!(
         "{label}.ast-symbols duplicate_allocations_est={duplicates} repeated_text_bytes={repeated_bytes} unique_text_bytes={unique_bytes}"
+    );
+    report_parsed_symbols(label, source);
+    let parsed = lim::parse(source).unwrap();
+    let mut symbols = LocalSymbols::default();
+    for node in &parsed {
+        let _ = intern_node(node, &mut symbols);
+    }
+    println!(
+        "{label}.local-interner unique={} lookup_hits={}",
+        symbols.by_text.len(),
+        count_ast_symbols(&parsed).saturating_sub(symbols.by_text.len())
     );
     // Cold includes parsing and construction of a fresh pool; warm repeats the
     // same operation after the allocator/hash tables have been exercised.
@@ -449,14 +534,21 @@ fn main() {
             )
             .unwrap();
         });
-        lim::write_generated_sources_from_path_with_config_and_cache(
-            &generator_source,
-            &generator_path,
-            &generated_dir,
-            &config,
-            &cache_dir,
-        )
-        .unwrap();
+        let (_, cold_report) = lim::with_cache_report(|| {
+            let _ = fs::remove_dir_all(&cache_dir);
+            fs::create_dir_all(&cache_dir).unwrap();
+            lim::write_generated_sources_from_path_with_config_and_cache(
+                &generator_source,
+                &generator_path,
+                &generated_dir,
+                &config,
+                &cache_dir,
+            )
+            .unwrap();
+        });
+        report_cache_decisions(&format!("{label}.generator-cold"), &cold_report);
+        let generated = generated_syntax(aliases);
+        report_generated_symbols(&format!("{label}.generator-cold"), &generated);
         measure(&format!("{label}.generator-warm-cache"), iterations, || {
             lim::write_generated_sources_from_path_with_config_and_cache(
                 &generator_source,
@@ -467,6 +559,18 @@ fn main() {
             )
             .unwrap();
         });
+        let (_, warm_report) = lim::with_cache_report(|| {
+            lim::write_generated_sources_from_path_with_config_and_cache(
+                &generator_source,
+                &generator_path,
+                &generated_dir,
+                &config,
+                &cache_dir,
+            )
+            .unwrap();
+        });
+        report_cache_decisions(&format!("{label}.generator-warm"), &warm_report);
+        report_generated_symbols(&format!("{label}.generator-warm"), &generated);
     }
     if let Ok(status) = fs::read_to_string("/proc/self/status") {
         if let Some(peak) = status.lines().find(|line| line.starts_with("VmHWM:")) {

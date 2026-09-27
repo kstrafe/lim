@@ -1614,6 +1614,13 @@ and acceptance coverage.
   measure a fully interned AST, so PERF-02 remains open. Preserve the current
   representation until a broader A/B build shows a material improvement.
 
+- [x] **PERF-02b: Measure AST symbol duplication and cached generator work.**
+  Extend the compiler benchmark to count spellings in the parsed AST and
+  deterministic generated-syntax fixture, report cold/warm cache decisions,
+  and time a benchmark-only post-parse local interner. Document machine and
+  toolchain details, plus why this does not yet constitute a full front-end
+  A/B or memory-allocation comparison.
+
 - [x] **PERF-02b: Benchmark a compile-local interned syntax-tree prototype.**
   Preserve syntax shape and spans in a benchmark-only AST with `u32` symbol
   IDs and a per-compilation spelling pool. On an i7-13700KF with Rust 1.99.0
