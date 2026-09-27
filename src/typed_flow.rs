@@ -446,7 +446,23 @@ impl FlowGraph {
     /// Forward may-analysis of direct reference origins held by local
     /// bindings. The transfer uses checked value IDs rather than syntax names.
     pub fn loan_origins(&self, body: &Body) -> FlowLoanOrigins {
-        let empty = vec![Vec::new(); body.bindings.len()];
+        let mut empty = vec![Vec::new(); body.bindings.len()];
+        // A reference parameter is an externally supplied loan root. Its
+        // referent is intentionally represented by the parameter's stable
+        // binding identity: callers have already checked aliasing between
+        // their arguments, while this seed lets local reborrows retain the
+        // parameter origin instead of appearing origin-free.
+        for (index, binding) in body.bindings.iter().take(body.parameter_count).enumerate() {
+            let Type::Reference { mutable, .. } = &binding.ty else {
+                continue;
+            };
+            empty[index].push(LoanOrigin {
+                place: Place::root(PlaceRoot::Parameter(BindingId(index))),
+                mutable: *mutable,
+                span: None,
+                storage: Vec::new(),
+            });
+        }
         let mut before = vec![None; self.nodes.len()];
         let mut after = vec![None; self.nodes.len()];
         let mut queued = vec![false; self.nodes.len()];
@@ -926,6 +942,7 @@ impl FlowGraph {
                 .or(node.span);
             let name = match place.root {
                 PlaceRoot::Local(binding) => body.bindings[binding.0].name.as_str(),
+                PlaceRoot::Parameter(binding) => body.bindings[binding.0].name.as_str(),
                 PlaceRoot::Global(_) => "global",
             };
             return Err(ReleaseConflict {
@@ -1094,6 +1111,13 @@ impl FlowGraph {
                             return Err(format!("typed flow borrows invalid local {binding:?}"));
                         }
                     }
+                    if let PlaceRoot::Parameter(binding) = place.root {
+                        if binding.0 >= body.parameter_count {
+                            return Err(format!(
+                                "typed flow borrows invalid parameter {binding:?}"
+                            ));
+                        }
+                    }
                 }
                 FlowAction::Clone { value, place } => {
                     let Some(crate::typed_body::Node {
@@ -1139,6 +1163,18 @@ impl FlowGraph {
                     if value.0 >= body.nodes.len() {
                         return Err(format!("typed flow assigns invalid value {value:?}"));
                     }
+                }
+                FlowAction::Assign {
+                    place:
+                        Place {
+                            root: PlaceRoot::Parameter(binding),
+                            ..
+                        },
+                    ..
+                } => {
+                    return Err(format!(
+                        "typed flow cannot assign to abstract parameter referent {binding:?}"
+                    ));
                 }
                 FlowAction::Pattern { pattern, value } => {
                     if pattern.0 >= body.nodes.len() || value.0 >= body.nodes.len() {
@@ -3958,6 +3994,53 @@ mod tests {
             .collect::<Vec<_>>();
         sources.sort();
         assert_eq!(sources, ["(#borrow left)", "(#borrow right)"]);
+    }
+
+    #[test]
+    fn reference_parameters_are_external_origins_on_typed_flow() {
+        let source = "(#fn pass ((source (#ref u64))) (#ref u64)
+          (#let alias (#ref u64) source)
+          (#return alias))
+          (#fn inspect ((source (#ref-mut u64))) u64
+            (#return (#deref source)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["pass"];
+        assert_eq!(body.parameter_count, 1);
+        let graph = &checked.declarations().flows["pass"];
+        let alias = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "alias")
+                .unwrap(),
+        );
+        let bind = graph
+            .nodes
+            .iter()
+            .position(
+                |node| matches!(node.action, FlowAction::Bind { binding, .. } if binding == alias),
+            )
+            .map(FlowNodeId)
+            .unwrap();
+        let origins = graph.loan_origins(body);
+        let held = origins.after(bind, alias);
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].place.root, PlaceRoot::Parameter(BindingId(0)));
+        assert!(
+            held[0].span.is_none(),
+            "parameter origins are caller-provided"
+        );
+
+        let inspect = &checked.declarations().bodies["inspect"];
+        let inspect_flow = &checked.declarations().flows["inspect"];
+        let inspect_origins = inspect_flow.loan_origins(inspect);
+        assert_eq!(
+            inspect_origins
+                .before(inspect_flow.entry, BindingId(0))
+                .len(),
+            1
+        );
+        assert!(inspect_origins.before(inspect_flow.entry, BindingId(0))[0].mutable);
     }
 
     #[test]

@@ -966,6 +966,14 @@ the checklist is committed alongside the implementation it tracks.
   checked anchor, not as origin-free pointer expressions. Reject a local anchor
   returned through an aliased raw pointer with the return and anchor spans.
 
+- [x] **IR-04bt: Seed reference-parameter origins in typed flow.** Retain an
+  abstract `Parameter` place root for each reference parameter at function
+  entry, distinct from the local slot holding that reference. Carry it through
+  local aliases, and preserve mutability for mutable-reference parameters.
+  Verify shared-reference aliasing, mutable-reference reads, and that caller
+  origins remain distinct from local owners; local-return rejection remains
+  enforced by typed escape checks.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

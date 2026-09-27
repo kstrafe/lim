@@ -786,6 +786,9 @@ pub(crate) enum Control {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum PlaceRoot {
     Local(BindingId),
+    /// Abstract referent identity for a reference supplied at the function
+    /// boundary; distinct from the local slot that stores the reference.
+    Parameter(BindingId),
     Global(GlobalId),
 }
 
@@ -809,6 +812,10 @@ pub(crate) struct Body {
     pub nodes: Vec<Node>,
     pub bindings: Vec<Binding>,
     pub instructions: Vec<Instruction>,
+    /// Function parameters occupy the first `parameter_count` binding slots.
+    /// Keeping this boundary in typed IR lets ownership analyses distinguish
+    /// externally supplied reference roots from references to local owners.
+    pub parameter_count: usize,
     emission_nodes: Vec<NodeId>,
     callees: HashMap<FunctionId, String>,
     declaration_names: HashMap<DeclarationId, String>,
@@ -1201,6 +1208,7 @@ impl Body {
             Control::Assign(root, projection, value) => {
                 let name = match root {
                     PlaceRoot::Local(id) => self.bindings[id.0].name.clone(),
+                    PlaceRoot::Parameter(id) => self.bindings[id.0].name.clone(),
                     PlaceRoot::Global(id) => {
                         self.declaration_names[&DeclarationId::Global(*id)].clone()
                     }
@@ -1314,6 +1322,7 @@ impl Body {
             expression_ids,
             spans,
         };
+        builder.body.parameter_count = function.parameters.len();
         for parameter in &function.parameters {
             builder.binding(
                 &parameter.name,
