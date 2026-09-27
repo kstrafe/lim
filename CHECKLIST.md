@@ -920,6 +920,11 @@ the checklist is committed alongside the implementation it tracks.
   is nested in a tuple, array, enum, or struct constructor. Inspect each break
   before cleanup and reject a wrapper containing a borrow of a local owner.
 
+- [x] **IR-04bl: Preserve match-bound origins through slice constructors.**
+  Resolve source origins through `#slice-of`, range/index views, and mutable
+  split projections using the arm-local flow state. Reject a slice returned
+  from a reference-to-array pattern that borrows a local array owner.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
