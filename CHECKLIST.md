@@ -1059,6 +1059,11 @@ the checklist is committed alongside the implementation it tracks.
   return nested in a block inside `#borrow-mut` to ensure cleanup precedes the
   function exit.
 
+- [x] **IR-04cj: Verify lexical loans across loop back edges.** A scoped loan
+  created in a loop body must be ended before the next iteration, while a
+  break or continue that exits the scope must also release it. Test that a
+  post-loop mutable borrow succeeds after per-iteration shared scopes.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

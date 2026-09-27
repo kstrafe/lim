@@ -1319,6 +1319,18 @@ mod tests {
     }
 
     #[test]
+    fn scoped_loan_is_released_on_every_loop_iteration() {
+        let source = "(#fn main () u64
+            (#let-mut value u64 1u64)
+            (#for-range (iteration u64) 0u64 3u64
+              (#borrow value 2u64))
+            (#borrow-mut value 4u64)
+            (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap();
+    }
+
+    #[test]
     fn projected_reborrow_suspends_parent_access_but_preserves_disjoint_fields() {
         let overlapping = "(#struct Inner ((value u64)))
           (#struct Outer ((inner Inner) (other u64)))
