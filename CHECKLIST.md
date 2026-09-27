@@ -882,6 +882,12 @@ the checklist is committed alongside the implementation it tracks.
   through `(#return (#loop (#break ...)))` with both source labels. Statement
   loops and other typed ownership transfers remain in IR-04.
 
+- [x] **IR-04be: Check block results before their lexical cleanup.** Resolve a
+  block's final evaluated expression through typed instructions and inspect its
+  loan origins at that expression's flow event, before block-local bindings are
+  cleared. Reject an alias to an outer local escaping via a returned block and
+  verify both source locations. Non-final side effects remain flow-ordered.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

@@ -1767,6 +1767,13 @@ fn collect_result_alternatives(body: &Body, id: NodeId, output: &mut Vec<NodeId>
         NodeKind::Labeled(_, expression) => {
             collect_result_alternatives(body, *expression, output);
         }
+        NodeKind::Block(instructions) => {
+            if let Some(Control::Evaluate(value)) =
+                instructions.last().map(|instruction| &instruction.control)
+            {
+                collect_result_alternatives(body, *value, output);
+            }
+        }
         _ => output.push(id),
     }
 }
