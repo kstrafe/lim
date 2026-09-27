@@ -939,6 +939,11 @@ the checklist is committed alongside the implementation it tracks.
   Borrow/linearity regressions include generated allocator-backed vectors and
   mutable-reference-bearing structs to guard that boundary.
 
+- [x] **IR-04bo: Reject mixed local/parameter origins at typed branch joins.**
+  Join every `#if` result alternative by its flow-site loan origins; a valid
+  parameter-backed branch cannot mask a branch that returns a local borrow.
+  Verify the return underline and local-origin secondary label.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
