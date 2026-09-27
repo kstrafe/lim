@@ -32,6 +32,13 @@ fn one_shot_timer_waits_without_spinning_and_can_be_cancelled() {
 }
 
 #[test]
+fn two_owned_timers_share_a_blocking_wait() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/timer_pair.lim");
+    let source = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(compile_and_run(&source, &path), 42);
+}
+
+#[test]
 fn expression_statement_does_not_become_a_large_return_value() {
     let source = "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64)))
       (#fn make () Large

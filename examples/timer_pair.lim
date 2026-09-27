@@ -1,0 +1,53 @@
+(#import "../library/timer_reactor1.lim")
+
+(#fn main () u64
+  (#let created-first TimerCreate1
+    (#call timer-reactor1-create (: nanoseconds 10000000u64)))
+  (#let-else (TimerCreated1 first) TimerCreate1 created-first (#unreachable))
+  (#let created-second TimerCreate1
+    (#call timer-reactor1-create (: nanoseconds 20000000u64)))
+  (#let-else (TimerCreated1 second) TimerCreate1 created-second (#unreachable))
+  (#let alias-wait TimerWait2
+    (#call timer-reactor2-wait (: first (#borrow first) : second (#borrow first))))
+  (#assert (#match alias-wait
+    (#case (TimerPairFailed1 error) (#i64.== error -22i64))
+    (#case (TimerPairWoken1 a b) false)))
+  (#let wake TimerWait2
+    (#call timer-reactor2-wait (: first (#borrow first) : second (#borrow second))))
+  (#let-else (TimerPairWoken1 first-woke second-woke) TimerWait2 wake (#unreachable))
+  (#assert (#bool.|| first-woke second-woke))
+  (#let first-poll TimerPoll1
+    (#call timer-reactor1-poll (: timer (#borrow first))))
+  (#let first-done bool (#match first-poll
+    (#case TimerPending1 false)
+    (#case (TimerReady1 count) (#u64.== count 1u64))
+    (#case (TimerPollFailed1 error) (#unreachable))))
+  (#let second-poll TimerPoll1
+    (#call timer-reactor1-poll (: timer (#borrow second))))
+  (#let second-done bool (#match second-poll
+    (#case TimerPending1 false)
+    (#case (TimerReady1 count) (#u64.== count 1u64))
+    (#case (TimerPollFailed1 error) (#unreachable))))
+  (#if (#bool.&& first-done second-done)
+    ()
+    (#block
+      (#let another TimerWait2
+        (#call timer-reactor2-wait (: first (#borrow first) : second (#borrow second))))
+      (#assert (#match another
+        (#case (TimerPairWoken1 a b) (#bool.|| a b))
+        (#case (TimerPairFailed1 error) false)))
+      (#if (#bool.! first-done)
+        (#assert (#match (#call timer-reactor1-poll (: timer (#borrow first)))
+          (#case (TimerReady1 count) (#u64.== count 1u64))
+          (#case _ false)))
+        ())
+      (#if (#bool.! second-done)
+        (#assert (#match (#call timer-reactor1-poll (: timer (#borrow second)))
+          (#case (TimerReady1 count) (#u64.== count 1u64))
+          (#case _ false)))
+        ())))
+  (#let first-closed i64 (#call timer-reactor1-cancel (: timer first)))
+  (#let second-closed i64 (#call timer-reactor1-cancel (: timer second)))
+  (#return (#if (#bool.&& (#i64.== first-closed 0i64)
+                         (#i64.== second-closed 0i64))
+    42u64 0u64)))

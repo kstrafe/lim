@@ -10,6 +10,7 @@
 (#linear TimerReactor1)
 (#enum TimerCreate1 ((TimerCreated1 TimerReactor1) (TimerCreateFailed1 i64)))
 (#enum TimerWait1 (TimerWoken1 (TimerWaitFailed1 i64)))
+(#enum TimerWait2 ((TimerPairWoken1 bool bool) (TimerPairFailed1 i64)))
 (#enum TimerPoll1 (TimerPending1 (TimerReady1 u64) (TimerPollFailed1 i64)))
 
 (#fn timer-reactor1-create ((nanoseconds u64)) TimerCreate1
@@ -80,6 +81,58 @@
       TimerWoken1
       (TimerWaitFailed1 -22i64))
     (TimerWaitFailed1 result))))
+
+;; Borrow two distinct timer owners. The first owner's 4096-byte mapping has
+;; spare space at offsets 8..15 for the second pollfd. No pointer escapes the
+;; synchronous kernel wait, and each notification checks its own generation.
+(#fn timer-reactor2-wait
+  ((first (#ref TimerReactor1)) (second (#ref TimerReactor1))) TimerWait2
+  (#let second-fd i64 (#get second fd))
+  (#return (#if (#i64.== (#get first fd) second-fd)
+    (TimerPairFailed1 -22i64)
+    (#block
+      (#let memory (#ptr-mut u8) (#get first memory))
+      (#unsafe (#block
+        (#ptr-write (#ptr-offset (#clone memory) 8usize)
+          (#as second-fd u8))
+        (#ptr-write (#ptr-offset (#clone memory) 9usize)
+          (#as (#u64.>> (#as second-fd u64) 8u64) u8))
+        (#ptr-write (#ptr-offset (#clone memory) 10usize)
+          (#as (#u64.>> (#as second-fd u64) 16u64) u8))
+        (#ptr-write (#ptr-offset (#clone memory) 11usize)
+          (#as (#u64.>> (#as second-fd u64) 24u64) u8))
+        (#ptr-write (#ptr-offset (#clone memory) 6usize) 0u8)
+        (#ptr-write (#ptr-offset (#clone memory) 7usize) 0u8)
+        (#ptr-write (#ptr-offset (#clone memory) 12usize) 1u8)
+        (#ptr-write (#ptr-offset (#clone memory) 13usize) 0u8)
+        (#ptr-write (#ptr-offset (#clone memory) 14usize) 0u8)
+        (#ptr-write (#ptr-offset (#clone memory) 15usize) 0u8)))
+      (#let count i64 (#unsafe (#call linux-poll
+        (: pollfds memory : count 2usize : timeout-ms -1i32))))
+      (#if (#i64.<= count 0i64)
+        (TimerPairFailed1 (#if (#i64.== count 0i64) -22i64 count))
+        (#block
+          (#let first-flags u8 (#unsafe (#ptr-read
+            (#ptr-offset (#clone memory) 6usize))))
+          (#let second-flags u8 (#unsafe (#ptr-read
+            (#ptr-offset (#clone memory) 14usize))))
+          (#if (#bool.|| (#u8.!= (#u8.& first-flags 56u8) 0u8)
+                        (#u8.!= (#u8.& second-flags 56u8) 0u8))
+            (TimerPairFailed1 -5i64)
+            (#block
+              (#let first-ready bool (#u8.!= (#u8.& first-flags 1u8) 0u8))
+              (#let second-ready bool (#u8.!= (#u8.& second-flags 1u8) 0u8))
+              (#let first-valid bool (#if first-ready
+                (#call wake-ready4-notify
+                  (: queue (#borrow (#get first queue)) : token (#get first token)))
+                true))
+              (#let second-valid bool (#if second-ready
+                (#call wake-ready4-notify
+                  (: queue (#borrow (#get second queue)) : token (#get second token)))
+                true))
+              (#if (#bool.&& first-valid second-valid)
+                (TimerPairWoken1 first-ready second-ready)
+                (TimerPairFailed1 -22i64))))))))))
 
 (#fn timer-reactor1-poll ((timer (#ref TimerReactor1))) TimerPoll1
   (#return (#if (#call wake-ready4-take

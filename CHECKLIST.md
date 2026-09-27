@@ -640,6 +640,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   concrete success/error enum from timer creation. Clean up each acquired
   resource on syscall failure and report invalid duration without a trap.
   Cover the invalid-duration path and successful ownership transfer natively.
+- [x] **ASYNC-02c: Wait on two owned timers without busy polling.** Borrow two
+  distinct opaque timer owners, use one blocking Linux poll call, and validate
+  each wake token independently. Reject aliasing the same owner in both slots;
+  cover whichever timer fires first, eventual completion of both, and cleanup
+  in a native example. General dynamic registration remains part of ASYNC-02.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,

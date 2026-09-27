@@ -301,8 +301,12 @@ not retain the scratch buffer between calls, and `timer-reactor1-cancel`
 consumes the owner, closes the fd, and unmaps the buffer.
 `timer-reactor1-create` returns `TimerCreated1` or `TimerCreateFailed1`;
 failure paths clean up any acquired fd or mapping. Multi-operation readiness
-and general buffered asynchronous I/O remain open. An executor's blocking
-run call cannot currently be externally interrupted.
+is available for two distinct borrowed timers through `timer-reactor2-wait`:
+one blocking kernel poll marks each ready token independently, without moving
+either owner or exposing its fd. `examples/timer_pair.lim` exercises both
+owners, including the same-owner rejection. Arbitrary registration, general
+buffered asynchronous I/O, and scheduler shutdown remain open. An executor's
+blocking run call cannot currently be externally interrupted.
 
 `(@threaded-executor run Result jobs Worker)` expands an executor plus
 `(@thread-spawn (: task Worker : worker run))`. Each explicit spawn transfers the fixed job set
@@ -313,7 +317,7 @@ implementation. OS thread creation still uses its existing allocation path.
 
 Runnable examples: `distributed_errors.lim`, `distributed_slice.lim`,
 `local_waker.lim`, `async_wake_pipeline.lim`, `async_registered_wake.lim`,
-`wake_ready4.lim`, `timer_reactor1.lim`, `async_fn.lim`,
+`wake_ready4.lim`, `timer_reactor1.lim`, `timer_pair.lim`, `async_fn.lim`,
 `async_fn_two_awaits.lim`,
 `cooperative_tasks.lim`, `async_pipeline.lim`, `task_cancellation.lim`, and
 `threaded_tasks.lim` in `examples/`.
