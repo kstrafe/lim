@@ -455,6 +455,21 @@ mod checked_program_tests {
     }
 
     #[test]
+    fn typed_return_escape_recognizes_reference_aliases() {
+        let source = "(#type WordRef (#ref u64))
+          (#fn escape () WordRef
+            (#let owner u64 1u64)
+            (#return (#borrow owner)))";
+        let program = crate::parse_program(source).unwrap();
+        let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
+        let span = span.unwrap();
+        assert!(source[span.start..span.end].starts_with("(#return (#borrow owner))"));
+        assert!(labels
+            .iter()
+            .any(|(origin, _)| { &source[origin.start..origin.end] == "(#borrow owner)" }));
+    }
+
+    #[test]
     fn normal_compilation_checks_once_and_unchecked_emission_still_validates() {
         let source = "(#fn main () u64 (#return 42u64))";
         let directory = std::env::temp_dir().join(format!("lim-checked-{}", std::process::id()));

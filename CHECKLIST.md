@@ -950,6 +950,12 @@ the checklist is committed alongside the implementation it tracks.
   fallback for unsupported named aggregate results. This removes a production
   dead-code warning without dropping compatibility coverage.
 
+- [x] **IR-04bq: Resolve aliases to direct reference return types.** Extend
+  the typed-return selection through acyclic type aliases to references and
+  slices, without treating arbitrary reference-bearing structs as covered.
+  Reject a local borrow returned under a reference alias with exact source
+  locations; named aggregate fallback remains active.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

@@ -684,11 +684,10 @@ fn check_program_impl(
                     &program.statement_spans,
                     &program.statement_expressions,
                     typed_return_escapes
-                        && matches!(
-                            function.return_type,
-                            crate::Type::Reference { .. }
-                                | crate::Type::Slice(_)
-                                | crate::Type::MutableSlice(_)
+                        && direct_reference_return(
+                            &function.return_type,
+                            &program.items,
+                            &mut HashSet::new(),
                         ),
                 )?;
             }
@@ -2517,6 +2516,19 @@ fn reference_origins(
         | Expr::Unquote(expression)
         | Expr::UnquoteSplicing(expression) => reference_origins(expression, context, true),
         _ => HashSet::new(),
+    }
+}
+
+fn direct_reference_return(ty: &crate::Type, items: &[Item], seen: &mut HashSet<String>) -> bool {
+    match ty {
+        crate::Type::Reference { .. } | crate::Type::Slice(_) | crate::Type::MutableSlice(_) => {
+            true
+        }
+        crate::Type::Named(name) if seen.insert(name.clone()) => items.iter().any(|item| {
+            matches!(item, Item::TypeAlias { name: alias, target, .. }
+                if alias == name && direct_reference_return(target, items, seen))
+        }),
+        _ => false,
     }
 }
 
