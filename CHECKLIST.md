@@ -295,6 +295,12 @@ the checklist is committed alongside the implementation it tracks.
   it. Textual qualifier parsing remains only for synthesized legacy forms.
   Preserve compilation and numeric differential coverage.
 
+- [x] **IR-03z: Preserve checked argument identities through clone helpers.**
+  Emit generated `Type-clone` helpers directly from the original operand slice
+  and resolve the helper by `FunctionId`, rather than cloning its AST into a
+  synthetic call. This keeps nested operand metadata available for ABI checks.
+  Preserve native allocator, Cell, local-waker, and explicit-clone examples.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

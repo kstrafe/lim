@@ -9345,7 +9345,14 @@ impl FunctionContext {
                 if let Some(function) =
                     clone_function.filter(|name| self.functions.contains_key(name))
                 {
-                    self.list_expression(&[Expr::Symbol(function), items[1].clone()], None, None)
+                    let callee = self
+                        .function_abis_by_id
+                        .iter()
+                        .find_map(|(id, abi)| (abi.symbol_name == function).then_some(*id))
+                        .ok_or_else(|| {
+                            format!("internal error: clone helper '{function}' has no function ID")
+                        })?;
+                    self.call(&function, &items[1..], None, Some(callee))
                 } else {
                     self.expression(&items[1])
                 }
