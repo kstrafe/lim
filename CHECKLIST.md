@@ -81,6 +81,13 @@ the checklist is committed alongside the implementation it tracks.
   name; preserve native imports and generated-code examples. The bridge
   itself remains temporary and address-keyed until IR-02 is complete.
 
+- [x] **IR-02h: Reject same-shaped form-head drift in the emission bridge.**
+  Compare the reconstructed form head to the retained builtin, typed numeric
+  spelling, or checked callee name before associating metadata. A changed
+  operator or borrow mode with unchanged operands must fail internally.
+  Cover a swapped numeric opcode and preserve native generated/imported cases.
+  Direct typed emission still remains the IR-02/03 endpoint.
+
 - [x] **IR-02a: Preserve checked metadata when erasing unsafe wrappers.**
   Verify the body's stable node sequence and retained numeric type/operation
   metadata still associate with backend syntax after `#unsafe` wrappers are

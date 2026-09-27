@@ -206,7 +206,8 @@ the typed node order and numeric metadata association. This validates the
 current order-based bridge, not a future address-free mapping.
 The bridge also rejects same-length shape drift, including reordered literal
 values and changed binding/declaration names, before attaching checked
-metadata to reconstructed syntax. It remains
+metadata to reconstructed syntax. It also checks form heads against retained
+builtin, numeric, or callee identity. It remains
 an address-keyed compatibility bridge until IR-02 removes that dependence.
 `CheckedProgram::dump_typed_ir()` exposes a deterministic
 debugging view (not a stable interchange format).

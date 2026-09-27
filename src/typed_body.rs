@@ -323,6 +323,36 @@ mod tests {
     }
 
     #[test]
+    fn emission_bridge_rejects_form_head_drift() {
+        let source = "(#fn main () u64
+          (#return (#u64.+.wrap 40u64 2u64)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut lowered = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => {
+                    Some(function.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        lowered.body = body.statements(&body.instructions, true);
+        body.emission_types(&lowered).unwrap();
+        let Statement::Return(Some(Expr::List(items))) = &mut lowered.body[0] else {
+            unreachable!()
+        };
+        items[0] = Expr::Symbol("u64.-.wrap".into());
+        let error = body.emission_types(&lowered).err().unwrap();
+        assert!(
+            error.contains("checked expression shape changed"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn lowering_preserves_mutation_projections_and_nested_control_flow() {
         let sources = [
             "(#fn main () u64 (#let-mut value u64 0u64) (#while (#u64.< value 2u64) (#set value (#u64.+.wrap value 1u64))) (#return value))",
@@ -723,8 +753,23 @@ impl Body {
                     &self.declaration_names[id] == actual
                 }
                 (
-                    NodeKind::Form { .. }
-                    | NodeKind::If { .. }
+                    NodeKind::Form {
+                        head,
+                        numeric,
+                        callee,
+                        ..
+                    },
+                    Expr::List(items),
+                ) => {
+                    let expected = numeric
+                        .as_ref()
+                        .map(NumericOperation::spelling)
+                        .or_else(|| callee.map(|id| self.callees[&id].clone()))
+                        .unwrap_or_else(|| head.clone());
+                    matches!(items.first(), Some(Expr::Symbol(actual)) if actual == &expected)
+                }
+                (
+                    NodeKind::If { .. }
                     | NodeKind::Match { .. }
                     | NodeKind::MatchArm { .. }
                     | NodeKind::Syntax(_),
