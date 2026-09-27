@@ -227,6 +227,12 @@ the checklist is committed alongside the implementation it tracks.
   each destructured half retains its referent and original borrow span.
   Complete disjoint-range transfer remains part of IR-04.
 
+- [x] **IR-04: Check reference-bearing aggregate call arguments.** Include
+  bound aggregate origins, not only direct reference bindings, when comparing
+  checked call arguments. Treat the aggregate's stored loans as coexisting and
+  retain exact borrow spans in conflict diagnostics. Correlated alternatives
+  across conditional aggregate values remain for the full ownership transfer.
+
 - [x] **IR-04: Classify contextual aggregate constructor operands on typed flow.**
   Use the checked array/tuple arity to distinguish a contextual first value
   from an explicit type operand. Track that first value as a linear transfer

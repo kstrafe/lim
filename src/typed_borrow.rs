@@ -128,10 +128,6 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
     if calls.is_empty() {
         return Ok(());
     }
-    let has_reference_bindings = body
-        .bindings
-        .iter()
-        .any(|binding| matches!(binding.ty, Type::Reference { .. }));
     let call_events = flow
         .nodes
         .iter()
@@ -141,7 +137,7 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
             _ => None,
         })
         .collect::<HashMap<_, _>>();
-    let origins = has_reference_bindings.then(|| flow.loan_origins(body));
+    let origins = flow.loan_origins(body);
     for (index, node) in calls {
         let NodeKind::Form {
             head,
@@ -153,11 +149,8 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
             continue;
         };
         let mut bindings = BoundBorrows::new();
-        if let (Some(event), Some(origins)) = (call_events.get(&NodeId(index)), &origins) {
-            for (index, binding) in body.bindings.iter().enumerate() {
-                if !matches!(binding.ty, Type::Reference { .. }) {
-                    continue;
-                }
+        if let Some(event) = call_events.get(&NodeId(index)) {
+            for index in 0..body.bindings.len() {
                 let held = origins.before(*event, BindingId(index));
                 if let Some(alternatives) = origin_alternatives(held, node.span)? {
                     bindings.insert(BindingId(index), alternatives);
@@ -179,8 +172,18 @@ fn origin_alternatives(
     held: &[LoanOrigin],
     span: Option<Span>,
 ) -> Result<Option<Vec<Vec<DirectBorrow>>>, BorrowConflict> {
-    if held.is_empty() || held.iter().any(|origin| !origin.storage.is_empty()) {
+    if held.is_empty() {
         return Ok(None);
+    }
+    if held.iter().any(|origin| !origin.storage.is_empty()) {
+        return Ok(Some(vec![held
+            .iter()
+            .map(|origin| DirectBorrow {
+                place: origin.place.clone(),
+                mutable: origin.mutable,
+                span: origin.span,
+            })
+            .collect()]));
     }
     let alternatives = held
         .iter()
@@ -889,6 +892,26 @@ mod tests {
         assert!(error.0.contains("overlapping borrows"), "{}", error.0);
         let second = error.2.unwrap();
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
+    }
+
+    #[test]
+    fn bound_reference_aggregate_conflicts_with_another_call_argument() {
+        let source = "(#struct Holder ((item (#ref u64))))
+          (#fn inspect ((holder Holder) (right (#ref-mut u64))) u64
+            (#forget holder) (#forget right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#let holder Holder (#struct-literal Holder ((item (#borrow value)))))
+            (#return (#call inspect (: holder holder : right (#borrow-mut value)))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let conflict = error.2.unwrap();
+        assert_eq!(&source[conflict.start..conflict.end], "(#borrow-mut value)");
+        let first = error.3[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow value)");
     }
 
     #[test]
