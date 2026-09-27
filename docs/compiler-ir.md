@@ -175,6 +175,9 @@ Direct checked scalar and aggregate-specialized calls select their ABI and
 canonical source assembly symbol by retained `FunctionId`; the reconstructed
 name remains available for diagnostics. Aggregate dispatch guards use the
 same checked identity; backend-synthesized calls retain the legacy name lookup.
+Checked scalar call operands must also retain a type that agrees with their
+resolved ABI parameter; missing or mismatched metadata is an internal error.
+Synthesized calls still use the compatibility lookup.
 The overlay is
 still address-indexed internally; it is
 neither exported nor cached as an identity.

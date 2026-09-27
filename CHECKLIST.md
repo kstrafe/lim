@@ -120,6 +120,13 @@ the checklist is committed alongside the implementation it tracks.
   backend synthesized after validation. A regression uses mismatched syntax
   spelling and checked identity to verify the guard selects the checked ABI.
 
+- [x] **IR-03h: Require retained types for checked scalar call operands.**
+  Before native call lowering, verify each checked primitive, reference, or
+  pointer argument has retained type metadata agreeing with the resolved ABI.
+  Missing or mismatched checked metadata is an internal error; synthesized
+  calls retain their compatibility path. Cover missing metadata, missing type,
+  and a retained type in unit tests, plus native call examples.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

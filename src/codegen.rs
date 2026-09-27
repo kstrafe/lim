@@ -5219,6 +5219,91 @@ fn checked_numeric_metadata(
     Ok(numeric)
 }
 
+fn checked_scalar_argument_type(
+    argument: &Expr,
+    callee: Option<crate::typed_ir::FunctionId>,
+    emission: &crate::typed_body::EmissionTypes,
+) -> Result<Option<Type>, String> {
+    if callee.is_none() {
+        return Ok(None);
+    }
+    let metadata = emission
+        .by_address
+        .get(&(std::ptr::from_ref(argument) as usize))
+        .ok_or_else(|| {
+            "internal error: checked scalar call argument lost its metadata".to_owned()
+        })?;
+    metadata
+        .ty
+        .clone()
+        .map(Some)
+        .ok_or_else(|| "internal error: checked scalar call argument lost its type".to_owned())
+}
+
+fn native_scalar_type(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Bool
+            | Type::Char
+            | Type::I8
+            | Type::I16
+            | Type::I32
+            | Type::I64
+            | Type::I128
+            | Type::Isize
+            | Type::U8
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::U128
+            | Type::Usize
+            | Type::F32
+            | Type::F64
+            | Type::Reference { .. }
+            | Type::RawPointer { .. }
+    )
+}
+
+#[cfg(test)]
+#[test]
+fn checked_scalar_arguments_require_retained_types() {
+    let program = crate::parse_program(
+        "(#fn take ((value u64)) u64 (#return value))
+         (#fn main () u64 (#return (#call take (#fn-args (value 42u64)))))",
+    )
+    .unwrap();
+    let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
+    let callee = checked.declarations().function_id("take").unwrap();
+    let argument = Expr::Integer(42);
+    let mut emission = crate::typed_body::EmissionTypes::default();
+    assert!(checked_scalar_argument_type(&argument, None, &emission)
+        .unwrap()
+        .is_none());
+    assert!(
+        checked_scalar_argument_type(&argument, Some(callee), &emission)
+            .unwrap_err()
+            .contains("lost its metadata")
+    );
+    let address = std::ptr::from_ref(&argument) as usize;
+    emission.by_address.insert(
+        address,
+        crate::typed_body::EmissionNode {
+            ty: None,
+            ..Default::default()
+        },
+    );
+    assert!(
+        checked_scalar_argument_type(&argument, Some(callee), &emission)
+            .unwrap_err()
+            .contains("lost its type")
+    );
+    emission.by_address.get_mut(&address).unwrap().ty = Some(Type::U64);
+    assert_eq!(
+        checked_scalar_argument_type(&argument, Some(callee), &emission).unwrap(),
+        Some(Type::U64)
+    );
+}
+
 #[cfg(test)]
 #[test]
 fn checked_numeric_expressions_require_retained_operations() {
@@ -14345,6 +14430,21 @@ impl FunctionContext {
         }
         if arguments.len() != abi.parameters.len() {
             return Err(format!("call to '{name}' has the wrong argument count"));
+        }
+        for (argument, parameter) in arguments.iter().zip(&abi.parameters) {
+            let expected = resolve_type(parameter, &self.aliases)?;
+            if !native_scalar_type(&expected) {
+                continue;
+            }
+            if let Some(retained) =
+                checked_scalar_argument_type(argument, callee, &self.expression_types)?
+            {
+                if resolve_type(&retained, &self.aliases)? != expected {
+                    return Err(format!(
+                        "internal error: checked scalar call argument type disagrees with '{name}' ABI"
+                    ));
+                }
+            }
         }
         if abi.parameters.iter().all(is_float_type) {
             if let Some(ty) = abi.parameters.first() {
