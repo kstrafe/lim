@@ -234,6 +234,10 @@ the checklist is committed alongside the implementation it tracks.
   Test both accepted transfers and rejected reuse for arrays and tuples.
   This address-indexed bridge must disappear when IR-04 is complete.
 
+- [x] **IR-04: Verify contextual aggregate loan slots.** Extend typed-flow
+  provenance tests to contextual tuple and array constructors and confirm
+  positional destructuring retains separate first and second borrow origins.
+
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
   retain condition/scrutinee/result node IDs and the pattern binding identities

@@ -1557,8 +1557,8 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 ) =>
         {
             let mut origins = Vec::new();
-            // Tuple/array value forms carry an explicit type operand after
-            // the head. Patterns do not, so their slots start at child one.
+            // Checked arity distinguishes contextual value forms from forms
+            // carrying an explicit type operand after the head.
             let values_start = if matches!(head.as_str(), "tuple" | "array") {
                 constructor_values_start(node.ty.as_ref(), children.len())
             } else {
@@ -3438,6 +3438,16 @@ mod tests {
             (
                 "(#array (#ref u64) 2)",
                 "(#array (#array (#ref u64) 2) (#borrow left) (#borrow right))",
+                "(#array first second)",
+            ),
+            (
+                "(#tuple (#ref u64) (#ref u64))",
+                "(#tuple (#borrow left) (#borrow right))",
+                "(#tuple first second)",
+            ),
+            (
+                "(#array (#ref u64) 2)",
+                "(#array (#borrow left) (#borrow right))",
                 "(#array first second)",
             ),
         ] {
