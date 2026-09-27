@@ -1,4 +1,6 @@
 #![doc = include_str!("../docs/language.md")]
+// Lim fences use metadata validated by tests/language_docs.rs, not rustdoc.
+#![allow(rustdoc::invalid_codeblock_attributes)]
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet},

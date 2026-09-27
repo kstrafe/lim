@@ -1133,6 +1133,13 @@ and acceptance coverage.
   positive examples compile through the backend, selected programs run with
   expected results, and negative examples assert their intended diagnostic.
 
+- [x] **DOC-01b: Keep custom Lim fences warning-free in rustdoc.** The crate
+  includes the language reference as its documentation, and its `run=N`,
+  `library`, `fragment=NAME`, and `error=CODE` fence tags are validated by
+  `tests/language_docs.rs` rather than rustdoc. Explicitly allow rustdoc's
+  unsupported-attribute warning without weakening the project-specific fence
+  validation.
+
 - [x] **TOOL-01: Offer structured diagnostic output for editors and LLMs.**
   Add an opt-in JSON diagnostic mode with a versioned schema, stable category,
   message, source path, byte range, primary/secondary labels, and expansion
