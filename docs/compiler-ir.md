@@ -145,6 +145,9 @@ complete conflict enforcement still need the full ownership migration.
 Constructor values for structs, enums, tuples, and arrays contribute their
 contained direct origins to the resulting aggregate binding; value-block
 results preserve those origins as well.
+Reference-returning checked calls conservatively merge origins reachable
+through their arguments. A direct result sheds any aggregate-storage path
+from its arguments; precise callee return summaries are not yet available.
 Each origin also retains its structural storage path. Pattern transfers match
 owner-qualified fields, tuple and array positions, and variant payload IDs
 before assigning origins to destructured bindings, so other fields or variants

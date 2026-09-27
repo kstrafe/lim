@@ -1491,6 +1491,27 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     .collect()
             })
         }
+        NodeKind::Form {
+            children,
+            callee: Some(_),
+            ..
+        } if matches!(
+            node.ty,
+            Some(Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_))
+        ) =>
+        {
+            let mut origins = Vec::new();
+            for argument in children.iter().skip(1) {
+                for mut origin in value_loan_origins(body, *argument, state) {
+                    // The callee can return any reference reachable through
+                    // an argument. Its direct result no longer has the
+                    // argument aggregate's storage path.
+                    origin.storage.clear();
+                    merge_loan_origins(&mut origins, &[origin]);
+                }
+            }
+            origins
+        }
         NodeKind::If {
             then_value,
             else_value,
@@ -3456,6 +3477,79 @@ mod tests {
             let span = held[0].span.unwrap();
             assert_eq!(&source[span.start..span.end], expected);
         }
+    }
+
+    #[test]
+    fn reference_call_result_retains_each_possible_argument_origin() {
+        let source = "(#fn choose ((first (#ref u64)) (second (#ref u64))) (#ref u64)
+          (#return first))
+          (#fn main () u64
+            (#let left u64 1u64)
+            (#let right u64 2u64)
+            (#let selected (#ref u64)
+              (#call choose (: first (#borrow left) : second (#borrow right))))
+            (#return (#deref selected)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let selected = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "selected")
+                .unwrap(),
+        );
+        let bind = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Bind { binding, .. } if binding == selected))
+            .map(FlowNodeId)
+            .unwrap();
+        let origins = graph.loan_origins(body);
+        let held = origins.after(bind, selected);
+        assert_eq!(held.len(), 2);
+        let mut sources = held
+            .iter()
+            .map(|origin| {
+                assert!(origin.storage.is_empty());
+                let span = origin.span.unwrap();
+                &source[span.start..span.end]
+            })
+            .collect::<Vec<_>>();
+        sources.sort();
+        assert_eq!(sources, ["(#borrow left)", "(#borrow right)"]);
+    }
+
+    #[test]
+    fn reference_call_result_lifts_origins_out_of_aggregate_argument_slots() {
+        let source = "(#fn select ((pair (#tuple (#ref u64) (#ref u64)))) (#ref u64)
+          (#return (#get pair 0)))
+          (#fn main () u64
+            (#let left u64 1u64)
+            (#let right u64 2u64)
+            (#let selected (#ref u64)
+              (#call select (: pair (#tuple (#borrow left) (#borrow right)))))
+            (#return (#deref selected)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let selected = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "selected")
+                .unwrap(),
+        );
+        let bind = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Bind { binding, .. } if binding == selected))
+            .map(FlowNodeId)
+            .unwrap();
+        let origins = graph.loan_origins(body);
+        let held = origins.after(bind, selected);
+        assert_eq!(held.len(), 2);
+        assert!(held.iter().all(|origin| origin.storage.is_empty()));
     }
 
     #[test]

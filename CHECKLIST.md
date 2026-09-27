@@ -279,6 +279,13 @@ the checklist is committed alongside the implementation it tracks.
   Rust-like reuse of plain Copy scalars. Cover the stale-reference regression
   and keep ordinary linear assignment/replacement behavior intact.
 
+- [x] **IR-04: Retain typed provenance across reference-returning calls.**
+  Conservatively union loan origins reachable through checked call arguments
+  when the result is a direct reference or slice. Clear argument aggregate
+  storage paths for a direct reference result and keep original borrow spans.
+  Test direct and aggregate arguments. Precise interprocedural summaries and
+  alias-sensitive returns remain in the full IR-04 migration.
+
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
   retain condition/scrutinee/result node IDs and the pattern binding identities
