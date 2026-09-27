@@ -131,10 +131,10 @@ at flow joins, retains the first exact borrow span, and clears a dropped
 binding without clearing aliases. The typed-IR debug dump includes these
 states. A typed preflight now rejects a direct borrow that overlaps a direct
 origin retained by a live reference or aggregate binding when either is
-mutable, and rejects a write or explicit destruction of that held place. It
-uses checked place IDs and preserves both source spans. Indirect referents,
-moves, and complete loan lifetimes still require the full ownership transfer;
-the lexical checker remains in place.
+mutable. It also rejects cloning through a mutable loan, or writing to or
+destroying a borrowed place. Checked place IDs preserve both source spans.
+Indirect referents, moves, and complete loan lifetimes still require the full
+ownership transfer; the lexical checker remains in place.
 Direct `#drop` and `#forget` of a resolved local place now produce explicit
 release actions with checked place and expression IDs. Loan-state transfer
 clears only the selected aggregate origin; a dynamic index retains possible

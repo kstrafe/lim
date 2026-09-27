@@ -531,6 +531,12 @@ the checklist is committed alongside the implementation it tracks.
   future-live bindings. Report both the destruction and original borrow sites;
   allow disjoint releases. Keep implicit moves and indirect referents in IR-04.
 
+- [x] **IR-04ar: Reject cloning through a live mutable loan.** Include typed
+  clone events in binding liveness and compare their checked source places
+  against origins held by live bindings. Keep shared-loan reads valid and
+  report the clone and original mutable-borrow spans. Implicit read/move
+  classification remains in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
