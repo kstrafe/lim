@@ -8942,16 +8942,12 @@ impl FunctionContext {
             return self.asm_expression(items);
         }
         let numeric_operand_type = numeric.as_ref().map(|numeric| numeric.operand_type.clone());
-        let (qualifier, operator, mode) = if let Some(numeric) = &numeric {
-            (
-                Some(numeric.scalar_name()),
-                numeric.operation.as_str(),
-                numeric.overflow_mode(),
-            )
+        let (fallback_qualifier, operator, mode) = if let Some(numeric) = &numeric {
+            (None, numeric.operation.as_str(), numeric.overflow_mode())
         } else {
             operator_parts(operator)
         };
-        let operand_type = numeric_operand_type.or_else(|| qualifier.map(Type::from_name));
+        let operand_type = numeric_operand_type.or_else(|| fallback_qualifier.map(Type::from_name));
         if operator == "atomic-init" {
             if items.len() != 3 {
                 return Err("atomic-init requires a scalar type and initial value".into());

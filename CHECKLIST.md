@@ -284,6 +284,12 @@ the checklist is committed alongside the implementation it tracks.
   remove the now-redundant syntax-based float and unsigned classification
   helpers. Preserve native comparison and numeric differential tests.
 
+- [x] **IR-03y: Avoid formatting checked numeric types as identifiers.** Keep
+  the retained `NumericOperation`'s `Type` and opcode together through
+  instruction dispatch; do not stringify the scalar qualifier only to reparse
+  it. Textual qualifier parsing remains only for synthesized legacy forms.
+  Preserve compilation and numeric differential coverage.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
