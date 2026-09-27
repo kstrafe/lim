@@ -7475,6 +7475,20 @@ impl FunctionContext {
             self.expression(value)?;
             return Ok(());
         }
+        if let Expr::Block(statements) = value {
+            let Some((last, preceding)) = statements.split_last() else {
+                return Err("large aggregate block value cannot be empty".into());
+            };
+            for statement in preceding {
+                self.statement(statement)?;
+            }
+            return match last {
+                Statement::Expr(expression) => {
+                    self.store_indirect_value_words(expression, ty, offset)
+                }
+                _ => Err("large aggregate block must end in a value expression".into()),
+            };
+        }
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
                 if items.len() != 4 {

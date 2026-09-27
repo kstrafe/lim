@@ -8,56 +8,68 @@
   ((fd i64) (memory (#ptr-mut u8)) (queue WakeReady4) (token WakeToken4)))
 (#opaque TimerReactor1)
 (#linear TimerReactor1)
+(#enum TimerCreate1 ((TimerCreated1 TimerReactor1) (TimerCreateFailed1 i64)))
 (#enum TimerWait1 (TimerWoken1 (TimerWaitFailed1 i64)))
 (#enum TimerPoll1 (TimerPending1 (TimerReady1 u64) (TimerPollFailed1 i64)))
 
-(#fn timer-reactor1-create ((nanoseconds u64)) TimerReactor1
-  (#assert (#bool.&& (#u64.> nanoseconds 0u64)
-                    (#u64.< nanoseconds 1000000000u64)))
-  (#let fd i64 (#call linux-timerfd-create (: clock-id 1i32 : flags 0i32)))
-  (#assert (#i64.>= fd 0i64))
-  (#let memory (#ptr-mut u8)
-    (#unsafe (#call linux-mmap
-      (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
-       : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  (#let address i64 (#as (#ptr-address memory) i64))
-  (#if (#i64.< address 0i64)
+(#fn timer-reactor1-create ((nanoseconds u64)) TimerCreate1
+  (#return (#if (#bool.|| (#u64.== nanoseconds 0u64)
+                          (#u64.>= nanoseconds 1000000000u64))
+    (TimerCreateFailed1 -22i64)
     (#block
-      (#assert (#i64.== (#call linux-close (: fd fd)) 0i64))
-      (#panic))
-    ())
-  ;; pollfd at bytes 0..7; itimerspec at 16..47.
-  (#for-range (position u64) 0u64 48u64
-    (#unsafe (#ptr-write
-      (#ptr-offset (#clone memory) (#as position usize)) 0u8)))
-  (#for-range (position u64) 0u64 4u64
-    (#unsafe (#ptr-write
-      (#ptr-offset (#clone memory) (#as position usize))
-      (#as (#u64.>> (#as fd u64) (#u64.*.wrap position 8u64)) u8))))
-  (#unsafe (#ptr-write (#ptr-offset (#clone memory) 4usize) 1u8))
-  (#for-range (position u64) 0u64 8u64
-    (#unsafe (#ptr-write
-      (#ptr-offset (#clone memory) (#as (#u64.+.wrap 40u64 position) usize))
-      (#as (#u64.>> nanoseconds (#u64.*.wrap position 8u64)) u8))))
-  (#let armed i64 (#unsafe (#linux-syscall i64
-    LINUX-SYS-TIMERFD-SETTIME
-    (fd 0i32 (#ptr-offset (#clone memory) 16usize) (#ptr-null (#ptr-mut u8))))))
-  (#if (#i64.< armed 0i64)
-    (#block
-      (#assert (#i64.== (#unsafe (#call linux-munmap
-        (: address (#clone memory) : length 4096usize))) 0i64))
-      (#assert (#i64.== (#call linux-close (: fd fd)) 0i64))
-      (#panic))
-    ())
-  (#let-mut queue WakeReady4 (#call wake-ready4-create (:)))
-  (#let registration WakeRegister4
-    (#call wake-ready4-register
-      (: queue (#borrow-mut queue) : slot 0usize)))
-  (#let token WakeToken4 (#match registration
-    (#case (WakeRegistered4 value) value)
-    (#case _ (#unreachable))))
-  (#return (#struct-literal TimerReactor1
-    ((fd fd) (memory memory) (queue queue) (token token)))))
+      (#let fd i64 (#call linux-timerfd-create (: clock-id 1i32 : flags 0i32)))
+      (#if (#i64.< fd 0i64)
+        (TimerCreateFailed1 fd)
+        (#block
+          (#let memory (#ptr-mut u8)
+            (#unsafe (#call linux-mmap
+              (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
+               : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+          (#let address i64 (#as (#ptr-address memory) i64))
+          (#if (#i64.< address 0i64)
+            (#block
+              (#let closed i64 (#call linux-close (: fd fd)))
+              (#if (#i64.< closed 0i64)
+                (TimerCreateFailed1 closed)
+                (TimerCreateFailed1 address)))
+            (#block
+              ;; pollfd at bytes 0..7; itimerspec at 16..47.
+              (#for-range (position u64) 0u64 48u64
+                (#unsafe (#ptr-write
+                  (#ptr-offset (#clone memory) (#as position usize)) 0u8)))
+              (#for-range (position u64) 0u64 4u64
+                (#unsafe (#ptr-write
+                  (#ptr-offset (#clone memory) (#as position usize))
+                  (#as (#u64.>> (#as fd u64) (#u64.*.wrap position 8u64)) u8))))
+              (#unsafe (#ptr-write (#ptr-offset (#clone memory) 4usize) 1u8))
+              (#for-range (position u64) 0u64 8u64
+                (#unsafe (#ptr-write
+                  (#ptr-offset (#clone memory) (#as (#u64.+.wrap 40u64 position) usize))
+                  (#as (#u64.>> nanoseconds (#u64.*.wrap position 8u64)) u8))))
+              (#let armed i64 (#unsafe (#linux-syscall i64
+                LINUX-SYS-TIMERFD-SETTIME
+                (fd 0i32 (#ptr-offset (#clone memory) 16usize)
+                  (#ptr-null (#ptr-mut u8))))))
+              (#if (#i64.< armed 0i64)
+                (#block
+                  (#let unmapped i64 (#unsafe (#call linux-munmap
+                    (: address (#clone memory) : length 4096usize))))
+                  (#let closed i64 (#call linux-close (: fd fd)))
+                  (#if (#i64.< unmapped 0i64)
+                    (TimerCreateFailed1 unmapped)
+                    (#if (#i64.< closed 0i64)
+                      (TimerCreateFailed1 closed)
+                      (TimerCreateFailed1 armed))))
+                (#block
+                  (#let-mut queue WakeReady4 (#call wake-ready4-create (:)))
+                  (#let registration WakeRegister4
+                    (#call wake-ready4-register
+                      (: queue (#borrow-mut queue) : slot 0usize)))
+                  (#let token WakeToken4 (#match registration
+                    (#case (WakeRegistered4 value) value)
+                    (#case _ (#unreachable))))
+                  (TimerCreated1 (#struct-literal TimerReactor1
+                    ((fd fd) (memory memory) (queue queue) (token token))))))))))))))
 
 (#fn timer-reactor1-wait ((timer (#ref TimerReactor1))) TimerWait1
   (#let result i64 (#unsafe (#call linux-poll

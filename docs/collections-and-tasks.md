@@ -298,11 +298,11 @@ operation. It owns a timer fd, scratch mapping, and validated wake token.
 `timer-reactor1-wait` blocks in the kernel's `poll` rather than spinning;
 `timer-reactor1-poll` reads expiration only after readiness. The kernel does
 not retain the scratch buffer between calls, and `timer-reactor1-cancel`
-consumes the owner, closes the fd, and unmaps the buffer. Setup failures
-currently trap after cleaning up acquired resources; recoverable construction
-errors, multi-operation readiness, and general buffered asynchronous I/O
-remain open. An executor's blocking run call cannot currently be externally
-interrupted.
+consumes the owner, closes the fd, and unmaps the buffer.
+`timer-reactor1-create` returns `TimerCreated1` or `TimerCreateFailed1`;
+failure paths clean up any acquired fd or mapping. Multi-operation readiness
+and general buffered asynchronous I/O remain open. An executor's blocking
+run call cannot currently be externally interrupted.
 
 `(@threaded-executor run Result jobs Worker)` expands an executor plus
 `(@thread-spawn (: task Worker : worker run))`. Each explicit spawn transfers the fixed job set

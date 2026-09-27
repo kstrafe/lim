@@ -1,8 +1,19 @@
 (#import "../library/timer_reactor1.lim")
 
 (#fn main () u64
-  (#let reactor TimerReactor1
+  (#let invalid TimerCreate1
+    (#call timer-reactor1-create (: nanoseconds 0u64)))
+  (#assert (#match invalid
+    (#case (TimerCreateFailed1 error) (#i64.== error -22i64))
+    (#case (TimerCreated1 timer) (#block (#forget timer) false))))
+  (#let excessive TimerCreate1
+    (#call timer-reactor1-create (: nanoseconds 1000000000u64)))
+  (#assert (#match excessive
+    (#case (TimerCreateFailed1 error) (#i64.== error -22i64))
+    (#case (TimerCreated1 timer) (#block (#forget timer) false))))
+  (#let created TimerCreate1
     (#call timer-reactor1-create (: nanoseconds 1000000u64)))
+  (#let-else (TimerCreated1 reactor) TimerCreate1 created (#unreachable))
   (#let first TimerPoll1
     (#call timer-reactor1-poll (: timer (#borrow reactor))))
   (#assert (#match first
@@ -21,8 +32,9 @@
     (#case (TimerReady1 expirations) (#u64.>= expirations 1u64))
     (#case (TimerPollFailed1 error) false)))
   (#let closed i64 (#call timer-reactor1-cancel (: timer reactor)))
-  (#let pending TimerReactor1
+  (#let created-later TimerCreate1
     (#call timer-reactor1-create (: nanoseconds 500000000u64)))
+  (#let-else (TimerCreated1 pending) TimerCreate1 created-later (#unreachable))
   (#let cancelled i64 (#call timer-reactor1-cancel (: timer pending)))
   (#return (#if (#bool.&& ready
     (#bool.&& (#i64.== closed 0i64) (#i64.== cancelled 0i64)))

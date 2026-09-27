@@ -44,3 +44,18 @@ fn expression_statement_does_not_become_a_large_return_value() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/aggregate_let.lim");
     assert_eq!(compile_and_run(source, &path), 42);
 }
+
+#[test]
+fn large_aggregate_return_accepts_a_block_value() {
+    let source = "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64)))
+      (#fn make () Large
+        (#return (#block
+          (#assert true)
+          (#struct-literal Large
+            ((a 42u64) (b 0u64) (c 0u64) (d 0u64) (e 0u64))))))
+      (#fn main () u64
+        (#let value Large (#call make (:)))
+        (#return (#get value a)))";
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/aggregate_let.lim");
+    assert_eq!(compile_and_run(source, &path), 42);
+}

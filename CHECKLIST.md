@@ -633,8 +633,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   bounded registered wake, blocking kernel wait, explicit poll and cancellation,
   and cleanup of fd and scratch mapping. Verify one-shot completion and
   cancellation before completion in a native example. Keep ASYNC-02 open for
-  recoverable setup errors, multiple registered operations, buffered I/O
-  cancellation acknowledgment, and shutdown policy.
+  multiple registered operations, buffered I/O cancellation acknowledgment,
+  and shutdown policy.
+- [x] **ASYNC-02b: Return recoverable timer setup errors.** Lower block-valued
+  large aggregate branches through indirect result storage, then return a
+  concrete success/error enum from timer creation. Clean up each acquired
+  resource on syscall failure and report invalid duration without a trap.
+  Cover the invalid-duration path and successful ownership transfer natively.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,
