@@ -475,6 +475,14 @@ the checklist is committed alongside the implementation it tracks.
   This does not yet classify Copy versus linear values or transfer implicit
   moves, so the existing checker remains the enforcing path.
 
+- [x] **IR-04ak: Enforce overlapping explicit linear releases by place ID.**
+  Share the existing structural linear-type classifier with typed flow and
+  reject a `#drop`/`#forget` of a linear parent after releasing a child, or
+  other overlapping checked places. Keep Copy-valued field releases harmless
+  and preserve source-underlined diagnostics with the first release labeled.
+  The syntax checker still handles implicit moves and exit obligations; full
+  typed ownership enforcement remains in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

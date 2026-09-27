@@ -123,7 +123,7 @@ impl Moves {
 }
 
 #[derive(Default)]
-struct LinearTypes {
+pub(crate) struct LinearTypes {
     explicitly_linear: HashSet<String>,
     binding_sites: std::cell::RefCell<std::collections::HashMap<String, Site>>,
     aliases: std::collections::HashMap<String, Type>,
@@ -131,38 +131,49 @@ struct LinearTypes {
     enums: std::collections::HashMap<String, std::collections::HashMap<String, Vec<Type>>>,
 }
 
+impl LinearTypes {
+    pub(crate) fn from_program(program: &Program) -> Self {
+        let mut types = Self::default();
+        for item in &program.items {
+            match item {
+                Item::LinearAnnotation { type_name } => {
+                    types.explicitly_linear.insert(type_name.clone());
+                }
+                Item::TypeAlias { name, target, .. } => {
+                    types.aliases.insert(name.clone(), target.clone());
+                }
+                Item::Struct { name, fields, .. } => {
+                    types.structs.insert(
+                        name.clone(),
+                        fields.iter().map(|field| field.ty.clone()).collect(),
+                    );
+                }
+                Item::Enum { name, variants, .. } => {
+                    types.enums.insert(
+                        name.clone(),
+                        variants
+                            .iter()
+                            .map(|variant| (variant.name.clone(), variant.fields.clone()))
+                            .collect(),
+                    );
+                }
+                _ => {}
+            }
+        }
+        types
+    }
+
+    pub(crate) fn is_linear(&self, ty: &Type) -> bool {
+        is_linear(ty, self, &mut HashSet::new())
+    }
+}
+
 /// Enforce linear use of owned values. Non-Copy values must be consumed exactly
 /// once; Copy values and references do not create an ownership obligation.
 pub(crate) fn check_program_with_span(
     program: &Program,
 ) -> Result<(), (String, Option<crate::Span>, Vec<(crate::Span, String)>)> {
-    let mut types = LinearTypes::default();
-    for item in &program.items {
-        match item {
-            Item::LinearAnnotation { type_name } => {
-                types.explicitly_linear.insert(type_name.clone());
-            }
-            Item::TypeAlias { name, target, .. } => {
-                types.aliases.insert(name.clone(), target.clone());
-            }
-            Item::Struct { name, fields, .. } => {
-                types.structs.insert(
-                    name.clone(),
-                    fields.iter().map(|field| field.ty.clone()).collect(),
-                );
-            }
-            Item::Enum { name, variants, .. } => {
-                types.enums.insert(
-                    name.clone(),
-                    variants
-                        .iter()
-                        .map(|variant| (variant.name.clone(), variant.fields.clone()))
-                        .collect(),
-                );
-            }
-            _ => {}
-        }
-    }
+    let types = LinearTypes::from_program(program);
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;

@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use crate::linearcheck::LinearTypes;
 use crate::typed_body::{
     BindingId, Body, Control, Instruction, NodeId, NodeKind, NumericOpcode, PlaceRoot, Projection,
 };
@@ -113,6 +114,12 @@ pub(crate) struct FlowReleases {
     after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     definite_before: Vec<HashSet<Place>>,
     definite_after: Vec<HashSet<Place>>,
+}
+
+pub(crate) struct ReleaseConflict {
+    pub message: String,
+    pub span: Option<Span>,
+    pub labels: Vec<(Span, String)>,
 }
 
 impl FlowReleases {
@@ -423,6 +430,71 @@ impl FlowGraph {
             definite_before,
             definite_after,
         }
+    }
+
+    /// Reject a second explicit consumption of an overlapping linear place.
+    /// The syntax checker still handles implicit moves and exit obligations.
+    pub fn check_linear_releases(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+    ) -> Result<(), ReleaseConflict> {
+        let linear_places = self
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let FlowAction::Release { place, value } = &node.action else {
+                    return None;
+                };
+                let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                    return None;
+                };
+                let operand = *children.get(1)?;
+                types
+                    .is_linear(body.nodes[operand.0].ty.as_ref()?)
+                    .then_some(place.clone())
+            })
+            .collect::<HashSet<_>>();
+        if linear_places.is_empty() {
+            return Ok(());
+        }
+        let releases = self.releases(body);
+        for (index, node) in self.nodes.iter().enumerate() {
+            let FlowAction::Release { place, value } = &node.action else {
+                continue;
+            };
+            if !linear_places.contains(place) || releases.before[index].is_none() {
+                continue;
+            }
+            let previous = releases.before[index]
+                .as_ref()
+                .unwrap()
+                .iter()
+                .filter(|(prior, _)| linear_places.contains(*prior) && prior.overlaps(place))
+                .flat_map(|(_, spans)| spans)
+                .flatten()
+                .min_by_key(|span| (span.source_id, span.start));
+            let Some(previous) = previous else {
+                continue;
+            };
+            let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                continue;
+            };
+            let operand_span = children
+                .get(1)
+                .and_then(|id| body.nodes[id.0].span)
+                .or(node.span);
+            let name = match place.root {
+                PlaceRoot::Local(binding) => body.bindings[binding.0].name.as_str(),
+                PlaceRoot::Global(_) => "global",
+            };
+            return Err(ReleaseConflict {
+                message: format!("linear value '{name}' was already consumed in part or whole"),
+                span: operand_span,
+                labels: vec![(*previous, "value first consumed here".into())],
+            });
+        }
+        Ok(())
     }
 
     fn definite_releases(&self, body: &Body) -> (Vec<HashSet<Place>>, Vec<HashSet<Place>>) {
@@ -2907,6 +2979,45 @@ mod tests {
         before_loop.nodes[before_loop.entry.0].successors = vec![FlowNodeId(4)];
         let releases = before_loop.releases(&Body::default());
         assert!(releases.definitely_before(before_loop.exit, &place));
+    }
+
+    #[test]
+    fn consuming_linear_field_then_parent_is_rejected() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Pair ((item Resource) (other u64)))
+          (#fn main () u64
+            (#let pair Pair (#struct-literal Pair
+              ((item (#struct-literal Resource ((value 1u64)))) (other 0u64))))
+            (#forget (#get pair item))
+            (#forget pair)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let (message, _, span, labels) =
+            crate::typecheck::check_types_with_span(&program).unwrap_err();
+        assert!(
+            message.contains("already consumed in part or whole"),
+            "{message}"
+        );
+        let span = span.expect("second consumption has a source span");
+        assert_eq!(&source[span.start..span.end], "pair");
+        assert_eq!(labels.len(), 1);
+        assert!(source[labels[0].0.start..labels[0].0.end].contains("#forget (#get pair item)"));
+    }
+
+    #[test]
+    fn forgetting_copy_field_does_not_consume_linear_parent() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Pair ((item Resource) (other u64)))
+          (#fn main () u64
+            (#let pair Pair (#struct-literal Pair
+              ((item (#struct-literal Resource ((value 1u64)))) (other 0u64))))
+            (#forget (#get pair other))
+            (#forget pair)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
     }
 
     #[test]

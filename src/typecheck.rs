@@ -915,6 +915,20 @@ fn check_types_inner(
         *diagnostic_labels = labels;
         message
     })?;
+    let linear_types = crate::linearcheck::LinearTypes::from_program(program);
+    for item in &program.items {
+        if let crate::Item::Function(function) = item {
+            if let Some(body) = declarations.bodies.get(&function.name) {
+                declarations.flows[&function.name]
+                    .check_linear_releases(body, &linear_types)
+                    .map_err(|error| {
+                        *diagnostic_span = error.span;
+                        *diagnostic_labels = error.labels;
+                        error.message
+                    })?;
+            }
+        }
+    }
     *diagnostic_code = crate::DiagnosticCode::Borrow;
     crate::borrowcheck::check_program(program).map_err(|error| {
         *diagnostic_span = error.span;

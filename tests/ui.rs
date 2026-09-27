@@ -301,6 +301,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "linear-partial-parent",
+            diagnostic_code: "E4200",
+            offending_line: "  (#forget pair)",
+            line_number: 8,
+        },
+        Case {
             name: "unsafe",
             diagnostic_code: "E4300",
             offending_line: "  (#return VALUE)",
@@ -875,6 +881,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "borrow-conflict-field-name" => Some("owner"),
             "borrow-conflict-callee-name" => Some("owner"),
             "linear" => Some("resource"),
+            "linear-partial-parent" => Some("pair"),
             "generator" | "generator-imported" => Some("(@fail)"),
             "nonconstant-static" => Some("(#call get-value (:))"),
             "call-arguments" => Some("other"),
