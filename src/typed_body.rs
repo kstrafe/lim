@@ -260,15 +260,20 @@ mod tests {
         let overlay = checked.declarations().bodies["main"]
             .emission_types(function)
             .unwrap();
+        assert_eq!(overlay.address_to_id.len(), overlay.by_id.len());
+        assert!(overlay
+            .address_to_id
+            .values()
+            .all(|id| overlay.by_id.contains_key(id)));
         assert!(
-            overlay.by_address.len()
+            overlay.by_id.len()
                 > overlay
-                    .by_address
+                    .by_id
                     .values()
                     .filter(|node| node.ty.is_some())
                     .count()
         );
-        assert!(overlay.by_address.values().any(|node| {
+        assert!(overlay.by_id.values().any(|node| {
             node.numeric.as_ref().is_some_and(|operation| {
                 operation.operand_type == Type::U32
                     && operation.operation == NumericOpcode::Add
@@ -277,10 +282,7 @@ mod tests {
         }));
         let increment = checked.declarations().function_id("increment");
         assert!(increment.is_some());
-        assert!(overlay
-            .by_address
-            .values()
-            .any(|node| node.callee == increment));
+        assert!(overlay.by_id.values().any(|node| node.callee == increment));
     }
 
     #[test]
@@ -320,7 +322,7 @@ mod tests {
         assert_eq!(stable_nodes, body.emission_nodes);
         assert_eq!(body.statements(&body.instructions, false), original.body);
         let overlay = body.emission_types(&lowered).unwrap();
-        assert!(overlay.by_address.values().any(|metadata| {
+        assert!(overlay.by_id.values().any(|metadata| {
             metadata.ty == checked_type
                 && metadata.numeric.as_ref().is_some_and(|operation| {
                     operation.operation == NumericOpcode::Add
@@ -720,6 +722,7 @@ pub(crate) enum NodeKind {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Node {
+    pub expression_id: Option<ExpressionId>,
     /// None only for syntax data (operator names, type expressions, patterns).
     pub ty: Option<Type>,
     pub span: Option<Span>,
@@ -786,9 +789,13 @@ pub(crate) struct Body {
 
 #[derive(Default)]
 pub(crate) struct EmissionTypes {
-    /// A present entry marks a checked node; its type may be absent only for
-    /// syntax nodes that do not have a runtime type.
-    pub by_address: HashMap<usize, EmissionNode>,
+    /// Checked metadata is authoritative under deterministic source identities.
+    pub by_id: HashMap<ExpressionId, EmissionNode>,
+    /// Temporary bridge for legacy codegen, which still visits AST references.
+    pub address_to_id: HashMap<usize, ExpressionId>,
+    /// Backend-created expressions have no source identity and retain a narrow
+    /// address-based compatibility path.
+    pub synthesized_by_address: HashMap<usize, EmissionNode>,
 }
 
 #[derive(Default)]
@@ -796,6 +803,28 @@ pub(crate) struct EmissionNode {
     pub ty: Option<Type>,
     pub numeric: Option<NumericOperation>,
     pub callee: Option<FunctionId>,
+}
+
+impl EmissionTypes {
+    pub fn get(&self, expression: &Expr) -> Option<&EmissionNode> {
+        let address = std::ptr::from_ref(expression) as usize;
+        self.address_to_id
+            .get(&address)
+            .and_then(|id| self.by_id.get(id))
+            .or_else(|| self.synthesized_by_address.get(&address))
+    }
+
+    #[cfg(test)]
+    pub fn insert_synthesized(&mut self, expression: &Expr, node: EmissionNode) {
+        self.synthesized_by_address
+            .insert(std::ptr::from_ref(expression) as usize, node);
+    }
+
+    #[cfg(test)]
+    pub fn get_mut_synthesized(&mut self, expression: &Expr) -> Option<&mut EmissionNode> {
+        self.synthesized_by_address
+            .get_mut(&(std::ptr::from_ref(expression) as usize))
+    }
 }
 
 impl Body {
@@ -975,14 +1004,36 @@ impl Body {
                 } => (numeric.clone(), *callee),
                 _ => (None, None),
             };
-            emission.by_address.insert(
-                address,
-                EmissionNode {
-                    ty: node.ty.clone(),
-                    numeric,
-                    callee,
-                },
-            );
+            let expression_id = node.expression_id.ok_or_else(|| {
+                format!("internal error: checked node {} has no expression ID", id.0)
+            })?;
+            if emission
+                .address_to_id
+                .insert(address, expression_id)
+                .is_some()
+            {
+                return Err(format!(
+                    "internal error: duplicate checked expression in emission for '{}'",
+                    lowered.name
+                ));
+            }
+            if emission
+                .by_id
+                .insert(
+                    expression_id,
+                    EmissionNode {
+                        ty: node.ty.clone(),
+                        numeric,
+                        callee,
+                    },
+                )
+                .is_some()
+            {
+                return Err(format!(
+                    "internal error: duplicate checked expression ID in emission for '{}'",
+                    lowered.name
+                ));
+            }
         }
         Ok(emission)
     }
@@ -1651,6 +1702,7 @@ impl Builder<'_> {
         let address = std::ptr::from_ref(expression) as usize;
         let id = NodeId(self.body.nodes.len());
         self.body.nodes.push(Node {
+            expression_id: self.expression_ids.get(&address).copied(),
             ty: self.expression_type(expression).cloned(),
             span: self.spans.get(&address).copied(),
             kind,

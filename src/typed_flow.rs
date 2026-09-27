@@ -2252,6 +2252,7 @@ mod tests {
             ty: crate::Type::U64,
         });
         body.nodes.push(crate::typed_body::Node {
+            expression_id: None,
             ty: Some(crate::Type::U64),
             span: None,
             kind: NodeKind::Symbol {
@@ -2308,6 +2309,7 @@ mod tests {
         let mut body = Body::default();
         for value in [1, 2] {
             body.nodes.push(crate::typed_body::Node {
+                expression_id: None,
                 ty: Some(crate::Type::U64),
                 span: None,
                 kind: NodeKind::Literal(crate::Expr::Integer(value)),
@@ -2423,11 +2425,13 @@ mod tests {
             ty: crate::Type::U64,
         });
         body.nodes.push(crate::typed_body::Node {
+            expression_id: None,
             ty: Some(crate::Type::U64),
             span: None,
             kind: NodeKind::Literal(crate::Expr::Integer(7)),
         });
         body.nodes.push(crate::typed_body::Node {
+            expression_id: None,
             ty: Some(crate::Type::Unit),
             span: None,
             kind: NodeKind::Block(vec![

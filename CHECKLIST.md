@@ -223,6 +223,13 @@ the checklist is committed alongside the implementation it tracks.
   words. Cover aggregate agreement and mismatch in unit tests and run native
   examples; synthesized calls retain their compatibility path.
 
+- [x] **IR-03o: Store checked emission metadata by stable expression ID.**
+  Make deterministic `ExpressionId`s the authoritative keys for retained
+  backend types, numeric opcodes, and callees. Keep the AST-address association
+  only as a temporary adapter for legacy codegen, and isolate backend-created
+  expressions in a separate compatibility map. Verify every checked adapter
+  resolves to exactly one retained ID and preserve native call/numeric tests.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

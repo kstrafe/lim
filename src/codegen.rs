@@ -191,9 +191,7 @@ fn checked_callee(
     functions: &HashMap<String, FunctionAbi>,
 ) -> Result<Option<crate::typed_ir::FunctionId>, String> {
     let declared_function = matches!(expression, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(name)) if functions.contains_key(name)));
-    let metadata = emission
-        .by_address
-        .get(&(std::ptr::from_ref(expression) as usize));
+    let metadata = emission.get(expression);
     checked_call_identity(metadata, declared_function)
 }
 
@@ -272,8 +270,8 @@ fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
     let id = checked.declarations().function_id("actual").unwrap();
     let expression = Expr::List(vec![Expr::Symbol("wrong".into())]);
     let mut emission = crate::typed_body::EmissionTypes::default();
-    emission.by_address.insert(
-        std::ptr::from_ref(&expression) as usize,
+    emission.insert_synthesized(
+        &expression,
         crate::typed_body::EmissionNode {
             callee: Some(id),
             ..Default::default()
@@ -299,17 +297,14 @@ fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
         .unwrap();
     assert!(selected.indirect_return);
     assert_eq!(selected.symbol_name, "actual");
-    emission.by_address.clear();
+    emission.synthesized_by_address.clear();
     assert!(
         !aggregate_call_abi(&expression, &emission, &by_name, &by_id)
             .unwrap()
             .unwrap()
             .indirect_return
     );
-    emission.by_address.insert(
-        std::ptr::from_ref(&expression) as usize,
-        crate::typed_body::EmissionNode::default(),
-    );
+    emission.insert_synthesized(&expression, crate::typed_body::EmissionNode::default());
     assert!(aggregate_call_abi(&expression, &emission, &by_name, &by_id)
         .err()
         .unwrap()
@@ -5269,12 +5264,9 @@ fn checked_numeric_operand_types(
         numeric.operand_type.clone()
     };
     for operand in items.iter().skip(1) {
-        let metadata = emission
-            .by_address
-            .get(&(std::ptr::from_ref(operand) as usize))
-            .ok_or_else(|| {
-                "internal error: checked numeric operand lost its metadata".to_owned()
-            })?;
+        let metadata = emission.get(operand).ok_or_else(|| {
+            "internal error: checked numeric operand lost its metadata".to_owned()
+        })?;
         let retained = metadata
             .ty
             .as_ref()
@@ -5305,12 +5297,9 @@ fn checked_scalar_argument_type(
     if callee.is_none() {
         return Ok(None);
     }
-    let metadata = emission
-        .by_address
-        .get(&(std::ptr::from_ref(argument) as usize))
-        .ok_or_else(|| {
-            "internal error: checked scalar call argument lost its metadata".to_owned()
-        })?;
+    let metadata = emission.get(argument).ok_or_else(|| {
+        "internal error: checked scalar call argument lost its metadata".to_owned()
+    })?;
     metadata
         .ty
         .clone()
@@ -5378,9 +5367,8 @@ fn checked_scalar_arguments_require_retained_types() {
             .unwrap_err()
             .contains("lost its metadata")
     );
-    let address = std::ptr::from_ref(&argument) as usize;
-    emission.by_address.insert(
-        address,
+    emission.insert_synthesized(
+        &argument,
         crate::typed_body::EmissionNode {
             ty: None,
             ..Default::default()
@@ -5391,7 +5379,7 @@ fn checked_scalar_arguments_require_retained_types() {
             .unwrap_err()
             .contains("lost its type")
     );
-    emission.by_address.get_mut(&address).unwrap().ty = Some(Type::U64);
+    emission.get_mut_synthesized(&argument).unwrap().ty = Some(Type::U64);
     assert_eq!(
         checked_scalar_argument_type(&argument, Some(callee), &emission).unwrap(),
         Some(Type::U64)
@@ -5524,33 +5512,28 @@ fn checked_numeric_operands_require_retained_opcode_types() {
             .contains("lost its metadata")
     );
     for operand in items.iter().skip(1) {
-        emission.by_address.insert(
-            std::ptr::from_ref(operand) as usize,
-            crate::typed_body::EmissionNode::default(),
-        );
+        emission.insert_synthesized(operand, crate::typed_body::EmissionNode::default());
     }
     assert!(
         checked_numeric_operand_types(&items, Some(&numeric), &emission, &aliases)
             .unwrap_err()
             .contains("lost its type")
     );
-    let first = std::ptr::from_ref(&items[1]) as usize;
-    emission.by_address.get_mut(&first).unwrap().ty = Some(Type::U64);
+    emission.get_mut_synthesized(&items[1]).unwrap().ty = Some(Type::U64);
     assert!(
         checked_numeric_operand_types(&items, Some(&numeric), &emission, &aliases)
             .unwrap_err()
             .contains("disagrees with its opcode")
     );
-    emission.by_address.get_mut(&first).unwrap().ty = Some(Type::U32);
-    let second = std::ptr::from_ref(&items[2]) as usize;
-    emission.by_address.get_mut(&second).unwrap().ty = Some(Type::U32);
+    emission.get_mut_synthesized(&items[1]).unwrap().ty = Some(Type::U32);
+    emission.get_mut_synthesized(&items[2]).unwrap().ty = Some(Type::U32);
     checked_numeric_operand_types(&items, Some(&numeric), &emission, &aliases).unwrap();
 
     // Logical operators currently accept boolean operands even when their
     // source qualifier names an integer type.
     let logical = crate::typed_body::NumericOperation::parse("u64.&&").unwrap();
-    emission.by_address.get_mut(&first).unwrap().ty = Some(Type::Bool);
-    emission.by_address.get_mut(&second).unwrap().ty = Some(Type::Bool);
+    emission.get_mut_synthesized(&items[1]).unwrap().ty = Some(Type::Bool);
+    emission.get_mut_synthesized(&items[2]).unwrap().ty = Some(Type::Bool);
     checked_numeric_operand_types(&items, Some(&logical), &emission, &aliases).unwrap();
 }
 
@@ -6554,11 +6537,7 @@ impl FunctionContext {
     }
 
     fn expression_type(&self, expression: &Expr) -> Option<Type> {
-        if let Some(ty) = self
-            .expression_types
-            .by_address
-            .get(&(std::ptr::from_ref(expression) as usize))
-        {
+        if let Some(ty) = self.expression_types.get(expression) {
             return ty.ty.clone();
         }
         match expression {
@@ -8633,10 +8612,7 @@ impl FunctionContext {
                 }
             }
             Expr::List(items) => {
-                let metadata = self
-                    .expression_types
-                    .by_address
-                    .get(&(std::ptr::from_ref(expression) as usize));
+                let metadata = self.expression_types.get(expression);
                 let numeric = checked_numeric_metadata(metadata, items.first())?;
                 checked_numeric_operand_types(
                     items,
@@ -14483,8 +14459,7 @@ impl FunctionContext {
             })?;
             let metadata = self
                 .expression_types
-                .by_address
-                .get(&(std::ptr::from_ref(expression) as usize))
+                .get(expression)
                 .expect("checked aggregate call has metadata");
             validate_checked_call_result(metadata, &abi.return_type, &self.aliases)?;
         }
