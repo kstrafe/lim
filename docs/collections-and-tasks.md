@@ -129,6 +129,46 @@ not be treated as the final safe wake API. Opaque state, queue integration,
 non-busy waiting, and OS-operation ownership remain to be implemented.
 `examples/wake_tokens.lim` exercises retirement and re-registration.
 
+## Borrowed local wakers
+
+Import `library/local_waker.lim` to generate a concrete, single-threaded wake
+handle with no function pointers:
+
+```lisp syntax
+(@local-waker
+  (CounterWaker counter-waker-create counter-waker-wake
+    counter-waker-wake-by-ref counter-waker-clone counter-waker-destroy)
+  (WakeCounter WakeMetadata)
+  (counter-notify metadata-clone metadata-destroy))
+```
+
+The generated linear `CounterWaker` owns a `WakeMetadata` and holds a
+`(#ref WakeCounter)`. Its reference cannot outlive the executor. The
+`#ptr u8` field is an unused marker that makes it neither Send nor Sync under
+the current structural rules; it is never dereferenced. `wake-by-ref` calls
+`counter-notify`, retaining the handle; `wake` calls it and then destroys the
+handle. `clone` calls `metadata-clone` to create independent owned metadata.
+`destroy` passes the owned metadata to `metadata-destroy`, which must consume
+or explicitly forget it. Callers must explicitly wake or destroy every owned
+handle. All generated declarations appear in the ordinary `.lim` cache.
+
+The three user-supplied callbacks are ordinary functions with these exact
+signatures (substitute the concrete type names):
+
+```lisp syntax
+(#fn counter-notify ((executor (#ref WakeCounter))
+                     (metadata (#ref WakeMetadata))) () ...)
+(#fn metadata-clone ((metadata (#ref WakeMetadata))) WakeMetadata ...)
+(#fn metadata-destroy ((executor (#ref WakeCounter))
+                       (metadata WakeMetadata)) () ...)
+```
+
+The handle is only a *local wake adapter*. Its fields are public, so this does
+not make wake authority unforgeable; the callback must validate any token
+stored in metadata against the executor's live registration state. It does
+not provide a ready queue, lost-wakeup protection, or OS I/O registration.
+See `examples/local_waker.lim` for a complete runnable example.
+
 ## Explicit async composition
 
 ```lisp syntax
@@ -154,6 +194,35 @@ No local stack reference is silently captured: generated enums and functions
 undergo the existing borrow checks. Self-referential movable task frames are
 not added, and no pinning guarantee is provided.
 
+An arbitrary async function will need its body lowered into a concrete state
+machine with an explicit poll context carrying a local waker. Each `#await`
+must preserve live locals and loans in that state; poll returns Pending only
+after the awaited operation has registered the wake. Ready returns its value,
+and cancellation consumes the suspended state and its resources. A first
+version should reject borrows that cross suspension if they would make the
+frame self-referential; supporting those later requires immovable frame
+storage and a corresponding borrow-checker rule. The current `@async` and
+`@local-waker` do not perform this lowering.
+
+For explicit state composition that already needs a wake context, use
+`@async-wake` with the same stage descriptors as `@async` and one additional
+concrete waker type:
+
+```lisp syntax
+(@async-wake
+  (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) u64
+  ((Only (#await Step StepPending StepReady step-poll) (#return)))
+  LocalWaker)
+```
+
+The generated `pipeline-poll` takes `task` and `waker (#ref LocalWaker)`.
+Every named child poll must take those same argument names and waker type;
+the generated code forwards the borrow without retaining it. The child can
+use `wake-by-ref` before returning Pending. This is a cooperative protocol,
+not a guarantee against lost wakes: integration with a validated ready queue
+and registration ordering is still required. See
+`examples/async_wake_pipeline.lim` for a runnable Pending/wake/Ready cycle.
+
 ## Cancellation and threads
 
 `(@task-cancel cancel-function Task ((State handler) ...))` generates an
@@ -177,5 +246,6 @@ joins, and captured-reference restrictions come from the existing thread
 implementation. OS thread creation still uses its existing allocation path.
 
 Runnable examples: `distributed_errors.lim`, `distributed_slice.lim`,
+`local_waker.lim`, `async_wake_pipeline.lim`,
 `cooperative_tasks.lim`, `async_pipeline.lim`, `task_cancellation.lim`, and
 `threaded_tasks.lim` in `examples/`.

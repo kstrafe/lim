@@ -8118,7 +8118,7 @@ impl FunctionContext {
             }
         }
         if !matches!(value, Expr::List(_)) {
-            self.expression(value)?;
+            self.expression_as_expected(value, &Type::Named(enum_name.to_owned()))?;
             self.output.push_str(&format!(
                 "    mov QWORD PTR [rbp-{}], rax\n",
                 discriminant * 8
@@ -8148,7 +8148,7 @@ impl FunctionContext {
             .find(|variant| variant.name == *variant_name)
             .cloned();
         let Some(variant) = variant else {
-            self.expression(value)?;
+            self.expression_as_expected(value, &Type::Named(enum_name.to_owned()))?;
             self.output.push_str(&format!(
                 "    mov QWORD PTR [rbp-{}], rax\n",
                 discriminant * 8

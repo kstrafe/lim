@@ -1,0 +1,63 @@
+;; A local, borrow-tied wake handle. The generated handle borrows its executor
+;; and owns arbitrary metadata. No function pointers or implicit destruction.
+;;
+;; Names: (Waker create wake wake-by-ref clone destroy).
+;; Types: (Executor Metadata).
+;; Callbacks: (notify clone-metadata destroy-metadata).
+;; notify: ((executor (#ref Executor)) (metadata (#ref Metadata))) -> ()
+;; clone-metadata: ((metadata (#ref Metadata))) -> Metadata
+;; destroy-metadata: ((executor (#ref Executor)) (metadata Metadata)) -> ()
+;; The raw-pointer marker is never dereferenced; it makes the handle !Send and
+;; !Sync under Lim's structural thread-safety rules.
+(#gn-fn local-waker-second (values) (#gn-first (#gn-rest values)))
+(#gn-fn local-waker-third (values) (#gn-first (#gn-rest (#gn-rest values))))
+(#gn-fn local-waker-fourth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest values)))))
+(#gn-fn local-waker-fifth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest values))))))
+(#gn-fn local-waker-sixth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values)))))))
+
+(#gn local-waker (names types callbacks)
+  (#gn-if (#gn-equal (#gn-length names) 6)
+    (#gn-if (#gn-equal (#gn-length types) 2)
+      (#gn-if (#gn-equal (#gn-length callbacks) 3)
+        `((#struct ,(#gn-first names)
+            ((executor (#ref ,(#gn-first types)))
+             (metadata ,(#gn-call local-waker-second types))
+             (local-marker (#ptr u8))))
+          (#linear ,(#gn-first names))
+          (#fn ,(#gn-call local-waker-second names)
+            ((executor (#ref ,(#gn-first types)))
+             (metadata ,(#gn-call local-waker-second types))) ,(#gn-first names)
+            (#return (#struct-literal ,(#gn-first names)
+              ((executor executor) (metadata metadata)
+               (local-marker (#ptr-null (#ptr u8)))))))
+          (#fn ,(#gn-call local-waker-fourth names)
+            ((waker (#ref ,(#gn-first names)))) ()
+            (#call ,(#gn-first callbacks) (#fn-args
+              (executor (#get waker executor))
+              (metadata (#borrow (#get waker metadata)))))
+            (#return ()))
+          (#fn ,(#gn-call local-waker-fifth names)
+            ((waker (#ref ,(#gn-first names)))) ,(#gn-first names)
+            (#return (#struct-literal ,(#gn-first names)
+              ((executor (#get waker executor))
+               (metadata (#call ,(#gn-call local-waker-second callbacks)
+                 (#fn-args (metadata (#borrow (#get waker metadata))))))
+               (local-marker (#ptr-null (#ptr u8)))))))
+          (#fn ,(#gn-call local-waker-sixth names)
+            ((waker ,(#gn-first names))) ()
+            (#let (,(#gn-first names) executor metadata local-marker)
+              ,(#gn-first names) waker)
+            (#forget local-marker)
+            (#call ,(#gn-call local-waker-third callbacks) (#fn-args
+              (executor executor) (metadata metadata)))
+            (#return ()))
+          (#fn ,(#gn-call local-waker-third names)
+            ((waker ,(#gn-first names))) ()
+            (#call ,(#gn-call local-waker-fourth names)
+              (#fn-args (waker (#borrow waker))))
+            (#call ,(#gn-call local-waker-sixth names)
+              (#fn-args (waker waker)))
+            (#return ())))
+        (#gn-error "@local-waker callbacks must be (notify clone-metadata destroy-metadata)"))
+      (#gn-error "@local-waker types must be (Executor Metadata)"))
+    (#gn-error "@local-waker names must be (Waker create wake wake-by-ref clone destroy)")))

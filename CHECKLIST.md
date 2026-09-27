@@ -508,11 +508,46 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   invariants. Prevent safe callers from forging tokens, replacing generation
   arrays, or cloning live authority. Preserve explicit inspectable operations
   where possible, and test cross-module rejection and stale-handle behavior.
+- [x] **ASYNC-02e: Generate borrowed local wake adapters.** Add a user-defined
+  `@local-waker` producing a linear handle that borrows one concrete executor,
+  owns arbitrary concrete metadata, and calls named notify/clone/destroy
+  functions directly. Keep it !Send/!Sync via an unused raw-pointer marker;
+  test wake, clone, destruction, borrow escape, thread-transfer rejection,
+  generated-code inspection, and invalid generator arguments. This is not
+  unforgeable wake authority while generated fields remain public.
 - [ ] **ASYNC-01: Suspend arbitrary ordinary function bodies.** Complete the
   typed ownership/control-flow migration, then calculate live values and loans
   at suspension points. Define source syntax, borrowing across suspension, and
   immovable storage before accepting self-referential frames. Preserve exact
   source diagnostics and explicit cleanup for each suspended state.
+- [ ] **ASYNC-01a: Define pinning as a checked place guarantee.** Add explicit
+  pinned types and pinned references without generic traits. Establish stable
+  stack and allocator-backed places before creating internal references;
+  prohibit safe moves, replacement, copies, or owner destruction while pinned
+  references exist. Distinguish pinning the referent from pinning a handle,
+  and test move, reborrow, field projection, and scope-exit diagnostics.
+- [ ] **ASYNC-01b: Lower async functions to concrete poll state machines.**
+  Introduce explicit `#async-fn` and expression-level `#await`, with named
+  concrete frame and poll-result types and no implicit function pointers.
+  Capture live locals and loans at each suspension; poll with a concrete local
+  wake context. Verify eager/ready and pending paths, repeated polls, named
+  arguments, generated-code inspection, and source-span diagnostics.
+- [x] **ASYNC-01b1: Forward local wake context through explicit async stages.**
+  Generate a concrete waker-aware poll function for `@async-wake` task
+  composition. Child polls receive the same borrowed local waker, without
+  function pointers or hidden clones. Exercise Pending, wake notification,
+  Ready, and explicit handle destruction in a native example; retain a test
+  that rejects a pending task that illegally retains an executor borrow.
+- [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
+  Initialize owned fields before pinning, then establish internal references
+  with field-sensitive loans. Reject escaping references and incompatible
+  projections. Require cancellation to end internal loans before consuming
+  their referents; test movement, cancellation, and storage lifetime.
+- [ ] **ASYNC-01d: Connect polling to wake registration.** Integrate local
+  wakers with generational tokens and the ready queue, prevent lost wakes
+  between registration and Pending, and make stale wakes and duplicate queue
+  entries harmless. Reject forged authority until module privacy or opaque
+  compiler-owned handles are available.
 - [ ] **ASYNC-02: Add non-busy waiting and safe asynchronous I/O.** Define a
   bounded ready queue and explicit wake handles (no callbacks), readiness or
   completion registration, and OS-operation ownership. Cancellation must not

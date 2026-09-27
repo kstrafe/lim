@@ -1,0 +1,68 @@
+(#import "../library/tasks.lim")
+(#import "../library/local_waker.lim")
+
+(#struct WakeExecutor ((notifications (#cell u64))))
+(#struct WakeMetadata ((amount u64)))
+(#linear WakeMetadata)
+
+(#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref WakeMetadata))) ()
+  (#cell-set (#get executor notifications)
+    (#u64.+.wrap (#cell-get (#get executor notifications))
+      (#get metadata amount)))
+  (#return ()))
+
+(#fn clone-metadata ((metadata (#ref WakeMetadata))) WakeMetadata
+  (#return (#struct-literal WakeMetadata ((amount (#get metadata amount))))))
+
+(#fn destroy-metadata
+  ((executor (#ref WakeExecutor)) (metadata WakeMetadata)) ()
+  (#forget metadata)
+  (#return ()))
+
+(@local-waker
+  (LocalWaker local-waker-create local-waker-wake
+    local-waker-wake-by-ref local-waker-clone local-waker-destroy)
+  (WakeExecutor WakeMetadata)
+  (notify clone-metadata destroy-metadata))
+
+(@task (Step StepPoll StepPending StepReady) u64 ((Waiting u64)))
+
+(#fn step-poll ((task Step) (waker (#ref LocalWaker))) StepPoll
+  (#return (#match task
+    (#case (Waiting remaining)
+      (#if (#u64.== (#clone remaining) 0u64)
+        (#block (#forget remaining) (StepReady 40u64))
+        (#block
+          (#call local-waker-wake-by-ref (#fn-args (waker waker)))
+          (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
+
+(@async-wake
+  (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) u64
+  ((Only (#await Step StepPending StepReady step-poll) (#return)))
+  LocalWaker)
+
+(#fn main () u64
+  (#let executor WakeExecutor
+    (#struct-literal WakeExecutor ((notifications (#cell 0u64)))))
+  (#let waker LocalWaker
+    (#call local-waker-create (#fn-args
+      (executor (#borrow executor))
+      (metadata (#struct-literal WakeMetadata ((amount 2u64)))))))
+  (#let first PipelinePoll
+    (#call pipeline-poll (#fn-args
+      (task (Only (Waiting 1u64))) (waker (#borrow waker)))))
+  (#let pending Pipeline
+    (#match first
+      (#case (PipelinePending task) task)
+      (#case (PipelineReady result) (#unreachable))))
+  (#let second PipelinePoll
+    (#call pipeline-poll (#fn-args (task pending) (waker (#borrow waker)))))
+  (#let result u64
+    (#match second
+      (#case (PipelineReady value) value)
+      (#case (PipelinePending task)
+        (#block (#forget task) (#unreachable)))))
+  (#call local-waker-destroy (#fn-args (waker waker)))
+  (#let notifications u64 (#cell-get (#get executor notifications)))
+  (#forget executor)
+  (#return (#u64.+.wrap result notifications)))

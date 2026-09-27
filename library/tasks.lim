@@ -99,6 +99,28 @@
       (#return (#match task
         ,@(#gn-for-each stage stages (#gn-call async-poll-case names stage)))))))
 
+;; Waker-aware explicit composition. Child polls take `task` and a shared
+;; `waker` reference. The generated parent poll forwards that exact handle;
+;; it does not create, clone, or retain wake authority on its own.
+(#gn-fn async-wake-poll-case (names stage)
+  (#gn-if (#gn-equal (#gn-first (#gn-call task-second stage)) #await)
+    `(#case (,(#gn-first stage) lim.async.task)
+       (#match
+         (#call ,(#gn-call task-fifth (#gn-call task-second stage))
+           (#fn-args (task lim.async.task) (waker waker)))
+         (#case (,(#gn-call task-third (#gn-call task-second stage)) lim.async.task)
+           (,(#gn-call task-third names) (,(#gn-first stage) lim.async.task)))
+         (#case (,(#gn-call task-fourth (#gn-call task-second stage)) lim.async.value)
+           ,(#gn-call async-complete names (#gn-call task-third stage)))))
+    (#gn-error "async stage requires (#await Task Pending Ready poll-function)")))
+
+(#gn async-wake (names result stages waker)
+  `((@task ,names ,result ,(#gn-for-each stage stages (#gn-call async-state stage)))
+    (#fn ,(#gn-call task-fifth names)
+      ((task ,(#gn-first names)) (waker (#ref ,waker))) ,(#gn-call task-second names)
+      (#return (#match task
+        ,@(#gn-for-each stage stages (#gn-call async-wake-poll-case names stage)))))))
+
 ;; Cancellation is opt-in and explicit. Each state has one payload; every
 ;; handler consumes it. A handler must finish cancelling any external operation
 ;; before returning and releasing the state's retained borrows.
