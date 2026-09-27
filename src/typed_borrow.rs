@@ -43,36 +43,13 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
     }
     let origins = flow.loan_origins(body);
     let live = flow.liveness(body);
-    // A place projection evaluates its base, but that intermediate evaluation
-    // is not a whole-base read. Check the final projected place instead.
-    let mut projected_bases = HashSet::new();
-    for node in &body.nodes {
-        let NodeKind::Form { head, children, .. } = &node.kind else {
-            continue;
-        };
-        if matches!(
-            head.as_str(),
-            "get" | "get-payload" | "index" | "borrow" | "borrow-mut" | "clone" | "drop" | "forget"
-        ) {
-            if let Some(base) = children.get(1) {
-                projected_bases.insert(*base);
-            }
-        }
-    }
     for (index, node) in flow.nodes.iter().enumerate() {
-        let evaluated_place = match node.action {
-            FlowAction::Evaluate(value) if !projected_bases.contains(&value) => {
-                Place::from_expression(body, value)
-            }
-            _ => None,
-        };
         let (place, access) = match &node.action {
-            FlowAction::Evaluate(_) => {
-                let Some(place) = evaluated_place.as_ref() else {
-                    continue;
-                };
-                (place, AccessKind::Read)
-            }
+            FlowAction::Read {
+                place,
+                place_base: false,
+                ..
+            } => (place, AccessKind::Read),
             FlowAction::Borrow { place, mutable, .. } => {
                 (place, AccessKind::Borrow { mutable: *mutable })
             }
@@ -807,20 +784,19 @@ mod tests {
             (#return (#deref view)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
-        let mut body = checked.declarations().bodies["main"].clone();
-        let flow = FlowGraph::lower(&body).unwrap();
-        check_live_direct_loans(&body, &flow).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut flow = FlowGraph::lower(body).unwrap();
+        check_live_direct_loans(body, &flow).unwrap();
         let left = BindingId(body.bindings.iter().position(|b| b.name == "left").unwrap());
-        let right_node = flow.nodes.iter().find_map(|node| match node.action {
-            FlowAction::Evaluate(id)
-                if matches!(&body.nodes[id.0].kind, NodeKind::Symbol { name, .. } if name == "right") => Some(id),
-            _ => None,
+        let right_read = flow.nodes.iter_mut().find(|node| {
+            matches!(node.action, FlowAction::Read { value: id, .. }
+                if matches!(&body.nodes[id.0].kind, NodeKind::Symbol { name, .. } if name == "right"))
         }).unwrap();
-        let NodeKind::Symbol { binding, .. } = &mut body.nodes[right_node.0].kind else {
+        let FlowAction::Read { place, .. } = &mut right_read.action else {
             unreachable!()
         };
-        *binding = Some(left);
-        let error = check_live_direct_loans(&body, &flow).unwrap_err();
+        place.root = PlaceRoot::Local(left);
+        let error = check_live_direct_loans(body, &flow).unwrap_err();
         assert!(error.message.contains("cannot read"));
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end], "right");

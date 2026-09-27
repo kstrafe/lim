@@ -162,8 +162,12 @@ enforcement is still pending.
 Read and write places now have structural identities: a `BindingId` or
 `GlobalId` root followed by owner-qualified field/variant IDs, tuple positions,
 or concrete/dynamic array indices. A dotted identifier remains one binding,
-not a field path. Assignment flow nodes retain these places directly; move and
-loan overlap rules still belong to the pending ownership migration.
+not a field path. Assignment flow nodes retain these places directly; complete
+move and indirect-loan rules remain in the pending ownership migration.
+Place reads now also have explicit typed flow actions retaining their checked
+value and place IDs. A role bit distinguishes an intermediate place base or
+dedicated borrow/clone/release operand from a value read; the loan preflight
+uses only the latter, while binding liveness still sees both.
 One typed borrow preflight compares direct `#borrow` and `#borrow-mut` call
 arguments using those place identities. It retains borrow origins through pure
 aggregate construction and expression-valued branches, comparing only loans

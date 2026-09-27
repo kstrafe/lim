@@ -20,6 +20,13 @@ pub(crate) enum FlowAction {
     Entry,
     Exit,
     Evaluate(NodeId),
+    /// A checked place read. `place_base` is an intermediate projection or
+    /// dedicated borrow/clone/release operand, not a value read of the root.
+    Read {
+        value: NodeId,
+        place: Place,
+        place_base: bool,
+    },
     /// A local place is consumed by `#drop` or `#forget`.
     Release {
         place: Place,
@@ -260,11 +267,44 @@ impl FlowGraph {
         builder.exit = builder.push(FlowAction::Exit, None, vec![]);
         let first = builder.scoped_instructions(&body.instructions, builder.exit, &[])?;
         let entry = builder.push(FlowAction::Entry, None, vec![first]);
-        let graph = Self {
+        let mut graph = Self {
             nodes: builder.nodes,
             entry,
             exit: builder.exit,
         };
+        let mut place_bases = HashSet::new();
+        for node in &body.nodes {
+            let NodeKind::Form { head, children, .. } = &node.kind else {
+                continue;
+            };
+            if matches!(
+                head.as_str(),
+                "get"
+                    | "get-payload"
+                    | "index"
+                    | "borrow"
+                    | "borrow-mut"
+                    | "clone"
+                    | "drop"
+                    | "forget"
+            ) {
+                if let Some(base) = children.get(1) {
+                    place_bases.insert(*base);
+                }
+            }
+        }
+        for node in &mut graph.nodes {
+            let FlowAction::Evaluate(value) = node.action else {
+                continue;
+            };
+            if let Some(place) = Place::from_expression(body, value) {
+                node.action = FlowAction::Read {
+                    value,
+                    place,
+                    place_base: place_bases.contains(&value),
+                };
+            }
+        }
         graph.verify(body)?;
         Ok(graph)
     }
@@ -607,6 +647,13 @@ impl FlowGraph {
                         return Err(format!("typed flow evaluates invalid node {id:?}"));
                     }
                 }
+                FlowAction::Read { value, place, .. } => {
+                    if body.nodes.get(value.0).is_none_or(|node| node.ty.is_none())
+                        || Place::from_expression(body, *value).as_ref() != Some(place)
+                    {
+                        return Err(format!("typed flow reads invalid place {value:?}"));
+                    }
+                }
                 FlowAction::Release { place, value } => {
                     let Some(crate::typed_body::Node {
                         kind: NodeKind::Form { head, children, .. },
@@ -802,6 +849,14 @@ impl FlowGraph {
                 bits[id.0][binding.0 / 64] |= 1u64 << (binding.0 % 64);
             };
             match &node.action {
+                FlowAction::Read {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            ..
+                        },
+                    ..
+                } => set(&mut uses, *binding),
                 FlowAction::Evaluate(value) => {
                     if let Some(Place {
                         root: PlaceRoot::Local(binding),
@@ -984,6 +1039,14 @@ impl FlowGraph {
                 continue;
             }
             let binding = match &node.action {
+                FlowAction::Read {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            ..
+                        },
+                    ..
+                } => Some(*binding),
                 FlowAction::Evaluate(id) => match Place::from_expression(body, *id) {
                     Some(Place {
                         root: PlaceRoot::Local(binding),
@@ -2244,6 +2307,47 @@ mod tests {
             .all(|(_, place, _)| place.root == PlaceRoot::Local(owner)));
         assert!(!borrows[0].2);
         assert!(borrows[1].2);
+    }
+
+    #[test]
+    fn checked_read_actions_distinguish_projection_bases_from_values() {
+        let source = "(#struct Pair ((left u64) (right u64)))
+          (#fn main () u64
+            (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+            (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
+            (#let view (#ref-mut u64) (#borrow-mut (#get pair-ref left)))
+            (#let right u64 (#get pair-ref right))
+            (#return (#u64.+.wrap (#deref view) right)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let mut fields = graph
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let FlowAction::Read {
+                    value,
+                    place,
+                    place_base,
+                } = &node.action
+                else {
+                    return None;
+                };
+                let span = body.nodes[value.0].span?;
+                source[span.start..span.end]
+                    .starts_with("(#get pair-ref")
+                    .then_some((span.start, place, *place_base))
+            })
+            .collect::<Vec<_>>();
+        fields.sort_by_key(|(start, _, _)| *start);
+        assert_eq!(fields.len(), 2);
+        assert!(fields[0].2);
+        assert!(!fields[1].2);
+        assert_ne!(fields[0].1.segments, fields[1].1.segments);
+        assert!(graph.nodes.iter().any(|node| matches!(&node.action,
+            FlowAction::Read { value, place_base: true, .. }
+                if matches!(&body.nodes[value.0].kind, NodeKind::Symbol { name, .. } if name == "pair-ref"))));
     }
 
     #[test]

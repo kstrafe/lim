@@ -549,6 +549,13 @@ the checklist is committed alongside the implementation it tracks.
   Test a disjoint field access through a reference; indirect referent
   resolution and implicit move classification remain in IR-04.
 
+- [x] **IR-04au: Retain checked read places on typed flow.** Convert place
+  evaluations to explicit read actions with the checked value and place IDs,
+  marking intermediate projection/borrow/clone/release bases separately from
+  value reads. Use those actions for direct-loan checks, liveness, and definite
+  binding verification. Test field distinctions and exact role metadata;
+  implicit move classification remains in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
