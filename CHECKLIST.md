@@ -134,6 +134,12 @@ the checklist is committed alongside the implementation it tracks.
   calls retain their compatibility path. Cover missing metadata, missing type,
   and a retained type in unit tests, plus native call examples.
 
+- [x] **IR-03i: Verify checked scalar call results against their ABI.**
+  Native emission requires the retained result type of a checked scalar call
+  to agree with the resolved function return type. Missing or mismatched
+  metadata is an internal error; aggregate returns are unchanged. Cover
+  missing, mismatched, and valid result metadata in unit tests.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

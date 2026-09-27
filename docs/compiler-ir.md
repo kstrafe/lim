@@ -181,6 +181,8 @@ name remains available for diagnostics. Aggregate dispatch guards use the
 same checked identity; backend-synthesized calls retain the legacy name lookup.
 Checked scalar call operands must also retain a type that agrees with their
 resolved ABI parameter; missing or mismatched metadata is an internal error.
+Checked scalar call results must likewise retain a type matching their
+resolved ABI return type; missing or mismatched metadata is an internal error.
 Synthesized calls still use the compatibility lookup.
 The overlay is
 still address-indexed internally; it is
