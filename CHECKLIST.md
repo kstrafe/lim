@@ -67,6 +67,13 @@ the checklist is committed alongside the implementation it tracks.
   and reject unknown names; retain native numeric differential coverage.
   Direct typed emission and the address-free bridge remain part of IR-02/03.
 
+- [x] **IR-02f: Reject same-length emission shape drift.** The temporary
+  syntax-shaped backend bridge now checks each paired node's expression kind
+  and exact literal value after unsafe erasure, not only the total node count.
+  A regression swaps equally shaped operands and requires an internal error
+  instead of silently attaching checked metadata to the wrong expression.
+  Replacing the remaining address-keyed bridge is still required by IR-02.
+
 - [x] **IR-02a: Preserve checked metadata when erasing unsafe wrappers.**
   Verify the body's stable node sequence and retained numeric type/operation
   metadata still associate with backend syntax after `#unsafe` wrappers are

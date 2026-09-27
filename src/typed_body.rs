@@ -261,6 +261,36 @@ mod tests {
     }
 
     #[test]
+    fn emission_bridge_rejects_reordered_literals_with_the_same_node_count() {
+        let source = "(#fn main () u64
+          (#return (#unsafe (#u64.+.wrap 40u64 2u64))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut lowered = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => {
+                    Some(function.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        lowered.body = body.statements(&body.instructions, true);
+        body.emission_types(&lowered).unwrap();
+        let Statement::Return(Some(Expr::List(operands))) = &mut lowered.body[0] else {
+            unreachable!()
+        };
+        operands.swap(1, 2);
+        let error = body.emission_types(&lowered).err().unwrap();
+        assert!(
+            error.contains("checked expression shape changed"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn lowering_preserves_mutation_projections_and_nested_control_flow() {
         let sources = [
             "(#fn main () u64 (#let-mut value u64 0u64) (#while (#u64.< value 2u64) (#set value (#u64.+.wrap value 1u64))) (#return value))",
@@ -649,6 +679,32 @@ impl Body {
         for (id, target) in self.emission_nodes.iter().zip(after) {
             let address = std::ptr::from_ref(target) as usize;
             let node = &self.nodes[id.0];
+            let matches_shape = match (&node.kind, target) {
+                (NodeKind::Literal(expected), actual) => expected == actual,
+                (NodeKind::Symbol { .. } | NodeKind::Declaration(_), Expr::Symbol(_)) => true,
+                (
+                    NodeKind::Form { .. }
+                    | NodeKind::If { .. }
+                    | NodeKind::Match { .. }
+                    | NodeKind::MatchArm { .. }
+                    | NodeKind::Syntax(_),
+                    Expr::List(_),
+                ) => true,
+                (NodeKind::Block(_), Expr::Block(_))
+                | (NodeKind::Loop(_), Expr::Loop(_))
+                | (NodeKind::Labeled(..), Expr::Labeled { .. })
+                | (NodeKind::Quoted("quote", _), Expr::Quote(_))
+                | (NodeKind::Quoted("quasiquote", _), Expr::QuasiQuote(_))
+                | (NodeKind::Quoted("unquote", _), Expr::Unquote(_))
+                | (NodeKind::Quoted("splice", _), Expr::UnquoteSplicing(_)) => true,
+                _ => false,
+            };
+            if !matches_shape {
+                return Err(format!(
+                    "internal error: checked expression shape changed for '{}' at node {}",
+                    lowered.name, id.0
+                ));
+            }
             let (numeric, callee) = match &node.kind {
                 NodeKind::Form {
                     numeric, callee, ..
