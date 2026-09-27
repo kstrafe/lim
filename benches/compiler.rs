@@ -75,6 +75,142 @@ fn intern_symbol_text(tokens: &[lim::Token]) -> (Vec<Arc<str>>, Vec<u32>) {
     (symbols, ids)
 }
 
+// A benchmark-only mirror of the parsed syntax tree. In the hot path every
+// symbol node carries an ID and its one spelling is owned by this compilation's
+// pool; source spans and child shape are retained just like SpannedExpr.
+#[derive(Debug)]
+#[allow(dead_code)] // Fields are intentionally retained as the benchmark AST payload.
+enum InternedKind {
+    List(Vec<InternedKind>),
+    Symbol(u32),
+    Unary(Box<InternedKind>),
+    Other(lim::Expr),
+}
+
+#[derive(Debug)]
+#[allow(dead_code)] // Keep the source AST's span and child structure in the A/B value.
+struct InternedNode {
+    kind: InternedKind,
+    span: lim::Span,
+    children: Vec<InternedNode>,
+}
+
+#[derive(Default)]
+struct LocalSymbols {
+    by_text: HashMap<String, u32>,
+}
+
+impl LocalSymbols {
+    fn id(&mut self, text: &str) -> u32 {
+        if let Some(id) = self.by_text.get(text) {
+            return *id;
+        }
+        let id = u32::try_from(self.by_text.len()).expect("benchmark symbol count fits u32");
+        self.by_text.insert(text.to_owned(), id);
+        id
+    }
+}
+
+fn intern_node(node: &lim::SpannedExpr, symbols: &mut LocalSymbols) -> InternedNode {
+    let kind = match &node.expr {
+        lim::Expr::Symbol(text) => InternedKind::Symbol(symbols.id(text)),
+        lim::Expr::List(items) => InternedKind::List(
+            items
+                .iter()
+                .map(|item| intern_expr(item, symbols))
+                .collect(),
+        ),
+        lim::Expr::Quote(value)
+        | lim::Expr::QuasiQuote(value)
+        | lim::Expr::Unquote(value)
+        | lim::Expr::UnquoteSplicing(value) => {
+            InternedKind::Unary(Box::new(intern_expr(value, symbols)))
+        }
+        other => InternedKind::Other(other.clone()),
+    };
+    InternedNode {
+        kind,
+        span: node.span,
+        children: node
+            .children
+            .iter()
+            .map(|child| intern_node(child, symbols))
+            .collect(),
+    }
+}
+
+fn intern_expr(expression: &lim::Expr, symbols: &mut LocalSymbols) -> InternedKind {
+    match expression {
+        lim::Expr::Symbol(text) => InternedKind::Symbol(symbols.id(text)),
+        lim::Expr::List(items) => InternedKind::List(
+            items
+                .iter()
+                .map(|item| intern_expr(item, symbols))
+                .collect(),
+        ),
+        lim::Expr::Quote(value)
+        | lim::Expr::QuasiQuote(value)
+        | lim::Expr::Unquote(value)
+        | lim::Expr::UnquoteSplicing(value) => {
+            InternedKind::Unary(Box::new(intern_expr(value, symbols)))
+        }
+        other => InternedKind::Other(other.clone()),
+    }
+}
+
+fn ast_symbol_stats(nodes: &[lim::SpannedExpr]) -> (usize, usize, usize) {
+    fn visit<'a>(
+        node: &'a lim::SpannedExpr,
+        counts: &mut HashMap<&'a str, usize>,
+        bytes: &mut usize,
+    ) {
+        if let lim::Expr::Symbol(text) = &node.expr {
+            *counts.entry(text).or_default() += 1;
+            *bytes += text.len();
+        }
+        for child in &node.children {
+            visit(child, counts, bytes);
+        }
+    }
+    let mut counts = HashMap::new();
+    let mut bytes = 0;
+    for node in nodes {
+        visit(node, &mut counts, &mut bytes);
+    }
+    let occurrences: usize = counts.values().sum();
+    let duplicate_allocations = occurrences.saturating_sub(counts.len());
+    let unique_bytes = counts.keys().map(|text| text.len()).sum();
+    (
+        duplicate_allocations,
+        bytes.saturating_sub(unique_bytes),
+        unique_bytes,
+    )
+}
+
+fn benchmark_ast_interning(label: &str, source: &str, iterations: usize) {
+    let parsed = lim::parse(black_box(source)).unwrap();
+    let (duplicates, repeated_bytes, unique_bytes) = ast_symbol_stats(&parsed);
+    println!(
+        "{label}.ast-symbols duplicate_allocations_est={duplicates} repeated_text_bytes={repeated_bytes} unique_text_bytes={unique_bytes}"
+    );
+    // Cold includes parsing and construction of a fresh pool; warm repeats the
+    // same operation after the allocator/hash tables have been exercised.
+    for (temperature, rounds) in [("cold", 1), ("warm", iterations)] {
+        measure(&format!("{label}.ast-intern-{temperature}"), rounds, || {
+            let ast = lim::parse(black_box(source)).unwrap();
+            let mut symbols = LocalSymbols::default();
+            let interned = ast
+                .iter()
+                .map(|node| intern_node(node, &mut symbols))
+                .collect::<Vec<_>>();
+            black_box((&interned, &symbols.by_text));
+        });
+    }
+    measure(&format!("{label}.ast-parse-current"), iterations, || {
+        black_box(lim::parse(black_box(source)).unwrap());
+    });
+}
+
 fn temp_root() -> PathBuf {
     let path = env::temp_dir().join(format!("lim-perf-{}", std::process::id()));
     let _ = fs::remove_dir_all(&path);
@@ -134,6 +270,7 @@ fn compile_and_link(source: &str, source_path: &Path, directory: &Path) -> (Stri
 }
 
 fn main() {
+    let intern_only = env::args().any(|argument| argument == "--intern-only");
     let iterations = env::args()
         .skip(1)
         .collect::<Vec<_>>()
@@ -174,6 +311,21 @@ fn main() {
         small.len(),
         large.len()
     );
+    benchmark_ast_interning("generated-256", &large, iterations);
+    benchmark_ast_interning(
+        "large_reference_projections",
+        include_str!("../examples/large_reference_projections.lim"),
+        iterations,
+    );
+    benchmark_ast_interning(
+        "vec_allocator",
+        include_str!("../examples/vec_allocator.lim"),
+        iterations,
+    );
+    if intern_only {
+        fs::remove_dir_all(root).unwrap();
+        return;
+    }
 
     let shared_path = root.join("shared.lim");
     fs::write(&shared_path, "(#type SharedMarker u64)\n").unwrap();

@@ -1570,6 +1570,16 @@ and acceptance coverage.
   measure a fully interned AST, so PERF-02 remains open. Preserve the current
   representation until a broader A/B build shows a material improvement.
 
+- [x] **PERF-02b: Benchmark a compile-local interned syntax-tree prototype.**
+  Preserve syntax shape and spans in a benchmark-only AST with `u32` symbol
+  IDs and a per-compilation spelling pool. On an i7-13700KF with Rust 1.99.0
+  nightly, 30 warm release iterations measured current parse versus parse
+  plus conversion at 271/640 µs (256 generated functions), 87/143 µs
+  (large reference projections), and 135/221 µs (allocator example).
+  Duplicate symbol allocation estimates were 768, 105, and 251 respectively.
+  This post-parse design loses; PERF-02 remains open for a true front-end and
+  downstream pipeline A/B before deciding whether to change representation.
+
 ### Build outputs and developer tooling
 
 - [x] **BUILD-01: Publish final outputs only after successful compilation.**
