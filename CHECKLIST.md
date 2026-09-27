@@ -392,6 +392,11 @@ the checklist is committed alongside the implementation it tracks.
   distribute only matching paths through struct patterns. Reject a conflicting
   extracted field borrow while allowing a disjoint sibling field.
 
+- [x] **IR-04: Preserve enum-payload loan paths in call analysis.** Attach
+  variant and payload-index identities to enum-constructor borrows, then
+  transfer matching loans through `#let-else` and match patterns. Reject a
+  conflicting payload borrow and accept a disjoint referent.
+
 - [x] **IR-04: Propagate loans through explicit array-of construction.**
   Treat `#array-of` as an aggregate value with an explicit type operand and
   indexed reference slots, not as an opaque expression. Test that positional

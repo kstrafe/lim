@@ -268,16 +268,25 @@ fn returned_borrows_with_bindings(
             }
             bounded(alternatives, node.span)
         }
-        NodeKind::Match { arms, .. } => {
+        NodeKind::Match { value, arms, .. } => {
+            let sources = returned_borrows_with_bindings(body, *value, callee, bindings)?;
             let mut alternatives = Vec::new();
             for arm in arms {
-                let NodeKind::MatchArm { values, .. } = &body.nodes[arm.0].kind else {
+                let NodeKind::MatchArm { pattern, values } = &body.nodes[arm.0].kind else {
                     continue;
                 };
                 if let Some(value) = values.last() {
-                    alternatives.extend(returned_borrows_with_bindings(
-                        body, *value, callee, bindings,
-                    )?);
+                    for source in &sources {
+                        let mut local = bindings.clone();
+                        let mut distributed = HashMap::new();
+                        distribute_pattern_borrows(body, *pattern, source, &mut distributed);
+                        for (binding, borrows) in distributed {
+                            local.insert(binding, vec![borrows]);
+                        }
+                        alternatives.extend(returned_borrows_with_bindings(
+                            body, *value, callee, &local,
+                        )?);
+                    }
                 }
             }
             bounded(alternatives, node.span)
@@ -1386,6 +1395,49 @@ mod tests {
         assert!(error.contains("overlapping borrows"), "{error}");
 
         let disjoint = source.replace(": left left", ": left right");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    #[test]
+    fn enum_payload_destructuring_retains_loan_paths() {
+        let source = "(#enum Holder ((Held (#ref u64)) (Empty)))
+          (#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#let-mut other u64 2u64)
+            (#let holder Holder (Held (#borrow value)))
+            (#let-else (Held left) Holder holder (#return 0u64))
+            (#return (#call inspect
+              (: left left : right (#borrow-mut value)))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+
+        let disjoint = source.replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    #[test]
+    fn enum_match_binding_retains_payload_loan_path() {
+        let source = "(#enum Holder ((Held (#ref u64)) (Empty)))
+          (#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#let-mut other u64 2u64)
+            (#let holder Holder (Held (#borrow value)))
+            (#return (#match holder
+              (#case (Held left)
+                (#call inspect (: left left : right (#borrow-mut value))))
+              (#case Empty 0u64))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("overlapping borrows"), "{error}");
+
+        let disjoint = source.replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
