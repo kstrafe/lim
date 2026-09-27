@@ -1731,6 +1731,34 @@ mod tests {
     }
 
     #[test]
+    fn direct_loan_join_distinguishes_one_sided_and_complete_release() {
+        for (else_branch, expected) in [("(#block (#drop view) 0u64)", 0), ("0u64", 1)] {
+            let source = format!(
+                "(#fn main ((choose bool)) u64
+                  (#let-mut owner u64 1u64)
+                  (#let view (#ref u64) (#borrow owner))
+                  (#if choose (#block (#drop view) 0u64) {else_branch})
+                  (#return owner))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let body = &checked.declarations().bodies["main"];
+            let graph = &checked.declarations().flows["main"];
+            let view = BindingId(body.bindings.iter().position(|b| b.name == "view").unwrap());
+            let return_node = graph
+                .nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Return))
+                .map(FlowNodeId)
+                .unwrap();
+            assert_eq!(
+                graph.loan_origins(body).before(return_node, view).len(),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn liveness_reaches_loop_condition_through_back_edge() {
         let source = "(#fn main () u64
           (#let-mut counter u64 0u64)

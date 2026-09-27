@@ -272,6 +272,11 @@ the checklist is committed alongside the implementation it tracks.
   positions, and distinct enum variants so payloads never cross match arms.
   Alias-aware indirect referents and enforcing loan conflicts remain in IR-04.
 
+- [x] **IR-04s: Verify branch-join loan release.** Exercise the shared typed
+  flow with a direct reference dropped on both paths and on only one path.
+  Require the forward loan state to be empty at the first join and retained at
+  the second. Scope exits, indirect origins, and enforcement remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
