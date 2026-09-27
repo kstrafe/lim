@@ -991,7 +991,8 @@ the checklist is committed alongside the implementation it tracks.
   must-analysis alongside may-consumption, intersecting ownership facts at
   branch joins and converging across loop back edges. Verify that a value
   consumed in both branches is definite, while removing either branch's
-  transfer makes the join non-definite. Function-exit obligations remain next.
+  transfer makes the join non-definite. Complementary zero-iteration behavior
+  is covered by IR-04cc.
 
 - [x] **IR-04bx: Differentially verify whole-value return obligations.** Use
   active typed binding IDs and must-consumption facts to check linear values at
@@ -1017,6 +1018,10 @@ the checklist is committed alongside the implementation it tracks.
   binding's typed declaration event. When a must-obligation fails after a
   partial path transfer, label that exact transfer as the path-specific origin.
   Verify the declaration hunk and related transfer in the branch-join test.
+
+- [x] **IR-04cc: Preserve zero-iteration paths in loop must-analysis.** Add a
+  loop whose body alone consumes an owned value and prove that the fallthrough
+  edge keeps the value non-definitely-consumed after the loop.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and

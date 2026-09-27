@@ -3815,6 +3815,74 @@ mod tests {
     }
 
     #[test]
+    fn loop_only_consumption_is_not_definite_after_zero_iteration_path() {
+        let source = "(#struct Token ((value u64))) (#linear Token)";
+        let program = crate::parse_program(source).unwrap();
+        let types = LinearTypes::from_program(&program);
+        let mut body = Body::default();
+        body.bindings.push(crate::typed_body::Binding {
+            name: "token".into(),
+            ty: Type::Named("Token".into()),
+        });
+        body.nodes.push(crate::typed_body::Node {
+            expression_id: None,
+            ty: Some(Type::Named("Token".into())),
+            span: None,
+            kind: NodeKind::Symbol {
+                name: "token".into(),
+                binding: Some(BindingId(0)),
+            },
+        });
+        body.nodes.push(crate::typed_body::Node {
+            expression_id: None,
+            ty: Some(Type::Bool),
+            span: None,
+            kind: NodeKind::Symbol {
+                name: "false".into(),
+                binding: None,
+            },
+        });
+        let place = Place::root(PlaceRoot::Local(BindingId(0)));
+        let graph = FlowGraph {
+            nodes: vec![
+                FlowNode {
+                    action: FlowAction::Entry,
+                    successors: vec![FlowNodeId(1)],
+                    span: None,
+                },
+                FlowNode {
+                    action: FlowAction::Branch(NodeId(1)),
+                    successors: vec![FlowNodeId(2), FlowNodeId(3)],
+                    span: None,
+                },
+                FlowNode {
+                    action: FlowAction::Read {
+                        value: NodeId(0),
+                        place: place.clone(),
+                        place_base: false,
+                    },
+                    successors: vec![FlowNodeId(1)],
+                    span: None,
+                },
+                FlowNode {
+                    action: FlowAction::Return(None),
+                    successors: vec![FlowNodeId(4)],
+                    span: None,
+                },
+                FlowNode {
+                    action: FlowAction::Exit,
+                    successors: vec![],
+                    span: None,
+                },
+            ],
+            entry: FlowNodeId(0),
+            exit: FlowNodeId(4),
+        };
+        let (before, _) = graph.definite_consumptions(&body, &types, &HashSet::from([NodeId(0)]));
+        assert!(!before[FlowNodeId(3).0].as_ref().unwrap().contains(&place));
+    }
+
+    #[test]
     fn typed_exit_obligations_allow_complete_struct_field_consumption() {
         let source = "(#struct Token ((value u64)))
           (#linear Token)
