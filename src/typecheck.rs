@@ -103,8 +103,8 @@ use crate::typed_ir::{Declarations, Signature};
 #[derive(Default)]
 struct FunctionTable {
     signatures: HashMap<String, Signature>,
-    expression_types: std::cell::RefCell<HashMap<crate::Span, Type>>,
-    expression_types_by_address_fallback: std::cell::RefCell<HashMap<usize, Type>>,
+    expression_ids: HashMap<usize, crate::typed_ir::ExpressionId>,
+    expression_types: std::cell::RefCell<HashMap<crate::typed_ir::ExpressionId, Type>>,
     source_spans: std::cell::RefCell<HashMap<usize, crate::Span>>,
     collecting_sources: std::cell::Cell<bool>,
 }
@@ -624,6 +624,7 @@ fn check_types_inner(
         }
     }
     let mut functions = FunctionTable::default();
+    functions.expression_ids = crate::typed_ir::expression_ids(program);
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;
@@ -810,8 +811,8 @@ fn check_types_inner(
         *diagnostic_span = error.span;
         error.message
     })?;
-    // Establish stable source identities before type checking. Retained types
-    // are keyed by source span, not by the transient address of an AST node.
+    // Establish source locations before type checking. Semantic metadata itself
+    // is keyed by deterministic expression IDs from the full AST walk.
     functions.collecting_sources.set(true);
     for item in &program.items {
         match item {
@@ -946,20 +947,13 @@ fn check_types_inner(
         &program.declaration_spans,
     );
     let checked_expression_types = std::sync::Arc::new(functions.expression_types.into_inner());
-    let checked_expression_types_by_address_fallback =
-        std::sync::Arc::new(functions.expression_types_by_address_fallback.into_inner());
     let checked_expression_spans = std::sync::Arc::new(functions.source_spans.into_inner());
-    let mut unique_spans = std::collections::HashSet::new();
-    let ambiguous_expression_spans = checked_expression_spans
-        .values()
-        .filter_map(|span| (!unique_spans.insert(*span)).then_some(*span))
-        .collect::<std::collections::HashSet<_>>();
+    let expression_ids = std::sync::Arc::new(functions.expression_ids);
     declarations.lower_bodies(
         program,
         &checked_expression_types,
-        &checked_expression_types_by_address_fallback,
+        &expression_ids,
         &checked_expression_spans,
-        &ambiguous_expression_spans,
     )?;
     *diagnostic_code = crate::DiagnosticCode::Type;
     check_opaque_access(
@@ -976,18 +970,12 @@ fn check_types_inner(
         diagnostic_labels,
     )?;
     *diagnostic_code = crate::DiagnosticCode::Linear;
-    crate::linearcheck::check_program_with_span(
-        program,
-        checked_expression_types,
-        checked_expression_types_by_address_fallback,
-        checked_expression_spans,
-        std::sync::Arc::new(ambiguous_expression_spans),
-    )
-    .map_err(|(message, span, labels)| {
-        *diagnostic_span = span;
-        *diagnostic_labels = labels;
-        message
-    })?;
+    crate::linearcheck::check_program_with_span(program, checked_expression_types, expression_ids)
+        .map_err(|(message, span, labels)| {
+            *diagnostic_span = span;
+            *diagnostic_labels = labels;
+            message
+        })?;
     let linear_types = crate::linearcheck::LinearTypes::from_program(program);
     for body in declarations.bodies.values() {
         for node in &body.nodes {
@@ -4796,15 +4784,11 @@ fn expression(
     )
     .inspect(|ty| {
         let address = std::ptr::from_ref(expr) as usize;
-        functions
-            .expression_types_by_address_fallback
-            .borrow_mut()
-            .insert(address, ty.clone());
-        if let Some(span) = functions.source_spans.borrow().get(&address).copied() {
+        if let Some(id) = functions.expression_ids.get(&address).copied() {
             functions
                 .expression_types
                 .borrow_mut()
-                .insert(span, ty.clone());
+                .insert(id, ty.clone());
         }
     })
     .map_err(|mut error| {

@@ -504,7 +504,8 @@ mod tests {
 }
 
 use crate::typed_ir::{
-    resolve_type, DeclarationId, Declarations, FieldId, FunctionId, GlobalId, VariantId,
+    resolve_type, DeclarationId, Declarations, ExpressionId, FieldId, FunctionId, GlobalId,
+    VariantId,
 };
 use crate::{Expr, Function, Span, Statement, Type};
 
@@ -1215,19 +1216,17 @@ impl Body {
     pub fn lower(
         function: &Function,
         declarations: &Declarations,
-        types: &HashMap<Span, Type>,
-        address_type_fallback: &HashMap<usize, Type>,
+        types: &HashMap<ExpressionId, Type>,
+        expression_ids: &HashMap<usize, ExpressionId>,
         spans: &HashMap<usize, Span>,
-        ambiguous_spans: &std::collections::HashSet<Span>,
     ) -> Self {
         let mut builder = Builder {
             body: Body::default(),
             names: HashMap::new(),
             declarations,
             types,
-            address_type_fallback,
+            expression_ids,
             spans,
-            ambiguous_spans,
         };
         for parameter in &function.parameters {
             builder.binding(
@@ -1321,25 +1320,17 @@ struct Builder<'a> {
     body: Body,
     names: HashMap<String, BindingId>,
     declarations: &'a Declarations,
-    types: &'a HashMap<Span, Type>,
-    address_type_fallback: &'a HashMap<usize, Type>,
+    types: &'a HashMap<ExpressionId, Type>,
+    expression_ids: &'a HashMap<usize, ExpressionId>,
     spans: &'a HashMap<usize, Span>,
-    ambiguous_spans: &'a std::collections::HashSet<Span>,
 }
 
 impl Builder<'_> {
-    fn source_span(&self, expression: &Expr) -> Option<Span> {
-        self.spans
-            .get(&(std::ptr::from_ref(expression) as usize))
-            .copied()
-    }
-
     fn expression_type(&self, expression: &Expr) -> Option<&Type> {
         let address = std::ptr::from_ref(expression) as usize;
-        self.source_span(expression)
-            .filter(|span| !self.ambiguous_spans.contains(span))
-            .and_then(|span| self.types.get(&span))
-            .or_else(|| self.address_type_fallback.get(&address))
+        self.expression_ids
+            .get(&address)
+            .and_then(|id| self.types.get(id))
     }
 
     fn binding(&mut self, name: &str, ty: Type) -> BindingId {

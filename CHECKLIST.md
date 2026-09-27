@@ -76,6 +76,13 @@ the checklist is committed alongside the implementation it tracks.
   loop-lowering behavior across the complete library suite. The backend's
   address-keyed emission overlay is still open in IR-02/03.
 
+- [x] **IR-02l: Key checked types by deterministic expression IDs.** Assign
+  dense program-local IDs with a source-order walk before semantic checking and
+  retain expression types by those IDs. Keep the AST-address-to-ID map only as
+  a temporary lookup adapter; spans remain independent diagnostic metadata.
+  Verify dense IDs and stable corresponding nodes across fresh parses, then run
+  the complete library and native integration suites.
+
 - [x] **IR-02: Verify generated declaration nodes retain source spans.** Add a
   focused generated-function lowering regression that resolves a typed node's
   source ID back to generated source text and checks its exact literal span.

@@ -131,11 +131,10 @@ pub(crate) struct LinearTypes {
     structs: std::collections::HashMap<String, Vec<Type>>,
     struct_fields: std::collections::HashMap<String, Vec<(String, Type)>>,
     enums: std::collections::HashMap<String, std::collections::HashMap<String, Vec<Type>>>,
-    checked_expressions: Option<std::sync::Arc<std::collections::HashMap<crate::Span, Type>>>,
-    checked_expression_address_fallback:
-        Option<std::sync::Arc<std::collections::HashMap<usize, Type>>>,
-    checked_expression_spans: Option<std::sync::Arc<std::collections::HashMap<usize, crate::Span>>>,
-    ambiguous_expression_spans: Option<std::sync::Arc<std::collections::HashSet<crate::Span>>>,
+    checked_expressions:
+        Option<std::sync::Arc<std::collections::HashMap<crate::typed_ir::ExpressionId, Type>>>,
+    checked_expression_ids:
+        Option<std::sync::Arc<std::collections::HashMap<usize, crate::typed_ir::ExpressionId>>>,
 }
 
 impl LinearTypes {
@@ -315,16 +314,16 @@ impl LinearTypes {
 /// once; Copy values and references do not create an ownership obligation.
 pub(crate) fn check_program_with_span(
     program: &Program,
-    checked_expressions: std::sync::Arc<std::collections::HashMap<crate::Span, Type>>,
-    checked_expression_address_fallback: std::sync::Arc<std::collections::HashMap<usize, Type>>,
-    checked_expression_spans: std::sync::Arc<std::collections::HashMap<usize, crate::Span>>,
-    ambiguous_expression_spans: std::sync::Arc<std::collections::HashSet<crate::Span>>,
+    checked_expressions: std::sync::Arc<
+        std::collections::HashMap<crate::typed_ir::ExpressionId, Type>,
+    >,
+    checked_expression_ids: std::sync::Arc<
+        std::collections::HashMap<usize, crate::typed_ir::ExpressionId>,
+    >,
 ) -> Result<(), (String, Option<crate::Span>, Vec<(crate::Span, String)>)> {
     let mut types = LinearTypes::from_program(program);
     types.checked_expressions = Some(checked_expressions);
-    types.checked_expression_address_fallback = Some(checked_expression_address_fallback);
-    types.checked_expression_spans = Some(checked_expression_spans);
-    types.ambiguous_expression_spans = Some(ambiguous_expression_spans);
+    types.checked_expression_ids = Some(checked_expression_ids);
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;
@@ -1007,18 +1006,11 @@ fn check_expr(
                     .checked_expressions
                     .as_ref()
                     .and_then(|checked| {
-                        let address = std::ptr::from_ref(expr) as usize;
-                        let span = types.checked_expression_spans.as_ref()?.get(&address)?;
-                        if types.ambiguous_expression_spans.as_ref()?.contains(span) {
-                            return None;
-                        }
-                        checked.get(span)
-                    })
-                    .or_else(|| {
-                        types
-                            .checked_expression_address_fallback
+                        let id = types
+                            .checked_expression_ids
                             .as_ref()?
-                            .get(&(std::ptr::from_ref(expr) as usize))
+                            .get(&(std::ptr::from_ref(expr) as usize))?;
+                        checked.get(id)
                     })
                     .and_then(|ty| types.resolve_aliases(ty.clone()));
                 let arity = match checked_type {

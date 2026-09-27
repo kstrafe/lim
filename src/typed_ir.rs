@@ -43,6 +43,127 @@ pub(crate) enum DeclarationId {
     Variant(VariantId),
 }
 
+/// Deterministic identity assigned by source-order traversal before checking.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub(crate) struct ExpressionId(pub usize);
+
+pub(crate) fn expression_ids(program: &crate::Program) -> HashMap<usize, ExpressionId> {
+    fn expression(value: &crate::Expr, ids: &mut HashMap<usize, ExpressionId>, next: &mut usize) {
+        ids.insert(std::ptr::from_ref(value) as usize, ExpressionId(*next));
+        *next += 1;
+        match value {
+            crate::Expr::List(items) => {
+                for item in items {
+                    expression(item, ids, next);
+                }
+            }
+            crate::Expr::Block(statements) | crate::Expr::Loop(statements) => {
+                for statement_value in statements {
+                    statement(statement_value, ids, next);
+                }
+            }
+            crate::Expr::Labeled {
+                expression: inner, ..
+            }
+            | crate::Expr::Quote(inner)
+            | crate::Expr::QuasiQuote(inner)
+            | crate::Expr::Unquote(inner)
+            | crate::Expr::UnquoteSplicing(inner) => expression(inner, ids, next),
+            crate::Expr::Symbol(_)
+            | crate::Expr::Integer(_)
+            | crate::Expr::UnsignedInteger(_)
+            | crate::Expr::Float(_)
+            | crate::Expr::Char(_)
+            | crate::Expr::String(_)
+            | crate::Expr::At => {}
+        }
+    }
+
+    fn statement(
+        value: &crate::Statement,
+        ids: &mut HashMap<usize, ExpressionId>,
+        next: &mut usize,
+    ) {
+        use crate::Statement as S;
+        match value {
+            S::Let { value, .. }
+            | S::Assign { value, .. }
+            | S::FieldAssign { value, .. }
+            | S::TupleAssign { value, .. }
+            | S::EnumPayloadAssign { value, .. }
+            | S::BreakValue(value)
+            | S::Return(Some(value))
+            | S::Expr(value) => expression(value, ids, next),
+            S::Destructure { pattern, value, .. } => {
+                expression(pattern, ids, next);
+                expression(value, ids, next);
+            }
+            S::LetElse {
+                pattern,
+                value,
+                else_body,
+                ..
+            } => {
+                expression(pattern, ids, next);
+                expression(value, ids, next);
+                for statement_value in else_body {
+                    statement(statement_value, ids, next);
+                }
+            }
+            S::ArrayAssign { index, value, .. } => {
+                expression(index, ids, next);
+                expression(value, ids, next);
+            }
+            S::While { condition, body } => {
+                expression(condition, ids, next);
+                for statement_value in body {
+                    statement(statement_value, ids, next);
+                }
+            }
+            S::Loop { body } => {
+                for statement_value in body {
+                    statement(statement_value, ids, next);
+                }
+            }
+            S::For {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                statement(init, ids, next);
+                expression(condition, ids, next);
+                statement(step, ids, next);
+                for statement_value in body {
+                    statement(statement_value, ids, next);
+                }
+            }
+            S::Labeled {
+                statement: inner, ..
+            } => statement(inner, ids, next),
+            S::BreakToValue { value, .. } => expression(value, ids, next),
+            S::Break | S::BreakTo(_) | S::Continue | S::ContinueTo(_) | S::Return(None) => {}
+        }
+    }
+
+    let mut ids = HashMap::new();
+    let mut next = 0;
+    for item in &program.items {
+        match item {
+            crate::Item::Function(function) => {
+                for statement_value in &function.body {
+                    statement(statement_value, &mut ids, &mut next);
+                }
+            }
+            crate::Item::Let { value, .. } | crate::Item::Static { value, .. } => {
+                expression(value, &mut ids, &mut next);
+            }
+            _ => {}
+        }
+    }
+    ids
+}
+
 pub(crate) struct FunctionDeclaration {
     pub signature: Signature,
     pub span: Option<Span>,
@@ -185,10 +306,9 @@ impl Declarations {
     pub fn lower_bodies(
         &mut self,
         program: &crate::Program,
-        types: &HashMap<Span, Type>,
-        address_type_fallback: &HashMap<usize, Type>,
+        types: &HashMap<ExpressionId, Type>,
+        expression_ids: &HashMap<usize, ExpressionId>,
         spans: &HashMap<usize, Span>,
-        ambiguous_spans: &std::collections::HashSet<Span>,
     ) -> Result<(), String> {
         self.bodies = program
             .items
@@ -196,14 +316,7 @@ impl Declarations {
             .filter_map(|item| match item {
                 crate::Item::Function(function) if !function.external => Some((
                     function.name.clone(),
-                    crate::typed_body::Body::lower(
-                        function,
-                        self,
-                        types,
-                        address_type_fallback,
-                        spans,
-                        ambiguous_spans,
-                    ),
+                    crate::typed_body::Body::lower(function, self, types, expression_ids, spans),
                 )),
                 _ => None,
             })
@@ -285,6 +398,35 @@ pub(crate) fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expression_ids_are_dense_and_stable_across_fresh_parses() {
+        let source = "(#fn main () u64
+          (#let value u64 1u64)
+          (#return (#u64.+.wrap value 2u64)))";
+        let first = crate::parse_program(source).unwrap();
+        let second = crate::parse_program(source).unwrap();
+        let first_ids = expression_ids(&first);
+        let second_ids = expression_ids(&second);
+        fn returned(program: &crate::Program) -> &crate::Expr {
+            let crate::Item::Function(function) = &program.items[0] else {
+                unreachable!()
+            };
+            let crate::Statement::Return(Some(value)) = function.body.last().unwrap() else {
+                unreachable!()
+            };
+            value
+        }
+        let first_return = returned(&first);
+        let second_return = returned(&second);
+        assert_eq!(
+            first_ids[&(std::ptr::from_ref(first_return) as usize)],
+            second_ids[&(std::ptr::from_ref(second_return) as usize)]
+        );
+        let mut dense = first_ids.values().map(|id| id.0).collect::<Vec<_>>();
+        dense.sort_unstable();
+        assert_eq!(dense, (0..dense.len()).collect::<Vec<_>>());
+    }
 
     #[test]
     fn declaration_ids_resolve_metadata_and_ignore_top_level_declaration_order() {
