@@ -1832,6 +1832,27 @@ fn value_loan_origins_at_events(
         }
     }
     if let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind {
+        if head == "array-repeat" {
+            let Some(Type::Array(_, length)) = body.nodes[value.0].ty.as_ref() else {
+                return Vec::new();
+            };
+            if *length == 0 {
+                return Vec::new();
+            }
+            let Some(element) = children.get(if children.len() == 3 { 2 } else { 1 }) else {
+                return Vec::new();
+            };
+            let mut result = value_loan_origins_at_events(body, flow, origins, *element, state);
+            let slot = if *length == 1 {
+                Segment::Index(0)
+            } else {
+                Segment::DynamicIndex
+            };
+            for origin in &mut result {
+                origin.storage.insert(0, slot.clone());
+            }
+            return result;
+        }
         if matches!(
             head.as_str(),
             "tuple" | "array" | "array-of" | "struct-literal"

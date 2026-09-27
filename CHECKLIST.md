@@ -898,6 +898,10 @@ the checklist is committed alongside the implementation it tracks.
   recursively evaluate that child at its branch-specific flow event before
   attaching its aggregate storage path. Reject a returned struct containing a
   match-bound reference to a local owner and assert both diagnostic locations.
+- [x] **IR-04bh: Preserve branch-local origins in repeated arrays.** Resolve
+  the element value of `#array-repeat` at its own flow event and attach the
+  exact or dynamic array slot according to the checked length. Reject a repeated
+  match-bound local reference in a returned array with both source locations.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
