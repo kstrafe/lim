@@ -13347,7 +13347,10 @@ impl FunctionContext {
     }
 
     fn float_binary_operator(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
-        let ty = self.expression_float_type(&items[1]).unwrap_or(Type::F64);
+        let ty = self
+            .expression_type(&items[1])
+            .filter(is_float_type)
+            .ok_or_else(|| "internal error: checked float operand lost its type".to_owned())?;
         self.expression_as_float(&items[1], &ty)?;
         if matches!(ty, Type::F32) {
             self.output
@@ -13507,7 +13510,10 @@ impl FunctionContext {
     }
 
     fn float_comparison(&mut self, operator: &str, items: &[Expr]) -> Result<(), String> {
-        let ty = self.expression_float_type(&items[1]).unwrap_or(Type::F64);
+        let ty = self
+            .expression_type(&items[1])
+            .filter(is_float_type)
+            .ok_or_else(|| "internal error: checked float operand lost its type".to_owned())?;
         self.expression_as_float(&items[1], &ty)?;
         if matches!(ty, Type::F32) {
             self.output

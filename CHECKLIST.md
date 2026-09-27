@@ -242,6 +242,12 @@ the checklist is committed alongside the implementation it tracks.
   destruction metadata as `unit`. Preserve native linearity, custom clone,
   and destruction examples.
 
+- [x] **IR-03r: Require retained operand types for floating-point emission.**
+  Remove implicit `f64` selection from floating arithmetic and comparisons.
+  Require the checked first operand to retain an `f32` or `f64` type before
+  selecting scalar SSE instructions. Preserve the numeric differential suite
+  and native floating examples.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
