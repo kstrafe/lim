@@ -7,6 +7,7 @@ use std::collections::{HashSet, VecDeque};
 use crate::typed_body::{
     BindingId, Body, Control, Instruction, NodeId, NodeKind, NumericOpcode, PlaceRoot, Projection,
 };
+use crate::typed_ir::DeclarationId;
 use crate::typed_place::Place;
 use crate::Span;
 
@@ -691,6 +692,33 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
         {
             value_loan_origins(body, children[1], state)
         }
+        NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "tuple" | "array" | "struct-literal")
+                || matches!(
+                    children.first().map(|child| &body.nodes[child.0].kind),
+                    Some(NodeKind::Declaration(
+                        DeclarationId::Aggregate(_) | DeclarationId::Variant(_)
+                    ))
+                ) =>
+        {
+            let mut origins = Vec::new();
+            for child in children.iter().skip(1) {
+                merge_loan_origins(&mut origins, &value_loan_origins(body, *child, state));
+            }
+            origins
+        }
+        NodeKind::Syntax(children) => {
+            let mut origins = Vec::new();
+            for child in children {
+                merge_loan_origins(&mut origins, &value_loan_origins(body, *child, state));
+            }
+            origins
+        }
+        NodeKind::Block(instructions) => match instructions.last().map(|item| &item.control) {
+            Some(Control::Evaluate(value)) => value_loan_origins(body, *value, state),
+            _ => Vec::new(),
+        },
+        NodeKind::Labeled(_, inner) => value_loan_origins(body, *inner, state),
         _ => Vec::new(),
     }
 }
@@ -1434,6 +1462,77 @@ mod tests {
         assert_eq!(origins.before(drop, view).len(), 2);
         assert!(origins.after(drop, view).is_empty());
         assert_eq!(origins.after(drop, alias).len(), 2);
+    }
+
+    #[test]
+    fn aggregate_bindings_retain_nested_direct_loan_origins() {
+        let source = "(#struct Pair ((first (#ref u64)) (second (#ref u64))))
+          (#fn main () u64
+            (#let left u64 1u64)
+            (#let right u64 2u64)
+            (#let pair Pair (#struct-literal Pair
+              ((first (#borrow left)) (second (#borrow right)))))
+            (#let (Pair first second) Pair pair)
+            (#return (#u64.+.wrap (#deref first) (#deref second))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        let pair = BindingId(body.bindings.iter().position(|b| b.name == "pair").unwrap());
+        let bound = graph
+            .nodes
+            .iter()
+            .position(
+                |node| matches!(node.action, FlowAction::Bind { binding, .. } if binding == pair),
+            )
+            .map(FlowNodeId)
+            .unwrap();
+        let held = origins.after(bound, pair);
+        assert_eq!(held.len(), 2);
+        let mut sites = held
+            .iter()
+            .map(|loan| {
+                let span = loan.span.unwrap();
+                &source[span.start..span.end]
+            })
+            .collect::<Vec<_>>();
+        sites.sort_unstable();
+        assert_eq!(sites, ["(#borrow left)", "(#borrow right)"]);
+    }
+
+    #[test]
+    fn enum_binding_retains_payload_borrow_origin() {
+        let source = "(#enum Choice ((Has (#ref u64)) Empty))
+          (#fn main () u64
+            (#let owner u64 4u64)
+            (#let choice Choice (Has (#borrow owner)))
+            (#return (#match choice
+              (#case (Has view) (#deref view))
+              (#case Empty 0u64))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let choice = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "choice")
+                .unwrap(),
+        );
+        let bound = graph
+            .nodes
+            .iter()
+            .position(
+                |node| matches!(node.action, FlowAction::Bind { binding, .. } if binding == choice),
+            )
+            .map(FlowNodeId)
+            .unwrap();
+        let origins = graph.loan_origins(body);
+        let held = origins.after(bound, choice);
+        assert_eq!(held.len(), 1);
+        let span = held[0].span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#borrow owner)");
     }
 
     #[test]

@@ -119,7 +119,10 @@ bindings, including simple aliases and conditional results. It unions origins
 at flow joins, retains the first exact borrow span, and clears a dropped
 binding without clearing aliases. The typed-IR debug dump includes these
 states. It does not yet replace the lexical borrow checker or resolve indirect
-referents, aggregate payloads, or scope-sensitive loan lifetimes.
+referents, destructured payload identities, or scope-sensitive loan lifetimes.
+Constructor values for structs, enums, tuples, and arrays contribute their
+contained direct origins to the resulting aggregate binding; value-block
+results preserve those origins as well.
 Read and write places now have structural identities: a `BindingId` or
 `GlobalId` root followed by owner-qualified field/variant IDs, tuple positions,
 or concrete/dynamic array indices. A dotted identifier remains one binding,

@@ -255,8 +255,15 @@ the checklist is committed alongside the implementation it tracks.
   bindings, simple aliases, and conditional results; union origins at joins
   and clear a dropped binding without clearing its aliases. Expose the states
   in the typed-IR debug dump. This is observational groundwork, not yet an
-  enforcing replacement for the lexical borrow checker; aggregate payloads,
-  indirect referents, scopes, and full transfer remain in IR-04.
+  enforcing replacement for the lexical borrow checker; aggregate values are
+  covered by IR-04q, while indirect referents, scopes, and full transfer remain
+  in IR-04.
+
+- [x] **IR-04q: Retain aggregate-held loan origins in typed flow.** Walk
+  checked struct, enum, tuple, and array constructors, syntax field groups,
+  and value-block results when computing a binding's direct origins. Test
+  exact source borrow spans inside struct fields and enum payloads. Mapping
+  individual destructured fields and indirect referents remains in IR-04.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
