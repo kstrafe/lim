@@ -340,6 +340,13 @@ the checklist is committed alongside the implementation it tracks.
   Verify a reference field read retains its original borrow span. Indirect
   referents and full loan enforcement remain in IR-04.
 
+- [x] **IR-04x: Check joined reference origins at call arguments.** Convert
+  every direct origin of a reference binding at a typed-flow join into a
+  bounded call-argument alternative instead of ignoring multi-origin aliases.
+  A conflict in any alternative is rejected; disjoint arguments remain valid.
+  Test two joined origins and the conflict/disjoint cases. Correlated branch
+  alternatives and indirect referents still need the complete IR-04 analysis.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

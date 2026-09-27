@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind, PlaceRoot};
-use crate::typed_flow::{FlowAction, FlowGraph, FlowNodeId};
+use crate::typed_flow::{FlowAction, FlowGraph, FlowNodeId, LoanOrigin};
 use crate::typed_ir::DeclarationId;
 use crate::typed_place::Place;
 use crate::{Span, Type};
@@ -76,17 +76,8 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
                     continue;
                 }
                 let held = origins.before(*event, BindingId(index));
-                if let [origin] = held {
-                    if origin.storage.is_empty() {
-                        bindings.insert(
-                            BindingId(index),
-                            vec![vec![DirectBorrow {
-                                place: origin.place.clone(),
-                                mutable: origin.mutable,
-                                span: origin.span,
-                            }]],
-                        );
-                    }
+                if let Some(alternatives) = origin_alternatives(held, node.span)? {
+                    bindings.insert(BindingId(index), alternatives);
                 }
             }
         }
@@ -100,6 +91,26 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
 }
 
 type BoundBorrows = HashMap<BindingId, Vec<Vec<DirectBorrow>>>;
+
+fn origin_alternatives(
+    held: &[LoanOrigin],
+    span: Option<Span>,
+) -> Result<Option<Vec<Vec<DirectBorrow>>>, BorrowConflict> {
+    if held.is_empty() || held.iter().any(|origin| !origin.storage.is_empty()) {
+        return Ok(None);
+    }
+    let alternatives = held
+        .iter()
+        .map(|origin| {
+            vec![DirectBorrow {
+                place: origin.place.clone(),
+                mutable: origin.mutable,
+                span: origin.span,
+            }]
+        })
+        .collect();
+    bounded(alternatives, span).map(Some)
+}
 
 /// Each alternative is one execution path through the value expression.
 /// Borrows within one alternative coexist; different alternatives do not.
@@ -319,8 +330,9 @@ fn direct_borrow(body: &Body, id: NodeId) -> Option<DirectBorrow> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded, combine, DirectBorrow, MAX_BORROW_ALTERNATIVES};
-    use crate::typed_body::{BindingId, PlaceRoot};
+    use super::{bounded, combine, origin_alternatives, DirectBorrow, MAX_BORROW_ALTERNATIVES};
+    use crate::typed_body::{BindingId, NodeId, NodeKind, PlaceRoot};
+    use crate::typed_flow::{FlowAction, FlowNodeId, LoanOrigin};
     use crate::typed_place::Place;
 
     fn source(args: &str) -> String {
@@ -603,5 +615,66 @@ mod tests {
             .replace("(right (#borrow-mut value))", "(right (#borrow-mut other))");
         let program = crate::parse_program(&disjoint).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    #[test]
+    fn joined_reference_origins_are_checked_as_alternatives() {
+        let held = [
+            LoanOrigin {
+                place: Place::root(PlaceRoot::Local(BindingId(0))),
+                mutable: true,
+                span: None,
+                storage: Vec::new(),
+            },
+            LoanOrigin {
+                place: Place::root(PlaceRoot::Local(BindingId(1))),
+                mutable: true,
+                span: None,
+                storage: Vec::new(),
+            },
+        ];
+        let alternatives = origin_alternatives(&held, None).unwrap().unwrap();
+        assert_eq!(alternatives.len(), 2);
+        let shared = |binding| {
+            vec![vec![DirectBorrow {
+                place: Place::root(PlaceRoot::Local(BindingId(binding))),
+                mutable: false,
+                span: None,
+            }]]
+        };
+        assert!(combine(alternatives.clone(), shared(0), "inspect", None).is_err());
+        assert!(combine(alternatives, shared(2), "inspect", None).is_ok());
+
+        let source = "(#fn inspect ((first (#ref-mut u64)) (second (#ref u64))) u64
+            (#drop first) (#drop second) (#return 0u64))
+          (#fn main () u64
+            (#let-mut left u64 1u64)
+            (#let-mut right u64 2u64)
+            (#let flag bool true)
+            (#let view (#ref-mut u64)
+              (#if flag (#borrow-mut left) (#borrow-mut right)))
+            (#let-mut third u64 3u64)
+            (#return (#call inspect (#fn-args
+              (first view) (second (#borrow third))))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let view = BindingId(body.bindings.iter().position(|b| b.name == "view").unwrap());
+        let call = body
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(&node.kind, NodeKind::Form { head, callee: Some(_), .. } if head == "inspect")
+            })
+            .map(NodeId)
+            .unwrap();
+        let event = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Evaluate(id) if id == call))
+            .map(FlowNodeId)
+            .unwrap();
+        assert_eq!(graph.loan_origins(body).before(event, view).len(), 2);
     }
 }

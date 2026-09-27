@@ -149,10 +149,12 @@ assignment invalidates that origin. It rejects overlapping places when either
 loan is mutable and reports both source sites. Control-flow joins, references
 returned from calls, and longer-lived loans
 still require the full flow-sensitive loan transfer in IR-04.
-For a call argument that is a reference binding with one known direct origin,
-the preflight now uses the typed flow state to recover that origin and its
-source span. Multi-origin aliases, aggregate symbols, and indirect referents
-are still deferred to the full loan analysis.
+For a call argument that is a reference binding with known direct origins,
+the preflight uses the typed flow state to recover those origins and source
+spans. Joined origins become separate bounded alternatives; a conflict on any
+alternative is rejected. Correlated alternatives across separate bindings,
+aggregate symbols, and indirect referents are still deferred to the full loan
+analysis.
 Equivalent borrow paths are collapsed by place identity and mutability before
 the bounded path limit is applied; the first matching source origin is retained
 for diagnostics.
