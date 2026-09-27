@@ -268,6 +268,12 @@ the checklist is committed alongside the implementation it tracks.
   handles a synthesized expression with no checked opcode. Preserve numeric
   differential and native example coverage.
 
+- [x] **IR-03v: Reject numeric expressions with missing operand types.** Require
+  an explicit resolved scalar type before selecting unary and binary numeric
+  instructions. Preserve boolean bitwise operations as their own valid scalar
+  case, and keep float, wide-integer, division, saturation, and shift paths
+  covered by existing native and differential tests.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

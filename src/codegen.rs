@@ -11949,11 +11949,12 @@ impl FunctionContext {
     ) -> Result<(), String> {
         let operand_type = operand_type
             .cloned()
-            .or_else(|| self.expression_type(&items[1]));
-        if operand_type.as_ref().is_some_and(is_wide_integer) {
+            .or_else(|| self.expression_type(&items[1]))
+            .ok_or_else(|| "internal error: checked unary operand lost its type".to_owned())?;
+        if is_wide_integer(&operand_type) {
             self.expression(&items[1])?;
             if mode == Some("saturate") {
-                if operand_type == Some(Type::U128) {
+                if operand_type == Type::U128 {
                     self.output.push_str("    xor eax, eax\n    xor edx, edx\n");
                 } else {
                     let done = self.label("saturating_negate_done");
@@ -11968,9 +11969,9 @@ impl FunctionContext {
             }
             return Ok(());
         }
-        if let Some(ty) = self.expression_float_type(&items[1]) {
-            self.expression_as_float(&items[1], &ty)?;
-            if matches!(ty, Type::F32) {
+        if is_float_type(&operand_type) {
+            self.expression_as_float(&items[1], &operand_type)?;
+            if matches!(operand_type, Type::F32) {
                 self.output.push_str(
                     "    mov eax, 0x80000000\n    movd xmm1, eax\n    xorps xmm0, xmm1\n",
                 );
@@ -11980,15 +11981,16 @@ impl FunctionContext {
                 );
             }
         } else {
+            if integer_bit_width(operand_type.clone()).is_none() {
+                return Err("internal error: unary negation operand is not numeric".into());
+            }
             self.expression(&items[1])?;
             self.output.push_str("    neg rax\n");
             if mode == Some("saturate") {
-                self.emit_saturating_integer_result("-", operand_type.as_ref(), items)?;
+                self.emit_saturating_integer_result("-", Some(&operand_type), items)?;
             }
-            if let Some(ty) = operand_type.as_ref() {
-                if is_narrow_integer(ty) {
-                    self.normalize_integer(ty)?;
-                }
+            if is_narrow_integer(&operand_type) {
+                self.normalize_integer(&operand_type)?;
             }
         }
         Ok(())
@@ -12842,12 +12844,17 @@ impl FunctionContext {
         }
         let operand_type = operand_type
             .cloned()
-            .or_else(|| self.expression_type(&items[1]));
-        if operand_type.as_ref().is_some_and(is_float_type) || self.expression_is_float(&items[1]) {
+            .or_else(|| self.expression_type(&items[1]))
+            .ok_or_else(|| "internal error: checked numeric operand lost its type".to_owned())?;
+        if is_float_type(&operand_type) {
             return self.float_binary_operator(operator, items);
         }
-        if operand_type.as_ref().is_some_and(is_wide_integer) {
+        if is_wide_integer(&operand_type) {
             return self.wide_binary_operator(operator, mode, items);
+        }
+        let boolean_bitwise = operand_type == Type::Bool && matches!(operator, "&" | "|" | "^");
+        if integer_bit_width(operand_type.clone()).is_none() && !boolean_bitwise {
+            return Err("internal error: arithmetic operand is not numeric".into());
         }
         self.expression(&items[1])?;
         self.push_rax();
@@ -12865,8 +12872,7 @@ impl FunctionContext {
             None
         };
         let shift_failure = if matches!(operator, "<<" | ">>") {
-            let width = operand_type
-                .clone()
+            let width = Some(operand_type.clone())
                 .and_then(integer_bit_width)
                 .ok_or_else(|| "shift requires an integer operand".to_owned())?;
             let label = self.label("shift_failure");
@@ -12876,7 +12882,7 @@ impl FunctionContext {
         } else {
             None
         };
-        let native_operand_type = operand_type.clone();
+        let native_operand_type = Some(operand_type.clone());
         let signed_division_overflow = if matches!(mode, Some("wrap") | Some("saturate"))
             && matches!(operator, "/" | "%")
             && native_operand_type
@@ -12920,21 +12926,21 @@ impl FunctionContext {
             "+" => self.output.push_str("    add rax, rcx\n"),
             "-" => self.output.push_str("    sub rax, rcx\n"),
             "*" => {
-                if mode == Some("saturate") && operand_type.as_ref().is_some_and(is_unsigned_type) {
+                if mode == Some("saturate") && is_unsigned_type(&operand_type) {
                     self.output.push_str("    mul rcx\n");
                 } else {
                     self.output.push_str("    imul rax, rcx\n");
                 }
             }
             "/" => {
-                if operand_type.as_ref().is_some_and(is_unsigned_type) {
+                if is_unsigned_type(&operand_type) {
                     self.output.push_str("    xor edx, edx\n    div rcx\n");
                 } else {
                     self.output.push_str("    cqo\n    idiv rcx\n");
                 }
             }
             "%" => {
-                if operand_type.as_ref().is_some_and(is_unsigned_type) {
+                if is_unsigned_type(&operand_type) {
                     self.output
                         .push_str("    xor edx, edx\n    div rcx\n    mov rax, rdx\n");
                 } else {
@@ -12947,7 +12953,7 @@ impl FunctionContext {
             "^" => self.output.push_str("    xor rax, rcx\n"),
             "<<" => self.output.push_str("    shl rax, cl\n"),
             ">>" => {
-                if operand_type.as_ref().is_some_and(is_unsigned_type) {
+                if is_unsigned_type(&operand_type) {
                     self.output.push_str("    shr rax, cl\n");
                 } else {
                     self.output.push_str("    sar rax, cl\n");
@@ -12961,12 +12967,10 @@ impl FunctionContext {
                 .as_ref()
                 .is_some_and(|ty| matches!(ty, Type::I64 | Type::Isize));
         if mode == Some("saturate") && !skip_saturating_division {
-            self.emit_saturating_integer_result(operator, operand_type.as_ref(), items)?;
+            self.emit_saturating_integer_result(operator, Some(&operand_type), items)?;
         }
-        if let Some(ty) = operand_type {
-            if is_narrow_integer(&ty) {
-                self.normalize_integer(&ty)?;
-            }
+        if is_narrow_integer(&operand_type) {
+            self.normalize_integer(&operand_type)?;
         }
         if let Some(label) = shift_failure {
             let done = self.label("shift_done");
