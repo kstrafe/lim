@@ -155,6 +155,9 @@ spans. Joined origins become separate bounded alternatives; a conflict on any
 alternative is rejected. Correlated alternatives across separate bindings,
 aggregate symbols, and indirect referents are still deferred to the full loan
 analysis.
+For a projected direct borrow through a reference binding with known direct
+origins, the preflight appends the checked projection to each referent place
+before overlap comparison. Unknown or longer indirect chains remain pending.
 Equivalent borrow paths are collapsed by place identity and mutability before
 the bounded path limit is applied; the first matching source origin is retained
 for diagnostics.

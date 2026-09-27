@@ -121,6 +121,9 @@ fn returned_borrows_with_bindings(
     bindings: &BoundBorrows,
 ) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
     if let Some(borrow) = direct_borrow(body, id) {
+        if let Some(resolved) = resolve_projected_borrow(body, &borrow, bindings) {
+            return bounded(resolved, body.nodes[id.0].span);
+        }
         return Ok(vec![vec![borrow]]);
     }
     let node = &body.nodes[id.0];
@@ -214,6 +217,37 @@ fn returned_borrows_with_bindings(
         }
         _ => Ok(vec![Vec::new()]),
     }
+}
+
+fn resolve_projected_borrow(
+    body: &Body,
+    borrow: &DirectBorrow,
+    bindings: &BoundBorrows,
+) -> Option<Vec<Vec<DirectBorrow>>> {
+    let PlaceRoot::Local(binding) = borrow.place.root else {
+        return None;
+    };
+    if borrow.place.segments.is_empty()
+        || !matches!(body.bindings[binding.0].ty, Type::Reference { .. })
+    {
+        return None;
+    }
+    let origins = bindings.get(&binding)?;
+    origins
+        .iter()
+        .map(|alternative| {
+            let [origin] = alternative.as_slice() else {
+                return None;
+            };
+            let mut place = origin.place.clone();
+            place.segments.extend(borrow.place.segments.iter().cloned());
+            Some(vec![DirectBorrow {
+                place,
+                mutable: borrow.mutable,
+                span: borrow.span,
+            }])
+        })
+        .collect()
 }
 
 fn combine_children(
@@ -330,7 +364,10 @@ fn direct_borrow(body: &Body, id: NodeId) -> Option<DirectBorrow> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded, combine, origin_alternatives, DirectBorrow, MAX_BORROW_ALTERNATIVES};
+    use super::{
+        bounded, combine, origin_alternatives, returned_borrows_with_bindings, BoundBorrows,
+        DirectBorrow, MAX_BORROW_ALTERNATIVES,
+    };
     use crate::typed_body::{BindingId, NodeId, NodeKind, PlaceRoot};
     use crate::typed_flow::{FlowAction, FlowNodeId, LoanOrigin};
     use crate::typed_place::Place;
@@ -676,5 +713,69 @@ mod tests {
             .map(FlowNodeId)
             .unwrap();
         assert_eq!(graph.loan_origins(body).before(event, view).len(), 2);
+    }
+
+    #[test]
+    fn projected_borrow_uses_reference_bindings_referent_place() {
+        let source = "(#struct Pair ((left u64) (right u64)))
+          (#fn main () u64
+            (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+            (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
+            (#let field-ref (#ref u64) (#borrow (#get pair-ref left)))
+            (#drop field-ref)
+            (#drop pair-ref)
+            (#forget pair)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let pair = BindingId(body.bindings.iter().position(|b| b.name == "pair").unwrap());
+        let pair_ref = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "pair-ref")
+                .unwrap(),
+        );
+        let borrow = body
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match &node.kind {
+                NodeKind::Form { head, children, .. } if head == "borrow" => {
+                    matches!(&body.nodes[children[1].0].kind, NodeKind::Form { head, .. } if head == "get")
+                        .then_some(NodeId(index))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let mut bindings = BoundBorrows::new();
+        bindings.insert(
+            pair_ref,
+            vec![vec![DirectBorrow {
+                place: Place::root(PlaceRoot::Local(pair)),
+                mutable: true,
+                span: None,
+            }]],
+        );
+        let projected = returned_borrows_with_bindings(body, borrow, "inspect", &bindings)
+            .unwrap()
+            .pop()
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(projected.place.root, PlaceRoot::Local(pair));
+        assert_eq!(projected.place.segments.len(), 1);
+        let overlapping = DirectBorrow {
+            place: projected.place.clone(),
+            mutable: true,
+            span: None,
+        };
+        assert!(combine(
+            vec![vec![projected]],
+            vec![vec![overlapping]],
+            "inspect",
+            None,
+        )
+        .is_err());
     }
 }

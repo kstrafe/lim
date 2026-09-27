@@ -381,6 +381,14 @@ the checklist is committed alongside the implementation it tracks.
   Test two joined origins and the conflict/disjoint cases. Correlated branch
   alternatives and indirect referents still need the complete IR-04 analysis.
 
+- [x] **IR-04y: Resolve projected call borrows through known references.**
+  For a direct `#borrow` of a `#get`, `#get-payload`, or `#index` place rooted
+  in a reference binding, append its checked projection to each known direct
+  referent origin before comparing call arguments. Keep unknown origins on the
+  conservative compatibility path. Test a reference-to-struct field projecting
+  to the original owner's place and an overlapping mutable argument. Longer
+  indirect chains and complete flow-sensitive enforcement remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
