@@ -274,6 +274,11 @@ the checklist is committed alongside the implementation it tracks.
   case, and keep float, wide-integer, division, saturation, and shift paths
   covered by existing native and differential tests.
 
+- [x] **IR-03w: Pass checked types into wide-integer lowering.** Select signed
+  versus unsigned 128-bit division, shifts, and saturation from the retained
+  operand `Type`, rather than re-querying the AST expression. Preserve the
+  wide-integer differential and native example coverage.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

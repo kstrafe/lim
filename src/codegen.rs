@@ -12850,7 +12850,7 @@ impl FunctionContext {
             return self.float_binary_operator(operator, items);
         }
         if is_wide_integer(&operand_type) {
-            return self.wide_binary_operator(operator, mode, items);
+            return self.wide_binary_operator(operator, &operand_type, mode, items);
         }
         let boolean_bitwise = operand_type == Type::Bool && matches!(operator, "&" | "|" | "^");
         if integer_bit_width(operand_type.clone()).is_none() && !boolean_bitwise {
@@ -13039,6 +13039,7 @@ impl FunctionContext {
     fn wide_binary_operator(
         &mut self,
         operator: &str,
+        operand_type: &Type,
         mode: Option<&str>,
         items: &[Expr],
     ) -> Result<(), String> {
@@ -13061,16 +13062,12 @@ impl FunctionContext {
             .push_str("    mov rcx, rax\n    mov r8, rdx\n    pop rax\n    pop rdx\n");
         self.stack_depth -= 2;
         if mode == Some("saturate") && matches!(operator, "+" | "-") {
-            let unsigned = self
-                .expression_type(&items[1])
-                .is_some_and(|ty| matches!(ty, Type::U128));
+            let unsigned = matches!(operand_type, Type::U128);
             self.emit_wide_saturating_add_sub(operator, unsigned);
             return Ok(());
         }
         if mode == Some("saturate") && operator == "*" {
-            let unsigned = self
-                .expression_type(&items[1])
-                .is_some_and(|ty| matches!(ty, Type::U128));
+            let unsigned = matches!(operand_type, Type::U128);
             if unsigned {
                 self.emit_wide_saturating_unsigned_multiply();
             } else {
@@ -13088,10 +13085,7 @@ impl FunctionContext {
             if operator == "<<" {
                 self.output
                     .push_str("    shld rdx, rax, cl\n    shl rax, cl\n");
-            } else if self
-                .expression_type(&items[1])
-                .is_some_and(|ty| matches!(ty, Type::U128))
-            {
+            } else if matches!(operand_type, Type::U128) {
                 self.output
                     .push_str("    shrd rax, rdx, cl\n    shr rdx, cl\n");
             } else {
@@ -13105,10 +13099,7 @@ impl FunctionContext {
                     .push_str("    mov rdx, rax\n    shl rdx, cl\n    xor eax, eax\n");
             } else {
                 self.output.push_str("    mov rax, rdx\n");
-                if self
-                    .expression_type(&items[1])
-                    .is_some_and(|ty| matches!(ty, Type::U128))
-                {
+                if matches!(operand_type, Type::U128) {
                     self.output.push_str("    shr rax, cl\n    xor edx, edx\n");
                 } else {
                     self.output.push_str("    sar rax, cl\n    sar rdx, 63\n");
@@ -13131,9 +13122,7 @@ impl FunctionContext {
             self.output.push_str(&format!(
                 "    test rcx, rcx\n    jne {division_nonzero}\n    test r8, r8\n    jne {division_nonzero}\n    jmp {division_by_zero}\n{division_nonzero}:\n"
             ));
-            let unsigned = self
-                .expression_type(&items[1])
-                .is_some_and(|ty| matches!(ty, Type::U128));
+            let unsigned = matches!(operand_type, Type::U128);
             let saturating_division = mode == Some("saturate") && !unsigned;
             let done = if saturating_division {
                 let normal = self.label("wide_saturating_division_normal");
