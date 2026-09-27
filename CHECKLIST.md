@@ -249,6 +249,11 @@ the checklist is committed alongside the implementation it tracks.
   projection or destructured element retains the borrow. Empty repeats retain
   no loan. Test both cases, including the wildcard/concrete slot transfer.
 
+- [x] **IR-04: Keep one-slot repeat provenance precise.** Record index zero
+  rather than a wildcard for length-one repeats, so releasing that only
+  element clears its typed loan origin. The legacy borrow pass still rejects
+  some later owner accesses; complete enforcement migration remains open.
+
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
   retain condition/scrutinee/result node IDs and the pattern binding identities

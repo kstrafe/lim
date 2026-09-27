@@ -1551,9 +1551,14 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             let Some(value) = children.get(if children.len() == 3 { 2 } else { 1 }) else {
                 return Vec::new();
             };
+            let slot = if *length == 1 {
+                Segment::Index(0)
+            } else {
+                Segment::DynamicIndex
+            };
             let mut origins = value_loan_origins(body, *value, state);
             for origin in &mut origins {
-                origin.storage.insert(0, Segment::DynamicIndex);
+                origin.storage.insert(0, slot.clone());
             }
             origins
         }
@@ -3564,6 +3569,39 @@ mod tests {
             .map(FlowNodeId)
             .unwrap();
         assert!(graph.loan_origins(body).after(bind, aggregate).is_empty());
+    }
+
+    #[test]
+    fn single_slot_repeat_origin_ends_with_projected_release() {
+        let source = "(#fn main () u64
+          (#let-mut owner u64 7u64)
+          (#let aggregate (#array (#ref-mut u64) 1)
+            (#array-repeat (#borrow-mut owner)))
+          (#forget (#index aggregate 0u64))
+          (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let aggregate = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "aggregate")
+                .unwrap(),
+        );
+        let release = graph
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(&node.action, FlowAction::Release { place, .. }
+                if place.root == PlaceRoot::Local(aggregate)
+                    && place.segments == [Segment::Index(0)])
+            })
+            .map(FlowNodeId)
+            .unwrap();
+        let origins = graph.loan_origins(body);
+        assert_eq!(origins.before(release, aggregate).len(), 1);
+        assert!(origins.after(release, aggregate).is_empty());
     }
 
     #[test]
