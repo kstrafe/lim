@@ -1,0 +1,8 @@
+(#struct Resource ((value u64)))
+(#linear Resource)
+(#struct Pair ((item Resource) (other u64)))
+(#fn main () u64
+  (#let pair Pair (#struct-literal Pair
+    ((item (#struct-literal Resource ((value 1u64)))) (other 2u64))))
+  (#forget pair)
+  (#return (#get pair other)))

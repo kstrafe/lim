@@ -126,8 +126,10 @@ impl Moves {
 pub(crate) struct LinearTypes {
     explicitly_linear: HashSet<String>,
     binding_sites: std::cell::RefCell<std::collections::HashMap<String, Site>>,
+    binding_types: std::cell::RefCell<std::collections::HashMap<String, Type>>,
     aliases: std::collections::HashMap<String, Type>,
     structs: std::collections::HashMap<String, Vec<Type>>,
+    struct_fields: std::collections::HashMap<String, Vec<(String, Type)>>,
     enums: std::collections::HashMap<String, std::collections::HashMap<String, Vec<Type>>>,
 }
 
@@ -146,6 +148,13 @@ impl LinearTypes {
                     types.structs.insert(
                         name.clone(),
                         fields.iter().map(|field| field.ty.clone()).collect(),
+                    );
+                    types.struct_fields.insert(
+                        name.clone(),
+                        fields
+                            .iter()
+                            .map(|field| (field.name.clone(), field.ty.clone()))
+                            .collect(),
                     );
                 }
                 Item::Enum { name, variants, .. } => {
@@ -166,6 +175,125 @@ impl LinearTypes {
     pub(crate) fn is_linear(&self, ty: &Type) -> bool {
         is_linear(ty, self, &mut HashSet::new())
     }
+
+    fn binding_consumed(&self, name: &str, moved: &Moves) -> bool {
+        let root = Place::root(name);
+        if moved.contains(&root) {
+            return true;
+        }
+        let binding_types = self.binding_types.borrow();
+        let Some(ty) = binding_types.get(name) else {
+            return false;
+        };
+        self.value_consumed(&root, ty, moved, &mut HashSet::new())
+    }
+
+    fn place_type(&self, place: &Place) -> Option<Type> {
+        let mut ty = self.binding_types.borrow().get(&place.binding.0)?.clone();
+        for projection in &place.projections {
+            ty = self.resolve_aliases(ty)?;
+            ty = match (ty, projection) {
+                (Type::Named(name), Projection::Field(field)) => self
+                    .struct_fields
+                    .get(&name)?
+                    .iter()
+                    .find(|(candidate, _)| candidate == field)?
+                    .1
+                    .clone(),
+                (Type::Named(name), Projection::Variant(variant)) => {
+                    Type::Tuple(self.enums.get(&name)?.get(variant)?.clone())
+                }
+                (Type::Tuple(items), Projection::Tuple(index)) => items.get(*index)?.clone(),
+                (Type::Array(element, _), Projection::Index(_) | Projection::UnknownIndex) => {
+                    *element
+                }
+                _ => return None,
+            };
+        }
+        self.resolve_aliases(ty)
+    }
+
+    fn resolve_aliases(&self, mut ty: Type) -> Option<Type> {
+        let mut seen = HashSet::new();
+        while let Type::Named(name) = &ty {
+            let Some(target) = self.aliases.get(name) else {
+                break;
+            };
+            if !seen.insert(name.clone()) {
+                return None;
+            }
+            ty = target.clone();
+        }
+        Some(ty)
+    }
+
+    fn value_consumed(
+        &self,
+        place: &Place,
+        ty: &Type,
+        moved: &Moves,
+        seen: &mut HashSet<String>,
+    ) -> bool {
+        if moved.iter().any(|prior| prior.covers(place)) {
+            return true;
+        }
+        match ty {
+            Type::Named(name) => {
+                if self.explicitly_linear.contains(name) || !seen.insert(name.clone()) {
+                    return false;
+                }
+                let complete = if let Some(alias) = self.aliases.get(name) {
+                    self.value_consumed(place, alias, moved, seen)
+                } else if let Some(fields) = self.struct_fields.get(name) {
+                    let linear_fields = fields
+                        .iter()
+                        .filter(|(_, ty)| self.is_linear(ty))
+                        .collect::<Vec<_>>();
+                    !linear_fields.is_empty()
+                        && linear_fields.iter().all(|(field, ty)| {
+                            self.value_consumed(
+                                &place.clone().project(Projection::Field(field.clone())),
+                                ty,
+                                moved,
+                                seen,
+                            )
+                        })
+                } else {
+                    false
+                };
+                seen.remove(name);
+                complete
+            }
+            Type::Tuple(items) => {
+                let linear = items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, ty)| self.is_linear(ty))
+                    .collect::<Vec<_>>();
+                !linear.is_empty()
+                    && linear.iter().all(|(index, ty)| {
+                        self.value_consumed(
+                            &place.clone().project(Projection::Tuple(*index)),
+                            ty,
+                            moved,
+                            seen,
+                        )
+                    })
+            }
+            Type::Array(element, count) if self.is_linear(element) => {
+                *count <= moved.len()
+                    && (0..*count).all(|index| {
+                        self.value_consumed(
+                            &place.clone().project(Projection::Index(index.to_string())),
+                            element,
+                            moved,
+                            seen,
+                        )
+                    })
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Enforce linear use of owned values. Non-Copy values must be consumed exactly
@@ -181,12 +309,20 @@ pub(crate) fn check_program_with_span(
         if function.external {
             continue;
         }
+        types.binding_types.borrow_mut().clear();
+        types.binding_sites.borrow_mut().clear();
         let mut bindings = function
             .parameters
             .iter()
             .filter(|parameter| is_linear(&parameter.ty, &types, &mut HashSet::new()))
             .map(|p| p.name.clone())
             .collect::<HashSet<_>>();
+        for parameter in &function.parameters {
+            types
+                .binding_types
+                .borrow_mut()
+                .insert(parameter.name.clone(), parameter.ty.clone());
+        }
         let mut moved = Moves::default();
         for (index, statement) in function.body.iter().enumerate() {
             if let Err(error) = check_statements(
@@ -227,7 +363,11 @@ fn check_statements(
             Statement::Let {
                 name, ty, value, ..
             } => {
-                check_expr(value, bindings, moved, globals, false)?;
+                check_expr(value, bindings, moved, globals, false, types)?;
+                types
+                    .binding_types
+                    .borrow_mut()
+                    .insert(name.clone(), ty.clone());
                 if is_linear(ty, types, &mut HashSet::new()) {
                     bindings.insert(name.clone());
                     types
@@ -235,12 +375,12 @@ fn check_statements(
                         .borrow_mut()
                         .insert(name.clone(), Site::statement(statement));
                 }
-                moved.remove(&Place::root(name));
+                moved.retain(|place| place_root(place) != name);
             }
             Statement::Destructure {
                 pattern, ty, value, ..
             } => {
-                check_expr(value, bindings, moved, globals, false)?;
+                check_expr(value, bindings, moved, globals, false, types)?;
                 collect_typed_pattern_names(pattern, ty, types, bindings);
             }
             Statement::LetElse {
@@ -250,7 +390,7 @@ fn check_statements(
                 else_body,
                 ..
             } => {
-                check_expr(value, bindings, moved, globals, false)?;
+                check_expr(value, bindings, moved, globals, false, types)?;
                 let mut else_bindings = bindings.clone();
                 let mut else_moved = moved.clone();
                 check_scoped_statements(
@@ -263,29 +403,36 @@ fn check_statements(
                 collect_typed_pattern_names(pattern, ty, types, bindings);
             }
             Statement::Assign { name, value } => {
-                check_expr(value, bindings, moved, globals, false)?;
+                check_expr(value, bindings, moved, globals, false, types)?;
                 if bindings.contains(name) {
-                    if !moved.contains(&Place::root(name)) {
+                    if !types.binding_consumed(name, moved) {
                         return Err(failure!("assignment would destroy live linear value '{name}'; consume it explicitly first"));
                     }
-                    moved.remove(&Place::root(name));
+                    moved.retain(|place| place_root(place) != name);
                 }
             }
             Statement::ArrayAssign { name, index, value } => {
-                check_expr(index, bindings, moved, globals, false)?;
-                check_expr(value, bindings, moved, globals, false)?;
-                check_expr(&Expr::Symbol(name.clone()), bindings, moved, globals, true)?;
+                check_expr(index, bindings, moved, globals, false, types)?;
+                check_expr(value, bindings, moved, globals, false, types)?;
+                check_expr(
+                    &Expr::Symbol(name.clone()),
+                    bindings,
+                    moved,
+                    globals,
+                    true,
+                    types,
+                )?;
                 if let Some(index) = literal_index(index) {
                     moved.remove(&Place::root(name).project(Projection::Index(index)));
                 }
                 // A dynamic write cannot prove which moved element it restores.
             }
             Statement::FieldAssign { name, field, value } => {
-                check_expr(value, bindings, moved, globals, false)?;
+                check_expr(value, bindings, moved, globals, false, types)?;
                 moved.remove(&Place::root(name).project(Projection::Field(field.clone())));
             }
             Statement::TupleAssign { name, index, value } => {
-                check_expr(value, bindings, moved, globals, false)?;
+                check_expr(value, bindings, moved, globals, false, types)?;
                 moved.remove(&Place::root(name).project(Projection::Tuple(*index)));
             }
             Statement::EnumPayloadAssign {
@@ -294,7 +441,7 @@ fn check_statements(
                 index,
                 value,
             } => {
-                check_expr(value, bindings, moved, globals, false)?;
+                check_expr(value, bindings, moved, globals, false, types)?;
                 moved.remove(
                     &Place::root(name)
                         .project(Projection::Variant(variant.clone()))
@@ -303,11 +450,11 @@ fn check_statements(
             }
             Statement::Return(value) => {
                 if let Some(value) = value {
-                    check_expr(value, bindings, moved, globals, false)?;
+                    check_expr(value, bindings, moved, globals, false, types)?;
                 }
                 if let Some(name) = bindings
                     .iter()
-                    .find(|name| !moved.contains(&Place::root(name)))
+                    .find(|name| !types.binding_consumed(name, moved))
                 {
                     let mut error = failure!("linear value '{name}' must be consumed before returning; use it, pass it to a destruction function, or explicitly (#forget {name})");
                     if let Some(site) = types.binding_sites.borrow().get(name) {
@@ -317,23 +464,23 @@ fn check_statements(
                 }
             }
             Statement::Expr(expr) | Statement::BreakValue(expr) => {
-                check_expr(expr, bindings, moved, globals, false)?
+                check_expr(expr, bindings, moved, globals, false, types)?
             }
             Statement::BreakToValue { value, .. } => {
-                check_expr(value, bindings, moved, globals, false)?
+                check_expr(value, bindings, moved, globals, false, types)?
             }
             Statement::While { condition, body } => {
                 let before_condition = moved.clone();
                 if let Expr::List(parts) = condition {
                     if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "match") {
                         if let Some(owner) = parts.get(1) {
-                            check_expr(owner, bindings, moved, globals, true)?;
+                            check_expr(owner, bindings, moved, globals, true, types)?;
                         }
                     } else {
-                        check_expr(condition, bindings, moved, globals, false)?;
+                        check_expr(condition, bindings, moved, globals, false, types)?;
                     }
                 } else {
-                    check_expr(condition, bindings, moved, globals, false)?;
+                    check_expr(condition, bindings, moved, globals, false, types)?;
                 }
                 if *moved != before_condition {
                     return Err("a loop condition cannot consume an outer value; use #clone".into());
@@ -368,7 +515,7 @@ fn check_statements(
             } => {
                 check_statements(std::slice::from_ref(init), bindings, moved, globals, types)?;
                 let before_condition = moved.clone();
-                check_expr(condition, bindings, moved, globals, false)?;
+                check_expr(condition, bindings, moved, globals, false, types)?;
                 if *moved != before_condition {
                     return Err("a loop condition cannot consume an outer value; use #clone".into());
                 }
@@ -478,6 +625,10 @@ fn collect_typed_pattern_names(
         Expr::Symbol(name) if name != "_" => {
             if is_linear(ty, types, &mut HashSet::new()) {
                 bindings.insert(name.clone());
+                types
+                    .binding_types
+                    .borrow_mut()
+                    .insert(name.clone(), ty.clone());
             }
         }
         Expr::List(parts) if !parts.is_empty() => {
@@ -485,6 +636,12 @@ fn collect_typed_pattern_names(
                 Expr::Symbol(name) => name.as_str(),
                 _ => "",
             };
+            if head == "or" {
+                for alternative in parts.iter().skip(1) {
+                    collect_typed_pattern_names(alternative, ty, types, bindings);
+                }
+                return;
+            }
             let child_types: Vec<Type> = match (head, ty) {
                 ("tuple", Type::Tuple(items)) => items.clone(),
                 ("array", Type::Array(element, count)) => vec![(**element).clone(); *count],
@@ -501,6 +658,12 @@ fn collect_typed_pattern_names(
                     .unwrap_or_default(),
                 _ => Vec::new(),
             };
+            if child_types.is_empty() && parts.len() > 1 {
+                // Unknown pattern forms keep the old conservative behavior;
+                // never silently drop a possible linear binding.
+                collect_pattern_names(pattern, bindings);
+                return;
+            }
             for (child, child_ty) in parts.iter().skip(1).zip(child_types.iter()) {
                 collect_typed_pattern_names(child, child_ty, types, bindings);
             }
@@ -533,10 +696,17 @@ fn check_expr(
     moved: &mut Moves,
     globals: &HashSet<String>,
     place: bool,
+    types: &LinearTypes,
 ) -> Result<(), Error> {
     let _site = Site::expression(expr).enter();
     match expr {
         Expr::Symbol(name) if bindings.contains(name) && !place => {
+            if types
+                .place_type(&Place::root(name))
+                .is_some_and(|ty| !types.is_linear(&ty))
+            {
+                return Ok(());
+            }
             if has_move_conflict(moved, &Place::root(name)) {
                 return Err(failure!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy").related(moved.prior(&Place::root(name))));
             }
@@ -560,27 +730,31 @@ fn check_expr(
                             return Err(failure!("linear value '{key}' was already consumed")
                                 .related(moved.prior(&key)));
                         }
-                        moved.retain(|existing| !key.covers(existing));
-                        moved.insert(key);
+                        if types.place_type(&key).is_none_or(|ty| types.is_linear(&ty)) {
+                            moved.retain(|existing| !key.covers(existing));
+                            moved.insert(key);
+                        }
                     } else {
-                        check_expr(&items[1], bindings, moved, globals, false)?;
+                        check_expr(&items[1], bindings, moved, globals, false, types)?;
                     }
                 } else {
-                    check_expr(&items[1], bindings, moved, globals, false)?;
+                    check_expr(&items[1], bindings, moved, globals, false, types)?;
                 }
             } else if head == "if" && items.len() == 4 {
-                check_expr(&items[1], bindings, moved, globals, false)?;
+                check_expr(&items[1], bindings, moved, globals, false, types)?;
                 let mut left = moved.clone();
                 let mut right = moved.clone();
-                check_expr(&items[2], bindings, &mut left, globals, false)?;
-                check_expr(&items[3], bindings, &mut right, globals, false)?;
+                check_expr(&items[2], bindings, &mut left, globals, false, types)?;
+                check_expr(&items[3], bindings, &mut right, globals, false, types)?;
                 require_same_consumption(bindings, &left, &right)?;
                 // Both branches have consumed exactly the same outer places,
                 // so the union now also represents definite consumption.
                 *moved = left.merged(&right);
             } else if head == "match" && items.len() >= 3 {
-                check_expr(&items[1], bindings, moved, globals, false)?;
+                check_expr(&items[1], bindings, moved, globals, false, types)?;
                 let after_scrutinee = moved.clone();
+                let scrutinee_type =
+                    place_key(&items[1]).and_then(|place| types.place_type(&place));
                 let mut exits = Vec::new();
                 for arm in &items[2..] {
                     let Expr::List(parts) = arm else { continue };
@@ -588,7 +762,11 @@ fn check_expr(
                         continue;
                     }
                     let mut arm_bindings = bindings.clone();
-                    collect_pattern_names(&parts[0], &mut arm_bindings);
+                    if let Some(ty) = &scrutinee_type {
+                        collect_typed_pattern_names(&parts[0], ty, types, &mut arm_bindings);
+                    } else {
+                        collect_pattern_names(&parts[0], &mut arm_bindings);
+                    }
                     let mut arm_moved = after_scrutinee.clone();
                     let guard = parts.get(1).and_then(|expr| match expr {
                         Expr::List(when) if matches!(when.first(), Some(Expr::Symbol(head)) if head == "when") => Some(when),
@@ -597,7 +775,7 @@ fn check_expr(
                     if let Some(when) = guard {
                         let before_guard = arm_moved.clone();
                         for part in when.iter().skip(1) {
-                            check_expr(part, &arm_bindings, &mut arm_moved, globals, false)?;
+                            check_expr(part, &arm_bindings, &mut arm_moved, globals, false, types)?;
                         }
                         // Pattern payloads are inspected by guards, then
                         // consumed by the selected arm body.
@@ -612,11 +790,11 @@ fn check_expr(
                             }
                         }
                         if let Some(body) = parts.get(2) {
-                            check_expr(body, &arm_bindings, &mut arm_moved, globals, false)?;
+                            check_expr(body, &arm_bindings, &mut arm_moved, globals, false, types)?;
                         }
                     } else {
                         for part in &parts[1..] {
-                            check_expr(part, &arm_bindings, &mut arm_moved, globals, false)?;
+                            check_expr(part, &arm_bindings, &mut arm_moved, globals, false, types)?;
                         }
                     }
                     arm_moved.retain(|name| bindings.contains(place_root(name)));
@@ -632,11 +810,11 @@ fn check_expr(
                         .unwrap_or_default();
                 }
             } else if head == "while-let" && items.len() >= 4 {
-                check_expr(&items[2], bindings, moved, globals, true)?;
+                check_expr(&items[2], bindings, moved, globals, true, types)?;
                 let before = moved.clone();
                 let mut body_state = before.clone();
                 for body in &items[3..] {
-                    check_expr(body, bindings, &mut body_state, globals, false)?;
+                    check_expr(body, bindings, &mut body_state, globals, false, types)?;
                 }
                 if body_state != before {
                     return Err(
@@ -645,81 +823,100 @@ fn check_expr(
                     );
                 }
             } else if head == "if-let" && (items.len() == 4 || items.len() == 5) {
-                check_expr(&items[2], bindings, moved, globals, true)?;
+                check_expr(&items[2], bindings, moved, globals, true, types)?;
                 let mut branch_bindings = bindings.clone();
                 collect_pattern_names(&items[1], &mut branch_bindings);
                 let mut then_state = moved.clone();
-                check_expr(&items[3], &branch_bindings, &mut then_state, globals, false)?;
+                check_expr(
+                    &items[3],
+                    &branch_bindings,
+                    &mut then_state,
+                    globals,
+                    false,
+                    types,
+                )?;
                 then_state.retain(|name| bindings.contains(place_root(name)));
                 let mut else_state = moved.clone();
                 if let Some(otherwise) = items.get(4) {
-                    check_expr(otherwise, bindings, &mut else_state, globals, false)?;
+                    check_expr(otherwise, bindings, &mut else_state, globals, false, types)?;
                 }
                 require_same_consumption(bindings, &then_state, &else_state)?;
                 *moved = then_state.merged(&else_state);
             } else if matches!(head, "&&" | "||") && items.len() == 3 {
-                check_expr(&items[1], bindings, moved, globals, false)?;
+                check_expr(&items[1], bindings, moved, globals, false, types)?;
                 let mut taken = moved.clone();
-                check_expr(&items[2], bindings, &mut taken, globals, false)?;
+                check_expr(&items[2], bindings, &mut taken, globals, false, types)?;
                 require_same_consumption(bindings, moved, &taken)?;
                 *moved = moved.merged(&taken);
             } else if head == "unsafe" || head == "block" {
                 for arg in items.iter().skip(1) {
-                    check_expr(arg, bindings, moved, globals, false)?;
+                    check_expr(arg, bindings, moved, globals, false, types)?;
                 }
             } else if matches!(head, "get" | "get-payload" | "index") {
                 if head == "index" && items.len() == 3 {
-                    check_expr(&items[2], bindings, moved, globals, false)?;
+                    check_expr(&items[2], bindings, moved, globals, false, types)?;
                 }
                 if !place {
                     if let Some(key) = place_key(expr) {
-                        if has_move_conflict(moved, &key) {
+                        if moved.iter().any(|existing| existing.covers(&key)) {
                             return Err(failure!("linear projection '{key}' was used more than once; clone it explicitly").related(moved.prior(&key)));
                         }
-                        moved.insert(key);
+                        if types.place_type(&key).is_none_or(|ty| types.is_linear(&ty)) {
+                            if has_move_conflict(moved, &key) {
+                                return Err(failure!("linear projection '{key}' was used more than once; clone it explicitly").related(moved.prior(&key)));
+                            }
+                            moved.insert(key);
+                        }
                     } else if let Some(base) = items.get(1) {
-                        check_expr(base, bindings, moved, globals, false)?;
+                        check_expr(base, bindings, moved, globals, false, types)?;
                     }
                 } else if let Some(base) = items.get(1) {
-                    check_expr(base, bindings, moved, globals, true)?;
+                    check_expr(base, bindings, moved, globals, true, types)?;
                 }
             } else if head == "slice-mut-split" && items.len() == 3 {
-                check_expr(&items[1], bindings, moved, globals, false)?;
-                check_expr(&items[2], bindings, moved, globals, false)?;
+                check_expr(&items[1], bindings, moved, globals, false, types)?;
+                check_expr(&items[2], bindings, moved, globals, false, types)?;
             } else if head == "slice-mut-idx" && items.len() == 3 {
-                check_expr(&items[1], bindings, moved, globals, true)?;
-                check_expr(&items[2], bindings, moved, globals, false)?;
+                check_expr(&items[1], bindings, moved, globals, true, types)?;
+                check_expr(&items[2], bindings, moved, globals, false, types)?;
             } else if head == "slice-mut-len" && items.len() == 2 {
-                check_expr(&items[1], bindings, moved, globals, true)?;
+                check_expr(&items[1], bindings, moved, globals, true, types)?;
             } else if head == "tuple" || head == "array" {
                 for arg in items.iter().skip(2) {
-                    check_expr(arg, bindings, moved, globals, false)?;
+                    check_expr(arg, bindings, moved, globals, false, types)?;
                 }
             } else if head == "array-repeat" {
                 if let Some(value) = items.get(2) {
-                    check_expr(value, bindings, moved, globals, false)?;
+                    check_expr(value, bindings, moved, globals, false, types)?;
                 }
             } else if head == "borrow" || head == "borrow-mut" {
                 if items.len() == 3 {
                     let owner = simple_place_name(&items[1]);
                     if let Some(owner) = owner {
-                        check_expr(&items[1], bindings, moved, globals, true)?;
-                        check_expr_with_place(&items[2], bindings, moved, globals, Some(owner))?;
+                        check_expr(&items[1], bindings, moved, globals, true, types)?;
+                        check_expr_with_place(
+                            &items[2],
+                            bindings,
+                            moved,
+                            globals,
+                            Some(owner),
+                            types,
+                        )?;
                     } else {
-                        check_expr(&items[1], bindings, moved, globals, false)?;
-                        check_expr(&items[2], bindings, moved, globals, false)?;
+                        check_expr(&items[1], bindings, moved, globals, false, types)?;
+                        check_expr(&items[2], bindings, moved, globals, false, types)?;
                     }
                 } else {
                     for arg in items.iter().skip(1) {
-                        check_expr(arg, bindings, moved, globals, true)?;
+                        check_expr(arg, bindings, moved, globals, true, types)?;
                     }
                 }
             } else if head == "ptr-offset" {
                 if let Some(pointer) = items.get(1) {
-                    check_expr(pointer, bindings, moved, globals, false)?;
+                    check_expr(pointer, bindings, moved, globals, false, types)?;
                 }
                 if let Some(index) = items.get(2) {
-                    check_expr(index, bindings, moved, globals, false)?;
+                    check_expr(index, bindings, moved, globals, false, types)?;
                 }
             } else if head == "addr-of"
                 || head == "addr-of-mut"
@@ -731,32 +928,28 @@ fn check_expr(
                 || head == "ptr-write"
             {
                 for arg in items.iter().skip(1) {
-                    check_expr(arg, bindings, moved, globals, true)?;
+                    check_expr(arg, bindings, moved, globals, true, types)?;
                 }
             } else {
                 for arg in items.iter().skip(1) {
-                    check_expr(arg, bindings, moved, globals, false)?;
+                    check_expr(arg, bindings, moved, globals, false, types)?;
                 }
             }
         }
         Expr::List(items) => {
             for item in items {
-                check_expr(item, bindings, moved, globals, false)?;
+                check_expr(item, bindings, moved, globals, false, types)?;
             }
         }
-        Expr::Block(body) | Expr::Loop(body) => check_scoped_statements(
-            body,
-            &mut bindings.clone(),
-            moved,
-            globals,
-            &LinearTypes::default(),
-        )?,
+        Expr::Block(body) | Expr::Loop(body) => {
+            check_scoped_statements(body, &mut bindings.clone(), moved, globals, types)?
+        }
         Expr::Labeled { expression, .. }
         | Expr::Quote(expression)
         | Expr::QuasiQuote(expression)
         | Expr::Unquote(expression)
         | Expr::UnquoteSplicing(expression) => {
-            check_expr(expression, bindings, moved, globals, place)?
+            check_expr(expression, bindings, moved, globals, place, types)?
         }
         _ => {}
     }
@@ -852,7 +1045,7 @@ fn check_scoped_statements(
     check_statements(statements, bindings, moved, globals, types)?;
     if let Some(name) = bindings
         .iter()
-        .find(|name| !outer.contains(*name) && !moved.contains(&Place::root(name)))
+        .find(|name| !outer.contains(*name) && !types.binding_consumed(name, moved))
     {
         return Err(failure!("linear value '{name}' must be consumed before leaving its scope; use it, pass it to a destruction function, or explicitly (#forget {name})"));
     }
@@ -943,6 +1136,7 @@ fn check_expr_with_place(
     moved: &mut Moves,
     globals: &HashSet<String>,
     borrowed_place: Option<&str>,
+    types: &LinearTypes,
 ) -> Result<(), Error> {
     let _site = Site::expression(expr).enter();
     if let (Expr::Symbol(name), Some(place)) = (expr, borrowed_place) {
@@ -956,17 +1150,13 @@ fn check_expr_with_place(
                 if index == 0 {
                     continue;
                 }
-                check_expr_with_place(item, bindings, moved, globals, borrowed_place)?;
+                check_expr_with_place(item, bindings, moved, globals, borrowed_place, types)?;
             }
             Ok(())
         }
-        Expr::Block(statements) => check_statements(
-            statements,
-            &mut bindings.clone(),
-            moved,
-            globals,
-            &LinearTypes::default(),
-        ),
+        Expr::Block(statements) => {
+            check_statements(statements, &mut bindings.clone(), moved, globals, types)
+        }
         Expr::Symbol(name) if bindings.contains(name) => {
             if !moved.insert(Place::root(name)) {
                 Err(failure!("linear value '{name}' was used more than once; use (#clone {name}) to make an explicit copy"))
@@ -1182,6 +1372,155 @@ mod tests {
             error.contains("consumed consistently on every control-flow path"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn consuming_all_linear_fields_discharges_struct_owner() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Pair ((item Resource) (other u64)))
+          (#fn main () u64
+            (#let pair Pair (#struct-literal Pair
+              ((item (#struct-literal Resource ((value 1u64)))) (other 0u64))))
+            (#forget (#get pair item))
+            (#return 0u64))";
+        let program = parse_program(source).unwrap();
+        check_types(&program).unwrap();
+    }
+
+    #[test]
+    fn partial_consumption_keeps_remaining_linear_fields_live() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Pair ((left Resource) (right Resource)))
+          (#fn main () u64
+            (#let pair Pair (#struct-literal Pair
+              ((left (#struct-literal Resource ((value 1u64))))
+               (right (#struct-literal Resource ((value 2u64)))))))
+            (#forget (#get pair left))
+            (#return 0u64))";
+        let error = check_types(&parse_program(source).unwrap()).unwrap_err();
+        assert!(
+            error.contains("must be consumed before returning"),
+            "{error}"
+        );
+        let complete = source.replace(
+            "(#forget (#get pair left))",
+            "(#forget (#get pair left)) (#forget (#get pair right))",
+        );
+        check_types(&parse_program(&complete).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn explicitly_linear_owner_is_not_discharged_by_its_fields() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Wrapper ((item Resource)))
+          (#linear Wrapper)
+          (#fn main () u64
+            (#let wrapper Wrapper (#struct-literal Wrapper
+              ((item (#struct-literal Resource ((value 1u64)))))))
+            (#forget (#get wrapper item))
+            (#return 0u64))";
+        let error = check_types(&parse_program(source).unwrap()).unwrap_err();
+        assert!(
+            error.contains("must be consumed before returning"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn replacing_fully_consumed_owner_revives_all_fields() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Wrapper ((item Resource)))
+          (#fn main () u64
+            (#let-mut wrapper Wrapper (#struct-literal Wrapper
+              ((item (#struct-literal Resource ((value 1u64)))))))
+            (#forget (#get wrapper item))
+            (#set wrapper (#struct-literal Wrapper
+              ((item (#struct-literal Resource ((value 2u64)))))))
+            (#forget (#get wrapper item))
+            (#return 0u64))";
+        check_types(&parse_program(source).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn nested_block_uses_same_linear_type_metadata() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Wrapper ((item Resource)))
+          (#fn main () u64
+            (#return (#block
+              (#let wrapper Wrapper (#struct-literal Wrapper
+                ((item (#struct-literal Resource ((value 1u64)))))))
+              (#forget (#get wrapper item))
+              0u64)))";
+        check_types(&parse_program(source).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn copy_field_of_linear_owner_can_be_read_repeatedly() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Pair ((item Resource) (other u64)))
+          (#fn main () u64
+            (#let pair Pair (#struct-literal Pair
+              ((item (#struct-literal Resource ((value 1u64)))) (other 2u64))))
+            (#let sum u64 (#u64.+.wrap (#get pair other) (#get pair other)))
+            (#forget (#get pair other))
+            (#forget (#get pair other))
+            (#forget (#get pair item))
+            (#return sum))";
+        check_types(&parse_program(source).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn tuple_and_array_owners_complete_by_linear_elements() {
+        let tuple = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#fn main () u64
+            (#let pair (#tuple Resource u64)
+              (#tuple (#tuple Resource u64)
+                (#struct-literal Resource ((value 1u64))) 2u64))
+            (#forget (#get pair 0))
+            (#return 0u64))";
+        check_types(&parse_program(tuple).unwrap()).unwrap();
+        let array = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#fn main () u64
+            (#let items (#array Resource 2)
+              (#array-of (#array Resource 2)
+                (#struct-literal Resource ((value 1u64)))
+                (#struct-literal Resource ((value 2u64)))))
+            (#forget (#index items 0))
+            (#forget (#index items 1))
+            (#return 0u64))";
+        check_types(&parse_program(array).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn copy_field_cannot_be_read_after_owner_is_consumed() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Pair ((item Resource) (other u64)))
+          (#fn main () u64
+            (#let pair Pair (#struct-literal Pair
+              ((item (#struct-literal Resource ((value 1u64)))) (other 2u64))))
+            (#forget pair)
+            (#return (#get pair other)))";
+        let error = check_types(&parse_program(source).unwrap()).unwrap_err();
+        assert!(error.contains("used more than once"), "{error}");
+    }
+
+    #[test]
+    fn copy_match_payload_can_be_read_repeatedly() {
+        let source = "(#enum Choice ((Value u64)))
+          (#fn main () u64
+            (#let choice Choice (Value 3u64))
+            (#return (#match choice
+              (#case (Value payload) (#u64.+.wrap payload payload)))))";
+        check_types(&parse_program(source).unwrap()).unwrap();
     }
 
     #[test]

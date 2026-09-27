@@ -307,6 +307,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 8,
         },
         Case {
+            name: "linear-copy-after-owner",
+            diagnostic_code: "E4200",
+            offending_line: "  (#return (#get pair other)))",
+            line_number: 8,
+        },
+        Case {
             name: "unsafe",
             diagnostic_code: "E4300",
             offending_line: "  (#return VALUE)",
@@ -882,6 +888,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "borrow-conflict-callee-name" => Some("owner"),
             "linear" => Some("resource"),
             "linear-partial-parent" => Some("pair"),
+            "linear-copy-after-owner" => Some("(#get pair other)"),
             "generator" | "generator-imported" => Some("(@fail)"),
             "nonconstant-static" => Some("(#call get-value (:))"),
             "call-arguments" => Some("other"),

@@ -483,6 +483,20 @@ the checklist is committed alongside the implementation it tracks.
   The syntax checker still handles implicit moves and exit obligations; full
   typed ownership enforcement remains in IR-04.
 
+- [x] **IR-04al: Complete structural owners through their linear fields.**
+  At return and lexical exit, treat an implicitly linear struct, tuple, or
+  array as consumed when each linear component has been consumed; keep a
+  `#linear` owner's own explicit obligation. Permit rebinding after complete
+  field consumption and clear stale child moves on replacement. Use the same
+  type metadata in nested blocks, and stop counting repeated Copy field reads
+  or releases as moves while still rejecting access after the owner moves.
+  Test missing fields, both fields, explicit `#linear`, rebinding, blocks,
+  tuple/array completion, and source-underlined Copy-after-owner errors.
+  Resolve known match payload types so Copy payloads are not treated as
+  linear, and isolate binding metadata per function. This is still an
+  AST-side rule; typed-flow migration and branch-equivalence handling remain
+  in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
