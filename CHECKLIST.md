@@ -505,6 +505,14 @@ the checklist is committed alongside the implementation it tracks.
   This is transitional syntax-side equivalence; stable-place move transfer
   and general ownership joins remain in IR-04.
 
+- [x] **IR-04an: Enforce direct loans held by live reference bindings.** At
+  each typed borrow event, compare its checked place with direct origins of
+  reference bindings live at that point. Reject overlapping access when either
+  loan is mutable, preserving the new borrow and origin source spans; leave
+  reborrows through references to the separate alias-aware path. Test allowed
+  disjoint places and a conflicting checked-place event. Aggregate-held loans,
+  indirect referents, moves, and full ownership transfer remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

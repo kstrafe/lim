@@ -986,6 +986,15 @@ fn check_types_inner(
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {
+                crate::typed_borrow::check_live_direct_loans(
+                    body,
+                    &declarations.flows[&function.name],
+                )
+                .map_err(|error| {
+                    *diagnostic_span = error.span;
+                    *diagnostic_labels = error.labels;
+                    error.message
+                })?;
                 crate::typed_borrow::check_call_arguments(
                     body,
                     &declarations.flows[&function.name],

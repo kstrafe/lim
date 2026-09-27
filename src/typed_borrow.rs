@@ -21,6 +21,54 @@ pub(crate) struct BorrowConflict {
     pub labels: Vec<(Span, String)>,
 }
 
+/// Check direct loans retained by live reference bindings at each checked
+/// borrow event. A borrow through a reference is a reborrow: its referent is
+/// already protected by the source loan and needs separate transfer analysis.
+pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
+    if !body
+        .bindings
+        .iter()
+        .any(|binding| matches!(binding.ty, Type::Reference { .. }))
+    {
+        return Ok(());
+    }
+    let origins = flow.loan_origins(body);
+    let live = flow.liveness(body);
+    for (index, node) in flow.nodes.iter().enumerate() {
+        let FlowAction::Borrow { place, mutable, .. } = &node.action else {
+            continue;
+        };
+        if matches!(place.root, PlaceRoot::Local(binding) if matches!(body.bindings[binding.0].ty, Type::Reference { .. }))
+        {
+            continue;
+        }
+        let event = FlowNodeId(index);
+        for binding in live.before(event) {
+            if !matches!(body.bindings[binding.0].ty, Type::Reference { .. }) {
+                continue;
+            }
+            for held in origins.before(event, binding) {
+                if held.storage.is_empty()
+                    && (held.mutable || *mutable)
+                    && held.place.overlaps(place)
+                {
+                    return Err(BorrowConflict {
+                        message: "cannot borrow a place while a conflicting live reference exists"
+                            .into(),
+                        span: node.span,
+                        labels: held
+                            .span
+                            .map(|span| (span, "conflicting reference originates here".into()))
+                            .into_iter()
+                            .collect(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 struct DirectBorrow {
     place: Place,
@@ -422,11 +470,11 @@ fn direct_borrow(body: &Body, id: NodeId) -> Option<DirectBorrow> {
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded, combine, origin_alternatives, returned_borrows_with_bindings, BoundBorrows,
-        DirectBorrow, MAX_BORROW_ALTERNATIVES,
+        bounded, check_live_direct_loans, combine, origin_alternatives,
+        returned_borrows_with_bindings, BoundBorrows, DirectBorrow, MAX_BORROW_ALTERNATIVES,
     };
     use crate::typed_body::{BindingId, NodeId, NodeKind, PlaceRoot};
-    use crate::typed_flow::{FlowAction, FlowNodeId, LoanOrigin};
+    use crate::typed_flow::{FlowAction, FlowGraph, FlowNodeId, LoanOrigin};
     use crate::typed_place::Place;
 
     fn source(args: &str) -> String {
@@ -437,6 +485,46 @@ mod tests {
                (#let-mut value u64 1u64)
                (#return (#call inspect ( {args}))))"
         )
+    }
+
+    #[test]
+    fn live_reference_conflict_uses_checked_places_and_origin_spans() {
+        let source = "(#fn main () u64
+            (#let-mut left u64 1u64)
+            (#let-mut right u64 2u64)
+            (#let view (#ref-mut u64) (#borrow-mut left))
+            (#let other (#ref u64) (#borrow right))
+            (#return (#deref view)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut flow = FlowGraph::lower(body).unwrap();
+        check_live_direct_loans(body, &flow).unwrap();
+
+        let left = BindingId(body.bindings.iter().position(|b| b.name == "left").unwrap());
+        let right = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "right")
+                .unwrap(),
+        );
+        let second = flow
+            .nodes
+            .iter_mut()
+            .find(|node| {
+                matches!(&node.action, FlowAction::Borrow { place, .. }
+                    if place.root == PlaceRoot::Local(right))
+            })
+            .unwrap();
+        let FlowAction::Borrow { place, .. } = &mut second.action else {
+            unreachable!()
+        };
+        place.root = PlaceRoot::Local(left);
+        let error = check_live_direct_loans(body, &flow).unwrap_err();
+        let span = error.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#borrow right)");
+        let first = error.labels[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow-mut left)");
     }
 
     #[test]
