@@ -30,9 +30,10 @@ enum AccessKind {
     Release,
 }
 
-/// Check direct loans retained by live bindings at checked access events.
-/// A borrow through a reference is a reborrow: its referent is already
-/// protected by the source loan and needs separate transfer analysis.
+/// Check loans retained by live bindings at checked access events. Projected
+/// accesses through a reference are rebased onto the original referent so a
+/// live child reborrow conflicts with parent access while disjoint fields stay
+/// independent.
 pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
     if !flow
         .nodes
@@ -58,20 +59,48 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
             FlowAction::Release { place, .. } => (place, AccessKind::Release),
             _ => continue,
         };
-        if matches!(access, AccessKind::Borrow { .. })
-            && matches!(place.root, PlaceRoot::Local(binding) if matches!(body.bindings[binding.0].ty, Type::Reference { .. }))
-        {
-            continue;
-        }
         let event = FlowNodeId(index);
+        let mut projected = Vec::new();
+        let mut reborrow_parent = None;
+        if let PlaceRoot::Local(binding) = &place.root {
+            projected = origins.projected_referents(event, *binding, &place.segments);
+            if !projected.is_empty() {
+                reborrow_parent = Some(*binding);
+            } else if matches!(access, AccessKind::Borrow { .. })
+                && matches!(body.bindings[binding.0].ty, Type::Reference { .. })
+            {
+                // Borrowing the reference handle itself is not an access to
+                // the referent; its existing loan is the parent of a direct
+                // reborrow and is handled when a place is projected through it.
+                continue;
+            }
+        }
+        let access_places = if projected.is_empty() {
+            vec![place.clone()]
+        } else {
+            projected
+        };
         for binding in live.before(event) {
+            if Some(binding) == reborrow_parent {
+                continue;
+            }
             for held in origins.before(event, binding) {
+                let held_is_parent_ancestor = matches!(access, AccessKind::Borrow { .. })
+                    && reborrow_parent.is_some()
+                    && held.mutable
+                    && access_places.iter().any(|access| {
+                        held.place.root == access.root
+                            && access.segments.starts_with(&held.place.segments)
+                    });
+                if held_is_parent_ancestor {
+                    continue;
+                }
                 let conflicts = match access {
                     AccessKind::Read | AccessKind::Clone => held.mutable,
                     AccessKind::Borrow { mutable } => held.mutable || mutable,
                     AccessKind::Write | AccessKind::Release => true,
                 };
-                if conflicts && held.place.overlaps(place) {
+                if conflicts && access_places.iter().any(|place| held.place.overlaps(place)) {
                     return Err(BorrowConflict {
                         message: match access {
                             AccessKind::Read => "cannot read a place while it is borrowed mutably",
@@ -934,6 +963,7 @@ mod tests {
     use crate::typed_body::{BindingId, NodeId, NodeKind, PlaceRoot};
     use crate::typed_flow::{FlowAction, FlowGraph, FlowNodeId, LoanOrigin};
     use crate::typed_place::Place;
+    use crate::Type;
 
     fn source(args: &str) -> String {
         format!(
@@ -983,6 +1013,74 @@ mod tests {
         assert_eq!(&source[span.start..span.end], "(#borrow right)");
         let first = error.labels[0].0;
         assert_eq!(&source[first.start..first.end], "(#borrow-mut left)");
+    }
+
+    #[test]
+    fn projected_reborrow_suspends_parent_access_but_preserves_disjoint_fields() {
+        let overlapping = "(#struct Inner ((value u64)))
+          (#struct Outer ((inner Inner) (other u64)))
+          (#fn main () u64
+            (#let-mut owner Outer (#struct-literal Outer
+              ((inner (#struct-literal Inner ((value 7u64)))) (other 9u64))))
+            (#let outer-ref (#ref-mut Outer) (#borrow-mut owner))
+            (#let inner-ref (#ref-mut Inner) (#borrow-mut (#get outer-ref inner)))
+            (#let observed u64 (#get outer-ref other))
+            (#drop inner-ref)
+            (#drop outer-ref)
+            (#forget owner)
+            (#return observed))";
+        let program = crate::parse_program(overlapping).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut flow = checked.declarations().flows["main"].clone();
+        check_live_direct_loans(body, &flow).unwrap();
+        let declarations = checked.declarations();
+        let outer = Type::Named("Outer".into());
+        let inner = Type::Named("Inner".into());
+        let inner_field = declarations.field_id(&outer, "inner").unwrap();
+        let value_field = declarations.field_id(&inner, "value").unwrap();
+        let other_field = declarations.field_id(&outer, "other").unwrap();
+        let outer_ref = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "outer-ref")
+                .unwrap(),
+        );
+        let access = flow
+            .nodes
+            .iter_mut()
+            .find_map(|node| match &mut node.action {
+                FlowAction::Read { place, .. }
+                    if place.root == PlaceRoot::Local(outer_ref)
+                        && place.segments == [crate::typed_place::Segment::Field(other_field)] =>
+                {
+                    place.segments = vec![
+                        crate::typed_place::Segment::Field(inner_field),
+                        crate::typed_place::Segment::Field(value_field),
+                    ];
+                    Some(())
+                }
+                _ => None,
+            });
+        assert!(access.is_some());
+        let error = check_live_direct_loans(body, &flow).unwrap_err();
+        let span = error.span.unwrap();
+        assert_eq!(&overlapping[span.start..span.end], "(#get outer-ref other)");
+
+        let disjoint = "(#struct Outer ((left u64) (right u64)))
+          (#fn main () u64
+            (#let-mut owner Outer (#struct-literal Outer ((left 7u64) (right 9u64))))
+            (#let outer-ref (#ref-mut Outer) (#borrow-mut owner))
+            (#let left-ref (#ref-mut u64) (#borrow-mut (#get outer-ref left)))
+            (#let right u64 (#get outer-ref right))
+            (#drop left-ref)
+            (#drop outer-ref)
+            (#forget owner)
+            (#return right))";
+        let program = crate::parse_program(disjoint).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        check_live_direct_loans(body, &checked.declarations().flows["main"]).unwrap();
     }
 
     #[test]

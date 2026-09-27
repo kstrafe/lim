@@ -324,6 +324,31 @@ impl FlowLoanOrigins {
             .map_or(&[], |state| state[binding.0].as_slice())
     }
 
+    /// Resolve a projected access through a reference stored in a local. The
+    /// stored loan slot is a prefix of the checked place; remaining field or
+    /// index segments project from its referent.
+    pub fn projected_referents(
+        &self,
+        node: FlowNodeId,
+        binding: BindingId,
+        segments: &[Segment],
+    ) -> Vec<Place> {
+        let mut places = Vec::new();
+        for origin in self.before(node, binding) {
+            if segments.len() <= origin.storage.len() || !segments.starts_with(&origin.storage) {
+                continue;
+            }
+            let mut place = origin.place.clone();
+            place
+                .segments
+                .extend_from_slice(&segments[origin.storage.len()..]);
+            if !places.contains(&place) {
+                places.push(place);
+            }
+        }
+        places
+    }
+
     pub fn dump(&self) -> String {
         use std::fmt::Write;
         let mut output = String::new();

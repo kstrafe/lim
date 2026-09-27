@@ -1023,6 +1023,12 @@ the checklist is committed alongside the implementation it tracks.
   loop whose body alone consumes an owned value and prove that the fallthrough
   edge keeps the value non-definitely-consumed after the loop.
 
+- [x] **IR-04cd: Rebase projected accesses through live references.** Resolve
+  checked field/index suffixes through stored reference origins before testing
+  loan conflicts. Suspend only the parent binding during a reborrow, so access
+  through that parent conflicts with the child loan while disjoint fields stay
+  usable. Test overlapping nested projection and disjoint sibling projection.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
