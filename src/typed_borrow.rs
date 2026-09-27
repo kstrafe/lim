@@ -6,9 +6,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind, PlaceRoot};
+use crate::typed_flow::{FlowAction, FlowGraph, FlowNodeId};
 use crate::typed_ir::DeclarationId;
 use crate::typed_place::Place;
-use crate::Span;
+use crate::{Span, Type};
 
 const MAX_BORROW_ALTERNATIVES: usize = 1024;
 
@@ -26,8 +27,39 @@ struct DirectBorrow {
     span: Option<Span>,
 }
 
-pub(crate) fn check_call_arguments(body: &Body) -> Result<(), BorrowConflict> {
-    for node in &body.nodes {
+pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
+    let calls = body
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| {
+            matches!(
+                node.kind,
+                NodeKind::Form {
+                    callee: Some(_),
+                    ..
+                }
+            )
+        })
+        .collect::<Vec<_>>();
+    if calls.is_empty() {
+        return Ok(());
+    }
+    let has_reference_bindings = body
+        .bindings
+        .iter()
+        .any(|binding| matches!(binding.ty, Type::Reference { .. }));
+    let call_events = flow
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| match node.action {
+            FlowAction::Evaluate(id) => Some((id, FlowNodeId(index))),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+    let origins = has_reference_bindings.then(|| flow.loan_origins(body));
+    for (index, node) in calls {
         let NodeKind::Form {
             head,
             children,
@@ -37,27 +69,40 @@ pub(crate) fn check_call_arguments(body: &Body) -> Result<(), BorrowConflict> {
         else {
             continue;
         };
+        let mut bindings = BoundBorrows::new();
+        if let (Some(event), Some(origins)) = (call_events.get(&NodeId(index)), &origins) {
+            for (index, binding) in body.bindings.iter().enumerate() {
+                if !matches!(binding.ty, Type::Reference { .. }) {
+                    continue;
+                }
+                let held = origins.before(*event, BindingId(index));
+                if let [origin] = held {
+                    if origin.storage.is_empty() {
+                        bindings.insert(
+                            BindingId(index),
+                            vec![vec![DirectBorrow {
+                                place: origin.place.clone(),
+                                mutable: origin.mutable,
+                                span: origin.span,
+                            }]],
+                        );
+                    }
+                }
+            }
+        }
         let mut prior = vec![Vec::<DirectBorrow>::new()];
         for argument in children.iter().skip(1) {
-            let alternatives = returned_borrows(body, *argument, head)?;
+            let alternatives = returned_borrows_with_bindings(body, *argument, head, &bindings)?;
             prior = combine(prior, alternatives, head, node.span)?;
         }
     }
     Ok(())
 }
 
-/// Each alternative is one execution path through the value expression.
-/// Borrows within one alternative coexist; different alternatives do not.
-fn returned_borrows(
-    body: &Body,
-    id: NodeId,
-    callee: &str,
-) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
-    returned_borrows_with_bindings(body, id, callee, &HashMap::new())
-}
-
 type BoundBorrows = HashMap<BindingId, Vec<Vec<DirectBorrow>>>;
 
+/// Each alternative is one execution path through the value expression.
+/// Borrows within one alternative coexist; different alternatives do not.
 fn returned_borrows_with_bindings(
     body: &Body,
     id: NodeId,
@@ -529,5 +574,34 @@ mod tests {
             })
             .collect();
         assert!(bounded(distinct, None).is_err());
+    }
+
+    #[test]
+    fn reference_binding_as_call_argument_retains_its_direct_origin() {
+        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#let view (#ref u64) (#borrow value))
+            (#return (#call inspect (#fn-args
+              (left view) (right (#borrow-mut value))))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let second = error.2.unwrap();
+        assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
+        let first = error.3[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+
+        let disjoint = source
+            .replace(
+                "(#let-mut value u64 1u64)",
+                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+            )
+            .replace("(right (#borrow-mut value))", "(right (#borrow-mut other))");
+        let program = crate::parse_program(&disjoint).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
 }

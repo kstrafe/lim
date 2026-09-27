@@ -299,6 +299,13 @@ the checklist is committed alongside the implementation it tracks.
   at those actions; test block fallthrough, break, continue, and for-range
   scope boundaries. Indirect provenance and enforcing conflict checks remain.
 
+- [x] **IR-04u: Resolve simple reference aliases at call arguments.** Seed the
+  typed call-borrow preflight from flow-state bindings with one known direct
+  reference origin. Reject an overlapping mutable argument using the original
+  borrow as a secondary source label; allow a disjoint owner. Skip origin
+  dataflow for functions without calls or reference bindings. Multi-origin
+  aliases, aggregate symbols, and indirect referents remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
