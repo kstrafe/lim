@@ -1533,13 +1533,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 .into_iter()
                 .filter_map(|mut origin| {
                     let held_slot = origin.storage.first()?;
-                    if held_slot != &slot
-                        && !matches!(
-                            (&slot, held_slot),
-                            (Segment::DynamicIndex, Segment::Index(_))
-                                | (Segment::Index(_), Segment::DynamicIndex)
-                        )
-                    {
+                    if !storage_slot_matches(&slot, held_slot) {
                         return None;
                     }
                     origin.storage.remove(0);
@@ -1547,14 +1541,32 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 })
                 .collect()
         }
+        NodeKind::Form { head, children, .. } if head == "array-repeat" => {
+            let Some(Type::Array(_, length)) = node.ty.as_ref() else {
+                return Vec::new();
+            };
+            if *length == 0 {
+                return Vec::new();
+            }
+            let Some(value) = children.get(if children.len() == 3 { 2 } else { 1 }) else {
+                return Vec::new();
+            };
+            let mut origins = value_loan_origins(body, *value, state);
+            for origin in &mut origins {
+                origin.storage.insert(0, Segment::DynamicIndex);
+            }
+            origins
+        }
         NodeKind::Form { head, children, .. }
-            if matches!(head.as_str(), "tuple" | "array" | "array-of" | "struct-literal")
-                || matches!(
-                    children.first().map(|child| &body.nodes[child.0].kind),
-                    Some(NodeKind::Declaration(
-                        DeclarationId::Aggregate(_) | DeclarationId::Variant(_)
-                    ))
-                ) =>
+            if matches!(
+                head.as_str(),
+                "tuple" | "array" | "array-of" | "struct-literal"
+            ) || matches!(
+                children.first().map(|child| &body.nodes[child.0].kind),
+                Some(NodeKind::Declaration(
+                    DeclarationId::Aggregate(_) | DeclarationId::Variant(_)
+                ))
+            ) =>
         {
             let mut origins = Vec::new();
             // Checked arity distinguishes contextual value forms from forms
@@ -1667,6 +1679,14 @@ fn aggregate_slot(body: &Body, head: &str, children: &[NodeId], index: usize) ->
     }
 }
 
+fn storage_slot_matches(slot: &Segment, held: &Segment) -> bool {
+    slot == held
+        || matches!(
+            (slot, held),
+            (Segment::DynamicIndex, Segment::Index(_)) | (Segment::Index(_), Segment::DynamicIndex)
+        )
+}
+
 fn distribute_pattern_origins(
     body: &Body,
     pattern: NodeId,
@@ -1686,7 +1706,11 @@ fn distribute_pattern_origins(
                 let nested = origins
                     .iter()
                     .filter_map(|origin| {
-                        if origin.storage.first() != Some(&slot) {
+                        if !origin
+                            .storage
+                            .first()
+                            .is_some_and(|held| storage_slot_matches(&slot, held))
+                        {
                             return None;
                         }
                         let mut origin = origin.clone();
@@ -3485,6 +3509,61 @@ mod tests {
                 assert_eq!(&source[span.start..span.end], expected);
             }
         }
+    }
+
+    #[test]
+    fn repeated_shared_reference_has_an_origin_at_every_array_index() {
+        let source = "(#fn main () u64
+          (#let owner u64 7u64)
+          (#let aggregate (#array (#ref u64) 2)
+            (#array-repeat (#borrow owner)))
+          (#let (#array first second) (#array (#ref u64) 2) aggregate)
+          (#return (#u64.+.wrap (#deref first) (#deref second))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        let pattern = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Pattern { .. }))
+            .map(FlowNodeId)
+            .unwrap();
+        for name in ["first", "second"] {
+            let binding = BindingId(body.bindings.iter().position(|b| b.name == name).unwrap());
+            let held = origins.after(pattern, binding);
+            assert_eq!(held.len(), 1, "{name}");
+            let span = held[0].span.unwrap();
+            assert_eq!(&source[span.start..span.end], "(#borrow owner)");
+        }
+    }
+
+    #[test]
+    fn zero_length_repeat_does_not_retain_its_borrow() {
+        let source = "(#fn main () ()
+          (#let owner u64 7u64)
+          (#let aggregate (#array (#ref u64) 0)
+            (#array-repeat (#borrow owner)))
+          (#forget aggregate)
+          (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let aggregate = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "aggregate")
+                .unwrap(),
+        );
+        let bind = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Bind { binding, .. } if binding == aggregate))
+            .map(FlowNodeId)
+            .unwrap();
+        assert!(graph.loan_origins(body).after(bind, aggregate).is_empty());
     }
 
     #[test]

@@ -244,6 +244,11 @@ the checklist is committed alongside the implementation it tracks.
   destructuring recovers each distinct borrow origin. Broader enforcement of
   indirect aggregate loans remains part of IR-04.
 
+- [x] **IR-04: Propagate repeated shared-reference origins.** Preserve a
+  wildcard index origin for nonempty `#array-repeat` values so any concrete
+  projection or destructured element retains the borrow. Empty repeats retain
+  no loan. Test both cases, including the wildcard/concrete slot transfer.
+
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
   retain condition/scrutinee/result node IDs and the pattern binding identities
