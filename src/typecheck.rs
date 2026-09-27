@@ -470,6 +470,26 @@ mod checked_program_tests {
     }
 
     #[test]
+    fn typed_raw_pointer_borrow_keeps_its_anchor_origin() {
+        let source = "(#fn escape () (#ref u64)
+          (#let owner u64 1u64)
+          (#let pointer (#ptr u64) (#unsafe (#addr-of owner)))
+          (#let anchor (#ref u64) (#borrow owner))
+          (#return (#unsafe (#ptr-borrow anchor pointer))))";
+        let program = crate::parse_program(source).unwrap();
+        let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+        let span = span.unwrap();
+        assert!(
+            source[span.start..span.end].starts_with("(#return (#unsafe"),
+            "{message}: {}",
+            &source[span.start..span.end]
+        );
+        assert!(labels
+            .iter()
+            .any(|(origin, _)| { &source[origin.start..origin.end] == "(#borrow owner)" }));
+    }
+
+    #[test]
     fn typed_generated_return_escape_retains_invocation_label() {
         let source = "(#gn make (name)
             `((#fn ,name () (#ref u64)

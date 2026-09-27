@@ -1586,6 +1586,11 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     .collect()
             })
         }
+        NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "ptr-borrow" | "ptr-borrow-mut") && children.len() == 3 =>
+        {
+            value_loan_origins(body, children[1], state)
+        }
         NodeKind::Form {
             children,
             callee: Some(_),
@@ -1897,6 +1902,9 @@ fn value_loan_origins_at_events(
     } = &body.nodes[value.0].kind
     {
         if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
+            return value_loan_origins_at_events(body, flow, origins, children[1], state);
+        }
+        if matches!(head.as_str(), "ptr-borrow" | "ptr-borrow-mut") && children.len() == 3 {
             return value_loan_origins_at_events(body, flow, origins, children[1], state);
         }
         if matches!(

@@ -961,6 +961,11 @@ the checklist is committed alongside the implementation it tracks.
   generated return span primary and attach the source invocation as a secondary
   label. Verify generated and caller source IDs and exact source fragments.
 
+- [x] **IR-04bs: Carry raw-pointer borrow anchors into typed return origins.**
+  Treat `#ptr-borrow` and `#ptr-borrow-mut` as lifetime-reborrows from their
+  checked anchor, not as origin-free pointer expressions. Reject a local anchor
+  returned through an aliased raw pointer with the return and anchor spans.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
