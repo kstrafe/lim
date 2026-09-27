@@ -367,6 +367,13 @@ the checklist is committed alongside the implementation it tracks.
   provenance tests to contextual tuple and array constructors and confirm
   positional destructuring retains separate first and second borrow origins.
 
+- [x] **IR-04: Preserve tuple loan slots during call-expression analysis.**
+  Attach tuple storage paths to loans created by tuple constructors in the
+  call-argument provenance walker. Transfer only matching paths through
+  block-local destructuring and projected values. Test a conflicting extracted
+  borrow and independent sibling references without changing ownership flow.
+  Array, struct, and enum transfer parity remains under the broader IR-04 item.
+
 - [x] **IR-04: Propagate loans through explicit array-of construction.**
   Treat `#array-of` as an aggregate value with an explicit type operand and
   indexed reference slots, not as an opaque expression. Test that positional

@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind, PlaceRoot};
 use crate::typed_flow::{FlowAction, FlowGraph, FlowNodeId, LoanOrigin};
-use crate::typed_ir::DeclarationId;
+use crate::typed_ir::{DeclarationId, FieldId};
 use crate::typed_place::Place;
 use crate::{Span, Type};
 
@@ -290,6 +290,21 @@ fn returned_borrows_with_bindings(
                         let loans = returned_borrows_with_bindings(body, *value, callee, &local)?;
                         local.insert(*binding, loans);
                     }
+                    Control::Destructure { pattern, value, .. } => {
+                        let alternatives =
+                            returned_borrows_with_bindings(body, *value, callee, &local)?;
+                        let mut distributed = HashMap::<BindingId, Vec<Vec<DirectBorrow>>>::new();
+                        for alternative in alternatives {
+                            let mut path = HashMap::new();
+                            distribute_pattern_borrows(body, *pattern, &alternative, &mut path);
+                            for (binding, borrows) in path {
+                                distributed.entry(binding).or_default().push(borrows);
+                            }
+                        }
+                        for (binding, alternatives) in distributed {
+                            local.insert(binding, alternatives);
+                        }
+                    }
                     Control::Assign(PlaceRoot::Local(binding), _, _) => {
                         local.remove(binding);
                     }
@@ -328,18 +343,80 @@ fn returned_borrows_with_bindings(
                 ))
             ) =>
         {
-            combine_children(
-                body,
-                children.iter().skip(1).copied(),
-                callee,
-                node.span,
-                bindings,
-            )
+            if head == "struct-literal"
+                || matches!(
+                    children.first().map(|child| &body.nodes[child.0].kind),
+                    Some(NodeKind::Declaration(
+                        DeclarationId::Variant(_) | DeclarationId::Aggregate(_)
+                    ))
+                )
+            {
+                return combine_children(
+                    body,
+                    children.iter().skip(1).copied(),
+                    callee,
+                    node.span,
+                    bindings,
+                );
+            }
+            let start = constructor_values_start(node.ty.as_ref(), children.len());
+            let mut alternatives = vec![Vec::new()];
+            for (index, child) in children.iter().skip(start).enumerate() {
+                let slot = constructor_slot(body, head, children, index);
+                let mut values = returned_borrows_with_bindings(body, *child, callee, bindings)?;
+                if let Some(slot) = slot {
+                    for alternative in &mut values {
+                        for borrow in alternative {
+                            borrow.storage.insert(0, slot.clone());
+                        }
+                    }
+                }
+                alternatives = combine(alternatives, values, callee, node.span)?;
+            }
+            Ok(alternatives)
         }
         NodeKind::Syntax(children) => {
             combine_children(body, children.iter().copied(), callee, node.span, bindings)
         }
         _ => Ok(vec![Vec::new()]),
+    }
+}
+
+fn constructor_values_start(ty: Option<&Type>, child_count: usize) -> usize {
+    let arity = match ty {
+        Some(Type::Array(_, length)) => *length,
+        Some(Type::Tuple(fields)) => fields.len(),
+        _ => return 2,
+    };
+    if child_count == arity + 1 {
+        1
+    } else {
+        2
+    }
+}
+
+fn constructor_slot(
+    body: &Body,
+    head: &str,
+    children: &[NodeId],
+    index: usize,
+) -> Option<crate::typed_place::Segment> {
+    use crate::typed_place::Segment;
+    match children.first().map(|child| &body.nodes[child.0].kind) {
+        Some(NodeKind::Declaration(DeclarationId::Aggregate(owner))) => {
+            Some(Segment::Field(FieldId {
+                owner: *owner,
+                index,
+            }))
+        }
+        Some(NodeKind::Declaration(DeclarationId::Variant(variant))) => {
+            Some(Segment::Payload(*variant, index))
+        }
+        _ => match head {
+            "tuple" => Some(Segment::Tuple(index)),
+            "array" | "array-of" => Some(Segment::Index(index as u128)),
+            _ => None,
+        },
     }
 }
 
@@ -554,6 +631,70 @@ fn storage_segment_matches(
             (wanted, held),
             (Segment::DynamicIndex, Segment::Index(_)) | (Segment::Index(_), Segment::DynamicIndex)
         )
+}
+
+fn distribute_pattern_borrows(
+    body: &Body,
+    pattern: NodeId,
+    origins: &[DirectBorrow],
+    output: &mut HashMap<BindingId, Vec<DirectBorrow>>,
+) {
+    match &body.nodes[pattern.0].kind {
+        NodeKind::Symbol {
+            binding: Some(binding),
+            ..
+        } => {
+            output.insert(
+                *binding,
+                origins
+                    .iter()
+                    .filter(|origin| origin.storage.is_empty())
+                    .cloned()
+                    .collect(),
+            );
+        }
+        NodeKind::Form { head, children, .. } => {
+            let declaration = children.first().map(|child| &body.nodes[child.0].kind);
+            for (index, child) in children.iter().skip(1).enumerate() {
+                let slot = match declaration {
+                    Some(NodeKind::Declaration(DeclarationId::Aggregate(owner))) => {
+                        Some(crate::typed_place::Segment::Field(FieldId {
+                            owner: *owner,
+                            index,
+                        }))
+                    }
+                    Some(NodeKind::Declaration(DeclarationId::Variant(variant))) => {
+                        Some(crate::typed_place::Segment::Payload(*variant, index))
+                    }
+                    _ => match head.as_str() {
+                        "tuple" => Some(crate::typed_place::Segment::Tuple(index)),
+                        "array" | "array-of" => {
+                            Some(crate::typed_place::Segment::Index(index as u128))
+                        }
+                        _ => None,
+                    },
+                };
+                let Some(slot) = slot else { continue };
+                let nested = origins
+                    .iter()
+                    .filter_map(|origin| {
+                        if !origin
+                            .storage
+                            .first()
+                            .is_some_and(|held| storage_segment_matches(&slot, held))
+                        {
+                            return None;
+                        }
+                        let mut origin = origin.clone();
+                        origin.storage.remove(0);
+                        Some(origin)
+                    })
+                    .collect::<Vec<_>>();
+                distribute_pattern_borrows(body, *child, &nested, output);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -1127,6 +1268,47 @@ mod tests {
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
         let first = error.3[0].0;
         assert_eq!(&source[first.start..first.end], "(#borrow value)");
+    }
+
+    #[test]
+    fn destructured_block_reference_retains_aggregate_loan_origin() {
+        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut value u64 1u64)
+            (#return (#call inspect
+              (: left (#block
+                  (#let (#tuple view) (#tuple (#ref u64))
+                    (#tuple (#tuple (#ref u64)) (#borrow value)))
+                  view)
+               : right (#borrow-mut value)))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(error.0.contains("overlapping borrows"), "{}", error.0);
+        let second = error.2.unwrap();
+        assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
+        let first = error.3[0].0;
+        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+    }
+
+    #[test]
+    fn destructured_sibling_references_keep_distinct_loan_origins() {
+        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+            (#drop left) (#drop right) (#return 0u64))
+          (#fn main () u64
+            (#let-mut first u64 1u64)
+            (#let-mut second u64 2u64)
+            (#let pair (#tuple (#ref u64) (#ref-mut u64))
+              (#tuple (#tuple (#ref u64) (#ref-mut u64))
+                (#borrow first) (#borrow-mut second)))
+            (#let (#tuple left right)
+              (#tuple (#ref u64) (#ref-mut u64))
+              pair)
+            (#return (#call inspect (: left left : right right))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
     }
 
     #[test]
