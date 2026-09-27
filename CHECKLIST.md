@@ -1054,6 +1054,11 @@ the checklist is committed alongside the implementation it tracks.
   the same projection; do not mistake an equal-place nested borrow for a
   strict child reborrow.
 
+- [x] **IR-04ci: Verify lexical loan cleanup on early return.** Allow typed
+  return paths to pass through explicit borrow-scope end events, and test a
+  return nested in a block inside `#borrow-mut` to ensure cleanup precedes the
+  function exit.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

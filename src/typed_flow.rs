@@ -1521,7 +1521,10 @@ impl FlowGraph {
                     if *successor == self.exit {
                         break;
                     }
-                    if !matches!(self.nodes[successor.0].action, FlowAction::ScopeExit(_)) {
+                    if !matches!(
+                        self.nodes[successor.0].action,
+                        FlowAction::ScopeExit(_) | FlowAction::BorrowScopeEnd { .. }
+                    ) {
                         return Err(format!("typed flow return {index} has invalid cleanup"));
                     }
                     next = &self.nodes[successor.0].successors;

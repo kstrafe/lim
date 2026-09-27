@@ -1286,6 +1286,39 @@ mod tests {
     }
 
     #[test]
+    fn return_inside_scoped_borrow_runs_typed_scope_cleanup() {
+        let source = "(#fn main () ()
+            (#let-mut value u64 1u64)
+            (#borrow-mut value (#block (#return ())))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let flow = FlowGraph::lower(body).unwrap();
+        assert!(flow.nodes.iter().any(|node| {
+            if !matches!(node.action, FlowAction::Return(Some(_)))
+                || !node
+                    .span
+                    .is_some_and(|span| source[span.start..span.end].contains("#return ()"))
+            {
+                return false;
+            }
+            let mut next = node.successors.first().copied();
+            for _ in 0..flow.nodes.len() {
+                let Some(successor) = next else { break };
+                if matches!(
+                    flow.nodes[successor.0].action,
+                    FlowAction::BorrowScopeEnd { .. }
+                ) {
+                    return true;
+                }
+                next = flow.nodes[successor.0].successors.first().copied();
+            }
+            false
+        }));
+    }
+
+    #[test]
     fn projected_reborrow_suspends_parent_access_but_preserves_disjoint_fields() {
         let overlapping = "(#struct Inner ((value u64)))
           (#struct Outer ((inner Inner) (other u64)))
