@@ -250,6 +250,14 @@ the checklist is committed alongside the implementation it tracks.
   definite-binding behavior, and test exact source spans. Indirect referent
   provenance and live-loan transfer still remain in IR-04.
 
+- [x] **IR-04p: Compute direct loan origins on typed flow.** Add a forward
+  may-analysis that retains direct borrow places and source spans through
+  bindings, simple aliases, and conditional results; union origins at joins
+  and clear a dropped binding without clearing its aliases. Expose the states
+  in the typed-IR debug dump. This is observational groundwork, not yet an
+  enforcing replacement for the lexical borrow checker; aggregate payloads,
+  indirect referents, scopes, and full transfer remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

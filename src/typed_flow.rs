@@ -68,6 +68,84 @@ pub(crate) struct FlowLiveness {
     binding_count: usize,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct LoanOrigin {
+    pub place: Place,
+    pub mutable: bool,
+    pub span: Option<Span>,
+}
+
+impl PartialEq for LoanOrigin {
+    fn eq(&self, other: &Self) -> bool {
+        self.place == other.place && self.mutable == other.mutable
+    }
+}
+
+impl Eq for LoanOrigin {}
+
+type LoanState = Vec<Vec<LoanOrigin>>;
+
+/// Direct reference origins at each typed flow point. This is a may-analysis,
+/// not yet an enforcing borrow check; indirect provenance and destructured
+/// payloads still need the full IR-04 transfer.
+pub(crate) struct FlowLoanOrigins {
+    before: Vec<Option<LoanState>>,
+    after: Vec<Option<LoanState>>,
+}
+
+impl FlowLoanOrigins {
+    pub fn before(&self, node: FlowNodeId, binding: BindingId) -> &[LoanOrigin] {
+        self.before[node.0]
+            .as_ref()
+            .map_or(&[], |state| state[binding.0].as_slice())
+    }
+
+    pub fn after(&self, node: FlowNodeId, binding: BindingId) -> &[LoanOrigin] {
+        self.after[node.0]
+            .as_ref()
+            .map_or(&[], |state| state[binding.0].as_slice())
+    }
+
+    pub fn dump(&self) -> String {
+        use std::fmt::Write;
+        let mut output = String::new();
+        let binding_count = self.before.iter().flatten().next().map_or(0, Vec::len);
+        for index in 0..self.before.len() {
+            for binding in 0..binding_count {
+                let id = FlowNodeId(index);
+                let binding = BindingId(binding);
+                let before = self.before(id, binding);
+                let after = self.after(id, binding);
+                if before.is_empty() && after.is_empty() {
+                    continue;
+                }
+                let describe = |origins: &[LoanOrigin]| {
+                    origins
+                        .iter()
+                        .map(|origin| {
+                            format!(
+                                "{:?} {} {:?}",
+                                origin.place,
+                                if origin.mutable { "mutable" } else { "shared" },
+                                origin.span
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                };
+                writeln!(
+                    output,
+                    "  loan {index} binding {}: {:?}->{:?}",
+                    binding.0,
+                    describe(before),
+                    describe(after)
+                )
+                .unwrap();
+            }
+        }
+        output
+    }
+}
+
 impl FlowLiveness {
     pub fn before(&self, id: FlowNodeId) -> Vec<BindingId> {
         self.bindings(&self.before[id.0])
@@ -126,6 +204,66 @@ impl FlowGraph {
             }
         }
         seen
+    }
+
+    /// Forward may-analysis of direct reference origins held by local
+    /// bindings. The transfer uses checked value IDs rather than syntax names.
+    pub fn loan_origins(&self, body: &Body) -> FlowLoanOrigins {
+        let empty = vec![Vec::new(); body.bindings.len()];
+        let mut before = vec![None; self.nodes.len()];
+        let mut after = vec![None; self.nodes.len()];
+        let mut queued = vec![false; self.nodes.len()];
+        let mut pending = VecDeque::from([self.entry]);
+        before[self.entry.0] = Some(empty);
+        queued[self.entry.0] = true;
+        while let Some(id) = pending.pop_front() {
+            queued[id.0] = false;
+            let mut state = before[id.0].as_ref().unwrap().clone();
+            match &self.nodes[id.0].action {
+                FlowAction::Bind { binding, value } => {
+                    state[binding.0] = value_loan_origins(body, *value, &state);
+                }
+                FlowAction::Assign {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            segments,
+                        },
+                    value,
+                } if segments.is_empty() => {
+                    state[binding.0] = value_loan_origins(body, *value, &state);
+                }
+                FlowAction::Evaluate(value) => {
+                    if let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind {
+                        if matches!(head.as_str(), "drop" | "forget") && children.len() == 2 {
+                            if let NodeKind::Symbol {
+                                binding: Some(binding),
+                                ..
+                            } = body.nodes[children[1].0].kind
+                            {
+                                state[binding.0].clear();
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            after[id.0] = Some(state.clone());
+            for successor in &self.nodes[id.0].successors {
+                let changed = match &mut before[successor.0] {
+                    Some(existing) => merge_loan_states(existing, &state),
+                    slot @ None => {
+                        *slot = Some(state.clone());
+                        true
+                    }
+                };
+                if changed && !queued[successor.0] {
+                    pending.push_back(*successor);
+                    queued[successor.0] = true;
+                }
+            }
+        }
+        FlowLoanOrigins { before, after }
     }
 
     fn verify(&self, body: &Body) -> Result<(), String> {
@@ -486,6 +624,74 @@ fn collect_pattern_bindings(body: &Body, id: NodeId, bindings: &mut HashSet<Bind
         }
         NodeKind::Labeled(_, inner) => collect_pattern_bindings(body, *inner, bindings),
         _ => {}
+    }
+}
+
+fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
+    let mut changed = false;
+    for (held, other) in existing.iter_mut().zip(incoming) {
+        changed |= merge_loan_origins(held, other);
+    }
+    changed
+}
+
+fn merge_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -> bool {
+    let mut changed = false;
+    for origin in incoming {
+        if !existing.contains(origin) {
+            existing.push(origin.clone());
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOrigin> {
+    let node = &body.nodes[id.0];
+    match &node.kind {
+        NodeKind::Symbol {
+            binding: Some(binding),
+            ..
+        } => state[binding.0].clone(),
+        NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() == 2 =>
+        {
+            Place::from_expression(body, children[1]).map_or_else(Vec::new, |place| {
+                vec![LoanOrigin {
+                    place,
+                    mutable: head == "borrow-mut",
+                    span: node.span,
+                }]
+            })
+        }
+        NodeKind::If {
+            then_value,
+            else_value,
+            ..
+        } => {
+            let mut origins = value_loan_origins(body, *then_value, state);
+            if let Some(value) = else_value {
+                merge_loan_origins(&mut origins, &value_loan_origins(body, *value, state));
+            }
+            origins
+        }
+        NodeKind::Match { arms, .. } => {
+            let mut origins = Vec::new();
+            for arm in arms {
+                if let NodeKind::MatchArm { values, .. } = &body.nodes[arm.0].kind {
+                    if let Some(value) = values.last() {
+                        merge_loan_origins(&mut origins, &value_loan_origins(body, *value, state));
+                    }
+                }
+            }
+            origins
+        }
+        NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 =>
+        {
+            value_loan_origins(body, children[1], state)
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -1170,6 +1376,64 @@ mod tests {
             .all(|(_, place, _)| place.root == PlaceRoot::Local(owner)));
         assert!(!borrows[0].2);
         assert!(borrows[1].2);
+    }
+
+    #[test]
+    fn direct_loan_origins_join_and_survive_alias_drop() {
+        let source = "(#fn main ((choose bool)) u64
+          (#let-mut left u64 1u64)
+          (#let-mut right u64 2u64)
+          (#let view (#ref u64) (#if choose (#borrow left) (#borrow right)))
+          (#let alias (#ref u64) view)
+          (#drop view)
+          (#return (#deref alias)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let origins = graph.loan_origins(body);
+        let binding = |name: &str| {
+            BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == name)
+                    .unwrap(),
+            )
+        };
+        let view = binding("view");
+        let alias = binding("alias");
+        let alias_bind = graph
+            .nodes
+            .iter()
+            .position(
+                |node| matches!(node.action, FlowAction::Bind { binding, .. } if binding == alias),
+            )
+            .map(FlowNodeId)
+            .unwrap();
+        let held = origins.after(alias_bind, alias);
+        assert_eq!(held.len(), 2);
+        let mut sites = held
+            .iter()
+            .map(|loan| {
+                let span = loan.span.unwrap();
+                &source[span.start..span.end]
+            })
+            .collect::<Vec<_>>();
+        sites.sort_unstable();
+        assert_eq!(sites, ["(#borrow left)", "(#borrow right)"]);
+        let drop = graph
+            .nodes
+            .iter()
+            .position(|node| match node.action {
+                FlowAction::Evaluate(value) => matches!(&body.nodes[value.0].kind,
+                    NodeKind::Form { head, .. } if head == "drop"),
+                _ => false,
+            })
+            .map(FlowNodeId)
+            .unwrap();
+        assert_eq!(origins.before(drop, view).len(), 2);
+        assert!(origins.after(drop, view).is_empty());
+        assert_eq!(origins.after(drop, alias).len(), 2);
     }
 
     #[test]

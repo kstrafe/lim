@@ -114,6 +114,12 @@ Direct borrow expressions also have dedicated flow actions retaining the
 resolved access place, mutability, and exact borrow node. Expressions whose
 referent place is not yet resolved continue as ordinary evaluation nodes;
 alias-aware referent provenance remains part of the pending loan transfer.
+An observational forward may-analysis now tracks direct loan origins held by
+bindings, including simple aliases and conditional results. It unions origins
+at flow joins, retains the first exact borrow span, and clears a dropped
+binding without clearing aliases. The typed-IR debug dump includes these
+states. It does not yet replace the lexical borrow checker or resolve indirect
+referents, aggregate payloads, or scope-sensitive loan lifetimes.
 Read and write places now have structural identities: a `BindingId` or
 `GlobalId` root followed by owner-qualified field/variant IDs, tuple positions,
 or concrete/dynamic array indices. A dotted identifier remains one binding,
