@@ -494,8 +494,16 @@ the checklist is committed alongside the implementation it tracks.
   tuple/array completion, and source-underlined Copy-after-owner errors.
   Resolve known match payload types so Copy payloads are not treated as
   linear, and isolate binding metadata per function. This is still an
-  AST-side rule; typed-flow migration and branch-equivalence handling remain
-  in IR-04.
+  AST-side rule; typed-flow migration and general branch-equivalence handling
+  remain in IR-04.
+
+- [x] **IR-04am: Join equivalent complete ownership paths.** Treat a whole
+  move and complete fieldwise consumption as the same discharged obligation
+  at `#if` and `#match` joins, while rejecting a whole move against incomplete
+  fields. Preserve the stricter root obligation of an explicitly `#linear`
+  type. Cover accepted joins, both rejection cases, and a native example.
+  This is transitional syntax-side equivalence; stable-place move transfer
+  and general ownership joins remain in IR-04.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and

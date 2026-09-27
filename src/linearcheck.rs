@@ -746,7 +746,7 @@ fn check_expr(
                 let mut right = moved.clone();
                 check_expr(&items[2], bindings, &mut left, globals, false, types)?;
                 check_expr(&items[3], bindings, &mut right, globals, false, types)?;
-                require_same_consumption(bindings, &left, &right)?;
+                require_same_consumption(bindings, &left, &right, types)?;
                 // Both branches have consumed exactly the same outer places,
                 // so the union now also represents definite consumption.
                 *moved = left.merged(&right);
@@ -802,7 +802,7 @@ fn check_expr(
                 }
                 if let Some(first) = exits.first() {
                     for exit in exits.iter().skip(1) {
-                        require_same_consumption(bindings, first, exit)?;
+                        require_same_consumption(bindings, first, exit, types)?;
                     }
                     *moved = exits
                         .into_iter()
@@ -840,13 +840,13 @@ fn check_expr(
                 if let Some(otherwise) = items.get(4) {
                     check_expr(otherwise, bindings, &mut else_state, globals, false, types)?;
                 }
-                require_same_consumption(bindings, &then_state, &else_state)?;
+                require_same_consumption(bindings, &then_state, &else_state, types)?;
                 *moved = then_state.merged(&else_state);
             } else if matches!(head, "&&" | "||") && items.len() == 3 {
                 check_expr(&items[1], bindings, moved, globals, false, types)?;
                 let mut taken = moved.clone();
                 check_expr(&items[2], bindings, &mut taken, globals, false, types)?;
-                require_same_consumption(bindings, moved, &taken)?;
+                require_same_consumption(bindings, moved, &taken, types)?;
                 *moved = moved.merged(&taken);
             } else if head == "unsafe" || head == "block" {
                 for arg in items.iter().skip(1) {
@@ -1058,8 +1058,19 @@ fn require_same_consumption(
     bindings: &HashSet<String>,
     left: &Moves,
     right: &Moves,
+    types: &LinearTypes,
 ) -> Result<(), Error> {
     for binding in bindings {
+        let left_complete = types.binding_consumed(binding, left);
+        let right_complete = types.binding_consumed(binding, right);
+        if left_complete && right_complete {
+            continue;
+        }
+        if left_complete != right_complete {
+            return Err(failure!(
+                "linear value '{binding}' must be consumed consistently on every control-flow path"
+            ));
+        }
         let left_places = left
             .iter()
             .filter(|place| place_root(place) == binding)
@@ -1520,6 +1531,66 @@ mod tests {
             (#let choice Choice (Value 3u64))
             (#return (#match choice
               (#case (Value payload) (#u64.+.wrap payload payload)))))";
+        check_types(&parse_program(source).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn branch_join_accepts_equivalent_whole_and_fieldwise_consumption() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Wrapper ((item Resource) (copy u64)))
+          (#fn main () u64
+            (#let wrapper Wrapper (#struct-literal Wrapper
+              ((item (#struct-literal Resource ((value 1u64)))) (copy 2u64))))
+            (#return (#if true
+              (#block (#forget wrapper) 1u64)
+              (#block (#forget (#get wrapper item)) 2u64))))";
+        check_types(&parse_program(source).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn branch_join_rejects_whole_against_incomplete_fields() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Pair ((left Resource) (right Resource)))
+          (#fn main () u64
+            (#let pair Pair (#struct-literal Pair
+              ((left (#struct-literal Resource ((value 1u64))))
+               (right (#struct-literal Resource ((value 2u64)))))))
+            (#return (#if true
+              (#block (#forget pair) 1u64)
+              (#block (#forget (#get pair left)) 2u64))))";
+        let error = check_types(&parse_program(source).unwrap()).unwrap_err();
+        assert!(error.contains("consumed consistently"), "{error}");
+    }
+
+    #[test]
+    fn branch_join_keeps_explicitly_linear_owner_obligation() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Wrapper ((item Resource)))
+          (#linear Wrapper)
+          (#fn main () u64
+            (#let wrapper Wrapper (#struct-literal Wrapper
+              ((item (#struct-literal Resource ((value 1u64)))))))
+            (#return (#if true
+              (#block (#forget wrapper) 1u64)
+              (#block (#forget (#get wrapper item)) 2u64))))";
+        let error = check_types(&parse_program(source).unwrap()).unwrap_err();
+        assert!(error.contains("consumed consistently"), "{error}");
+    }
+
+    #[test]
+    fn match_join_accepts_equivalent_whole_and_fieldwise_consumption() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Wrapper ((item Resource)))
+          (#fn main () u64
+            (#let wrapper Wrapper (#struct-literal Wrapper
+              ((item (#struct-literal Resource ((value 1u64)))))))
+            (#return (#match true
+              (#case true (#block (#forget wrapper) 1u64))
+              (#case false (#block (#forget (#get wrapper item)) 2u64)))))";
         check_types(&parse_program(source).unwrap()).unwrap();
     }
 
