@@ -167,6 +167,41 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
     Ok(())
 }
 
+/// Enforce return-reference lifetimes from checked places and loan origins.
+/// Function parameters are the only local roots permitted to outlive the body;
+/// globals are represented as global places and do not enter this condition.
+pub(crate) fn check_return_escapes(
+    body: &Body,
+    flow: &FlowGraph,
+    parameter_count: usize,
+) -> Result<(), BorrowConflict> {
+    let origins = flow.loan_origins(body);
+    for (index, node) in flow.nodes.iter().enumerate() {
+        let FlowAction::Return(Some(value)) = &node.action else {
+            continue;
+        };
+        for origin in origins.value_before(body, FlowNodeId(index), *value) {
+            let PlaceRoot::Local(binding) = origin.place.root else {
+                continue;
+            };
+            if binding.0 < parameter_count {
+                continue;
+            }
+            let name = &body.bindings[binding.0].name;
+            return Err(BorrowConflict {
+                message: format!("cannot return a value retaining a reference to local '{name}'"),
+                span: node.span,
+                labels: origin
+                    .span
+                    .map(|span| (span, "reference originates here".into()))
+                    .into_iter()
+                    .collect(),
+            });
+        }
+    }
+    Ok(())
+}
+
 type BoundBorrows = HashMap<BindingId, Vec<Vec<DirectBorrow>>>;
 
 fn origin_alternatives(

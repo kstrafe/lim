@@ -252,6 +252,20 @@ mod checked_program_tests {
     }
 
     #[test]
+    fn typed_return_escape_reports_return_and_origin_spans() {
+        let source = "(#fn escape () (#ref u64)
+          (#let owner u64 1u64)
+          (#return (#borrow owner)))";
+        let program = crate::parse_program(source).unwrap();
+        let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
+        let span = span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#return (#borrow owner))");
+        assert_eq!(labels.len(), 1);
+        let origin = labels[0].0;
+        assert_eq!(&source[origin.start..origin.end], "(#borrow owner)");
+    }
+
+    #[test]
     fn normal_compilation_checks_once_and_unchecked_emission_still_validates() {
         let source = "(#fn main () u64 (#return 42u64))";
         let directory = std::env::temp_dir().join(format!("lim-checked-{}", std::process::id()));
@@ -1023,6 +1037,21 @@ fn check_types_inner(
         }
     }
     *diagnostic_code = crate::DiagnosticCode::Borrow;
+    for item in &program.items {
+        if let crate::Item::Function(function) = item {
+            if let (Some(body), Some(flow)) = (
+                declarations.bodies.get(&function.name),
+                declarations.flows.get(&function.name),
+            ) {
+                crate::typed_borrow::check_return_escapes(body, flow, function.parameters.len())
+                    .map_err(|error| {
+                        *diagnostic_span = error.span;
+                        *diagnostic_labels = error.labels;
+                        error.message
+                    })?;
+            }
+        }
+    }
     crate::borrowcheck::check_program(program).map_err(|error| {
         *diagnostic_span = error.span;
         *diagnostic_labels = error.labels;

@@ -209,6 +209,12 @@ impl FlowReleases {
 }
 
 impl FlowLoanOrigins {
+    pub fn value_before(&self, body: &Body, node: FlowNodeId, value: NodeId) -> Vec<LoanOrigin> {
+        self.before[node.0]
+            .as_ref()
+            .map_or_else(Vec::new, |state| value_loan_origins(body, value, state))
+    }
+
     pub fn before(&self, node: FlowNodeId, binding: BindingId) -> &[LoanOrigin] {
         self.before[node.0]
             .as_ref()

@@ -860,6 +860,14 @@ the checklist is committed alongside the implementation it tracks.
   source, and fix syntax-side contextual repeat analysis so a later use is
   rejected. Keep unresolved builtin access modes in IR-04.
 
+- [x] **IR-04bb: Check return escapes from typed loan origins.** Run a
+  source-located return check over checked values and retained place/loan
+  origins before the transitional borrow pass. This handles direct values,
+  aliases, aggregates, and reference-returning calls; keep the AST-side escape
+  check active because typed match-result provenance still needs branch-local
+  pattern state. A regression exposed that limitation, so the legacy check is
+  deliberately not bypassed.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

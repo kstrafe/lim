@@ -8157,12 +8157,15 @@ mod tests {
     }
 
     #[test]
-    fn escaping_borrow_errors_highlight_the_local_referent() {
+    fn escaping_borrow_errors_highlight_the_return_and_label_the_referent() {
         let source = "(#fn bad () (#ref u64)\n  (#let value u64 42)\n  (#return (#borrow value)))";
         let program = parse_program(source).unwrap();
         let diagnostic = structured_type_error(&program);
         let span = diagnostic.span.expect("escaping borrow has a primary span");
-        assert_eq!(&source[span.start..span.end], "value");
+        assert_eq!(&source[span.start..span.end], "(#return (#borrow value))");
+        assert_eq!(diagnostic.labels.len(), 1);
+        let origin = diagnostic.labels[0].span;
+        assert_eq!(&source[origin.start..origin.end], "(#borrow value)");
     }
 
     #[test]
@@ -9504,7 +9507,7 @@ mod tests {
                 .unwrap();
         assert!(check_types(&local_escape)
             .unwrap_err()
-            .contains("reference to local variable 'value'"));
+            .contains("retaining a reference to local 'value'"));
 
         let bad_deref = parse_program("(#fn main () u64 (#return (#deref 42)))").unwrap();
         assert!(check_types(&bad_deref)
@@ -9720,7 +9723,7 @@ mod tests {
         .unwrap();
         assert!(check_types(&escaping_field_reference)
             .unwrap_err()
-            .contains("cannot return a reference to local variable 'point'"));
+            .contains("retaining a reference to local 'point'"));
 
         let cloned_local_reference = parse_program(
             "(#fn bad () (#ref u64) (#let value u64 42) (#let reference (#ref u64) (#borrow value)) (#return (#clone reference)))",
