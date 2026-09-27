@@ -279,13 +279,15 @@ fn returned_borrows_with_bindings(
             returned_borrows_with_bindings(body, children[1], callee, bindings)
         }
         NodeKind::Form { head, children, .. }
-            if matches!(head.as_str(), "tuple" | "array" | "struct-literal")
-                || matches!(
-                    children.first().map(|child| &body.nodes[child.0].kind),
-                    Some(NodeKind::Declaration(
-                        DeclarationId::Variant(_) | DeclarationId::Aggregate(_)
-                    ))
-                ) =>
+            if matches!(
+                head.as_str(),
+                "tuple" | "array" | "array-of" | "array-repeat" | "struct-literal"
+            ) || matches!(
+                children.first().map(|child| &body.nodes[child.0].kind),
+                Some(NodeKind::Declaration(
+                    DeclarationId::Variant(_) | DeclarationId::Aggregate(_)
+                ))
+            ) =>
         {
             combine_children(
                 body,
@@ -882,6 +884,33 @@ mod tests {
         assert!(error.0.contains("overlapping borrows"), "{}", error.0);
         let second = error.2.unwrap();
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
+    }
+
+    #[test]
+    fn array_constructors_expose_borrowed_call_arguments() {
+        for constructor in [
+            "(#array-of (#array (#ref u64) 1) (#borrow value))",
+            "(#array-repeat (#borrow value))",
+        ] {
+            let source = format!(
+                "(#fn inspect ((values (#array (#ref u64) 1)) (other (#ref-mut u64))) u64
+                   (#forget values) (#forget other) (#return 0u64))
+                 (#fn main () u64
+                   (#let-mut value u64 1u64)
+                   (#return (#call inspect (: values {constructor} : other (#borrow-mut value)))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&program)
+                .err()
+                .unwrap();
+            assert!(
+                error.0.contains("overlapping borrows"),
+                "{constructor}: {}",
+                error.0
+            );
+            let conflict = error.2.unwrap();
+            assert_eq!(&source[conflict.start..conflict.end], "(#borrow-mut value)");
+        }
     }
 
     #[test]

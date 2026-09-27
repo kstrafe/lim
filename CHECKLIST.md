@@ -262,6 +262,11 @@ the checklist is committed alongside the implementation it tracks.
   repeats, multiple shared fields, aliases, and a native owner write. Full
   structural identity and path-sensitive release handling remain in IR-04.
 
+- [x] **IR-04: See array constructor borrows at call boundaries.** Include
+  `#array-of` and `#array-repeat` in typed call-argument borrow collection,
+  preserving the originating borrow's span when a later mutable argument
+  conflicts. Test both forms with exact second-argument diagnostics.
+
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
   retain condition/scrutinee/result node IDs and the pattern binding identities
