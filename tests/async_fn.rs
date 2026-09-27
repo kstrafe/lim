@@ -181,12 +181,15 @@ fn async_function_supports_multiple_awaits() {
             "(#if (#u64.== offset 1u64)
            (#block (#set offset (#u64.+.wrap offset 5u64)) ())
            (#block (#set offset (#u64.+.wrap offset 10u64)) ()))
+         (#match offset
+           (#case 6u64 (#block (#set offset (#u64.+.wrap offset 1u64)) ()))
+           (#case _ (#block (#set offset 99u64) ())))
          (#let second u64
            (#await (offset value) Step StepPending StepReady step-poll (Waiting 0u64)))
          (#return (#u64.+.wrap value offset))",
         )
         .replace("((offset u64)) u64", "((#mut offset u64)) u64");
-    let generated = build_and_run(&source, 47);
+    let generated = build_and_run(&source, 48);
     assert!(generated.contains("Work-await-1"));
     assert!(generated.contains("work-poll-resume-1"));
 }

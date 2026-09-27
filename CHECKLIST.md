@@ -840,6 +840,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   remain in explicit capture lists; verify a mutable branch update between two
   awaits in a native Pending/resume regression. Branches containing suspension
   and loop state across suspension remain open.
+- [x] **ASYNC-01b6: Verify match-stage state mutation.** Extend the native
+  two-await regression with scalar `#match` arms that update captured mutable
+  state in a resume helper; retain the `#if` case and check the final Ready
+  value to exercise the branch join.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible
