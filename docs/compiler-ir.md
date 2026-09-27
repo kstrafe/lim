@@ -114,6 +114,10 @@ Direct borrow expressions also have dedicated flow actions retaining the
 resolved access place, mutability, and exact borrow node. Expressions whose
 referent place is not yet resolved continue as ordinary evaluation nodes;
 alias-aware referent provenance remains part of the pending loan transfer.
+Explicit `#clone` of a resolved place similarly retains a dedicated action
+with the checked place and source node; unresolved computed clone operands
+continue as evaluation nodes. This action does not yet replace the lexical
+linearity checker.
 An observational forward may-analysis now tracks direct loan origins held by
 bindings, including simple aliases and conditional results. It unions origins
 at flow joins, retains the first exact borrow span, and clears a dropped

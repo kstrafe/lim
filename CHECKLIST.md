@@ -410,6 +410,12 @@ the checklist is committed alongside the implementation it tracks.
   of two aggregate-held references. Indirect release and full conflict checks
   remain in IR-04.
 
+- [x] **IR-04ac: Retain explicit clones as checked flow actions.** Record the
+  resolved place and exact expression ID for `#clone` rather than treating it
+  as an undifferentiated evaluation. Verify action metadata and test a field
+  clone with its source span; computed operands and ownership enforcement
+  remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

@@ -29,6 +29,10 @@ pub(crate) enum FlowAction {
         place: Place,
         mutable: bool,
     },
+    Clone {
+        value: NodeId,
+        place: Place,
+    },
     Bind {
         binding: BindingId,
         value: NodeId,
@@ -342,6 +346,22 @@ impl FlowGraph {
                         if binding.0 >= body.bindings.len() {
                             return Err(format!("typed flow borrows invalid local {binding:?}"));
                         }
+                    }
+                }
+                FlowAction::Clone { value, place } => {
+                    let Some(crate::typed_body::Node {
+                        kind: NodeKind::Form { head, children, .. },
+                        ty: Some(_),
+                        ..
+                    }) = body.nodes.get(value.0)
+                    else {
+                        return Err(format!("typed flow clones invalid node {value:?}"));
+                    };
+                    if head != "clone"
+                        || children.len() != 2
+                        || Place::from_expression(body, children[1]).as_ref() != Some(place)
+                    {
+                        return Err(format!("typed flow clone {value:?} has invalid metadata"));
                     }
                 }
                 FlowAction::Bind { binding, value } => {
@@ -1237,6 +1257,14 @@ impl Builder<'_> {
                 let done = self.push(action, span, vec![next]);
                 self.expression(children[1], done, targets, None)
             }
+            NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
+                let action = Place::from_expression(self.body, children[1]).map_or(
+                    FlowAction::Evaluate(id),
+                    |place| FlowAction::Clone { value: id, place },
+                );
+                let done = self.push(action, span, vec![next]);
+                self.expression(children[1], done, targets, None)
+            }
             NodeKind::Form { head, children, .. }
                 if matches!(head.as_str(), "drop" | "forget") && children.len() == 2 =>
             {
@@ -1820,6 +1848,39 @@ mod tests {
                 .iter()
                 .all(|origin| !origin.storage.starts_with(&path)));
         }
+    }
+
+    #[test]
+    fn projected_clone_retains_checked_place_and_source_span() {
+        let source = "(#struct Pair ((first u64) (second u64)))
+          (#fn main () u64
+            (#let pair Pair (#struct-literal Pair ((first 3u64) (second 4u64))))
+            (#let copy u64 (#clone (#get pair first)))
+            (#return (#u64.+.wrap copy (#get pair second))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let pair = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "pair")
+                .unwrap(),
+        );
+        let clones = graph
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.action {
+                FlowAction::Clone { value, place } => Some((value, place)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(clones.len(), 1);
+        let (value, place) = clones[0];
+        assert_eq!(place.root, PlaceRoot::Local(pair));
+        assert!(matches!(place.segments.as_slice(), [Segment::Field(_)]));
+        let span = body.nodes[value.0].span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#clone (#get pair first))");
     }
 
     #[test]
