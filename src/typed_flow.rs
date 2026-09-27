@@ -527,11 +527,38 @@ impl FlowGraph {
             })
             .collect::<Vec<_>>();
         for node in &body.nodes {
-            if let NodeKind::Form {
+            let NodeKind::Form {
+                head,
                 children,
-                callee: Some(_),
+                callee,
                 ..
             } = &node.kind
+            else {
+                continue;
+            };
+            if callee.is_some() {
+                transfer_roots.extend(children.iter().skip(1).copied());
+            } else if node.ty.is_some() && matches!(head.as_str(), "tuple" | "array" | "array-of") {
+                transfer_roots.extend(children.iter().skip(2).copied());
+            } else if node.ty.is_some() && head == "struct-literal" {
+                if let Some(fields) = children.get(2) {
+                    if let NodeKind::Syntax(fields) = &body.nodes[fields.0].kind {
+                        for field in fields {
+                            if let NodeKind::Syntax(pair) = &body.nodes[field.0].kind {
+                                if let Some(value) = pair.get(1) {
+                                    transfer_roots.push(*value);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if node.ty.is_some()
+                && matches!(
+                    children.first().map(|id| &body.nodes[id.0].kind),
+                    Some(NodeKind::Declaration(
+                        DeclarationId::Variant(_) | DeclarationId::Aggregate(_)
+                    ))
+                )
             {
                 transfer_roots.extend(children.iter().skip(1).copied());
             }
@@ -2825,6 +2852,65 @@ mod tests {
         assert!(moves
             .before(after_call, &Place::root(PlaceRoot::Local(copy)))
             .is_none());
+    }
+
+    #[test]
+    fn aggregate_constructor_fields_consume_linear_values() {
+        for (kind, holder_type, value) in [
+            (
+                "struct",
+                "Holder",
+                "(#struct-literal Holder ((item token)))",
+            ),
+            ("tuple", "(#tuple Token)", "(#tuple (#tuple Token) token)"),
+            (
+                "array",
+                "(#array Token 1)",
+                "(#array-of (#array Token 1) token)",
+            ),
+            ("enum", "Choice", "(Some token)"),
+        ] {
+            let source = format!(
+                "(#struct Token ((value u64)))
+              (#linear Token)
+              (#struct Holder ((item Token)))
+              (#enum Choice ((Some Token) None))
+              (#fn main () ()
+                (#let token Token (#struct-literal Token ((value 7u64))))
+                (#let holder {holder_type} {value})
+                (#forget holder)
+                (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program)
+                .unwrap_or_else(|error| panic!("{kind}: {error}"));
+            let body = &checked.declarations().bodies["main"];
+            let graph = &checked.declarations().flows["main"];
+            let types = LinearTypes::from_program(&program);
+            graph.check_linear_consumptions(body, &types).unwrap();
+            let token = BindingId(
+                body.bindings
+                    .iter()
+                    .position(|b| b.name == "token")
+                    .unwrap(),
+            );
+            let bind = graph
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    matches!(node.action, FlowAction::Bind { binding, .. }
+                    if body.bindings[binding.0].name == "holder")
+                    .then_some(FlowNodeId(index))
+                })
+                .unwrap();
+            let place = Place::root(PlaceRoot::Local(token));
+            let moves = graph.consumptions(body, &types);
+            let origins = moves
+                .before(bind, &place)
+                .unwrap_or_else(|| panic!("{kind}: no token move"));
+            assert_eq!(origins.len(), 1, "{kind}");
+        }
     }
 
     #[test]

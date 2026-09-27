@@ -578,6 +578,13 @@ the checklist is committed alongside the implementation it tracks.
   this rule. Test an explicit linear resource passed by value and a Copy
   argument in the same body. Other nested expressions remain in IR-04.
 
+- [x] **IR-04ay: Track linear values placed into aggregates.** Classify
+  checked tuple, array, and enum payload operands as transfers, including
+  struct-literal fields normalized to their aggregate declaration form.
+  Preserve their exact value-site spans and reject later overlapping use;
+  test each constructor family with an explicit linear field. Non-constructor
+  builtin operand modes remain in IR-04.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
