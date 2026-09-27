@@ -238,6 +238,12 @@ the checklist is committed alongside the implementation it tracks.
   provenance tests to contextual tuple and array constructors and confirm
   positional destructuring retains separate first and second borrow origins.
 
+- [x] **IR-04: Propagate loans through explicit array-of construction.**
+  Treat `#array-of` as an aggregate value with an explicit type operand and
+  indexed reference slots, not as an opaque expression. Test that positional
+  destructuring recovers each distinct borrow origin. Broader enforcement of
+  indirect aggregate loans remains part of IR-04.
+
 - [x] **IR-04a: Represent expression branches and match arms explicitly.**
   Lower `if`, `match`, and each match arm to dedicated typed-body node kinds;
   retain condition/scrutinee/result node IDs and the pattern binding identities

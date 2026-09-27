@@ -1548,7 +1548,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 .collect()
         }
         NodeKind::Form { head, children, .. }
-            if matches!(head.as_str(), "tuple" | "array" | "struct-literal")
+            if matches!(head.as_str(), "tuple" | "array" | "array-of" | "struct-literal")
                 || matches!(
                     children.first().map(|child| &body.nodes[child.0].kind),
                     Some(NodeKind::Declaration(
@@ -1559,7 +1559,9 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             let mut origins = Vec::new();
             // Checked arity distinguishes contextual value forms from forms
             // carrying an explicit type operand after the head.
-            let values_start = if matches!(head.as_str(), "tuple" | "array") {
+            let values_start = if head == "array-of" {
+                2
+            } else if matches!(head.as_str(), "tuple" | "array") {
                 constructor_values_start(node.ty.as_ref(), children.len())
             } else {
                 1
@@ -1659,7 +1661,7 @@ fn aggregate_slot(body: &Body, head: &str, children: &[NodeId], index: usize) ->
         }
         _ => match head {
             "tuple" => Some(Segment::Tuple(index)),
-            "array" => Some(Segment::Index(index as u128)),
+            "array" | "array-of" => Some(Segment::Index(index as u128)),
             _ => None,
         },
     }
@@ -3448,6 +3450,11 @@ mod tests {
             (
                 "(#array (#ref u64) 2)",
                 "(#array (#borrow left) (#borrow right))",
+                "(#array first second)",
+            ),
+            (
+                "(#array (#ref u64) 2)",
+                "(#array-of (#array (#ref u64) 2) (#borrow left) (#borrow right))",
                 "(#array first second)",
             ),
         ] {
