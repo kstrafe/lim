@@ -97,11 +97,16 @@ pub(crate) struct LoanOrigin {
     pub span: Option<Span>,
     /// Position inside the value held by a binding, not the referent place.
     pub storage: Vec<Segment>,
+    /// Original slot inside a function parameter, retained through projections.
+    pub parameter_storage: Option<Vec<Segment>>,
 }
 
 impl PartialEq for LoanOrigin {
     fn eq(&self, other: &Self) -> bool {
-        self.place == other.place && self.mutable == other.mutable && self.storage == other.storage
+        self.place == other.place
+            && self.mutable == other.mutable
+            && self.storage == other.storage
+            && self.parameter_storage == other.parameter_storage
     }
 }
 
@@ -452,16 +457,16 @@ impl FlowGraph {
         // binding identity: callers have already checked aliasing between
         // their arguments, while this seed lets local reborrows retain the
         // parameter origin instead of appearing origin-free.
-        for (index, binding) in body.bindings.iter().take(body.parameter_count).enumerate() {
-            let Type::Reference { mutable, .. } = &binding.ty else {
-                continue;
-            };
-            empty[index].push(LoanOrigin {
-                place: Place::root(PlaceRoot::Parameter(BindingId(index))),
-                mutable: *mutable,
-                span: None,
-                storage: Vec::new(),
-            });
+        for (index, slots) in body.parameter_loan_slots.iter().enumerate() {
+            for slot in slots {
+                empty[index].push(LoanOrigin {
+                    place: Place::root(PlaceRoot::Parameter(BindingId(index))),
+                    mutable: slot.mutable,
+                    span: None,
+                    storage: slot.storage.clone(),
+                    parameter_storage: Some(slot.storage.clone()),
+                });
+            }
         }
         let mut before = vec![None; self.nodes.len()];
         let mut after = vec![None; self.nodes.len()];
@@ -1576,6 +1581,27 @@ fn merge_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -
     changed
 }
 
+fn apply_parameter_loan_summary(
+    mut origin: LoanOrigin,
+    summary: &crate::typed_body::ParameterLoanSummary,
+) -> Option<LoanOrigin> {
+    if origin.storage.len() < summary.input_storage.len()
+        || !summary
+            .input_storage
+            .iter()
+            .zip(&origin.storage)
+            .all(|(expected, actual)| storage_slot_matches(expected, actual))
+    {
+        return None;
+    }
+    origin.storage.drain(..summary.input_storage.len());
+    let mut storage = summary.storage.clone();
+    storage.extend(origin.storage);
+    origin.storage = storage;
+    origin.mutable = summary.mutable;
+    Some(origin)
+}
+
 fn replace_projected_origins(
     held: &mut Vec<LoanOrigin>,
     path: &[Segment],
@@ -1618,6 +1644,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                         mutable: head == "borrow-mut",
                         span: node.span,
                         storage: Vec::new(),
+                        parameter_storage: None,
                     })
                     .collect()
             })
@@ -1629,24 +1656,39 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
         }
         NodeKind::Form {
             children,
-            callee: Some(_),
+            callee: Some(callee),
             ..
-        } if matches!(
-            node.ty,
-            Some(Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_))
-        ) =>
-        {
-            let mut origins = Vec::new();
-            for argument in children.iter().skip(1) {
-                for mut origin in value_loan_origins(body, *argument, state) {
-                    // The callee can return any reference reachable through
-                    // an argument. Its direct result no longer has the
-                    // argument aggregate's storage path.
-                    origin.storage.clear();
-                    merge_loan_origins(&mut origins, &[origin]);
+        } => {
+            if let Some(summary) = body.call_return_origins.get(callee) {
+                let mut result = Vec::new();
+                for source in summary {
+                    let Some(argument) = children.get(source.parameter + 1) else {
+                        continue;
+                    };
+                    for origin in value_loan_origins(body, *argument, state) {
+                        if let Some(origin) = apply_parameter_loan_summary(origin, source) {
+                            merge_loan_origins(&mut result, &[origin]);
+                        }
+                    }
                 }
+                result
+            } else if matches!(
+                node.ty,
+                Some(Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_))
+            ) {
+                let mut origins = Vec::new();
+                for argument in children.iter().skip(1) {
+                    for mut origin in value_loan_origins(body, *argument, state) {
+                        // External/unsummarized reference-returning functions
+                        // retain the conservative argument-based behavior.
+                        origin.storage.clear();
+                        merge_loan_origins(&mut origins, &[origin]);
+                    }
+                }
+                origins
+            } else {
+                Vec::new()
             }
-            origins
         }
         NodeKind::If {
             then_value,
@@ -1985,23 +2027,40 @@ fn value_loan_origins_at_events(
                 })
                 .collect();
         }
-        if body.nodes[value.0].ty.as_ref().is_some_and(|ty| {
-            matches!(
-                ty,
-                Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_)
-            )
-        }) && callee.is_some()
-        {
-            let mut result = Vec::new();
-            for argument in children.iter().skip(1) {
-                for mut origin in
-                    value_loan_origins_at_events(body, flow, origins, *argument, state)
-                {
-                    origin.storage.clear();
-                    merge_loan_origins(&mut result, &[origin]);
+        if let Some(callee) = callee {
+            if let Some(summary) = body.call_return_origins.get(callee) {
+                let mut result = Vec::new();
+                for source in summary {
+                    let Some(argument) = children.get(source.parameter + 1) else {
+                        continue;
+                    };
+                    for origin in
+                        value_loan_origins_at_events(body, flow, origins, *argument, state)
+                    {
+                        if let Some(origin) = apply_parameter_loan_summary(origin, source) {
+                            merge_loan_origins(&mut result, &[origin]);
+                        }
+                    }
                 }
+                return result;
             }
-            return result;
+            if body.nodes[value.0].ty.as_ref().is_some_and(|ty| {
+                matches!(
+                    ty,
+                    Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_)
+                )
+            }) {
+                let mut result = Vec::new();
+                for argument in children.iter().skip(1) {
+                    for mut origin in
+                        value_loan_origins_at_events(body, flow, origins, *argument, state)
+                    {
+                        origin.storage.clear();
+                        merge_loan_origins(&mut result, &[origin]);
+                    }
+                }
+                return result;
+            }
         }
         if head == "array-repeat" {
             let Some(Type::Array(_, length)) = body.nodes[value.0].ty.as_ref() else {
@@ -3805,6 +3864,7 @@ mod tests {
             mutable: false,
             span: None,
             storage,
+            parameter_storage: None,
         };
         let old_first = origin(1, vec![Segment::Tuple(0)]);
         let old_second = origin(2, vec![Segment::Tuple(1)]);
@@ -3957,13 +4017,14 @@ mod tests {
 
     #[test]
     fn reference_call_result_retains_each_possible_argument_origin() {
-        let source = "(#fn choose ((first (#ref u64)) (second (#ref u64))) (#ref u64)
-          (#return first))
+        let source =
+            "(#fn choose ((condition bool) (first (#ref u64)) (second (#ref u64))) (#ref u64)
+          (#return (#if condition first second)))
           (#fn main () u64
             (#let left u64 1u64)
             (#let right u64 2u64)
             (#let selected (#ref u64)
-              (#call choose (: first (#borrow left) : second (#borrow right))))
+              (#call choose (: condition true : first (#borrow left) : second (#borrow right))))
             (#return (#deref selected)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -4044,6 +4105,93 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_return_origins_flow_through_chains_of_checked_calls() {
+        let source = "(#struct RefBox ((value (#ref u64))))
+          (#fn wrap ((value (#ref u64))) RefBox
+            (#return (#struct-literal RefBox ((value value)))))
+          (#fn wrap-again ((value (#ref u64))) RefBox
+            (#return (#call wrap (: value value))))
+          (#fn project ((box RefBox)) (#ref u64)
+            (#return (#get box value)))
+          (#fn project-again ((box RefBox)) (#ref u64)
+            (#return (#call project (: box box))))
+          (#fn main () u64
+            (#let owner u64 9u64)
+            (#let boxed RefBox
+              (#call wrap-again (: value (#borrow owner))))
+            (#let selected (#ref u64)
+              (#call project-again (: box boxed)))
+            (#return (#deref selected)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let boxed = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "boxed")
+                .unwrap(),
+        );
+        let owner = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "owner")
+                .unwrap(),
+        );
+        let bind = graph
+            .nodes
+            .iter()
+            .position(
+                |node| matches!(node.action, FlowAction::Bind { binding, .. } if binding == boxed),
+            )
+            .map(FlowNodeId)
+            .unwrap();
+        let loans = graph.loan_origins(body);
+        let held = loans.after(bind, boxed);
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].place.root, PlaceRoot::Local(owner));
+        assert_eq!(held[0].storage.len(), 1);
+        let selected = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "selected")
+                .unwrap(),
+        );
+        let selected_bind = graph
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(node.action, FlowAction::Bind { binding, .. } if binding == selected)
+            })
+            .map(FlowNodeId)
+            .unwrap();
+        let selected_origins = loans.after(selected_bind, selected);
+        assert_eq!(selected_origins.len(), 1);
+        assert_eq!(selected_origins[0].place.root, PlaceRoot::Local(owner));
+        assert!(selected_origins[0].storage.is_empty());
+    }
+
+    #[test]
+    fn aggregate_call_return_cannot_hide_a_local_borrow_escape() {
+        let source = "(#struct RefBox ((value (#ref u64))))
+          (#fn wrap ((value (#ref u64))) RefBox
+            (#return (#struct-literal RefBox ((value value)))))
+          (#fn wrap-again ((value (#ref u64))) RefBox
+            (#return (#call wrap (: value value))))
+          (#fn bad () RefBox
+            (#let owner u64 9u64)
+            (#return (#call wrap-again (: value (#borrow owner)))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate(&program)
+            .err()
+            .expect("returning the reference-bearing aggregate must fail");
+        assert!(
+            error.contains("cannot return a value retaining a reference to local 'owner'"),
+            "expected typed interprocedural escape diagnostic, got: {error}"
+        );
+    }
+
+    #[test]
     fn reference_call_result_lifts_origins_out_of_aggregate_argument_slots() {
         let source = "(#fn select ((pair (#tuple (#ref u64) (#ref u64)))) (#ref u64)
           (#return (#get pair 0)))
@@ -4071,8 +4219,12 @@ mod tests {
             .unwrap();
         let origins = graph.loan_origins(body);
         let held = origins.after(bind, selected);
-        assert_eq!(held.len(), 2);
+        assert_eq!(held.len(), 1);
         assert!(held.iter().all(|origin| origin.storage.is_empty()));
+        assert_eq!(
+            &source[held[0].span.unwrap().start..held[0].span.unwrap().end],
+            "(#borrow left)"
+        );
     }
 
     #[test]

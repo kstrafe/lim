@@ -974,6 +974,13 @@ the checklist is committed alongside the implementation it tracks.
   origins remain distinct from local owners; local-return rejection remains
   enforced by typed escape checks.
 
+- [x] **IR-04bu: Summarize parameter loans across aggregate-returning calls.**
+  Compute return-origin summaries over the acyclic checked call graph and
+  preserve the returned aggregate's loan slots across helper chains. Keep
+  empty summaries distinct from unavailable external bodies. Verify both a
+  two-helper accepted local use and a local borrow rejected when the returned
+  aggregate escapes, with the typed diagnostic identifying the local owner.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

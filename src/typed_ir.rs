@@ -1,6 +1,7 @@
 //! Retained semantic information. This is the first stage of the typed IR:
 //! declarations are resolved once by validation, not rediscovered by emission.
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use crate::{EnumVariant, Field, Span, Type};
 
@@ -328,6 +329,7 @@ impl Declarations {
                 crate::typed_flow::FlowGraph::lower(body).map(|flow| (name.clone(), flow))
             })
             .collect::<Result<_, _>>()?;
+        self.summarize_returned_parameter_loans();
         self.liveness = self
             .flows
             .iter()
@@ -344,6 +346,202 @@ impl Declarations {
             }
         }
         Ok(())
+    }
+
+    /// Compute interprocedural loan summaries over the acyclic checked call
+    /// graph. Process callees before callers so each body is analyzed once,
+    /// preserving parameter and aggregate-slot identities without a repeated
+    /// whole-program fixed-point pass.
+    fn summarize_returned_parameter_loans(&mut self) {
+        let mut names = self.bodies.keys().cloned().collect::<Vec<_>>();
+        names.sort();
+        let mut parameter_slots = HashMap::new();
+        for name in &names {
+            let body = &self.bodies[name];
+            let mut slots = vec![Vec::new(); body.bindings.len()];
+            for (index, binding) in body.bindings.iter().take(body.parameter_count).enumerate() {
+                self.collect_parameter_loan_slots(
+                    &binding.ty,
+                    &mut Vec::new(),
+                    &mut HashSet::new(),
+                    &mut slots[index],
+                );
+            }
+            parameter_slots.insert(name.clone(), slots);
+        }
+        for (name, slots) in parameter_slots {
+            self.bodies.get_mut(&name).unwrap().parameter_loan_slots = slots;
+        }
+
+        let names_by_id = self
+            .function_ids
+            .iter()
+            .map(|(name, id)| (*id, name.clone()))
+            .collect::<HashMap<_, _>>();
+        let mut remaining_dependencies = HashMap::new();
+        let mut callers = HashMap::<String, Vec<String>>::new();
+        for name in &names {
+            let body = &self.bodies[name];
+            let dependencies = body
+                .nodes
+                .iter()
+                .filter_map(|node| match &node.kind {
+                    crate::typed_body::NodeKind::Form {
+                        callee: Some(callee),
+                        ..
+                    } => names_by_id
+                        .get(callee)
+                        .filter(|name| self.bodies.contains_key(*name)),
+                    _ => None,
+                })
+                .cloned()
+                .collect::<HashSet<_>>();
+            for dependency in &dependencies {
+                callers
+                    .entry(dependency.clone())
+                    .or_default()
+                    .push(name.clone());
+            }
+            remaining_dependencies.insert(name.clone(), dependencies.len());
+        }
+        for users in callers.values_mut() {
+            users.sort();
+            users.dedup();
+        }
+        let mut ready = names
+            .iter()
+            .filter(|name| remaining_dependencies[*name] == 0)
+            .cloned()
+            .collect::<VecDeque<_>>();
+        let mut order = Vec::with_capacity(names.len());
+        while let Some(name) = ready.pop_front() {
+            order.push(name.clone());
+            if let Some(users) = callers.get(&name) {
+                for user in users {
+                    let remaining = remaining_dependencies.get_mut(user).unwrap();
+                    *remaining -= 1;
+                    if *remaining == 0 {
+                        ready.push_back(user.clone());
+                    }
+                }
+            }
+        }
+        // Recursive calls are rejected before typed body lowering. Keep a
+        // deterministic fallback order so malformed internal states cannot
+        // panic while constructing diagnostics.
+        if order.len() != names.len() {
+            let unresolved = names
+                .iter()
+                .filter(|name| !order.contains(name))
+                .cloned()
+                .collect::<Vec<_>>();
+            order.extend(unresolved);
+        }
+
+        let mut summaries = HashMap::new();
+        for name in order {
+            self.bodies.get_mut(&name).unwrap().call_return_origins = Arc::new(summaries.clone());
+            let body = &self.bodies[&name];
+            let flow = &self.flows[&name];
+            let origins = flow.loan_origins(body);
+            let mut returned = Vec::new();
+            for (index, node) in flow.nodes.iter().enumerate() {
+                let crate::typed_flow::FlowAction::Return(Some(value)) = &node.action else {
+                    continue;
+                };
+                for origin in
+                    origins.value_before(body, flow, crate::typed_flow::FlowNodeId(index), *value)
+                {
+                    let crate::typed_body::PlaceRoot::Parameter(binding) = origin.place.root else {
+                        continue;
+                    };
+                    let summary = crate::typed_body::ParameterLoanSummary {
+                        parameter: binding.0,
+                        mutable: origin.mutable,
+                        input_storage: origin.parameter_storage.unwrap_or_default(),
+                        storage: origin.storage,
+                    };
+                    if !returned.contains(&summary) {
+                        returned.push(summary);
+                    }
+                }
+            }
+            if let Some(id) = self.function_id(&name) {
+                // An empty summary distinguishes a known body with no
+                // parameter-derived loans from an unavailable external body.
+                summaries.insert(id, returned);
+            }
+        }
+        let shared = Arc::new(summaries);
+        for body in self.bodies.values_mut() {
+            body.call_return_origins = shared.clone();
+        }
+    }
+
+    fn collect_parameter_loan_slots(
+        &self,
+        ty: &Type,
+        path: &mut Vec<crate::typed_place::Segment>,
+        seen: &mut HashSet<String>,
+        output: &mut Vec<crate::typed_body::ParameterLoanSeed>,
+    ) {
+        use crate::typed_place::Segment;
+        match ty {
+            Type::Reference { mutable, .. } => output.push(crate::typed_body::ParameterLoanSeed {
+                mutable: *mutable,
+                storage: path.clone(),
+            }),
+            Type::Slice(_) | Type::MutableSlice(_) => {
+                output.push(crate::typed_body::ParameterLoanSeed {
+                    mutable: matches!(ty, Type::MutableSlice(_)),
+                    storage: path.clone(),
+                });
+            }
+            Type::Array(element, length) if *length > 0 => {
+                path.push(if *length == 1 {
+                    Segment::Index(0)
+                } else {
+                    Segment::DynamicIndex
+                });
+                self.collect_parameter_loan_slots(element, path, seen, output);
+                path.pop();
+            }
+            Type::Tuple(elements) => {
+                for (index, element) in elements.iter().enumerate() {
+                    path.push(Segment::Tuple(index));
+                    self.collect_parameter_loan_slots(element, path, seen, output);
+                    path.pop();
+                }
+            }
+            Type::Named(name) if seen.insert(name.clone()) => {
+                if let Some(fields) = self.structs.get(name) {
+                    if let Some(owner) = self.aggregate_ids.get(name).copied() {
+                        for (index, field) in fields.iter().enumerate() {
+                            path.push(Segment::Field(FieldId { owner, index }));
+                            self.collect_parameter_loan_slots(&field.ty, path, seen, output);
+                            path.pop();
+                        }
+                    }
+                }
+                if let Some(variants) = self.enums.get(name) {
+                    let owner = self.aggregate_ids.get(name).copied();
+                    for (variant_index, variant) in variants.iter().enumerate() {
+                        let Some(owner) = owner else { continue };
+                        let id = VariantId {
+                            owner,
+                            index: variant_index,
+                        };
+                        for (index, field) in variant.fields.iter().enumerate() {
+                            path.push(Segment::Payload(id, index));
+                            self.collect_parameter_loan_slots(field, path, seen, output);
+                            path.pop();
+                        }
+                    }
+                }
+                seen.remove(name);
+            }
+            _ => {}
+        }
     }
 }
 

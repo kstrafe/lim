@@ -1871,12 +1871,14 @@ mod tests {
                 mutable: true,
                 span: None,
                 storage: Vec::new(),
+                parameter_storage: None,
             },
             LoanOrigin {
                 place: Place::root(PlaceRoot::Local(BindingId(1))),
                 mutable: true,
                 span: None,
                 storage: Vec::new(),
+                parameter_storage: None,
             },
         ];
         let alternatives = origin_alternatives(&held, None).unwrap().unwrap();

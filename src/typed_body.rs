@@ -1,6 +1,7 @@
 //! Typed, source-located body arena. Dense IDs survive copying and lowering;
 //! checked type/span capture still bridges through the borrowed legacy AST.
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[cfg(test)]
 mod tests {
@@ -792,6 +793,20 @@ pub(crate) enum PlaceRoot {
     Global(GlobalId),
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct ParameterLoanSummary {
+    pub parameter: usize,
+    pub mutable: bool,
+    pub input_storage: Vec<crate::typed_place::Segment>,
+    pub storage: Vec<crate::typed_place::Segment>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct ParameterLoanSeed {
+    pub mutable: bool,
+    pub storage: Vec<crate::typed_place::Segment>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum Projection {
     Local,
@@ -816,6 +831,10 @@ pub(crate) struct Body {
     /// Keeping this boundary in typed IR lets ownership analyses distinguish
     /// externally supplied reference roots from references to local owners.
     pub parameter_count: usize,
+    /// Interprocedural return-origin summaries shared by all checked bodies.
+    pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
+    /// Reference-bearing slots in each parameter value, indexed by binding ID.
+    pub parameter_loan_slots: Vec<Vec<ParameterLoanSeed>>,
     emission_nodes: Vec<NodeId>,
     callees: HashMap<FunctionId, String>,
     declaration_names: HashMap<DeclarationId, String>,
