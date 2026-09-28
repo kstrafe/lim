@@ -8865,6 +8865,53 @@ impl FunctionContext {
         Ok(())
     }
 
+    fn checked_field_index(
+        &self,
+        selector: &Expr,
+        struct_name: &str,
+        fields: &[Field],
+    ) -> Result<usize, String> {
+        let Expr::Symbol(field_name) = selector else {
+            return Err("get requires a field name".into());
+        };
+        if let Some(metadata) = self.expression_types.get(selector) {
+            let Some(crate::typed_ir::DeclarationId::Field(field_id)) = metadata.declaration else {
+                return Err(
+                    "internal error: checked struct field lost its declaration identity".into(),
+                );
+            };
+            let owner = self
+                .expression_types
+                .aggregate_names
+                .get(&field_id.owner)
+                .ok_or_else(|| {
+                    "internal error: checked field identity lost its aggregate owner".to_owned()
+                })?;
+            if owner != struct_name {
+                return Err(format!(
+                    "internal error: checked field owner '{owner}' disagrees with struct '{struct_name}'"
+                ));
+            }
+            let Some(field) = fields.get(field_id.index) else {
+                return Err("internal error: checked field index is out of bounds".into());
+            };
+            if field.name != *field_name {
+                return Err(format!(
+                    "internal error: checked field identity changed from '{}' to '{field_name}'",
+                    field.name
+                ));
+            }
+            return Ok(field_id.index);
+        }
+        if self.expression_types.has_checked_identity(selector) {
+            return Err("internal error: checked struct field has no declaration metadata".into());
+        }
+        fields
+            .iter()
+            .position(|field| field.name == *field_name)
+            .ok_or_else(|| format!("unknown field '{field_name}'"))
+    }
+
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         let typed_literal = checked_scalar_literal(expression, &self.expression_types)?;
         let expression = typed_literal.as_ref().unwrap_or(expression);
@@ -12650,10 +12697,7 @@ impl FunctionContext {
                 .structs
                 .get(&struct_name)
                 .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
-            let index = fields
-                .iter()
-                .position(|field| field.name == *field_name)
-                .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))?;
+            let index = self.checked_field_index(&items[2], &struct_name, fields)?;
             let field_type = fields[index].ty.clone();
             let offset_words = fields[..index]
                 .iter()
@@ -12707,12 +12751,8 @@ impl FunctionContext {
                         .structs
                         .get(struct_name)
                         .ok_or_else(|| format!("'{local}' is not a struct"))?;
-                    let (index, field_type) = fields
-                        .iter()
-                        .enumerate()
-                        .find(|(_, field)| field.name == *field_name)
-                        .map(|(index, field)| (index, field.ty.clone()))
-                        .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                    let index = self.checked_field_index(&items[2], struct_name, fields)?;
+                    let field_type = fields[index].ty.clone();
                     if !matches!(self.globals.get(local), Some(GlobalValue::Aggregate(_))) {
                         return Err(format!("global '{local}' is not an aggregate struct"));
                     }
@@ -12755,21 +12795,22 @@ impl FunctionContext {
                 else {
                     return Err(format!("'{local}' is not a struct"));
                 };
-                let slot = fields
-                    .iter()
-                    .find(|(name, _)| name == field_name)
-                    .map(|(_, slots)| slots.clone())
-                    .ok_or_else(|| format!("unknown field '{field_name}'"))?;
                 let struct_name = match self.expression_type(&items[1]) {
                     Some(Type::Named(name)) => name,
                     _ => return Err(format!("'{local}' is not a struct")),
                 };
-                let field_type = self
+                let declared_fields = self
                     .structs
                     .get(&struct_name)
-                    .and_then(|fields| fields.iter().find(|field| field.name == *field_name))
-                    .map(|field| field.ty.clone())
-                    .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                    .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+                let index = self.checked_field_index(&items[2], &struct_name, declared_fields)?;
+                let (slot_name, slot) = fields
+                    .get(index)
+                    .ok_or_else(|| "native struct storage lost a checked field".to_owned())?;
+                if slot_name != field_name {
+                    return Err("internal error: native struct field order changed".into());
+                }
+                let field_type = declared_fields[index].ty.clone();
                 let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
                 if field_words > 1 {
                     for (word, register) in VALUE_REGISTERS[..field_words].iter().enumerate() {
@@ -12806,10 +12847,7 @@ impl FunctionContext {
                     .get(struct_name)
                     .ok_or_else(|| format!("unknown struct '{struct_name}'"))?
                     .clone();
-                let index = fields
-                    .iter()
-                    .position(|field| field.name == *field_name)
-                    .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                let index = self.checked_field_index(&items[2], struct_name, &fields)?;
                 let value = constructor
                     .get(index + 1)
                     .ok_or_else(|| "constructor has too few fields".to_owned())?;
@@ -12837,10 +12875,7 @@ impl FunctionContext {
                     .get(&struct_name)
                     .ok_or_else(|| format!("unknown struct '{struct_name}'"))?
                     .clone();
-                let index = fields
-                    .iter()
-                    .position(|field| field.name == *field_name)
-                    .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                let index = self.checked_field_index(&items[2], &struct_name, &fields)?;
                 if let Expr::List(call_items) = &items[1] {
                     if let Some(Expr::Symbol(_)) = call_items.first() {
                         if self.is_indirect_return_call(&items[1])? {

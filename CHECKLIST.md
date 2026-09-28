@@ -519,6 +519,12 @@ the checklist is committed alongside the implementation it tracks.
   Verify a field projection keeps its exact declaration ID under its stable
   expression ID.
 
+- [x] **IR-02at: Select named struct fields by checked declaration identity.**
+  Use the retained field owner and index for native `#get` lowering across
+  locals, globals, references, constructors, and aggregate results. Validate
+  owner/name consistency and reserve spelling lookup for synthesized syntax.
+  Test retained owner metadata and native aggregate access.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

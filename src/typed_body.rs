@@ -62,6 +62,7 @@ mod tests {
         let expression_id = node.expression_id.unwrap();
 
         let emission = body.emission_types(function).unwrap();
+        assert_eq!(emission.aggregate_names[&field.owner], "Pair");
         assert_eq!(
             emission.by_id[&expression_id].declaration,
             Some(declaration)
@@ -1012,6 +1013,7 @@ pub(crate) struct Body {
     emission_nodes: Vec<NodeId>,
     callees: HashMap<FunctionId, String>,
     declaration_names: HashMap<DeclarationId, String>,
+    aggregate_names: HashMap<crate::typed_ir::AggregateId, String>,
 }
 
 #[derive(Default)]
@@ -1023,6 +1025,8 @@ pub(crate) struct EmissionTypes {
     pub binding_names: Vec<String>,
     /// Checked local types in the same identity order.
     pub binding_types: Vec<Type>,
+    /// Owner names needed to validate aggregate declaration identities.
+    pub aggregate_names: HashMap<crate::typed_ir::AggregateId, String>,
     /// Temporary bridge for legacy codegen, which still visits AST references.
     pub address_to_id: HashMap<usize, ExpressionId>,
     /// Backend-created expressions have no source identity and retain a narrow
@@ -1196,6 +1200,7 @@ impl Body {
             .iter()
             .map(|binding| binding.ty.clone())
             .collect();
+        emission.aggregate_names = self.aggregate_names.clone();
         for (id, target) in self.emission_nodes.iter().zip(after) {
             let address = std::ptr::from_ref(target) as usize;
             let node = &self.nodes[id.0];
@@ -1790,10 +1795,22 @@ impl Builder<'_> {
     }
 
     fn declaration(&mut self, id: DeclarationId) -> NodeKind {
+        let owner = match id {
+            DeclarationId::Field(field) => Some(field.owner),
+            DeclarationId::Variant(variant) => Some(variant.owner),
+            DeclarationId::Global(_) | DeclarationId::Aggregate(_) => None,
+        };
         self.body
             .declaration_names
             .entry(id)
             .or_insert_with(|| self.declarations.declaration_name(id).to_owned());
+        if let Some(owner) = owner {
+            self.body.aggregate_names.entry(owner).or_insert_with(|| {
+                self.declarations
+                    .declaration_name(DeclarationId::Aggregate(owner))
+                    .to_owned()
+            });
+        }
         NodeKind::Declaration(id)
     }
 
