@@ -203,6 +203,46 @@ mod checked_program_tests {
     use super::*;
 
     #[test]
+    fn generic_programmatic_declarations_are_rejected_at_the_checked_boundary() {
+        let mut function_program =
+            crate::parse_program("(#fn identity ((value u64)) u64 (#return value))").unwrap();
+        let Item::Function(function) = &mut function_program.items[0] else {
+            unreachable!()
+        };
+        function.type_parameters.push("T".into());
+        let (message, _, span, _) = CheckedProgram::validate_with_span(&function_program)
+            .err()
+            .expect("generic function must be rejected");
+        assert!(message.contains("generic functions are not supported"));
+        let span = span.expect("generic function error keeps its declaration span");
+        assert_eq!(
+            &function_program.source.as_ref().unwrap()[span.start..span.end],
+            "identity"
+        );
+
+        let mut type_program = crate::parse_program("(#struct Box ((value u64)))").unwrap();
+        let Item::Struct {
+            name,
+            type_parameters,
+            ..
+        } = &mut type_program.items[0]
+        else {
+            unreachable!()
+        };
+        *type_parameters = vec!["T".into()];
+        let expected_name = name.clone();
+        let (message, _, span, _) = CheckedProgram::validate_with_span(&type_program)
+            .err()
+            .expect("generic type must be rejected");
+        assert!(message.contains("generic declarations are not supported"));
+        let span = span.expect("generic type error keeps its declaration span");
+        assert_eq!(
+            &type_program.source.as_ref().unwrap()[span.start..span.end],
+            expected_name
+        );
+    }
+
+    #[test]
     fn direct_borrow_origin_span_points_at_the_operator() {
         let source = "(#fn main () u64 (#let owner u64 1u64) (#let view (#ref u64) (#borrow owner)) (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
@@ -591,6 +631,39 @@ fn check_types_inner(
 ) -> Result<Declarations, String> {
     #[cfg(test)]
     SEMANTIC_PASSES.with(|passes| passes.set(passes.get() + 1));
+    for item in &program.items {
+        match item {
+            Item::Function(function) if !function.type_parameters.is_empty() => {
+                *diagnostic_span = function_name_span(program, &function.name);
+                return Err(
+                    "generic functions are not supported; use a concrete generated function instead"
+                        .into(),
+                );
+            }
+            Item::TypeAlias {
+                name,
+                type_parameters,
+                ..
+            }
+            | Item::Struct {
+                name,
+                type_parameters,
+                ..
+            }
+            | Item::Enum {
+                name,
+                type_parameters,
+                ..
+            } if !type_parameters.is_empty() => {
+                *diagnostic_span = declaration_name_span(program, name);
+                return Err(
+                    "generic declarations are not supported; use a concrete generated declaration instead"
+                        .into(),
+                );
+            }
+            _ => {}
+        }
+    }
     for item in &program.items {
         match item {
             Item::Function(function)
@@ -4114,11 +4187,18 @@ fn function_name_span(program: &Program, name: &str) -> Option<crate::Span> {
 fn declaration_name_span(program: &Program, name: &str) -> Option<crate::Span> {
     program
         .declaration_occurrences
-        .get(name)?
-        .get(1)?
-        .children
-        .get(1)
+        .get(name)
+        .and_then(|occurrences| occurrences.get(1))
+        .and_then(|declaration| declaration.children.get(1))
         .map(|expression| expression.span)
+        .or_else(|| {
+            program
+                .declaration_expressions
+                .get(name)?
+                .children
+                .get(1)
+                .map(|expression| expression.span)
+        })
 }
 
 fn unsafe_impl_type_span(

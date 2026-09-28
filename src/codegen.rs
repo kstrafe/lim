@@ -399,6 +399,7 @@ fn unsigned_range_bound(expression: &Expr) -> Result<u128, String> {
     }
 }
 
+#[cfg(test)]
 fn generic_call_parts(operator: &str) -> Option<(&str, Vec<&str>)> {
     let open = operator.find('<')?;
     if !operator.ends_with('>') || open == 0 {
@@ -412,6 +413,7 @@ fn generic_call_parts(operator: &str) -> Option<(&str, Vec<&str>)> {
     Some((base, arguments.split(',').map(str::trim).collect()))
 }
 
+#[cfg(test)]
 fn specialized_type_name(ty: &Type) -> String {
     match ty {
         Type::Unit => "unit".into(),
@@ -460,6 +462,7 @@ fn specialized_type_name(ty: &Type) -> String {
     }
 }
 
+#[cfg(test)]
 fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
     match ty {
         Type::Generic(name) => substitutions
@@ -484,6 +487,7 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
     }
 }
 
+#[cfg(test)]
 fn substitute_expr(expression: &Expr, substitutions: &HashMap<String, Type>) -> Expr {
     match expression {
         Expr::List(items) => Expr::List(
@@ -520,6 +524,7 @@ fn substitute_expr(expression: &Expr, substitutions: &HashMap<String, Type>) -> 
     }
 }
 
+#[cfg(test)]
 fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, Type>) -> Statement {
     match statement {
         Statement::Let {
@@ -639,6 +644,7 @@ fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, T
     }
 }
 
+#[cfg(test)]
 fn rewrite_expr(expression: &Expr, specializations: &HashMap<String, String>) -> Expr {
     match expression {
         Expr::List(items) => Expr::List(
@@ -678,6 +684,7 @@ fn rewrite_expr(expression: &Expr, specializations: &HashMap<String, String>) ->
     }
 }
 
+#[cfg(test)]
 fn rewrite_statement(
     statement: &Statement,
     specializations: &HashMap<String, String>,
@@ -798,6 +805,7 @@ fn rewrite_statement(
     }
 }
 
+#[cfg(test)]
 fn collect_generic_calls_expr(expression: &Expr, calls: &mut Vec<String>) {
     match expression {
         Expr::List(items) => {
@@ -829,6 +837,7 @@ fn collect_generic_calls_expr(expression: &Expr, calls: &mut Vec<String>) {
     }
 }
 
+#[cfg(test)]
 fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String>) {
     match statement {
         Statement::Let { value, .. }
@@ -888,6 +897,7 @@ fn collect_generic_calls_statement(statement: &Statement, calls: &mut Vec<String
     }
 }
 
+#[cfg(test)]
 fn monomorphize_program<'a>(
     program: &'a Program,
     aliases: &HashMap<String, Type>,
@@ -1180,11 +1190,10 @@ pub(crate) fn generate_checked_assembly(
         return Err("native backend has no implementation for the selected target".into());
     }
     let program = checked.program();
-    let program = erase_unsafe_blocks(program, &checked.declarations().bodies);
+    let erased_program = erase_unsafe_blocks(program, &checked.declarations().bodies);
+    let program = &erased_program;
     let declarations = checked.declarations();
     let aliases = &declarations.aliases;
-    let monomorphized = monomorphize_program(&program, aliases)?;
-    let program = monomorphized.as_ref();
     let structs = &declarations.structs;
     let enums = &declarations.enums;
     let repr_c_types: HashSet<String> = program
@@ -1210,26 +1219,15 @@ pub(crate) fn generate_checked_assembly(
         let Item::Function(function) = item else {
             continue;
         };
-        let declaration = declarations
-            .function_id(&function.name)
-            .map(|id| declarations.function(id));
-        // Legacy generic specializations are introduced after validation. All
-        // ordinary and generator-produced functions use retained signatures.
-        let (parameters, return_type) = if let Some(declaration) = declaration {
-            (
-                declaration.signature.parameters.clone(),
-                declaration.signature.return_type.clone(),
+        let declaration_id = declarations.function_id(&function.name).ok_or_else(|| {
+            format!(
+                "internal error: checked native function '{}' lost its declaration identity",
+                function.name
             )
-        } else {
-            (
-                function
-                    .parameters
-                    .iter()
-                    .map(|parameter| resolve_type(&parameter.ty, aliases))
-                    .collect::<Result<Vec<_>, _>>()?,
-                resolve_type(&function.return_type, aliases)?,
-            )
-        };
+        })?;
+        let declaration = declarations.function(declaration_id);
+        let parameters = declaration.signature.parameters.clone();
+        let return_type = declaration.signature.return_type.clone();
         let indirect_parameters: Vec<bool> = parameters
             .iter()
             .map(|ty| supports_indirect_return_type(ty, structs, enums))
@@ -1273,7 +1271,7 @@ pub(crate) fn generate_checked_assembly(
         ensure_return_type(&return_type, enums, structs).map_err(|error| {
             let error = crate::source_error::SourceError::from(error);
             declaration
-                .and_then(|declaration| declaration.span)
+                .span
                 .or_else(|| program.declaration_spans.get(&function.name).copied())
                 .map_or(error.clone(), |span| error.at(span))
         })?;

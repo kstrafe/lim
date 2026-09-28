@@ -452,6 +452,13 @@ the checklist is committed alongside the implementation it tracks.
   compatibility lookup only for synthesized nodes; test both paths and retain
   numeric and native-example coverage.
 
+- [x] **IR-02am: Keep function specialization before the checked boundary.**
+  Reject generic function/type declarations even for programmatically built
+  `Program` values, matching the source grammar's concrete-only rule. Remove
+  post-validation function monomorphization and ABI reconstruction from native
+  emission; generated concrete functions remain ordinary checked declarations.
+  Test the checked API rejection and preserve generated-function/native tests.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
