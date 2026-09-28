@@ -968,6 +968,40 @@ fn async_function_lowers_await_in_terminal_binding_block() {
 }
 
 #[test]
+fn async_function_rejects_loop_await_without_hoisting_it() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (ChildReady 1u64)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#while (#u64.< iteration 2u64)
+            (#let result u64
+              (#await Child ChildPending ChildReady child-poll (Waiting iteration)))
+            (#set iteration (#u64.+.wrap iteration 1u64)))
+          (#return iteration))))";
+    let scratch = support::Scratch::new("async-loop-await");
+    let input = scratch.path().join("loop.lim");
+    let diagnostic = lim::compile_source_to_assembly(
+        source,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        diagnostic
+            .message
+            .contains("loop-carried suspension state is not supported"),
+        "{diagnostic:?}"
+    );
+    let span = diagnostic.span.expect("await source span");
+    assert_eq!(&source[span.start..span.end], "#await");
+}
+
+#[test]
 fn async_function_can_suspend_at_each_await() {
     let original = example_without_cancel_work();
     let (prefix, _) = original.split_once("(#fn main () u64").unwrap();

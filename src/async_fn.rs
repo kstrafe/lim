@@ -501,6 +501,12 @@ fn extract_nested_awaits(
                 }
                 return Ok(());
             };
+            if contains_await && matches!(head.as_str(), "#while" | "#for" | "#for-range" | "#loop")
+            {
+                return Err(
+                    "@async-fn cannot lower #await inside a loop yet; loop-carried suspension state is not supported".into(),
+                );
+            }
             if matches!(head.as_str(), "#if" | "#match" | "#block") && contains_await {
                 return Err(format!(
                     "@async-fn awaits inside #if/#match/#block are not lowered yet"

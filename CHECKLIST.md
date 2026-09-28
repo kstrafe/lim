@@ -1727,6 +1727,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   inside the selected branch's task-construction block. Verify a branch-local
   value initializes the child task and survives through native polling without
   becoming an unnecessary frame capture.
+- [x] **ASYNC-01b18: Prevent loop-await hoisting from changing semantics.**
+  Detect `#await` nested in `#while`, `#for`, `#for-range`, or `#loop` before
+  expression lowering can hoist it outside the loop. Emit a targeted error
+  underlining the `#await`; implementing loop-carried suspension state remains
+  part of ASYNC-01b.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
