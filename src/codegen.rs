@@ -13850,7 +13850,8 @@ impl FunctionContext {
             return self.store_value_words(value, ty, slots);
         }
         if let Expr::Symbol(name) = value {
-            if let Ok(source_slots) = local_slots(&self.locals, name) {
+            if self.is_local_symbol_expression(value, name) {
+                let source_slots = self.local_slots_for_symbol(value, name)?;
                 if source_slots.len() == words {
                     for (source, destination) in source_slots.iter().zip(slots) {
                         self.output.push_str(&format!(
@@ -14215,7 +14216,8 @@ impl FunctionContext {
         }
         let source = match &items[1] {
             Expr::Symbol(name) => {
-                if let Ok(slots) = local_slots(&self.locals, name) {
+                if self.is_local_symbol_expression(&items[1], name) {
+                    let slots = self.local_slots_for_symbol(&items[1], name)?;
                     Some(Source::Slots(slots))
                 } else if matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) {
                     Some(Source::Global(name.clone()))

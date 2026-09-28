@@ -334,6 +334,11 @@ the checklist is committed alongside the implementation it tracks.
   keep global and synthesized aggregate values on their existing paths. Cover
   large tuple, struct, and enum arguments, including nested calls.
 
+- [x] **IR-02t: Resolve oversized aggregate copies by identity.** Use checked
+  `BindingId`s when copying large local values directly into destination slots
+  or projecting oversized aggregate fields. Preserve global and synthesized
+  expression paths; cover nested tuple, array, and struct values.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
