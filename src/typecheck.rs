@@ -1455,9 +1455,10 @@ fn check_types_inner(
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {
-                crate::typed_borrow::check_live_direct_loans(
+                crate::typed_borrow::check_live_direct_loans_with_types(
                     body,
                     &declarations.flows[&function.name],
+                    &linear_types,
                 )
                 .map_err(|error| {
                     *diagnostic_span = error

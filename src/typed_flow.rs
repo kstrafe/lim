@@ -149,6 +149,7 @@ pub(crate) struct FlowReleases {
 pub(crate) struct FlowConsumptions {
     before: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
+    at: Vec<HashSet<Place>>,
 }
 
 impl FlowConsumptions {
@@ -158,6 +159,13 @@ impl FlowConsumptions {
 
     pub fn after(&self, node: FlowNodeId, place: &Place) -> Option<&[Option<Span>]> {
         self.after[node.0].as_ref()?.get(place).map(Vec::as_slice)
+    }
+
+    /// Whether this flow node newly consumes the supplied place. Spans make
+    /// the check stable when the same place has already been consumed on a
+    /// different predecessor path.
+    pub fn consumes_at(&self, node: FlowNodeId, place: &Place) -> bool {
+        self.at[node.0].contains(place)
     }
 
     pub fn dump(&self) -> String {
@@ -267,7 +275,7 @@ impl FlowLoanOrigins {
                                     &value_loan_origins_at_events(
                                         body,
                                         flow,
-                                        self,
+                                        &self.before,
                                         alternative,
                                         state,
                                     ),
@@ -279,7 +287,13 @@ impl FlowLoanOrigins {
                 if !evaluated {
                     merge_loan_origins(
                         &mut loop_results,
-                        &value_loan_origins_at_events(body, flow, self, *break_value, state),
+                        &value_loan_origins_at_events(
+                            body,
+                            flow,
+                            &self.before,
+                            *break_value,
+                            state,
+                        ),
                     );
                 }
             }
@@ -298,14 +312,14 @@ impl FlowLoanOrigins {
                 if let Some(state) = &self.before[index] {
                     merge_loan_origins(
                         &mut results,
-                        &value_loan_origins_at_events(body, flow, self, alternative, state),
+                        &value_loan_origins_at_events(body, flow, &self.before, alternative, state),
                     );
                 }
             }
         }
         if results.is_empty() {
             self.before[node.0].as_ref().map_or_else(Vec::new, |state| {
-                value_loan_origins_at_events(body, flow, self, value, state)
+                value_loan_origins_at_events(body, flow, &self.before, value, state)
             })
         } else {
             results
@@ -616,10 +630,11 @@ impl FlowGraph {
             let mut state = before[id.0].as_ref().unwrap().clone();
             match &self.nodes[id.0].action {
                 FlowAction::Bind { binding, value } => {
-                    state[binding.0] = value_loan_origins(body, *value, &state);
+                    state[binding.0] =
+                        value_loan_origins_at_events(body, self, &before, *value, &state);
                 }
                 FlowAction::Pattern { pattern, value } => {
-                    let origins = value_loan_origins(body, *value, &state);
+                    let origins = value_loan_origins_at_events(body, self, &before, *value, &state);
                     distribute_pattern_origins(body, *pattern, &origins, &mut state);
                     if let (Some(place), Some(selected)) = (
                         Place::from_expression(body, *value),
@@ -643,7 +658,8 @@ impl FlowGraph {
                         },
                     value,
                 } => {
-                    let incoming = value_loan_origins(body, *value, &state);
+                    let incoming =
+                        value_loan_origins_at_events(body, self, &before, *value, &state);
                     if segments.is_empty() {
                         state[binding.0] = incoming;
                     } else {
@@ -659,7 +675,8 @@ impl FlowGraph {
                         }
                         _ => *value,
                     };
-                    let incoming = value_loan_origins(body, source, &state);
+                    let incoming =
+                        value_loan_origins_at_events(body, self, &before, source, &state);
                     for destination in
                         resolve_known_referents(body, place, &state, &mut HashSet::new())
                     {
@@ -922,6 +939,7 @@ impl FlowGraph {
         }
         let mut before = vec![None; self.nodes.len()];
         let mut after = vec![None; self.nodes.len()];
+        let mut consumed_at = vec![HashSet::new(); self.nodes.len()];
         let mut queued = vec![false; self.nodes.len()];
         let mut pending = VecDeque::from([self.entry]);
         before[self.entry.0] = Some(HashMap::<Place, Vec<Option<Span>>>::new());
@@ -942,6 +960,7 @@ impl FlowGraph {
                         .as_ref()
                         .is_some_and(|ty| types.is_linear(ty)) =>
                 {
+                    consumed_at[id.0].insert(place.clone());
                     let spans = state.entry(place.clone()).or_default();
                     if !spans.contains(&node.span) {
                         spans.push(node.span);
@@ -951,6 +970,7 @@ impl FlowGraph {
                     if matches!(place.root, PlaceRoot::Local(_))
                         && release_operand_is_linear(body, *value, types) =>
                 {
+                    consumed_at[id.0].insert(place.clone());
                     let spans = state.entry(place.clone()).or_default();
                     if !spans.contains(&node.span) {
                         spans.push(node.span);
@@ -1007,7 +1027,11 @@ impl FlowGraph {
                 }
             }
         }
-        FlowConsumptions { before, after }
+        FlowConsumptions {
+            before,
+            after,
+            at: consumed_at,
+        }
     }
 
     /// Reject use or explicit destruction after a possible linear move on
@@ -2602,7 +2626,7 @@ fn value_projection(body: &Body, value: NodeId) -> Option<Segment> {
 fn value_loan_origins_at_events(
     body: &Body,
     flow: &FlowGraph,
-    origins: &FlowLoanOrigins,
+    before: &[Option<LoanState>],
     value: NodeId,
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
@@ -2617,10 +2641,10 @@ fn value_loan_origins_at_events(
                 continue;
             };
             if *loop_result == value {
-                if let Some(state) = &origins.before[index] {
+                if let Some(state) = &before[index] {
                     merge_loan_origins(
                         &mut result,
-                        &value_loan_origins_at_events(body, flow, origins, *break_value, state),
+                        &value_loan_origins_at_events(body, flow, before, *break_value, state),
                     );
                 }
             }
@@ -2639,10 +2663,10 @@ fn value_loan_origins_at_events(
         for alternative in alternatives {
             for (index, event) in flow.nodes.iter().enumerate() {
                 if flow_action_has_value(&event.action, alternative) {
-                    if let Some(state) = &origins.before[index] {
+                    if let Some(state) = &before[index] {
                         merge_loan_origins(
                             &mut result,
-                            &value_loan_origins_at_events(body, flow, origins, alternative, state),
+                            &value_loan_origins_at_events(body, flow, before, alternative, state),
                         );
                     }
                 }
@@ -2660,7 +2684,7 @@ fn value_loan_origins_at_events(
     } = &body.nodes[value.0].kind
     {
         if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
-            return value_loan_origins_at_events(body, flow, origins, children[1], state);
+            return value_loan_origins_at_events(body, flow, before, children[1], state);
         }
         if matches!(
             head.as_str(),
@@ -2668,7 +2692,7 @@ fn value_loan_origins_at_events(
         ) && children.len() == 3
         {
             let mut pointer_origins =
-                value_loan_origins_at_events(body, flow, origins, children[1], state);
+                value_loan_origins_at_events(body, flow, before, children[1], state);
             if matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut") {
                 for origin in &mut pointer_origins {
                     origin.pinned = false;
@@ -2681,7 +2705,7 @@ fn value_loan_origins_at_events(
             "slice-of" | "slice-mut-of" | "slice-range" | "slice-idx" | "slice-mut-idx"
         ) {
             let mut loans = children.get(1).map_or_else(Vec::new, |source| {
-                value_loan_origins_at_events(body, flow, origins, *source, state)
+                value_loan_origins_at_events(body, flow, before, *source, state)
             });
             let borrowed_from = children
                 .get(1)
@@ -2694,7 +2718,7 @@ fn value_loan_origins_at_events(
             return loans;
         }
         if head == "slice-mut-split" && children.len() == 3 {
-            let source = value_loan_origins_at_events(body, flow, origins, children[1], state);
+            let source = value_loan_origins_at_events(body, flow, before, children[1], state);
             let mut result = Vec::with_capacity(source.len() * 2);
             let borrowed_from = reference_binding(body, children[1]);
             for half in 0..2 {
@@ -2720,7 +2744,7 @@ fn value_loan_origins_at_events(
             else {
                 return Vec::new();
             };
-            return value_loan_origins_at_events(body, flow, origins, *base, state)
+            return value_loan_origins_at_events(body, flow, before, *base, state)
                 .into_iter()
                 .filter_map(|mut origin| {
                     let held_slot = origin.storage.first()?;
@@ -2739,8 +2763,7 @@ fn value_loan_origins_at_events(
                     let Some(argument) = children.get(source.parameter + 1) else {
                         continue;
                     };
-                    for origin in
-                        value_loan_origins_at_events(body, flow, origins, *argument, state)
+                    for origin in value_loan_origins_at_events(body, flow, before, *argument, state)
                     {
                         if let Some(origin) = apply_parameter_loan_summary(origin, source) {
                             merge_loan_origins(&mut result, &[origin]);
@@ -2761,7 +2784,7 @@ fn value_loan_origins_at_events(
                 let mut result = Vec::new();
                 for argument in children.iter().skip(1) {
                     for mut origin in
-                        value_loan_origins_at_events(body, flow, origins, *argument, state)
+                        value_loan_origins_at_events(body, flow, before, *argument, state)
                     {
                         origin.storage.clear();
                         merge_loan_origins(&mut result, &[origin]);
@@ -2780,7 +2803,7 @@ fn value_loan_origins_at_events(
             let Some(element) = children.get(if children.len() == 3 { 2 } else { 1 }) else {
                 return Vec::new();
             };
-            let mut result = value_loan_origins_at_events(body, flow, origins, *element, state);
+            let mut result = value_loan_origins_at_events(body, flow, before, *element, state);
             let slot = if *length == 1 {
                 Segment::Index(0)
             } else {
@@ -2813,7 +2836,7 @@ fn value_loan_origins_at_events(
                 let Some(slot) = aggregate_slot(body, head, children, index) else {
                     continue;
                 };
-                let mut nested = value_loan_origins_at_events(body, flow, origins, *child, state);
+                let mut nested = value_loan_origins_at_events(body, flow, before, *child, state);
                 for origin in &mut nested {
                     origin.storage.insert(0, slot.clone());
                 }

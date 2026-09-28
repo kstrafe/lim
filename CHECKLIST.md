@@ -3281,3 +3281,10 @@ commit, documentation, and focused regression coverage.
   when both catch it, preserve the legacy checker's more specific message and
   underline. Verify exact UI spans and accepted branch, loop, and aggregate
   ownership cases.
+
+- [x] **IR-04cv: Preserve match-result loans and reject moves of borrowed owners.**
+  Resolve value origins for branch and match expressions at their actual CFG
+  predecessor events, including references nested in opaque structs and enum
+  payloads. Treat a linear by-value transfer as an owner move when checking
+  live loans, so calls cannot consume an owner while a result still borrows it.
+  Cover enum payload extraction, by-value calls, and pending AIO context use.

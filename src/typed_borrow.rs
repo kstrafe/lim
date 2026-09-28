@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::linearcheck::LinearTypes;
 use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind, PlaceRoot};
 use crate::typed_flow::{FlowAction, FlowGraph, FlowNodeId, LoanOrigin};
 use crate::typed_ir::{DeclarationId, FieldId};
@@ -26,6 +27,7 @@ enum AccessKind {
     Read,
     Borrow { mutable: bool },
     Clone,
+    Move,
     Write,
     Release,
 }
@@ -34,7 +36,16 @@ enum AccessKind {
 /// accesses through a reference are rebased onto the original referent so a
 /// live child reborrow conflicts with parent access while disjoint fields stay
 /// independent.
+#[cfg(test)]
 pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
+    check_live_direct_loans_with_types(body, flow, &LinearTypes::default())
+}
+
+pub(crate) fn check_live_direct_loans_with_types(
+    body: &Body,
+    flow: &FlowGraph,
+    types: &LinearTypes,
+) -> Result<(), BorrowConflict> {
     if !flow
         .nodes
         .iter()
@@ -43,6 +54,7 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
         return Ok(());
     }
     let origins = flow.loan_origins(body);
+    let consumptions = flow.consumptions(body, types);
     let live = flow.liveness(body);
     let scoped_ids = flow
         .nodes
@@ -85,7 +97,15 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
                 place,
                 place_base: false,
                 ..
-            } => (place, AccessKind::Read),
+            } => {
+                let event = FlowNodeId(index);
+                let access = if consumptions.consumes_at(event, place) {
+                    AccessKind::Move
+                } else {
+                    AccessKind::Read
+                };
+                (place, access)
+            }
             FlowAction::Borrow { place, mutable, .. } => {
                 (place, AccessKind::Borrow { mutable: *mutable })
             }
@@ -203,7 +223,7 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
                 let conflicts = match access {
                     AccessKind::Read | AccessKind::Clone => held.mutable,
                     AccessKind::Borrow { mutable } => held.mutable || mutable,
-                    AccessKind::Write | AccessKind::Release => true,
+                    AccessKind::Move | AccessKind::Write | AccessKind::Release => true,
                 };
                 if conflicts && access_places.iter().any(|place| held.place.overlaps(place)) {
                     let owner = match &held.place.root {
@@ -229,6 +249,9 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
                         }
                         AccessKind::Clone => {
                             format!("cannot clone '{owner}' while it is mutably borrowed")
+                        }
+                        AccessKind::Move => {
+                            format!("cannot move '{owner}' while it is borrowed")
                         }
                         AccessKind::Write if held.mutable => {
                             format!("cannot mutate '{owner}' while it is mutably borrowed")
@@ -318,7 +341,7 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
             let conflicts = match access {
                 AccessKind::Read | AccessKind::Clone => *held_mutable,
                 AccessKind::Borrow { mutable } => *held_mutable || mutable,
-                AccessKind::Write | AccessKind::Release => true,
+                AccessKind::Move | AccessKind::Write | AccessKind::Release => true,
             };
             if !conflicts {
                 continue;
@@ -343,6 +366,7 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
                     format!("cannot borrow '{owner}' because it is already borrowed mutably")
                 }
                 AccessKind::Clone => format!("cannot clone '{owner}' while it is mutably borrowed"),
+                AccessKind::Move => format!("cannot move '{owner}' while it is borrowed"),
                 AccessKind::Write if *held_mutable => {
                     format!("cannot mutate '{owner}' while it is mutably borrowed")
                 }
@@ -1427,6 +1451,54 @@ mod tests {
         assert_eq!(&source[span.start..span.end], "(#borrow right)");
         let first = error.labels[0].0;
         assert_eq!(&source[first.start..first.end], "(#borrow-mut left)");
+    }
+
+    #[test]
+    fn moving_a_borrowed_owner_into_a_by_value_call_is_rejected() {
+        let source = "(#struct Token ((value u64)))
+          (#linear Token)
+          (#fn consume ((token Token)) () (#drop token) (#return ()))
+          (#fn main () ()
+            (#let-mut owner Token (#struct-literal Token ((value 1u64))))
+            (#let view (#ref Token) (#borrow owner))
+            (#call consume (: token owner))
+            (#forget view)
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let error = match crate::CheckedProgram::validate(&program) {
+            Ok(_) => panic!("moving a borrowed linear owner must fail"),
+            Err(error) => error,
+        };
+        assert!(error.contains("cannot move 'owner' while it is borrowed"));
+    }
+
+    #[test]
+    fn enum_returned_reference_payload_remains_a_live_borrow() {
+        let source = "(#struct Token ((value u64)))
+          (#struct RefBox ((value (#ref Token))))
+          (#opaque RefBox)
+          (#enum Maybe ((Some RefBox) None))
+          (#fn wrap ((input (#ref Token))) Maybe
+            (#return (Some (#struct-literal RefBox ((value input))))))
+          (#fn main () ()
+            (#let-mut owner Token (#struct-literal Token ((value 1u64))))
+            (#let option Maybe (#call wrap (: input (#borrow owner))))
+            (#let result RefBox
+              (#match option
+                (#case (Some box) box)
+                (#case None (#unreachable))))
+            (#drop owner)
+            (#forget result)
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let error = match crate::CheckedProgram::validate(&program) {
+            Ok(_) => panic!("dropping an owner retained by an enum payload must fail"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains("cannot destroy 'owner' while it is borrowed"),
+            "{error}"
+        );
     }
 
     #[test]
