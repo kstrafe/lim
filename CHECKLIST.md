@@ -630,6 +630,11 @@ the checklist is committed alongside the implementation it tracks.
   indirect aggregate destinations. Preserve locals, dereferences, and
   constructors; cover nested static aggregate values.
 
+- [x] **IR-02bo: Return global enums by checked identity.** Resolve global
+  enum values through `GlobalId` in both direct and indirect return paths.
+  Preserve local enum layouts and constructor lowering; cover static enums
+  with unit and multiword payload variants.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

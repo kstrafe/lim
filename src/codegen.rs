@@ -7405,19 +7405,21 @@ impl FunctionContext {
                 }
                 return Ok(());
             }
-            if matches!(
-                self.global_types.get(name),
-                Some(Type::Named(global_name)) if global_name == enum_name
-            ) {
-                for index in 0..storage_words {
-                    self.load_global_word(name, index)?;
-                    self.output.push_str(&format!(
-                        "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
-                        pointer_slot * 8,
-                        index * 8
-                    ));
+            if let Some(global_name) = self.checked_global_name(value, name)? {
+                if matches!(
+                    self.global_types.get(&global_name),
+                    Some(Type::Named(global_type)) if global_type == enum_name
+                ) {
+                    for index in 0..storage_words {
+                        self.load_global_word(&global_name, index)?;
+                        self.output.push_str(&format!(
+                            "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                            pointer_slot * 8,
+                            index * 8
+                        ));
+                    }
+                    return Ok(());
                 }
-                return Ok(());
             }
         }
         let Expr::List(items) = value else {
@@ -7544,18 +7546,20 @@ impl FunctionContext {
                 .is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty()))
             {
                 if let Expr::Symbol(name) = value {
-                    if matches!(
-                        self.global_types.get(name),
-                        Some(Type::Named(global_name)) if global_name == struct_name
-                    ) {
-                        let words =
-                            value_word_count(&self.return_type, &self.structs, &self.enums)?;
-                        for index in (0..words).rev() {
-                            let register = VALUE_REGISTERS[index];
-                            self.load_global_word(name, index)?;
-                            self.output.push_str(&format!("    mov {register}, rax\n"));
+                    if let Some(global_name) = self.checked_global_name(value, name)? {
+                        if matches!(
+                            self.global_types.get(&global_name),
+                            Some(Type::Named(global_type)) if global_type == struct_name
+                        ) {
+                            let words =
+                                value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                            for index in (0..words).rev() {
+                                let register = VALUE_REGISTERS[index];
+                                self.load_global_word(&global_name, index)?;
+                                self.output.push_str(&format!("    mov {register}, rax\n"));
+                            }
+                            return Ok(());
                         }
-                        return Ok(());
                     }
                     let Storage::Enum {
                         discriminant,
