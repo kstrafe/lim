@@ -2028,6 +2028,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   `#pin-borrow` expressions, emit checked in-place payload access on each poll,
   and retain that reference across Pending. Verify native execution and reject
   a conflicting mutable borrow of the enum owner until the task is resumed.
+- [x] **ASYNC-01c2q: Borrow a struct field inside a pinned enum payload.**
+  Preserve `#pin-get-payload` as the checked root when `#pin-borrow` projects
+  one of its inline struct fields. Retain the exact nested field reference in a
+  pinned async frame across Pending, verify native reads after resume, and
+  reject a mutable borrow of the containing enum while the loan is live.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue

@@ -325,9 +325,10 @@ fn pinned_async_frame_retains_enum_payload_reference_across_pending() {
     let source = include_str!("../examples/async_fn_enum_self_reference.lim");
     let generated = build_and_run(source, 42);
     assert!(
-        generated
-            .contains("(#pin-get-payload (#pin-borrow (#get (#get task owner) choice)) Number 0)"),
-        "the frame should reborrow the selected enum payload in place: {generated}"
+        generated.contains(
+            "(#pin-borrow (#get (#pin-get-payload (#pin-borrow (#get (#get task owner) choice)) Number 0) value))"
+        ),
+        "the frame should reborrow a struct field nested in the selected enum payload: {generated}"
     );
     assert!(
         generated.contains("(EnumFrame-await-0 (#pin-ref u64) Child)"),

@@ -7481,6 +7481,15 @@ fn list_expression(
 fn projection_root(expression: &Expr) -> Option<&Expr> {
     match expression {
         Expr::Symbol(_) => Some(expression),
+        // A pinned enum payload projection already produces a reference. Keep
+        // that checked reference as the root when borrowing a nested payload
+        // field instead of walking through the enum's by-value owner.
+        Expr::List(items)
+            if items.len() == 4
+                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "pin-get-payload" | "pin-get-payload-mut")) =>
+        {
+            Some(expression)
+        }
         Expr::List(items)
             if (items.len() == 3
                 && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index"))
