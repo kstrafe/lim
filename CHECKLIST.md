@@ -43,7 +43,7 @@ the checklist is committed alongside the implementation it tracks.
   single validation per compilation, stable IDs and assembly across fresh
   parses, recursive-alias diagnostics unchanged, executable nested-alias test.
 
-- [ ] **IR-02: Lower checked expressions and bindings to stable identities.**
+- [x] **IR-02: Lower checked expressions and bindings to stable identities.**
   Retain operand/result types, binding IDs, function IDs on calls, and exact
   source spans. Numeric nodes must explicitly encode operation, width,
   signedness, and wrapping/saturation behavior. Preserve named-argument source
