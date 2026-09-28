@@ -1976,6 +1976,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Verify native Pending/resume and cancellation, generated frame layout, and a
   rejected owner mutation before cleanup. Body-local owners and other
   self-reference shapes remain open under ASYNC-01c2.
+- [x] **ASYNC-01c2j: Borrow one field of a parameter-backed owner.** Allow the
+  pinned async self-reference initializer to use one direct `#get` projection
+  from an owned struct parameter, while keeping the whole owner in stable frame
+  storage. Resolve the generated field address through the pinned frame and
+  preserve the field-sensitive loan. Verify native Pending/resume and reject
+  owner replacement before cleanup. Nested projections and body-local owners
+  remain unsupported.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue

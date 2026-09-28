@@ -18,6 +18,8 @@ struct Binding {
 struct PinnedSelfReference {
     binding: Binding,
     owner: Binding,
+    projection: Vec<String>,
+    target_ty: String,
     helper_parameter: String,
     source_index: usize,
 }
@@ -2222,13 +2224,16 @@ fn pinned_self_references(
         if borrow.len() != 2 {
             continue;
         }
-        let Expr::Symbol(owner_name) = &borrow[1] else {
+        let Some((owner_name, projection)) = pinned_borrow_target(&borrow[1]) else {
             continue;
         };
-        let Some(owner) = params
-            .iter()
-            .find(|parameter| parameter.name == *owner_name)
-        else {
+        if projection.len() > 1 {
+            return Err(
+                "@async-fn-pinned self-reference currently supports one owner-field projection"
+                    .into(),
+            );
+        }
+        let Some(owner) = params.iter().find(|parameter| parameter.name == owner_name) else {
             continue;
         };
         if owner.mutable {
@@ -2245,8 +2250,10 @@ fn pinned_self_references(
             ));
         }
         references.push(PinnedSelfReference {
+            target_ty: pinned_reference_target_source(&items[2])?,
             binding: local,
             owner: owner.clone(),
+            projection,
             helper_parameter: String::new(),
             source_index: index,
         });
@@ -2255,19 +2262,55 @@ fn pinned_self_references(
     Ok(references)
 }
 
+fn pinned_borrow_target(expression: &Expr) -> Option<(String, Vec<String>)> {
+    fn visit(expression: &Expr, projection: &mut Vec<String>) -> Option<String> {
+        match expression {
+            Expr::Symbol(name) => Some(name.clone()),
+            Expr::List(items)
+                if items.len() == 3
+                    && matches!(items.first(), Some(Expr::Symbol(head)) if head == "#get") =>
+            {
+                let Expr::Symbol(field) = &items[2] else {
+                    return None;
+                };
+                let owner = visit(&items[1], projection)?;
+                projection.push(field.clone());
+                Some(owner)
+            }
+            _ => None,
+        }
+    }
+
+    let mut projection = Vec::new();
+    let owner = visit(expression, &mut projection)?;
+    Some((owner, projection))
+}
+
+fn pinned_reference_target_source(type_expression: &Expr) -> Result<String, String> {
+    let Expr::List(items) = type_expression else {
+        return Err("pinned reference binding requires (#pin-ref Type)".into());
+    };
+    if items.len() != 2 || !matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pin-ref")
+    {
+        return Err("pinned reference binding requires (#pin-ref Type)".into());
+    }
+    expression_source(&items[1])
+}
+
 fn rewrite_pinned_self_references(expression: &mut Expr, references: &[PinnedSelfReference]) {
     let replacement = match expression {
         Expr::List(items)
             if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pin-borrow")
                 && items.len() == 2 =>
         {
-            match &items[1] {
-                Expr::Symbol(owner) => references
+            pinned_borrow_target(&items[1]).and_then(|(owner, projection)| {
+                references
                     .iter()
-                    .find(|reference| reference.owner.name == *owner)
-                    .map(|reference| reference.helper_parameter.clone()),
-                _ => None,
-            }
+                    .find(|reference| {
+                        reference.owner.name == owner && reference.projection == projection
+                    })
+                    .map(|reference| reference.helper_parameter.clone())
+            })
         }
         _ => None,
     };
@@ -2461,13 +2504,20 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     self_references.retain(|reference| hoisted_owner_names.contains(&reference.owner.name));
     let mut hoisted_owners = Vec::new();
     let mut owner_indices = HashMap::new();
+    let mut self_reference_sources = Vec::new();
+    let mut self_reference_indices = HashMap::new();
     for reference in &mut self_references {
-        let index = *owner_indices
+        owner_indices
             .entry(reference.owner.name.clone())
             .or_insert_with(|| {
                 hoisted_owners.push(reference.owner.clone());
                 hoisted_owners.len() - 1
             });
+        let key = (reference.owner.name.clone(), reference.projection.clone());
+        let index = *self_reference_indices.entry(key).or_insert_with(|| {
+            self_reference_sources.push(reference.clone());
+            self_reference_sources.len() - 1
+        });
         reference.helper_parameter = format!("lim.async.self-ref.{index}");
     }
     let last = form(body.last().unwrap(), "#return")
@@ -2758,31 +2808,40 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         .iter()
         .map(|owner| format!("({} {})", owner.name, owner.ty))
         .collect::<Vec<_>>();
-    let self_reference_parameters = hoisted_owners
+    let self_reference_parameters = self_reference_sources
         .iter()
         .enumerate()
-        .map(|(index, owner)| format!("(lim.async.self-ref.{index} (#pin-ref {}))", owner.ty))
+        .map(|(index, reference)| {
+            format!(
+                "(lim.async.self-ref.{index} (#pin-ref {}))",
+                reference.target_ty
+            )
+        })
         .collect::<Vec<_>>();
-    let self_reference_arguments = hoisted_owners
+    let self_reference_arguments = self_reference_sources
         .iter()
         .enumerate()
         .map(|(index, _)| format!(": lim.async.self-ref.{index} lim.async.self-ref.{index}"))
         .collect::<Vec<_>>()
         .join(" ");
-    let self_reference_borrows = hoisted_owners
+    let self_reference_borrows = self_reference_sources
         .iter()
         .enumerate()
-        .map(|(index, owner)| {
+        .map(|(index, reference)| {
+            let place = reference.projection.iter().fold(
+                format!("(#get task {})", reference.owner.name),
+                |base, field| format!("(#get {base} {field})"),
+            );
             format!(
                 "(#let lim.async.self-ref.{index} (#pin-ref {})\n\
-                   (#pin-borrow (#get task {})))",
-                owner.ty, owner.name
+                   (#pin-borrow {place}))",
+                reference.target_ty
             )
         })
         .collect::<Vec<_>>()
         .join(" ");
     let self_reference_parameter_suffix = self_reference_parameters.join(" ");
-    let self_reference_drops = hoisted_owners
+    let self_reference_drops = self_reference_sources
         .iter()
         .enumerate()
         .map(|(index, _)| format!("(#drop lim.async.self-ref.{index})"))
@@ -2807,7 +2866,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let mut source_names = HashSet::new();
     collect_value_names(&invocation[4], &mut source_names);
     if known.keys().any(|name| reserved.contains(&name.as_str()))
-        || (0..hoisted_owners.len())
+        || (0..self_reference_sources.len())
             .any(|index| source_names.contains(&format!("lim.async.self-ref.{index}")))
     {
         return Err("@async-fn bindings cannot use reserved waker or lim.async.* names".into());

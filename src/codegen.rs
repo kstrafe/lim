@@ -9373,29 +9373,8 @@ impl FunctionContext {
             if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get")
                 && place.len() == 3
             {
-                let base_type = self
-                    .expression_type(&place[1])
-                    .ok_or_else(|| "cannot determine reference type for field borrow".to_owned())?;
-                let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
-                    base_type
-                else {
-                    return Err("field borrow requires a reference to a struct".into());
-                };
-                let Type::Named(struct_name) = *target else {
-                    return Err("field borrow requires a reference to a struct".into());
-                };
-                let fields = self
-                    .structs
-                    .get(&struct_name)
-                    .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
-                let index = self.checked_field_index(&place[2], &struct_name, fields)?;
-                let offset_words = fields[..index]
-                    .iter()
-                    .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .sum::<usize>();
-                self.emit_reference_field_address(&place[1], offset_words, true)?;
+                let (root, offset_words) = self.reference_field_projection(&items[1])?;
+                self.emit_reference_field_address(&root, offset_words, true)?;
                 return Ok(());
             }
         }
@@ -9462,6 +9441,57 @@ impl FunctionContext {
             "    jmp {done}\n{global_layout}:\n    add rax, {offset}\n{done}:\n"
         ));
         Ok(())
+    }
+
+    fn reference_field_projection(&self, expression: &Expr) -> Result<(Expr, usize), String> {
+        match expression {
+            Expr::Symbol(_) => {
+                let base_type = self
+                    .expression_type(expression)
+                    .ok_or_else(|| "cannot determine reference type for field borrow".to_owned())?;
+                let target = match base_type {
+                    Type::Reference { target, .. } | Type::PinnedReference { target, .. } => target,
+                    _ => return Err("field borrow requires a reference to a struct".into()),
+                };
+                if !matches!(*target, Type::Named(_)) {
+                    return Err("field borrow requires a reference to a struct".into());
+                }
+                Ok((expression.clone(), 0))
+            }
+            Expr::List(items)
+                if items.len() == 3
+                    && matches!(items.first(), Some(Expr::Symbol(head)) if head == "get") =>
+            {
+                let base_type = self
+                    .expression_type(&items[1])
+                    .ok_or_else(|| "cannot determine projected struct type".to_owned())?;
+                let (root, base_offset, base_type) = match base_type {
+                    Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                        (items[1].clone(), 0, *target)
+                    }
+                    ty => {
+                        let (root, base_offset) = self.reference_field_projection(&items[1])?;
+                        (root, base_offset, ty)
+                    }
+                };
+                let Type::Named(struct_name) = base_type else {
+                    return Err("field borrow requires a reference to a struct".into());
+                };
+                let fields = self
+                    .structs
+                    .get(&struct_name)
+                    .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+                let index = self.checked_field_index(&items[2], &struct_name, fields)?;
+                let field_offset = fields[..index]
+                    .iter()
+                    .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>();
+                Ok((root, base_offset + field_offset))
+            }
+            _ => Err("field borrow requires a reference to a struct".into()),
+        }
     }
 
     fn normalize_asm_result(&mut self, result_type: Type) {

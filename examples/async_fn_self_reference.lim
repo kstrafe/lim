@@ -10,10 +10,11 @@
         (ChildPending (Waiting 1u64))
         (ChildReady 2u64))))))
 (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
+(#struct Owner ((left u64) (right u64)))
 
 (@async-fn-pinned (: names (SelfRefFrame SelfRefPoll SelfRefPending SelfRefReady self-ref-poll) : waker u64 : function
-  (#fn read-after-await ((owner u64)) u64
-    (#let view (#pin-ref u64) (#pin-borrow owner))
+  (#fn read-after-await ((owner Owner)) u64
+    (#let view (#pin-ref u64) (#pin-borrow (#get owner left)))
     (#let result u64
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap (#deref view) result)))))
@@ -27,7 +28,9 @@
   (#return ()))
 
 (#fn main () u64
-  (#let-mut frame SelfRefFrame (#call read-after-await (: owner 40u64)))
+  (#let-mut frame SelfRefFrame
+    (#call read-after-await
+      (: owner (#struct-literal Owner ((left 40u64) (right 5u64))))))
   (#let waker u64 0u64)
   (#let first SelfRefPoll
     (#call self-ref-poll
@@ -40,10 +43,12 @@
       (#case (SelfRefReady value) value)
       (#case (SelfRefPending unexpected)
         (#block (#forget unexpected) (#unreachable)))))
-  (#set-field frame owner 41u64)
+  (#set-field frame owner (#struct-literal Owner ((left 41u64) (right 5u64))))
   (#forget frame)
 
-  (#let-mut cancelled SelfRefFrame (#call read-after-await (: owner 10u64)))
+  (#let-mut cancelled SelfRefFrame
+    (#call read-after-await
+      (: owner (#struct-literal Owner ((left 10u64) (right 7u64))))))
   (#let first-cancel SelfRefPoll
     (#call self-ref-poll
       (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
@@ -52,8 +57,8 @@
     (#let state SelfRefFrame-state
       (#call self-ref-poll-cancel (: task cancel-pin)))
     (#call cancel-self-ref-state (: task state)))
-  (#set-field cancelled owner 11u64)
-  (#let cancelled-owner u64 (#get cancelled owner))
+  (#set-field cancelled owner (#struct-literal Owner ((left 11u64) (right 7u64))))
+  (#let cancelled-owner u64 (#get (#get cancelled owner) left))
   (#forget cancelled)
   (#forget waker)
   (#return (#u64.+.wrap result cancelled-owner)))

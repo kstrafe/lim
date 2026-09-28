@@ -308,8 +308,10 @@ self-reference from an owned function parameter using a top-level
 into a stable sibling field of the pinned frame and forms the reference only
 after the frame is pinned. In this initial form, use the owner only to
 initialize the self-reference; use `view` for later access. The reference is
-retained in suspended state across Pending/resume. Other self-reference forms,
-including borrows from body locals, are not supported yet. After `poll-cancel`,
+retained in suspended state across Pending/resume. The borrow may also select
+one direct struct field, for example
+`(#pin-borrow (#get owner payload))`; nested field projections and borrows from
+body locals are not supported yet. After `poll-cancel`,
 consume and end the returned state's scope before accessing or destroying the
 owner; the borrow checker keeps the internal loan alive until that state is
 cleaned up.
