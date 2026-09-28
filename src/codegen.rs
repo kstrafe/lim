@@ -14344,15 +14344,17 @@ impl FunctionContext {
                     return Ok(());
                 }
             }
-            if self.global_types.get(name) == Some(ty) {
-                for (index, destination) in slots.iter().enumerate() {
-                    self.load_global_word(name, index)?;
-                    self.output.push_str(&format!(
-                        "    mov QWORD PTR [rbp-{}], rax\n",
-                        destination * 8
-                    ));
+            if let Some(global_name) = self.checked_global_name(value, name)? {
+                if self.global_types.get(&global_name) == Some(ty) {
+                    for (index, destination) in slots.iter().enumerate() {
+                        self.load_global_word(&global_name, index)?;
+                        self.output.push_str(&format!(
+                            "    mov QWORD PTR [rbp-{}], rax\n",
+                            destination * 8
+                        ));
+                    }
+                    return Ok(());
                 }
-                return Ok(());
             }
             if let Type::Named(enum_name) = ty {
                 if let Some((variant_owner, discriminant, _)) =

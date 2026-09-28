@@ -640,6 +640,11 @@ the checklist is committed alongside the implementation it tracks.
   local arrays and literal constructors; cover scalar, nested, and multiword
   array elements.
 
+- [x] **IR-02bq: Initialize aggregate temporaries from checked globals.** Use
+  `GlobalId` when copying a global aggregate into temporary/local slots.
+  Preserve local, dereference, projection, and constructor sources; validate
+  static aggregate copies across native examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
