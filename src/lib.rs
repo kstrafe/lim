@@ -2285,9 +2285,10 @@ fn parse_program_in_directory(
                             | "vec-alloc"
                             | "vec-sort"
                             | "async-fn"
+                            | "async-fn-pinned"
                     )
                 ) {
-                    let generated_text = if kind == Some("async-fn") {
+                    let generated_text = if matches!(kind, Some("async-fn" | "async-fn-pinned")) {
                         async_fn::generated_source(&normalized_invocation).ok()
                     } else {
                         kind.and_then(|kind| {
@@ -2337,7 +2338,7 @@ fn parse_program_in_directory(
         }
         let parsed_items = if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
-                let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn")
+                let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned")
                 {
                     async_fn::generated_source(&normalized_invocation)
                         .and_then(|source| parse_generated_source_items(&source))
@@ -2345,7 +2346,7 @@ fn parse_program_in_directory(
                     parse_generated_items(forms)
                 };
                 generated.map_err(|error| {
-                    let error_span = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn")
+                    let error_span = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned")
                         && (error.contains("await") || error.contains("capture"))
                     {
                         source_form_head_span(&source_expression, &["#await"])
@@ -4940,7 +4941,14 @@ fn write_generated_sources_in_directory(
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
         if !matches!(
             kind,
-            "thread-spawn" | "vec" | "vec-alloc" | "vec-sort" | "optional" | "result" | "async-fn"
+            "thread-spawn"
+                | "vec"
+                | "vec-alloc"
+                | "vec-sort"
+                | "optional"
+                | "result"
+                | "async-fn"
+                | "async-fn-pinned"
         ) {
             continue;
         }
@@ -4951,7 +4959,7 @@ fn write_generated_sources_in_directory(
             dependency_context,
         );
         generator::cached_generated_source(&generated_cache, &key, || {
-            if kind == "async-fn" {
+            if matches!(kind, "async-fn" | "async-fn-pinned") {
                 async_fn::generated_source(&original)
             } else {
                 materialize_builtin_generated_source(&kind, &forms, &worker_functions)
@@ -5076,7 +5084,7 @@ fn normalize_builtin_generator_invocation(expression: &Expr) -> Result<Expr, Str
             "destroy",
         ],
         "vec-sort" => &["element", "vector", "comparator"],
-        "async-fn" => &["names", "waker", "function"],
+        "async-fn" | "async-fn-pinned" => &["names", "waker", "function"],
         _ => return Ok(expression.clone()),
     };
     let Some(Expr::List(arguments)) = items.get(2) else {

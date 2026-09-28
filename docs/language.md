@@ -344,6 +344,14 @@ The caller must ensure the pointer is valid, stable, and uniquely accessible
 as required for the full anchor lifetime. These forms do not make allocation
 or pointer validity safe by themselves.
 
+`#pin-read` and `#pin-write` are lower-level unsafe operations for compiler-
+generated pinned state machines. They access aggregate referents at their
+existing storage address. A read can duplicate a linear value, and a write can
+invalidate references derived from the pinned value; callers must prove
+exclusive access, preserve any displaced ownership they need, and ensure no
+derived references remain. Ordinary code should use safe field operations
+instead; safe code cannot replace a pinned referent.
+
 `#asm` embeds target assembler at an expression site. Its form is
 `(#asm ResultType ((register value) ...) "instructions")`: each value is
 evaluated and loaded into its named 64-bit general-purpose register, and the
@@ -1488,7 +1496,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#atomic-init` | `(#atomic-init ScalarType initial-value)` | `(#atomic-init u64 0u64)` (initializer) | Creates an atomic value; allowed scalar widths are documented in the atomics section. |
 | `#atomic-load` | `(#atomic-load reference order)` | `(#atomic-load (#borrow counter) #memory-acquire)` (expression) | Atomically reads a value using an allowed load ordering. |
 | `#atomic-store` | `(#atomic-store reference value order)` | `(#atomic-store (#borrow counter) 4u64 #memory-release)` (statement) | Atomically stores a value using an allowed store ordering. |
-| `#await` | `(#await (captures...) ChildTask PendingVariant ReadyVariant poll-function child-expression)` | `(#let value u64 (#await (offset) Step StepPending StepReady step-poll child))` or `(#return (#await (offset) Step StepPending StepReady step-poll child))` (inside `@async-fn`) | Marks a sequential suspension point for the built-in `@async-fn` expansion; captures are explicit, and the form is not valid in an ordinary function. |
+| `#await` | `(#await ChildTask PendingVariant ReadyVariant poll-function child-expression)`; nested value forms add the result type after `#await` | `(#let value u64 (#await Step StepPending StepReady step-poll child))` (inside `@async-fn`) | Marks a sequential suspension point for `@async-fn` or `@async-fn-pinned`; live captures are inferred from the continuation, and the form is not valid in an ordinary function. |
 | `#block` | `(#block statement... final-expression)` | `(#block (#let x u64 2u64) (#u64.+.wrap x 1u64))` (expression) | Evaluates statements in order and yields the final expression, or unit for a side-effect-only block. |
 | `#borrow` | `(#borrow place)` or `(#borrow place body)` | `(#let r (#ref u64) (#borrow value))` (binding) | Creates a shared reference, or scopes a shared borrow around a body. |
 | `#borrow-mut` | `(#borrow-mut place)` or `(#borrow-mut place body)` | `(#let r (#ref-mut u64) (#borrow-mut value))` (binding) | Creates an exclusive mutable reference, or scopes a mutable borrow around a body. |
@@ -1562,8 +1570,10 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
 | `#pin-ptr-borrow` | `(#pin-ptr-borrow pinned-anchor pointer)` | `(#unsafe (#pin-ptr-borrow pinned pointer))` (expression) | Unsafe shared pointer borrow tied to a pinned-reference anchor; returns a pinned reference and preserves anchor provenance. The caller proves pointer validity and address stability for the anchor lifetime. |
 | `#pin-ptr-borrow-mut` | `(#pin-ptr-borrow-mut pinned-mut-anchor mutable-pointer)` | `(#unsafe (#pin-ptr-borrow-mut pinned pointer))` (expression) | Unsafe exclusive pointer borrow tied to a mutable pinned-reference anchor; returns a mutable pinned reference. The caller proves validity, stability, and unique access. |
+| `#pin-read` | `(#pin-read pinned-reference)` | `(#unsafe (#pin-read pinned))` (expression) | Reads a pinned referent by value. Unsafe because the caller must prevent aliasing and must not duplicate ownership of linear data. |
 | `#pin-ref` | `(#pin-ref TargetType)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (type) | Shared pinned-reference type. It is distinct from an ordinary reference and keeps its referent immovable while the loan is live. |
 | `#pin-ref-mut` | `(#pin-ref-mut TargetType)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (type) | Exclusive pinned-reference type; it cannot be used to replace the complete referent. |
+| `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr u8) (#ptr-null (#ptr u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr u8)))` (expression) | Converts a raw pointer to its machine address as `usize` without dereferencing it; useful for checking syscall error-pointer results before access. |

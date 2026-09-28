@@ -18,6 +18,80 @@ fn a_pinned_shared_reference_can_read_its_referent() {
 }
 
 #[test]
+fn unsafe_pin_read_and_write_preserve_a_stable_aggregate_location() {
+    let source = "(#struct Pair ((left u64) (right u64)))
+      (#fn main () u64
+        (#let-mut owner Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+        (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut owner))
+        (#let previous Pair (#unsafe (#pin-read pinned)))
+        (#let previous-sum u64
+          (#u64.+.wrap (#get previous left) (#get previous right)))
+        (#unsafe
+          (#pin-write pinned
+            (#struct-literal Pair ((left 10u64) (right 20u64)))))
+        (#let current Pair (#unsafe (#pin-read pinned)))
+        (#let current-sum u64
+          (#u64.+.wrap (#get current left) (#get current right)))
+        (#drop pinned)
+        (#forget owner)
+        (#return (#u64.+.wrap previous-sum current-sum)))";
+    let scratch = support::Scratch::new("pinned-storage-access");
+    let input = scratch.path().join("main.lim");
+    let binary = scratch.path().join("program");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary),
+        Duration::from_secs(20),
+        64 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+    assert_eq!(status.code(), Some(33), "{stderr:?}");
+}
+
+#[test]
+fn pin_storage_reads_and_writes_require_unsafe() {
+    for expression in ["(#pin-read pinned)", "(#pin-write pinned 2u64)"] {
+        let source = format!(
+            "(#fn main () u64
+              (#let-mut owner u64 1u64)
+              (#let pinned (#pin-ref-mut u64) (#pin-borrow-mut owner))
+              {expression}
+              (#drop pinned)
+              (#return owner))"
+        );
+        let error = check(&source).unwrap_err();
+        assert!(error.contains("unsafe operation"), "{error}");
+    }
+}
+
+#[test]
+fn pin_write_cannot_invalidate_a_live_projected_reference() {
+    let source = "(#struct Pair ((left u64) (right u64)))
+      (#fn main () ()
+        (#let-mut owner Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+        (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut owner))
+        (#let view (#pin-ref u64) (#borrow (#get pinned left)))
+        (#unsafe
+          (#pin-write pinned
+            (#struct-literal Pair ((left 10u64) (right 20u64)))))
+        (#drop view)
+        (#drop pinned)
+        (#forget owner)
+        (#return ()))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "{error}"
+    );
+}
+
+#[test]
 fn a_pinned_referent_cannot_be_copied_while_the_pin_is_live() {
     let source = "(#fn main () u64
       (#let owner u64 7u64)

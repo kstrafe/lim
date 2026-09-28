@@ -241,8 +241,16 @@ bare `@async-wake` expansion does not perform registration itself. See
 `@async-fn` is a built-in inspectable code generator. It reads a `#fn` form
 whose declared result type is the eventual value, then emits an ordinary
 linear frame enum, poll-result enum, start function (using the source function
-name), and named poll/stage helpers. The emitted Lim is cached in `.lim/cache`
-and undergoes normal type, borrow, linearity, and code generation checks:
+name), and named poll/stage helpers. `@async-fn-pinned` emits the same concrete
+state machine with a different polling ABI: pin the returned frame in a
+mutable local, and each Pending result carries the same `#pin-ref-mut Frame`
+into the next poll. A Ready result consumes that pin reference; the frame
+remains in its Done state until explicitly forgotten or destroyed. Its
+`poll-cancel` helper consumes the pin reference, marks the frame Done, and
+returns the previous state so caller-defined cleanup can release captured
+values. Neither generator currently supports self-references inside frames.
+The emitted Lim is cached in `.lim/cache` and undergoes normal type, borrow,
+linearity, and code generation checks:
 
 ```lisp syntax
 (@async-fn (: names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset u64)) u64
@@ -253,39 +261,43 @@ and undergoes normal type, borrow, linearity, and code generation checks:
 ```
 
 `(#call work (: offset 1u64))` creates a `Work` frame. It does not
-execute the body. `work-poll` takes `(task Work)` and
+execute the body. With `@async-fn`, `work-poll` takes `(task Work)` and
 `(waker (#ref LocalWaker))`, consumes the old frame, and returns `WorkPending`
-with a new frame or `WorkReady` with the result. The child poll must accept
-the named arguments `task` and `waker`. The first poll runs the body up to
+with a new frame or `WorkReady` with the result. With `@async-fn-pinned`,
+poll instead takes `(task (#pin-ref-mut Work))`; Pending carries that same
+pin reference, keeping the frame at its original address. The child poll must
+accept the named arguments `task` and `waker`. The first poll runs the body up to
 `#await`; if the child is already Ready, execution continues in that poll.
 Later polls resume the stored state. Multiple sequential awaits are allowed.
 
-Each `#await` has the form
-`(#await (captured-name...) ChildTask PendingVariant ReadyVariant poll-function child-expression)`.
-Capture names refer to earlier explicitly typed parameters or `#let`/`#let-mut`
-bindings; they are not inferred. A value used later but omitted from the
-capture list is an error. Sequential stages preserve `#mut` parameters and
-`#let-mut` local state across suspension; assignments to captured mutable
-locals run in the resume helper. Each async body still ends with one explicit
-`#return`; a direct `#await` in that return is lowered as a final stage.
+At a top-level binding, `#await` has the form
+`(#await ChildTask PendingVariant ReadyVariant poll-function child-expression)`.
+When nested inside another value expression, put the awaited result type
+immediately after `#await`. Values live after suspension are inferred from the
+continuation; there is no capture list. Unused linear values must be consumed
+before suspension. Sequential stages
+preserve `#mut` parameters and `#let-mut` local state across suspension;
+assignments to captured mutable locals run in the resume helper. Each async
+body still ends with one explicit `#return`; a direct `#await` in that return
+is lowered as a final stage.
 `#await` in a binding must still be the entire initializer of a top-level
 binding. An `#if`, `#match`, or `#block` that contains no nested `#await` may
-run between stages; its retained values must still appear in explicit capture
-lists. Control flow whose branches themselves suspend and loops crossing a
-suspension are not yet lowered. At most 32 awaits are accepted. References
-into pre-suspension locals cannot be retained in the frame; the ordinary
-borrow checker rejects them. Pinning and self-referential frames remain open
-work.
+run between stages. Control flow whose branches themselves suspend and loops
+crossing a suspension are not yet lowered. At most 32 awaits are accepted.
+References into pre-suspension locals cannot be retained in the frame; the
+ordinary borrow checker rejects them.
 
 Cancellation is still explicit and caller-defined: a free-standing function
 must match each generated frame state, consume its captured values, and call
-the relevant child cancellation function. Adding a new `#await` adds a state
-and makes an old exhaustive cancellation match fail compilation until it is
-updated. `examples/async_fn.lim` shows one such function and a runnable
-Pending/resume cycle. `examples/async_fn_two_awaits.lim` shows two explicit
-capture lists and the start/Pending/Pending/Ready polling sequence. This
-lowering does not itself add a scheduler or OS readiness. The explicit
-`wake_ready4` protocol can prevent lost wakes when used around polling.
+the relevant child cancellation function. With `@async-fn-pinned`, first call
+`poll-cancel` to consume the pinned handle and recover the state to clean up.
+Adding a new `#await` adds a state and makes an old exhaustive cancellation
+match fail compilation until it is updated. `examples/async_fn.lim` shows the
+movable frame API; `examples/async_fn_pinned.lim` shows in-place Pending/resume
+and cancellation; `examples/async_fn_two_awaits.lim` exercises sequential
+awaits. These lowerings do not themselves add a scheduler or OS readiness.
+The explicit `wake_ready4` protocol can prevent lost wakes when used around
+polling.
 
 ## Cancellation and threads
 

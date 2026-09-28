@@ -80,6 +80,8 @@ fn builtin_reference_is_sorted_and_covers_parser_forms() {
         "#arch",
         "#os",
         "#platform",
+        "#pin-read",
+        "#pin-write",
         "#repr-c",
         "#send",
         "#sync",

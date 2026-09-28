@@ -9970,9 +9970,9 @@ impl FunctionContext {
                 }
                 self.borrow_expression(items)
             }
-            "deref" => {
+            "deref" | "pin-read" => {
                 if items.len() != 2 {
-                    return Err("deref requires a reference".into());
+                    return Err(format!("{operator} requires a reference").into());
                 }
                 let target =
                     self.expression_type(&items[1])
@@ -9981,7 +9981,7 @@ impl FunctionContext {
                             | Type::PinnedReference { target, .. } => Some(*target),
                             _ => None,
                         })
-                        .ok_or_else(|| "deref requires a reference".to_owned())?;
+                        .ok_or_else(|| format!("{operator} requires a reference"))?;
                 self.expression(&items[1])?;
                 match &target {
                     Type::F32 => self
@@ -10032,9 +10032,9 @@ impl FunctionContext {
                 }
                 Ok(())
             }
-            "deref-set" => {
+            "deref-set" | "pin-write" => {
                 if items.len() != 3 {
-                    return Err("deref-set requires a mutable reference and value".into());
+                    return Err(format!("{operator} requires a mutable reference and value"));
                 }
                 let target = self
                     .expression_type(&items[1])
@@ -10042,16 +10042,22 @@ impl FunctionContext {
                         Type::Reference {
                             mutable: true,
                             target,
-                        } => Some(*target),
+                        } if operator == "deref-set" => Some(*target),
+                        Type::PinnedReference {
+                            mutable: true,
+                            target,
+                        } if operator == "pin-write" => Some(*target),
                         _ => None,
                     })
-                    .ok_or_else(|| "deref-set requires a mutable reference".to_owned())?;
+                    .ok_or_else(|| format!("{operator} requires a mutable reference"))?;
                 self.expression(&items[1])?;
                 self.output.push_str("    push rax\n");
                 self.stack_depth += 1;
                 let words = storage_word_count(&target, &self.structs, &self.enums)?;
                 if words > VALUE_REGISTERS.len() {
-                    return Err("deref-set aggregate target exceeds native value registers".into());
+                    return Err(format!(
+                        "{operator} aggregate target exceeds native value registers"
+                    ));
                 }
                 if words > 1 {
                     self.expression_as_expected(&items[2], &target)?;

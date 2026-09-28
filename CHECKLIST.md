@@ -1716,12 +1716,20 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   references with field-sensitive loans. Reject escaping references and
   incompatible projections. Require cancellation to end internal loans before
   consuming their referents; test movement, cancellation, and storage lifetime.
-- [ ] **ASYNC-01c1: Keep async frames stationary across polling.** Add an
+- [x] **ASYNC-01c1: Keep async frames stationary across polling.** Add an
   opt-in pinned-frame representation whose poll and cancellation operations
   borrow the frame in place rather than consuming and returning it by value.
   Do not permit self-references yet. Keep state transitions and cancellation
   explicit, reject moving, replacing, or destroying the pinned owner while its
   handle is live, and verify Pending/resume, cancellation, movement, and escape.
+  The native `@async-fn-pinned` regression covers these lifecycle guarantees;
+  `#pin-read`/`#pin-write` are unsafe implementation primitives, and internal
+  self-references remain explicitly unsupported.
+- [x] **ASYNC-01c1a: Add checked unsafe access to pinned frame storage.** Add
+  `#pin-read` and `#pin-write` for generated in-place state transitions.
+  Require `#unsafe`, support aggregate values in native codegen, preserve
+  existing borrow conflicts, and test stack-backed aggregate reads/writes,
+  unsafe diagnostics, and writes conflicting with a live projected reference.
 - [ ] **ASYNC-01c2: Form checked references into pinned async frames.** After
   the stationary lifecycle is established, allow internal references only
   after their owned referents are initialized and pinned. Track field-sensitive

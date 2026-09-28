@@ -734,11 +734,18 @@ fn named_arguments(bindings: &[Binding]) -> String {
 
 pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let invocation = list(invocation, "invocation")?;
+    let pinned =
+        matches!(&invocation.get(1), Some(Expr::Symbol(name)) if name == "async-fn-pinned");
+    let generator_name = if pinned {
+        "@async-fn-pinned"
+    } else {
+        "@async-fn"
+    };
     if invocation.len() != 5
         || !matches!(invocation[0], Expr::At)
-        || !matches!(&invocation[1], Expr::Symbol(name) if name == "async-fn")
+        || !matches!(&invocation[1], Expr::Symbol(name) if name == "async-fn" || name == "async-fn-pinned")
     {
-        return Err("@async-fn requires (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function (#fn name ((arg Type) ...) Result ...)))".into());
+        return Err(format!("{generator_name} requires (@{} (: names (Frame Poll Pending Ready poll) : waker Waker : function (#fn name ((arg Type) ...) Result ...)))", generator_name.trim_start_matches('@')).into());
     }
     let names = list(&invocation[2], "generated names")?;
     if names.len() != 5 {
@@ -751,9 +758,21 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     if names.iter().collect::<HashSet<_>>().len() != names.len() {
         return Err("@async-fn generated names must be distinct".into());
     }
-    let [frame, poll_result, pending, ready, poll] = names.as_slice() else {
+    let [frame, public_poll_result, public_pending, public_ready, public_poll] = names.as_slice()
+    else {
         unreachable!()
     };
+    let frame = frame.clone();
+    let mut poll_result = public_poll_result.clone();
+    let mut pending = public_pending.clone();
+    let mut ready = public_ready.clone();
+    let mut poll = public_poll.clone();
+    if pinned {
+        poll_result = format!("{frame}-move-poll-result");
+        pending = format!("{frame}-move-pending");
+        ready = format!("{frame}-move-ready");
+        poll = format!("{public_poll}-move");
+    }
     let waker = expression_source(&invocation[3])?;
     parse_type(Some(&normalize_keywords(invocation[3].clone())))?;
     let function = form(&invocation[4], "#fn")
@@ -762,9 +781,10 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         return Err("@async-fn #fn requires a name, parameters, result type, and body".into());
     }
     let start = symbol(&function[1], "function name")?;
-    if start == poll || names.iter().any(|name| name == start) {
+    if start == public_poll || names.iter().any(|name| name == start) {
         return Err("@async-fn start function must differ from generated names".into());
     }
+    let cancel = format!("{public_poll}-cancel");
     let params = parameters(&function[2])?;
     let result = expression_source(&function[3])?;
     parse_type(Some(&normalize_keywords(function[3].clone())))?;
@@ -970,6 +990,14 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     }
     let mut variants = vec![format!("({start_variant} {})", types(&params))];
     let mut await_cases = Vec::new();
+    let done_variant = format!("{frame}-done");
+    if pinned {
+        if source.contains(&cancel) {
+            return Err(format!("{generator_name} generated cancellation function '{cancel}' collides with its input"));
+        }
+        variants.push(format!("({done_variant})"));
+        await_cases.push(format!("(#case {done_variant} (#unreachable))"));
+    }
     let mut helpers = Vec::new();
     for (index, stage) in stages.iter().enumerate() {
         let await_variant = format!("{frame}-await-{index}");
@@ -1027,7 +1055,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         arguments(&params),
         named_arguments(&params),
     );
-    Ok(format!(
+    let generated = format!(
         "{}\n(#enum {frame} ({}))
          (#linear {frame})
          (#enum {poll_result} (({pending} {frame}) ({ready} {result})))
@@ -1048,6 +1076,37 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         named_arguments(&first.captures),
         first.value,
         await_cases.join(" "),
+    );
+    if !pinned {
+        return Ok(generated);
+    }
+    if source.contains(public_poll_result)
+        || source.contains(&format!("({public_pending} "))
+        || source.contains(&format!("({public_ready} "))
+    {
+        return Err(format!(
+            "{generator_name} generated poll declarations collide with their input"
+        ));
+    }
+    Ok(format!(
+        "{generated}
+         (#enum {public_poll_result} (({public_pending} (#pin-ref-mut {frame})) ({public_ready} {result})))
+         (#fn {public_poll} ((task (#pin-ref-mut {frame})) (waker (#ref {waker}))) {public_poll_result}
+           (#let state {frame} (#unsafe (#pin-read task)))
+           (#let outcome {poll_result} (#call {poll} (: task state : waker waker)))
+           (#return (#match outcome
+             (#case ({pending} next-state)
+               (#block (#unsafe (#pin-write task next-state)) ({public_pending} task)))
+             (#case ({ready} value)
+               (#block (#unsafe (#pin-write task ({done_variant}))) ({public_ready} value))))))
+         (#fn {cancel} ((task (#pin-ref-mut {frame}))) {frame}
+           (#let state {frame} (#unsafe (#pin-read task)))
+           (#unsafe (#pin-write task ({done_variant})))
+           (#return state))",
+        public_pending = public_pending,
+        public_ready = public_ready,
+        public_poll_result = public_poll_result,
+        public_poll = public_poll,
     ))
 }
 

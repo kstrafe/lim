@@ -179,6 +179,8 @@ fn check_expression(
                         | "ptr-borrow-mut"
                         | "pin-ptr-borrow"
                         | "pin-ptr-borrow-mut"
+                        | "pin-read"
+                        | "pin-write"
                         | "asm"
                         | "linux-syscall",
                 )

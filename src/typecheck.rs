@@ -6450,6 +6450,41 @@ fn list_expression(
                 _ => Err("deref requires a reference".into()),
             }
         }
+        "pin-read" => {
+            require_arity(operator, items, 2)?;
+            let actual = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            match actual {
+                Type::PinnedReference { target, .. } => Ok(*target),
+                _ => Err("pin-read requires a pinned reference".into()),
+            }
+        }
+        "pin-write" => {
+            require_arity(operator, items, 3)?;
+            let reference_type = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let Type::PinnedReference {
+                mutable: true,
+                target,
+            } = reference_type
+            else {
+                return Err("pin-write requires a mutable pinned reference".into());
+            };
+            let actual = expression(
+                &items[2],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&target),
+            )?;
+            require_type(&actual, &target, "pin-write value")?;
+            Ok(Type::Unit)
+        }
         "deref-set" => {
             require_arity(operator, items, 3)?;
             let reference_type = expression(

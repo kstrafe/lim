@@ -1653,7 +1653,7 @@ impl FlowGraph {
                     else {
                         return Err(format!("typed flow writes invalid node {value:?}"));
                     };
-                    if head != "deref-set"
+                    if !matches!(head.as_str(), "deref-set" | "pin-write")
                         || children.len() != 3
                         || Place::from_dereference_write(body, children[1]).as_ref() != Some(place)
                     {
@@ -3321,7 +3321,9 @@ impl Builder<'_> {
                 );
                 self.expression(children[1], start, targets, None)
             }
-            NodeKind::Form { head, children, .. } if head == "deref-set" && children.len() == 3 => {
+            NodeKind::Form { head, children, .. }
+                if matches!(head.as_str(), "deref-set" | "pin-write") && children.len() == 3 =>
+            {
                 let action = Place::from_dereference_write(self.body, children[1]).map_or(
                     FlowAction::Evaluate(id),
                     |place| FlowAction::Write { place, value: id },

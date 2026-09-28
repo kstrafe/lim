@@ -77,6 +77,91 @@ fn async_function_suspends_resumes_and_is_inspectable() {
 }
 
 #[test]
+fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value)
+            (#if (#u64.== value 0u64)
+              (ChildPending (Waiting 1u64))
+              (ChildReady value))))))
+      (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
+      (@async-fn-pinned (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((offset u64)) u64
+          (#let value u64
+            (#await Child ChildPending ChildReady child-poll (Waiting 0u64))
+          )
+          (#return (#u64.+.wrap value offset)))))
+      (#fn cancel-frame ((task Frame)) ()
+        (#match task
+          (#case (Frame-start offset) (#forget offset))
+          (#case (Frame-await-0 offset child)
+            (#block (#forget offset) (#call cancel-child (: task child))))
+          (#case Frame-done ()))
+        (#return ()))
+      (#fn main () u64
+        (#let-mut frame Frame (#call work (: offset 40u64)))
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (Pending pinned-frame) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task pinned-frame : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) (#unreachable)))))
+        (#forget frame)
+        (#let-mut cancelled-frame Frame (#call work (: offset 90u64)))
+        (#let first-cancel Poll
+          (#call poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
+        (#let-else (Pending cancel-pin) Poll first-cancel (#unreachable))
+        (#let state-to-cancel Frame (#call poll-cancel (: task cancel-pin)))
+        (#call cancel-frame (: task state-to-cancel))
+        (#forget cancelled-frame)
+        (#forget waker)
+        (#return result))";
+    let moved = source.replace(
+        "(#let second Poll",
+        "(#let moved Frame frame)\n        (#let second Poll",
+    );
+    let error = lim::check_types(&lim::parse_program(&moved).unwrap()).unwrap_err();
+    assert!(
+        error.contains("pinned") || error.contains("borrow") || error.contains("consumed"),
+        "{error}"
+    );
+
+    let escaping = source.replace(
+        "(#fn main () u64",
+        "(#fn escape-frame () Poll
+          (#let-mut frame Frame (#call work (: offset 40u64)))
+          (#let waker u64 0u64)
+          (#return (#call poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))))
+        (#fn main () u64",
+    );
+    let error = lim::check_types(&lim::parse_program(&escaping).unwrap()).unwrap_err();
+    assert!(
+        error.contains("outlive")
+            || error.contains("borrow")
+            || error.contains("local")
+            || error.contains("consumed"),
+        "pinned frame handle must not escape its owner: {error}"
+    );
+
+    let generated = build_and_run(source, 41);
+    assert!(
+        generated.contains("(#pin-ref-mut Frame)"),
+        "poll must borrow the pinned frame: {generated}"
+    );
+    assert!(generated.contains("(#pin-read task)"), "{generated}");
+    assert!(generated.contains("(#pin-write task"), "{generated}");
+    assert!(generated.contains("(#fn poll-cancel"), "{generated}");
+}
+
+#[test]
 fn async_function_can_complete_without_suspension() {
     let original = example_source();
     let (prefix, _) = original.split_once("(#fn main () u64").unwrap();
