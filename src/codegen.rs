@@ -7318,9 +7318,9 @@ impl FunctionContext {
                         discriminant,
                         payload,
                     } = self
-                        .locals
-                        .get(name)
+                        .local_storage(name)
                         .ok_or_else(|| format!("unknown enum local '{name}'"))?
+                        .clone()
                     else {
                         return Err(format!("'{name}' is not a payload enum"));
                     };
@@ -7363,8 +7363,7 @@ impl FunctionContext {
                 return Ok(());
             }
             let Storage::Struct(slots) = self
-                .locals
-                .get(name)
+                .local_storage(name)
                 .ok_or_else(|| format!("unknown struct local '{name}'"))?
             else {
                 return Err(format!("'{name}' is not a struct"));
@@ -7539,9 +7538,9 @@ impl FunctionContext {
                 return Ok(());
             }
             let Storage::Tuple(slots) = self
-                .locals
-                .get(name)
+                .local_storage(name)
                 .ok_or_else(|| format!("unknown tuple local '{name}'"))?
+                .clone()
             else {
                 return Err(format!("'{name}' is not a tuple"));
             };
@@ -7960,8 +7959,7 @@ impl FunctionContext {
                 length: local_length,
                 element_words: _,
             } = self
-                .locals
-                .get(name)
+                .local_storage(name)
                 .ok_or_else(|| format!("unknown array local '{name}'"))?
             else {
                 return Err(format!("'{name}' is not an array"));

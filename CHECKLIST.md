@@ -416,6 +416,11 @@ the checklist is committed alongside the implementation it tracks.
   payload assignments instead of syntax-name maps. Preserve checked member
   declarations and native layouts; exercise each write form in native tests.
 
+- [x] **IR-02aj: Resolve by-value aggregate returns by binding identity.**
+  Load local tuple, array, struct, and payload-enum return values through
+  checked binding storage. Keep global and constructed return paths distinct;
+  cover scalar-sized and multiword layouts in native execution tests.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
