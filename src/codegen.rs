@@ -7596,18 +7596,20 @@ impl FunctionContext {
             return self.return_indirect_struct_value(&struct_name, &fields, value);
         }
         if let Expr::Symbol(name) = value {
-            if matches!(self.global_types.get(name), Some(Type::Named(global_name)) if global_name == struct_name)
-            {
-                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
-                if words > VALUE_REGISTERS.len() {
-                    return Err("native struct return has too many fields".into());
+            if let Some(global_name) = self.checked_global_name(value, name)? {
+                if matches!(self.global_types.get(&global_name), Some(Type::Named(global_type)) if global_type == struct_name)
+                {
+                    let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                    if words > VALUE_REGISTERS.len() {
+                        return Err("native struct return has too many fields".into());
+                    }
+                    for index in (0..words).rev() {
+                        let register = VALUE_REGISTERS[index];
+                        self.load_global_word(&global_name, index)?;
+                        self.output.push_str(&format!("    mov {register}, rax\n"));
+                    }
+                    return Ok(());
                 }
-                for index in (0..words).rev() {
-                    let register = VALUE_REGISTERS[index];
-                    self.load_global_word(name, index)?;
-                    self.output.push_str(&format!("    mov {register}, rax\n"));
-                }
-                return Ok(());
             }
             let Storage::Struct(slots) = self
                 .local_storage(name)

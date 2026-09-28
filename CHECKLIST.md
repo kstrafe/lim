@@ -645,6 +645,11 @@ the checklist is committed alongside the implementation it tracks.
   Preserve local, dereference, projection, and constructor sources; validate
   static aggregate copies across native examples.
 
+- [x] **IR-02br: Return register-sized global structs by checked identity.**
+  Resolve static struct sources through `GlobalId` before loading return
+  registers. Preserve local struct and constructor paths; cover mixed scalar,
+  float, and nested-field layouts.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
