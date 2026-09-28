@@ -1462,6 +1462,40 @@ fn awaited_while_condition_preserves_terminal_break_and_continue() {
 }
 
 #[test]
+fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum ChildTask ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady Maybe)))
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting stage)
+            (#if (#u64.== stage 0u64)
+              (ChildPending (Waiting 1u64))
+              (#if (#u64.== stage 1u64)
+                (ChildReady (Some 10u64))
+                (ChildReady None)))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#while-let (Some payload)
+            (#await Maybe ChildTask ChildPending ChildReady child-poll
+              (Waiting (#if (#u64.== iteration 0u64) 0u64 2u64)))
+            (#set iteration payload))
+          (#return iteration))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending first-frame) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task first-frame : waker (#borrow waker))))
+        (#let value u64 (#match second
+          (#case (Ready result) result)
+          (#case (Pending pending-frame) (#block (#forget pending-frame) 0u64))))
+        (#forget waker)
+        (#return (#if (#u64.== value 10u64) 42u64 0u64)))";
+    build_and_run(source, 42);
+}
+
+#[test]
 fn async_await_preserves_boolean_short_circuiting() {
     let source = format!(
         "(#import \"{}/library/cell.lim\")

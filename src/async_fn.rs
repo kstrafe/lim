@@ -1055,6 +1055,103 @@ fn lower_async_while(
     if !has_await(statement) {
         return Ok(None);
     }
+    if let Some(items) = form(statement, "#while-let") {
+        if items.len() < 4 {
+            return Err(
+                "@async-fn awaited #while-let requires a pattern, awaited value, and body".into(),
+            );
+        }
+        if has_await(&items[2]) {
+            let await_form = form(&items[2], "#await").ok_or_else(|| {
+                "@async-fn #while-let currently requires its awaited value to be one direct, explicitly typed #await".to_owned()
+            })?;
+            if await_form.len() != 7 {
+                return Err(
+                    "@async-fn #while-let requires an explicitly typed #await value".into(),
+                );
+            }
+            parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+            if items[3..].iter().any(has_await) {
+                return Err("@async-fn #while-let body cannot also suspend yet".into());
+            }
+            if items[3..].iter().any(contains_loop_control) {
+                return Err("@async-fn #while-let body cannot transfer loop control yet".into());
+            }
+
+            let result_name = fresh_async_name(source, next_name);
+            let stopped_name = fresh_async_name(source, next_name);
+            let normalized_await = Expr::List(
+                std::iter::once(Expr::Symbol("#await".into()))
+                    .chain(await_form[2..].iter().cloned())
+                    .collect(),
+            );
+            let await_binding = Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(result_name.clone()),
+                await_form[1].clone(),
+                normalized_await,
+            ]);
+            let success_body = Expr::List(vec![
+                Expr::Symbol("#block".into()),
+                Expr::List(vec![
+                    Expr::Symbol("#match".into()),
+                    Expr::Symbol(result_name),
+                    Expr::List(vec![Expr::Symbol("#case".into()), items[1].clone(), {
+                        let mut body = vec![Expr::Symbol("#block".into())];
+                        body.extend(items[3..].iter().cloned());
+                        body.push(Expr::List(vec![
+                            Expr::Symbol("#set".into()),
+                            Expr::Symbol(stopped_name.clone()),
+                            Expr::Symbol("false".into()),
+                        ]));
+                        Expr::List(body)
+                    }]),
+                    Expr::List(vec![
+                        Expr::Symbol("#case".into()),
+                        Expr::Symbol("_".into()),
+                        Expr::List(vec![
+                            Expr::Symbol("#block".into()),
+                            Expr::List(vec![
+                                Expr::Symbol("#set".into()),
+                                Expr::Symbol(stopped_name.clone()),
+                                Expr::Symbol("true".into()),
+                            ]),
+                            Expr::List(Vec::new()),
+                        ]),
+                    ]),
+                ]),
+            ]);
+            let terminal = Expr::List(vec![
+                Expr::Symbol("#if".into()),
+                Expr::Symbol(stopped_name.clone()),
+                Expr::List(vec![Expr::Symbol("#break".into())]),
+                Expr::List(vec![Expr::Symbol("#continue".into())]),
+            ]);
+            let loop_form = Expr::List(vec![
+                Expr::Symbol("#loop".into()),
+                await_binding,
+                Expr::List(vec![
+                    Expr::Symbol("#let-mut".into()),
+                    Expr::Symbol(stopped_name),
+                    Expr::Symbol("bool".into()),
+                    Expr::Symbol("false".into()),
+                ]),
+                success_body,
+                terminal,
+            ]);
+            return lower_async_loop(
+                &loop_form,
+                known,
+                known_order,
+                following,
+                return_value,
+                source,
+                next_name,
+                waker,
+            );
+        }
+        return Err("@async-fn #while-let with suspension requires an awaited scrutinee".into());
+    }
     let Some(items) = form(statement, "#while") else {
         return Ok(None);
     };
