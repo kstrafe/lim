@@ -5620,6 +5620,9 @@ impl FunctionContext {
                 return self.local_slots_for_binding(binding, name);
             }
         }
+        if let Some(binding) = self.local_binding_id(name) {
+            return self.local_slots_for_binding(binding, name);
+        }
         if self.expression_types.has_checked_identity(expression) {
             return Err(format!(
                 "internal error: checked local symbol '{name}' lost its binding ID"
@@ -5632,8 +5635,7 @@ impl FunctionContext {
         self.expression_types
             .get(expression)
             .is_some_and(|metadata| metadata.binding.is_some())
-            || (!self.expression_types.has_checked_identity(expression)
-                && self.locals.contains_key(name))
+            || self.local_binding_id(name).is_some()
     }
 
     fn local_storage_for_symbol(
@@ -5649,6 +5651,16 @@ impl FunctionContext {
             .get(expression)
             .and_then(|metadata| metadata.binding)
         {
+            return self
+                .locals_by_binding
+                .get(&binding)
+                .cloned()
+                .map(Some)
+                .ok_or_else(|| {
+                    format!("internal error: missing storage for checked binding '{name}'")
+                });
+        }
+        if let Some(binding) = self.local_binding_id(name) {
             return self
                 .locals_by_binding
                 .get(&binding)
@@ -8923,17 +8935,22 @@ impl FunctionContext {
             Some(Expr::Symbol(name)) => name,
             _ => return Err("borrow requires a variable or struct field place".into()),
         };
-        if self.locals.contains_key(owner) {
-            let slot = local_slots(&self.locals, owner)?
+        let owner_expression = &items[1];
+        if self.is_local_symbol_expression(owner_expression, owner) {
+            let slot = self
+                .local_slots_for_symbol(owner_expression, owner)?
                 .first()
                 .copied()
                 .ok_or_else(|| format!("cannot borrow zero-sized variable '{owner}'"))?;
             self.output
                 .push_str(&format!("    lea rax, [rbp-{}]\n", slot * 8));
             if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut"))
-                && self.local_types.get(owner).is_some_and(
-                    |ty| matches!(ty, Type::Array(..) | Type::Tuple(..) | Type::I128 | Type::U128)
-                        || matches!(ty, Type::Named(name) if self.structs.contains_key(name) || self.enums.contains_key(name)),
+                && self
+                    .expression_type(owner_expression)
+                    .or_else(|| self.local_type(owner).cloned())
+                    .is_some_and(
+                    |ty| matches!(&ty, Type::Array(..) | Type::Tuple(..) | Type::I128 | Type::U128)
+                        || matches!(&ty, Type::Named(name) if self.structs.contains_key(name) || self.enums.contains_key(name)),
                 )
             {
                 self.output.push_str("    or rax, 1\n");
