@@ -1578,7 +1578,7 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   at suspension points. Define source syntax, borrowing across suspension, and
   immovable storage before accepting self-referential frames. Preserve exact
   source diagnostics and explicit cleanup for each suspended state.
-- [ ] **ASYNC-01a: Define pinning as a checked place guarantee.** Add explicit
+- [x] **ASYNC-01a: Define pinning as a checked place guarantee.** Add explicit
   pinned types and pinned references without generic traits. Establish stable
   stack and allocator-backed places before creating internal references;
   prohibit safe moves, replacement, copies, or owner destruction while pinned
