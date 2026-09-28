@@ -10370,6 +10370,7 @@ impl FunctionContext {
             "index" => self.index_expression(items),
             "get" => self.field_expression(items),
             "get-payload" => self.enum_payload_expression(items),
+            "pin-get-payload" | "pin-get-payload-mut" => self.pinned_enum_payload_expression(items),
             "!" => self.boolean_not(items),
             "&&" | "||" => self.boolean_logic(operator, items),
             "assert" | "debug-assert" => self.assert_expression(operator, items),
@@ -13211,6 +13212,60 @@ impl FunctionContext {
                 Ok(())
             }
         }
+    }
+
+    fn pinned_enum_payload_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        if items.len() != 4 {
+            return Err("pin-get-payload requires an enum reference, variant, and index".into());
+        }
+        let Type::PinnedReference { target, .. } = self
+            .expression_type(&items[1])
+            .ok_or_else(|| "pin-get-payload has no known source type".to_owned())?
+        else {
+            return Err("pin-get-payload requires a pinned reference".into());
+        };
+        let Type::Named(enum_name) = *target else {
+            return Err("pin-get-payload requires a pinned reference to an enum".into());
+        };
+        let Expr::Symbol(variant_name) = &items[2] else {
+            return Err("pin-get-payload requires a variant name".into());
+        };
+        let index =
+            match &items[3] {
+                Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
+                    .map_err(|_| "enum payload index is too large".to_owned())?,
+                Expr::UnsignedInteger(index) => usize::try_from(*index)
+                    .map_err(|_| "enum payload index is too large".to_owned())?,
+                _ => return Err("pin-get-payload requires a non-negative integer index".into()),
+            };
+        let (variant_owner, discriminant, fields) = self
+            .enum_variant_info(&items[2], variant_name)?
+            .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
+        if variant_owner != enum_name {
+            return Err("internal error: checked pinned payload variant owner changed".into());
+        }
+        if fields.get(index).is_none() {
+            return Err(format!(
+                "variant '{variant_name}' has no payload field at index {index}"
+            ));
+        }
+        let payload_offset = 1 + fields[..index]
+            .iter()
+            .map(|field| storage_word_count(field, &self.structs, &self.enums))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .sum::<usize>();
+        let inactive = self.label("inactive_pinned_enum_payload_borrow");
+        let done = self.label("inactive_pinned_enum_payload_borrow_done");
+        self.expression(&items[1])?;
+        self.output.push_str(&format!(
+            "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
+            discriminant
+        ));
+        self.emit_reference_field_address(&items[1], payload_offset, true)?;
+        self.output
+            .push_str(&format!("    jmp {done}\n{inactive}:\n    ud2\n{done}:\n"));
+        Ok(())
     }
 
     fn enum_payload_expression(&mut self, items: &[Expr]) -> Result<(), String> {

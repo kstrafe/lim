@@ -540,6 +540,8 @@ impl FlowGraph {
                 head.as_str(),
                 "get"
                     | "get-payload"
+                    | "pin-get-payload"
+                    | "pin-get-payload-mut"
                     | "index"
                     | "borrow"
                     | "borrow-mut"
@@ -849,6 +851,8 @@ impl FlowGraph {
                     head.as_str(),
                     "get"
                         | "get-payload"
+                        | "pin-get-payload"
+                        | "pin-get-payload-mut"
                         | "index"
                         | "borrow"
                         | "borrow-mut"
@@ -1580,15 +1584,21 @@ impl FlowGraph {
                         "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
                     ) && matches!(children.len(), 2 | 3)
                         && matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut") == *mutable;
+                    let pinned_payload_form =
+                        matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut")
+                            && children.len() == 4
+                            && (head == "pin-get-payload-mut") == *mutable;
                     let slice_form = matches!(head.as_str(), "slice-idx" | "slice-mut-idx")
                         && children.len() == 3
                         && (head == "slice-mut-idx") == *mutable;
-                    let expected_place = if slice_form {
+                    let expected_place = if slice_form || pinned_payload_form {
                         Place::from_expression(body, *value)
                     } else {
                         Place::from_expression(body, children[1])
                     };
-                    if !(borrow_form || slice_form) || expected_place.as_ref() != Some(place) {
+                    if !(borrow_form || slice_form || pinned_payload_form)
+                        || expected_place.as_ref() != Some(place)
+                    {
                         return Err(format!("typed flow borrow {value:?} has invalid metadata"));
                     }
                     if let PlaceRoot::Local(binding) = place.root {
@@ -2377,7 +2387,10 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             origins
         }
         NodeKind::Form { head, children, .. }
-            if matches!(head.as_str(), "get" | "get-payload" | "index") =>
+            if matches!(
+                head.as_str(),
+                "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
+            ) =>
         {
             let Some(base) = children.get(1) else {
                 return Vec::new();
@@ -2396,6 +2409,39 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     }
                     origin.storage.remove(0);
                     Some(origin)
+                })
+                .collect()
+        }
+        NodeKind::Form { head, .. }
+            if matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut") =>
+        {
+            let Some(place) = Place::from_expression(body, id) else {
+                return Vec::new();
+            };
+            let borrowed_from = match &place.root {
+                PlaceRoot::Local(binding)
+                    if matches!(
+                        body.bindings[binding.0].ty,
+                        Type::Reference { .. }
+                            | Type::PinnedReference { .. }
+                            | Type::Slice(_)
+                            | Type::MutableSlice(_)
+                    ) =>
+                {
+                    Some(*binding)
+                }
+                _ => None,
+            };
+            resolve_known_referents(body, &place, state, &mut HashSet::new())
+                .into_iter()
+                .map(|place| LoanOrigin {
+                    borrowed_from,
+                    place,
+                    mutable: matches!(node.ty, Some(Type::PinnedReference { mutable: true, .. })),
+                    pinned: true,
+                    span: node.span,
+                    storage: Vec::new(),
+                    parameter_storage: None,
                 })
                 .collect()
         }
@@ -2661,7 +2707,10 @@ fn value_loan_origins_at_events(
             }
             return result;
         }
-        if matches!(head.as_str(), "get" | "get-payload" | "index") {
+        if matches!(
+            head.as_str(),
+            "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
+        ) {
             let Some(base) = children.get(1) else {
                 return Vec::new();
             };
@@ -3301,6 +3350,24 @@ impl Builder<'_> {
             }
             NodeKind::Form { head, .. } if matches!(head.as_str(), "panic" | "unreachable") => {
                 Ok(self.push(FlowAction::Diverge, span, vec![]))
+            }
+            NodeKind::Form { head, children, .. }
+                if matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut")
+                    && children.len() == 4 =>
+            {
+                let action = Place::from_expression(self.body, id).map_or(
+                    FlowAction::Evaluate(id),
+                    |place| FlowAction::Borrow {
+                        value: id,
+                        place,
+                        mutable: matches!(
+                            self.body.nodes[id.0].ty,
+                            Some(Type::PinnedReference { mutable: true, .. })
+                        ),
+                    },
+                );
+                let done = self.push(action, span, vec![next]);
+                self.expression(children[1], done, targets, None)
             }
             NodeKind::Form { head, children, .. }
                 if matches!(

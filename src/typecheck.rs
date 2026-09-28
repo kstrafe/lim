@@ -7277,7 +7277,7 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             let value_type = match value_type {
-                Type::Reference { target, .. } | Type::PinnedReference { target, .. } => *target,
+                Type::Reference { target, .. } => *target,
                 other => other,
             };
             let Type::Named(enum_name) = value_type else {
@@ -7313,6 +7313,55 @@ fn list_expression(
                     "variant '{variant_name}' has no payload field at index {index}"
                 ))
                 .at(ErrorSite::Argument("get-payload".into(), 3))
+            })
+        }
+        "pin-get-payload" | "pin-get-payload-mut" => {
+            require_arity(operator, items, 4)?;
+            let base = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let Type::PinnedReference {
+                mutable: base_mutable,
+                target,
+            } = base
+            else {
+                return Err("pin-get-payload requires a pinned enum reference".into());
+            };
+            let Type::Named(enum_name) = *target else {
+                return Err("pin-get-payload requires a pinned reference to an enum".into());
+            };
+            let mutable = operator == "pin-get-payload-mut";
+            if mutable && !base_mutable {
+                return Err(borrow_error(
+                    "pin-get-payload-mut requires a mutable pinned enum reference",
+                ));
+            }
+            let Expr::Symbol(variant_name) = &items[2] else {
+                return Err("pin-get-payload requires a variant name".into());
+            };
+            let index = match &items[3] {
+                Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
+                    .map_err(|_| "enum payload index is too large".to_owned())?,
+                Expr::UnsignedInteger(index) => usize::try_from(*index)
+                    .map_err(|_| "enum payload index is too large".to_owned())?,
+                _ => return Err("pin-get-payload requires a non-negative integer index".into()),
+            };
+            let field_type = enums
+                .get(&enum_name)
+                .and_then(|variants| variants.iter().find(|variant| variant.name == *variant_name))
+                .and_then(|variant| variant.fields.get(index))
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "enum '{enum_name}' variant '{variant_name}' has no payload field at index {index}"
+                    )
+                })?;
+            if !is_reference_target(&field_type) {
+                return Err("pin-get-payload cannot borrow a unit or never value".into());
+            }
+            Ok(Type::PinnedReference {
+                mutable,
+                target: Box::new(field_type),
             })
         }
         _ => {

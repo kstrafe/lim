@@ -124,7 +124,7 @@ fn a_pinned_slot_payload_can_be_borrowed_and_referenced_in_its_frame() {
         (#let pinned (#pin-ref-mut Frame) (#pin-borrow-mut frame))
         (#let slot (#pin-ref-mut StableU64) (#pin-borrow-mut (#get pinned payload)))
         (#let payload-view (#pin-ref u64)
-          (#pin-borrow (#get-payload slot StableU64-full 0)))
+          (#pin-get-payload slot StableU64-full 0))
         (#pin-set-field pinned view payload-view)
         (#let observed u64 (#deref payload-view))
         (#pin-set-field pinned view external)
@@ -166,7 +166,7 @@ fn a_pinned_slot_payload_loan_prevents_moving_out_the_slot() {
         (#let pinned (#pin-ref-mut Frame) (#pin-borrow-mut frame))
         (#let slot (#pin-ref-mut StableU64) (#pin-borrow-mut (#get pinned payload)))
         (#let payload-view (#pin-ref u64)
-          (#pin-borrow (#get-payload slot StableU64-full 0)))
+          (#pin-get-payload slot StableU64-full 0))
         (#unsafe (#call stable-u64-take (: slot slot)))
         (#drop payload-view)
         (#drop slot)
@@ -177,6 +177,32 @@ fn a_pinned_slot_payload_loan_prevents_moving_out_the_slot() {
     let error = check_types(&program).unwrap_err();
     assert!(
         error.contains("borrow") || error.contains("access"),
+        "{error}"
+    );
+}
+
+#[test]
+fn pinned_enum_payloads_cannot_be_extracted_by_value() {
+    let source = "(#enum ValueSlot ((Full u64) Empty))
+      (#fn read ((slot (#pin-ref ValueSlot))) u64
+        (#return (#get-payload slot Full 0)))";
+    let program = parse_program(source).unwrap();
+    let error = check_types(&program).unwrap_err();
+    assert!(
+        error.contains("get-payload requires an enum value"),
+        "{error}"
+    );
+}
+
+#[test]
+fn pinned_enum_payload_mut_borrow_requires_mutable_pin() {
+    let source = "(#enum ValueSlot ((Full u64) Empty))
+      (#fn read ((slot (#pin-ref ValueSlot))) (#pin-ref-mut u64)
+        (#return (#pin-get-payload-mut slot Full 0)))";
+    let program = parse_program(source).unwrap();
+    let error = check_types(&program).unwrap_err();
+    assert!(
+        error.contains("pin-get-payload-mut requires a mutable pinned enum reference"),
         "{error}"
     );
 }

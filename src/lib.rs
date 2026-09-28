@@ -4039,6 +4039,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "index"
             | "get"
             | "get-payload"
+            | "pin-get-payload"
+            | "pin-get-payload-mut"
             | "size-of"
             | "align-of"
             | "offset-of"

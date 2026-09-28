@@ -2050,10 +2050,24 @@ impl Builder<'_> {
             if let Some(owner) = self.declarations.aggregate_id(ty) {
                 self.resolve_node(children[1], DeclarationId::Aggregate(owner));
             }
-        } else if matches!(head.as_str(), "get" | "get-payload" | "pin-set-field") {
-            if let (Some(owner), Some(Expr::Symbol(name))) =
-                (self.body.nodes[children[1].0].ty.as_ref(), items.get(2))
-            {
+        } else if matches!(
+            head.as_str(),
+            "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "pin-set-field"
+        ) {
+            let owner = self.body.nodes[children[1].0]
+                .ty
+                .as_ref()
+                .and_then(|owner| {
+                    if matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut") {
+                        match owner {
+                            Type::PinnedReference { target, .. } => Some(target.as_ref()),
+                            _ => None,
+                        }
+                    } else {
+                        Some(owner)
+                    }
+                });
+            if let (Some(owner), Some(Expr::Symbol(name))) = (owner, items.get(2)) {
                 let id = if matches!(head.as_str(), "get" | "pin-set-field") {
                     self.declarations
                         .field_id(owner, name)

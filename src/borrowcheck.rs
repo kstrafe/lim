@@ -1842,7 +1842,10 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     // safe updates to a disjoint reference field whenever a
                     // sibling field is borrowed.
                     check_expression(&items[3], context)?;
-                } else if matches!(operator.as_str(), "get" | "index" | "get-payload") {
+                } else if matches!(
+                    operator.as_str(),
+                    "get" | "index" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut"
+                ) {
                     if let Some((base, path)) = projection_path(expression) {
                         let through_mutable_reference = matches!(base, Expr::Symbol(name)
                             if context.reference_bindings.contains(name));
@@ -2394,7 +2397,7 @@ fn projection_path(expression: &Expr) -> Option<(&Expr, Vec<String>)> {
         }
         Expr::List(items)
             if items.len() == 4
-                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get-payload") =>
+                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "get-payload" | "pin-get-payload" | "pin-get-payload-mut")) =>
         {
             let (base, mut path) = projection_path(&items[1])?;
             let Expr::Symbol(variant) = &items[2] else {

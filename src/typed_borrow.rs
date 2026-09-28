@@ -374,7 +374,10 @@ fn reads_through_reference(body: &Body, value: NodeId) -> bool {
         }
         NodeKind::Form { head, children, .. } if head == "deref" && children.len() == 2 => true,
         NodeKind::Form { head, children, .. }
-            if matches!(head.as_str(), "get" | "get-payload" | "index") =>
+            if matches!(
+                head.as_str(),
+                "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
+            ) =>
         {
             children
                 .get(1)
@@ -649,7 +652,10 @@ fn returned_borrows_with_bindings(
             .cloned()
             .unwrap_or_else(|| vec![Vec::new()])),
         NodeKind::Form { head, children, .. }
-            if matches!(head.as_str(), "get" | "get-payload" | "index") =>
+            if matches!(
+                head.as_str(),
+                "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
+            ) =>
         {
             let Some(slot) =
                 Place::from_expression(body, id).and_then(|place| place.segments.last().cloned())

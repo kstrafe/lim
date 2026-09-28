@@ -1430,7 +1430,7 @@ appropriate context, and its effect.
 | `#break-to`, `#continue-to` | labeled loop control |
 | `#return` | explicit function return |
 | `#tuple`, `#array`, `#array-repeat` | aggregate construction |
-| `#index`, `#get`, `#get-payload` | aggregate and enum projection |
+| `#index`, `#get`, `#get-payload`, `#pin-get-payload`, `#pin-get-payload-mut` | aggregate and enum projection |
 | `#range` | range value for matching and iteration |
 | `#as` | explicit cast |
 | `#size-of`, `#align-of` | compile-time layout queries |
@@ -1578,6 +1578,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. While any derived pin is live, safe code cannot copy, move, replace, or destroy the referent. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
+| `#pin-get-payload` | `(#pin-get-payload pinned-enum-reference variant index)` | `(#let payload (#pin-ref u64) (#pin-get-payload slot Full 0))` (expression) | Borrows a selected enum payload in place as a shared pinned reference. Unlike `#get-payload`, it never extracts or moves the payload value. |
+| `#pin-get-payload-mut` | `(#pin-get-payload-mut mutable-pinned-enum-reference variant index)` | `(#let payload (#pin-ref-mut u64) (#pin-get-payload-mut slot Full 0))` (expression) | Borrows a selected enum payload in place as an exclusive pinned reference; requires a mutable pinned reference to the enum. |
 | `#pin-ptr-borrow` | `(#pin-ptr-borrow pinned-anchor pointer)` | `(#unsafe (#pin-ptr-borrow pinned pointer))` (expression) | Unsafe shared pointer borrow tied to a pinned-reference anchor; returns a pinned reference and preserves anchor provenance. The caller proves pointer validity and address stability for the anchor lifetime. |
 | `#pin-ptr-borrow-mut` | `(#pin-ptr-borrow-mut pinned-mut-anchor mutable-pointer)` | `(#unsafe (#pin-ptr-borrow-mut pinned pointer))` (expression) | Unsafe exclusive pointer borrow tied to a mutable pinned-reference anchor; returns a mutable pinned reference. The caller proves validity, stability, and unique access. |
 | `#pin-read` | `(#pin-read pinned-reference)` | `(#unsafe (#pin-read pinned))` (expression) | Reads a pinned referent by value. Unsafe because the caller must prevent aliasing and must not duplicate ownership of linear data. |

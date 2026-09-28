@@ -1773,10 +1773,15 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   value, then clear it before consuming the owner. Preserve the separate
   rejection of taking the slot through an overlapping live borrow.
 - [x] **ASYNC-01c2e: Borrow pinned enum payloads in place.** Permit
-  `#get-payload` borrowing through a pinned enum reference, preserving the
-  variant payload's checked place identity and pinned provenance. Verify a
+  borrowing through a pinned enum reference, preserving the variant payload's
+  checked place identity and pinned provenance. Verify a
   native self-reference into a generated slot payload and reject moving that
   slot while the payload loan remains live.
+- [x] **ASYNC-01c2f: Separate pinned payload borrows from value projection.**
+  Add `#pin-get-payload` and `#pin-get-payload-mut` as explicit shared and
+  exclusive in-place borrows. Keep `#get-payload` value-only so pinned storage
+  cannot appear to be safely extracted by value. Check the active variant at
+  runtime, track payload loans in typed flow, and document both forms.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
