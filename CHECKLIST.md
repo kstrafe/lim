@@ -547,6 +547,12 @@ the checklist is committed alongside the implementation it tracks.
   matches the scrutinee enum. Keep or-pattern expansion as a separate lowering
   path; preserve every native example and constructor/match identity coverage.
 
+- [x] **IR-02ay: Lower enum or-pattern alternatives by checked identity.**
+  Resolve each unit or payload alternative through its own `VariantId`, use
+  its retained discriminant and payload types, and reject owner mismatches.
+  Preserve generated scope bindings and verify all native enum/or-pattern
+  examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

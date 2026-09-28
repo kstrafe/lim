@@ -10864,52 +10864,47 @@ impl FunctionContext {
                         return Err("enum or-pattern scrutinee has no named type".into());
                     };
                     for (index, alternative) in pattern[1..].iter().enumerate() {
-                        let (alternative_name, payload_patterns): (&str, Vec<&Expr>) =
-                            match alternative {
-                                Expr::Symbol(name) => (name, Vec::new()),
-                                Expr::List(items) if !items.is_empty() => {
-                                    let Expr::Symbol(name) = &items[0] else {
-                                        return Err(
-                                            "enum or-pattern alternatives must be variants".into(),
-                                        );
-                                    };
-                                    (name, items[1..].iter().collect())
-                                }
-                                _ => {
+                        let (alternative_head, alternative_name, payload_patterns): (
+                            &Expr,
+                            &str,
+                            Vec<&Expr>,
+                        ) = match alternative {
+                            Expr::Symbol(name) => (alternative, name, Vec::new()),
+                            Expr::List(items) if !items.is_empty() => {
+                                let Expr::Symbol(name) = &items[0] else {
                                     return Err(
                                         "enum or-pattern alternatives must be variants".into()
-                                    )
-                                }
-                            };
+                                    );
+                                };
+                                (&items[0], name, items[1..].iter().collect())
+                            }
+                            _ => return Err("enum or-pattern alternatives must be variants".into()),
+                        };
                         let last = index + 1 == pattern.len() - 1;
                         let alternative_next = if last {
                             next.clone()
                         } else {
                             self.label("enum_or_pattern_next")
                         };
-                        let value = self
-                            .enums
-                            .get(&enum_name)
-                            .and_then(|variants| {
-                                variants
-                                    .iter()
-                                    .find(|variant| variant.name == alternative_name)
-                            })
-                            .ok_or_else(|| format!("unknown enum variant '{alternative_name}'"))?
-                            .clone();
+                        let (variant_owner, discriminant, fields) = self
+                            .enum_variant_info(alternative_head, alternative_name)?
+                            .ok_or_else(|| format!("unknown enum variant '{alternative_name}'"))?;
+                        if variant_owner != enum_name {
+                            return Err(
+                                "internal error: checked or-pattern variant owner changed".into()
+                            );
+                        }
                         self.output.push_str(&format!(
                             "    cmp QWORD PTR [rsp], {}\n    jne {alternative_next}\n",
-                            asm_u64_immediate(value.discriminant)
+                            asm_u64_immediate(discriminant)
                         ));
-                        if !payload_patterns.is_empty()
-                            && payload_patterns.len() != value.fields.len()
-                        {
+                        if !payload_patterns.is_empty() && payload_patterns.len() != fields.len() {
                             return Err(format!(
                                 "variant '{alternative_name}' has the wrong payload count"
                             ));
                         }
                         let mut offset = 0;
-                        for (payload, field_type) in payload_patterns.iter().zip(&value.fields) {
+                        for (payload, field_type) in payload_patterns.iter().zip(&fields) {
                             self.emit_enum_payload_pattern(
                                 payload,
                                 field_type,
