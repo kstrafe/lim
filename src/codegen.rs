@@ -5733,7 +5733,10 @@ impl FunctionContext {
                 } else if matches!(ty, Type::Tuple(_)) {
                     self.store_tuple(name, value)?;
                 } else if matches!(ty, Type::Slice(_) | Type::MutableSlice(_)) {
-                    let slots = local_slots(&self.locals, name)?;
+                    let slots = match self.local_binding_id(name) {
+                        Some(binding) => self.local_slots_for_binding(binding, name)?,
+                        None => local_slots(&self.locals, name)?,
+                    };
                     self.store_value_words(value, &ty, &slots)?;
                 } else if is_wide_integer(&ty) {
                     self.expression(value)?;
