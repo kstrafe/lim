@@ -1889,6 +1889,16 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   each wake token independently. Reject aliasing the same owner in both slots;
   cover whichever timer fires first, eventual completion of both, and cleanup
   in a native example. General dynamic registration remains part of ASYNC-02.
+- [x] **ASYNC-02d: Keep native-AIO buffers owned through completion or cancel.**
+  Add opaque linear AIO context, pending-operation, and completed-operation
+  types. Each submitted read or readiness request owns its mmap containing the
+  `iocb`, event record, and read buffer; it immutably borrows its context until
+  the request reaches a terminal event. Provide a blocking `min=1` wait rather
+  than polling. If asynchronous cancellation is accepted, reap its completion
+  event before exposing the completed owner; on any unacknowledged error,
+  return the pending owner intact. Verify byte contents, cancellable eventfd
+  readiness, and cleanup natively. Dynamic registration and scheduler wake
+  integration remain open.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,

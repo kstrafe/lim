@@ -610,6 +610,33 @@ fn linux_native_aio_transfers_bytes_and_checks_completion_records() {
 }
 
 #[test]
+fn safe_native_aio_retains_owned_buffers_until_completion_acknowledgement() {
+    let scratch = support::Scratch::new("linux-aio-owned");
+    let executable = scratch.path().join("aio-owned");
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/aio_owned.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile safe owned AIO example");
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    let (status, stdout, stderr) = support::run(
+        &mut Command::new(executable),
+        std::time::Duration::from_secs(5),
+        1024,
+    )
+    .expect("run safe owned AIO example within five seconds");
+    assert_eq!(status.code(), Some(42), "{stderr:?}");
+    assert!(stdout.is_empty(), "{stdout:?}");
+    assert!(stderr.is_empty(), "{stderr:?}");
+}
+
+#[test]
 fn linux_io_uring_reuses_rings_and_transfers_registered_file_payloads() {
     let scratch = support::Scratch::new("linux-io-uring");
     let binary = scratch.path().join("check");
