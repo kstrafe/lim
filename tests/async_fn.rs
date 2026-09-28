@@ -110,7 +110,7 @@ fn async_generated_code_does_not_allow_shadowing_in_nested_branches() {
 #[test]
 fn async_function_suspends_resumes_and_is_inspectable() {
     let generated = build_and_run(&example_source(), 42);
-    assert!(generated.contains("(#enum Work ((Work-start u64) (Work-await-0 u64 Step)))"));
+    assert!(generated.contains("(#enum Work ((Work-start u64) (Work-await-0 u64 u64 Step)))"));
     assert!(generated.contains("(#fn work-poll-resume-0"));
     assert!(generated.contains("(#fn work-poll"));
     assert!(!generated.contains("#await"));
@@ -370,7 +370,7 @@ fn async_function_accepts_no_arguments_or_captures() {
 fn async_function_supports_multiple_awaits() {
     let source = example_without_cancel_work()
         .replace(
-            "(#return (#u64.+.wrap value offset))",
+            "(#return (#u64.+.wrap total offset))",
             "(#if (#u64.== offset 1u64)
            (#block (#set offset (#u64.+.wrap offset 5u64)) ())
            (#block (#set offset (#u64.+.wrap offset 10u64)) ()))
@@ -379,7 +379,7 @@ fn async_function_supports_multiple_awaits() {
            (#case _ (#block (#set offset 99u64) ())))
          (#let second u64
            (#await Step StepPending StepReady step-poll (Waiting 0u64)))
-         (#return (#u64.+.wrap value offset))",
+         (#return (#u64.+.wrap total offset))",
         )
         .replace("((offset u64)) u64", "((#mut offset u64)) u64");
     let generated = build_and_run(&source, 48);
@@ -456,6 +456,46 @@ fn async_function_extracts_typed_awaits_from_value_expressions() {
     );
     assert!(
         generated.contains("lim.async.nested-await-1"),
+        "{generated}"
+    );
+}
+
+#[test]
+fn async_function_suspends_inside_mutable_assignment_rhs() {
+    let source = "(#struct Waker ((count u64)))
+      (#enum Child ((Waiting u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref Waker))) ChildPoll
+        (#return (#match task
+          (#case (Waiting remaining)
+            (#if (#u64.== remaining 0u64)
+              (ChildReady 42u64)
+              (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function
+        (#fn work () u64
+          (#let-mut total u64 10u64)
+          (#set total
+            (#await u64 Child ChildPending ChildReady child-poll (Waiting 1u64)))
+          (#return total))))
+      (#fn main () u64
+        (#let waker Waker (#struct-literal Waker ((count 0u64))))
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending running-task) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task running-task : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(
+        generated.contains("(#set total lim.async.nested-await-0)"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("(#fn poll-resume-0 ((#mut total u64)"),
         "{generated}"
     );
 }
@@ -1383,10 +1423,10 @@ fn async_function_can_suspend_at_each_await() {
     let original = example_without_cancel_work();
     let (prefix, _) = original.split_once("(#fn main () u64").unwrap();
     let prefix = prefix.replace(
-        "(#return (#u64.+.wrap value offset))",
+        "(#return (#u64.+.wrap total offset))",
         "(#let second u64
            (#await Step StepPending StepReady step-poll (Waiting 1u64)))
-         (#return (#u64.+.wrap value offset))",
+         (#return (#u64.+.wrap total offset))",
     );
     let source = format!(
         "{prefix} (#fn main () u64

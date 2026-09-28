@@ -281,7 +281,11 @@ assignments to captured mutable locals run in the resume helper. Each async
 body still ends with one explicit `#return`; a direct `#await` in that return
 is lowered as a final stage.
 `#await` in a binding must still be the entire initializer of a top-level
-binding. An `#if`, `#match`, or `#block` that contains no nested `#await` may
+binding unless it is nested in a supported value expression such as the right
+hand side of `#set`; nested awaits require an explicit result type. For example,
+`(#set total (#await u64 Child Pending Ready child-poll task))` suspends before
+assigning the result to the mutable local, whose value is retained in the frame.
+An `#if`, `#match`, or `#block` that contains no nested `#await` may
 run between stages. Awaited branches and loop bodies have explicit supported
 shapes rather than general CFG lowering: `#while` can suspend once in its body
 per iteration, or use one direct boolean `#await` as its condition. An awaited

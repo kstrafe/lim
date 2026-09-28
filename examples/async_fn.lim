@@ -39,9 +39,10 @@
 
 (@async-fn (: names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset u64)) u64
     (#let step Step (Waiting 1u64))
-    (#let value u64
-      (#await Step StepPending StepReady step-poll step))
-    (#return (#u64.+.wrap value offset)))))
+    (#let-mut total u64 0u64)
+    (#set total
+      (#await u64 Step StepPending StepReady step-poll step))
+    (#return (#u64.+.wrap total offset)))))
 
 (#fn cancel-step ((task Step)) ()
   (#match task
@@ -51,8 +52,9 @@
 (#fn cancel-work ((task Work)) ()
   (#match task
     (#case (Work-start offset) (#forget offset))
-    (#case (Work-await-0 offset child)
+    (#case (Work-await-0 total offset child)
       (#block
+        (#forget total)
         (#forget offset)
         (#call cancel-step (: task child)))))
   (#return ()))

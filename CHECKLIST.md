@@ -1809,6 +1809,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   its owner while the frame retains the loan, and verify the reference is read
   after resume. Explicitly destroy the completed frame before reusing its owner;
   this does not permit a reference into the async frame itself.
+- [x] **ASYNC-01b31: Suspend in a mutable assignment value.** Lower a typed
+  `#await` nested in a `#set` right-hand side into an explicit result binding,
+  retain the target's mutable value across Pending, and assign in the resume
+  helper before returning. Verify Pending/resume natively and inspect both the
+  generated frame capture and mutable resume parameter.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
