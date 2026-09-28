@@ -859,6 +859,57 @@ fn async_function_retains_mutable_external_borrows_across_pending() {
 }
 
 #[test]
+fn pinned_async_frame_retains_an_external_pinned_borrow_across_pending() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting count)
+            (#if (#u64.== count 0u64)
+              (ChildPending (Waiting 1u64))
+              (ChildReady count))))))
+      (@async-fn-pinned (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn read-after-await ((view (#pin-ref u64))) u64
+          (#let result u64
+            (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#return (#u64.+.wrap (#deref view) result)))))
+      (#fn main () u64
+        (#let-mut owner u64 40u64)
+        (#let view (#pin-ref u64) (#pin-borrow owner))
+        (#let-mut frame Frame (#call read-after-await (: view view)))
+        (#forget view)
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (Pending pinned-frame) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task pinned-frame : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) (#unreachable)))))
+        (#forget frame)
+        (#set owner 41u64)
+        (#forget waker)
+        (#return (#if (#u64.== result 41u64) owner 0u64)))";
+
+    let mutation_while_pending = source.replace(
+        "        (#let second Poll",
+        "        (#set owner 99u64)\n        (#let second Poll",
+    );
+    let error =
+        lim::check_types(&lim::parse_program(&mutation_while_pending).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("pinned") || error.contains("access"),
+        "a suspended pinned frame must keep its external owner borrowed: {error}"
+    );
+
+    let generated = build_and_run(source, 41);
+    assert!(generated.contains("(#pin-ref u64)"), "{generated}");
+}
+
+#[test]
 fn cancelling_a_pending_async_frame_releases_its_external_mutable_borrow() {
     let source = "(#struct Waker ((count u64)))
       (#enum Step ((Waiting u64)))

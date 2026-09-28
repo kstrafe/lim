@@ -291,6 +291,12 @@ Suspending `#for` conditions and compound awaited conditions remain unsupported.
 At most 32 awaits are accepted.
 References into pre-suspension locals cannot be retained in the frame; the
 ordinary borrow checker rejects them.
+An `@async-fn-pinned` function may capture a caller-owned `#pin-ref` and use it
+after resume. The frame retains that external loan while it is alive, so its
+owner cannot be mutated in the meantime; explicitly consume or forget the
+completed frame before reusing the owner. This does not permit references into
+the frame itself, which still require stable generated slots and internal-loan
+cleanup.
 
 Cancellation is still explicit and caller-defined: a free-standing function
 must match each generated frame state, consume its captured values, and call

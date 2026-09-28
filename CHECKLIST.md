@@ -1804,6 +1804,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   update it in the body only after Ready(true), and return it after the false
   condition. Exercise oversized generated state and poll enums through
   indirect ABI storage in a native example.
+- [x] **ASYNC-01b30: Preserve external pinned loans through pinned async frames.**
+  Capture a caller-owned `#pin-ref` across Pending/resume, reject mutation of
+  its owner while the frame retains the loan, and verify the reference is read
+  after resume. Explicitly destroy the completed frame before reusing its owner;
+  this does not permit a reference into the async frame itself.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
