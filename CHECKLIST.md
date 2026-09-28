@@ -660,6 +660,11 @@ the checklist is committed alongside the implementation it tracks.
   field projections. Preserve local and computed sources; validate large
   nested projections and bounds behavior.
 
+- [x] **IR-02bu: Borrow and copy reference fields by checked identity.** Use
+  retained `FieldId` metadata for projected field borrows and oversized
+  reference-field copies instead of re-resolving the selector by spelling.
+  Preserve synthesized lowering; test reference reborrows and large fields.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

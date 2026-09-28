@@ -9269,18 +9269,11 @@ impl FunctionContext {
                 let Type::Named(struct_name) = *target else {
                     return Err("field borrow requires a reference to a struct".into());
                 };
-                let field_name = match &place[2] {
-                    Expr::Symbol(name) => name,
-                    _ => return Err("field borrow requires a named struct field".into()),
-                };
                 let fields = self
                     .structs
                     .get(&struct_name)
                     .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
-                let index = fields
-                    .iter()
-                    .position(|field| field.name == *field_name)
-                    .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))?;
+                let index = self.checked_field_index(&place[2], &struct_name, fields)?;
                 let offset_words = fields[..index]
                     .iter()
                     .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
@@ -14872,10 +14865,6 @@ impl FunctionContext {
         let Expr::List(items) = value else {
             return Err("large reference projection must be a get expression".into());
         };
-        let field_name = match items.get(2) {
-            Some(Expr::Symbol(name)) => name,
-            _ => return Err("large reference projection requires a named field".into()),
-        };
         let Type::Reference { target, .. } = self
             .expression_type(&items[1])
             .ok_or_else(|| "large reference projection has no base type".to_owned())?
@@ -14889,10 +14878,7 @@ impl FunctionContext {
             .structs
             .get(&struct_name)
             .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
-        let index = fields
-            .iter()
-            .position(|field| field.name == *field_name)
-            .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))?;
+        let index = self.checked_field_index(&items[2], &struct_name, fields)?;
         let offset = fields[..index]
             .iter()
             .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
