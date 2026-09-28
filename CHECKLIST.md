@@ -596,6 +596,11 @@ the checklist is committed alongside the implementation it tracks.
   aggregate storage, validate the owning enum, and zero the remaining payload
   words. Preserve native enum and aggregate examples.
 
+- [x] **IR-02bh: Lower indirect enum values by checked identity.** Use
+  `VariantId` for unit and payload values written into indirect aggregate
+  storage, including payload type recovery for `#get-payload`. Validate the
+  owner enum and preserve enum/aggregate native execution.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

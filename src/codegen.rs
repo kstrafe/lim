@@ -7092,13 +7092,11 @@ impl FunctionContext {
                         Expr::UnsignedInteger(index) => usize::try_from(*index).ok()?,
                         _ => return None,
                     };
-                    self.enums
-                        .get(&enum_name)?
-                        .iter()
-                        .find(|variant| variant.name == *variant_name)?
-                        .fields
-                        .get(index)
-                        .cloned()
+                    let (variant_owner, _, fields) =
+                        self.enum_variant_info(&items[2], variant_name).ok()??;
+                    (variant_owner == enum_name)
+                        .then(|| fields.get(index).cloned())
+                        .flatten()
                 }
                 Some(Expr::Symbol(operator)) if operator == "as" && items.len() == 3 => {
                     parse_type(items.get(2))
@@ -7952,21 +7950,21 @@ impl FunctionContext {
             }
         }
         if let (Expr::Symbol(variant_name), Type::Named(enum_name)) = (value, ty) {
-            if let Some(variants) = self.enums.get(enum_name) {
-                if let Some(variant) = variants
-                    .iter()
-                    .find(|variant| variant.name == *variant_name)
-                {
-                    self.output
-                        .push_str(&format!("    mov rax, {}\n", variant.discriminant));
-                    self.store_indirect_word("rax", offset)?;
-                    let storage_words = storage_word_count(ty, &self.structs, &self.enums)?;
-                    for index in 1..storage_words {
-                        self.output.push_str("    xor rax, rax\n");
-                        self.store_indirect_word("rax", offset + index)?;
-                    }
-                    return Ok(());
+            if let Some((variant_owner, discriminant, _)) =
+                self.enum_variant_info(value, variant_name)?
+            {
+                if variant_owner != *enum_name {
+                    return Err("internal error: checked indirect enum value owner changed".into());
                 }
+                self.output
+                    .push_str(&format!("    mov rax, {}\n", discriminant));
+                self.store_indirect_word("rax", offset)?;
+                let storage_words = storage_word_count(ty, &self.structs, &self.enums)?;
+                for index in 1..storage_words {
+                    self.output.push_str("    xor rax, rax\n");
+                    self.store_indirect_word("rax", offset + index)?;
+                }
+                return Ok(());
             }
         }
         if words <= VALUE_REGISTERS.len() {
@@ -8059,22 +8057,24 @@ impl FunctionContext {
                 Ok(())
             }
             Type::Named(enum_name) if self.enums.contains_key(enum_name) => {
-                let variants = self.enums.get(enum_name).cloned().unwrap_or_default();
-                let variant_index = variants
-                    .iter()
-                    .position(|variant| variant.name == *constructor)
+                let (variant_owner, discriminant, fields) = self
+                    .enum_variant_info(&items[0], constructor)?
                     .ok_or_else(|| format!("unknown enum variant '{constructor}'"))?;
-                let variant = &variants[variant_index];
-                if items.len() - 1 != variant.fields.len() {
+                if variant_owner != *enum_name {
+                    return Err(
+                        "internal error: checked indirect enum constructor owner changed".into(),
+                    );
+                }
+                if items.len() - 1 != fields.len() {
                     return Err(format!(
                         "enum variant '{constructor}' has the wrong payload count"
                     ));
                 }
                 self.output
-                    .push_str(&format!("    mov rax, {}\n", variant.discriminant));
+                    .push_str(&format!("    mov rax, {}\n", discriminant));
                 self.store_indirect_word("rax", offset)?;
                 let mut field_offset = offset + 1;
-                for (item, field) in items[1..].iter().zip(&variant.fields) {
+                for (item, field) in items[1..].iter().zip(&fields) {
                     self.store_indirect_value_words(item, field, field_offset)?;
                     field_offset += storage_word_count(field, &self.structs, &self.enums)?;
                 }
