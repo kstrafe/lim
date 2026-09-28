@@ -1814,6 +1814,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   retain the target's mutable value across Pending, and assign in the resume
   helper before returning. Verify Pending/resume natively and inspect both the
   generated frame capture and mutable resume parameter.
+- [x] **ASYNC-01b32: Suspend in a projected assignment value.** Lower a typed
+  `#await` nested in `#set-index` into the resume helper while retaining the
+  mutable array across Pending. Verify the indexed write and subsequent read
+  natively, and inspect the generated continuation assignment.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
