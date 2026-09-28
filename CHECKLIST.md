@@ -1850,6 +1850,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   exclusive in-place borrows. Keep `#get-payload` value-only so pinned storage
   cannot appear to be safely extracted by value. Check the active variant at
   runtime, track payload loans in typed flow, and document both forms.
+- [x] **ASYNC-01c2g: Reject stack pins captured by pinned async frames.** Add a
+  regression proving `@async-fn-pinned` cannot convert a reference to a local
+  stack pin into an internal self-reference merely by capturing it across
+  `#await`. Preserve the source-local lifetime diagnostic until generated
+  stable slots and frame-internal loan cleanup are implemented.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue

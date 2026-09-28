@@ -202,6 +202,33 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
 }
 
 #[test]
+fn pinned_async_frames_reject_stack_pins_captured_across_suspension() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildReady value)))))
+      (@async-fn-pinned (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut value u64 41u64)
+          (#let view (#pin-ref u64) (#pin-borrow value))
+          (#let result u64
+            (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#return (#u64.+.wrap (#deref view) result)))))
+      (#fn main () u64 (#return 0u64))";
+    let program = lim::parse_program(source).unwrap();
+    let error = lim::check_types(&program).unwrap_err();
+    assert!(
+        error.contains("pinned")
+            || error.contains("outlive")
+            || error.contains("borrow")
+            || error.contains("local"),
+        "a stack pin must not be laundered into a pinned async frame: {error}"
+    );
+}
+
+#[test]
 fn async_function_can_complete_without_suspension() {
     let original = example_source();
     let (prefix, _) = original.split_once("(#fn main () u64").unwrap();
