@@ -689,17 +689,6 @@ fn extract_statement_awaits(
     Ok(())
 }
 
-fn collect_mutated_names(expression: &Expr, names: &mut HashSet<String>) {
-    if let Some(name) = mutable_assignment_target(expression) {
-        names.insert(name.to_owned());
-    }
-    if let Expr::List(items) = expression {
-        for item in items.iter().skip(1) {
-            collect_mutated_names(item, names);
-        }
-    }
-}
-
 /// Lower a while loop with one await binding per iteration into a concrete
 /// child task. Its poll helper runs ready iterations in a normal Lim loop and
 /// stores the current captures plus child task only when the child is pending.
@@ -818,23 +807,11 @@ fn lower_async_while(
         collect_value_names(expression, &mut used_after);
     }
     collect_value_names(return_value, &mut used_after);
-    let mut mutated = HashSet::new();
-    collect_mutated_names(condition, &mut mutated);
-    for expression in prefix.iter().chain(suffix) {
-        collect_mutated_names(expression, &mut mutated);
-    }
-    collect_mutated_names(&await_form[5], &mut mutated);
     let output_captures = captures
         .iter()
-        .filter(|binding| mutated.contains(&binding.name) && used_after.contains(&binding.name))
+        .filter(|binding| used_after.contains(&binding.name))
         .cloned()
         .collect::<Vec<_>>();
-    if let Some(binding) = output_captures.iter().find(|binding| !binding.mutable) {
-        return Err(format!(
-            "@async-fn loop cannot return immutable live-after capture '{}' of type '{}' after mutation",
-            binding.name, binding.ty
-        ));
-    }
 
     let base = fresh_async_name(source, next_name);
     let task_type = format!("{base}-task");

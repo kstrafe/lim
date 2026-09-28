@@ -1039,6 +1039,8 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
 fn async_function_returns_linear_state_after_a_loop() {
     let source = "(#struct State ((value u64)))
       (#linear State)
+      (#struct Token ((limit u64)))
+      (#linear Token)
       (#enum ChildPoll ((ChildPending u64) (ChildReady u64)))
       (#fn child-poll ((task u64) (waker (#ref u64))) ChildPoll
         (#return (#if (#u64.== task 0u64)
@@ -1047,7 +1049,8 @@ fn async_function_returns_linear_state_after_a_loop() {
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
           (#let-mut state State (#struct-literal State ((value 0u64))))
-          (#while (#u64.< (#get state value) 3u64)
+          (#let token Token (#struct-literal Token ((limit 3u64))))
+          (#while (#u64.< (#get state value) (#get token limit))
             (#let result u64
               (#await u64 ChildPending ChildReady child-poll (#get state value)))
             (#let next-value u64 (#u64.+.wrap result 1u64))
@@ -1057,6 +1060,7 @@ fn async_function_returns_linear_state_after_a_loop() {
           (#return (#block
             (#let value u64 (#get state value))
             (#forget state)
+            (#forget token)
             value)))))
       (#fn main () u64
         (#let waker u64 0u64)
@@ -1076,6 +1080,10 @@ fn async_function_returns_linear_state_after_a_loop() {
         (#return result))";
     let generated = build_and_run(source, 3);
     assert!(generated.contains("-outputs"), "{generated}");
+    assert!(
+        generated.contains("(state State) (token Token)"),
+        "{generated}"
+    );
 }
 
 #[test]

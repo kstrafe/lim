@@ -1784,6 +1784,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   protocol variants. Verify Pending followed by multiple immediately-Ready
   iterations natively, consume the returned value explicitly, and explicitly
   cancel a Pending task that owns a linear capture.
+- [x] **ASYNC-01b27: Return unchanged live-after captures from awaited loops.**
+  Include every captured binding still used after the loop in the generated
+  Ready payload, not only captures assigned in the loop. Preserve immutable
+  bindings as immutable and transfer unchanged linear aggregates exactly once.
+  Test an immutable linear value used by the loop condition and after Ready,
+  including its explicit consumption in the continuation; inspect the concrete
+  output payload to ensure both the mutated and unchanged owners are returned.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
