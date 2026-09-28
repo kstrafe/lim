@@ -57,6 +57,121 @@ fn has_await(expr: &Expr) -> bool {
     }
 }
 
+#[derive(Clone, PartialEq)]
+struct AwaitProtocol {
+    result_type: Expr,
+    child_type: Expr,
+    pending: Expr,
+    ready: Expr,
+    poll: Expr,
+}
+
+fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>, String> {
+    if let Some(await_form) = form(expression, "#await") {
+        if await_form.len() != 7 {
+            return Err(
+                "nested #await requires an explicit result type: (#await Type Child Pending Ready poll task)"
+                    .into(),
+            );
+        }
+        parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+        parse_type(Some(&normalize_keywords(await_form[2].clone())))?;
+        return Ok(Some((
+            AwaitProtocol {
+                result_type: await_form[1].clone(),
+                child_type: await_form[2].clone(),
+                pending: await_form[3].clone(),
+                ready: await_form[4].clone(),
+                poll: await_form[5].clone(),
+            },
+            await_form[6].clone(),
+        )));
+    }
+
+    if let Some(items) = form(expression, "#if") {
+        if items.len() != 4 {
+            return Ok(None);
+        }
+        let then_await = conditional_await(&items[2])?;
+        let else_await = conditional_await(&items[3])?;
+        let (Some((protocol, then_task)), Some((else_protocol, else_task))) =
+            (then_await, else_await)
+        else {
+            if has_await(&items[2]) || has_await(&items[3]) {
+                return Err(
+                    "every #if branch must await when one branch suspends; use a shared child/poll protocol".into(),
+                );
+            }
+            return Ok(None);
+        };
+        if protocol != else_protocol {
+            return Err(
+                "conditional #await branches must use the same result type, child type, variants, and poll function".into(),
+            );
+        }
+        return Ok(Some((
+            protocol,
+            Expr::List(vec![
+                items[0].clone(),
+                items[1].clone(),
+                then_task,
+                else_task,
+            ]),
+        )));
+    }
+
+    if let Some(items) = form(expression, "#match") {
+        if items.len() < 3 {
+            return Ok(None);
+        }
+        let mut protocol = None;
+        let mut task_arms = Vec::with_capacity(items.len());
+        task_arms.push(items[0].clone());
+        task_arms.push(items[1].clone());
+        let any_suspending_arm = items[2..].iter().any(has_await);
+        for arm in &items[2..] {
+            let Some(case) = form(arm, "#case") else {
+                if any_suspending_arm {
+                    return Err(
+                        "every #match arm must await when one arm suspends; use a shared child/poll protocol".into(),
+                    );
+                }
+                return Ok(None);
+            };
+            if case.len() != 3 {
+                if any_suspending_arm {
+                    return Err(
+                        "every #match arm must await when one arm suspends; use a shared child/poll protocol".into(),
+                    );
+                }
+                return Ok(None);
+            }
+            let Some((case_protocol, task)) = conditional_await(&case[2])? else {
+                if any_suspending_arm {
+                    return Err(
+                        "every #match arm must await when one arm suspends; use a shared child/poll protocol".into(),
+                    );
+                }
+                return Ok(None);
+            };
+            if protocol
+                .as_ref()
+                .is_some_and(|expected| expected != &case_protocol)
+            {
+                return Err(
+                    "conditional #await branches must use the same result type, child type, variants, and poll function".into(),
+                );
+            }
+            protocol = Some(case_protocol);
+            task_arms.push(Expr::List(vec![case[0].clone(), case[1].clone(), task]));
+        }
+        if let Some(protocol) = protocol {
+            return Ok(Some((protocol, Expr::List(task_arms))));
+        }
+    }
+    Ok(None)
+}
+
 fn extract_nested_awaits(
     expression: &mut Expr,
     generated: &mut Vec<Expr>,
@@ -94,6 +209,51 @@ fn extract_nested_awaits(
         return Ok(());
     }
 
+    if has_await(expression) {
+        if let Some(items) = form(expression, "#if") {
+            if items.len() == 4 {
+                let Expr::List(items) = expression else {
+                    unreachable!()
+                };
+                extract_nested_awaits(&mut items[1], generated, source, next_name)?;
+            }
+        } else if let Some(items) = form(expression, "#match") {
+            if items.len() >= 3 {
+                let Expr::List(items) = expression else {
+                    unreachable!()
+                };
+                extract_nested_awaits(&mut items[1], generated, source, next_name)?;
+            }
+        }
+    }
+    if has_await(expression) {
+        if let Some((protocol, mut task)) = conditional_await(expression)? {
+            extract_nested_awaits(&mut task, generated, source, next_name)?;
+            let task_name = nested_await_name(source, next_name);
+            generated.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(task_name.clone()),
+                protocol.child_type.clone(),
+                task,
+            ]));
+            let result_name = nested_await_name(source, next_name);
+            generated.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(result_name.clone()),
+                protocol.result_type,
+                Expr::List(vec![
+                    Expr::Symbol("#await".into()),
+                    protocol.child_type,
+                    protocol.pending,
+                    protocol.ready,
+                    protocol.poll,
+                    Expr::Symbol(task_name),
+                ]),
+            ]));
+            *expression = Expr::Symbol(result_name);
+            return Ok(());
+        }
+    }
     let contains_await = has_await(expression);
     match expression {
         Expr::List(items) => {
@@ -171,6 +331,16 @@ fn extract_nested_awaits(
         | Expr::At => {}
     }
     Ok(())
+}
+
+fn nested_await_name(source: &str, next_name: &mut usize) -> String {
+    loop {
+        let name = format!("lim.async.nested-await-{}", *next_name);
+        *next_name += 1;
+        if !source.contains(&name) {
+            return name;
+        }
+    }
 }
 
 fn extract_statement_awaits(

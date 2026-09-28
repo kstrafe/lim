@@ -356,6 +356,76 @@ fn async_function_extracts_awaits_from_keyed_struct_literals() {
 }
 
 #[test]
+fn async_function_awaits_after_conditional_task_selection() {
+    let source = "(#struct Waker ((count u64)))
+      (#enum Child ((Waiting u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#enum Choice ((Small) (Large)))
+      (#fn child-poll ((task Child) (waker (#ref Waker))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildReady value)))))
+      (@async-fn (: names (IfFrame IfPoll IfPending IfReady poll-if) : waker Waker : function
+        (#fn choose-if ((large bool)) u64
+          (#return (#if large
+            (#await u64 Child ChildPending ChildReady child-poll (Waiting 20u64))
+            (#await u64 Child ChildPending ChildReady child-poll (Waiting 10u64)))))))
+      (@async-fn (: names (MatchFrame MatchPoll MatchPending MatchReady poll-match) : waker Waker : function
+        (#fn choose-match ((choice Choice)) u64
+          (#return (#match choice
+            (#case Small (#await u64 Child ChildPending ChildReady child-poll (Waiting 10u64)))
+            (#case Large (#await u64 Child ChildPending ChildReady child-poll (Waiting 20u64))))))))
+      (#fn main () u64
+        (#let waker Waker (#struct-literal Waker ((count 0u64))))
+        (#let if-result IfPoll
+          (#call poll-if (: task (#call choose-if (: large true)) : waker (#borrow waker))))
+        (#let match-result MatchPoll
+          (#call poll-match (: task (#call choose-match (: choice Large)) : waker (#borrow waker))))
+        (#let total u64
+          (#u64.+.wrap
+            (#match if-result
+              (#case (IfReady value) value)
+              (#case (IfPending task) (#block (#forget task) (#unreachable))))
+            (#match match-result
+              (#case (MatchReady value) value)
+              (#case (MatchPending task) (#block (#forget task) (#unreachable))))))
+        (#forget waker)
+        (#return total))";
+    let generated = build_and_run(source, 40);
+    assert!(
+        generated.contains("lim.async.nested-await-0"),
+        "{generated}"
+    );
+}
+
+#[test]
+fn async_function_rejects_incompatible_conditional_awaits() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64) (ChildAlternateReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task (#case (Waiting value) (ChildReady value)))))
+      (#fn child-poll-alt ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (ChildAlternateReady 2u64)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#return (#if true
+            (#await u64 Child ChildPending ChildReady child-poll (Waiting 1u64))
+            (#await u64 Child ChildPending ChildAlternateReady child-poll-alt (Waiting 2u64)))))))";
+    let error = lim::parse_program(source).unwrap_err();
+    assert!(
+        error.contains("conditional #await branches must use the same"),
+        "{error}"
+    );
+
+    let mixed = source.replace(
+        "(#await u64 Child ChildPending ChildAlternateReady child-poll-alt (Waiting 2u64))",
+        "2u64",
+    );
+    let error = lim::parse_program(&mixed).unwrap_err();
+    assert!(error.contains("every #if branch must await"), "{error}");
+}
+
+#[test]
 fn async_function_carries_mutable_locals_across_pending_resume() {
     let source = "(#struct Waker ((count u64)))
       (#enum Step ((Waiting u64)))

@@ -1638,8 +1638,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-01b9: Extract typed awaits from eager value expressions.** Allow
   nested `#await` in value-producing forms by requiring its result type
   explicitly, then lower awaits left-to-right into ordinary concrete stages.
-  Preserve call/constructor argument evaluation order; keep awaits in
-  conditional control flow rejected until branch-state lowering exists.
+  Preserve call/constructor argument evaluation order. Conditional branch
+  selection is handled separately in ASYNC-01b10.
+- [x] **ASYNC-01b10: Await after conditional child-task selection.** Lower
+  `#if` and `#match` expressions whose every arm awaits through the same
+  explicitly typed child/pending/ready/poll protocol by selecting the concrete
+  child first and suspending once. Diagnose partial or incompatible protocols;
+  branch-specific poll protocols and immediate non-await arms remain open.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible
