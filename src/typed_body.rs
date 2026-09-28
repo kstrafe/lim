@@ -1505,12 +1505,13 @@ impl Body {
         binding_spans: &[Option<Span>],
         parameter_spans: &[Option<Span>],
     ) -> Self {
+        let expression_order = lowering_expression_order(&function.body, expression_ids);
         let mut builder = Builder {
             body: Body::default(),
             names: HashMap::new(),
             declarations,
             types,
-            expression_ids,
+            expression_order: expression_order.into(),
             expression_spans,
             statement_spans,
             statement_ids,
@@ -1525,6 +1526,10 @@ impl Body {
             );
         }
         builder.body.instructions = builder.statements(&function.body);
+        debug_assert!(
+            builder.expression_order.is_empty(),
+            "typed body traversal left source expressions unlowered"
+        );
         builder.body.emission_nodes = builder.body.emission_node_order();
         builder.body
     }
@@ -1602,12 +1607,126 @@ fn walk_statements<'a>(statements: &'a [Statement], output: &mut Vec<&'a Expr>) 
     }
 }
 
+fn lowering_expression_order(
+    statements: &[Statement],
+    identities: &HashMap<usize, ExpressionId>,
+) -> VecDeque<ExpressionId> {
+    fn expression(
+        value: &Expr,
+        ids: &HashMap<usize, ExpressionId>,
+        output: &mut VecDeque<ExpressionId>,
+    ) {
+        output.push_back(ids[&(std::ptr::from_ref(value) as usize)]);
+        match value {
+            Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match") =>
+            {
+                if let Some(head) = items.first() {
+                    expression(head, ids, output);
+                }
+                if let Some(scrutinee) = items.get(1) {
+                    expression(scrutinee, ids, output);
+                }
+                for arm in items.iter().skip(2) {
+                    output.push_back(ids[&(std::ptr::from_ref(arm) as usize)]);
+                    if let Expr::List(parts) = arm {
+                        for part in parts {
+                            expression(part, ids, output);
+                        }
+                    }
+                }
+            }
+            Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "if") => {
+                for item in items {
+                    expression(item, ids, output);
+                }
+            }
+            Expr::List(items) => {
+                for item in items {
+                    expression(item, ids, output);
+                }
+            }
+            Expr::Block(body) | Expr::Loop(body) => statements_order(body, ids, output),
+            Expr::Labeled {
+                expression: inner, ..
+            }
+            | Expr::Quote(inner)
+            | Expr::QuasiQuote(inner)
+            | Expr::Unquote(inner)
+            | Expr::UnquoteSplicing(inner) => expression(inner, ids, output),
+            _ => {}
+        }
+    }
+
+    fn statements_order(
+        statements: &[Statement],
+        ids: &HashMap<usize, ExpressionId>,
+        output: &mut VecDeque<ExpressionId>,
+    ) {
+        for statement in statements {
+            use Statement as S;
+            match statement {
+                S::Let { value, .. }
+                | S::Assign { value, .. }
+                | S::FieldAssign { value, .. }
+                | S::TupleAssign { value, .. }
+                | S::EnumPayloadAssign { value, .. }
+                | S::BreakValue(value)
+                | S::BreakToValue { value, .. }
+                | S::Return(Some(value))
+                | S::Expr(value) => expression(value, ids, output),
+                S::Destructure { pattern, value, .. } => {
+                    expression(value, ids, output);
+                    expression(pattern, ids, output);
+                }
+                S::LetElse {
+                    pattern,
+                    value,
+                    else_body,
+                    ..
+                } => {
+                    expression(value, ids, output);
+                    statements_order(else_body, ids, output);
+                    expression(pattern, ids, output);
+                }
+                S::ArrayAssign { index, value, .. } => {
+                    expression(index, ids, output);
+                    expression(value, ids, output);
+                }
+                S::While { condition, body } => {
+                    expression(condition, ids, output);
+                    statements_order(body, ids, output);
+                }
+                S::Loop { body } => statements_order(body, ids, output),
+                S::For {
+                    init,
+                    condition,
+                    step,
+                    body,
+                } => {
+                    statements_order(std::slice::from_ref(init), ids, output);
+                    expression(condition, ids, output);
+                    statements_order(body, ids, output);
+                    statements_order(std::slice::from_ref(step), ids, output);
+                }
+                S::Labeled { statement, .. } => {
+                    statements_order(std::slice::from_ref(statement), ids, output)
+                }
+                S::Break | S::BreakTo(_) | S::Continue | S::ContinueTo(_) | S::Return(None) => {}
+            }
+        }
+    }
+
+    let mut output = VecDeque::new();
+    statements_order(statements, identities, &mut output);
+    output
+}
+
 struct Builder<'a> {
     body: Body,
     names: HashMap<String, BindingId>,
     declarations: &'a Declarations,
     types: &'a HashMap<ExpressionId, Type>,
-    expression_ids: &'a HashMap<usize, ExpressionId>,
+    expression_order: VecDeque<ExpressionId>,
     expression_spans: &'a HashMap<ExpressionId, Span>,
     statement_spans: &'a HashMap<crate::typed_ir::StatementId, Span>,
     statement_ids: &'a HashMap<usize, crate::typed_ir::StatementId>,
@@ -1615,19 +1734,8 @@ struct Builder<'a> {
 }
 
 impl Builder<'_> {
-    fn expression_type(&self, expression: &Expr) -> Option<&Type> {
-        let address = std::ptr::from_ref(expression) as usize;
-        self.expression_ids
-            .get(&address)
-            .and_then(|id| self.types.get(id))
-    }
-
-    fn expression_span(&self, expression: &Expr) -> Option<Span> {
-        let address = std::ptr::from_ref(expression) as usize;
-        self.expression_ids
-            .get(&address)
-            .and_then(|id| self.expression_spans.get(id))
-            .copied()
+    fn expression_span(&self, id: ExpressionId) -> Option<Span> {
+        self.expression_spans.get(&id).copied()
     }
 
     fn binding(&mut self, name: &str, ty: Type, span: Option<Span>) -> BindingId {
@@ -1765,6 +1873,11 @@ impl Builder<'_> {
     }
 
     fn match_arm(&mut self, arm: &Expr, ty: &Type) -> NodeId {
+        let expression_id = self
+            .expression_order
+            .pop_front()
+            .expect("checked match arm has a stable expression ID");
+        let expression_type = self.types.get(&expression_id).cloned();
         let saved = self.names.clone();
         let Expr::List(parts) = arm else {
             unreachable!("checked match arm");
@@ -1776,7 +1889,11 @@ impl Builder<'_> {
             .map(|part| self.expression(part))
             .collect();
         self.names = saved;
-        self.record(arm, NodeKind::MatchArm { pattern, values })
+        self.record(
+            expression_id,
+            expression_type,
+            NodeKind::MatchArm { pattern, values },
+        )
     }
 
     fn resolve_form(&mut self, items: &[Expr], children: &[NodeId], ty: Option<&Type>) {
@@ -1822,15 +1939,19 @@ impl Builder<'_> {
     }
 
     fn expression(&mut self, expression: &Expr) -> NodeId {
+        let expression_id = self
+            .expression_order
+            .pop_front()
+            .expect("checked expression has a stable expression ID");
+        let expression_type = self.types.get(&expression_id).cloned();
         let kind = match expression {
             Expr::Symbol(name) => {
-                let binding = self
-                    .expression_type(expression)
+                let binding = expression_type
                     .is_some()
                     .then(|| self.names.get(name).copied())
                     .flatten();
                 let declaration = if binding.is_none() {
-                    self.expression_type(expression).and_then(|ty| {
+                    expression_type.as_ref().and_then(|ty| {
                         self.declarations
                             .global_id(name)
                             .map(DeclarationId::Global)
@@ -1897,7 +2018,7 @@ impl Builder<'_> {
                                 }
                             }
                         }
-                        let ty = self.expression_type(expression).cloned();
+                        let ty = expression_type.clone();
                         self.resolve_form(items, &children, ty.as_ref());
                         let callee = self.declarations.function_id(head);
                         if let Some(callee) = callee {
@@ -1942,17 +2063,15 @@ impl Builder<'_> {
             Expr::UnquoteSplicing(inner) => NodeKind::Quoted("splice", self.expression(inner)),
             _ => NodeKind::Literal(expression.clone()),
         };
-        self.record(expression, kind)
+        self.record(expression_id, expression_type, kind)
     }
 
-    fn record(&mut self, expression: &Expr, kind: NodeKind) -> NodeId {
-        let address = std::ptr::from_ref(expression) as usize;
+    fn record(&mut self, expression_id: ExpressionId, ty: Option<Type>, kind: NodeKind) -> NodeId {
         let id = NodeId(self.body.nodes.len());
-        let expression_id = self.expression_ids.get(&address).copied();
         self.body.nodes.push(Node {
-            expression_id,
-            ty: self.expression_type(expression).cloned(),
-            span: self.expression_span(expression),
+            expression_id: Some(expression_id),
+            ty,
+            span: self.expression_span(expression_id),
             kind,
         });
         id

@@ -506,6 +506,13 @@ the checklist is committed alongside the implementation it tracks.
   test density, repeat-parse stability, nested coverage, and exact spans. The
   complete serial test suite passes.
 
+- [x] **IR-02ar: Lower expressions using a stable-ID traversal stream.**
+  Precompute each function's deterministic expression-ID order, then have the
+  typed body builder consume IDs and retrieve types/spans directly by ID rather
+  than resolving every AST node through a pointer map. Assert complete
+  consumption and preserve node order, contextual typing, generated/imported
+  spans, and emission-bridge shape checks. The full serial test suite passes.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
