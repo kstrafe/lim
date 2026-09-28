@@ -611,6 +611,11 @@ the checklist is committed alongside the implementation it tracks.
   tuple words. Preserve local tuple slots and validate static aggregate and
   full native examples.
 
+- [x] **IR-02bk: Index global arrays by checked global identity.** Resolve a
+  checked global array base through its retained `GlobalId` before selecting
+  static storage. Preserve local and computed array paths, bounds checks, and
+  scalar/multiword element loading; validate global array native examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

@@ -10566,41 +10566,47 @@ impl FunctionContext {
             self.stack_depth -= words;
             return Ok(());
         };
-        if let Some(Type::Array(element, length)) = self.global_types.get(name).cloned() {
-            if !matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) {
-                return Err(format!("global '{name}' is not an aggregate array"));
-            }
-            let bounds_failure = self.label("global_array_bounds_failure");
-            let done = self.label("global_array_index_done");
-            let element_words = value_word_count(&element, &self.structs, &self.enums)?;
-            self.expression(&items[2])?;
-            self.output.push_str(&format!(
-                "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    imul rcx, {element_words}\n    lea r11, [rip+{}]\n",
-                asm_symbol(name)
-            ));
-            if element_words == 1 {
-                self.output.push_str("    mov rax, QWORD PTR [r11+rcx*8]\n");
-            } else {
-                for (index, register) in VALUE_REGISTERS[..element_words].iter().enumerate() {
-                    self.output.push_str(&format!(
-                        "    mov {register}, QWORD PTR [r11+rcx*8+{}]\n",
-                        index * 8
-                    ));
+        if let Some(global_name) = self.checked_global_name(&items[1], name)? {
+            if let Some(Type::Array(element, length)) = self.global_types.get(&global_name).cloned()
+            {
+                if !matches!(
+                    self.globals.get(&global_name),
+                    Some(GlobalValue::Aggregate(_))
+                ) {
+                    return Err(format!("global '{global_name}' is not an aggregate array"));
                 }
+                let bounds_failure = self.label("global_array_bounds_failure");
+                let done = self.label("global_array_index_done");
+                let element_words = value_word_count(&element, &self.structs, &self.enums)?;
+                self.expression(&items[2])?;
+                self.output.push_str(&format!(
+                    "    mov rcx, rax\n    cmp rcx, {length}\n    jae {bounds_failure}\n    imul rcx, {element_words}\n    lea r11, [rip+{}]\n",
+                    asm_symbol(&global_name)
+                ));
+                if element_words == 1 {
+                    self.output.push_str("    mov rax, QWORD PTR [r11+rcx*8]\n");
+                } else {
+                    for (index, register) in VALUE_REGISTERS[..element_words].iter().enumerate() {
+                        self.output.push_str(&format!(
+                            "    mov {register}, QWORD PTR [r11+rcx*8+{}]\n",
+                            index * 8
+                        ));
+                    }
+                }
+                self.output.push_str(&format!(
+                    "    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n"
+                ));
+                if element_words == 1 && matches!(*element, Type::F32) {
+                    self.output.push_str("    movd xmm0, eax\n");
+                } else if element_words == 1 && matches!(*element, Type::F64) {
+                    self.output.push_str("    movq xmm0, rax\n");
+                } else if element_words == 1 {
+                    ensure_integer_type(&element).map_err(|_| {
+                        "native computed indexing supports scalar arrays only".to_owned()
+                    })?;
+                }
+                return Ok(());
             }
-            self.output.push_str(&format!(
-                "    jmp {done}\n{bounds_failure}:\n    ud2\n{done}:\n"
-            ));
-            if element_words == 1 && matches!(*element, Type::F32) {
-                self.output.push_str("    movd xmm0, eax\n");
-            } else if element_words == 1 && matches!(*element, Type::F64) {
-                self.output.push_str("    movq xmm0, rax\n");
-            } else if element_words == 1 {
-                ensure_integer_type(&element).map_err(|_| {
-                    "native computed indexing supports scalar arrays only".to_owned()
-                })?;
-            }
-            return Ok(());
         }
         let local_storage = self
             .local_storage_for_symbol(&items[1], name)?
