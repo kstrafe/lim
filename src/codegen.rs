@@ -12304,8 +12304,7 @@ impl FunctionContext {
                     return Ok(());
                 }
                 let Storage::Tuple(slots) = self
-                    .locals
-                    .get(local)
+                    .local_storage_for_symbol(&items[1], local)?
                     .ok_or_else(|| format!("unknown tuple local '{local}'"))?
                 else {
                     return Err(format!("'{local}' is not a tuple"));
@@ -12494,10 +12493,8 @@ impl FunctionContext {
                     return Ok(());
                 }
                 let Storage::Struct(fields) = self
-                    .locals
-                    .get(local)
+                    .local_storage_for_symbol(&items[1], local)?
                     .ok_or_else(|| format!("unknown local '{local}'"))?
-                    .clone()
                 else {
                     return Err(format!("'{local}' is not a struct"));
                 };
@@ -12506,13 +12503,13 @@ impl FunctionContext {
                     .find(|(name, _)| name == field_name)
                     .map(|(_, slots)| slots.clone())
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;
-                let struct_name = match self.local_types.get(local) {
+                let struct_name = match self.expression_type(&items[1]) {
                     Some(Type::Named(name)) => name,
                     _ => return Err(format!("'{local}' is not a struct")),
                 };
                 let field_type = self
                     .structs
-                    .get(struct_name)
+                    .get(&struct_name)
                     .and_then(|fields| fields.iter().find(|field| field.name == *field_name))
                     .map(|field| field.ty.clone())
                     .ok_or_else(|| format!("unknown field '{field_name}'"))?;

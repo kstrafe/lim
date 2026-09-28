@@ -421,6 +421,12 @@ the checklist is committed alongside the implementation it tracks.
   checked binding storage. Keep global and constructed return paths distinct;
   cover scalar-sized and multiword layouts in native execution tests.
 
+- [x] **IR-02ak: Resolve local tuple and struct projections by identity.**
+  Use the checked source expression's binding ID for local `#get` storage and
+  derive owner types from retained expression metadata. Preserve global,
+  referenced, and constructed projection paths; test scalar and multiword
+  field reads.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
