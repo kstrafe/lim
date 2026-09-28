@@ -101,12 +101,17 @@ fn block_await_result(expression: &Expr) -> Option<Expr> {
     ]))
 }
 
-fn block_await_continuation(expression: &Expr) -> Option<(String, Expr, Expr, Expr)> {
+fn block_await_continuation(expression: &Expr) -> Option<(Vec<Expr>, String, Expr, Expr, Expr)> {
     let block = form(expression, "#block")?;
-    if block.len() != 3 {
+    if block.len() < 3 {
         return None;
     }
-    let binding = form(&block[1], "#let")?;
+    let binding_index = block.len() - 2;
+    if block[1..binding_index].iter().any(has_await) {
+        return None;
+    }
+    let binding =
+        form(&block[binding_index], "#let").or_else(|| form(&block[binding_index], "#let-mut"))?;
     if binding.len() != 4 {
         return None;
     }
@@ -117,10 +122,11 @@ fn block_await_continuation(expression: &Expr) -> Option<(String, Expr, Expr, Ex
     }
     parse_type(Some(&normalize_keywords(await_form[1].clone()))).ok()?;
     Some((
+        block[1..binding_index].to_vec(),
         name,
         binding[2].clone(),
         binding[3].clone(),
-        block[2].clone(),
+        block[block.len() - 1].clone(),
     ))
 }
 
@@ -497,9 +503,40 @@ fn extract_nested_awaits(
     next_name: &mut usize,
     waker: &str,
 ) -> Result<(), String> {
-    if let Some((name, result_type, await_expression, mut continuation)) =
+    if let Some((mut prefix, name, result_type, mut await_expression, mut continuation)) =
         block_await_continuation(expression)
     {
+        let mut renamed_prefixes: Vec<(String, String)> = Vec::new();
+        for statement in &mut prefix {
+            for (original, renamed) in &renamed_prefixes {
+                replace_await_local(statement, original, renamed);
+            }
+            let binding = form(statement, "#let").or_else(|| form(statement, "#let-mut"));
+            let Some(binding) = binding else {
+                return Err(
+                    "@async-fn awaited block prefixes currently require #let or #let-mut bindings"
+                        .into(),
+                );
+            };
+            if binding.len() != 4 {
+                return Err(
+                    "@async-fn awaited block bindings require a name, type, and value".into(),
+                );
+            }
+            let original = symbol(&binding[1], "block binding name")?.to_owned();
+            let renamed = nested_await_name(source, next_name);
+            let Expr::List(items) = statement else {
+                unreachable!()
+            };
+            items[1] = Expr::Symbol(renamed.clone());
+            renamed_prefixes.push((original, renamed));
+            generated.push(statement.clone());
+        }
+        if let Expr::List(items) = &mut await_expression {
+            for (original, renamed) in &renamed_prefixes {
+                replace_await_local(&mut items[6], original, renamed);
+            }
+        }
         let temporary = nested_await_name(source, next_name);
         let await_form = form(&await_expression, "#await")
             .expect("block_await_continuation validated an await expression");
@@ -514,6 +551,9 @@ fn extract_nested_awaits(
             result_type,
             normalized_await,
         ]));
+        for (original, renamed) in &renamed_prefixes {
+            replace_await_local(&mut continuation, original, renamed);
+        }
         replace_await_local(&mut continuation, &name, &temporary);
         *expression = continuation;
         return extract_nested_awaits(

@@ -631,11 +631,13 @@ fn async_function_resumes_inside_a_value_producing_block() {
         (#fn work () u64
           (#let result DecisionResult
             (#block
+              (#let offset u64 40u64)
               (#let condition bool
-                (#await bool Child ChildPending ChildReady child-poll (Waiting 1u64)))
+                (#await bool Child ChildPending ChildReady child-poll
+                  (Waiting (#u64.-.wrap offset 39u64))))
               (#struct-literal DecisionResult
                 ((condition condition)
-                 (value (#if condition 42u64 0u64))))))
+                 (value (#if condition (#u64.+.wrap offset 2u64) 0u64))))))
           (#return (#get result value)))))
       (#fn main () u64
         (#let waker u64 0u64)
@@ -650,8 +652,16 @@ fn async_function_resumes_inside_a_value_producing_block() {
         (#return result))";
     let generated = build_and_run(source, 42);
     assert!(
-        generated.contains("(condition lim.async.nested-await-0)"),
+        generated.contains("(condition lim.async.nested-await-1)"),
         "{generated}"
+    );
+    assert!(
+        generated.contains("(#fn poll-resume-0 ((lim.async.nested-await-0 u64)"),
+        "the block-local value must be carried across Pending: {generated}"
+    );
+    assert!(
+        generated.contains("(#u64.-.wrap lim.async.nested-await-0 (#literal u64 39))"),
+        "block-local setup must also initialize the child task: {generated}"
     );
 }
 

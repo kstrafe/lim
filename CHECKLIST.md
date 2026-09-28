@@ -1830,6 +1830,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   containing one typed awaited binding followed by a value expression that
   uses the binding. Preserve the post-await expression in the continuation,
   including value-position rewriting, and verify Pending/resume natively.
+- [x] **ASYNC-01b36: Capture block-local setup across suspension.** Allow simple
+  local binding setup before an awaited binding in a value-producing block.
+  Hygienically lift those bindings into generated stages, infer whether they
+  must survive Pending, and verify both task initialization and continuation
+  use across resume.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
