@@ -6534,19 +6534,19 @@ fn list_expression(
                 _ => Err(format!("{operator} requires a raw pointer").into()),
             }
         }
-        "ptr-borrow" | "ptr-borrow-mut" => {
+        "ptr-borrow" | "ptr-borrow-mut" | "pin-ptr-borrow" | "pin-ptr-borrow-mut" => {
             require_arity(operator, items, 3)?;
             let owner = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
-            let Type::Reference {
-                mutable: owner_mutable,
-                ..
-            } = owner
-            else {
-                return Err(semantic_format!(
-                    "{operator} requires a reference lifetime anchor"
-                ));
+            let (owner_mutable, owner_pinned) = match owner {
+                Type::Reference { mutable, .. } => (mutable, false),
+                Type::PinnedReference { mutable, .. } => (mutable, true),
+                _ => {
+                    return Err(semantic_format!(
+                        "{operator} requires a reference lifetime anchor"
+                    ));
+                }
             };
             let pointer = expression(
                 &items[2], variables, functions, structs, enums, mutable, aliases, None,
@@ -6558,15 +6558,32 @@ fn list_expression(
             else {
                 return Err(semantic_format!("{operator} requires a raw pointer"));
             };
-            let borrowed_mutable = operator == "ptr-borrow-mut";
-            if borrowed_mutable && (!owner_mutable || !pointer_mutable) {
-                return Err(
-                    "ptr-borrow-mut requires a mutable reference anchor and mutable pointer".into(),
-                );
+            let borrowed_mutable = matches!(operator, "ptr-borrow-mut" | "pin-ptr-borrow-mut");
+            let borrowed_pinned = matches!(operator, "pin-ptr-borrow" | "pin-ptr-borrow-mut");
+            if borrowed_pinned && !owner_pinned {
+                return Err(semantic_format!(
+                    "{operator} requires a pinned-reference lifetime anchor"
+                ));
             }
-            Ok(Type::Reference {
-                mutable: borrowed_mutable,
-                target,
+            if borrowed_mutable && (!owner_mutable || !pointer_mutable) {
+                return Err(if operator == "ptr-borrow-mut" {
+                    "ptr-borrow-mut requires a mutable reference anchor and mutable pointer".into()
+                } else {
+                    semantic_format!(
+                        "{operator} requires a mutable pinned-reference anchor and mutable pointer"
+                    )
+                });
+            }
+            Ok(if borrowed_pinned {
+                Type::PinnedReference {
+                    mutable: borrowed_mutable,
+                    target,
+                }
+            } else {
+                Type::Reference {
+                    mutable: borrowed_mutable,
+                    target,
+                }
             })
         }
         "ptr-read" => {

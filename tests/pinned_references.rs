@@ -153,6 +153,95 @@ fn dropping_a_pin_allows_its_linear_owner_to_be_destroyed() {
 }
 
 #[test]
+fn an_unsafe_pinned_pointer_borrow_keeps_the_anchor_loan() {
+    let source = "(#fn main () u64
+      (#let owner u64 42u64)
+      (#let pointer (#ptr u64) (#unsafe (#addr-of owner)))
+      (#let anchor (#pin-ref u64) (#pin-borrow owner))
+      (#let pinned (#pin-ref u64)
+        (#unsafe (#pin-ptr-borrow anchor pointer)))
+      (#return (#deref pinned)))";
+    let scratch = support::Scratch::new("pinned-pointer-borrow");
+    let input = scratch.path().join("main.lim");
+    let binary = scratch.path().join("program");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary),
+        Duration::from_secs(20),
+        64 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+    assert_eq!(status.code(), Some(42), "{stderr:?}");
+}
+
+#[test]
+fn a_pinned_pointer_borrow_rejects_mutating_its_anchor() {
+    let source = "(#fn main () u64
+      (#let-mut owner u64 7u64)
+      (#let pointer (#ptr-mut u64) (#unsafe (#addr-of-mut owner)))
+      (#let anchor (#pin-ref-mut u64) (#pin-borrow-mut owner))
+      (#let pinned (#pin-ref-mut u64)
+        (#unsafe (#pin-ptr-borrow-mut anchor pointer)))
+      (#set owner 9u64)
+      (#return (#deref pinned)))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("pinned"),
+        "{error}"
+    );
+}
+
+#[test]
+fn pinned_pointer_borrows_require_pinned_anchors() {
+    let source = "(#fn main () u64
+      (#let value u64 7u64)
+      (#let pointer (#ptr u64) (#unsafe (#addr-of value)))
+      (#let pinned (#pin-ref u64)
+        (#unsafe (#pin-ptr-borrow (#borrow value) pointer)))
+      (#return (#deref pinned)))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("pinned-reference lifetime anchor"),
+        "{error}"
+    );
+}
+
+#[test]
+fn pinned_pointer_borrows_require_unsafe_context() {
+    let source = "(#fn main () u64
+      (#let value u64 7u64)
+      (#let anchor (#pin-ref u64) (#pin-borrow value))
+      (#let pointer (#ptr u64) (#unsafe (#addr-of value)))
+      (#let pinned (#pin-ref u64) (#pin-ptr-borrow anchor pointer))
+      (#return (#deref pinned)))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("unsafe operation 'pin-ptr-borrow'"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_pinned_pointer_borrow_cannot_escape_its_stack_anchor() {
+    let source = "(#fn make-pin () (#pin-ref u64)
+      (#let owner u64 7u64)
+      (#let pointer (#ptr u64) (#unsafe (#addr-of owner)))
+      (#let anchor (#pin-ref u64) (#pin-borrow owner))
+      (#return (#unsafe (#pin-ptr-borrow anchor pointer))))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("outlive") || error.contains("return"),
+        "{error}"
+    );
+}
+
+#[test]
 fn a_pin_stays_effective_when_stored_in_an_aggregate() {
     let source = "(#fn main () u64
       (#let owner u64 7u64)

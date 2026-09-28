@@ -831,6 +831,8 @@ impl FlowGraph {
                         | "ptr-is-null"
                         | "ptr-borrow"
                         | "ptr-borrow-mut"
+                        | "pin-ptr-borrow"
+                        | "pin-ptr-borrow-mut"
                         | "ptr-write"
                         | "deref"
                 )
@@ -2211,7 +2213,10 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             })
         }
         NodeKind::Form { head, children, .. }
-            if matches!(head.as_str(), "ptr-borrow" | "ptr-borrow-mut") && children.len() == 3 =>
+            if matches!(
+                head.as_str(),
+                "ptr-borrow" | "ptr-borrow-mut" | "pin-ptr-borrow" | "pin-ptr-borrow-mut"
+            ) && children.len() == 3 =>
         {
             value_loan_origins(body, children[1], state)
         }
@@ -2559,7 +2564,11 @@ fn value_loan_origins_at_events(
         if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
             return value_loan_origins_at_events(body, flow, origins, children[1], state);
         }
-        if matches!(head.as_str(), "ptr-borrow" | "ptr-borrow-mut") && children.len() == 3 {
+        if matches!(
+            head.as_str(),
+            "ptr-borrow" | "ptr-borrow-mut" | "pin-ptr-borrow" | "pin-ptr-borrow-mut"
+        ) && children.len() == 3
+        {
             return value_loan_origins_at_events(body, flow, origins, children[1], state);
         }
         if matches!(
@@ -4868,6 +4877,7 @@ mod tests {
         let origin = |owner, storage| LoanOrigin {
             place: Place::root(PlaceRoot::Local(BindingId(owner))),
             mutable: false,
+            pinned: false,
             span: None,
             borrowed_from: None,
             storage,

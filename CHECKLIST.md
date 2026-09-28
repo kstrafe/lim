@@ -1605,6 +1605,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   owner until every derived pin is ended, then allow destruction. Cover direct
   and projected pins, function returns, and scope-exit diagnostics; allocator-
   backed pin handles remain a separate requirement.
+- [x] **ASYNC-01a4: Anchor pinned borrows into stable raw storage.** Add
+  explicit unsafe shared and exclusive pointer-to-pinned-reference forms that
+  require an existing pinned lifetime anchor. Propagate the anchor's tracked
+  loan and pinned provenance so allocator-backed owners can expose their
+  stable pointee without converting it to an ordinary reference. Verify native
+  reads, rejection of conflicting owner writes, anchor escape rejection, and
+  unsafe-context diagnostics. This is a primitive for a future
+  allocator-backed pin owner, not itself a safe allocation abstraction.
 - [ ] **ASYNC-01b: Lower async functions to concrete poll state machines.**
   Extend the initial `@async-fn` lowering beyond sequential immutable `#let`
   bindings. Support control-flow joins, mutable locals, and expression-level

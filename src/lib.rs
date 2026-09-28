@@ -4045,6 +4045,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "ref-mut"
             | "pin-ref"
             | "pin-ref-mut"
+            | "pin-ptr-borrow"
+            | "pin-ptr-borrow-mut"
             | "deref"
             | "deref-set"
             | "mut"

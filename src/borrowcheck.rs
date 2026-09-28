@@ -2674,7 +2674,11 @@ fn reference_origins(
             {
                 return reference_origins(&items[1], context, true);
             }
-            if matches!(operator.as_str(), "ptr-borrow" | "ptr-borrow-mut") && items.len() == 3 {
+            if matches!(
+                operator.as_str(),
+                "ptr-borrow" | "ptr-borrow-mut" | "pin-ptr-borrow" | "pin-ptr-borrow-mut"
+            ) && items.len() == 3
+            {
                 return reference_origins(&items[1], context, true);
             }
             if operator == "get" && items.len() == 3 {

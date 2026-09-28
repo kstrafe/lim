@@ -10126,7 +10126,7 @@ impl FunctionContext {
                 }
                 Ok(())
             }
-            "ptr-borrow" | "ptr-borrow-mut" => {
+            "ptr-borrow" | "ptr-borrow-mut" | "pin-ptr-borrow" | "pin-ptr-borrow-mut" => {
                 if items.len() != 3 {
                     return Err(format!(
                         "{operator} requires an owner reference and raw pointer"

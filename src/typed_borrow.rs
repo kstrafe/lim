@@ -2632,6 +2632,7 @@ mod tests {
             LoanOrigin {
                 place: Place::root(PlaceRoot::Local(BindingId(0))),
                 mutable: true,
+                pinned: false,
                 span: None,
                 borrowed_from: None,
                 storage: Vec::new(),
@@ -2640,6 +2641,7 @@ mod tests {
             LoanOrigin {
                 place: Place::root(PlaceRoot::Local(BindingId(1))),
                 mutable: true,
+                pinned: false,
                 span: None,
                 borrowed_from: None,
                 storage: Vec::new(),

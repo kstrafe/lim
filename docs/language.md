@@ -338,8 +338,11 @@ check allocation bounds, and raw-pointer operations are rejected
 outside `#unsafe`; callers must uphold pointer validity and bounds themselves.
 `#ptr-borrow` and `#ptr-borrow-mut` also require `#unsafe`; their first
 argument is a reference used as the inferred lifetime anchor, and the second
-is the pointer to the referenced value. The caller must ensure the pointer is
-valid for that anchor's lifetime and, for mutable borrows, uniquely accessible.
+is the pointer to the referenced value. The `#pin-ptr-borrow` variants require
+a pinned-reference anchor and preserve the pinned-reference type/provenance.
+The caller must ensure the pointer is valid, stable, and uniquely accessible
+as required for the full anchor lifetime. These forms do not make allocation
+or pointer validity safe by themselves.
 
 `#asm` embeds target assembler at an expression site. Its form is
 `(#asm ResultType ((register value) ...) "instructions")`: each value is
@@ -1557,6 +1560,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. While any derived pin is live, safe code cannot copy, move, replace, or destroy the referent. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
+| `#pin-ptr-borrow` | `(#pin-ptr-borrow pinned-anchor pointer)` | `(#unsafe (#pin-ptr-borrow pinned pointer))` (expression) | Unsafe shared pointer borrow tied to a pinned-reference anchor; returns a pinned reference and preserves anchor provenance. The caller proves pointer validity and address stability for the anchor lifetime. |
+| `#pin-ptr-borrow-mut` | `(#pin-ptr-borrow-mut pinned-mut-anchor mutable-pointer)` | `(#unsafe (#pin-ptr-borrow-mut pinned pointer))` (expression) | Unsafe exclusive pointer borrow tied to a mutable pinned-reference anchor; returns a mutable pinned reference. The caller proves validity, stability, and unique access. |
 | `#pin-ref` | `(#pin-ref TargetType)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (type) | Shared pinned-reference type. It is distinct from an ordinary reference and keeps its referent immovable while the loan is live. |
 | `#pin-ref-mut` | `(#pin-ref-mut TargetType)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (type) | Exclusive pinned-reference type; it cannot be used to replace the complete referent. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |

@@ -177,6 +177,8 @@ fn check_expression(
                         | "ptr-offset"
                         | "ptr-borrow"
                         | "ptr-borrow-mut"
+                        | "pin-ptr-borrow"
+                        | "pin-ptr-borrow-mut"
                         | "asm"
                         | "linux-syscall",
                 )
