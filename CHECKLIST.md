@@ -1958,6 +1958,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   error.
   Verify the operation still completes after the caller closes its descriptor,
   invalid-descriptor errors, and cancellation cleanup.
+- [x] **ASYNC-02j: Require nonblocking descriptors for readiness reads.** Make
+  the read operation reject blocking fds instead of risking a blocking read
+  after a readiness race. Provide a distinctly named opt-in that changes the
+  open-file-description status flags, return `EAGAIN` as Pending, and document
+  that aliases observe the flag change. Test rejection, opt-in, and a competing
+  read consuming readiness without stalling the event loop.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,

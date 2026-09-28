@@ -4,7 +4,7 @@ use std::{
     collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
-    process::{Command, ExitStatus},
+    process::{Command, ExitStatus, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
@@ -121,6 +121,7 @@ fn every_native_example_has_its_declared_outcome() {
         };
         let output = scratch.0.join(format!("program-{index}"));
         let mut compiler = Command::new(env!("CARGO_BIN_EXE_lim"));
+        compiler.stdin(Stdio::null());
         if matches!(*kind, "module" | "error") {
             compiler
                 .arg("--emit-asm")
@@ -162,7 +163,7 @@ fn every_native_example_has_its_declared_outcome() {
         // The sweep starts hundreds of short-lived processes. Leave a bounded
         // margin for host scheduling pressure after compiling each example.
         let (status, actual_stdout, actual_stderr) = run(
-            &mut Command::new(&output),
+            Command::new(&output).stdin(Stdio::null()),
             &scratch.0,
             Duration::from_secs(5),
         )

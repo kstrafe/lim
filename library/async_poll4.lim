@@ -13,6 +13,13 @@
   (#return (#struct-literal AsyncPollSource4
     ((fd fd) (queue queue) (token token)))))
 
+(#fn async-poll4-disable-source
+  ((source AsyncPollSource4)) AsyncPollSource4
+  (#let (AsyncPollSource4 fd queue token) AsyncPollSource4 source)
+  (#forget fd)
+  (#return (#struct-literal AsyncPollSource4
+    ((fd -1i64) (queue queue) (token token)))))
+
 (#fn async-poll4-wait
   ((sources (#slice AsyncPollSource4)) (timeout-ms i32)) AsyncPoll4Result
   (#let count usize (#slice-len sources))

@@ -215,6 +215,44 @@ fn mixed_async_readiness_handles_either_source_firing_first() {
 }
 
 #[test]
+fn async_readiness_race_returns_pending_instead_of_blocking() {
+    let scratch = support::Scratch::new("async-stdin-race");
+    let executable = scratch.path().join("async-stdin-race");
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_stdin_race.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile async readiness race example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    let mut child = Command::new(&executable)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run async readiness race example");
+    let mut input = child.stdin.take().expect("piped stdin");
+    input.write_all(b"A").expect("write first byte");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    input.write_all(b"B").expect("write second byte");
+    drop(input);
+    let output = child.wait_with_output().expect("wait for readiness race");
+    assert_eq!(
+        output.status.code(),
+        Some(42),
+        "readiness race failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn linux_memory_mapping_syscalls_match_kernel_results() {
     let scratch = support::Scratch::new("linux-memory");
     let executable = scratch.path().join("memory-checks");

@@ -4,6 +4,18 @@
 
 (#fn main () i32
   (#let-mut byte u8 0u8)
+  (#let blocking AsyncByteReadCreate1
+    (#call async-byte-read1-create
+      (: fd 0i64 : destination (#borrow-mut byte))))
+  (#assert (#match blocking
+    (#case (AsyncByteReadCreateFailed1 error) (#i64.== error -22i64))
+    (#case (AsyncByteReadCreated1 unexpected)
+      (#block
+        (#let cleanup i64
+          (#call async-byte-read1-destroy (: task unexpected)))
+        false))))
+  (#let enabled i64 (#call async-byte-read1-enable-nonblocking (: fd 0i64)))
+  (#assert (#i64.>= enabled 0i64))
   (#let invalid AsyncByteReadCreate1
     (#call async-byte-read1-create
       (: fd -1i64 : destination (#borrow-mut byte))))

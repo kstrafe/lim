@@ -1,0 +1,47 @@
+; A competing read consumes the byte that made poll report readiness. The
+; asynchronous read must see EAGAIN/Pending rather than block inside poll.
+(#import "../library/async_stdin_byte.lim")
+
+(#fn main () i32
+  (#let-mut byte u8 0u8)
+  (#let-mut stolen u8 0u8)
+  (#assert (#i64.>=
+    (#call async-byte-read1-enable-nonblocking (: fd 0i64)) 0i64))
+  (#let created AsyncByteReadCreate1
+    (#call async-byte-read1-create
+      (: fd 0i64 : destination (#borrow-mut byte))))
+  (#let-else (AsyncByteReadCreated1 task) AsyncByteReadCreate1 created
+    (#unreachable))
+  (#let first AsyncByteReadPoll1
+    (#call async-byte-read1-poll (: task (#borrow task))))
+  (#let first-wait AsyncByteReadWait1
+    (#call async-byte-read1-wait (: task (#borrow task))))
+  (#let stolen-count i64
+    (#call linux-read-byte-from (: fd 0i64 : destination (#borrow-mut stolen))))
+  (#let raced AsyncByteReadPoll1
+    (#call async-byte-read1-poll (: task (#borrow task))))
+  (#let second-wait AsyncByteReadWait1
+    (#call async-byte-read1-wait (: task (#borrow task))))
+  (#let second AsyncByteReadPoll1
+    (#call async-byte-read1-poll (: task (#borrow task))))
+  (#let destroyed i64 (#call async-byte-read1-destroy (: task task)))
+  (#let read-second bool (#match second
+    (#case (AsyncByteReadReady1 value) (#bool.&& (#u8.== value 66u8)
+                                                 (#u8.== byte 66u8)))
+    (#case AsyncByteReadEof1 false)
+    (#case (AsyncByteReadFailed1 error) (#block (#forget error) false))
+    (#case AsyncByteReadPending1 false)))
+  (#let race-ok bool (#if (#i64.== stolen-count 0i64)
+    (#match second
+      (#case AsyncByteReadEof1 true)
+      (#case _ false))
+    (#bool.&& (#u8.== stolen 65u8)
+      (#bool.&& (#match raced
+        (#case AsyncByteReadPending1 true) (#case _ false)) read-second))))
+  (#return (#if (#bool.&& (#match first
+        (#case AsyncByteReadPending1 true) (#case _ false))
+      (#bool.&& (#match first-wait
+        (#case AsyncByteReadWoken1 true) (#case _ false))
+      (#bool.&& (#match second-wait
+        (#case AsyncByteReadWoken1 true) (#case _ false))
+        (#bool.&& race-ok (#i64.== destroyed 0i64))))) 42i32 1i32)))

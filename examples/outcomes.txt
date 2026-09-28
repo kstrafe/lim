@@ -22,6 +22,7 @@ exit 42 async_registered_wake.lim - -
 exit 42 async_mixed_wait.lim - -
 exit 0 async_stdin_byte.lim - -
 exit 42 async_stdin_cancel.lim - -
+exit 42 async_stdin_race.lim - -
 exit 42 timer_reactor1.lim - -
 exit 42 timer_pair.lim - -
 exit 42 timer_reactor_many.lim - -

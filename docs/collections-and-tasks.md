@@ -345,16 +345,22 @@ read. `async-byte-read1-create` retains an exclusive borrow of the destination
 and duplicates the supplied descriptor with close-on-exec into an opaque
 linear task. The task closes that owned descriptor during destruction; if
 scratch allocation fails after duplication, creation closes it before
-returning the setup or cleanup error. Polling before readiness returns Pending; the wait
-blocks in Linux `poll` and records a generation-checked wake. A later poll
+returning the setup or cleanup error. Creation requires an already nonblocking
+descriptor and returns `-22` otherwise. Call `async-byte-read1-enable-nonblocking`
+explicitly first; this changes status flags on the shared open-file description,
+so aliases observe the change and it remains set after task destruction. A
+readiness race then returns `EAGAIN`/Pending instead of blocking. The wait blocks
+in Linux `poll` and records a generation-checked wake. A later poll
 performs one synchronous byte read only after readiness, returning a byte, EOF,
 or an OS error. The OS never retains the destination pointer, so destroying a
 pending task retires its wake and releases the borrow immediately; callers must
 not poll or wait after destruction. `examples/async_stdin_byte.lim` echoes one
 byte after closing the caller's original stdin descriptor, and
 `examples/async_stdin_cancel.lim` verifies that the destination can
-be mutated after cancellation while the input stream is still open. These
-examples use `library/async_poll4.lim`, which waits on one to four borrowed
+be mutated after cancellation while the input stream is still open.
+`examples/async_stdin_race.lim` steals the byte that made the descriptor ready
+and verifies that the operation remains Pending until a later byte arrives.
+These examples use `library/async_poll4.lim`, which waits on one to four borrowed
 poll sources with one blocking syscall and notifies each corresponding token.
 Timer and byte-read adapters share this interface; `examples/async_mixed_wait.lim`
 tests both sources becoming ready first and verifies that a fifth source is
