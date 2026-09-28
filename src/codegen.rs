@@ -7435,7 +7435,7 @@ impl FunctionContext {
             .ok_or_else(|| "missing indirect return pointer".to_owned())?;
         let mut offset = 0usize;
         if let Expr::Symbol(name) = value {
-            if let Some(Storage::Tuple(slots)) = self.locals.get(name).cloned() {
+            if let Some(Storage::Tuple(slots)) = self.local_storage_for_symbol(value, name)? {
                 let total_words = fields
                     .iter()
                     .map(|field| storage_word_count(field, &self.structs, &self.enums))
@@ -7846,7 +7846,7 @@ impl FunctionContext {
                 base,
                 length: source_length,
                 element_words: source_element_words,
-            }) = self.locals.get(name).cloned()
+            }) = self.local_storage_for_symbol(value, name)?
             {
                 if source_length != length || source_element_words != element_words {
                     return Err("array return length mismatch".into());

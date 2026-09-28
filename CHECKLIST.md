@@ -364,6 +364,11 @@ the checklist is committed alongside the implementation it tracks.
   only for synthesized declarations. Preserve slice construction and mutable
   slice reborrow behavior in native tests.
 
+- [x] **IR-02z: Resolve tuple and array indirect returns by identity.** Use a
+  checked local's `BindingId` when copying tuple or array values into caller
+  return storage, retaining global and synthesized paths. Cover nested wide
+  elements and direct aggregate return cases.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
