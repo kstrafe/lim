@@ -459,6 +459,12 @@ the checklist is committed alongside the implementation it tracks.
   emission; generated concrete functions remain ordinary checked declarations.
   Test the checked API rejection and preserve generated-function/native tests.
 
+- [x] **IR-02an: Never recover typed local identity by spelling.** If a
+  checked local symbol has retained a type but lost its binding ID, fail
+  internally before consulting the legacy local-name map. Keep name-based
+  lookup for inline-assembly operands and backend-synthesized syntax that has
+  no language binding; test both paths and native local/aggregate emission.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

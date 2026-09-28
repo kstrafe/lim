@@ -5337,6 +5337,30 @@ fn local_symbol_type<'a>(
     }
 }
 
+fn local_symbol_binding(
+    expression: &Expr,
+    name: &str,
+    emission: &crate::typed_body::EmissionTypes,
+    legacy_binding: Option<crate::typed_body::BindingId>,
+) -> Result<Option<crate::typed_body::BindingId>, String> {
+    if let Some(binding) = emission
+        .get(expression)
+        .and_then(|metadata| metadata.binding)
+    {
+        return Ok(Some(binding));
+    }
+    if emission.has_checked_identity(expression)
+        && emission
+            .get(expression)
+            .is_some_and(|metadata| metadata.ty.is_some())
+    {
+        return Err(format!(
+            "internal error: checked local symbol '{name}' lost its binding ID"
+        ));
+    }
+    Ok(legacy_binding)
+}
+
 fn native_scalar_type(ty: &Type) -> bool {
     matches!(
         ty,
@@ -5437,6 +5461,39 @@ fn checked_local_symbols_require_retained_types() {
     assert_eq!(
         local_symbol_type(Some(&synthesized), Some(&legacy_type)).unwrap(),
         Some(&legacy_type)
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn checked_local_symbols_cannot_fall_back_to_name_based_binding_lookup() {
+    let expression = Expr::Symbol("value".into());
+    let binding = crate::typed_body::BindingId(3);
+    let mut emission = crate::typed_body::EmissionTypes::default();
+    let address = std::ptr::from_ref(&expression) as usize;
+    let expression_id = crate::typed_ir::ExpressionId(0);
+    emission.address_to_id.insert(address, expression_id);
+    emission.by_id.insert(
+        expression_id,
+        crate::typed_body::EmissionNode {
+            ty: Some(Type::U64),
+            ..Default::default()
+        },
+    );
+
+    assert!(
+        local_symbol_binding(&expression, "value", &emission, Some(binding))
+            .unwrap_err()
+            .contains("checked local symbol 'value' lost its binding ID")
+    );
+
+    let synthesized = Expr::Symbol("value".into());
+    let mut synthesized_emission = crate::typed_body::EmissionTypes::default();
+    synthesized_emission
+        .insert_synthesized(&synthesized, crate::typed_body::EmissionNode::default());
+    assert_eq!(
+        local_symbol_binding(&synthesized, "value", &synthesized_emission, Some(binding)).unwrap(),
+        Some(binding)
     );
 }
 
@@ -5652,18 +5709,13 @@ impl FunctionContext {
     }
 
     fn local_slots_for_symbol(&self, expression: &Expr, name: &str) -> Result<Vec<usize>, String> {
-        if let Some(metadata) = self.expression_types.get(expression) {
-            if let Some(binding) = metadata.binding {
-                return self.local_slots_for_binding(binding, name);
-            }
-        }
-        if let Some(binding) = self.local_binding_id(name) {
+        if let Some(binding) = local_symbol_binding(
+            expression,
+            name,
+            &self.expression_types,
+            self.local_binding_id(name),
+        )? {
             return self.local_slots_for_binding(binding, name);
-        }
-        if self.expression_types.has_checked_identity(expression) {
-            return Err(format!(
-                "internal error: checked local symbol '{name}' lost its binding ID"
-            ));
         }
         local_slots(&self.locals, name)
     }
@@ -5683,11 +5735,12 @@ impl FunctionContext {
         if !self.is_local_symbol_expression(expression, name) {
             return Ok(None);
         }
-        if let Some(binding) = self
-            .expression_types
-            .get(expression)
-            .and_then(|metadata| metadata.binding)
-        {
+        if let Some(binding) = local_symbol_binding(
+            expression,
+            name,
+            &self.expression_types,
+            self.local_binding_id(name),
+        )? {
             return self
                 .locals_by_binding
                 .get(&binding)
@@ -5696,21 +5749,6 @@ impl FunctionContext {
                 .ok_or_else(|| {
                     format!("internal error: missing storage for checked binding '{name}'")
                 });
-        }
-        if let Some(binding) = self.local_binding_id(name) {
-            return self
-                .locals_by_binding
-                .get(&binding)
-                .cloned()
-                .map(Some)
-                .ok_or_else(|| {
-                    format!("internal error: missing storage for checked binding '{name}'")
-                });
-        }
-        if self.expression_types.has_checked_identity(expression) {
-            return Err(format!(
-                "internal error: checked local symbol '{name}' lost its binding ID"
-            ));
         }
         Ok(self.locals.get(name).cloned())
     }
