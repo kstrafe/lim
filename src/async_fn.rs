@@ -356,10 +356,15 @@ fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>,
             let Some(case) = form(arm, "#case") else {
                 return Ok(None);
             };
-            if case.len() != 3 {
+            let body_index = match case.len() {
+                3 => 2,
+                4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
+                _ => return Ok(None),
+            };
+            if case.len() == 4 && has_await(&case[2]) {
                 return Ok(None);
             }
-            let Some((case_protocol, task)) = conditional_await(&case[2])? else {
+            let Some((case_protocol, task)) = conditional_await(&case[body_index])? else {
                 return Ok(None);
             };
             if protocol
@@ -369,7 +374,12 @@ fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>,
                 return Ok(None);
             }
             protocol = Some(case_protocol);
-            task_arms.push(Expr::List(vec![case[0].clone(), case[1].clone(), task]));
+            let mut task_arm = vec![case[0].clone(), case[1].clone()];
+            if body_index == 3 {
+                task_arm.push(case[2].clone());
+            }
+            task_arm.push(task);
+            task_arms.push(Expr::List(task_arm));
         }
         if let Some(protocol) = protocol {
             return Ok(Some((protocol, Expr::List(task_arms))));
@@ -429,24 +439,24 @@ fn conditional_await_with_immediate(
             let Some(case) = form(arm, "#case") else {
                 return Ok(None);
             };
-            if case.len() != 3 {
+            let body_index = match case.len() {
+                3 => 2,
+                4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
+                _ => return Ok(None),
+            };
+            if case.len() == 4 && has_await(&case[2]) {
                 return Ok(None);
             }
-            let lowered = conditional_await(&case[2])?;
+            let lowered = conditional_await(&case[body_index])?;
             if let Some((protocol, task)) = lowered {
-                branches.push((
-                    Some(protocol),
-                    Expr::List(vec![Expr::Symbol("#case".into()), case[1].clone(), task]),
-                ));
-            } else if !has_await(&case[2]) {
-                branches.push((
-                    None,
-                    Expr::List(vec![
-                        Expr::Symbol("#case".into()),
-                        case[1].clone(),
-                        case[2].clone(),
-                    ]),
-                ));
+                let mut task_arm = vec![Expr::Symbol("#case".into()), case[1].clone()];
+                if body_index == 3 {
+                    task_arm.push(case[2].clone());
+                }
+                task_arm.push(task);
+                branches.push((Some(protocol), Expr::List(task_arm)));
+            } else if !has_await(&case[body_index]) {
+                branches.push((None, arm.clone()));
             } else {
                 return Ok(None);
             }

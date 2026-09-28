@@ -1500,6 +1500,46 @@ fn async_await_preserves_boolean_short_circuiting() {
 }
 
 #[test]
+fn async_await_preserves_match_guard_selection() {
+    let source = format!(
+        "(#import \"{}/library/cell.lim\")
+         (@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
+         (#enum ChildTask ((Waiting (#ref CellU64))))
+         (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))
+         (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+           (#return (#match task
+             (#case (Waiting cell)
+               (#block
+                 (#call CellU64-set (: cell cell : value
+                   (#u64.+.wrap (#call CellU64-get (: cell cell)) 1u64)))
+                 (ChildReady true))))))
+         (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+           (#fn work ((cell (#ref CellU64))) u64
+             (#let ignored bool
+               (#match true
+                 (#case true (#when false)
+                   (#await bool ChildTask ChildPending ChildReady child-poll (Waiting cell)))
+                 (#case _ false)))
+             (#return (#call CellU64-get (: cell cell))))))
+         (#fn main () u64
+           (#let cell CellU64 (#call CellU64-create (: value 0u64)))
+           (#let waker u64 0u64)
+           (#let result Poll
+             (#call poll (: task (#call work (: cell (#borrow cell))) : waker (#borrow waker))))
+           (#let value u64 (#match result
+             (#case (Ready ready) ready)
+             (#case (Pending pending) (#block (#forget pending) 1u64))))
+           (#forget waker)
+           (#forget cell)
+           (#return (#if (#u64.== value 0u64) 42u64 0u64)))",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    build_and_run(&source, 42);
+    let selected_source = source.replace("(#when false)", "(#when true)");
+    build_and_run(&selected_source, 0);
+}
+
+#[test]
 fn async_function_returns_linear_state_after_a_loop() {
     let source = "(#struct State ((value u64)))
       (#linear State)

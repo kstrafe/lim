@@ -1864,6 +1864,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   awaited right operands of `#bool.&&` and `#bool.||` through explicit branch
   selection so an unselected child task is neither created nor polled. Verify
   a skipped poll with a native side effect.
+- [x] **ASYNC-01b44: Preserve match guards around awaited arms.** Lower an
+  awaited guarded `#case` through conditional-task selection without evaluating
+  its child unless both the pattern and `#when` guard match. Verify a rejected
+  guard leaves a poll side effect untouched.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
