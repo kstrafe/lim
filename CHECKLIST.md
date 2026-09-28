@@ -1855,6 +1855,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Compose `@task-cancel` with an `@async-fn` frame containing a retained capture
   and child task. Require an exhaustive handler for the start and pending states,
   and verify cancellation consumes both the capture and child owner natively.
+- [x] **ASYNC-01b42: Preserve terminal loop control in awaited while bodies.**
+  Allow terminal `#break`, `#continue`, and complete `#if` branches containing
+  them in a `#while` whose condition awaits. Preserve body guarding for
+  Ready(false), and reject nonterminal or unsupported transfers. Verify a
+  native loop that continues once and then breaks.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

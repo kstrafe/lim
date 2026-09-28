@@ -1003,10 +1003,29 @@ fn lower_async_while(
         if body.iter().any(has_await) {
             return Err("@async-fn awaited #while cannot also suspend in its body yet".into());
         }
-        if body.iter().any(|expression| {
-            contains_loop_control(expression) || matches!(form(expression, "#return"), Some(_))
-        }) {
-            return Err("@async-fn awaited #while body cannot transfer control yet".into());
+        if body
+            .iter()
+            .any(|expression| matches!(form(expression, "#return"), Some(_)))
+        {
+            return Err("@async-fn awaited #while body cannot return yet".into());
+        }
+
+        let terminal = body
+            .last()
+            .filter(|expression| contains_loop_control(expression));
+        let prefix = if terminal.is_some() {
+            &body[..body.len() - 1]
+        } else {
+            body
+        };
+        if prefix.iter().any(contains_loop_control) {
+            return Err("@async-fn awaited #while transfers must be terminal statements".into());
+        }
+        if let Some(terminal) = terminal {
+            let mut probe = terminal.clone();
+            if !rewrite_terminal_loop_control(&mut probe, "lim.async.done")? {
+                return Err("@async-fn awaited #while has unsupported loop control".into());
+            }
         }
 
         // Re-express an awaited condition as a loop whose first operation is
@@ -1021,22 +1040,25 @@ fn lower_async_while(
             Expr::List(await_form.to_vec()),
         ]);
         let mut body_block = vec![Expr::Symbol("#block".into())];
-        body_block.extend(body.iter().cloned());
+        body_block.extend(prefix.iter().cloned());
         let guarded_body = Expr::List(vec![
             Expr::Symbol("#if".into()),
             Expr::Symbol(condition_name.clone()),
             Expr::List(body_block),
             Expr::List(Vec::new()),
         ]);
-        let terminal = Expr::List(vec![
+        let when_true = terminal
+            .cloned()
+            .unwrap_or_else(|| Expr::List(vec![Expr::Symbol("#continue".into())]));
+        let loop_terminal = Expr::List(vec![
             Expr::Symbol("#if".into()),
             Expr::Symbol(condition_name),
-            Expr::List(vec![Expr::Symbol("#continue".into())]),
+            when_true,
             Expr::List(vec![Expr::Symbol("#break".into())]),
         ]);
         let mut loop_form = vec![Expr::Symbol("#loop".into()), await_binding];
         loop_form.push(guarded_body);
-        loop_form.push(terminal);
+        loop_form.push(loop_terminal);
         return lower_async_loop(
             &Expr::List(loop_form),
             known,

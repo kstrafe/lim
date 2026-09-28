@@ -1429,6 +1429,39 @@ fn async_function_resumes_a_child_await_in_a_while_condition() {
 }
 
 #[test]
+fn awaited_while_condition_preserves_terminal_break_and_continue() {
+    let source = "(#enum ConditionTask ((Waiting u64)))
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case (Waiting value)
+            (#if (#u64.== value 0u64)
+              (ConditionPending (Waiting 1u64))
+              (ConditionReady true))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#while (#await ConditionTask ConditionPending ConditionReady
+                    condition-poll (Waiting iteration))
+            (#set iteration (#u64.+.wrap iteration 1u64))
+            (#if (#u64.== iteration 2u64)
+              (#break)
+              (#continue)))
+          (#return iteration))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let result Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let value u64 (#match result
+          (#case (Ready ready) ready)
+          (#case (Pending pending-again) (#block (#forget pending-again) 0u64))))
+        (#forget waker)
+        (#return (#if (#u64.== value 2u64) 42u64 0u64)))";
+    build_and_run(source, 42);
+}
+
+#[test]
 fn async_function_returns_linear_state_after_a_loop() {
     let source = "(#struct State ((value u64)))
       (#linear State)
