@@ -758,6 +758,44 @@ fn async_function_assigns_a_block_local_after_await_resumes() {
 }
 
 #[test]
+fn async_function_preserves_mutability_of_block_await_bindings() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting remaining)
+            (#if (#u64.== remaining 0u64)
+              (ChildReady 41u64)
+              (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let result u64
+            (#block
+              (#let-mut value u64
+                (#await u64 Child ChildPending ChildReady child-poll (Waiting 1u64)))
+              (#set value (#u64.+.wrap value 1u64))
+              value))
+          (#return result))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending running-task) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task running-task : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(
+        generated.contains("(#mut lim.async.nested-await-0 u64)"),
+        "the resumed helper must receive a mutable binding: {generated}"
+    );
+}
+
+#[test]
 fn async_function_requires_types_for_nested_awaits() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

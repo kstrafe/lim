@@ -1847,6 +1847,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   terminal binding block in an `#if`/`#match` arm when its `#await` includes an
   explicit result type. Normalize the protocol without dropping the type and
   verify branch-local setup and native Ready behavior.
+- [x] **ASYNC-01b40: Preserve mutable awaited block bindings.** When a
+  `#let-mut` is initialized by `#await` inside a value-producing block, keep
+  its mutable status in the generated continuation and frame. Verify mutation
+  after Pending/resume natively and inspect the generated mutable parameter.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

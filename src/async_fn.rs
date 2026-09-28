@@ -105,6 +105,7 @@ fn block_await_result(expression: &Expr) -> Option<Expr> {
 struct BlockAwait {
     prefix: Vec<Expr>,
     binding: Option<String>,
+    mutable_binding: bool,
     result_type: Expr,
     await_expression: Expr,
     assignment: Option<(Expr, usize)>,
@@ -181,6 +182,7 @@ fn block_await_continuation(expression: &Expr) -> Option<BlockAwait> {
     Some(BlockAwait {
         prefix: block[1..statement_index].to_vec(),
         binding,
+        mutable_binding: form(&block[statement_index], "#let-mut").is_some(),
         result_type: await_form[1].clone(),
         await_expression,
         assignment,
@@ -564,6 +566,7 @@ fn extract_nested_awaits(
     if let Some(BlockAwait {
         mut prefix,
         binding,
+        mutable_binding,
         result_type,
         mut await_expression,
         mut assignment,
@@ -610,7 +613,11 @@ fn extract_nested_awaits(
                 .collect(),
         );
         generated.push(Expr::List(vec![
-            Expr::Symbol("#let".into()),
+            Expr::Symbol(if mutable_binding {
+                "#let-mut".into()
+            } else {
+                "#let".into()
+            }),
             Expr::Symbol(temporary.clone()),
             result_type,
             normalized_await,
