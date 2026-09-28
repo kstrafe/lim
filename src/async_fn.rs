@@ -97,11 +97,6 @@ fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>,
         let (Some((protocol, then_task)), Some((else_protocol, else_task))) =
             (then_await, else_await)
         else {
-            if has_await(&items[2]) || has_await(&items[3]) {
-                return Err(
-                    "every #if branch must await when one branch suspends; use a shared child/poll protocol".into(),
-                );
-            }
             return Ok(None);
         };
         if protocol != else_protocol {
@@ -128,30 +123,14 @@ fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>,
         let mut task_arms = Vec::with_capacity(items.len());
         task_arms.push(items[0].clone());
         task_arms.push(items[1].clone());
-        let any_suspending_arm = items[2..].iter().any(has_await);
         for arm in &items[2..] {
             let Some(case) = form(arm, "#case") else {
-                if any_suspending_arm {
-                    return Err(
-                        "every #match arm must await when one arm suspends; use a shared child/poll protocol".into(),
-                    );
-                }
                 return Ok(None);
             };
             if case.len() != 3 {
-                if any_suspending_arm {
-                    return Err(
-                        "every #match arm must await when one arm suspends; use a shared child/poll protocol".into(),
-                    );
-                }
                 return Ok(None);
             }
             let Some((case_protocol, task)) = conditional_await(&case[2])? else {
-                if any_suspending_arm {
-                    return Err(
-                        "every #match arm must await when one arm suspends; use a shared child/poll protocol".into(),
-                    );
-                }
                 return Ok(None);
             };
             if protocol
@@ -172,11 +151,174 @@ fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>,
     Ok(None)
 }
 
+fn fresh_async_name(source: &str, next_name: &mut usize) -> String {
+    let namespace = source
+        .split_once("(#fn ")
+        .and_then(|(_, rest)| rest.split_whitespace().next())
+        .unwrap_or("function");
+    loop {
+        let name = format!("lim.async.{namespace}.choice-{}", *next_name);
+        *next_name += 1;
+        if !source.contains(&name) {
+            return name;
+        }
+    }
+}
+
+/// Convert conditional branches that either await the same concrete child
+/// protocol or immediately produce its result into one concrete child task.
+fn conditional_await_with_immediate(
+    expression: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(AwaitProtocol, Expr, String)>, String> {
+    let mut branches = Vec::<(Option<AwaitProtocol>, Expr)>::new();
+    let condition_or_scrutinee;
+    let is_if;
+    if let Some(items) = form(expression, "#if") {
+        if items.len() != 4 {
+            return Ok(None);
+        }
+        condition_or_scrutinee = items[1].clone();
+        is_if = true;
+        for branch in &items[2..] {
+            let lowered = conditional_await(branch)?;
+            if let Some((protocol, task)) = lowered {
+                branches.push((Some(protocol), task));
+            } else if !has_await(branch) {
+                branches.push((None, branch.clone()));
+            } else {
+                return Ok(None);
+            }
+        }
+    } else if let Some(items) = form(expression, "#match") {
+        if items.len() < 3 {
+            return Ok(None);
+        }
+        condition_or_scrutinee = items[1].clone();
+        is_if = false;
+        for arm in &items[2..] {
+            let Some(case) = form(arm, "#case") else {
+                return Ok(None);
+            };
+            if case.len() != 3 {
+                return Ok(None);
+            }
+            let lowered = conditional_await(&case[2])?;
+            if let Some((protocol, task)) = lowered {
+                branches.push((
+                    Some(protocol),
+                    Expr::List(vec![Expr::Symbol("#case".into()), case[1].clone(), task]),
+                ));
+            } else if !has_await(&case[2]) {
+                branches.push((
+                    None,
+                    Expr::List(vec![
+                        Expr::Symbol("#case".into()),
+                        case[1].clone(),
+                        case[2].clone(),
+                    ]),
+                ));
+            } else {
+                return Ok(None);
+            }
+        }
+    } else {
+        return Ok(None);
+    }
+    let Some(protocol) = branches.iter().find_map(|(protocol, _)| protocol.clone()) else {
+        return Ok(None);
+    };
+    if branches.iter().any(|(branch_protocol, _)| {
+        branch_protocol
+            .as_ref()
+            .is_some_and(|branch_protocol| branch_protocol != &protocol)
+    }) {
+        return Err(
+            "conditional #await branches must use the same result type, child type, variants, and poll function".into(),
+        );
+    }
+    if branches
+        .iter()
+        .all(|(branch_protocol, _)| branch_protocol.is_some())
+    {
+        return Ok(None);
+    }
+
+    let choice_task = fresh_async_name(source, next_name);
+    let choice_wait = format!("{choice_task}-waiting");
+    let choice_done = format!("{choice_task}-ready");
+    let choice_poll_result = format!("{choice_task}-poll-result");
+    let choice_pending = format!("{choice_task}-pending");
+    let choice_ready = format!("{choice_task}-complete");
+    let choice_poll = format!("{choice_task}-poll");
+    let child_type = expression_source(&protocol.child_type)?;
+    let result_type = expression_source(&protocol.result_type)?;
+    let child_pending = expression_source(&protocol.pending)?;
+    let child_ready = expression_source(&protocol.ready)?;
+    let child_poll = expression_source(&protocol.poll)?;
+    let helper = format!(
+        "(#enum {choice_task} (({choice_wait} {child_type}) ({choice_done} {result_type})))\n\
+         (#linear {choice_task})\n\
+         (#enum {choice_poll_result} (({choice_pending} {choice_task}) ({choice_ready} {result_type})))\n\
+         (#fn {choice_poll} ((task {choice_task}) (waker (#ref {waker}))) {choice_poll_result}\n\
+           (#return (#match task\n\
+             (#case ({choice_wait} child)\n\
+               (#match (#call {child_poll} (: task child : waker waker))\n\
+                 (#case ({child_pending} pending) ({choice_pending} ({choice_wait} pending)))\n\
+                 (#case ({child_ready} value) ({choice_ready} value))))\n\
+             (#case ({choice_done} value) ({choice_ready} value)))))"
+    );
+    let wrap = |protocol: Option<AwaitProtocol>, value: Expr| -> Expr {
+        let constructor = if protocol.is_some() {
+            &choice_wait
+        } else {
+            &choice_done
+        };
+        Expr::List(vec![Expr::Symbol(constructor.clone()), value])
+    };
+    let selected = if is_if {
+        let then_branch = wrap(branches[0].0.clone(), branches[0].1.clone());
+        let else_branch = wrap(branches[1].0.clone(), branches[1].1.clone());
+        Expr::List(vec![
+            Expr::Symbol("#if".into()),
+            condition_or_scrutinee,
+            then_branch,
+            else_branch,
+        ])
+    } else {
+        let mut items = vec![Expr::Symbol("#match".into()), condition_or_scrutinee];
+        for (branch_protocol, branch) in branches {
+            let Expr::List(mut case) = branch else {
+                unreachable!()
+            };
+            let value = case.pop().expect("case body");
+            case.push(wrap(branch_protocol, value));
+            items.push(Expr::List(case));
+        }
+        Expr::List(items)
+    };
+    Ok(Some((
+        AwaitProtocol {
+            result_type: protocol.result_type,
+            child_type: Expr::Symbol(choice_task),
+            pending: Expr::Symbol(choice_pending),
+            ready: Expr::Symbol(choice_ready),
+            poll: Expr::Symbol(choice_poll),
+        },
+        selected,
+        helper,
+    )))
+}
+
 fn extract_nested_awaits(
     expression: &mut Expr,
     generated: &mut Vec<Expr>,
+    generated_helpers: &mut Vec<String>,
     source: &str,
     next_name: &mut usize,
+    waker: &str,
 ) -> Result<(), String> {
     if let Some(await_form) = form(expression, "#await") {
         if await_form.len() != 7 {
@@ -215,20 +357,50 @@ fn extract_nested_awaits(
                 let Expr::List(items) = expression else {
                     unreachable!()
                 };
-                extract_nested_awaits(&mut items[1], generated, source, next_name)?;
+                extract_nested_awaits(
+                    &mut items[1],
+                    generated,
+                    generated_helpers,
+                    source,
+                    next_name,
+                    waker,
+                )?;
             }
         } else if let Some(items) = form(expression, "#match") {
             if items.len() >= 3 {
                 let Expr::List(items) = expression else {
                     unreachable!()
                 };
-                extract_nested_awaits(&mut items[1], generated, source, next_name)?;
+                extract_nested_awaits(
+                    &mut items[1],
+                    generated,
+                    generated_helpers,
+                    source,
+                    next_name,
+                    waker,
+                )?;
             }
         }
     }
     if has_await(expression) {
-        if let Some((protocol, mut task)) = conditional_await(expression)? {
-            extract_nested_awaits(&mut task, generated, source, next_name)?;
+        let conditional = if let Some((protocol, task)) = conditional_await(expression)? {
+            Some((protocol, task, None))
+        } else {
+            conditional_await_with_immediate(expression, source, next_name, waker)?
+                .map(|(protocol, task, helper)| (protocol, task, Some(helper)))
+        };
+        if let Some((protocol, mut task, helper)) = conditional {
+            if let Some(helper) = helper {
+                generated_helpers.push(helper);
+            }
+            extract_nested_awaits(
+                &mut task,
+                generated,
+                generated_helpers,
+                source,
+                next_name,
+                waker,
+            )?;
             let task_name = nested_await_name(source, next_name);
             generated.push(Expr::List(vec![
                 Expr::Symbol("#let".into()),
@@ -259,7 +431,14 @@ fn extract_nested_awaits(
         Expr::List(items) => {
             let Some(Expr::Symbol(head)) = items.first() else {
                 for item in items {
-                    extract_nested_awaits(item, generated, source, next_name)?;
+                    extract_nested_awaits(
+                        item,
+                        generated,
+                        generated_helpers,
+                        source,
+                        next_name,
+                        waker,
+                    )?;
                 }
                 return Ok(());
             };
@@ -275,7 +454,14 @@ fn extract_nested_awaits(
                         for argument in arguments {
                             if let Expr::List(pair) = argument {
                                 if let Some(value) = pair.get_mut(1) {
-                                    extract_nested_awaits(value, generated, source, next_name)?;
+                                    extract_nested_awaits(
+                                        value,
+                                        generated,
+                                        generated_helpers,
+                                        source,
+                                        next_name,
+                                        waker,
+                                    )?;
                                 }
                             }
                         }
@@ -286,7 +472,14 @@ fn extract_nested_awaits(
                         for field in fields {
                             if let Expr::List(pair) = field {
                                 if let Some(value) = pair.get_mut(1) {
-                                    extract_nested_awaits(value, generated, source, next_name)?;
+                                    extract_nested_awaits(
+                                        value,
+                                        generated,
+                                        generated_helpers,
+                                        source,
+                                        next_name,
+                                        waker,
+                                    )?;
                                 }
                             }
                         }
@@ -302,12 +495,26 @@ fn extract_nested_awaits(
                         1
                     };
                     for item in items.iter_mut().skip(start) {
-                        extract_nested_awaits(item, generated, source, next_name)?;
+                        extract_nested_awaits(
+                            item,
+                            generated,
+                            generated_helpers,
+                            source,
+                            next_name,
+                            waker,
+                        )?;
                     }
                 }
                 _ => {
                     for item in items.iter_mut().skip(1) {
-                        extract_nested_awaits(item, generated, source, next_name)?;
+                        extract_nested_awaits(
+                            item,
+                            generated,
+                            generated_helpers,
+                            source,
+                            next_name,
+                            waker,
+                        )?;
                     }
                 }
             }
@@ -316,10 +523,24 @@ fn extract_nested_awaits(
             return Err("@async-fn cannot lower suspension inside #block or #loop yet".into());
         }
         Expr::Labeled { expression, .. } => {
-            extract_nested_awaits(expression, generated, source, next_name)?;
+            extract_nested_awaits(
+                expression,
+                generated,
+                generated_helpers,
+                source,
+                next_name,
+                waker,
+            )?;
         }
         Expr::Unquote(value) | Expr::UnquoteSplicing(value) => {
-            extract_nested_awaits(value, generated, source, next_name)?;
+            extract_nested_awaits(
+                value,
+                generated,
+                generated_helpers,
+                source,
+                next_name,
+                waker,
+            )?;
         }
         Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::Block(_) | Expr::Loop(_) => {}
         Expr::Integer(_)
@@ -346,8 +567,10 @@ fn nested_await_name(source: &str, next_name: &mut usize) -> String {
 fn extract_statement_awaits(
     statement: &mut Expr,
     generated: &mut Vec<Expr>,
+    generated_helpers: &mut Vec<String>,
     source: &str,
     next_name: &mut usize,
+    waker: &str,
 ) -> Result<(), String> {
     if !has_await(statement) {
         return Ok(());
@@ -366,7 +589,14 @@ fn extract_statement_awaits(
         let Expr::List(items) = statement else {
             unreachable!()
         };
-        extract_nested_awaits(&mut items[3], generated, source, next_name)?;
+        extract_nested_awaits(
+            &mut items[3],
+            generated,
+            generated_helpers,
+            source,
+            next_name,
+            waker,
+        )?;
     } else if let Some(items) = form(statement, "#return") {
         if items.len() == 2 && form(&items[1], "#await").is_some() {
             return Ok(());
@@ -377,9 +607,23 @@ fn extract_statement_awaits(
         if items.len() != 2 {
             return Err("@async-fn #return requires exactly one value".into());
         }
-        extract_nested_awaits(&mut items[1], generated, source, next_name)?;
+        extract_nested_awaits(
+            &mut items[1],
+            generated,
+            generated_helpers,
+            source,
+            next_name,
+            waker,
+        )?;
     } else {
-        extract_nested_awaits(statement, generated, source, next_name)?;
+        extract_nested_awaits(
+            statement,
+            generated,
+            generated_helpers,
+            source,
+            next_name,
+            waker,
+        )?;
     }
     Ok(())
 }
@@ -553,16 +797,20 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let return_await = form(&last[1], "#await").map(<[Expr]>::to_vec);
     let mut return_value = last[1].clone();
     let source = expression_source(&invocation[4])?;
+    let waker_source = expression_source(&invocation[3])?;
     let mut statements = body[..body.len() - 1].to_vec();
     let mut next_nested_await = 0;
+    let mut generated_helpers = Vec::new();
     let mut lowered_statements = Vec::new();
     for mut statement in statements {
         let mut generated = Vec::new();
         extract_statement_awaits(
             &mut statement,
             &mut generated,
+            &mut generated_helpers,
             &source,
             &mut next_nested_await,
+            &waker_source,
         )?;
         lowered_statements.extend(generated);
         lowered_statements.push(statement);
@@ -580,8 +828,10 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         extract_nested_awaits(
             &mut return_value,
             &mut generated,
+            &mut generated_helpers,
             &source,
             &mut next_nested_await,
+            &waker_source,
         )?;
         statements.extend(generated);
     }
@@ -778,7 +1028,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         named_arguments(&params),
     );
     Ok(format!(
-        "(#enum {frame} ({}))
+        "{}\n(#enum {frame} ({}))
          (#linear {frame})
          (#enum {poll_result} (({pending} {frame}) ({ready} {result})))
          (#fn {start} ({}) {frame} (#return ({start_variant} {})))
@@ -788,6 +1038,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
            (#return (#call {poll}-child-0 ({} : lim.async.task {} : waker waker))))
          (#fn {poll} ((task {frame}) (waker (#ref {waker}))) {poll_result}
            (#return (#match task {start_case} {})))",
+        generated_helpers.join("\n"),
         variants.join(" "),
         signature(&params),
         arguments(&params),

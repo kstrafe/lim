@@ -1698,6 +1698,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   path. Verify owner access stays rejected while Pending, becomes legal after
   Ready/cancellation, and remains rejected if any returned value retains the
   reference.
+- [x] **ASYNC-01b14: Join an awaited branch with an immediate value.** Permit
+  an `#if` or `#match` expression whose suspending arms use one shared child
+  poll protocol and whose other arms produce the explicitly typed result
+  directly. Generate an inspectable concrete choice task/poll adapter that
+  turns immediate arms into Ready without polling a child. Verify both branch
+  paths natively; keep the generated choice task linear so capture transfer
+  and explicit cancellation retain their existing ownership checks.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible

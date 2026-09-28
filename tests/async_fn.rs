@@ -399,6 +399,73 @@ fn async_function_awaits_after_conditional_task_selection() {
 }
 
 #[test]
+fn async_conditional_await_joins_with_an_immediate_value() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value)
+            (#if (#u64.== value 0u64)
+              (ChildPending (Waiting 1u64))
+              (ChildReady value))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((choose bool)) u64
+          (#let result u64
+            (#if choose
+              (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
+              41u64))
+          (#return result))))
+      (#enum Choice (Await Immediate))
+      (@async-fn (: names (MatchFrame MatchPoll MatchPending MatchReady match-poll) : waker u64 : function
+        (#fn work-match ((choice Choice)) u64
+          (#let result u64
+            (#match choice
+              (#case Await
+                (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
+              (#case Immediate 41u64)))
+          (#return result))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let awaited Poll
+          (#call poll (: task (#call work (: choose true)) : waker (#borrow waker))))
+        (#let awaited-value u64
+          (#match awaited
+            (#case (Ready value) value)
+            (#case (Pending awaited-child)
+              (#match (#call poll (: task awaited-child : waker (#borrow waker)))
+                (#case (Ready awaited-ready) awaited-ready)
+                (#case (Pending awaited-again) (#block (#forget awaited-again) (#unreachable)))))))
+        (#let immediate Poll
+          (#call poll (: task (#call work (: choose false)) : waker (#borrow waker))))
+        (#let immediate-value u64
+          (#match immediate
+            (#case (Ready immediate-ready) immediate-ready)
+            (#case (Pending immediate-task) (#block (#forget immediate-task) (#unreachable)))))
+        (#let match-awaited MatchPoll
+          (#call match-poll (: task (#call work-match (: choice Await)) : waker (#borrow waker))))
+        (#let match-awaited-value u64
+          (#match match-awaited
+            (#case (MatchReady value) value)
+            (#case (MatchPending match-child)
+              (#match (#call match-poll (: task match-child : waker (#borrow waker)))
+                (#case (MatchReady match-ready) match-ready)
+                (#case (MatchPending match-again) (#block (#forget match-again) (#unreachable)))))))
+        (#let match-immediate MatchPoll
+          (#call match-poll (: task (#call work-match (: choice Immediate)) : waker (#borrow waker))))
+        (#let match-immediate-value u64
+          (#match match-immediate
+            (#case (MatchReady match-immediate-ready) match-immediate-ready)
+            (#case (MatchPending match-immediate-task)
+              (#block (#forget match-immediate-task) (#unreachable)))))
+        (#return (#u64.+.wrap
+          (#u64.+.wrap awaited-value immediate-value)
+          (#u64.+.wrap match-awaited-value match-immediate-value))))";
+    let generated = build_and_run(source, 84);
+    assert!(generated.contains(".choice-"), "{generated}");
+    assert!(generated.contains("-poll-result"), "{generated}");
+}
+
+#[test]
 fn async_function_rejects_incompatible_conditional_awaits() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64) (ChildAlternateReady u64)))
@@ -421,8 +488,7 @@ fn async_function_rejects_incompatible_conditional_awaits() {
         "(#await u64 Child ChildPending ChildAlternateReady child-poll-alt (Waiting 2u64))",
         "2u64",
     );
-    let error = lim::parse_program(&mixed).unwrap_err();
-    assert!(error.contains("every #if branch must await"), "{error}");
+    assert!(lim::parse_program(&mixed).is_ok());
 }
 
 #[test]
