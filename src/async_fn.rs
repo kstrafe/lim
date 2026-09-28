@@ -756,12 +756,10 @@ fn lower_async_while(
                 expression,
                 Expr::List(parts)
                     if matches!(parts.first(), Some(Expr::Symbol(head))
-                        if matches!(head.as_str(), "#let" | "#let-mut" | "#let-else" | "#return" | "#break" | "#continue"))
+                        if matches!(head.as_str(), "#let-else" | "#return" | "#break" | "#continue"))
             )
     }) {
-        return Err(
-            "@async-fn loop-await prefix cannot bind locals or transfer control".into(),
-        );
+        return Err("@async-fn loop-await prefix cannot suspend or transfer control".into());
     }
     let suffix = &body[await_index + 1..];
     if suffix.iter().any(|expression| {
@@ -774,6 +772,33 @@ fn lower_async_while(
             )
     }) {
         return Err("@async-fn loop-await suffix cannot suspend or transfer control".into());
+    }
+
+    let mut prefix_bindings = HashSet::new();
+    for expression in prefix {
+        if form(expression, "#let").is_some() || form(expression, "#let-mut").is_some() {
+            let local = binding(expression, "loop-await prefix")?;
+            if known.contains_key(&local.name) {
+                return Err(format!(
+                    "@async-fn loop-await prefix binding '{}' shadows an existing name",
+                    local.name
+                ));
+            }
+            prefix_bindings.insert(local.name);
+        }
+    }
+    let mut suffix_names = HashSet::new();
+    for expression in suffix {
+        collect_value_names(expression, &mut suffix_names);
+    }
+    if let Some(name) = prefix_bindings
+        .iter()
+        .find(|name| suffix_names.contains(name.as_str()))
+    {
+        return Err(format!(
+            "@async-fn loop-await local '{}' is not available after suspension; move it into the child task or a captured value",
+            name
+        ));
     }
 
     let mut used_names = HashSet::new();

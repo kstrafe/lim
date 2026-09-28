@@ -986,8 +986,9 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
         (#fn work () u64
           (#let-mut iteration u64 0u64)
           (#while (#u64.< iteration 2u64)
+            (#let child-input u64 iteration)
             (#let result u64
-              (#await Child ChildPending ChildReady child-poll (Waiting iteration)))
+              (#await Child ChildPending ChildReady child-poll (Waiting child-input)))
             (#set iteration (#u64.+.wrap iteration 1u64)))
           (#return 42u64))))
       (#fn main () u64
@@ -1034,6 +1035,40 @@ fn async_function_does_not_hoist_awaits_out_of_for_range_loops() {
     );
     let span = diagnostic.span.expect("await source span");
     assert_eq!(&source[span.start..span.end], "#await");
+}
+
+#[test]
+fn async_function_rejects_loop_locals_used_after_suspension() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (ChildReady 1u64)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#while (#u64.< iteration 1u64)
+            (#let-mut child-input u64 iteration)
+            (#let result u64
+              (#await Child ChildPending ChildReady child-poll (Waiting child-input)))
+            (#set child-input result)
+            (#set iteration (#u64.+.wrap iteration 1u64)))
+          (#return 42u64))))";
+    let scratch = support::Scratch::new("async-loop-local-after-await");
+    let input = scratch.path().join("loop.lim");
+    let diagnostic = lim::compile_source_to_assembly(
+        source,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        diagnostic
+            .message
+            .contains("is not available after suspension"),
+        "{diagnostic:?}"
+    );
 }
 
 #[test]

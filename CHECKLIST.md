@@ -1740,6 +1740,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   control transfers around the await, and loop forms other than `#while`.
   Verify multiple iterations and Pending/resume natively, and retain a targeted
   `#for-range` diagnostic.
+- [ ] **ASYNC-01b20: Preserve safe per-iteration setup before loop awaits.**
+  Allow ordinary `#let` and `#let-mut` setup before the loop's direct await.
+  These locals remain scoped to the current iteration and may initialize the
+  child task, but must not be referenced by the post-await continuation because
+  they are not retained across suspension. Reject shadowing and verify both a
+  native child initialized from a loop-local value and a diagnostic when that
+  local is used after suspension.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
