@@ -1755,9 +1755,13 @@ fn lower_async_for(
         return Err("@async-fn #for await requires init, condition, step, and body".into());
     }
     let initializer = &items[1];
-    if has_await(initializer) || has_await(&items[2]) || has_await(&items[3]) {
+    let awaited_condition = has_await(&items[2]);
+    if has_await(initializer) || has_await(&items[3]) {
+        return Err("@async-fn #for await cannot suspend in its initializer or step".into());
+    }
+    if awaited_condition && form(&items[2], "#await").is_none() {
         return Err(
-            "@async-fn #for await cannot suspend in its initializer, condition, or step".into(),
+            "@async-fn #for condition suspension currently requires one direct #await".into(),
         );
     }
     let mut loop_known = known.clone();
@@ -1766,6 +1770,14 @@ fn lower_async_for(
     let mut condition = items[2].clone();
     let mut step = items[3].clone();
     let mut loop_body = items[4..].to_vec();
+    if awaited_condition && loop_body.iter().any(has_await) {
+        return Err("@async-fn #for condition and body cannot both suspend yet".into());
+    }
+    if awaited_condition && loop_body.iter().any(contains_loop_control) {
+        return Err(
+            "@async-fn #for condition suspension does not yet support body loop transfers".into(),
+        );
+    }
     if form(initializer, "#let-else").is_some() {
         return Err("@async-fn #for await does not support #let-else initializers".into());
     }
