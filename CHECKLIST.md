@@ -400,6 +400,11 @@ the checklist is committed alongside the implementation it tracks.
   keep global and computed enum values on their own paths. Cover nested matches
   and large payloads.
 
+- [x] **IR-02ag: Resolve enum argument storage by identity.** Read local
+  payload-enum discriminants and payload slots through checked binding IDs
+  when lowering by-value arguments; preserve global and constructed enum paths.
+  Cover ordinary and large payload enums.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

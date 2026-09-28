@@ -15393,7 +15393,12 @@ impl FunctionContext {
                         }
                         return Ok(());
                     }
-                    if !self.locals.contains_key(local) {
+                    let local_storage = self.local_storage_for_symbol(value, local)?;
+                    let Some(Storage::Enum {
+                        discriminant,
+                        payload,
+                    }) = local_storage
+                    else {
                         self.expression(value)?;
                         let words = value_word_count(ty, &self.structs, &self.enums)?;
                         let registers: Box<dyn Iterator<Item = &str>> = if reverse {
@@ -15406,20 +15411,10 @@ impl FunctionContext {
                             self.stack_depth += 1;
                         }
                         return Ok(());
-                    }
-                    let Storage::Enum {
-                        discriminant,
-                        payload,
-                    } = self
-                        .locals
-                        .get(local)
-                        .ok_or_else(|| format!("unknown enum local '{local}'"))?
-                    else {
-                        return Err(format!("'{local}' is not a payload enum"));
                     };
                     let mut slots = Vec::with_capacity(1 + payload.len());
-                    slots.push(*discriminant);
-                    slots.extend(payload.iter().copied());
+                    slots.push(discriminant);
+                    slots.extend(payload);
                     if reverse {
                         slots.reverse();
                     }
