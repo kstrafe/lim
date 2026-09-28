@@ -8487,15 +8487,16 @@ impl FunctionContext {
             }
         }
         if let Expr::Symbol(variant_name) = value {
-            if let Some(variant) = self.enums.get(enum_name).and_then(|variants| {
-                variants
-                    .iter()
-                    .find(|variant| variant.name == *variant_name)
-            }) {
+            if let Some((variant_owner, variant_discriminant, _)) =
+                self.enum_variant_info(value, variant_name)?
+            {
+                if variant_owner != enum_name {
+                    return Err("internal error: checked enum value owner changed".into());
+                }
                 self.output.push_str(&format!(
                     "    mov QWORD PTR [rbp-{}], {}\n",
                     discriminant * 8,
-                    variant.discriminant
+                    variant_discriminant
                 ));
                 for slot in &payload {
                     self.output
@@ -8525,16 +8526,8 @@ impl FunctionContext {
         let Some(Expr::Symbol(variant_name)) = items.first() else {
             return Err("enum constructor must start with a variant name".into());
         };
-        let variants = self
-            .enums
-            .get(enum_name)
-            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
-            .clone();
-        let variant = variants
-            .iter()
-            .find(|variant| variant.name == *variant_name)
-            .cloned();
-        let Some(variant) = variant else {
+        let variant_info = self.enum_variant_info(&items[0], variant_name)?;
+        let Some((variant_owner, variant_discriminant, variant_fields)) = variant_info else {
             self.expression_as_expected(value, &Type::Named(enum_name.to_owned()))?;
             self.output.push_str(&format!(
                 "    mov QWORD PTR [rbp-{}], rax\n",
@@ -8549,20 +8542,19 @@ impl FunctionContext {
             }
             return Ok(());
         };
-        if items.len() - 1 != variant.fields.len() {
+        if variant_owner != enum_name {
+            return Err("internal error: checked enum constructor owner changed".into());
+        }
+        if items.len() - 1 != variant_fields.len() {
             return Err(format!("variant '{variant_name}' has wrong payload count"));
         }
-        let variant_index = variants
-            .iter()
-            .position(|candidate| candidate.name == *variant_name)
-            .expect("validated enum variant");
         self.output.push_str(&format!(
             "    mov QWORD PTR [rbp-{}], {}\n",
             discriminant * 8,
-            variants[variant_index].discriminant
+            variant_discriminant
         ));
         let mut offset = 0;
-        for (index, field_type) in variant.fields.iter().enumerate() {
+        for (index, field_type) in variant_fields.iter().enumerate() {
             let field_words = storage_word_count(field_type, &self.structs, &self.enums)?;
             let field_slots = payload
                 .get(offset..offset + field_words)

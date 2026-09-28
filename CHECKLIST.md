@@ -568,6 +568,12 @@ the checklist is committed alongside the implementation it tracks.
   its owner against the referenced enum before selecting the payload offset.
   Preserve native payload-borrow and projection behavior.
 
+- [x] **IR-02bc: Store enum locals by checked variant identity.** Resolve unit
+  and payload enum initializers through their head node's `VariantId`; verify
+  the owner enum and consume its discriminant and payload types. Preserve
+  generic-expression fallback only when the constructor is not a variant.
+  Validate all native examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
