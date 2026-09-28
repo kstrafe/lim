@@ -251,7 +251,7 @@ fn pinned_async_frames_reject_stack_pins_captured_across_suspension() {
 #[test]
 fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel() {
     let source = include_str!("../examples/async_fn_self_reference.lim");
-    let generated = build_and_run(source, 53);
+    let generated = build_and_run(source, 58);
     assert!(
         generated.contains("(#struct SelfRefFrame ((state SelfRefFrame-state) (owner Owner)))"),
         "{generated}"
@@ -261,8 +261,8 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
         "the self-reference must be formed from the pinned frame field: {generated}"
     );
     assert!(
-        generated.contains("(SelfRefFrame-await-0 (#pin-ref u64) Child)"),
-        "the internal reference must be retained in the suspended state: {generated}"
+        generated.contains("(SelfRefFrame-await-0 (#pin-ref u64) (#pin-ref u64) Child)"),
+        "both disjoint internal references must be retained in the suspended state: {generated}"
     );
 
     let pending_mutation = source.replace(
@@ -286,6 +286,17 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
         "the live internal reference must exclude an overlapping mutable projection: {error}"
     );
 
+    let conflicting_second_projection = source.replace(
+        "  (#let second SelfRefPoll",
+        "  (#let right-pin (#pin-ref-mut u64)\n    (#pin-borrow-mut (#get (#get (#get pending-frame owner) payload) right)))\n  (#let second SelfRefPoll",
+    );
+    let error =
+        lim::check_types(&lim::parse_program(&conflicting_second_projection).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access") || error.contains("pinned"),
+        "the second internal reference must also exclude its overlapping mutable projection: {error}"
+    );
+
     let mutation = source.replace(
         "  (#call cancel-self-ref-state (: task state))",
         "  (#set-field cancelled owner (#struct-literal Owner ((payload (#struct-literal Payload ((left 11u64) (right 7u64)))))))\n  (#call cancel-self-ref-state (: task state))",
@@ -297,8 +308,8 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
     );
 
     let direct_owner_use = source.replace(
-        "(#u64.+.wrap (#deref view) result)",
-        "(#u64.+.wrap (#u64.+.wrap (#deref view) result) (#get (#get owner payload) left))",
+        "(#u64.+.wrap (#u64.+.wrap (#deref view) (#deref right-view)) result)",
+        "(#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#deref view) (#deref right-view)) result) (#get (#get owner payload) left))",
     );
     let error = lim::parse_program(&direct_owner_use)
         .unwrap_err()

@@ -2005,6 +2005,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   shared waker and for moving pinned frame state while borrowing a disjoint
   owner field in ordinary code. These show the remaining mutable self-reference
   failure is in generated poll-state transfer; they do not complete ASYNC-01c2.
+- [x] **ASYNC-01c2o: Retain multiple disjoint self-references across Pending.**
+  Allow a pinned async frame to form immutable references to two disjoint fields
+  of the same promoted owner, retain both in its suspended state, and end both
+  loans on completion or cancellation. Verify native results, reject mutable
+  borrows of either projected field while pending, and permit owner mutation
+  after cancellation cleanup.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
