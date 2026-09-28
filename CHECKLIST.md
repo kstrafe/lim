@@ -1728,10 +1728,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   value initializes the child task and survives through native polling without
   becoming an unnecessary frame capture.
 - [x] **ASYNC-01b18: Prevent loop-await hoisting from changing semantics.**
-  Lower supported `#while`, `#for-range`, and existing-counter `#for` awaits
-  as loop-carried suspension state and reject unsupported `#loop` awaits
-  before expression lowering can hoist them outside the loop. Diagnostics
-  underline `#await`.
+  Lower supported `#while`, `#for-range`, `#for`, and terminal-transfer
+  `#loop` awaits as loop-carried suspension state; diagnose remaining
+  unsupported control flow before expression lowering can hoist awaits.
+  Diagnostics underline `#await`.
 - [x] **ASYNC-01b19: Resume a direct child await inside a `#while` loop.**
   Support a loop condition and body with one direct `#let`/`#let-mut` await per
   iteration, capturing the loop-carried values and child task in a concrete
@@ -1752,20 +1752,24 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   into a resumable task that retains its counter while Pending and increments
   only after Ready. Preserve the range start/end and per-iteration binding
   semantics; test a Pending first iteration followed by a Ready later
-  iteration natively. `#for` and `#loop` await forms remain explicitly
-  unsupported except for `#for` with an already-declared counter.
+  iteration natively. Direct awaits in loop conditions remain unsupported.
 - [x] **ASYNC-01b22: Lower awaited `#for` loops with existing counters.**
-  Preserve initializer execution, condition, and step ordering by lowering a
-  `#for` that mutates an already-declared counter to the resumable loop state
-  machine. Execute the step only after the awaited child is Ready; retain the
-  counter across Pending. Verify native Pending/resume over multiple iterations
-  and keep a focused diagnostic for `#loop`.
+  Preserve initializer execution, condition, and step ordering for `#for`
+  loops. Execute the step only after the awaited child is Ready and retain the
+  counter across Pending. Local initializer binding scope is tracked in b23.
 - [x] **ASYNC-01b23: Preserve `#for` initializer binding scope.**
   Support a local `#let`/`#let-mut` in the `#for` initializer by assigning it
   a fresh internal name and rewriting only its value references in the loop
   condition, step, and body. Keep type names, field labels, call names, and
   named-argument keys untouched. Reject collisions with visible source names
   and verify native Pending/resume across multiple iterations.
+- [x] **ASYNC-01b24: Resume awaited `#loop` bodies through terminal transfers.**
+  Lower a `#loop` containing one direct child await per iteration and a terminal
+  `#break`/`#continue`, including terminal `#if` branches, into explicit done
+  state. Resume the same iteration after Pending, execute its continuation, and
+  stop or repeat only after the terminal transfer. Keep value-bearing breaks,
+  nonterminal transfers, and more complex branch control flow rejected; verify
+  a Pending/resume sequence that repeats once and then exits natively.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

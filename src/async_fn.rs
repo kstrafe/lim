@@ -1202,6 +1202,158 @@ fn lower_async_for(
     Ok(Some((replacement, helper)))
 }
 
+fn contains_loop_control(expression: &Expr) -> bool {
+    match expression {
+        Expr::List(items) => {
+            matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break" | "#continue"))
+                || items.iter().skip(1).any(contains_loop_control)
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            statements.iter().any(|statement| match statement {
+                crate::Statement::Expr(value)
+                | crate::Statement::Return(Some(value))
+                | crate::Statement::BreakValue(value)
+                | crate::Statement::BreakToValue { value, .. } => contains_loop_control(value),
+                _ => false,
+            })
+        }
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => contains_loop_control(expression),
+        _ => false,
+    }
+}
+
+/// Rewrite a terminal loop transfer after an await into state carried by the
+/// generated while loop. Only direct transfers and terminal #if branches are
+/// accepted; more complex control flow remains explicit and diagnosable.
+fn rewrite_terminal_loop_control(expression: &mut Expr, done: &str) -> Result<bool, String> {
+    if let Some(items) = form(expression, "#break") {
+        if items.len() != 1 {
+            return Err("@async-fn awaited #loop does not support value-bearing #break".into());
+        }
+        *expression = Expr::List(vec![
+            Expr::Symbol("#block".into()),
+            Expr::List(vec![
+                Expr::Symbol("#set".into()),
+                Expr::Symbol(done.into()),
+                Expr::Symbol("true".into()),
+            ]),
+            Expr::List(Vec::new()),
+        ]);
+        return Ok(true);
+    }
+    if let Some(items) = form(expression, "#continue") {
+        if items.len() != 1 {
+            return Err("@async-fn awaited #loop does not support labeled #continue".into());
+        }
+        *expression = Expr::List(Vec::new());
+        return Ok(true);
+    }
+    if let Some(items) = form(expression, "#if") {
+        if items.len() != 4 {
+            return Err("@async-fn awaited #loop requires a complete terminal #if".into());
+        }
+        let then_control =
+            rewrite_terminal_loop_control(&mut expression_list_mut(expression)[2], done)?;
+        let else_control =
+            rewrite_terminal_loop_control(&mut expression_list_mut(expression)[3], done)?;
+        return Ok(then_control || else_control);
+    }
+    if contains_loop_control(expression) {
+        return Err(
+            "@async-fn awaited #loop only supports terminal #break/#continue or #if branches"
+                .into(),
+        );
+    }
+    Ok(false)
+}
+
+fn expression_list_mut(expression: &mut Expr) -> &mut Vec<Expr> {
+    let Expr::List(items) = expression else {
+        unreachable!("called only for a list form")
+    };
+    items
+}
+
+fn lower_async_loop(
+    statement: &Expr,
+    known: &HashMap<String, Binding>,
+    known_order: &[String],
+    following: &[Expr],
+    return_value: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(Vec<Expr>, String)>, String> {
+    if !has_await(statement) {
+        return Ok(None);
+    }
+    let Some(items) = form(statement, "#loop") else {
+        return Ok(None);
+    };
+    if items.len() < 2 {
+        return Err("@async-fn awaited #loop requires a body".into());
+    }
+    let done = fresh_async_name(source, next_name);
+    let mut body = items[1..].to_vec();
+    let Some(last) = body.last_mut() else {
+        return Err("@async-fn awaited #loop requires a body".into());
+    };
+    let has_terminal_control = rewrite_terminal_loop_control(last, &done)?;
+    if !has_terminal_control {
+        return Err(
+            "@async-fn awaited #loop requires a terminal #break or #continue after suspension"
+                .into(),
+        );
+    }
+    if body[..body.len() - 1].iter().any(contains_loop_control) {
+        return Err("@async-fn awaited #loop control transfers must follow the await".into());
+    }
+    let condition = Expr::List(vec![
+        Expr::Symbol("#bool.==".into()),
+        Expr::Symbol(done.clone()),
+        Expr::Symbol("false".into()),
+    ]);
+    let mut while_items = vec![Expr::Symbol("#while".into()), condition];
+    while_items.extend(body);
+    let lowered_loop = Expr::List(while_items);
+    let mut loop_known = known.clone();
+    loop_known.insert(
+        done.clone(),
+        Binding {
+            name: done.clone(),
+            ty: "bool".into(),
+            mutable: true,
+        },
+    );
+    let mut loop_order = known_order.to_vec();
+    loop_order.push(done.clone());
+    let Some((mut replacement, helper)) = lower_async_while(
+        &lowered_loop,
+        &loop_known,
+        &loop_order,
+        following,
+        return_value,
+        source,
+        next_name,
+        waker,
+    )?
+    else {
+        return Err("@async-fn failed to lower awaited #loop".into());
+    };
+    replacement.insert(
+        0,
+        Expr::List(vec![
+            Expr::Symbol("#let-mut".into()),
+            Expr::Symbol(done),
+            Expr::Symbol("bool".into()),
+            Expr::Symbol("false".into()),
+        ]),
+    );
+    Ok(Some((replacement, helper)))
+}
+
 fn mutable_assignment_target(expr: &Expr) -> Option<&str> {
     let Expr::List(items) = expr else {
         return None;
@@ -1400,6 +1552,20 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let mut lowering_known = known.clone();
     let mut lowering_known_order = known_order.clone();
     for (source_index, mut statement) in statements.iter().cloned().enumerate() {
+        if let Some((replacement, helper)) = lower_async_loop(
+            &statement,
+            &lowering_known,
+            &lowering_known_order,
+            &statements[source_index + 1..],
+            &return_value,
+            &source,
+            &mut next_nested_await,
+            &waker_source,
+        )? {
+            generated_helpers.push(helper);
+            lowered_statements.extend(replacement);
+            continue;
+        }
         if let Some((replacement, helper)) = lower_async_for(
             &statement,
             &lowering_known,

@@ -1138,11 +1138,42 @@ fn async_function_rejects_for_initializer_shadowing() {
     )
     .unwrap_err();
     assert!(
-        diagnostic
-            .message
-            .contains("shadowing is not allowed"),
+        diagnostic.message.contains("shadowing is not allowed"),
         "{diagnostic:?}"
     );
+}
+
+#[test]
+fn async_function_resumes_child_await_inside_loop_until_terminal_break() {
+    let source = "(#enum ChildPoll ((ChildPending u64) (ChildReady u64)))
+      (#fn child-poll ((task u64) (waker (#ref u64))) ChildPoll
+        (#return (#if (#u64.== task 0u64)
+          (ChildPending 1u64)
+          (ChildReady task))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#loop
+            (#let result u64
+              (#await u64 ChildPending ChildReady child-poll iteration))
+            (#set iteration result)
+            (#set iteration (#u64.+.wrap iteration 1u64))
+            (#if (#u64.== iteration 2u64) (#break) (#continue)))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending pending-again)
+              (#block (#forget pending-again) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("-wait"), "{generated}");
 }
 
 #[test]
@@ -1170,7 +1201,7 @@ fn async_function_does_not_hoist_awaits_out_of_loop_forms() {
     assert!(
         diagnostic
             .message
-            .contains("cannot lower #await inside #loop"),
+            .contains("requires a terminal #break or #continue"),
         "{diagnostic:?}"
     );
     let span = diagnostic.span.expect("await source span");
