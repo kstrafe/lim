@@ -310,6 +310,46 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
 }
 
 #[test]
+fn pinned_async_frame_promotes_a_local_owner_before_self_borrowing_it() {
+    let source = include_str!("../examples/async_fn_local_self_reference.lim");
+    let generated = build_and_run(source, 42);
+    assert!(
+        generated.contains("(#fn local-self-ref () LocalSelfRefFrame\n(#let owner LocalOwner"),
+        "the owner must be initialized before the frame is returned: {generated}"
+    );
+    assert!(
+        generated.contains("(#pin-borrow (#get (#get (#get task owner) payload) left))"),
+        "the local reference must be formed from the pinned frame's owner: {generated}"
+    );
+
+    let late_owner = source.replace(
+        "    (#let owner LocalOwner",
+        "    (#let before-owner u64 1u64)\n    (#let owner LocalOwner",
+    );
+    let error = lim::parse_program(&late_owner).unwrap_err();
+    assert!(
+        error.contains("must be the first function statement"),
+        "local owners after other statements are not hoisted implicitly: {error}"
+    );
+
+    let parameter_dependent_owner = source
+        .replace(
+            "(#fn local-self-ref () u64",
+            "(#fn local-self-ref ((seed u64)) u64",
+        )
+        .replace("((left 40u64)", "((left seed)")
+        .replace(
+            "(#call local-self-ref (:))",
+            "(#call local-self-ref (: seed 40u64))",
+        );
+    let error = lim::parse_program(&parameter_dependent_owner).unwrap_err();
+    assert!(
+        error.contains("initializer cannot use function parameters"),
+        "parameter-dependent local owners need explicit capture analysis: {error}"
+    );
+}
+
+#[test]
 fn async_function_can_complete_without_suspension() {
     let original = example_source();
     let (prefix, _) = original.split_once("(#fn main () u64").unwrap();

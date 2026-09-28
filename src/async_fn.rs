@@ -18,6 +18,7 @@ struct Binding {
 struct PinnedSelfReference {
     binding: Binding,
     owner: Binding,
+    owner_initializer: Option<String>,
     projection: Vec<String>,
     target_ty: String,
     helper_parameter: String,
@@ -2227,8 +2228,60 @@ fn pinned_self_references(
         let Some((owner_name, projection)) = pinned_borrow_target(&borrow[1]) else {
             continue;
         };
-        let Some(owner) = params.iter().find(|parameter| parameter.name == owner_name) else {
-            continue;
+        let (owner, owner_initializer) = if let Some(parameter) =
+            params.iter().find(|parameter| parameter.name == owner_name)
+        {
+            (parameter.clone(), None)
+        } else {
+            let Some((owner_index, owner_statement)) =
+                body[..index]
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find(|(_, statement)| {
+                        form(statement, "#let")
+                            .or_else(|| form(statement, "#let-mut"))
+                            .is_some_and(|items| {
+                                items.get(1).is_some_and(|name| {
+                                matches!(name, Expr::Symbol(name) if name == &owner_name)
+                            })
+                            })
+                    })
+            else {
+                continue;
+            };
+            let local = binding(owner_statement, "pinned self-reference owner")?;
+            if local.mutable {
+                // Keep mutable stack locals on the ordinary borrow-checking
+                // path so their more specific escaping-pin diagnostic wins.
+                continue;
+            }
+            let owner_binding = form(owner_statement, "#let").unwrap();
+            let initializer = expression_source(&owner_binding[3])?;
+            if has_await(&owner_binding[3]) {
+                return Err(format!(
+                    "@async-fn-pinned self-reference owner '{}' cannot be initialized by #await",
+                    local.name
+                ));
+            }
+            if owner_index != 0 {
+                return Err(format!(
+                    "@async-fn-pinned local self-reference owner '{}' must be the first function statement",
+                    local.name
+                ));
+            }
+            let mut initializer_names = HashSet::new();
+            collect_value_names(&owner_binding[3], &mut initializer_names);
+            if params
+                .iter()
+                .any(|parameter| initializer_names.contains(&parameter.name))
+            {
+                return Err(format!(
+                    "@async-fn-pinned local self-reference owner '{}' initializer cannot use function parameters",
+                    local.name
+                ));
+            }
+            (local, Some(initializer))
         };
         if owner.mutable {
             return Err(format!(
@@ -2246,7 +2299,8 @@ fn pinned_self_references(
         references.push(PinnedSelfReference {
             target_ty: pinned_reference_target_source(&items[2])?,
             binding: local,
-            owner: owner.clone(),
+            owner,
+            owner_initializer,
             projection,
             helper_parameter: String::new(),
             source_index: index,
@@ -2802,6 +2856,29 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         .iter()
         .map(|owner| format!("({} {})", owner.name, owner.ty))
         .collect::<Vec<_>>();
+    let local_hoisted_owners = hoisted_owners
+        .iter()
+        .filter_map(|owner| {
+            self_references
+                .iter()
+                .find(|reference| reference.owner.name == owner.name)
+                .and_then(|reference| {
+                    reference
+                        .owner_initializer
+                        .as_ref()
+                        .map(|initializer| (owner, initializer))
+                })
+        })
+        .collect::<Vec<_>>();
+    let local_hoisted_owner_names = local_hoisted_owners
+        .iter()
+        .map(|(owner, _)| owner.name.as_str())
+        .collect::<HashSet<_>>();
+    let start_owner_initializers = local_hoisted_owners
+        .iter()
+        .map(|(owner, initializer)| format!("(#let {} {} {})", owner.name, owner.ty, initializer))
+        .collect::<Vec<_>>()
+        .join(" ");
     let self_reference_parameters = self_reference_sources
         .iter()
         .enumerate()
@@ -2935,6 +3012,19 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         ));
     }
     let first = &stages[0];
+    let first_prefix = first
+        .prefix
+        .iter()
+        .filter(|statement| {
+            !local_hoisted_owner_names.iter().any(|name| {
+                statement
+                    .strip_prefix("(#let ")
+                    .is_some_and(|rest| rest.starts_with(&format!("{name} ")))
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ");
     let start_case = format!(
         "(#case ({start_variant} {}) (#call {start_helper} ({} : waker waker)))",
         arguments(&start_params),
@@ -2966,6 +3056,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
              (#struct {frame} ({frame_fields}))\n\
              (#linear {frame})\n\
              (#fn {start} ({}) {frame}\n\
+               {start_owner_initializers}\n\
                (#return (#struct-literal {frame} ({frame_start_values}))))",
             variants.join(" "),
             signature(&params),
@@ -2994,7 +3085,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         frame_declarations,
         helpers.join("\n"),
         signature(&start_params),
-        first.prefix.join(" "),
+        first_prefix,
         named_arguments(&first.captures),
         first.value,
         await_cases.join(" "),

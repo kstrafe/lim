@@ -1,0 +1,41 @@
+; A local owner is moved into the pinned frame before its reference is formed.
+(#enum LocalChild ((Waiting u64)))
+(#linear LocalChild)
+(#enum LocalChildPoll ((LocalChildPending LocalChild) (LocalChildReady u64)))
+(#fn local-child-poll ((task LocalChild) (waker (#ref u64))) LocalChildPoll
+  (#return (#match task
+    (#case (Waiting count)
+      (#if (#u64.== count 0u64)
+        (LocalChildPending (Waiting 1u64))
+        (LocalChildReady 2u64))))))
+(#struct LocalPayload ((left u64) (right u64)))
+(#struct LocalOwner ((payload LocalPayload)))
+
+(@async-fn-pinned (: names (LocalSelfRefFrame LocalSelfRefPoll LocalSelfRefPending LocalSelfRefReady local-self-ref-poll) : waker u64 : function
+  (#fn local-self-ref () u64
+    (#let owner LocalOwner
+      (#struct-literal LocalOwner
+        ((payload (#struct-literal LocalPayload ((left 40u64) (right 5u64)))))))
+    (#let view (#pin-ref u64)
+      (#pin-borrow (#get (#get owner payload) left)))
+    (#let result u64
+      (#await LocalChild LocalChildPending LocalChildReady local-child-poll (Waiting 0u64)))
+    (#return (#u64.+.wrap (#deref view) result)))))
+
+(#fn main () u64
+  (#let-mut frame LocalSelfRefFrame (#call local-self-ref (:)))
+  (#let waker u64 0u64)
+  (#let first LocalSelfRefPoll
+    (#call local-self-ref-poll
+      (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+  (#let-else (LocalSelfRefPending pending-frame) LocalSelfRefPoll first (#unreachable))
+  (#let second LocalSelfRefPoll
+    (#call local-self-ref-poll (: task pending-frame : waker (#borrow waker))))
+  (#let result u64
+    (#match second
+      (#case (LocalSelfRefReady value) value)
+      (#case (LocalSelfRefPending unexpected)
+        (#block (#forget unexpected) (#unreachable)))))
+  (#forget frame)
+  (#forget waker)
+  (#return result))

@@ -311,8 +311,11 @@ initialize the self-reference; use `view` for later access. The reference is
 retained in suspended state across Pending/resume. The borrow may select a
 field, including a nested path through inline structs, for example
 `(#pin-borrow (#get (#get owner payload) value))`. Projections cannot cross a
-reference or pointer boundary, and borrows from body locals are not supported
-yet. After `poll-cancel`,
+reference or pointer boundary. Arbitrary borrows from body locals are not
+supported yet. A body-local owner can be promoted when it is an immutable `#let` in the
+first function statement and its initializer does not use function parameters;
+other initializer/control-flow shapes are rejected for now. After
+`poll-cancel`,
 consume and end the returned state's scope before accessing or destroying the
 owner; the borrow checker keeps the internal loan alive until that state is
 cleaned up.

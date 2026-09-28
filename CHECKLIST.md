@@ -1988,6 +1988,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   the correct frame-relative layout offset, retain field-sensitive overlap
   checks, and verify nested-field Pending/resume, cancellation, and owner
   mutation rejection in the native example.
+- [x] **ASYNC-01c2l: Promote a first-statement local owner into the pinned frame.**
+  Move an immutable body-local owner into the stable frame before returning it,
+  then form its internal reference only after pinning. Initially require the
+  owner to be the first function statement and its initializer to be independent
+  of parameters; reject unsupported shapes explicitly. Verify native
+  Pending/resume and generated layout, plus diagnostics for late and
+  parameter-dependent initializers.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
