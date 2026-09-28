@@ -675,7 +675,7 @@ the checklist is committed alongside the implementation it tracks.
   large projected struct field copied into slots. Preserve tuple indexing and
   synthesized syntax; validate large static and local projections.
 
-- [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
+- [x] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
   Acceptance: existing borrow/linearity tests and exact UI spans remain valid;
