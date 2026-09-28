@@ -272,6 +272,27 @@ mod tests {
     }
 
     #[test]
+    fn lowered_instructions_retain_stable_statement_ids_and_spans() {
+        let source = "(#fn main () u64 (#let value u64 1u64) (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        let crate::Item::Function(function) = &program.items[0] else {
+            unreachable!()
+        };
+        let ids = crate::typed_ir::statement_ids(&program);
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        assert!(checked
+            .dump_typed_ir()
+            .contains("statement Some(StatementId("));
+        for (instruction, statement) in body.instructions.iter().zip(&function.body) {
+            let id = ids[&(std::ptr::from_ref(statement) as usize)];
+            assert_eq!(instruction.statement_id, Some(id));
+            let span = instruction.span.expect("retained statement span");
+            assert!(source[span.start..span.end].starts_with("(#"));
+        }
+    }
+
+    #[test]
     fn call_argument_order_is_separate_from_parameter_order() {
         let source = "(#fn combine ((first u64) (second u64) (third u64)) u64 (#return first))
           (#fn main () u64
@@ -936,6 +957,7 @@ pub(crate) enum Projection {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Instruction {
+    pub statement_id: Option<crate::typed_ir::StatementId>,
     pub span: Option<Span>,
     pub control: Control,
 }
@@ -1464,8 +1486,8 @@ impl Body {
         for instruction in &self.instructions {
             writeln!(
                 output,
-                "  statement {:?}: {:?}",
-                instruction.span, instruction.control
+                "  statement {:?} {:?}: {:?}",
+                instruction.statement_id, instruction.span, instruction.control
             )
             .unwrap();
         }
@@ -1478,7 +1500,8 @@ impl Body {
         types: &HashMap<ExpressionId, Type>,
         expression_ids: &HashMap<usize, ExpressionId>,
         expression_spans: &HashMap<ExpressionId, Span>,
-        statement_spans: &HashMap<usize, Span>,
+        statement_spans: &HashMap<crate::typed_ir::StatementId, Span>,
+        statement_ids: &HashMap<usize, crate::typed_ir::StatementId>,
         binding_spans: &[Option<Span>],
         parameter_spans: &[Option<Span>],
     ) -> Self {
@@ -1490,6 +1513,7 @@ impl Body {
             expression_ids,
             expression_spans,
             statement_spans,
+            statement_ids,
             binding_spans: binding_spans.iter().copied().collect(),
         };
         builder.body.parameter_count = function.parameters.len();
@@ -1585,7 +1609,8 @@ struct Builder<'a> {
     types: &'a HashMap<ExpressionId, Type>,
     expression_ids: &'a HashMap<usize, ExpressionId>,
     expression_spans: &'a HashMap<ExpressionId, Span>,
-    statement_spans: &'a HashMap<usize, Span>,
+    statement_spans: &'a HashMap<crate::typed_ir::StatementId, Span>,
+    statement_ids: &'a HashMap<usize, crate::typed_ir::StatementId>,
     binding_spans: VecDeque<Option<Span>>,
 }
 
@@ -2063,11 +2088,13 @@ impl Builder<'_> {
             Statement::ContinueTo(label) => Control::Continue(Some(label.clone())),
             Statement::Expr(value) => Control::Evaluate(self.expression(value)),
         };
+        let statement_id = self
+            .statement_ids
+            .get(&(std::ptr::from_ref(statement) as usize))
+            .copied();
         Instruction {
-            span: self
-                .statement_spans
-                .get(&(std::ptr::from_ref(statement) as usize))
-                .copied(),
+            statement_id,
+            span: statement_id.and_then(|id| self.statement_spans.get(&id).copied()),
             control,
         }
     }

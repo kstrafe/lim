@@ -48,6 +48,10 @@ pub(crate) enum DeclarationId {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub(crate) struct ExpressionId(pub usize);
 
+/// Deterministic identity assigned by source-order traversal to statements.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub(crate) struct StatementId(pub usize);
+
 pub(crate) fn expression_ids(program: &crate::Program) -> HashMap<usize, ExpressionId> {
     fn expression(value: &crate::Expr, ids: &mut HashMap<usize, ExpressionId>, next: &mut usize) {
         ids.insert(std::ptr::from_ref(value) as usize, ExpressionId(*next));
@@ -160,6 +164,109 @@ pub(crate) fn expression_ids(program: &crate::Program) -> HashMap<usize, Express
                 expression(value, &mut ids, &mut next);
             }
             _ => {}
+        }
+    }
+    ids
+}
+
+pub(crate) fn statement_ids(program: &crate::Program) -> HashMap<usize, StatementId> {
+    fn expression(value: &crate::Expr, ids: &mut HashMap<usize, StatementId>, next: &mut usize) {
+        match value {
+            crate::Expr::List(items) => {
+                for item in items {
+                    expression(item, ids, next);
+                }
+            }
+            crate::Expr::Block(statements) | crate::Expr::Loop(statements) => {
+                for item in statements {
+                    statement(item, ids, next);
+                }
+            }
+            crate::Expr::Labeled {
+                expression: inner, ..
+            }
+            | crate::Expr::Quote(inner)
+            | crate::Expr::QuasiQuote(inner)
+            | crate::Expr::Unquote(inner)
+            | crate::Expr::UnquoteSplicing(inner) => expression(inner, ids, next),
+            _ => {}
+        }
+    }
+
+    fn statements(
+        values: &[crate::Statement],
+        ids: &mut HashMap<usize, StatementId>,
+        next: &mut usize,
+    ) {
+        for value in values {
+            statement(value, ids, next);
+        }
+    }
+
+    fn statement(
+        value: &crate::Statement,
+        ids: &mut HashMap<usize, StatementId>,
+        next: &mut usize,
+    ) {
+        use crate::Statement as S;
+        ids.insert(std::ptr::from_ref(value) as usize, StatementId(*next));
+        *next += 1;
+        match value {
+            S::Let { value, .. }
+            | S::Assign { value, .. }
+            | S::FieldAssign { value, .. }
+            | S::TupleAssign { value, .. }
+            | S::EnumPayloadAssign { value, .. }
+            | S::BreakValue(value)
+            | S::BreakToValue { value, .. }
+            | S::Return(Some(value))
+            | S::Expr(value) => expression(value, ids, next),
+            S::Destructure { pattern, value, .. } => {
+                expression(pattern, ids, next);
+                expression(value, ids, next);
+            }
+            S::LetElse {
+                pattern,
+                value,
+                else_body,
+                ..
+            } => {
+                expression(pattern, ids, next);
+                expression(value, ids, next);
+                statements(else_body, ids, next);
+            }
+            S::ArrayAssign { index, value, .. } => {
+                expression(index, ids, next);
+                expression(value, ids, next);
+            }
+            S::While { condition, body } => {
+                expression(condition, ids, next);
+                statements(body, ids, next);
+            }
+            S::Loop { body } => statements(body, ids, next),
+            S::For {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                statement(init, ids, next);
+                expression(condition, ids, next);
+                statement(step, ids, next);
+                statements(body, ids, next);
+            }
+            S::Labeled {
+                statement: inner, ..
+            } => statement(inner, ids, next),
+            S::Break | S::BreakTo(_) | S::Continue | S::ContinueTo(_) | S::Return(None) => {}
+        }
+    }
+
+    let mut ids = HashMap::new();
+    let mut next = 0;
+    for item in &program.items {
+        if let crate::Item::Function(function) = item {
+            statements(&function.body, &mut ids, &mut next);
         }
     }
     ids
@@ -557,7 +664,8 @@ impl Declarations {
         types: &HashMap<ExpressionId, Type>,
         expression_ids: &HashMap<usize, ExpressionId>,
         expression_spans: &HashMap<ExpressionId, Span>,
-        statement_spans: &HashMap<usize, Span>,
+        statement_spans: &HashMap<StatementId, Span>,
+        statement_ids: &HashMap<usize, StatementId>,
     ) -> Result<(), String> {
         self.bodies = program
             .items
@@ -597,6 +705,7 @@ impl Declarations {
                             expression_ids,
                             expression_spans,
                             statement_spans,
+                            statement_ids,
                             &binding_spans,
                             &parameter_spans,
                         ),
@@ -907,6 +1016,39 @@ mod tests {
         let mut dense = first_ids.values().map(|id| id.0).collect::<Vec<_>>();
         dense.sort_unstable();
         assert_eq!(dense, (0..dense.len()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn statement_ids_are_dense_and_stable_across_nested_control_flow() {
+        let source = "(#fn main () u64
+          (#let value u64 (#block (#let nested u64 1u64) nested))
+          (#let result u64 (#label outer (#loop (#break-to outer 2u64))))
+          (#return (#u64.+.wrap value result)))";
+        let first = crate::parse_program(source).unwrap();
+        let second = crate::parse_program(source).unwrap();
+        let first_ids = statement_ids(&first);
+        let second_ids = statement_ids(&second);
+        let crate::Item::Function(first_function) = &first.items[0] else {
+            unreachable!()
+        };
+        let crate::Item::Function(second_function) = &second.items[0] else {
+            unreachable!()
+        };
+        assert_eq!(
+            first_ids[&(std::ptr::from_ref(&first_function.body[0]) as usize)],
+            second_ids[&(std::ptr::from_ref(&second_function.body[0]) as usize)]
+        );
+        assert_eq!(
+            first_ids[&(std::ptr::from_ref(&first_function.body[1]) as usize)],
+            second_ids[&(std::ptr::from_ref(&second_function.body[1]) as usize)]
+        );
+        let mut dense = first_ids.values().map(|id| id.0).collect::<Vec<_>>();
+        dense.sort_unstable();
+        assert_eq!(dense, (0..dense.len()).collect::<Vec<_>>());
+        assert!(
+            dense.len() >= 6,
+            "nested block/loop statements must receive IDs"
+        );
     }
 
     #[test]

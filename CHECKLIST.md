@@ -498,6 +498,14 @@ the checklist is committed alongside the implementation it tracks.
   remains. Verify imported/generated source slices and preserve exact compiler
   diagnostics across the full suite. The complete serial test suite passes.
 
+- [x] **IR-02aq: Assign stable statement identities and retain them in IR.**
+  Traverse function bodies in deterministic source order, including nested
+  blocks, loops, and labeled statements. Key checked statement spans by
+  `StatementId`, carry IDs on typed instructions, and expose them in the typed
+  IR dump. Keep an address adapter only while matching legacy AST statements;
+  test density, repeat-parse stability, nested coverage, and exact spans. The
+  complete serial test suite passes.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

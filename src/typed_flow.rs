@@ -3421,6 +3421,7 @@ mod tests {
                 kind: NodeKind::Literal(crate::Expr::Integer(value)),
             });
             body.instructions.push(Instruction {
+                statement_id: None,
                 span: None,
                 control: Control::Return(Some(NodeId(body.nodes.len() - 1))),
             });
@@ -3547,16 +3548,19 @@ mod tests {
             span: None,
             kind: NodeKind::Block(vec![
                 Instruction {
+                    statement_id: None,
                     span: None,
                     control: Control::Bind(BindingId(0), NodeId(0), false),
                 },
                 Instruction {
+                    statement_id: None,
                     span: None,
                     control: Control::Return(Some(NodeId(0))),
                 },
             ]),
         });
         body.instructions.push(Instruction {
+            statement_id: None,
             span: None,
             control: Control::Evaluate(NodeId(1)),
         });

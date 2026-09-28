@@ -104,9 +104,10 @@ use crate::typed_ir::{Declarations, Signature};
 struct FunctionTable {
     signatures: HashMap<String, Signature>,
     expression_ids: HashMap<usize, crate::typed_ir::ExpressionId>,
+    statement_ids: HashMap<usize, crate::typed_ir::StatementId>,
     expression_types: std::cell::RefCell<HashMap<crate::typed_ir::ExpressionId, Type>>,
     expression_spans: std::cell::RefCell<HashMap<crate::typed_ir::ExpressionId, crate::Span>>,
-    statement_spans: std::cell::RefCell<HashMap<usize, crate::Span>>,
+    statement_spans: std::cell::RefCell<HashMap<crate::typed_ir::StatementId, crate::Span>>,
     collecting_sources: std::cell::Cell<bool>,
 }
 
@@ -995,6 +996,7 @@ fn check_types_inner(
     }
     let mut functions = FunctionTable::default();
     functions.expression_ids = crate::typed_ir::expression_ids(program);
+    functions.statement_ids = crate::typed_ir::statement_ids(program);
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;
@@ -1320,12 +1322,14 @@ fn check_types_inner(
     let checked_expression_spans = std::sync::Arc::new(functions.expression_spans.into_inner());
     let checked_statement_spans = std::sync::Arc::new(functions.statement_spans.into_inner());
     let expression_ids = std::sync::Arc::new(functions.expression_ids);
+    let statement_ids = std::sync::Arc::new(functions.statement_ids);
     declarations.lower_bodies(
         program,
         &checked_expression_types,
         &expression_ids,
         &checked_expression_spans,
         &checked_statement_spans,
+        &statement_ids,
     )?;
     *diagnostic_code = crate::DiagnosticCode::Type;
     check_opaque_access(
@@ -3482,10 +3486,16 @@ fn semantic_statement_source<'a>(
     structs: &HashMap<String, Vec<Field>>,
 ) -> Option<&'a crate::SpannedExpr> {
     if functions.collecting_sources.get() {
-        functions
-            .statement_spans
-            .borrow_mut()
-            .insert(std::ptr::from_ref(statement) as usize, source.span);
+        if let Some(id) = functions
+            .statement_ids
+            .get(&(std::ptr::from_ref(statement) as usize))
+            .copied()
+        {
+            functions
+                .statement_spans
+                .borrow_mut()
+                .insert(id, source.span);
+        }
     }
     if statement_origin && origin == Some(std::ptr::from_ref(statement) as usize) {
         return Some(source);
