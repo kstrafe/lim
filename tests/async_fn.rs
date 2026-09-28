@@ -257,7 +257,7 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
         "{generated}"
     );
     assert!(
-        generated.contains("(#pin-borrow (#get (#get task owner) left))"),
+        generated.contains("(#pin-borrow (#get (#get (#get task owner) payload) left))"),
         "the self-reference must be formed from the pinned frame field: {generated}"
     );
     assert!(
@@ -267,7 +267,7 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
 
     let pending_mutation = source.replace(
         "  (#let second SelfRefPoll",
-        "  (#set-field frame owner (#struct-literal Owner ((left 99u64) (right 5u64))))\n  (#let second SelfRefPoll",
+        "  (#set-field frame owner (#struct-literal Owner ((payload (#struct-literal Payload ((left 99u64) (right 5u64)))))))\n  (#let second SelfRefPoll",
     );
     let error = lim::check_types(&lim::parse_program(&pending_mutation).unwrap()).unwrap_err();
     assert!(
@@ -277,7 +277,7 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
 
     let conflicting_projection = source.replace(
         "  (#let second SelfRefPoll",
-        "  (#let left-pin (#pin-ref-mut u64)\n    (#pin-borrow-mut (#get (#get pending-frame owner) left)))\n  (#let second SelfRefPoll",
+        "  (#let left-pin (#pin-ref-mut u64)\n    (#pin-borrow-mut (#get (#get (#get pending-frame owner) payload) left)))\n  (#let second SelfRefPoll",
     );
     let error =
         lim::check_types(&lim::parse_program(&conflicting_projection).unwrap()).unwrap_err();
@@ -288,7 +288,7 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
 
     let mutation = source.replace(
         "  (#call cancel-self-ref-state (: task state))",
-        "  (#set-field cancelled owner (#struct-literal Owner ((left 11u64) (right 7u64))))\n  (#call cancel-self-ref-state (: task state))",
+        "  (#set-field cancelled owner (#struct-literal Owner ((payload (#struct-literal Payload ((left 11u64) (right 7u64)))))))\n  (#call cancel-self-ref-state (: task state))",
     );
     let error = lim::check_types(&lim::parse_program(&mutation).unwrap()).unwrap_err();
     assert!(
@@ -298,7 +298,7 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
 
     let direct_owner_use = source.replace(
         "(#u64.+.wrap (#deref view) result)",
-        "(#u64.+.wrap (#u64.+.wrap (#deref view) result) (#get owner left))",
+        "(#u64.+.wrap (#u64.+.wrap (#deref view) result) (#get (#get owner payload) left))",
     );
     let error = lim::parse_program(&direct_owner_use)
         .unwrap_err()

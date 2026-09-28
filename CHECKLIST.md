@@ -1981,8 +1981,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   from an owned struct parameter, while keeping the whole owner in stable frame
   storage. Resolve the generated field address through the pinned frame and
   preserve the field-sensitive loan. Verify native Pending/resume and reject
-  owner replacement before cleanup. Nested projections and body-local owners
-  remain unsupported.
+  owner replacement before cleanup. Body-local owners remain unsupported.
+- [x] **ASYNC-01c2k: Borrow through nested inline owner fields.** Extend the
+  pinned async self-reference projection path to traverse multiple inline
+  struct fields without crossing a reference or pointer boundary. Accumulate
+  the correct frame-relative layout offset, retain field-sensitive overlap
+  checks, and verify nested-field Pending/resume, cancellation, and owner
+  mutation rejection in the native example.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue

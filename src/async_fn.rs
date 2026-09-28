@@ -2227,12 +2227,6 @@ fn pinned_self_references(
         let Some((owner_name, projection)) = pinned_borrow_target(&borrow[1]) else {
             continue;
         };
-        if projection.len() > 1 {
-            return Err(
-                "@async-fn-pinned self-reference currently supports one owner-field projection"
-                    .into(),
-            );
-        }
         let Some(owner) = params.iter().find(|parameter| parameter.name == owner_name) else {
             continue;
         };
