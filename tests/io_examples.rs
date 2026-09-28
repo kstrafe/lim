@@ -171,6 +171,50 @@ fn async_stdin_cancellation_releases_the_borrow_while_input_stays_open() {
 }
 
 #[test]
+fn mixed_async_readiness_handles_either_source_firing_first() {
+    let scratch = support::Scratch::new("async-mixed-wait");
+    let executable = scratch.path().join("async-mixed-wait");
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_mixed_wait.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile mixed readiness example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    for delay in [
+        std::time::Duration::ZERO,
+        std::time::Duration::from_millis(150),
+    ] {
+        let mut child = Command::new(&executable)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("run mixed readiness example");
+        let mut input = child.stdin.take().expect("piped stdin");
+        if !delay.is_zero() {
+            std::thread::sleep(delay);
+        }
+        input.write_all(b"Q").expect("write test input");
+        drop(input);
+        let output = child.wait_with_output().expect("wait for both sources");
+        assert_eq!(
+            output.status.code(),
+            Some(42),
+            "mixed wait failed after {delay:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
 fn linux_memory_mapping_syscalls_match_kernel_results() {
     let scratch = support::Scratch::new("linux-memory");
     let executable = scratch.path().join("memory-checks");

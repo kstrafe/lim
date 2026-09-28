@@ -3,6 +3,7 @@
 ;; syscall returns. Cancel closes the fd before unmapping its storage.
 (#import "linux_x86_64.lim")
 (#import "wake_ready4.lim")
+(#import "async_poll4.lim")
 
 (#struct TimerReactor1
   ((fd i64) (memory (#ptr-mut u8)) (queue WakeReady4) (token WakeToken4)))
@@ -13,6 +14,12 @@
 (#enum TimerWait2 ((TimerPairWoken1 bool bool) (TimerPairFailed1 i64)))
 (#enum TimerManyWait ((TimerManyReady u64) (TimerManyFailed i64)))
 (#enum TimerPoll1 (TimerPending1 (TimerReady1 u64) (TimerPollFailed1 i64)))
+
+(#fn timer-reactor1-source ((timer (#ref TimerReactor1))) AsyncPollSource4
+  (#return (#call async-poll4-source
+    (: fd (#get timer fd)
+     : queue (#borrow (#get timer queue))
+     : token (#get timer token)))))
 
 (#fn timer-reactor1-create ((nanoseconds u64)) TimerCreate1
   (#return (#if (#bool.|| (#u64.== nanoseconds 0u64)

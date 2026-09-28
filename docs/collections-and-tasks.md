@@ -350,10 +350,13 @@ pending task retires its wake and releases the borrow immediately; callers must
 not poll or wait after destruction. `examples/async_stdin_byte.lim` echoes one
 byte, and `examples/async_stdin_cancel.lim` verifies that the destination can
 be mutated after cancellation while the input stream is still open. These
-examples cover stdin only and do not provide mixed-source registration,
-descriptor ownership, or executor shutdown. Registration for other descriptor
-types, joining timer and I/O sources in one wait, executor shutdown, and
-externally interrupting a blocking run remain open.
+examples use `library/async_poll4.lim`, which waits on one to four borrowed
+poll sources with one blocking syscall and notifies each corresponding token.
+Timer and byte-read adapters share this interface; `examples/async_mixed_wait.lim`
+tests both sources becoming ready first and verifies that a fifth source is
+rejected. Descriptor ownership and
+executor shutdown remain open. Externally interrupting a blocking run also
+remains open.
 
 `(@threaded-executor run Result jobs Worker)` expands an executor plus
 `(@thread-spawn (: task Worker : worker run))`. Each job names both its result
@@ -371,7 +374,7 @@ Runnable examples: `distributed_errors.lim`, `distributed_slice.lim`,
 `local_waker.lim`, `async_wake_pipeline.lim`, `async_registered_wake.lim`,
 `wake_ready4.lim`, `timer_reactor1.lim`, `timer_pair.lim`,
 `timer_reactor_many.lim`, `async_stdin_byte.lim`, `async_stdin_cancel.lim`,
-`async_fn.lim`,
+`async_mixed_wait.lim`, `async_fn.lim`,
 `async_fn_two_awaits.lim`,
 `cooperative_tasks.lim`, `async_pipeline.lim`, `task_cancellation.lim`, and
 `threaded_tasks.lim` in `examples/`.

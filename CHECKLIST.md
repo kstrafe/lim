@@ -1943,6 +1943,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   while the input stream remains open, including mutation after destruction.
   General descriptor ownership, multi-source registration, and shutdown
   remain open under ASYNC-02.
+- [x] **ASYNC-02h: Share one bounded wait across mixed readiness sources.** Add
+  an opaque borrowed source view that adapts concrete timers and byte-read
+  tasks without exposing their descriptors or wake tokens. Wait on one to four
+  sources with a single blocking poll, notify every ready source independently,
+  and reject invalid capacity before touching the kernel. Test a timer and a
+  pipe read in the same set, including either source becoming ready first, plus
+  capacity rejection. Keep descriptor ownership and shutdown explicit under
+  ASYNC-02.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,
