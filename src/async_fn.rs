@@ -2279,6 +2279,11 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         unreachable!()
     };
     let frame = frame.clone();
+    let frame_state = if pinned {
+        format!("{frame}-state")
+    } else {
+        frame.clone()
+    };
     let mut poll_result = public_poll_result.clone();
     let mut pending = public_pending.clone();
     let mut ready = public_ready.clone();
@@ -2583,6 +2588,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         "lim.async.polled-task",
         "lim.async.child",
         "lim.async.value",
+        "lim.async.pin-state",
     ];
     if known.keys().any(|name| reserved.contains(&name.as_str())) {
         return Err("@async-fn bindings cannot use reserved waker or lim.async.* names".into());
@@ -2662,21 +2668,40 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         arguments(&params),
         named_arguments(&params),
     );
+    let frame_declarations = if pinned {
+        format!(
+            "(#enum {frame_state} ({}))\n\
+             (#linear {frame_state})\n\
+             (#struct {frame} ((state {frame_state})))\n\
+             (#linear {frame})\n\
+             (#fn {start} ({}) {frame}\n\
+               (#return (#struct-literal {frame} ((state ({start_variant} {}))))))",
+            variants.join(" "),
+            signature(&params),
+            arguments(&params),
+        )
+    } else {
+        format!(
+            "(#enum {frame_state} ({}))\n\
+             (#linear {frame_state})\n\
+             (#fn {start} ({}) {frame_state}\n\
+               (#return ({start_variant} {})))",
+            variants.join(" "),
+            signature(&params),
+            arguments(&params),
+        )
+    };
     let generated = format!(
-        "{}\n(#enum {frame} ({}))
-         (#linear {frame})
-         (#enum {poll_result} (({pending} {frame}) ({ready} {result})))
-         (#fn {start} ({}) {frame} (#return ({start_variant} {})))
+        "{}\n{}
+         (#enum {poll_result} (({pending} {frame_state}) ({ready} {result})))
          {}
          (#fn {start_helper} ({} (waker (#ref {waker}))) {poll_result}
            {}
            (#return (#call {poll}-child-0 ({} : lim.async.task {} : waker waker))))
-         (#fn {poll} ((task {frame}) (waker (#ref {waker}))) {poll_result}
+         (#fn {poll} ((task {frame_state}) (waker (#ref {waker}))) {poll_result}
            (#return (#match task {start_case} {})))",
         generated_helpers.join("\n"),
-        variants.join(" "),
-        signature(&params),
-        arguments(&params),
+        frame_declarations,
         helpers.join("\n"),
         signature(&params),
         first.prefix.join(" "),
@@ -2690,6 +2715,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     if source.contains(public_poll_result)
         || source.contains(&format!("({public_pending} "))
         || source.contains(&format!("({public_ready} "))
+        || source.contains(&frame_state)
     {
         return Err(format!(
             "{generator_name} generated poll declarations collide with their input"
@@ -2699,16 +2725,27 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         "{generated}
          (#enum {public_poll_result} (({public_pending} (#pin-ref-mut {frame})) ({public_ready} {result})))
          (#fn {public_poll} ((task (#pin-ref-mut {frame})) (waker (#ref {waker}))) {public_poll_result}
-           (#let state {frame} (#unsafe (#pin-read task)))
+           (#let lim.async.pin-state (#pin-ref-mut {frame_state})
+             (#pin-borrow-mut (#get task state)))
+           (#let state {frame_state} (#unsafe (#pin-read lim.async.pin-state)))
            (#let outcome {poll_result} (#call {poll} (: task state : waker waker)))
            (#return (#match outcome
              (#case ({pending} next-state)
-               (#block (#unsafe (#pin-write task next-state)) ({public_pending} task)))
+               (#block
+                 (#unsafe (#pin-write lim.async.pin-state next-state))
+                 (#drop lim.async.pin-state)
+                 ({public_pending} task)))
              (#case ({ready} value)
-               (#block (#unsafe (#pin-write task ({done_variant}))) ({public_ready} value))))))
-         (#fn {cancel} ((task (#pin-ref-mut {frame}))) {frame}
-           (#let state {frame} (#unsafe (#pin-read task)))
-           (#unsafe (#pin-write task ({done_variant})))
+               (#block
+                 (#unsafe (#pin-write lim.async.pin-state ({done_variant})))
+                 (#drop lim.async.pin-state)
+                 ({public_ready} value))))))
+         (#fn {cancel} ((task (#pin-ref-mut {frame}))) {frame_state}
+           (#let lim.async.pin-state (#pin-ref-mut {frame_state})
+             (#pin-borrow-mut (#get task state)))
+           (#let state {frame_state} (#unsafe (#pin-read lim.async.pin-state)))
+           (#unsafe (#pin-write lim.async.pin-state ({done_variant})))
+           (#drop lim.async.pin-state)
            (#return state))",
         public_pending = public_pending,
         public_ready = public_ready,

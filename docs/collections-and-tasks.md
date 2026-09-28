@@ -241,14 +241,16 @@ bare `@async-wake` expansion does not perform registration itself. See
 `@async-fn` is a built-in inspectable code generator. It reads a `#fn` form
 whose declared result type is the eventual value, then emits an ordinary
 linear frame enum, poll-result enum, start function (using the source function
-name), and named poll/stage helpers. `@async-fn-pinned` emits the same concrete
-state machine with a different polling ABI: pin the returned frame in a
+name), and named poll/stage helpers. `@async-fn-pinned` emits a stable `Frame`
+struct shell with a separate `Frame-state` field. Pin the returned frame in a
 mutable local, and each Pending result carries the same `#pin-ref-mut Frame`
-into the next poll. A Ready result consumes that pin reference; the frame
-remains in its Done state until explicitly forgotten or destroyed. Its
-`poll-cancel` helper consumes the pin reference, marks the frame Done, and
-returns the previous state so caller-defined cleanup can release captured
-values. Neither generator currently supports self-references inside frames.
+into the next poll. Polling moves only the state field through an explicitly
+unsafe transition; it does not move the pinned shell. A Ready result consumes
+that pin reference and leaves the state field Done. Its `poll-cancel` helper
+consumes the pin reference, marks the state Done, and returns the previous
+`Frame-state` so caller-defined cleanup can release captured values. This
+establishes stable storage for future frame fields, but internal self-references
+are not yet supported.
 The emitted Lim is cached in `.lim/cache` and undergoes normal type, borrow,
 linearity, and code generation checks:
 

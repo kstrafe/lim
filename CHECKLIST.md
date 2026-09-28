@@ -1900,9 +1900,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Do not permit self-references yet. Keep state transitions and cancellation
   explicit, reject moving, replacing, or destroying the pinned owner while its
   handle is live, and verify Pending/resume, cancellation, movement, and escape.
-  The native `@async-fn-pinned` regression covers these lifecycle guarantees;
-  `#pin-read`/`#pin-write` are unsafe implementation primitives, and internal
-  self-references remain explicitly unsupported.
+  `@async-fn-pinned` now returns a pinned `Frame` struct shell containing a
+  distinct `Frame-state` field. Poll and cancellation project a pinned
+  reference to that field; their unsafe move-out/write-back transitions no
+  longer move the shell or its other fields. Keep internal self-references
+  unsupported until ASYNC-01c2 adds stable owned fields and loan cleanup.
 - [x] **ASYNC-01c1a: Add checked unsafe access to pinned frame storage.** Add
   `#pin-read` and `#pin-write` for generated in-place state transitions.
   Require `#unsafe`, support aggregate values in native codegen, preserve

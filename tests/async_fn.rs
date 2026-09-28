@@ -134,7 +134,7 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
             (#await Child ChildPending ChildReady child-poll (Waiting 0u64))
           )
           (#return (#u64.+.wrap value offset)))))
-      (#fn cancel-frame ((task Frame)) ()
+      (#fn cancel-frame ((task Frame-state)) ()
         (#match task
           (#case (Frame-start offset) (#forget offset))
           (#case (Frame-await-0 offset child)
@@ -159,7 +159,7 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
         (#let first-cancel Poll
           (#call poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
         (#let-else (Pending cancel-pin) Poll first-cancel (#unreachable))
-        (#let state-to-cancel Frame (#call poll-cancel (: task cancel-pin)))
+        (#let state-to-cancel Frame-state (#call poll-cancel (: task cancel-pin)))
         (#call cancel-frame (: task state-to-cancel))
         (#forget cancelled-frame)
         (#forget waker)
@@ -196,8 +196,28 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
         generated.contains("(#pin-ref-mut Frame)"),
         "poll must borrow the pinned frame: {generated}"
     );
-    assert!(generated.contains("(#pin-read task)"), "{generated}");
-    assert!(generated.contains("(#pin-write task"), "{generated}");
+    assert!(
+        generated.contains("(#struct Frame ((state Frame-state)))"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("(#pin-borrow-mut (#get task state))"),
+        "poll must project the state field from the pinned shell: {generated}"
+    );
+    assert!(!generated.contains("(#pin-read task)"), "{generated}");
+    assert!(!generated.contains("(#pin-write task"), "{generated}");
+    assert!(
+        generated.contains("(#pin-read lim.async.pin-state)"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("(#pin-write lim.async.pin-state"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("(#fn poll-cancel ((task (#pin-ref-mut Frame))) Frame-state"),
+        "{generated}"
+    );
     assert!(generated.contains("(#fn poll-cancel"), "{generated}");
 }
 

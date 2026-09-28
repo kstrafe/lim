@@ -19,7 +19,7 @@
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap value offset)))))
 
-(#fn cancel-frame ((task Frame)) ()
+(#fn cancel-frame ((task Frame-state)) ()
   (#match task
     (#case (Frame-start offset) (#forget offset))
     (#case (Frame-await-0 offset child)
@@ -46,7 +46,7 @@
   (#let first-cancel Poll
     (#call poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
   (#let-else (Pending cancel-pin) Poll first-cancel (#unreachable))
-  (#let state-to-cancel Frame (#call poll-cancel (: task cancel-pin)))
+  (#let state-to-cancel Frame-state (#call poll-cancel (: task cancel-pin)))
   (#call cancel-frame (: task state-to-cancel))
   (#forget cancelled-frame)
   (#forget waker)
