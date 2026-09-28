@@ -1839,6 +1839,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   remainder of a value-producing block as the continuation after each await,
   so multiple awaited bindings resume in source order. Verify two consecutive
   Pending/resume stages natively and inspect the generated state transitions.
+- [x] **ASYNC-01b38: Resume awaited block mutations in order.** Support direct
+  typed awaits in block-local `#set`/projected assignment values. Keep the
+  mutable target live in the frame, execute the write only after Ready, and
+  verify Pending/resume plus the generated mutable continuation parameter.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

@@ -101,49 +101,90 @@ fn block_await_result(expression: &Expr) -> Option<Expr> {
     ]))
 }
 
-fn block_await_continuation(expression: &Expr) -> Option<(Vec<Expr>, String, Expr, Expr, Expr)> {
+struct BlockAwait {
+    prefix: Vec<Expr>,
+    binding: Option<String>,
+    result_type: Expr,
+    await_expression: Expr,
+    assignment: Option<(Expr, usize)>,
+    continuation: Expr,
+}
+
+fn block_await_continuation(expression: &Expr) -> Option<BlockAwait> {
     let block = form(expression, "#block")?;
     if block.len() < 3 {
         return None;
     }
-    let binding_index = (1..block.len() - 1).find(|index| {
-        form(&block[*index], "#let")
-            .or_else(|| form(&block[*index], "#let-mut"))
-            .is_some_and(|binding| {
-                binding.len() == 4
-                    && form(&binding[3], "#await").is_some_and(|await_form| await_form.len() == 7)
-            })
+    let (statement_index, binding, assignment) = (1..block.len() - 1).find_map(|index| {
+        let statement = &block[index];
+        if let Some(binding) = form(statement, "#let").or_else(|| form(statement, "#let-mut")) {
+            if binding.len() == 4 {
+                if form(&binding[3], "#await").is_some_and(|await_form| await_form.len() == 7) {
+                    return Some((index, Some(binding), None));
+                }
+            }
+        }
+        let Expr::List(items) = statement else {
+            return None;
+        };
+        let rhs_index = match items.first() {
+            Some(Expr::Symbol(head)) if matches!(head.as_str(), "#set" | "set") => 2,
+            Some(Expr::Symbol(head))
+                if matches!(
+                    head.as_str(),
+                    "#set-field"
+                        | "set-field"
+                        | "#set-index"
+                        | "set-index"
+                        | "#pin-set-field"
+                        | "pin-set-field"
+                ) =>
+            {
+                3
+            }
+            _ => return None,
+        };
+        let value = items.get(rhs_index)?;
+        if !form(value, "#await").is_some_and(|await_form| await_form.len() == 7) {
+            return None;
+        }
+        Some((index, None, Some((statement.clone(), rhs_index))))
     })?;
-    if block[1..binding_index].iter().any(has_await) {
-        return None;
-    }
-    let binding =
-        form(&block[binding_index], "#let").or_else(|| form(&block[binding_index], "#let-mut"))?;
-    if binding.len() != 4 {
-        return None;
-    }
-    let name = symbol(&binding[1], "binding name").ok()?.to_owned();
-    let await_form = form(&binding[3], "#await")?;
-    if await_form.len() != 7 {
-        return None;
-    }
+    let await_expression = if let Some(binding) = binding {
+        binding[3].clone()
+    } else {
+        let (statement, rhs_index) = assignment.as_ref()?;
+        let Expr::List(items) = statement else {
+            return None;
+        };
+        items.get(*rhs_index)?.clone()
+    };
+    let await_form = form(&await_expression, "#await")?;
     parse_type(Some(&normalize_keywords(await_form[1].clone()))).ok()?;
-    let continuation = if binding_index + 1 == block.len() - 1 {
+    if block[1..statement_index].iter().any(has_await) {
+        return None;
+    }
+    let continuation = if statement_index + 1 == block.len() - 1 {
         block[block.len() - 1].clone()
     } else {
         Expr::List(
             std::iter::once(Expr::Symbol("#block".into()))
-                .chain(block[binding_index + 1..].iter().cloned())
+                .chain(block[statement_index + 1..].iter().cloned())
                 .collect(),
         )
     };
-    Some((
-        block[1..binding_index].to_vec(),
-        name,
-        binding[2].clone(),
-        binding[3].clone(),
+    let binding = match binding {
+        Some(binding) => Some(symbol(&binding[1], "binding name").ok()?.to_owned()),
+        None => None,
+    };
+    Some(BlockAwait {
+        prefix: block[1..statement_index].to_vec(),
+        binding,
+        result_type: await_form[1].clone(),
+        await_expression,
+        assignment,
         continuation,
-    ))
+    })
 }
 
 fn replace_await_local(expression: &mut Expr, name: &str, replacement: &str) {
@@ -519,8 +560,14 @@ fn extract_nested_awaits(
     next_name: &mut usize,
     waker: &str,
 ) -> Result<(), String> {
-    if let Some((mut prefix, name, result_type, mut await_expression, mut continuation)) =
-        block_await_continuation(expression)
+    if let Some(BlockAwait {
+        mut prefix,
+        binding,
+        result_type,
+        mut await_expression,
+        mut assignment,
+        mut continuation,
+    }) = block_await_continuation(expression)
     {
         let mut renamed_prefixes: Vec<(String, String)> = Vec::new();
         for statement in &mut prefix {
@@ -570,7 +617,25 @@ fn extract_nested_awaits(
         for (original, renamed) in &renamed_prefixes {
             replace_await_local(&mut continuation, original, renamed);
         }
-        replace_await_local(&mut continuation, &name, &temporary);
+        if let Some(name) = binding {
+            replace_await_local(&mut continuation, &name, &temporary);
+        }
+        if let Some((mut assignment, rhs_index)) = assignment.take() {
+            for (original, renamed) in &renamed_prefixes {
+                replace_await_local(&mut assignment, original, renamed);
+            }
+            let Expr::List(items) = &mut assignment else {
+                unreachable!()
+            };
+            items[rhs_index] = Expr::Symbol(temporary);
+            let mut block = if let Some(items) = form(&continuation, "#block") {
+                items.to_vec()
+            } else {
+                vec![Expr::Symbol("#block".into()), continuation]
+            };
+            block.insert(1, assignment);
+            continuation = Expr::List(block);
+        }
         *expression = continuation;
         return extract_nested_awaits(
             expression,
