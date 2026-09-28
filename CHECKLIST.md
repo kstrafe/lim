@@ -635,6 +635,11 @@ the checklist is committed alongside the implementation it tracks.
   Preserve local enum layouts and constructor lowering; cover static enums
   with unit and multiword payload variants.
 
+- [x] **IR-02bp: Return global arrays by checked identity.** Resolve static
+  array sources through `GlobalId` for register and indirect returns. Preserve
+  local arrays and literal constructors; cover scalar, nested, and multiword
+  array elements.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
