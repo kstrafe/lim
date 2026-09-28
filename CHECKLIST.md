@@ -558,6 +558,11 @@ the checklist is committed alongside the implementation it tracks.
   oversized aggregate projection paths. Validate the owner enum and use the
   retained discriminant and payload layout; preserve all native examples.
 
+- [x] **IR-02ba: Lower enum let-else patterns by checked identity.** Resolve
+  direct, fieldless-or, and payload-or let-else alternatives through their
+  `VariantId`, checking each owner against the matched enum. Preserve payload
+  binding layout and validate the complete native-example corpus.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
