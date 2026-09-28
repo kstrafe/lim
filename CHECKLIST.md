@@ -2000,6 +2000,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   explicit Copy semantics when a parameter is also live after suspension.
   Verify a parameter-fed nested owner in the native example and retain the
   late-owner rejection.
+- [x] **ASYNC-01c2n: Isolate mutable self-reference forwarding controls.** Add
+  passing controls for forwarding an exclusive pinned reference alongside a
+  shared waker and for moving pinned frame state while borrowing a disjoint
+  owner field in ordinary code. These show the remaining mutable self-reference
+  failure is in generated poll-state transfer; they do not complete ASYNC-01c2.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue

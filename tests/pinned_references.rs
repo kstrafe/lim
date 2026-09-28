@@ -18,6 +18,58 @@ fn a_pinned_shared_reference_can_read_its_referent() {
 }
 
 #[test]
+fn mutable_pinned_reference_and_shared_waker_can_be_passed_together() {
+    let source = "(#struct Payload ((value u64)))
+      (#fn update ((view (#pin-ref-mut Payload)) (waker (#ref u64))) ()
+        (#pin-set-field view value 42u64)
+        (#return ()))
+      (#fn main () u64
+        (#let-mut payload Payload (#struct-literal Payload ((value 0u64))))
+        (#let view (#pin-ref-mut Payload) (#pin-borrow-mut payload))
+        (#let waker u64 0u64)
+        (#call update (: view view : waker (#borrow waker)))
+        (#let result u64 (#get (#unsafe (#pin-read view)) value))
+        (#drop view)
+        (#forget payload)
+        (#forget waker)
+        (#return result))";
+    check(source).unwrap();
+}
+
+#[test]
+fn frame_field_self_reference_and_state_move_can_share_a_poll_call() {
+    let source = "(#struct Payload ((value u64)))
+      (#enum State (Ready))
+      (#linear State)
+      (#struct Frame ((state State) (owner Payload)))
+      (#fn advance ((state State) (view (#pin-ref-mut Payload)) (waker (#ref u64))) ()
+        (#forget state)
+        (#pin-set-field view value 42u64)
+        (#return ()))
+      (#fn poll ((task (#pin-ref-mut Frame)) (waker (#ref u64))) ()
+        (#let state-slot (#pin-ref-mut State)
+          (#pin-borrow-mut (#get task state)))
+        (#let state State (#unsafe (#pin-read state-slot)))
+        (#drop state-slot)
+        (#let view (#pin-ref-mut Payload)
+          (#pin-borrow-mut (#get task owner)))
+        (#call advance (: state state : view view : waker waker))
+        (#drop view)
+        (#return ()))
+      (#fn main () ()
+        (#let-mut frame Frame
+          (#struct-literal Frame ((state Ready) (owner (#struct-literal Payload ((value 0u64)))))))
+        (#let view (#pin-ref-mut Frame) (#pin-borrow-mut frame))
+        (#let waker u64 0u64)
+        (#call poll (: task view : waker (#borrow waker)))
+        (#drop view)
+        (#forget frame)
+        (#forget waker)
+        (#return ()))";
+    check(source).unwrap();
+}
+
+#[test]
 fn unsafe_pin_read_and_write_preserve_a_stable_aggregate_location() {
     let source = "(#struct Pair ((left u64) (right u64)))
       (#fn main () u64
