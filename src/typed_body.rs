@@ -70,6 +70,39 @@ mod tests {
     }
 
     #[test]
+    fn emission_metadata_retains_resolved_global_declaration_ids() {
+        let source = "(#const Answer u64 42u64)
+          (#fn main () u64 (#return Answer))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let body = &declarations.bodies["main"];
+        let function = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        let global = declarations.global_id("Answer").unwrap();
+        let declaration = DeclarationId::Global(global);
+        let node = body
+            .nodes
+            .iter()
+            .find(|node| matches!(node.kind, NodeKind::Declaration(id) if id == declaration))
+            .unwrap();
+        let expression_id = node.expression_id.unwrap();
+
+        let emission = body.emission_types(function).unwrap();
+        assert_eq!(emission.global_names[&global], "Answer");
+        assert_eq!(
+            emission.by_id[&expression_id].declaration,
+            Some(declaration)
+        );
+    }
+
+    #[test]
     fn match_arms_use_the_checked_scrutinee_node_type() {
         let source = "(#enum Choice ((Value u64) Empty))
           (#fn main () u64
@@ -1027,6 +1060,8 @@ pub(crate) struct EmissionTypes {
     pub binding_types: Vec<Type>,
     /// Owner names needed to validate aggregate declaration identities.
     pub aggregate_names: HashMap<crate::typed_ir::AggregateId, String>,
+    /// Global names addressed by checked declaration identity.
+    pub global_names: HashMap<GlobalId, String>,
     /// Temporary bridge for legacy codegen, which still visits AST references.
     pub address_to_id: HashMap<usize, ExpressionId>,
     /// Backend-created expressions have no source identity and retain a narrow
@@ -1201,6 +1236,14 @@ impl Body {
             .map(|binding| binding.ty.clone())
             .collect();
         emission.aggregate_names = self.aggregate_names.clone();
+        emission.global_names = self
+            .declaration_names
+            .iter()
+            .filter_map(|(id, name)| match id {
+                DeclarationId::Global(id) => Some((*id, name.clone())),
+                _ => None,
+            })
+            .collect();
         for (id, target) in self.emission_nodes.iter().zip(after) {
             let address = std::ptr::from_ref(target) as usize;
             let node = &self.nodes[id.0];

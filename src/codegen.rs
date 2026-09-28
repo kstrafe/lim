@@ -9072,29 +9072,51 @@ impl FunctionContext {
                                 .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
                         }
                     }
-                } else if self.globals.contains_key(name) {
-                    match self.global_types.get(name) {
+                } else {
+                    let global_name = match metadata.and_then(|metadata| metadata.declaration) {
+                        Some(crate::typed_ir::DeclarationId::Global(id)) => Some(
+                            self.expression_types
+                                .global_names
+                                .get(&id)
+                                .ok_or_else(|| {
+                                    "internal error: checked global lost its declaration name"
+                                        .to_owned()
+                                })?
+                                .as_str(),
+                        ),
+                        Some(_) => None,
+                        None if self.expression_types.has_checked_identity(expression)
+                            && self.globals.contains_key(name) =>
+                        {
+                            return Err(format!(
+                                "internal error: checked global symbol '{name}' lost its declaration identity"
+                            ));
+                        }
+                        None => self.globals.contains_key(name).then_some(name.as_str()),
+                    };
+                    let Some(global_name) = global_name else {
+                        return Err(format!("unknown variable '{name}'"));
+                    };
+                    match self.global_types.get(global_name) {
                         Some(Type::Unit | Type::Never) => {}
                         Some(Type::I128 | Type::U128) => self.output.push_str(&format!(
                             "    mov rax, QWORD PTR [rip+{}]\n    mov rdx, QWORD PTR [rip+{}+8]\n",
-                            asm_symbol(name),
-                            asm_symbol(name)
+                            asm_symbol(global_name),
+                            asm_symbol(global_name)
                         )),
                         Some(Type::F32) => self.output.push_str(&format!(
                             "    movss xmm0, DWORD PTR [rip+{}]\n",
-                            asm_symbol(name)
+                            asm_symbol(global_name)
                         )),
                         Some(Type::F64) => self.output.push_str(&format!(
                             "    movq xmm0, QWORD PTR [rip+{}]\n",
-                            asm_symbol(name)
+                            asm_symbol(global_name)
                         )),
                         _ => self.output.push_str(&format!(
                             "    mov rax, QWORD PTR [rip+{}]\n",
-                            asm_symbol(name)
+                            asm_symbol(global_name)
                         )),
                     }
-                } else {
-                    return Err(format!("unknown variable '{name}'"));
                 }
             }
             Expr::List(items) => {

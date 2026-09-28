@@ -525,6 +525,12 @@ the checklist is committed alongside the implementation it tracks.
   owner/name consistency and reserve spelling lookup for synthesized syntax.
   Test retained owner metadata and native aggregate access.
 
+- [x] **IR-02au: Read checked globals by declaration identity.** Retain each
+  global's source name under its `GlobalId` in the emission bridge and select
+  native global storage from that ID for checked symbol reads. Reject missing
+  global identity rather than silently falling back to spelling; keep the
+  narrow fallback for synthesized syntax.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
