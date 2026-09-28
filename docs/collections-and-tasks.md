@@ -323,8 +323,12 @@ is available for two distinct borrowed timers through `timer-reactor2-wait`:
 one blocking kernel poll marks each ready token independently, without moving
 either owner or exposing its fd. `examples/timer_pair.lim` exercises both
 owners, including the same-owner rejection. Arbitrary registration, general
-buffered asynchronous I/O, and scheduler shutdown remain open. An executor's
-blocking run call cannot currently be externally interrupted.
+owners, including the same-owner rejection. `timer-reactor-many-wait` accepts
+a runtime slice of one to four shared timer borrows, rejects duplicate owners,
+and reports each ready slot in a bit mask after one blocking poll. The
+three-timer case is exercised by `examples/timer_reactor_many.lim`. Registration
+for other descriptor types, joining timer and I/O sources in one wait,
+executor shutdown, and externally interrupting a blocking run remain open.
 
 `(@threaded-executor run Result jobs Worker)` expands an executor plus
 `(@thread-spawn (: task Worker : worker run))`. Each job names both its result
@@ -340,7 +344,8 @@ implementation. OS thread creation still uses its existing allocation path.
 
 Runnable examples: `distributed_errors.lim`, `distributed_slice.lim`,
 `local_waker.lim`, `async_wake_pipeline.lim`, `async_registered_wake.lim`,
-`wake_ready4.lim`, `timer_reactor1.lim`, `timer_pair.lim`, `async_fn.lim`,
+`wake_ready4.lim`, `timer_reactor1.lim`, `timer_pair.lim`,
+`timer_reactor_many.lim`, `async_fn.lim`,
 `async_fn_two_awaits.lim`,
 `cooperative_tasks.lim`, `async_pipeline.lim`, `task_cancellation.lim`, and
 `threaded_tasks.lim` in `examples/`.

@@ -11,6 +11,7 @@
 (#enum TimerCreate1 ((TimerCreated1 TimerReactor1) (TimerCreateFailed1 i64)))
 (#enum TimerWait1 (TimerWoken1 (TimerWaitFailed1 i64)))
 (#enum TimerWait2 ((TimerPairWoken1 bool bool) (TimerPairFailed1 i64)))
+(#enum TimerManyWait ((TimerManyReady u64) (TimerManyFailed i64)))
 (#enum TimerPoll1 (TimerPending1 (TimerReady1 u64) (TimerPollFailed1 i64)))
 
 (#fn timer-reactor1-create ((nanoseconds u64)) TimerCreate1
@@ -158,3 +159,81 @@
   (#let unmapped i64 (#unsafe (#call linux-munmap
     (: address memory : length 4096usize))))
   (#return (#if (#i64.< closed 0i64) closed unmapped)))
+
+;; Bounded, runtime-sized blocking waits over borrowed timer owners. pollfd
+;; records use the first owner's scratch mapping only for this synchronous
+;; call. Result bits identify timers whose registered wake was notified.
+(#fn timer-reactor-many-wait ((timers (#slice (#ref TimerReactor1)))) TimerManyWait
+  (#let count usize (#slice-len timers))
+  (#let-mut error i64 -22i64)
+  (#let-mut ready-mask u64 0u64)
+  (#if (#bool.&& (#usize.!= count 0usize) (#usize.<= count 4usize))
+    (#block
+      (#set error 0i64)
+      (#let first (#ref TimerReactor1) (#deref (#slice-idx timers 0usize)))
+      (#let memory (#ptr-mut u8) (#get first memory))
+      (#let-mut duplicate bool false)
+      (#for-range (slot usize) 0usize count
+        (#block
+          (#let timer (#ref TimerReactor1) (#deref (#slice-idx timers slot)))
+          (#let fd i64 (#get timer fd))
+          (#for-range (prior usize) 0usize slot
+            (#block
+              (#let prior-timer (#ref TimerReactor1)
+                (#deref (#slice-idx timers prior)))
+              (#if (#i64.== fd (#get prior-timer fd))
+                (#block (#set duplicate true) ())
+                ())))
+          (#for-range (byte usize) 0usize 4usize
+            (#unsafe (#ptr-write
+              (#ptr-offset (#clone memory)
+                (#usize.+.wrap (#usize.*.wrap slot 8usize) byte))
+              (#as (#u64.>> (#as fd u64)
+                (#as (#usize.*.wrap byte 8usize) u64)) u8)))
+          (#unsafe (#ptr-write
+            (#ptr-offset (#clone memory)
+              (#usize.+.wrap (#usize.*.wrap slot 8usize) 4usize)) 1u8))
+          (#unsafe (#ptr-write
+            (#ptr-offset (#clone memory)
+              (#usize.+.wrap (#usize.*.wrap slot 8usize) 5usize)) 0u8))
+          (#unsafe (#ptr-write
+            (#ptr-offset (#clone memory)
+              (#usize.+.wrap (#usize.*.wrap slot 8usize) 6usize)) 0u8))
+          (#unsafe (#ptr-write
+            (#ptr-offset (#clone memory)
+              (#usize.+.wrap (#usize.*.wrap slot 8usize) 7usize)) 0u8))))
+      (#if duplicate
+        (#block (#set error -22i64) ())
+        (#block
+          (#let ready-count i64
+            (#unsafe (#call linux-poll
+              (: pollfds memory : count count : timeout-ms -1i32))))
+          (#if (#i64.< ready-count 0i64)
+            (#block (#set error ready-count) ())
+            (#block
+              (#for-range (poll-slot usize) 0usize count
+                (#block
+                  (#let flags u8 (#unsafe (#ptr-read
+                    (#ptr-offset (#clone memory)
+                      (#usize.+.wrap (#usize.*.wrap poll-slot 8usize) 6usize)))))
+                  (#if (#u8.!= (#u8.& flags 1u8) 0u8)
+                    (#block
+                      (#let timer (#ref TimerReactor1)
+                        (#deref (#slice-idx timers poll-slot)))
+                      (#if (#call wake-ready4-notify
+                            (: queue (#borrow (#get timer queue))
+                             : token (#get timer token)))
+                        (#block
+                          (#set ready-mask
+                            (#u64.| ready-mask
+                              (#u64.<< 1u64 (#as poll-slot u64))))
+                          ())
+                        (#block (#set error -22i64) ())))
+                    ())
+                  (#if (#u8.!= (#u8.& flags 56u8) 0u8)
+                    (#block (#set error -5i64) ())
+                    ())))))))))
+    ())
+  (#return (#if (#i64.< error 0i64)
+    (TimerManyFailed error)
+    (TimerManyReady ready-mask))))

@@ -1876,9 +1876,9 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Add a concrete Linux timerfd operation with an opaque linear owner, a
   bounded registered wake, blocking kernel wait, explicit poll and cancellation,
   and cleanup of fd and scratch mapping. Verify one-shot completion and
-  cancellation before completion in a native example. Keep ASYNC-02 open for
-  multiple registered operations, buffered I/O cancellation acknowledgment,
-  and shutdown policy.
+  cancellation before completion in a native example. Runtime-sized bounded
+  timer waits are covered by ASYNC-02f; general readiness sources, mixed I/O
+  registration, and shutdown policy remain open under ASYNC-02.
 - [x] **ASYNC-02b: Return recoverable timer setup errors.** Lower block-valued
   large aggregate branches through indirect result storage, then return a
   concrete success/error enum from timer creation. Clean up each acquired
@@ -1888,7 +1888,8 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   distinct opaque timer owners, use one blocking Linux poll call, and validate
   each wake token independently. Reject aliasing the same owner in both slots;
   cover whichever timer fires first, eventual completion of both, and cleanup
-  in a native example. General dynamic registration remains part of ASYNC-02.
+  in a native example. Runtime-sized timer registration is covered by
+  ASYNC-02f; other readiness sources remain part of ASYNC-02.
 - [x] **ASYNC-02d: Keep native-AIO buffers owned through completion or cancel.**
   Add opaque linear AIO context, pending-operation, and completed-operation
   types. Each submitted read or readiness request owns its mmap containing the
@@ -1907,6 +1908,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   before A, waits for A first, then verifies B's routed result; multiple
   outstanding operations share a !Send/!Sync context safely. Scheduler wake
   integration remains open.
+- [x] **ASYNC-02f: Wait over a bounded runtime slice of timer owners.** Accept
+  one to four shared borrows of opaque timer owners, reject duplicate owners,
+  populate poll records in scratch storage, and perform one blocking poll.
+  Notify each ready token independently and return a bit mask of ready slots;
+  reject invalid poll events without exposing descriptors or transferring
+  ownership. Verify a three-timer native wait and duplicate-owner rejection.
+  General readiness sources, buffered-I/O cancellation integration, and
+  shutdown remain open.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,
