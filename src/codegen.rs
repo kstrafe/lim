@@ -14689,15 +14689,12 @@ impl FunctionContext {
                     .sum::<usize>();
                 offset
             }
-            (Type::Named(name), Expr::Symbol(field_name)) => {
+            (Type::Named(name), Expr::Symbol(_)) => {
                 let fields = self
                     .structs
                     .get(name)
                     .ok_or_else(|| format!("'{name}' is not a struct"))?;
-                let index = fields
-                    .iter()
-                    .position(|field| field.name == *field_name)
-                    .ok_or_else(|| format!("unknown field '{field_name}'"))?;
+                let index = self.checked_field_index(&items[2], name, fields)?;
                 let offset = fields[..index]
                     .iter()
                     .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
