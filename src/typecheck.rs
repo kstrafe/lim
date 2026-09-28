@@ -1301,10 +1301,11 @@ fn check_types_inner(
                     &linear_types,
                     &declarations,
                 );
-                debug_assert!(
-                    typed_exit.is_ok(),
-                    "typed whole-value exit analysis disagrees with the legacy linear checker: {typed_exit:?}"
-                );
+                typed_exit.map_err(|error| {
+                    *diagnostic_span = error.span;
+                    *diagnostic_labels = error.labels;
+                    error.message
+                })?;
             }
         }
     }

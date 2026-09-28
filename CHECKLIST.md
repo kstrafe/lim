@@ -2758,3 +2758,9 @@ commit, documentation, and focused regression coverage.
   exited, while accepting borrows from locals that remain live through the
   call. Remove the corresponding syntax-side call-argument scope check on the
   normal compiler path; retain exact argument and borrow-origin spans.
+
+- [x] **IR-04ct: Enforce typed linear exit obligations.** Promote the typed
+  definite-consumption analysis from a debug-only differential assertion to a
+  validation error with its retained declaration/transfer spans. Keep legacy
+  checking for ownership paths not yet represented in typed flow; cover
+  missing and complete fieldwise consumption at return and scope exit.
