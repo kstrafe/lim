@@ -158,61 +158,108 @@
        (#case (,pending lim.wake-executor.task)
          (#block (#forget lim.wake-executor.task) (#unreachable))))))
 
+(#gn-fn wake-executor-cancel-call (cancel-function job)
+  `(#call ,cancel-function
+     (: state ,(#gn-call wake-executor-state-name job))))
+
+(#gn-fn wake-executor-wait-result (outputs wait-spec cancel-function jobs)
+  `(#match
+     (#call ,(#gn-call task-fifth wait-spec)
+       (: ,(#gn-first (#gn-call task-sixth wait-spec))
+          ,(#gn-first (#gn-call task-sixth wait-spec))))
+     (#case (,(#gn-call task-second wait-spec) lim.wake-executor.mask)
+       (#block
+         (#set lim.wake-executor.ready-mask lim.wake-executor.mask)
+         ()))
+     (#case (,(#gn-call task-third wait-spec) lim.wake-executor.reason)
+       (#block
+         (#set lim.wake-executor.lifecycle
+           (,(#gn-call task-sixth outputs) lim.wake-executor.reason))
+         (#set lim.wake-executor.waiting false)
+         ()))))
+
 (#gn wake-executor
-  (run result task poll pending ready result-type poll-function waker-type
-    wait-function wait-parameter jobs)
+  (run outputs task-spec wait-spec cancel-function jobs)
   (#gn-if (#gn-equal (#gn-length jobs) 0)
     (#gn-error "@wake-executor requires one to four task jobs")
     (#gn-if (#gn-equal (#gn-length jobs) 1)
       (#gn-call wake-executor-generate
-        run result task poll pending ready result-type poll-function waker-type
-        wait-function wait-parameter jobs)
+        run outputs task-spec wait-spec cancel-function jobs)
       (#gn-if (#gn-equal (#gn-length jobs) 2)
         (#gn-call wake-executor-generate
-          run result task poll pending ready result-type poll-function waker-type
-          wait-function wait-parameter jobs)
+          run outputs task-spec wait-spec cancel-function jobs)
         (#gn-if (#gn-equal (#gn-length jobs) 3)
           (#gn-call wake-executor-generate
-            run result task poll pending ready result-type poll-function waker-type
-            wait-function wait-parameter jobs)
+            run outputs task-spec wait-spec cancel-function jobs)
           (#gn-if (#gn-equal (#gn-length jobs) 4)
             (#gn-call wake-executor-generate
-              run result task poll pending ready result-type poll-function waker-type
-              wait-function wait-parameter jobs)
+              run outputs task-spec wait-spec cancel-function jobs)
             (#gn-error "@wake-executor supports at most four task jobs")))))))
 
 (#gn-fn wake-executor-generate
-  (run result task poll pending ready result-type poll-function waker-type
-    wait-function wait-parameter jobs)
+  (run outputs task-spec wait-spec cancel-function jobs)
   (#gn-if (#gn-equal (#gn-call wake-executor-slots-valid jobs) valid)
-  `((#struct ,result
-        ,(#gn-for-each job jobs (#gn-call wake-executor-field result-type job)))
+    `((#struct ,(#gn-first outputs)
+        ,(#gn-for-each job jobs
+             (#gn-call wake-executor-field (#gn-call task-fifth task-spec) job)))
+      (#enum ,(#gn-call task-second outputs)
+        ((,(#gn-call task-fifth outputs) ,(#gn-first outputs))
+         (,(#gn-call task-seventh outputs) ,(#gn-call task-fourth wait-spec))))
+      (#enum ,(#gn-call task-third outputs)
+        ((,(#gn-call task-fourth outputs))
+         (,(#gn-call task-sixth outputs) ,(#gn-call task-fourth wait-spec))))
+      (#enum ,(#gn-first wait-spec)
+        ((,(#gn-call task-second wait-spec) u32)
+         (,(#gn-call task-third wait-spec) ,(#gn-call task-fourth wait-spec))))
       (#fn ,run
         (,@(#gn-for-each job jobs
-             (#gn-call wake-executor-task-parameter-form task job))
+             (#gn-call wake-executor-task-parameter-form
+               (#gn-first task-spec) job))
          ,@(#gn-for-each job jobs
-             (#gn-call wake-executor-waker-parameter-form waker-type job))
-         ,wait-parameter)
-        ,result
+             (#gn-call wake-executor-waker-parameter-form
+               (#gn-call task-seventh task-spec) job))
+         ,(#gn-call task-sixth wait-spec))
+        ,(#gn-call task-second outputs)
         ,@(#gn-for-each job jobs
-             (#gn-call wake-executor-initialize task poll pending job))
+             (#gn-call wake-executor-initialize
+               (#gn-first task-spec) (#gn-call task-second task-spec)
+               (#gn-call task-third task-spec) job))
         (#let-mut lim.wake-executor.ready-mask u32 15u32)
+        (#let-mut lim.wake-executor.lifecycle
+          ,(#gn-call task-third outputs) ,(#gn-call task-fourth outputs))
         (#let-mut lim.wake-executor.waiting bool true)
         (#while lim.wake-executor.waiting
           (#set lim.wake-executor.waiting false)
           ,@(#gn-for-each job jobs
                (#gn-call wake-executor-poll
-                 poll pending ready result-type poll-function job))
+                 (#gn-call task-second task-spec)
+                 (#gn-call task-third task-spec)
+                 (#gn-call task-fourth task-spec)
+                 (#gn-call task-fifth task-spec)
+                 (#gn-call task-sixth task-spec)
+                 job))
           (#if lim.wake-executor.waiting
             (#block
-              (#set lim.wake-executor.ready-mask
-                (#call ,wait-function
-                  (: ,(#gn-first wait-parameter) ,(#gn-first wait-parameter))))
+              ,(#gn-call wake-executor-wait-result
+                 outputs wait-spec cancel-function jobs)
               ())
             ()))
-        (#return (#struct-literal ,result
-          ,(#gn-for-each job jobs
-               (#gn-call wake-executor-result poll pending ready job))))))
+        (#return
+          (#match lim.wake-executor.lifecycle
+            (#case ,(#gn-call task-fourth outputs)
+              (,(#gn-call task-fifth outputs)
+                (#struct-literal ,(#gn-first outputs)
+                  ,(#gn-for-each job jobs
+                       (#gn-call wake-executor-result
+                         (#gn-call task-second task-spec)
+                         (#gn-call task-third task-spec)
+                         (#gn-call task-fourth task-spec)
+                         job)))))
+            (#case (,(#gn-call task-sixth outputs) lim.wake-executor.reason)
+              (#block
+                ,@(#gn-for-each job jobs
+                     (#gn-call wake-executor-cancel-call cancel-function job))
+                (,(#gn-call task-seventh outputs) lim.wake-executor.reason)))))))
     (#gn-error "@wake-executor slots must be consecutive from 0u32")))
 
 ;; Explicit async composition. Names: (Task Poll Pending Ready poll-function).

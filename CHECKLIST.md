@@ -2109,11 +2109,15 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
     mask. Validate consecutive unique slots, use direct calls (no function
     pointers), retain completed results, and verify duplicate wake coalescing
     and native completion.
-  - [ ] **ASYNC-03b: Define scheduler shutdown and cancellation.** Provide an
+  - [x] **ASYNC-03b: Define scheduler shutdown and cancellation.** Provide an
     explicit wait-error/shutdown result and per-task cancellation handlers;
     ensure pending waker handles, task states, and OS operations are consumed
     in a documented order. Test cancellation while idle and while multiple
-    tasks remain Pending.
+    tasks remain Pending. `@wake-executor` now returns a concrete Complete or
+    Stopped outcome, stops polling after a wait stop/error, and invokes each
+    slot's cancellation function in descriptor order, including already-Ready
+    states. Native coverage cancels two Pending timer-backed tasks and one
+    completed task while idle.
   - [ ] **ASYNC-03c: Verify scheduling fairness and bounded wake behavior.**
     Test multiple simultaneous ready tasks, wake bursts and coalescing,
     capacity exhaustion, repeated idle waits, and prove no task is polled while

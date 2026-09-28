@@ -107,20 +107,24 @@ fn wake_executor_rejects_unsupported_capacity_and_slots() {
     let scratch = support::Scratch::new("wake-executor-shapes");
     let cases = [
         (
-            "(@wake-executor run Results Task Poll Pending Ready u64 poll Waker wait
-              (context u64)
+            "(@wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
+              (Task Poll Pending Ready u64 poll Waker)
+              (WaitResult Ready Stopped i64 wait (context u64)) cancel
               ((s0 t0 w0 r0 0u32) (s1 t1 w1 r1 1u32)
                (s2 t2 w2 r2 2u32) (s3 t3 w3 r3 3u32) (s4 t4 w4 r4 0u32)))",
             "supports at most four task jobs",
         ),
         (
-            "(@wake-executor run Results Task Poll Pending Ready u64 poll Waker wait
-              (context u64) ((state task waker result 4u32)))",
+            "(@wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
+              (Task Poll Pending Ready u64 poll Waker)
+              (WaitResult Ready Stopped i64 wait (context u64)) cancel
+              ((state task waker result 4u32)))",
             "task slot must be 0u32 through 3u32",
         ),
         (
-            "(@wake-executor run Results Task Poll Pending Ready u64 poll Waker wait
-              (context u64)
+            "(@wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
+              (Task Poll Pending Ready u64 poll Waker)
+              (WaitResult Ready Stopped i64 wait (context u64)) cancel
               ((first-state first-task first-waker first-result 0u32)
                (second-state second-task second-waker second-result 0u32)))",
             "slots must be consecutive from 0u32",
@@ -163,16 +167,21 @@ fn wake_executor_runs_every_supported_fixed_capacity() {
              (#struct Waker ((marker u64)))
              (#fn poll ((task Task) (waker (#ref Waker))) Poll
                (#forget waker) (#forget task) (#return (Ready 1u64)))
-             (#fn wait ((context u32)) u32 (#return context))
-             (@wake-executor run Results Task Poll Pending Ready u64 poll Waker
-               wait (context u32) ({jobs}))
+             (#fn wait ((context u32)) WaitResult (#return (WaitReady context)))
+             (#fn cancel-poll ((state Poll)) () (#forget state) (#return ()))
+             (@wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
+               (Task Poll Pending Ready u64 poll Waker)
+               (WaitResult WaitReady WaitStopped i64 wait (context u32))
+               cancel-poll ({jobs}))
              (#fn main () u64
                (#let waker Waker (#struct-literal Waker ((marker 0u64))))
                (#let waker-ref (#ref Waker) (#borrow waker))
-               (#let results Results
+               (#let outcome Outcome
                  (#call run ({named_args})))
                (#forget waker)
-               (#return {total}))",
+               (#return (#match outcome
+                 (#case (Complete results) {total})
+                 (#case (Stopped error) (#block (#forget error) (#unreachable))))))",
             named_args = call_args.join(" "),
         );
         let program = source(&body);
@@ -199,6 +208,102 @@ fn wake_executor_runs_every_supported_fixed_capacity() {
             "capacity {capacity}"
         );
     }
+}
+
+#[test]
+fn wake_executor_shutdown_cancels_pending_and_completed_states() {
+    let scratch = support::Scratch::new("wake-executor-shutdown");
+    let body = format!(
+        "(#import \"{}/library/timer_reactor1.lim\")\n",
+        env!("CARGO_MANIFEST_DIR")
+    ) + "
+      (@task (StopTask StopPoll StopPending StopReady) u64
+        (ReadyNow (Waiting u64 Waker TimerReactor1)))
+      (#struct Waker ((marker u64)))
+      (#fn destroy-waker ((waker Waker)) ()
+        (#forget waker) (#return ()))
+      (#fn stop-poll ((task StopTask) (waker (#ref Waker))) StopPoll
+        (#forget waker)
+        (#return (#match task
+          (#case ReadyNow (StopReady 31u64))
+          (#case (Waiting amount held-waker timer)
+            (StopPending (Waiting amount held-waker timer))))))
+      (#fn stop-wait ((context u32)) WaitResult
+        (#return (WaitStopped (#as context i64))))
+      (#fn cancel-state ((state StopPoll)) ()
+        (#match state
+          (#case (StopPending task)
+            (#match task
+              (#case ReadyNow ())
+              (#case (Waiting amount held-waker timer)
+                (#block
+                  (#forget amount)
+                  (#let closed i64 (#call timer-reactor1-cancel (: timer timer)))
+                  (#assert (#i64.== closed 0i64))
+                  (#forget closed)
+                  (#call destroy-waker (: waker held-waker))
+                  ()))
+              ))
+          (#case (StopReady value)
+            (#block
+              (#forget value))))
+        (#return ()))
+      (@wake-executor run-stop
+        (StopResults StopOutcome StopLifecycle StopRunning
+          StopComplete StopCancelling StopStopped)
+        (StopTask StopPoll StopPending StopReady u64 stop-poll Waker)
+        (WaitResult WaitReady WaitStopped i64 stop-wait (context u32))
+        cancel-state
+        ((ready-state ready-task ready-waker ready 0u32)
+         (pending-state pending-task pending-waker pending 1u32)
+         (pending-state-two pending-task-two pending-waker-two pending-two 2u32)))
+      (#fn main () u64
+        (#let timer-created TimerCreate1
+          (#call timer-reactor1-create (: nanoseconds 900000000u64)))
+        (#let-else (TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))
+        (#let timer-created-two TimerCreate1
+          (#call timer-reactor1-create (: nanoseconds 800000000u64)))
+        (#let-else (TimerCreated1 timer-two) TimerCreate1 timer-created-two (#unreachable))
+        (#let waker Waker (#struct-literal Waker ((marker 0u64))))
+        (#let held-waker Waker (#struct-literal Waker ((marker 1u64))))
+        (#let held-waker-two Waker (#struct-literal Waker ((marker 2u64))))
+        (#let waker-ref (#ref Waker) (#borrow waker))
+        (#let outcome StopOutcome
+          (#call run-stop
+            (: ready-task ReadyNow
+             : pending-task (Waiting 9u64 held-waker timer)
+             : pending-task-two (Waiting 10u64 held-waker-two timer-two)
+             : ready-waker waker-ref : pending-waker waker-ref
+             : pending-waker-two waker-ref
+             : context 42u32)))
+        (#forget waker)
+        (#return (#match outcome
+          (#case (StopStopped reason)
+            (#if (#i64.== reason 42i64)
+              (#block (#forget reason) 42u64)
+              (#block (#forget reason) 1u64)))
+          (#case (StopComplete results)
+            (#block (#forget results) 2u64)))))";
+    let program = source(&body);
+    let assembly = lim::compile_source_to_assembly(
+        &program,
+        &scratch.path().join("shutdown.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_or_else(|error| panic!("{error:?}"));
+    let binary = scratch.path().join("shutdown");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    let status = Command::new(binary).status().unwrap();
+    assert_eq!(status.code(), Some(42), "shutdown status: {status:?}");
 }
 
 #[test]

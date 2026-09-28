@@ -45,7 +45,7 @@
         (JobReady 2u64)
         (JobPending (Second (#u64.-.wrap remaining 1u64))))))))
 
-(#fn wait-ready ((context (#ref-mut WakeWaitContext))) u32
+(#fn wait-ready ((context (#ref-mut WakeWaitContext))) WaitResult
   (#let waits (#ref-mut u64) (#borrow-mut (#get context waits)))
   (#deref-set waits (#u64.+.wrap (#deref waits) 1u64))
   (#drop waits)
@@ -53,12 +53,25 @@
     (#call async-poll4-wait
       (: sources (#get context sources) : timeout-ms -1i32)))
   (#return (#match waited
-    (#case (AsyncPoll4Ready mask) mask)
-    (#case (AsyncPoll4Failed error) (#block (#forget error) (#unreachable))))))
+    (#case (AsyncPoll4Ready mask) (WaitReady mask))
+    (#case (AsyncPoll4Failed error) (WaitStopped error)))))
 
-(@wake-executor run-jobs JobResults
-  JobTask JobPoll JobPending JobReady u64 job-poll LocalWaker
-  wait-ready (context (#ref-mut WakeWaitContext))
+(#fn cancel-job-poll ((state JobPoll)) ()
+  (#match state
+    (#case (JobPending task)
+      (#match task
+        (#case (First remaining) (#forget remaining))
+        (#case (Second remaining) (#forget remaining))))
+    (#case (JobReady result) (#forget result)))
+  (#return ()))
+
+(@wake-executor run-jobs
+  (JobResults JobOutcome JobLifecycle JobRunning
+    JobComplete JobCancelling JobStopped)
+  (JobTask JobPoll JobPending JobReady u64 job-poll LocalWaker)
+  (WaitResult WaitReady WaitStopped i64 wait-ready
+    (context (#ref-mut WakeWaitContext)))
+  cancel-job-poll
   ((first-state first-task first-waker first 0u32)
    (second-state second-task second-waker second 1u32)))
 
@@ -90,7 +103,7 @@
       (: executor executor-ref
        : metadata (#struct-literal WakeMetadata ((token second-token))))))
   (#let-mut wait-count u64 0u64)
-  (#let result JobResults
+  (#let outcome JobOutcome
     (#block
       (#let first-source AsyncPollSource4
         (#call async-poll4-source
@@ -102,7 +115,7 @@
       (#let sources (#slice AsyncPollSource4) (#slice-of (#borrow source-array)))
       (#let-mut wait-context WakeWaitContext
         (#struct-literal WakeWaitContext ((sources sources) (waits 0u64))))
-      (#let result JobResults
+      (#let outcome JobOutcome
         (#call run-jobs
           (: first-task (First 1u64) : second-task (Second 1u64)
            : first-waker (#borrow first-waker)
@@ -112,8 +125,11 @@
       (#set wait-count (#get context-ref waits))
       (#drop context-ref)
       (#forget wait-context)
-      result))
+      outcome))
   (#assert (#u64.== wait-count 2u64))
+  (#let result JobResults (#match outcome
+    (#case (JobComplete results) results)
+    (#case (JobStopped reason) (#block (#forget reason) (#unreachable)))))
   (#let total u64 (#u64.+.wrap (#get result first) (#get result second)))
   (#call local-waker-destroy (: waker first-waker))
   (#call local-waker-destroy (: waker second-waker))

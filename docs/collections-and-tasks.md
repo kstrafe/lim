@@ -189,9 +189,13 @@ Import `library/tasks.lim` and use `@wake-executor` when all task slots have the
 same concrete task, poll-result, output, and waker types:
 
 ```lisp syntax
-(@wake-executor run-jobs JobResults
-  JobTask JobPoll JobPending JobReady u64 job-poll LocalWaker
-  wait-ready (sources (#slice AsyncPollSource4))
+(@wake-executor run-jobs
+  (JobResults JobOutcome JobLifecycle JobRunning
+    JobComplete JobCancelling JobStopped)
+  (JobTask JobPoll JobPending JobReady u64 job-poll LocalWaker)
+  (WaitResult WaitReady WaitStopped i64 wait-ready
+    (sources (#slice AsyncPollSource4)))
+  cancel-poll
   ((first-state first-task first-waker first 0u32)
    (second-state second-task second-waker second 1u32)))
 ```
@@ -200,21 +204,34 @@ Each job descriptor names its generated poll-state local, task input, borrowed
 waker input, output field, and slot. Slots must be consecutive from zero and
 there may be one to four jobs. The generated function polls every task once at
 startup, then calls `wait-ready` only while tasks remain Pending. That function
-must block until at least one pending task is ready and return a `u32` mask;
-bit N selects slot N. The executor directly calls the named poll function only
-for selected pending slots, retains Ready values, and returns a concrete
-result struct once every task is Ready. Repeated wakes can coalesce into one
-bit. There are no function pointers, heap allocations, or worker threads.
+returns the generated `WaitResult`: `(WaitReady mask)` when one or more tasks
+are ready, or `(WaitStopped reason)` for shutdown or a wait error. The executor
+directly calls the named poll function only for selected pending slots and
+retains Ready values. It returns `JobOutcome` as either `(JobComplete results)`
+or `(JobStopped reason)`. Repeated wakes can coalesce into one bit. There are
+no function pointers, heap allocations, or worker threads.
+
+`cancel-poll` has signature `((state JobPoll)) -> ()`. On shutdown or wait
+failure, polling stops and the executor calls this function once for every
+slot, in descriptor order, including slots already Ready. It must explicitly
+consume the Pending task or Ready result and release any owned wakers or OS
+operation state. Only after all handlers return does the executor return
+`JobStopped`. On normal completion, cancellation handlers are not called.
+The caller still owns each borrowed base waker and must destroy it after the
+executor returns.
 
 The wait context is an ordinary named function parameter, so callers can
 adapt `async-poll4-wait` or another bounded reactor without hidden global
-state. The callback owns its OS-error policy; the executor currently has no
-shutdown, timeout, or cancellation path for pending tasks. A wait callback
-that returns zero or a bit for no registered task can block forever or fail to
-make progress. Poll functions must return promptly, and the single-threaded
-executor does not preempt them. `examples/wake_executor.lim` demonstrates two
-tasks, per-task generational wake tokens, duplicate-wake coalescing, a blocking
-poll adapter, and explicit waker destruction.
+state. The callback maps OS errors and shutdown to `WaitStopped`; the
+executor itself has no timeout policy, since a callback may represent timeout
+as a stop reason. A `WaitReady` result must contain at least one valid pending
+slot bit. Zero masks and bits for unregistered or completed tasks are caller
+errors and may leave the executor without progress. Poll functions must return
+promptly, and the single-threaded executor does not preempt them.
+`examples/wake_executor.lim` demonstrates two tasks, per-task generational
+wake tokens, duplicate-wake coalescing, timer-backed blocking wait, and
+explicit waker destruction. The shutdown test verifies cancellation of both
+a Pending state with an owned waker and an already-Ready result.
 
 ## Explicit async composition
 
