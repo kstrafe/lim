@@ -380,6 +380,11 @@ the checklist is committed alongside the implementation it tracks.
   keep non-local and synthesized expressions on the existing evaluation path.
   Cover immutable and mutable slices with native tests.
 
+- [x] **IR-02ac: Resolve oversized array-element sources by identity.** When
+  copying a large indexed element directly into aggregate storage, select its
+  local array base through the checked `BindingId`. Preserve globals and
+  synthesized array expressions; add a large-element indexing regression.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

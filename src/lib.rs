@@ -12964,6 +12964,16 @@ mod tests {
     }
 
     #[test]
+    fn copies_oversized_array_elements_by_local_binding_identity() {
+        let program = parse_program(
+            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn main () u64 (#let values (#array Large 1) (#array (#array Large 1) (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 42u64))))) (#let copied Large (#index values 0usize)) (#return (#get copied g)))",
+        )
+        .unwrap();
+        let assembly = generate_assembly(&program);
+        assert!(assembly.is_ok(), "{assembly:?}");
+    }
+
+    #[test]
     fn matches_large_scalar_array_locals_without_abi_flattening() {
         let program = parse_program(
             "(#fn main () u64 (#let values (#array u64 7) (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64)) (#return (#match values (#case (#array first second third fourth fifth sixth last) last) (#case _ 0u64))))",

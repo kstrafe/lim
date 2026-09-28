@@ -14133,8 +14133,10 @@ impl FunctionContext {
         }
         let source = match &items[1] {
             Expr::Symbol(name) => {
-                if let Some(Storage::Array { base, .. }) = self.locals.get(name) {
-                    Some(Source::Local(*base))
+                if let Some(Storage::Array { base, .. }) =
+                    self.local_storage_for_symbol(&items[1], name)?
+                {
+                    Some(Source::Local(base))
                 } else if matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) {
                     Some(Source::Global(name.clone()))
                 } else {
