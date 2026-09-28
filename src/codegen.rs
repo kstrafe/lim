@@ -5628,6 +5628,14 @@ impl FunctionContext {
         local_slots(&self.locals, name)
     }
 
+    fn is_local_symbol_expression(&self, expression: &Expr, name: &str) -> bool {
+        self.expression_types
+            .get(expression)
+            .is_some_and(|metadata| metadata.binding.is_some())
+            || (!self.expression_types.has_checked_identity(expression)
+                && self.locals.contains_key(name))
+    }
+
     /// Tagged local references grow toward lower addresses; untagged static
     /// and raw-backed references grow toward higher addresses. Keep the tag
     /// intact while projecting a slice, just as aggregate projections do.
@@ -10997,8 +11005,8 @@ impl FunctionContext {
                 value_word_count(field, &self.structs, &self.enums).is_ok_and(|words| words == 1)
             }) {
                 if let Expr::Symbol(name) = &items[1] {
-                    if self.locals.contains_key(name) {
-                        let source_slots = local_slots(&self.locals, name)?;
+                    if self.is_local_symbol_expression(&items[1], name) {
+                        let source_slots = self.local_slots_for_symbol(&items[1], name)?;
                         return self.large_scalar_aggregate_match_slots(
                             items,
                             constructor,
@@ -11029,9 +11037,8 @@ impl FunctionContext {
                 }
             }
             let source_slots = if let Expr::Symbol(name) = &items[1] {
-                self.locals
-                    .contains_key(name)
-                    .then(|| local_slots(&self.locals, name))
+                self.is_local_symbol_expression(&items[1], name)
+                    .then(|| self.local_slots_for_symbol(&items[1], name))
                     .transpose()?
             } else if let Expr::List(call_items) = &items[1] {
                 match call_items.first() {
@@ -11142,8 +11149,12 @@ impl FunctionContext {
                 self.stack_depth += 1;
             }
         } else if let Expr::Symbol(name) = &items[1] {
-            if self.locals.contains_key(name) {
-                for slot in local_slots(&self.locals, name)?.into_iter().rev() {
+            if self.is_local_symbol_expression(&items[1], name) {
+                for slot in self
+                    .local_slots_for_symbol(&items[1], name)?
+                    .into_iter()
+                    .rev()
+                {
                     self.output
                         .push_str(&format!("    push QWORD PTR [rbp-{}]\n", slot * 8));
                     self.stack_depth += 1;

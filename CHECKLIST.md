@@ -324,6 +324,11 @@ the checklist is committed alongside the implementation it tracks.
   use those IDs for stack destinations in ordinary, nested, large-value, and
   let-else match paths. Preserve source names for diagnostics only.
 
+- [x] **IR-02r: Resolve local aggregate match sources by identity.** Use the
+  checked scrutinee symbol's binding identity to select local slots for tuple,
+  array, and struct match lowering, including large aggregates. Keep globals
+  and synthesized expressions on their own paths.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
