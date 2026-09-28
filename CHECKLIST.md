@@ -452,6 +452,12 @@ the checklist is committed alongside the implementation it tracks.
   compatibility lookup only for synthesized nodes; test both paths and retain
   numeric and native-example coverage.
 
+- [x] **IR-03ac: Reject missing metadata on checked scalar expressions.** In
+  native expression dispatch, distinguish backend-synthesized AST from checked
+  source nodes. A checked node without its emission record must fail internally
+  instead of falling through to syntax-based operator or call resolution;
+  preserve the narrow synthesized-node path and test both cases.
+
 - [x] **IR-02am: Keep function specialization before the checked boundary.**
   Reject generic function/type declarations even for programmatically built
   `Program` values, matching the source grammar's concrete-only rule. Remove

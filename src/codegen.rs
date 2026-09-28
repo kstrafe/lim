@@ -5305,6 +5305,17 @@ fn checked_call_identity(
     Ok(callee)
 }
 
+fn checked_expression_metadata<'a>(
+    expression: &Expr,
+    emission: &'a crate::typed_body::EmissionTypes,
+) -> Result<Option<&'a crate::typed_body::EmissionNode>, String> {
+    let metadata = emission.get(expression);
+    if metadata.is_none() && emission.has_checked_identity(expression) {
+        return Err("internal error: checked expression lost its emission metadata".into());
+    }
+    Ok(metadata)
+}
+
 fn checked_scalar_argument_type(
     argument: &Expr,
     callee: Option<crate::typed_ir::FunctionId>,
@@ -5571,6 +5582,36 @@ fn checked_calls_require_retained_function_identity() {
         checked_call_identity(Some(&node), true).unwrap(),
         Some(callee)
     );
+}
+
+#[cfg(test)]
+#[test]
+fn checked_expression_metadata_cannot_fall_back_to_syntax() {
+    let expression = Expr::List(vec![Expr::Symbol("u64.+.wrap".into())]);
+    let mut emission = crate::typed_body::EmissionTypes::default();
+    assert!(checked_expression_metadata(&expression, &emission)
+        .unwrap()
+        .is_none());
+
+    let checked_id = crate::typed_ir::ExpressionId(0);
+    emission
+        .address_to_id
+        .insert(std::ptr::from_ref(&expression) as usize, checked_id);
+    assert!(checked_expression_metadata(&expression, &emission)
+        .err()
+        .unwrap()
+        .contains("lost its emission metadata"));
+
+    emission.by_id.insert(
+        checked_id,
+        crate::typed_body::EmissionNode {
+            ty: Some(Type::U64),
+            ..Default::default()
+        },
+    );
+    assert!(checked_expression_metadata(&expression, &emission)
+        .unwrap()
+        .is_some());
 }
 
 #[cfg(test)]
@@ -8814,7 +8855,7 @@ impl FunctionContext {
                 }
             }
             Expr::Symbol(name) => {
-                let metadata = self.expression_types.get(expression);
+                let metadata = checked_expression_metadata(expression, &self.expression_types)?;
                 let binding = metadata.and_then(|metadata| metadata.binding);
                 let local_storage =
                     binding.and_then(|binding| self.locals_by_binding.get(&binding));
@@ -8913,7 +8954,7 @@ impl FunctionContext {
                 }
             }
             Expr::List(items) => {
-                let metadata = self.expression_types.get(expression);
+                let metadata = checked_expression_metadata(expression, &self.expression_types)?;
                 let numeric = checked_numeric_metadata(metadata, items.first())?;
                 checked_numeric_operand_types(
                     items,
