@@ -186,6 +186,240 @@ pub(crate) struct Declarations {
     aggregate_ids: HashMap<String, AggregateId>,
 }
 
+fn source_with_span<'a>(
+    source: Option<&'a crate::SpannedExpr>,
+    span: Span,
+) -> Option<&'a crate::SpannedExpr> {
+    fn find(source: &crate::SpannedExpr, span: Span) -> Option<&crate::SpannedExpr> {
+        if source.span == span {
+            return Some(source);
+        }
+        source.children.iter().find_map(|child| find(child, span))
+    }
+    source.and_then(|source| find(source, span)).or(source)
+}
+
+fn source_child(source: Option<&crate::SpannedExpr>, index: usize) -> Option<&crate::SpannedExpr> {
+    source?.children.get(index)
+}
+
+fn collect_simple_local_binding_spans(
+    function: &crate::Function,
+    program: &crate::Program,
+    expression_spans: &HashMap<usize, Span>,
+) -> Vec<Option<Span>> {
+    let mut output = Vec::new();
+    for (index, statement) in function.body.iter().enumerate() {
+        let source = program
+            .statement_expressions
+            .get(&(function.name.clone(), index));
+        collect_statement_binding_spans(statement, source, expression_spans, &mut output);
+    }
+    output
+}
+
+fn collect_statement_binding_spans(
+    statement: &crate::Statement,
+    source: Option<&crate::SpannedExpr>,
+    expression_spans: &HashMap<usize, Span>,
+    output: &mut Vec<Option<Span>>,
+) {
+    use crate::Statement as S;
+    match statement {
+        S::Let { value, .. } => {
+            collect_expression_binding_spans(
+                value,
+                source_child(source, 3),
+                expression_spans,
+                output,
+            );
+            let span = source_child(source, 1)
+                .filter(|identifier| matches!(identifier.expr, crate::Expr::Symbol(_)))
+                .map(|identifier| identifier.span);
+            output.push(span);
+        }
+        S::Destructure { value, .. } => collect_expression_binding_spans(
+            value,
+            source_child(source, 3),
+            expression_spans,
+            output,
+        ),
+        S::LetElse {
+            value, else_body, ..
+        } => {
+            collect_expression_binding_spans(
+                value,
+                source_child(source, 3),
+                expression_spans,
+                output,
+            );
+            collect_statement_list_binding_spans(else_body, source, 4, expression_spans, output);
+        }
+        S::Assign { value, .. }
+        | S::FieldAssign { value, .. }
+        | S::TupleAssign { value, .. }
+        | S::EnumPayloadAssign { value, .. }
+        | S::BreakValue(value)
+        | S::Return(Some(value))
+        | S::Expr(value) => {
+            let child = match statement {
+                S::Assign { .. } => 2,
+                S::FieldAssign { .. } | S::TupleAssign { .. } | S::EnumPayloadAssign { .. } => 3,
+                S::BreakValue(_) | S::Return(Some(_)) => 1,
+                S::Expr(_) => {
+                    return collect_expression_binding_spans(
+                        value,
+                        source,
+                        expression_spans,
+                        output,
+                    )
+                }
+                _ => unreachable!(),
+            };
+            collect_expression_binding_spans(
+                value,
+                source_child(source, child),
+                expression_spans,
+                output,
+            );
+        }
+        S::ArrayAssign { index, value, .. } => {
+            collect_expression_binding_spans(
+                index,
+                source_child(source, 2),
+                expression_spans,
+                output,
+            );
+            collect_expression_binding_spans(
+                value,
+                source_child(source, 3),
+                expression_spans,
+                output,
+            );
+        }
+        S::While { condition, body } => {
+            collect_expression_binding_spans(
+                condition,
+                source_child(source, 1),
+                expression_spans,
+                output,
+            );
+            collect_statement_list_binding_spans(body, source, 2, expression_spans, output);
+        }
+        S::Loop { body } => {
+            collect_statement_list_binding_spans(body, source, 1, expression_spans, output)
+        }
+        S::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            collect_statement_binding_spans(
+                init,
+                source_child(source, 1),
+                expression_spans,
+                output,
+            );
+            collect_expression_binding_spans(
+                condition,
+                source_child(source, 2),
+                expression_spans,
+                output,
+            );
+            collect_statement_binding_spans(
+                step,
+                source_child(source, 3),
+                expression_spans,
+                output,
+            );
+            collect_statement_list_binding_spans(body, source, 4, expression_spans, output);
+        }
+        S::Labeled { statement, .. } => collect_statement_binding_spans(
+            statement,
+            source.and_then(|source| source.children.last()),
+            expression_spans,
+            output,
+        ),
+        S::Break
+        | S::BreakTo(_)
+        | S::BreakToValue { .. }
+        | S::Continue
+        | S::ContinueTo(_)
+        | S::Return(None) => {
+            if let S::BreakToValue { value, .. } = statement {
+                collect_expression_binding_spans(
+                    value,
+                    source_child(source, 2),
+                    expression_spans,
+                    output,
+                );
+            }
+        }
+    }
+}
+
+fn collect_statement_list_binding_spans(
+    statements: &[crate::Statement],
+    source: Option<&crate::SpannedExpr>,
+    start: usize,
+    expression_spans: &HashMap<usize, Span>,
+    output: &mut Vec<Option<Span>>,
+) {
+    let sources = source.and_then(|source| source.children.get(start..));
+    for (index, statement) in statements.iter().enumerate() {
+        collect_statement_binding_spans(
+            statement,
+            sources.and_then(|sources| sources.get(index)),
+            expression_spans,
+            output,
+        );
+    }
+}
+
+fn collect_expression_binding_spans(
+    expression: &crate::Expr,
+    source: Option<&crate::SpannedExpr>,
+    expression_spans: &HashMap<usize, Span>,
+    output: &mut Vec<Option<Span>>,
+) {
+    use crate::Expr as E;
+    let span = expression_spans.get(&(std::ptr::from_ref(expression) as usize));
+    let source = span
+        .and_then(|span| source_with_span(source, *span))
+        .or(source);
+    match expression {
+        E::List(items) => {
+            for item in items {
+                let item_source = expression_spans
+                    .get(&(std::ptr::from_ref(item) as usize))
+                    .and_then(|item_span| source_with_span(source, *item_span));
+                collect_expression_binding_spans(item, item_source, expression_spans, output);
+            }
+        }
+        E::Block(statements) | E::Loop(statements) => {
+            collect_statement_list_binding_spans(statements, source, 1, expression_spans, output);
+        }
+        E::Labeled { expression, .. }
+        | E::Quote(expression)
+        | E::QuasiQuote(expression)
+        | E::Unquote(expression)
+        | E::UnquoteSplicing(expression) => collect_expression_binding_spans(
+            expression,
+            source.and_then(|source| source.children.last()),
+            expression_spans,
+            output,
+        ),
+        E::Symbol(_)
+        | E::Integer(_)
+        | E::UnsignedInteger(_)
+        | E::Float(_)
+        | E::Char(_)
+        | E::String(_)
+        | E::At => {}
+    }
+}
+
 impl Declarations {
     pub fn new(
         aliases: HashMap<String, Type>,
@@ -334,25 +568,8 @@ impl Declarations {
                                 .then_some(identifier.span)
                         })
                         .collect::<Vec<_>>();
-                    let binding_spans = function
-                        .body
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(index, statement)| {
-                            let crate::Statement::Let { name, .. } = statement else {
-                                return None;
-                            };
-                            let source = program
-                                .statement_expressions
-                                .get(&(function.name.clone(), index))?;
-                            let identifier = source.children.get(1)?;
-                            matches!(&identifier.expr, crate::Expr::Symbol(symbol) if symbol == name)
-                                .then_some((
-                                    std::ptr::from_ref(statement) as usize,
-                                    identifier.span,
-                                ))
-                        })
-                        .collect();
+                    let binding_spans =
+                        collect_simple_local_binding_spans(function, program, spans);
                     Some((
                         function.name.clone(),
                         crate::typed_body::Body::lower(

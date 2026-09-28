@@ -1,6 +1,6 @@
 //! Typed, source-located body arena. Dense IDs survive copying and lowering;
 //! checked type/span capture still bridges through the borrowed legacy AST.
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -148,6 +148,60 @@ mod tests {
             .span
             .expect("typed parameter keeps its declaration span");
         assert_eq!(&source[span.start..span.end], "token");
+    }
+
+    #[test]
+    fn nested_block_bindings_retain_their_source_identifier_spans() {
+        let source = "(#fn main () u64
+          (#block (#let nested u64 21u64) nested)
+          (#if true
+            (#block (#let branch u64 22u64) branch)
+            0u64)
+          (#while false
+            (#block (#let repeated u64 23u64) repeated))
+          (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let bindings = &checked.declarations().bodies["main"].bindings;
+        for name in ["nested", "branch", "repeated"] {
+            let binding = bindings
+                .iter()
+                .find(|binding| binding.name == name)
+                .unwrap_or_else(|| panic!("missing typed binding {name}"));
+            let span = binding
+                .span
+                .unwrap_or_else(|| panic!("missing source span for {name}"));
+            assert_eq!(&source[span.start..span.end], name);
+        }
+    }
+
+    #[test]
+    fn nested_initializer_and_shadowed_binding_spans_follow_lowering_order() {
+        let source = "(#fn main () u64
+          (#let item u64 1u64)
+          (#block (#let item u64 2u64) item)
+          (#let outer u64 (#block (#let inner u64 3u64) inner))
+          (#return (#u64.+.wrap item outer)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let bindings = &checked.declarations().bodies["main"].bindings;
+        let shadowed = bindings
+            .iter()
+            .filter(|binding| binding.name == "item" || binding.name.starts_with("__lim_shadow_"))
+            .collect::<Vec<_>>();
+        assert_eq!(shadowed.len(), 2);
+        for binding in shadowed {
+            let span = binding.span.expect("shadowed binding source span");
+            assert_eq!(&source[span.start..span.end], "item");
+        }
+        for name in ["inner", "outer"] {
+            let binding = bindings
+                .iter()
+                .find(|binding| binding.name == name)
+                .unwrap();
+            let span = binding.span.expect("nested initializer source span");
+            assert_eq!(&source[span.start..span.end], name);
+        }
     }
 
     #[test]
@@ -1370,7 +1424,7 @@ impl Body {
         types: &HashMap<ExpressionId, Type>,
         expression_ids: &HashMap<usize, ExpressionId>,
         spans: &HashMap<usize, Span>,
-        binding_spans: &HashMap<usize, Span>,
+        binding_spans: &[Option<Span>],
         parameter_spans: &[Option<Span>],
     ) -> Self {
         let mut builder = Builder {
@@ -1380,7 +1434,7 @@ impl Body {
             types,
             expression_ids,
             spans,
-            binding_spans,
+            binding_spans: binding_spans.iter().copied().collect(),
         };
         builder.body.parameter_count = function.parameters.len();
         for (index, parameter) in function.parameters.iter().enumerate() {
@@ -1479,7 +1533,7 @@ struct Builder<'a> {
     types: &'a HashMap<ExpressionId, Type>,
     expression_ids: &'a HashMap<usize, ExpressionId>,
     spans: &'a HashMap<usize, Span>,
-    binding_spans: &'a HashMap<usize, Span>,
+    binding_spans: VecDeque<Option<Span>>,
 }
 
 impl Builder<'_> {
@@ -1828,7 +1882,6 @@ impl Builder<'_> {
     }
 
     fn statement(&mut self, statement: &Statement) -> Instruction {
-        let statement_address = std::ptr::from_ref(statement) as usize;
         let control = match statement {
             Statement::Let {
                 name,
@@ -1837,10 +1890,11 @@ impl Builder<'_> {
                 mutable,
             } => {
                 let value = self.expression(value);
+                let binding_span = self.binding_spans.pop_front().flatten();
                 let binding = self.binding(
                     name,
                     resolve_type(ty, &self.declarations.aliases).expect("checked local"),
-                    self.binding_spans.get(&statement_address).copied(),
+                    binding_span,
                 );
                 Control::Bind(binding, value, *mutable)
             }

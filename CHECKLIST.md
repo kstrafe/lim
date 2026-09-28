@@ -1097,6 +1097,11 @@ the checklist is committed alongside the implementation it tracks.
   Associate each parameter `BindingId` with its declared identifier span from
   the function signature, and verify the span through checked-body lowering.
 
+- [x] **IR-04cq: Retain nested local spans in typed ownership state.** Traverse
+  nested blocks, branches, loops, and initializer expressions in the same order
+  as typed-body lowering, preserving local identifier spans even after
+  alpha-renaming. Verify nested block and branch bindings independently.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.
