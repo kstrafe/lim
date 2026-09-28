@@ -1917,6 +1917,48 @@ fn async_for_condition_can_await_and_step_only_after_ready_true() {
 }
 
 #[test]
+fn async_for_step_can_suspend_after_the_loop_body() {
+    let source = "(#enum StepTask ((Waiting u64) (Resuming u64)))
+      (#linear StepTask)
+      (#enum StepPoll ((StepPending StepTask) (StepReady ())))
+      (#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case (Waiting iteration)
+            (#block
+              (#assert (#u64.> iteration 0u64))
+              (#if (#u64.== iteration 1u64)
+                (StepPending (Resuming iteration))
+                (StepReady ()))))
+          (#case (Resuming iteration)
+            (#block (#assert (#u64.> iteration 0u64)) (StepReady ()))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#for (#set iteration 0u64)
+                (#u64.< iteration 3u64)
+                (#let step-result ()
+                  (#await StepTask StepPending StepReady step-poll (Waiting iteration)))
+            (#set iteration (#u64.+.wrap iteration 1u64)))
+          (#return (#if (#u64.== iteration 3u64) 42u64 0u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("step-result"), "{generated}");
+}
+
+#[test]
 fn awaited_for_condition_runs_step_after_continue_but_not_break() {
     let source = "(#enum ChildTask ((Waiting u64)))
       (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))

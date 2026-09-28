@@ -1779,8 +1779,9 @@ fn lower_async_for(
     }
     let initializer = &items[1];
     let awaited_condition = has_await(&items[2]);
-    if has_await(initializer) || has_await(&items[3]) {
-        return Err("@async-fn #for await cannot suspend in its initializer or step".into());
+    let awaited_step = has_await(&items[3]);
+    if has_await(initializer) {
+        return Err("@async-fn #for await cannot suspend in its initializer".into());
     }
     if awaited_condition && form(&items[2], "#await").is_none() {
         return Err(
@@ -1793,6 +1794,12 @@ fn lower_async_for(
     let mut condition = items[2].clone();
     let mut step = items[3].clone();
     let mut loop_body = items[4..].to_vec();
+    if awaited_step && awaited_condition {
+        return Err("@async-fn #for cannot suspend in both its condition and step yet".into());
+    }
+    if awaited_step && loop_body.iter().any(has_await) {
+        return Err("@async-fn #for cannot suspend in both its body and step yet".into());
+    }
     if awaited_condition && loop_body.iter().any(has_await) {
         return Err("@async-fn #for condition and body cannot both suspend yet".into());
     }

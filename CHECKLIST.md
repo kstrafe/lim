@@ -1888,6 +1888,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Rewrite body `#break`, `#continue`, and terminal `#if` transfers into the
   generated stop state, so control remains in the loop across Pending/resume.
   Verify both transfers with matching and non-matching awaited results.
+- [x] **ASYNC-01b50: Suspend in a `#for` step.** Lower one direct typed await in
+  the step after a non-suspending loop body and condition. Preserve body-before-
+  step ordering through Pending/resume, then recheck the condition only after
+  the awaited step is Ready. Verify an iteration-sensitive child task suspends
+  once and the loop completes with the expected result.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
