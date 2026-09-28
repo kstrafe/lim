@@ -1835,6 +1835,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Hygienically lift those bindings into generated stages, infer whether they
   must survive Pending, and verify both task initialization and continuation
   use across resume.
+- [x] **ASYNC-01b37: Lower sequential awaits within one block.** Preserve the
+  remainder of a value-producing block as the continuation after each await,
+  so multiple awaited bindings resume in source order. Verify two consecutive
+  Pending/resume stages natively and inspect the generated state transitions.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

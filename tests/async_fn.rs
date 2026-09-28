@@ -67,8 +67,8 @@ fn build_and_run(source: &str, expected: i32) -> String {
     assert_eq!(
         status.code(),
         Some(expected),
-        "{status:?}: {}",
-        String::from_utf8_lossy(&stderr)
+        "{status:?}: {}\ngenerated source:\n{generated}",
+        String::from_utf8_lossy(&stderr),
     );
     generated
 }
@@ -662,6 +662,55 @@ fn async_function_resumes_inside_a_value_producing_block() {
     assert!(
         generated.contains("(#u64.-.wrap lim.async.nested-await-0 (#literal u64 39))"),
         "block-local setup must also initialize the child task: {generated}"
+    );
+}
+
+#[test]
+fn async_function_resumes_multiple_awaits_inside_one_block() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady bool)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting remaining)
+            (#if (#u64.== remaining 0u64)
+              (ChildReady true)
+              (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let result u64
+            (#block
+              (#let first bool
+                (#await bool Child ChildPending ChildReady child-poll (Waiting 1u64)))
+              (#let second bool
+                (#await bool Child ChildPending ChildReady child-poll (Waiting 2u64)))
+              (#if (#bool.&& first second) 42u64 0u64)))
+          (#return result))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending after-first) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task after-first : waker (#borrow waker))))
+        (#let-else (Pending after-second) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task after-second : waker (#borrow waker))))
+        (#let-else (Pending after-third) Poll third (#unreachable))
+        (#let fourth Poll (#call poll (: task after-third : waker (#borrow waker))))
+        (#let result u64
+          (#match fourth
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("poll-resume-1"), "{generated}");
+    assert!(
+        generated.contains("lim.async.nested-await-0"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("lim.async.nested-await-1"),
+        "{generated}"
     );
 }
 

@@ -106,7 +106,14 @@ fn block_await_continuation(expression: &Expr) -> Option<(Vec<Expr>, String, Exp
     if block.len() < 3 {
         return None;
     }
-    let binding_index = block.len() - 2;
+    let binding_index = (1..block.len() - 1).find(|index| {
+        form(&block[*index], "#let")
+            .or_else(|| form(&block[*index], "#let-mut"))
+            .is_some_and(|binding| {
+                binding.len() == 4
+                    && form(&binding[3], "#await").is_some_and(|await_form| await_form.len() == 7)
+            })
+    })?;
     if block[1..binding_index].iter().any(has_await) {
         return None;
     }
@@ -121,12 +128,21 @@ fn block_await_continuation(expression: &Expr) -> Option<(Vec<Expr>, String, Exp
         return None;
     }
     parse_type(Some(&normalize_keywords(await_form[1].clone()))).ok()?;
+    let continuation = if binding_index + 1 == block.len() - 1 {
+        block[block.len() - 1].clone()
+    } else {
+        Expr::List(
+            std::iter::once(Expr::Symbol("#block".into()))
+                .chain(block[binding_index + 1..].iter().cloned())
+                .collect(),
+        )
+    };
     Some((
         block[1..binding_index].to_vec(),
         name,
         binding[2].clone(),
         binding[3].clone(),
-        block[block.len() - 1].clone(),
+        continuation,
     ))
 }
 
