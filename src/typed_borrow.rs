@@ -116,21 +116,24 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
         } else {
             projected
         };
+        let mut suspended_parents = HashSet::new();
+        let mut pending_parents = reborrow_parent.into_iter().collect::<Vec<_>>();
+        while let Some(parent) = pending_parents.pop() {
+            if !suspended_parents.insert(parent) {
+                continue;
+            }
+            pending_parents.extend(
+                origins
+                    .before(event, parent)
+                    .iter()
+                    .filter_map(|origin| origin.borrowed_from),
+            );
+        }
         for binding in live.before(event) {
-            if Some(binding) == reborrow_parent {
+            if suspended_parents.contains(&binding) {
                 continue;
             }
             for held in origins.before(event, binding) {
-                let held_is_parent_ancestor = matches!(access, AccessKind::Borrow { .. })
-                    && reborrow_parent.is_some()
-                    && held.mutable
-                    && access_places.iter().any(|access| {
-                        held.place.root == access.root
-                            && access.segments.starts_with(&held.place.segments)
-                    });
-                if held_is_parent_ancestor {
-                    continue;
-                }
                 let conflicts = match access {
                     AccessKind::Read | AccessKind::Clone => held.mutable,
                     AccessKind::Borrow { mutable } => held.mutable || mutable,
@@ -1062,6 +1065,7 @@ fn storage_segment_matches(
             (wanted, held),
             (Segment::DynamicIndex, Segment::Index(_)) | (Segment::Index(_), Segment::DynamicIndex)
         )
+        || matches!((wanted, held), (Segment::Tuple(wanted), Segment::SliceHalf(found)) if wanted == found)
 }
 
 fn distribute_pattern_borrows(
@@ -1300,6 +1304,51 @@ mod tests {
         }
         let error = check_live_direct_loans(body, &flow).unwrap_err();
         assert!(error.message.contains("cannot mutate 'point'"));
+    }
+
+    #[test]
+    fn split_slice_writes_use_distinct_typed_half_places() {
+        let source = "(#fn main () u64
+            (#let-mut values (#array u64 4)
+              (#array-of (#array u64 4) 1u64 2u64 3u64 4u64))
+            (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
+            (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64))
+              (#slice-mut-split view 2usize))
+            (#deref-set (#slice-mut-idx left 0usize) 10u64)
+            (#deref-set (#slice-mut-idx right 0usize) 20u64)
+            (#forget left) (#forget right)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let flow = FlowGraph::lower(body).unwrap();
+        let origins = flow.loan_origins(body);
+        let writes = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| match &node.action {
+                FlowAction::Write { place, .. } => Some((FlowNodeId(index), place.clone())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(writes.len(), 2);
+        let split_places = writes
+            .iter()
+            .map(|(_, place)| {
+                let event = writes
+                    .iter()
+                    .find(|(_, candidate)| candidate == place)
+                    .unwrap()
+                    .0;
+                let PlaceRoot::Local(binding) = place.root else {
+                    unreachable!()
+                };
+                origins.projected_referents(event, binding, &place.segments)
+            })
+            .collect::<Vec<_>>();
+        assert_ne!(split_places[0], split_places[1]);
+        check_live_direct_loans(body, &flow).unwrap();
     }
 
     #[test]
@@ -2397,6 +2446,7 @@ mod tests {
                 place: Place::root(PlaceRoot::Local(BindingId(0))),
                 mutable: true,
                 span: None,
+                borrowed_from: None,
                 storage: Vec::new(),
                 parameter_storage: None,
             },
@@ -2404,6 +2454,7 @@ mod tests {
                 place: Place::root(PlaceRoot::Local(BindingId(1))),
                 mutable: true,
                 span: None,
+                borrowed_from: None,
                 storage: Vec::new(),
                 parameter_storage: None,
             },

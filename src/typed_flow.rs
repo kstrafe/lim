@@ -104,6 +104,8 @@ pub(crate) struct LoanOrigin {
     pub place: Place,
     pub mutable: bool,
     pub span: Option<Span>,
+    /// Immediate reference binding whose referent this loan reborrows.
+    pub borrowed_from: Option<BindingId>,
     /// Position inside the value held by a binding, not the referent place.
     pub storage: Vec<Segment>,
     /// Original slot inside a function parameter, retained through projections.
@@ -114,6 +116,7 @@ impl PartialEq for LoanOrigin {
     fn eq(&self, other: &Self) -> bool {
         self.place == other.place
             && self.mutable == other.mutable
+            && self.borrowed_from == other.borrowed_from
             && self.storage == other.storage
             && self.parameter_storage == other.parameter_storage
     }
@@ -331,6 +334,42 @@ impl FlowLoanOrigins {
         let through_deref = segments
             .iter()
             .any(|segment| matches!(segment, Segment::Dereference));
+        if let Some(index) = segments.iter().position(|segment| {
+            matches!(segment, Segment::SliceIndex(_) | Segment::SliceDynamicIndex)
+        }) {
+            let prefix = &segments[..index];
+            let suffix = segments[index + 1..]
+                .iter()
+                .filter(|segment| !matches!(segment, Segment::Dereference))
+                .map(|segment| match segment {
+                    Segment::SliceIndex(index) => Segment::Index(*index),
+                    Segment::SliceDynamicIndex => Segment::DynamicIndex,
+                    segment => segment.clone(),
+                })
+                .collect::<Vec<_>>();
+            let mut places = Vec::new();
+            for origin in self.before(node, binding) {
+                if prefix.len() > origin.storage.len()
+                    || !prefix
+                        .iter()
+                        .zip(&origin.storage)
+                        .all(|(prefix, stored)| storage_slot_matches(prefix, stored))
+                {
+                    continue;
+                }
+                let mut place = origin.place.clone();
+                for segment in &origin.storage[prefix.len()..] {
+                    if matches!(segment, Segment::SliceHalf(_)) {
+                        place.segments.push(segment.clone());
+                    }
+                }
+                place.segments.extend(suffix.iter().cloned());
+                if !places.contains(&place) {
+                    places.push(place);
+                }
+            }
+            return places;
+        }
         let segments = segments
             .iter()
             .filter(|segment| !matches!(segment, Segment::Dereference))
@@ -511,6 +550,7 @@ impl FlowGraph {
                     place: Place::root(PlaceRoot::Parameter(BindingId(index))),
                     mutable: slot.mutable,
                     span: None,
+                    borrowed_from: None,
                     storage: slot.storage.clone(),
                     parameter_storage: Some(slot.storage.clone()),
                 });
@@ -1391,11 +1431,18 @@ impl FlowGraph {
                     let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
                         return Err(format!("typed flow borrow {value:?} is not a form"));
                     };
-                    if !matches!(head.as_str(), "borrow" | "borrow-mut")
-                        || (head == "borrow-mut") != *mutable
-                        || !matches!(children.len(), 2 | 3)
-                        || Place::from_expression(body, children[1]).as_ref() != Some(place)
-                    {
+                    let borrow_form = matches!(head.as_str(), "borrow" | "borrow-mut")
+                        && matches!(children.len(), 2 | 3)
+                        && (head == "borrow-mut") == *mutable;
+                    let slice_form = matches!(head.as_str(), "slice-idx" | "slice-mut-idx")
+                        && children.len() == 3
+                        && (head == "slice-mut-idx") == *mutable;
+                    let expected_place = if slice_form {
+                        Place::from_expression(body, *value)
+                    } else {
+                        Place::from_expression(body, children[1])
+                    };
+                    if !(borrow_form || slice_form) || expected_place.as_ref() != Some(place) {
                         return Err(format!("typed flow borrow {value:?} has invalid metadata"));
                     }
                     if let PlaceRoot::Local(binding) = place.root {
@@ -1985,6 +2032,17 @@ fn replace_projected_origins(
     }
 }
 
+fn reference_binding(body: &Body, id: NodeId) -> Option<BindingId> {
+    let PlaceRoot::Local(binding) = Place::from_expression(body, id)?.root else {
+        return None;
+    };
+    matches!(
+        body.bindings[binding.0].ty,
+        Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_)
+    )
+    .then_some(binding)
+}
+
 fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOrigin> {
     let node = &body.nodes[id.0];
     match &node.kind {
@@ -1996,10 +2054,22 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() == 2 =>
         {
             Place::from_expression(body, children[1]).map_or_else(Vec::new, |place| {
+                let borrowed_from = match &place.root {
+                    PlaceRoot::Local(binding)
+                        if matches!(
+                            body.bindings[binding.0].ty,
+                            Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_)
+                        ) =>
+                    {
+                        Some(*binding)
+                    }
+                    _ => None,
+                };
                 let places = resolve_known_referents(body, &place, state, &mut HashSet::new());
                 places
                     .into_iter()
                     .map(|place| LoanOrigin {
+                        borrowed_from,
                         place,
                         mutable: head == "borrow-mut",
                         span: node.span,
@@ -2083,20 +2153,31 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 "slice-of" | "slice-mut-of" | "slice-range" | "slice-idx" | "slice-mut-idx"
             ) =>
         {
-            children
+            let mut origins = children
                 .get(1)
                 .map(|source| value_loan_origins(body, *source, state))
-                .unwrap_or_default()
+                .unwrap_or_default();
+            let borrowed_from = children
+                .get(1)
+                .and_then(|source| reference_binding(body, *source));
+            for origin in &mut origins {
+                if borrowed_from.is_some() {
+                    origin.borrowed_from = borrowed_from;
+                }
+            }
+            origins
         }
         NodeKind::Form { head, children, .. }
             if head == "slice-mut-split" && children.len() == 3 =>
         {
             let source = value_loan_origins(body, children[1], state);
             let mut origins = Vec::with_capacity(source.len() * 2);
+            let borrowed_from = reference_binding(body, children[1]);
             for half in 0..2 {
                 for origin in &source {
                     let mut origin = origin.clone();
-                    origin.storage.insert(0, Segment::Tuple(half));
+                    origin.borrowed_from = borrowed_from;
+                    origin.storage.insert(0, Segment::SliceHalf(half));
                     merge_loan_origins(&mut origins, &[origin]);
                 }
             }
@@ -2349,17 +2430,28 @@ fn value_loan_origins_at_events(
             head.as_str(),
             "slice-of" | "slice-mut-of" | "slice-range" | "slice-idx" | "slice-mut-idx"
         ) {
-            return children.get(1).map_or_else(Vec::new, |source| {
+            let mut loans = children.get(1).map_or_else(Vec::new, |source| {
                 value_loan_origins_at_events(body, flow, origins, *source, state)
             });
+            let borrowed_from = children
+                .get(1)
+                .and_then(|source| reference_binding(body, *source));
+            for origin in &mut loans {
+                if borrowed_from.is_some() {
+                    origin.borrowed_from = borrowed_from;
+                }
+            }
+            return loans;
         }
         if head == "slice-mut-split" && children.len() == 3 {
             let source = value_loan_origins_at_events(body, flow, origins, children[1], state);
             let mut result = Vec::with_capacity(source.len() * 2);
+            let borrowed_from = reference_binding(body, children[1]);
             for half in 0..2 {
                 for origin in &source {
                     let mut origin = origin.clone();
-                    origin.storage.insert(0, Segment::Tuple(half));
+                    origin.borrowed_from = borrowed_from;
+                    origin.storage.insert(0, Segment::SliceHalf(half));
                     merge_loan_origins(&mut result, &[origin]);
                 }
             }
@@ -2552,6 +2644,7 @@ fn aggregate_slot(body: &Body, head: &str, children: &[NodeId], index: usize) ->
 
 fn storage_slot_matches(slot: &Segment, held: &Segment) -> bool {
     slot == held
+        || matches!((slot, held), (Segment::Tuple(wanted), Segment::SliceHalf(found)) if wanted == found)
         || matches!(
             (slot, held),
             (Segment::DynamicIndex, Segment::Index(_)) | (Segment::Index(_), Segment::DynamicIndex)
@@ -2577,15 +2670,15 @@ fn distribute_pattern_origins(
                 let nested = origins
                     .iter()
                     .filter_map(|origin| {
-                        if !origin
-                            .storage
-                            .first()
-                            .is_some_and(|held| storage_slot_matches(&slot, held))
-                        {
+                        let held = origin.storage.first()?;
+                        if !storage_slot_matches(&slot, held) {
                             return None;
                         }
                         let mut origin = origin.clone();
                         origin.storage.remove(0);
+                        if let Segment::SliceHalf(half) = held {
+                            origin.place.segments.push(Segment::SliceHalf(*half));
+                        }
                         Some(origin)
                     })
                     .collect::<Vec<_>>();
@@ -2984,6 +3077,22 @@ impl Builder<'_> {
                 );
                 let done = self.push(action, span, vec![next]);
                 self.expression(children[1], done, targets, None)
+            }
+            NodeKind::Form { head, children, .. }
+                if matches!(head.as_str(), "slice-idx" | "slice-mut-idx")
+                    && children.len() == 3 =>
+            {
+                let action = Place::from_expression(self.body, id).map_or(
+                    FlowAction::Evaluate(id),
+                    |place| FlowAction::Borrow {
+                        value: id,
+                        place,
+                        mutable: head == "slice-mut-idx",
+                    },
+                );
+                let done = self.push(action, span, vec![next]);
+                let index = self.expression(children[2], done, targets, None)?;
+                self.expression(children[1], index, targets, None)
             }
             NodeKind::Form { head, children, .. }
                 if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() == 3 =>
@@ -4207,7 +4316,7 @@ mod tests {
                 .then_some(FlowNodeId(index))
         }).unwrap();
         let index = graph.nodes.iter().enumerate().find_map(|(index, node)| {
-            matches!(node.action, FlowAction::Evaluate(id)
+            matches!(node.action, FlowAction::Borrow { value: id, .. }
                 if matches!(&body.nodes[id.0].kind, NodeKind::Form { head, .. } if head == "slice-mut-idx"))
                 .then_some(FlowNodeId(index))
         }).unwrap();
@@ -4531,6 +4640,7 @@ mod tests {
             place: Place::root(PlaceRoot::Local(BindingId(owner))),
             mutable: false,
             span: None,
+            borrowed_from: None,
             storage,
             parameter_storage: None,
         };
@@ -4961,7 +5071,9 @@ mod tests {
         let event = graph
             .nodes
             .iter()
-            .position(|node| matches!(node.action, FlowAction::Evaluate(id) if id == index))
+            .position(
+                |node| matches!(node.action, FlowAction::Borrow { value, .. } if value == index),
+            )
             .map(FlowNodeId)
             .unwrap();
         let held = value_loan_origins(body, index, origins.before[event.0].as_ref().unwrap());

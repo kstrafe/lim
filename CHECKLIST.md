@@ -1074,8 +1074,13 @@ the checklist is committed alongside the implementation it tracks.
   `#deref-set` through a checked reference or field place to a distinct typed
   write event, then rebase it to the referent for loan overlap checks. Preserve
   borrows of sibling fields and reject writes while a child borrow is live.
-  Mutable-slice element writes remain on the syntax checker path until slice
-  partition projections have structural place identities.
+
+- [x] **IR-04cm: Retain mutable split-slice halves in typed places.** Give
+  each split half a distinct place projection, preserve that projection when
+  destructuring the split tuple, and append element indices when resolving
+  `#slice-mut-idx` and `#deref-set` through each half. Verify distinct halves
+  remain disjoint in typed loan checking while each retains the original array
+  loan.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and

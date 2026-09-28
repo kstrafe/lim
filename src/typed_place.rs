@@ -13,6 +13,9 @@ pub(crate) enum Segment {
     Payload(VariantId, usize),
     Index(u128),
     DynamicIndex,
+    SliceHalf(usize),
+    SliceIndex(u128),
+    SliceDynamicIndex,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -78,6 +81,12 @@ impl Place {
                     "index" if children.len() == 3 => {
                         place.segments.push(index_segment(body, children[2]));
                     }
+                    "slice-idx" | "slice-mut-idx" if children.len() == 3 => {
+                        place.segments.push(match index_segment(body, children[2]) {
+                            Segment::Index(index) => Segment::SliceIndex(index),
+                            _ => Segment::SliceDynamicIndex,
+                        });
+                    }
                     _ => return None,
                 }
                 Some(place)
@@ -88,11 +97,6 @@ impl Place {
 
     pub fn from_dereference_write(body: &Body, target: NodeId) -> Option<Self> {
         if let NodeKind::Form { head, children, .. } = &body.nodes.get(target.0)?.kind {
-            if head == "slice-mut-idx" {
-                // Mutable split-slice elements carry a partition projection
-                // that is not yet represented by ordinary place segments.
-                return None;
-            }
             if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() >= 2 {
                 return Self::from_expression(body, children[1]);
             }
@@ -115,6 +119,8 @@ impl Place {
                     left == right
                         || matches!(left, Segment::DynamicIndex)
                         || matches!(right, Segment::DynamicIndex)
+                        || matches!(left, Segment::SliceDynamicIndex)
+                        || matches!(right, Segment::SliceDynamicIndex)
                 })
     }
 }
