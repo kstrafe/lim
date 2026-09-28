@@ -79,26 +79,27 @@ fn block_await_result(expression: &Expr) -> Option<Expr> {
         return None;
     }
     let await_form = form(&binding[3], "#await")?;
-    if await_form.len() != 6 {
+    let (result_type, protocol_start) = match await_form.len() {
+        6 => (binding[2].clone(), 1),
+        7 => (await_form[1].clone(), 2),
+        _ => return None,
+    };
+    if parse_type(Some(&normalize_keywords(result_type.clone()))).is_err() {
         return None;
     }
+    let task_index = await_form.len() - 1;
     let task = if await_binding_index == 1 {
-        await_form[5].clone()
+        await_form[task_index].clone()
     } else {
         let mut task_block = vec![Expr::Symbol("#block".into())];
         task_block.extend(block[1..await_binding_index].iter().cloned());
-        task_block.push(await_form[5].clone());
+        task_block.push(await_form[task_index].clone());
         Expr::List(task_block)
     };
-    Some(Expr::List(vec![
-        Expr::Symbol("#await".into()),
-        binding[2].clone(),
-        await_form[1].clone(),
-        await_form[2].clone(),
-        await_form[3].clone(),
-        await_form[4].clone(),
-        task,
-    ]))
+    let mut normalized = vec![Expr::Symbol("#await".into()), result_type];
+    normalized.extend(await_form[protocol_start..task_index].iter().cloned());
+    normalized.push(task);
+    Some(Expr::List(normalized))
 }
 
 struct BlockAwait {

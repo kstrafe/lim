@@ -1324,7 +1324,7 @@ fn async_function_lowers_await_in_terminal_binding_block() {
             (#block
               (#let task-input u64 17u64)
               (#let result u64
-                (#await Child ChildPending ChildReady child-poll (Waiting task-input)))
+                (#await u64 Child ChildPending ChildReady child-poll (Waiting task-input)))
               result)
             0u64)))))
       (#fn main () u64

@@ -1843,6 +1843,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   typed awaits in block-local `#set`/projected assignment values. Keep the
   mutable target live in the frame, execute the write only after Ready, and
   verify Pending/resume plus the generated mutable continuation parameter.
+- [x] **ASYNC-01b39: Preserve explicit await types in branch blocks.** Lower a
+  terminal binding block in an `#if`/`#match` arm when its `#await` includes an
+  explicit result type. Normalize the protocol without dropping the type and
+  verify branch-local setup and native Ready behavior.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
