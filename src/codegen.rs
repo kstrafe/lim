@@ -7659,7 +7659,8 @@ impl FunctionContext {
             }
         }
         if let Expr::Symbol(name) = value {
-            if let Ok(source_slots) = local_slots(&self.locals, name) {
+            if self.is_local_symbol_expression(value, name) {
+                let source_slots = self.local_slots_for_symbol(value, name)?;
                 if source_slots.len() == words {
                     for (index, source_slot) in source_slots.into_iter().enumerate() {
                         self.output.push_str(&format!(

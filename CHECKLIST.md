@@ -349,6 +349,11 @@ the checklist is committed alongside the implementation it tracks.
   when writing aggregate locals into indirect return storage. Keep global and
   synthesized expression handling on their existing paths.
 
+- [x] **IR-02w: Resolve indirect aggregate sources by identity.** In generic
+  indirect-value emission, select local source slots by checked `BindingId`
+  rather than spelling, preserving global and synthesized fallbacks. Cover
+  large aggregate returns through nested branches and blocks.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
