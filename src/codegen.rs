@@ -5876,8 +5876,7 @@ impl FunctionContext {
                     length,
                     element_words,
                 } = self
-                    .locals
-                    .get(name)
+                    .local_storage(name)
                     .ok_or_else(|| format!("unknown array '{name}'"))?
                 else {
                     return Err(format!("'{name}' is not an array"));
@@ -5885,7 +5884,7 @@ impl FunctionContext {
                 let base = *base;
                 let length = *length;
                 let element_words = *element_words;
-                let element_type = match self.local_types.get(name).cloned() {
+                let element_type = match self.local_type(name).cloned() {
                     Some(Type::Array(element, _)) => *element,
                     _ => return Err(format!("'{name}' is not an array")),
                 };

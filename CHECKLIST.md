@@ -405,6 +405,12 @@ the checklist is committed alongside the implementation it tracks.
   when lowering by-value arguments; preserve global and constructed enum paths.
   Cover ordinary and large payload enums.
 
+- [x] **IR-02ah: Resolve array-assignment storage by binding identity.** Route
+  `#set-index` target storage and element type through the checked local
+  binding map rather than the syntax-name maps. Preserve bounds checks,
+  aggregate element layout, and static/global paths. Exercise scalar and
+  multiword array mutation in native examples.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
