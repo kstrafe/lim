@@ -623,6 +623,25 @@ fn resolve_program(program: &Program) -> Result<Declarations, AnalysisError> {
     .map_err(|message| (message, diagnostic_code, diagnostic_span, diagnostic_labels))
 }
 
+fn ownership_diagnostic_subject(message: &str) -> Option<&str> {
+    message
+        .split_once('\'')?
+        .1
+        .split_once('\'')
+        .map(|(subject, _)| subject)
+}
+
+fn ownership_subjects_overlap(syntax_subject: &str, typed_subject: &str) -> bool {
+    syntax_subject == typed_subject
+        || [syntax_subject, typed_subject].into_iter().any(|longer| {
+            [syntax_subject, typed_subject].into_iter().any(|shorter| {
+                longer
+                    .strip_prefix(shorter)
+                    .is_some_and(|suffix| suffix.starts_with('.') || suffix.starts_with('['))
+            })
+        })
+}
+
 fn check_types_inner(
     program: &Program,
     diagnostic_code: &mut crate::DiagnosticCode,
@@ -1363,23 +1382,36 @@ fn check_types_inner(
             }
         }
     }
-    // The syntax checker has more specific explanations for overlapping
-    // cases (for example, the repeated field or index). Prefer that detail,
-    // while typed flow remains the fallback authority for cases it alone
-    // detects.
-    if let Err((message, span, labels)) = crate::linearcheck::check_program_with_span(
+    // Typed flow decides ownership validity first. When both analyses find an
+    // error, keep the syntax checker's more specific projection/branch prose;
+    // if only syntax finds one, it remains the compatibility fallback.
+    let syntax_linear_error = crate::linearcheck::check_program_with_span(
         program,
         checked_expression_types,
         expression_ids,
-    ) {
-        *diagnostic_span = span;
-        *diagnostic_labels = labels;
-        return Err(message);
-    }
+    )
+    .err();
     if let Some(error) = typed_linear_error {
+        if let Some((message, span, labels)) = syntax_linear_error {
+            let same_checked_subject = ownership_diagnostic_subject(&message)
+                .zip(ownership_diagnostic_subject(&error.message))
+                .is_some_and(|(syntax_subject, typed_subject)| {
+                    ownership_subjects_overlap(syntax_subject, typed_subject)
+                });
+            if same_checked_subject || span == error.span {
+                *diagnostic_span = span;
+                *diagnostic_labels = labels;
+                return Err(message);
+            }
+        }
         *diagnostic_span = error.span;
         *diagnostic_labels = error.labels;
         return Err(error.message);
+    }
+    if let Some((message, span, labels)) = syntax_linear_error {
+        *diagnostic_span = span;
+        *diagnostic_labels = labels;
+        return Err(message);
     }
     *diagnostic_code = crate::DiagnosticCode::Borrow;
     for item in &program.items {

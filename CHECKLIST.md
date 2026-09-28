@@ -498,6 +498,14 @@ the checklist is committed alongside the implementation it tracks.
   projection identities. Keep syntax diagnostics authoritative until typed
   transfer and exit diagnostics match their coverage and source precision.
 
+- [x] **IR-04c: Make typed flow authoritative for linear errors.** Evaluate
+  typed release, consumption, and exit obligations first. Use the syntax
+  checker only as a diagnostic refinement when it identifies the same checked
+  binding/projection, or as a fallback for a construct not yet modeled in
+  typed flow. Preserve precise spans and test branch, loop, and aggregate cases.
+  Refinement requires overlapping checked-place subjects or the same primary
+  source span. The full serial test suite passes.
+
 - [x] **IR-04cw: Preserve direct-borrow operator spans in typed diagnostics.**
   Map two-argument `#borrow` and `#borrow-mut` loan origins to the operator
   token, just as scoped borrows already do. Test the exact source slice so

@@ -1103,7 +1103,7 @@ impl FlowGraph {
                     };
                     return Err(ReleaseConflict {
                         message,
-                        span: node.span.or(binding_span),
+                        span: binding_span.or(node.span),
                         labels,
                     });
                 }
