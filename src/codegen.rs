@@ -9775,13 +9775,8 @@ impl FunctionContext {
             ));
             return Ok(());
         }
-        if let Some((enum_name, variant_fields)) =
-            self.enums.iter().find_map(|(enum_name, variants)| {
-                variants
-                    .iter()
-                    .find(|variant| variant.name == operator)
-                    .map(|variant| (enum_name.clone(), variant.fields.clone()))
-            })
+        if let Some((enum_name, variant_discriminant, variant_fields)) =
+            self.enum_variant_info(&items[0], operator)?
         {
             if items.len() - 1 != variant_fields.len() {
                 return Err(format!(
@@ -9789,15 +9784,6 @@ impl FunctionContext {
                     variant_fields.len()
                 ));
             }
-            let variant_index = self
-                .enums
-                .get(&enum_name)
-                .and_then(|variants| {
-                    variants
-                        .iter()
-                        .position(|candidate| candidate.name == operator)
-                })
-                .expect("validated enum variant");
             let mut variant_words = 0;
             for (value, field_type) in items[1..].iter().zip(&variant_fields) {
                 self.push_value_words(value, field_type, false)?;
@@ -9834,12 +9820,6 @@ impl FunctionContext {
                     VALUE_REGISTERS[index + 1]
                 ));
             }
-            let variant_discriminant = self
-                .enums
-                .get(&enum_name)
-                .and_then(|variants| variants.get(variant_index))
-                .expect("validated enum variant")
-                .discriminant;
             self.output.push_str(&format!(
                 "    mov rax, {}\n",
                 asm_u64_immediate(variant_discriminant)

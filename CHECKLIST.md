@@ -574,6 +574,12 @@ the checklist is committed alongside the implementation it tracks.
   generic-expression fallback only when the constructor is not a variant.
   Validate all native examples.
 
+- [x] **IR-02bd: Emit enum constructors by checked variant identity.** Resolve
+  constructor heads through `VariantId` and consume its owner, discriminant,
+  and payload types directly. Keep the enum's maximum payload layout for
+  register padding, without re-finding the selected variant by spelling.
+  Validate all native examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
