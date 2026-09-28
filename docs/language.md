@@ -352,9 +352,10 @@ exclusive access, preserve any displaced ownership they need, and ensure no
 derived references remain. Ordinary code should use safe field operations
 instead; safe code cannot replace a pinned referent.
 
-`#pin-set-field` is the checked field-wise alternative for shared-reference
-struct fields. It writes only that field, so an immutable reference can be established
-after the struct is pinned without moving the referent. The borrow checker
+`#pin-set-field` is the checked field-wise operation for scalar/fieldless-enum
+and shared-reference struct fields. It writes only that field, so a state tag
+can change independently and an immutable reference can be established after
+the struct is pinned without moving the referent. The borrow checker
 tracks the stored reference as part of the owner: it rejects overlapping field
 replacement and keeps the owner pinned and borrowed until the reference field
 is cleared. This operation is not a way to make a movable async frame
@@ -1582,7 +1583,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-read` | `(#pin-read pinned-reference)` | `(#unsafe (#pin-read pinned))` (expression) | Reads a pinned referent by value. Unsafe because the caller must prevent aliasing and must not duplicate ownership of linear data. |
 | `#pin-ref` | `(#pin-ref TargetType)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (type) | Shared pinned-reference type. It is distinct from an ordinary reference and keeps its referent immovable while the loan is live. |
 | `#pin-ref-mut` | `(#pin-ref-mut TargetType)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (type) | Exclusive pinned-reference type; it cannot be used to replace the complete referent. |
-| `#pin-set-field` | `(#pin-set-field pinned-reference field reference-value)` | `(#pin-set-field pinned next next-node)` (statement) | Replaces a reference-valued struct field in place through a mutable pinned reference. The field loan is checked independently; it does not move or replace the pinned struct. |
+| `#pin-set-field` | `(#pin-set-field pinned-reference field copy-or-shared-reference-value)` | `(#pin-set-field pinned state 2u32)` (statement) | Replaces one scalar/fieldless-enum or shared-reference struct field through a mutable pinned reference. The field loan is checked independently; it does not move or replace the pinned struct. |
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr u8) (#ptr-null (#ptr u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |

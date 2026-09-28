@@ -130,6 +130,95 @@ fn pin_set_field_initializes_and_releases_a_self_reference_in_place() {
 }
 
 #[test]
+fn pin_set_field_updates_disjoint_copy_state_while_a_field_is_borrowed() {
+    let source = "(#struct Pair ((value u64) (state u32)))
+      (#fn main () u64
+        (#let-mut pair Pair
+          (#struct-literal Pair ((value 40u64) (state 0u32))))
+        (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
+        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#pin-set-field pinned state 2u32)
+        (#let observed u64 (#deref view))
+        (#drop view)
+        (#let state u32 (#get pinned state))
+        (#drop pinned)
+        (#forget pair)
+        (#return (#u64.+.wrap observed (#as state u64))))";
+    let scratch = support::Scratch::new("pin-state-field-write");
+    let input = scratch.path().join("main.lim");
+    let binary = scratch.path().join("program");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary),
+        Duration::from_secs(20),
+        64 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+    assert_eq!(status.code(), Some(42), "{stderr:?}");
+}
+
+#[test]
+fn pin_set_field_cannot_write_the_referent_of_a_live_pin() {
+    let source = "(#struct Pair ((value u64) (state u32)))
+      (#fn main () ()
+        (#let-mut pair Pair
+          (#struct-literal Pair ((value 40u64) (state 0u32))))
+        (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
+        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#pin-set-field pinned value 41u64)
+        (#drop view)
+        (#drop pinned)
+        (#forget pair)
+        (#return ()))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "{error}"
+    );
+}
+
+#[test]
+fn pin_set_field_updates_a_fieldless_enum_state_in_place() {
+    let source = "(#enum State (Idle Running))
+      (#struct Pair ((value u64) (state State)))
+      (#fn main () u64
+        (#let-mut pair Pair
+          (#struct-literal Pair ((value 40u64) (state Idle))))
+        (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
+        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#pin-set-field pinned state Running)
+        (#let observed u64 (#deref view))
+        (#drop view)
+        (#let state State (#get pinned state))
+        (#drop pinned)
+        (#forget pair)
+        (#return (#u64.+.wrap observed (#as state u64))))";
+    let scratch = support::Scratch::new("pin-enum-state-field-write");
+    let input = scratch.path().join("main.lim");
+    let binary = scratch.path().join("program");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary),
+        Duration::from_secs(20),
+        64 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+    assert_eq!(status.code(), Some(41), "{stderr:?}");
+}
+
+#[test]
 fn pin_set_field_rejects_replacing_a_borrowed_reference_field() {
     let source = "(#struct Link ((value u64) (view (#pin-ref u64))))
       (#fn main () ()
@@ -168,7 +257,10 @@ fn pin_set_field_does_not_duplicate_mutable_references() {
         (#forget target)
         (#return ()))";
     let error = check(source).unwrap_err();
-    assert!(error.contains("shared reference field"), "{error}");
+    assert!(
+        error.contains("Copy scalar or shared-reference field"),
+        "{error}"
+    );
 }
 
 #[test]

@@ -10142,19 +10142,49 @@ impl FunctionContext {
                 }
                 let field_type = field_type
                     .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))?;
-                if !matches!(
-                    field_type,
-                    Type::Reference { mutable: false, .. }
+                let copy_scalar = matches!(
+                    &field_type,
+                    Type::Bool
+                        | Type::Char
+                        | Type::I8
+                        | Type::I16
+                        | Type::I32
+                        | Type::I64
+                        | Type::I128
+                        | Type::Isize
+                        | Type::U8
+                        | Type::U16
+                        | Type::U32
+                        | Type::U64
+                        | Type::U128
+                        | Type::Usize
+                        | Type::F32
+                        | Type::F64
+                        | Type::RawPointer { .. }
+                        | Type::Reference { mutable: false, .. }
                         | Type::PinnedReference { mutable: false, .. }
-                ) {
-                    return Err("pin-set-field may only replace a shared reference field".into());
+                ) || matches!(
+                    &field_type,
+                    Type::Named(name)
+                        if self.enums.get(name).is_some_and(|variants| {
+                            variants.iter().all(|variant| variant.fields.is_empty())
+                        })
+                );
+                if !copy_scalar {
+                    return Err(
+                        "pin-set-field requires a Copy scalar or shared-reference field".into(),
+                    );
                 }
                 self.emit_reference_field_address(&items[1], field_offset, false)?;
                 self.output.push_str("    push rax\n");
                 self.stack_depth += 1;
                 self.expression_as_expected(&items[3], &field_type)?;
-                self.output
-                    .push_str("    pop rcx\n    mov QWORD PTR [rcx], rax\n");
+                self.output.push_str("    pop rcx\n");
+                self.output.push_str(match field_type {
+                    Type::F32 => "    movd eax, xmm0\n    mov DWORD PTR [rcx], eax\n",
+                    Type::F64 => "    movq rax, xmm0\n    mov QWORD PTR [rcx], rax\n",
+                    _ => "    mov QWORD PTR [rcx], rax\n",
+                });
                 self.stack_depth -= 1;
                 Ok(())
             }

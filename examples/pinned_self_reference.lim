@@ -1,20 +1,22 @@
 ; Establish an internal field reference only after its owner is pinned.
 ; Replacing the reference with an external one ends the self-loan before drop.
-(#struct Link ((value u64) (view (#pin-ref u64))))
+(#struct Link ((value u64) (state u32) (view (#pin-ref u64))))
 
 (#fn main () u64
   (#let-mut outside u64 3u64)
   (#let external (#pin-ref u64) (#pin-borrow outside))
   (#let-mut link Link
-    (#struct-literal Link ((value 42u64) (view external))))
+    (#struct-literal Link ((value 42u64) (state 0u32) (view external))))
   (#let pinned (#pin-ref-mut Link) (#pin-borrow-mut link))
   (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
   (#pin-set-field pinned view view)
+  (#pin-set-field pinned state 2u32)
   (#let observed u64 (#deref view))
   (#pin-set-field pinned view external)
   (#drop view)
+  (#let state u32 (#get pinned state))
   (#drop pinned)
   (#forget link)
   (#drop external)
   (#forget outside)
-  (#return observed))
+  (#return (#u64.+.wrap observed (#as state u64))))

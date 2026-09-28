@@ -1746,6 +1746,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   native self-reference setup and a conflicting-projection diagnostic. This
   is only the borrow-checking primitive; async frame lowering must still emit
   stable slots and end internal loans during cancellation.
+- [x] **ASYNC-01c2b: Update pinned Copy control fields independently.** Permit
+  in-place writes to scalar/fieldless-enum fields and shared-reference fields
+  through a mutable pinned struct reference. Preserve field-sensitive loans so
+  a state tag can change while another field is borrowed, but a write to the
+  borrowed referent itself is rejected. Verify native state changes and both
+  disjoint/overlapping borrow cases. This is groundwork only; linear slot
+  transitions still need explicit Empty/Full state and move-out operations.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
