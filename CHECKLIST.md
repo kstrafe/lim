@@ -541,6 +541,12 @@ the checklist is committed alongside the implementation it tracks.
   scanning all enum declarations by spelling. Preserve name lookup only for
   synthesized syntax; verify stable owner metadata and native enum examples.
 
+- [x] **IR-02ax: Lower direct enum match arms by checked identity.** Resolve
+  unit and payload variant labels through the pattern's `VariantId`, use the
+  retained discriminant and payload types, and verify that the variant owner
+  matches the scrutinee enum. Keep or-pattern expansion as a separate lowering
+  path; preserve every native example and constructor/match identity coverage.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

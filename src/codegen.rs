@@ -8977,7 +8977,7 @@ impl FunctionContext {
             Expr::Symbol(name) if name == "true" => self.output.push_str("    mov eax, 1\n"),
             Expr::Symbol(name) if name == "false" => self.output.push_str("    xor eax, eax\n"),
             Expr::Symbol(name) if enum_variant.is_some() => {
-                let (enum_name, discriminant) = enum_variant.as_ref().unwrap();
+                let (enum_name, discriminant, _) = enum_variant.as_ref().unwrap();
                 self.output.push_str(&format!(
                     "    mov rax, {}\n",
                     asm_u64_immediate(*discriminant)
@@ -10247,13 +10247,19 @@ impl FunctionContext {
         &self,
         expression: &Expr,
         name: &str,
-    ) -> Result<Option<(String, u64)>, String> {
+    ) -> Result<Option<(String, u64, Vec<Type>)>, String> {
         if !self.expression_types.has_checked_identity(expression) {
             return Ok(self.enums.iter().find_map(|(enum_name, variants)| {
                 variants
                     .iter()
                     .find(|variant| variant.name == name)
-                    .map(|variant| (enum_name.clone(), variant.discriminant))
+                    .map(|variant| {
+                        (
+                            enum_name.clone(),
+                            variant.discriminant,
+                            variant.fields.clone(),
+                        )
+                    })
             }));
         }
         let metadata = checked_expression_metadata(expression, &self.expression_types)?
@@ -10280,7 +10286,11 @@ impl FunctionContext {
                         variant.name
                     ));
                 }
-                Ok(Some((enum_name.clone(), variant.discriminant)))
+                Ok(Some((
+                    enum_name.clone(),
+                    variant.discriminant,
+                    variant.fields.clone(),
+                )))
             }
             Some(_) => Ok(None),
             None if metadata.binding.is_some() => Ok(None),
@@ -10828,11 +10838,17 @@ impl FunctionContext {
         for arm in &items[2..] {
             let (pattern, guard, body) = match_arm_parts(arm)?;
             let next = self.label("match_next");
+            let variant_info = match pattern {
+                Expr::Symbol(name) if name != "_" => self.enum_variant_info(pattern, name)?,
+                Expr::List(parts) => match parts.first() {
+                    Some(Expr::Symbol(name)) => self.enum_variant_info(&parts[0], name)?,
+                    _ => None,
+                },
+                _ => None,
+            };
             let (variant_name, payload_patterns): (&str, Vec<&Expr>) = match pattern {
                 Expr::Symbol(pattern) if pattern == "_" => ("", Vec::new()),
-                Expr::Symbol(pattern) if self.enum_value(pattern).is_some() => {
-                    (pattern.as_str(), Vec::new())
-                }
+                Expr::Symbol(pattern) if variant_info.is_some() => (pattern.as_str(), Vec::new()),
                 Expr::List(pattern)
                     if pattern.len() >= 2
                         && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "or")
@@ -10971,7 +10987,7 @@ impl FunctionContext {
                     let Expr::Symbol(pattern_name) = &pattern[0] else {
                         return Err("match variant pattern must be a symbol".into());
                     };
-                    if self.enum_value(pattern_name).is_none() {
+                    if variant_info.is_none() {
                         return Err(format!("unknown enum variant '{pattern_name}'"));
                     }
                     (pattern_name.as_str(), pattern[1..].iter().collect())
@@ -11023,36 +11039,34 @@ impl FunctionContext {
                 _ => return Err("invalid scalar match pattern".into()),
             };
             if let Expr::Symbol(pattern) = pattern {
-                if pattern != "_" && self.enum_value(pattern).is_some() {
-                    let value = self.enum_value(pattern).unwrap();
-                    self.output.push_str(&format!(
-                        "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
-                        asm_u64_immediate(value)
-                    ));
+                if pattern != "_" {
+                    if let Some((_, value, _)) = &variant_info {
+                        self.output.push_str(&format!(
+                            "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
+                            asm_u64_immediate(*value)
+                        ));
+                    }
                 }
             } else if !variant_name.is_empty() {
-                let value = self
-                    .enum_value(variant_name)
+                let (_, value, _) = variant_info
+                    .as_ref()
                     .ok_or_else(|| "unknown enum variant".to_owned())?;
                 self.output.push_str(&format!(
                     "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
-                    asm_u64_immediate(value)
+                    asm_u64_immediate(*value)
                 ));
             }
             let payload_fields = if !variant_name.is_empty() {
+                let (enum_name, _, fields) = variant_info
+                    .as_ref()
+                    .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
                 let scrutinee_type = self
                     .expression_type(scrutinee)
                     .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
-                let Type::Named(enum_name) = scrutinee_type else {
-                    return Err("enum match scrutinee has no named type".into());
-                };
-                self.enums
-                    .get(&enum_name)
-                    .and_then(|variants| {
-                        variants.iter().find(|variant| variant.name == variant_name)
-                    })
-                    .map(|variant| variant.fields.clone())
-                    .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?
+                if scrutinee_type != Type::Named(enum_name.clone()) {
+                    return Err("internal error: checked match variant owner changed".into());
+                }
+                fields.clone()
             } else {
                 Vec::new()
             };
