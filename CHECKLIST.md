@@ -1082,6 +1082,12 @@ the checklist is committed alongside the implementation it tracks.
   remain disjoint in typed loan checking while each retains the original array
   loan.
 
+- [x] **IR-04cn: Preserve nested split-slice partition paths.** Repeatedly split
+  one mutable half, then prove writes through both child halves and the
+  untouched sibling resolve to three non-overlapping referents. Keep each
+  nested origin tied to the original array loan and pass typed live-loan
+  checking.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

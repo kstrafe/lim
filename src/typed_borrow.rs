@@ -1352,6 +1352,52 @@ mod tests {
     }
 
     #[test]
+    fn nested_split_slice_writes_keep_the_full_partition_path() {
+        let source = "(#fn main () u64
+            (#let-mut values (#array u64 8)
+              (#array-of (#array u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 8u64))
+            (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
+            (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64))
+              (#slice-mut-split view 4usize))
+            (#let (#tuple first second) (#tuple (#slice-mut u64) (#slice-mut u64))
+              (#slice-mut-split left 2usize))
+            (#deref-set (#slice-mut-idx first 0usize) 10u64)
+            (#deref-set (#slice-mut-idx second 0usize) 20u64)
+            (#deref-set (#slice-mut-idx right 0usize) 30u64)
+            (#forget first) (#forget second) (#forget right)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let flow = FlowGraph::lower(body).unwrap();
+        let origins = flow.loan_origins(body);
+        let writes = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| match &node.action {
+                FlowAction::Write { place, .. } => Some((FlowNodeId(index), place.clone())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(writes.len(), 3);
+        let referents = writes
+            .iter()
+            .map(|(event, place)| {
+                let PlaceRoot::Local(binding) = place.root else {
+                    unreachable!()
+                };
+                origins.projected_referents(*event, binding, &place.segments)
+            })
+            .collect::<Vec<_>>();
+        assert!(referents.iter().all(|places| places.len() == 1));
+        assert!(referents[0][0].overlaps(&referents[1][0]) == false);
+        assert!(referents[0][0].overlaps(&referents[2][0]) == false);
+        assert!(referents[1][0].overlaps(&referents[2][0]) == false);
+        check_live_direct_loans(body, &flow).unwrap();
+    }
+
+    #[test]
     fn scoped_borrow_conflicts_are_checked_on_typed_control_flow() {
         let source = "(#fn main () u64
             (#let-mut value u64 1u64)
