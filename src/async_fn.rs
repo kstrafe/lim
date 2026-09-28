@@ -573,6 +573,36 @@ fn extract_nested_awaits(
     next_name: &mut usize,
     waker: &str,
 ) -> Result<(), String> {
+    if let Some(items) = form(expression, "#if-let") {
+        if items.len() >= 4 && has_await(expression) {
+            let fallback = items
+                .get(4)
+                .cloned()
+                .unwrap_or_else(|| Expr::List(Vec::new()));
+            *expression = Expr::List(vec![
+                Expr::Symbol("#match".into()),
+                items[2].clone(),
+                Expr::List(vec![
+                    Expr::Symbol("#case".into()),
+                    items[1].clone(),
+                    items[3].clone(),
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("#case".into()),
+                    Expr::Symbol("_".into()),
+                    fallback,
+                ]),
+            ]);
+            return extract_nested_awaits(
+                expression,
+                generated,
+                generated_helpers,
+                source,
+                next_name,
+                waker,
+            );
+        }
+    }
     if let Expr::List(items) = expression {
         if items.len() == 3
             && matches!(items.first(), Some(Expr::Symbol(operator))

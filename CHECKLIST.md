@@ -1868,6 +1868,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   awaited guarded `#case` through conditional-task selection without evaluating
   its child unless both the pattern and `#when` guard match. Verify a rejected
   guard leaves a poll side effect untouched.
+- [x] **ASYNC-01b45: Preserve `#if-let` selection around awaits.** Lower an
+  awaited branch through an equivalent `#match`, so the success or fallback
+  expression is evaluated only after the typed pattern selects it. Verify
+  skipped and selected branches natively.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
