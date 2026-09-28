@@ -67,6 +67,8 @@ mod tests {
             emission.by_id[&expression_id].declaration,
             Some(declaration)
         );
+        let span = emission.by_id[&expression_id].span.unwrap();
+        assert_eq!(&source[span.start..span.end], "left");
     }
 
     #[test]
@@ -1072,6 +1074,7 @@ pub(crate) struct EmissionTypes {
 #[derive(Default)]
 pub(crate) struct EmissionNode {
     pub ty: Option<Type>,
+    pub span: Option<Span>,
     pub binding: Option<BindingId>,
     pub declaration: Option<DeclarationId>,
     pub literal: Option<Expr>,
@@ -1337,6 +1340,7 @@ impl Body {
                     expression_id,
                     EmissionNode {
                         ty: node.ty.clone(),
+                        span: node.span,
                         binding,
                         declaration,
                         literal,

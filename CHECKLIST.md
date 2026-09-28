@@ -531,6 +531,11 @@ the checklist is committed alongside the implementation it tracks.
   global identity rather than silently falling back to spelling; keep the
   narrow fallback for synthesized syntax.
 
+- [x] **IR-02av: Preserve expression spans in emission metadata.** Carry each
+  checked node's exact source span alongside its `ExpressionId` through the
+  backend bridge. Use retained locations in internal member-identity errors
+  and verify a field selector maps back to its exact source token.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

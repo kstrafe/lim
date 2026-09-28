@@ -5518,6 +5518,7 @@ fn checked_local_symbols_require_retained_types() {
     let legacy_type = Type::U64;
     let checked = crate::typed_body::EmissionNode {
         ty: None,
+        span: None,
         binding: Some(crate::typed_body::BindingId(0)),
         declaration: None,
         literal: None,
@@ -5713,6 +5714,7 @@ fn checked_numeric_expressions_require_retained_operations() {
     let head = Expr::Symbol("u64.+.wrap".into());
     let missing = crate::typed_body::EmissionNode {
         ty: Some(Type::U64),
+        span: None,
         binding: None,
         declaration: None,
         literal: None,
@@ -8875,10 +8877,14 @@ impl FunctionContext {
             return Err("get requires a field name".into());
         };
         if let Some(metadata) = self.expression_types.get(selector) {
+            let source_site = metadata
+                .span
+                .map(|span| format!(" at {}:{}", span.line, span.column))
+                .unwrap_or_default();
             let Some(crate::typed_ir::DeclarationId::Field(field_id)) = metadata.declaration else {
-                return Err(
-                    "internal error: checked struct field lost its declaration identity".into(),
-                );
+                return Err(format!(
+                    "internal error: checked struct field lost its declaration identity{source_site}"
+                ));
             };
             let owner = self
                 .expression_types
@@ -8888,17 +8894,17 @@ impl FunctionContext {
                     "internal error: checked field identity lost its aggregate owner".to_owned()
                 })?;
             if owner != struct_name {
-                return Err(format!(
-                    "internal error: checked field owner '{owner}' disagrees with struct '{struct_name}'"
-                ));
+                return Err(format!("internal error: checked field owner '{owner}' disagrees with struct '{struct_name}'{source_site}"));
             }
             let Some(field) = fields.get(field_id.index) else {
-                return Err("internal error: checked field index is out of bounds".into());
+                return Err(format!(
+                    "internal error: checked field index is out of bounds{source_site}"
+                ));
             };
             if field.name != *field_name {
                 return Err(format!(
-                    "internal error: checked field identity changed from '{}' to '{field_name}'",
-                    field.name
+                    "internal error: checked field identity changed from '{}' to '{field_name}'{source_site}",
+                    field.name,
                 ));
             }
             return Ok(field_id.index);
