@@ -1860,6 +1860,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   them in a `#while` whose condition awaits. Preserve body guarding for
   Ready(false), and reject nonterminal or unsupported transfers. Verify a
   native loop that continues once and then breaks.
+- [x] **ASYNC-01b43: Preserve boolean short-circuiting around awaits.** Lower
+  awaited right operands of `#bool.&&` and `#bool.||` through explicit branch
+  selection so an unselected child task is neither created nor polled. Verify
+  a skipped poll with a native side effect.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

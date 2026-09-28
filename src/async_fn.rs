@@ -563,6 +563,41 @@ fn extract_nested_awaits(
     next_name: &mut usize,
     waker: &str,
 ) -> Result<(), String> {
+    if let Expr::List(items) = expression {
+        if items.len() == 3
+            && matches!(items.first(), Some(Expr::Symbol(operator))
+                if matches!(operator.as_str(), "#bool.&&" | "bool.&&" | "#bool.||" | "bool.||"))
+            && has_await(&items[2])
+        {
+            let operator = match &items[0] {
+                Expr::Symbol(operator) => operator.as_str(),
+                _ => unreachable!(),
+            };
+            let is_and = operator.ends_with("&&");
+            *expression = Expr::List(vec![
+                Expr::Symbol("#if".into()),
+                items[1].clone(),
+                if is_and {
+                    items[2].clone()
+                } else {
+                    Expr::Symbol("true".into())
+                },
+                if is_and {
+                    Expr::Symbol("false".into())
+                } else {
+                    items[2].clone()
+                },
+            ]);
+            return extract_nested_awaits(
+                expression,
+                generated,
+                generated_helpers,
+                source,
+                next_name,
+                waker,
+            );
+        }
+    }
     if let Some(BlockAwait {
         mut prefix,
         binding,
