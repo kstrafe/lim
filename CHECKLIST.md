@@ -1599,6 +1599,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   pins, a native function return, exact UI diagnostics, and focused
   move/copy/reborrow/lifetime cases. Allocator-owned pin handles and
   self-reference initialization remain open under ASYNC-01a/01c.
+- [x] **ASYNC-01a3: Prove stack-pin owner scope and destruction.** Reject a
+  pinned reference (including one nested in an aggregate) escaping the
+  function that owns its stack place. Reject explicit destruction of a pinned
+  owner until every derived pin is ended, then allow destruction. Cover direct
+  and projected pins, function returns, and scope-exit diagnostics; allocator-
+  backed pin handles remain a separate requirement.
 - [ ] **ASYNC-01b: Lower async functions to concrete poll state machines.**
   Extend the initial `@async-fn` lowering beyond sequential immutable `#let`
   bindings. Support control-flow joins, mutable locals, and expression-level

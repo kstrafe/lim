@@ -97,6 +97,62 @@ fn dropping_the_pin_releases_the_referent() {
 }
 
 #[test]
+fn a_stack_pin_cannot_escape_its_owner_function() {
+    let source = "(#fn make-pin () (#pin-ref u64)
+      (#let owner u64 7u64)
+      (#return (#pin-borrow owner)))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("outlive") || error.contains("return"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_stack_pin_cannot_escape_inside_an_aggregate() {
+    let source = "(#struct Holder ((value (#pin-ref u64))))
+      (#fn make-holder () Holder
+        (#let owner u64 7u64)
+        (#let pinned (#pin-ref u64) (#pin-borrow owner))
+        (#return (#struct-literal Holder ((value pinned)))))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("outlive") || error.contains("return"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_pinned_owner_cannot_be_destroyed_until_its_pin_is_dropped() {
+    let source = "(#struct Resource ((value u64)))
+      (#linear Resource)
+      (#fn main () u64
+        (#let owner Resource (#struct-literal Resource ((value 7u64))))
+        (#let pinned (#pin-ref Resource) (#pin-borrow owner))
+        (#drop owner)
+        (#drop pinned)
+        (#return 0u64))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("pinned"),
+        "{error}"
+    );
+}
+
+#[test]
+fn dropping_a_pin_allows_its_linear_owner_to_be_destroyed() {
+    let source = "(#struct Resource ((value u64)))
+      (#linear Resource)
+      (#fn main () u64
+        (#let owner Resource (#struct-literal Resource ((value 7u64))))
+        (#let pinned (#pin-ref Resource) (#pin-borrow owner))
+        (#drop pinned)
+        (#drop owner)
+        (#return 0u64))";
+    check(source).unwrap();
+}
+
+#[test]
 fn a_pin_stays_effective_when_stored_in_an_aggregate() {
     let source = "(#fn main () u64
       (#let owner u64 7u64)
