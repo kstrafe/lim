@@ -1716,6 +1716,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   concrete tagged choice task with per-branch polling and preserve each child
   across Pending/resume. Reject branches with incompatible result types; test
   distinct protocols natively across both Pending/resume and immediate Ready.
+- [x] **ASYNC-01b16: Lower awaits in terminal binding blocks of branches.**
+  Recognize a branch block consisting of one immutable binding initialized by
+  `#await` and yielding that binding. Preserve the binding's explicit result
+  type while lowering the branch through the existing concrete choice task;
+  verify an awaited branch natively alongside an immediate branch. Arbitrary
+  post-await block continuations and loop suspension remain open.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

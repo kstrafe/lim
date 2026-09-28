@@ -57,6 +57,38 @@ fn has_await(expr: &Expr) -> bool {
     }
 }
 
+/// Treat a block that only binds an await result and yields that binding as
+/// the corresponding explicitly typed await expression. This keeps the block
+/// result's declared type available when a conditional chooses between that
+/// suspension and another branch.
+fn block_await_result(expression: &Expr) -> Option<Expr> {
+    let block = form(expression, "#block")?;
+    if block.len() != 3 {
+        return None;
+    }
+    let binding = form(&block[1], "#let")?;
+    if binding.len() != 4 {
+        return None;
+    }
+    let binding_name = symbol(&binding[1], "binding name").ok()?;
+    if !matches!(&block[2], Expr::Symbol(name) if name == binding_name) {
+        return None;
+    }
+    let await_form = form(&binding[3], "#await")?;
+    if await_form.len() != 6 {
+        return None;
+    }
+    Some(Expr::List(vec![
+        Expr::Symbol("#await".into()),
+        binding[2].clone(),
+        await_form[1].clone(),
+        await_form[2].clone(),
+        await_form[3].clone(),
+        await_form[4].clone(),
+        await_form[5].clone(),
+    ]))
+}
+
 #[derive(Clone, PartialEq)]
 struct AwaitProtocol {
     result_type: Expr,
@@ -67,6 +99,9 @@ struct AwaitProtocol {
 }
 
 fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>, String> {
+    if let Some(normalized) = block_await_result(expression) {
+        return conditional_await(&normalized);
+    }
     if let Some(await_form) = form(expression, "#await") {
         if await_form.len() != 7 {
             return Err(
@@ -587,9 +622,6 @@ fn extract_statement_awaits(
     if !has_await(statement) {
         return Ok(());
     }
-    if is_control_flow_statement(statement) {
-        return Err("@async-fn awaits inside #if/#match/#block are not lowered yet".into());
-    }
     if let Some(items) = form(statement, "#let")
         .or_else(|| form(statement, "#let-mut"))
         .or_else(|| form(statement, "let"))
@@ -904,9 +936,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             } else if is_control_flow_statement(statement) {
                 prefix.push(expression_source(statement)?);
             } else {
-                return Err(format!(
-                    "@async-fn between #await forms supports explicit bindings, mutable assignments, #deref-set, and #if/#match/#block forms: {statement:?}"
-                ));
+                prefix.push(expression_source(statement)?);
             }
             continue;
         }

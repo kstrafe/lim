@@ -932,7 +932,7 @@ fn async_function_rejects_assignment_to_immutable_capture() {
 }
 
 #[test]
-fn async_function_reports_nested_await_as_unsupported_control_flow() {
+fn async_function_lowers_await_in_terminal_binding_block() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
@@ -946,12 +946,18 @@ fn async_function_reports_nested_await_as_unsupported_control_flow() {
                 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
               result)
             0u64)
-          (#return 0u64))))";
-    let error = lim::parse_program(source).unwrap_err();
-    assert!(
-        error.contains("awaits inside #if/#match/#block are not lowered"),
-        "{error}"
-    );
+          (#return 0u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let outcome Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let value u64
+          (#match outcome
+            (#case (Ready ready) ready)
+            (#case (Pending task) (#block (#forget task) (#unreachable)))))
+        (#forget waker)
+        (#return value))";
+    let generated = build_and_run(source, 0);
+    assert!(generated.contains(".choice-"), "{generated}");
 }
 
 #[test]
