@@ -44,7 +44,8 @@ fn build_and_run(source: &str, expected: i32) -> String {
     )
     .unwrap();
     let generated_sources = fs::read_dir(scratch.path().join(".lim/cache"))
-        .unwrap()
+        .into_iter()
+        .flatten()
         .filter_map(Result::ok)
         .filter(|entry| {
             entry
@@ -1075,13 +1076,51 @@ fn async_function_resumes_child_await_inside_for_with_existing_counter() {
 }
 
 #[test]
-fn async_function_rejects_for_initializer_bindings_with_awaits() {
+fn async_function_resumes_child_await_inside_for_with_local_initializer() {
+    let source = "(#struct Child ((iteration u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-value ((iteration u64)) u64 (#return iteration))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#let value u64 (#get task iteration))
+        (#return (#if (#u64.== value 0u64)
+          (ChildPending (#struct-literal Child ((iteration 1u64))))
+          (ChildReady value))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#for (#let-mut iteration u64 0u64)
+                (#u64.< iteration 2u64)
+                (#set iteration (#u64.+.wrap iteration 1u64))
+            (#let result u64
+              (#await Child ChildPending ChildReady child-poll
+                (#struct-literal Child ((iteration
+                  (#call child-value (: iteration iteration))))))))
+          (#let iteration u64 42u64)
+          (#return iteration))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending pending-again)
+              (#block (#forget pending-again) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("-wait"), "{generated}");
+}
+
+#[test]
+fn async_function_rejects_for_initializer_shadowing() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
         (#return (ChildReady 1u64)))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
+          (#let-mut iteration u64 5u64)
           (#for (#let-mut iteration u64 0u64)
                 (#u64.< iteration 2u64)
                 (#set iteration (#u64.+.wrap iteration 1u64))
@@ -1101,7 +1140,7 @@ fn async_function_rejects_for_initializer_bindings_with_awaits() {
     assert!(
         diagnostic
             .message
-            .contains("initializer bindings remain scoped to the source loop"),
+            .contains("shadowing is not allowed"),
         "{diagnostic:?}"
     );
 }

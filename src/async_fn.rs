@@ -1132,25 +1132,61 @@ fn lower_async_for(
             "@async-fn #for await cannot suspend in its initializer, condition, or step".into(),
         );
     }
-    if matches!(
-        initializer,
-        Expr::List(parts)
-            if matches!(parts.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#let" | "#let-mut" | "#let-else"))
-    ) {
-        return Err(
-            "@async-fn #for await currently requires an existing counter; initializer bindings remain scoped to the source loop".into(),
+    let mut loop_known = known.clone();
+    let mut loop_order = known_order.to_vec();
+    let mut initializer_statement = initializer.clone();
+    let mut condition = items[2].clone();
+    let mut step = items[3].clone();
+    let mut loop_body = items[4..].to_vec();
+    if form(initializer, "#let-else").is_some() {
+        return Err("@async-fn #for await does not support #let-else initializers".into());
+    }
+    if let Some(init_form) = form(initializer, "#let").or_else(|| form(initializer, "#let-mut")) {
+        let local = binding(initializer, "for initializer")?;
+        if known.contains_key(&local.name) {
+            return Err(format!(
+                "@async-fn #for initializer '{}' shadows an existing name",
+                local.name
+            ));
+        }
+        let generated_name = fresh_async_name(source, next_name);
+        rename_async_value(&mut condition, &local.name, &generated_name);
+        rename_async_value(&mut step, &local.name, &generated_name);
+        for expression in &mut loop_body {
+            rename_async_value(expression, &local.name, &generated_name);
+        }
+        loop_known.insert(
+            generated_name.clone(),
+            Binding {
+                name: generated_name.clone(),
+                ty: local.ty.clone(),
+                mutable: local.mutable,
+            },
         );
+        loop_order.push(generated_name.clone());
+        initializer_statement = Expr::List(vec![
+            Expr::Symbol(
+                if form(initializer, "#let-mut").is_some() {
+                    "#let-mut"
+                } else {
+                    "#let"
+                }
+                .into(),
+            ),
+            Expr::Symbol(generated_name),
+            Expr::Symbol(local.ty),
+            init_form[3].clone(),
+        ]);
     }
 
-    let mut while_items = vec![Expr::Symbol("#while".into()), items[2].clone()];
-    while_items.extend(items[4..].iter().cloned());
-    while_items.push(items[3].clone());
+    let mut while_items = vec![Expr::Symbol("#while".into()), condition];
+    while_items.extend(loop_body);
+    while_items.push(step);
     let lowered_loop = Expr::List(while_items);
     let Some((mut replacement, helper)) = lower_async_while(
         &lowered_loop,
-        known,
-        known_order,
+        &loop_known,
+        &loop_order,
         following,
         return_value,
         source,
@@ -1161,7 +1197,7 @@ fn lower_async_for(
         return Err("@async-fn failed to lower awaited #for".into());
     };
     if !matches!(initializer, Expr::List(items) if items.is_empty()) {
-        replacement.insert(0, initializer.clone());
+        replacement.insert(0, initializer_statement);
     }
     Ok(Some((replacement, helper)))
 }
@@ -1806,4 +1842,129 @@ fn collect_named_values(expr: &Expr, names: &mut HashSet<String>) {
         }
     }
     collect_value_names(expr, names);
+}
+
+fn rename_named_values(expr: &mut Expr, from: &str, to: &str) {
+    if let Expr::List(items) = expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if head == ":") {
+            for value in items.iter_mut().skip(2).step_by(2) {
+                rename_async_value(value, from, to);
+            }
+            return;
+        }
+    }
+    rename_async_value(expr, from, to);
+}
+
+/// Rename a value reference without rewriting declaration names, type names,
+/// field labels, function names, or named-argument keys.
+fn rename_async_value(expr: &mut Expr, from: &str, to: &str) {
+    match expr {
+        Expr::Symbol(name) if name == from => *name = to.to_owned(),
+        Expr::List(items) => {
+            let Some(Expr::Symbol(head)) = items.first() else {
+                for item in items {
+                    rename_async_value(item, from, to);
+                }
+                return;
+            };
+            match head.as_str() {
+                "#quote" | "quote" | "#quasiquote" | "quasiquote" => {}
+                "#call" | "call" => {
+                    if let Some(arguments) = items.get_mut(2) {
+                        rename_named_values(arguments, from, to);
+                    }
+                }
+                "#let" | "#let-mut" | "let" | "let-mut" if items.len() >= 4 => {
+                    rename_async_value(&mut items[3], from, to);
+                }
+                "#let-else" | "let-else" if items.len() >= 5 => {
+                    rename_async_value(&mut items[3], from, to);
+                    rename_async_value(&mut items[4], from, to);
+                }
+                "#await" if items.len() >= 6 => {
+                    rename_async_value(&mut items[5], from, to);
+                }
+                "#struct-literal" if items.len() >= 3 => {
+                    if let Expr::List(fields) = &mut items[2] {
+                        for field in fields {
+                            if let Expr::List(pair) = field {
+                                if let Some(value) = pair.get_mut(1) {
+                                    rename_async_value(value, from, to);
+                                }
+                            }
+                        }
+                    }
+                }
+                "#get" | "get" | "#get-payload" | "get-payload" if items.len() >= 2 => {
+                    rename_async_value(&mut items[1], from, to);
+                }
+                "#set" | "set" if items.len() >= 3 => {
+                    rename_async_value(&mut items[1], from, to);
+                    rename_async_value(&mut items[2], from, to);
+                }
+                "#set-field" | "set-field" if items.len() >= 4 => {
+                    rename_async_value(&mut items[1], from, to);
+                    rename_async_value(&mut items[3], from, to);
+                }
+                "#set-index" | "set-index" if items.len() >= 4 => {
+                    for item in &mut items[1..4] {
+                        rename_async_value(item, from, to);
+                    }
+                }
+                "#match" | "match" => {
+                    for item in items.iter_mut().skip(1) {
+                        rename_async_value(item, from, to);
+                    }
+                }
+                "#case" | "case" => {
+                    for item in items.iter_mut().skip(2) {
+                        rename_async_value(item, from, to);
+                    }
+                }
+                "#literal" if items.len() >= 3 => {
+                    rename_async_value(&mut items[2], from, to);
+                }
+                _ => {
+                    for item in items.iter_mut().skip(1) {
+                        rename_named_values(item, from, to);
+                    }
+                }
+            }
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            for statement in statements {
+                match statement {
+                    crate::Statement::Let { value, .. }
+                    | crate::Statement::Expr(value)
+                    | crate::Statement::Return(Some(value))
+                    | crate::Statement::BreakValue(value)
+                    | crate::Statement::BreakToValue { value, .. } => {
+                        rename_async_value(value, from, to);
+                    }
+                    crate::Statement::Assign { name, value }
+                    | crate::Statement::ArrayAssign { name, value, .. }
+                    | crate::Statement::FieldAssign { name, value, .. }
+                    | crate::Statement::TupleAssign { name, value, .. }
+                    | crate::Statement::EnumPayloadAssign { name, value, .. } => {
+                        if name == from {
+                            *name = to.to_owned();
+                        }
+                        rename_async_value(value, from, to);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => rename_async_value(expression, from, to),
+        Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::At => {}
+        Expr::Symbol(_)
+        | Expr::Integer(_)
+        | Expr::UnsignedInteger(_)
+        | Expr::Float(_)
+        | Expr::Char(_)
+        | Expr::String(_) => {}
+    }
 }

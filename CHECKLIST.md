@@ -1758,9 +1758,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Preserve initializer execution, condition, and step ordering by lowering a
   `#for` that mutates an already-declared counter to the resumable loop state
   machine. Execute the step only after the awaited child is Ready; retain the
-  counter across Pending. Reject initializer-local bindings until their source
-  scope can be preserved. Verify native Pending/resume over multiple iterations
+  counter across Pending. Verify native Pending/resume over multiple iterations
   and keep a focused diagnostic for `#loop`.
+- [x] **ASYNC-01b23: Preserve `#for` initializer binding scope.**
+  Support a local `#let`/`#let-mut` in the `#for` initializer by assigning it
+  a fresh internal name and rewriting only its value references in the loop
+  condition, step, and body. Keep type names, field labels, call names, and
+  named-argument keys untouched. Reject collisions with visible source names
+  and verify native Pending/resume across multiple iterations.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
