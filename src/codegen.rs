@@ -15077,17 +15077,14 @@ impl FunctionContext {
                     length: local_length,
                     element_words,
                 } = self
-                    .locals
-                    .get(local)
+                    .local_storage_for_symbol(value, local)?
                     .ok_or_else(|| format!("unknown array local '{local}'"))?
                 else {
                     return Err(format!("'{local}' is not an array"));
                 };
-                if local_length != length {
+                if local_length != *length {
                     return Err("array argument length mismatch".into());
                 }
-                let base = *base;
-                let element_words = *element_words;
                 let length = *length;
                 let indices: Box<dyn Iterator<Item = usize>> = if reverse {
                     Box::new((0..length).rev())
@@ -15195,8 +15192,7 @@ impl FunctionContext {
                     return Ok(());
                 }
                 let Storage::Tuple(slots) = self
-                    .locals
-                    .get(local)
+                    .local_storage_for_symbol(value, local)?
                     .ok_or_else(|| format!("unknown tuple local '{local}'"))?
                 else {
                     return Err(format!("'{local}' is not a tuple"));
@@ -15311,8 +15307,7 @@ impl FunctionContext {
                         return Ok(());
                     }
                     let Storage::Struct(slots) = self
-                        .locals
-                        .get(local)
+                        .local_storage_for_symbol(value, local)?
                         .ok_or_else(|| format!("unknown struct local '{local}'"))?
                     else {
                         return Err(format!("'{local}' is not a struct"));

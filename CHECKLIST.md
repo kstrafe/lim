@@ -427,6 +427,12 @@ the checklist is committed alongside the implementation it tracks.
   referenced, and constructed projection paths; test scalar and multiword
   field reads.
 
+- [x] **IR-02al: Resolve aggregate call arguments by binding identity.**
+  Push local array, tuple, and struct arguments from storage selected by the
+  checked value expression's binding ID. Preserve global and constructed
+  values, argument evaluation order, and ABI word order; test narrow and
+  multiword argument layouts.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
