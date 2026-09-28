@@ -591,6 +591,11 @@ the checklist is committed alongside the implementation it tracks.
   verify the owner enum, and store the retained discriminant and field layout.
   Preserve aggregate/thread native coverage.
 
+- [x] **IR-02bg: Store unit enum values in aggregate slots by identity.**
+  Resolve checked unit variants through `VariantId` when writing indirect
+  aggregate storage, validate the owning enum, and zero the remaining payload
+  words. Preserve native enum and aggregate examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

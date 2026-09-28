@@ -14281,19 +14281,24 @@ impl FunctionContext {
                 return Ok(());
             }
             if let Type::Named(enum_name) = ty {
-                if let Some(variants) = self.enums.get(enum_name) {
-                    if let Some(variant) = variants.iter().find(|variant| variant.name == *name) {
-                        self.output.push_str(&format!(
-                            "    mov QWORD PTR [rbp-{}], {}\n",
-                            slots[0] * 8,
-                            variant.discriminant
-                        ));
-                        for slot in &slots[1..] {
-                            self.output
-                                .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
-                        }
-                        return Ok(());
+                if let Some((variant_owner, discriminant, _)) =
+                    self.enum_variant_info(value, name)?
+                {
+                    if variant_owner != *enum_name {
+                        return Err(
+                            "internal error: checked indirect enum value owner changed".into()
+                        );
                     }
+                    self.output.push_str(&format!(
+                        "    mov QWORD PTR [rbp-{}], {}\n",
+                        slots[0] * 8,
+                        discriminant
+                    ));
+                    for slot in &slots[1..] {
+                        self.output
+                            .push_str(&format!("    mov QWORD PTR [rbp-{}], 0\n", slot * 8));
+                    }
+                    return Ok(());
                 }
             }
         }
