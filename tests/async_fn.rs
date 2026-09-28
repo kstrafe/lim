@@ -1493,6 +1493,16 @@ fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
         (#forget waker)
         (#return (#if (#u64.== value 10u64) 42u64 0u64)))";
     build_and_run(source, 42);
+    let break_source = source.replace(
+        "(#set iteration payload)",
+        "(#block (#set iteration payload) (#break))",
+    );
+    build_and_run(&break_source, 42);
+    let continue_source = source.replace(
+        "(#set iteration payload)",
+        "(#block (#set iteration payload) (#continue))",
+    );
+    build_and_run(&continue_source, 42);
 }
 
 #[test]

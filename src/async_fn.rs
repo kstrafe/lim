@@ -1074,8 +1074,9 @@ fn lower_async_while(
             if items[3..].iter().any(has_await) {
                 return Err("@async-fn #while-let body cannot also suspend yet".into());
             }
-            if items[3..].iter().any(contains_loop_control) {
-                return Err("@async-fn #while-let body cannot transfer loop control yet".into());
+            let terminal_index = items.len() - 1;
+            if items[3..terminal_index].iter().any(contains_loop_control) {
+                return Err("@async-fn #while-let transfers must be terminal statements".into());
             }
 
             let result_name = fresh_async_name(source, next_name);
@@ -1091,21 +1092,26 @@ fn lower_async_while(
                 await_form[1].clone(),
                 normalized_await,
             ]);
+            let mut matched_body = vec![Expr::Symbol("#block".into())];
+            matched_body.extend(items[3..].iter().cloned());
+            if matched_body.len() > 1
+                && contains_loop_control(matched_body.last().expect("non-empty matched body"))
+            {
+                rewrite_while_let_terminal(
+                    matched_body.last_mut().expect("non-empty matched body"),
+                    &stopped_name,
+                )?;
+            }
             let success_body = Expr::List(vec![
                 Expr::Symbol("#block".into()),
                 Expr::List(vec![
                     Expr::Symbol("#match".into()),
                     Expr::Symbol(result_name),
-                    Expr::List(vec![Expr::Symbol("#case".into()), items[1].clone(), {
-                        let mut body = vec![Expr::Symbol("#block".into())];
-                        body.extend(items[3..].iter().cloned());
-                        body.push(Expr::List(vec![
-                            Expr::Symbol("#set".into()),
-                            Expr::Symbol(stopped_name.clone()),
-                            Expr::Symbol("false".into()),
-                        ]));
-                        Expr::List(body)
-                    }]),
+                    Expr::List(vec![
+                        Expr::Symbol("#case".into()),
+                        items[1].clone(),
+                        Expr::List(matched_body),
+                    ]),
                     Expr::List(vec![
                         Expr::Symbol("#case".into()),
                         Expr::Symbol("_".into()),
@@ -1872,6 +1878,67 @@ fn contains_loop_control(expression: &Expr) -> bool {
         | Expr::UnquoteSplicing(expression) => contains_loop_control(expression),
         _ => false,
     }
+}
+
+fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bool, String> {
+    if let Some(items) = form(expression, "#break") {
+        if items.len() != 1 {
+            return Err(
+                "@async-fn awaited #while-let does not support value-bearing #break".into(),
+            );
+        }
+        *expression = Expr::List(vec![
+            Expr::Symbol("#block".into()),
+            Expr::List(vec![
+                Expr::Symbol("#set".into()),
+                Expr::Symbol(stopped.into()),
+                Expr::Symbol("true".into()),
+            ]),
+            Expr::List(Vec::new()),
+        ]);
+        return Ok(true);
+    }
+    if let Some(items) = form(expression, "#continue") {
+        if items.len() != 1 {
+            return Err("@async-fn awaited #while-let does not support labeled #continue".into());
+        }
+        *expression = Expr::List(vec![
+            Expr::Symbol("#set".into()),
+            Expr::Symbol(stopped.into()),
+            Expr::Symbol("false".into()),
+        ]);
+        return Ok(true);
+    }
+    if let Some(items) = form(expression, "#if") {
+        if items.len() != 4 {
+            return Err("@async-fn awaited #while-let requires a complete terminal #if".into());
+        }
+        let mut transferred = false;
+        for branch_index in [2, 3] {
+            let branch = &mut expression_list_mut(expression)[branch_index];
+            if contains_loop_control(branch) {
+                transferred |= rewrite_while_let_terminal(branch, stopped)?;
+            }
+        }
+        return Ok(transferred);
+    }
+    if let Some(items) = form(expression, "#block") {
+        if items.len() < 2 {
+            return Ok(false);
+        }
+        if items[1..items.len() - 1].iter().any(contains_loop_control) {
+            return Err("@async-fn awaited #while-let transfers must be terminal".into());
+        }
+        let last = items.len() - 1;
+        return rewrite_while_let_terminal(&mut expression_list_mut(expression)[last], stopped);
+    }
+    if contains_loop_control(expression) {
+        return Err(
+            "@async-fn awaited #while-let only supports terminal #break/#continue or #if branches"
+                .into(),
+        );
+    }
+    Ok(false)
 }
 
 /// Preserve a C-style for-loop step when its final body form transfers control.

@@ -1884,6 +1884,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   an awaited condition loop, run the step before `#continue`, skip it on
   `#break`, and keep it on normal/continuing `#if` branches. Verify Pending,
   continue, break, and final counter natively.
+- [x] **ASYNC-01b49: Preserve terminal transfers in awaited `#while-let`.**
+  Rewrite body `#break`, `#continue`, and terminal `#if` transfers into the
+  generated stop state, so control remains in the loop across Pending/resume.
+  Verify both transfers with matching and non-matching awaited results.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
