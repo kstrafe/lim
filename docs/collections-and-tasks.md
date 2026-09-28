@@ -302,8 +302,9 @@ movable frame API; `examples/async_fn_pinned.lim` shows in-place Pending/resume
 and cancellation; `examples/async_fn_two_awaits.lim` exercises sequential
 awaits. These lowerings do not themselves add a scheduler or OS readiness.
 The explicit `wake_ready4` protocol can prevent lost wakes when used around
-polling. `examples/async_fn_while_condition.lim` demonstrates a boolean
-condition that suspends, resumes, and skips the loop body on Ready(false).
+polling. `examples/async_fn_while_condition.lim` carries a mutable counter
+through Pending, advances it after Ready(true), then skips the body on
+Ready(false).
 
 ## Cancellation and threads
 

@@ -1797,8 +1797,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   body, and re-evaluate by polling a fresh child on the next iteration after
   Ready(true). Keep compound awaited conditions, a second suspension in the
   body, and loop transfers from the body rejected until their control-flow
-  joins are represented explicitly. Verify Pending followed by Ready(false)
-  natively with a body assertion proving it was skipped.
+  joins are represented explicitly. Verify Pending, repeated Ready(true)
+  iterations, and final Ready(false) natively while carrying a mutable counter.
+- [x] **ASYNC-01b29: Preserve mutable loop captures across condition awaits.**
+  Carry a mutable value into each condition child, preserve it through Pending,
+  update it in the body only after Ready(true), and return it after the false
+  condition. Exercise oversized generated state and poll enums through
+  indirect ABI storage in a native example.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
