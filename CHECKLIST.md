@@ -1773,9 +1773,17 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-01b25: Return mutable scalar captures after awaited loops.**
   If a mutable Copy scalar is changed by the loop and used by the continuation,
   include it in the generated Ready payload and restore it after `#await`.
-  Preserve explicit diagnostics for unsupported non-Copy or immutable outputs.
   Verify a loop increments a captured counter over Pending and Ready iterations
   and the caller observes the final value.
+- [x] **ASYNC-01b26: Return linear captures after awaited loops.** Carry a
+  mutated live-after `#linear` value in the generated Ready payload, move it
+  back into a fresh continuation binding, and let the existing linear checker
+  enforce complete consumption of the output aggregate. Keep an explicit
+  internal run-state enum so captured ownership is transferred consistently
+  between active iterations, Pending, and Ready without exposing extra poll
+  protocol variants. Verify Pending followed by multiple immediately-Ready
+  iterations natively, consume the returned value explicitly, and explicitly
+  cancel a Pending task that owns a linear capture.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

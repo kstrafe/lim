@@ -700,28 +700,6 @@ fn collect_mutated_names(expression: &Expr, names: &mut HashSet<String>) {
     }
 }
 
-fn is_async_copy_scalar(ty: &str) -> bool {
-    matches!(
-        ty,
-        "bool"
-            | "char"
-            | "f32"
-            | "f64"
-            | "u8"
-            | "u16"
-            | "u32"
-            | "u64"
-            | "u128"
-            | "usize"
-            | "i8"
-            | "i16"
-            | "i32"
-            | "i64"
-            | "i128"
-            | "isize"
-    )
-}
-
 /// Lower a while loop with one await binding per iteration into a concrete
 /// child task. Its poll helper runs ready iterations in a normal Lim loop and
 /// stores the current captures plus child task only when the child is pending.
@@ -851,12 +829,9 @@ fn lower_async_while(
         .filter(|binding| mutated.contains(&binding.name) && used_after.contains(&binding.name))
         .cloned()
         .collect::<Vec<_>>();
-    if let Some(binding) = output_captures
-        .iter()
-        .find(|binding| !binding.mutable || !is_async_copy_scalar(&binding.ty))
-    {
+    if let Some(binding) = output_captures.iter().find(|binding| !binding.mutable) {
         return Err(format!(
-            "@async-fn loop cannot return mutated live-after capture '{}' of type '{}'; only mutable Copy scalars are supported",
+            "@async-fn loop cannot return immutable live-after capture '{}' of type '{}' after mutation",
             binding.name, binding.ty
         ));
     }
@@ -898,6 +873,24 @@ fn lower_async_while(
 
     let capture_types = types(&captures);
     let capture_names = arguments(&captures);
+    let active_pattern_names = captures
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("{base}-active-{index}"))
+        .collect::<Vec<_>>();
+    let active_local_bindings = captures
+        .iter()
+        .zip(&active_pattern_names)
+        .map(|(binding, name)| {
+            format!(
+                "({} {} {} {name})",
+                if binding.mutable { "#let-mut" } else { "#let" },
+                binding.name,
+                binding.ty
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
     let capture_arguments = named_arguments(&captures);
     let start_variant = if capture_types.is_empty() {
         task_start.clone()
@@ -925,7 +918,22 @@ fn lower_async_while(
     } else {
         format!("({task_wait} {capture_names} {base}-child-state)")
     };
-    let mut run_parameters = captures.iter().map(parameter).collect::<Vec<_>>();
+    let run_parameter_names = captures
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("{base}-input-{index}"))
+        .collect::<Vec<_>>();
+    let mut run_parameters = captures
+        .iter()
+        .zip(&run_parameter_names)
+        .map(|(binding, name)| {
+            format!(
+                "({}{name} {})",
+                if binding.mutable { "#mut " } else { "" },
+                binding.ty
+            )
+        })
+        .collect::<Vec<_>>();
     run_parameters.push(format!("(waker (#ref {waker}))"));
     let run_parameters = run_parameters.join(" ");
     let mut resume_parameters = captures.iter().map(parameter).collect::<Vec<_>>();
@@ -937,11 +945,40 @@ fn lower_async_while(
     resume_parameters.push(result_parameter);
     resume_parameters.push(format!("(waker (#ref {waker}))"));
     let resume_parameters = resume_parameters.join(" ");
-    let call_run = if capture_arguments.is_empty() {
-        "(: waker waker)".to_owned()
+    let call_run = run_parameter_names
+        .iter()
+        .zip(captures.iter())
+        .map(|(parameter, binding)| format!(": {parameter} {}", binding.name))
+        .chain(std::iter::once(": waker waker".to_owned()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let call_run = format!("({call_run})");
+    let initial_active_values = run_parameter_names.join(" ");
+    let active_variant = if capture_types.is_empty() {
+        format!("{base}-active")
     } else {
-        format!("({capture_arguments} : waker waker)")
+        format!("({base}-active {capture_types})")
     };
+    let active_pattern = if capture_names.is_empty() {
+        format!("{base}-active")
+    } else {
+        format!("({base}-active {})", active_pattern_names.join(" "))
+    };
+    let active_value = if initial_active_values.is_empty() {
+        format!("{base}-active")
+    } else {
+        format!("({base}-active {initial_active_values})")
+    };
+    let active_value_from_captures = if capture_names.is_empty() {
+        format!("{base}-active")
+    } else {
+        format!("({base}-active {capture_names})")
+    };
+    let run_state = format!("{base}-run-state");
+    let run_state_pending = format!("{base}-run-pending");
+    let run_state_ready = format!("{base}-run-ready");
+    let run_state_pending_pattern = format!("({run_state_pending} {base}-pending-task)");
+    let run_state_ready_pattern = format!("({run_state_ready} {base}-ready-value)");
     let call_resume = {
         let mut arguments = capture_arguments;
         if !arguments.is_empty() {
@@ -962,32 +999,54 @@ fn lower_async_while(
         .collect::<Result<Vec<_>, _>>()?
         .join(" ");
     let child_poll_call = format!("(#call {child_poll} (: task {base}-child : waker waker))");
+    let await_let = if await_binding.mutable {
+        "#let-mut"
+    } else {
+        "#let"
+    };
+    let await_name = &await_binding.name;
+    let await_type = &await_binding.ty;
     let task_source = format!(
         "{output_type_source}
          (#enum {task_type} ({start_variant} {wait_variant}))
          (#linear {task_type})
+         (#enum {run_state} ({active_variant} ({run_state_pending} {task_type}) ({run_state_ready} {ready_type})))
          (#enum {task_poll_result} (({task_pending} {task_type}) ({task_ready} {ready_type})))
          (#fn {task_run} ({run_parameters}) {task_poll_result}
-           (#let-mut {base}-outcome {task_poll_result} ({task_ready} {ready_value}))
-           (#let-mut {base}-stopped bool false)
-           (#while (#bool.&& (#bool.== {base}-stopped false) {loop_condition})
-             {prefix_source}
-             (#let {base}-child {child_type} {child_task})
-             (#match {child_poll_call}
-               (#case ({child_pending} {base}-child-state)
-                 (#block
-                   (#forget {base}-outcome)
-                   (#set {base}-outcome ({task_pending} {task_wait_with_child}))
-                   (#set {base}-stopped true)
-                   ()))
-               (#case ({child_ready} {base}-result)
-                 (#block (#let {} {} {base}-result) {} ()))))
-           (#return (#if (#bool.== {base}-stopped true)
-             {base}-outcome
-             (#block (#forget {base}-outcome) ({task_ready} {ready_value})))))
+         (#let-mut {base}-outcome {run_state} {active_value})
+         (#let-mut {base}-stopped bool false)
+         (#while (#bool.== {base}-stopped false)
+             (#set {base}-outcome
+               (#match {base}-outcome
+                 (#case {active_pattern}
+                   (#block
+                     {active_local_bindings}
+                     (#if {loop_condition}
+                       (#block
+                         {prefix_source}
+                         (#let {base}-child {child_type} {child_task})
+                         (#match {child_poll_call}
+                           (#case ({child_pending} {base}-child-state)
+                             (#block
+                               (#set {base}-stopped true)
+                               ({run_state_pending} {task_wait_with_child})))
+                           (#case ({child_ready} {base}-result)
+                             (#block
+                               ({await_let} {await_name} {await_type} {base}-result)
+                               {suffix_source}
+                               {active_value_from_captures}))))
+                       (#block
+                         (#set {base}-stopped true)
+                         ({run_state_ready} {ready_value})))))
+                 (#case {run_state_pending_pattern} (#unreachable))
+                 (#case {run_state_ready_pattern} (#unreachable)))))
+           (#return (#match {base}-outcome
+             (#case {run_state_pending_pattern} ({task_pending} {base}-pending-task))
+             (#case {run_state_ready_pattern} ({task_ready} {base}-ready-value))
+             (#case {active_pattern} (#unreachable)))))
          (#fn {task_resume} ({resume_parameters}) {task_poll_result}
-           ({} {} {} {base}-result)
-           {}
+           ({await_let} {await_name} {await_type} {base}-result)
+           {suffix_source}
            (#return (#call {task_run} {call_run})))
          (#fn {task_poll} ((task {task_type}) (waker (#ref {waker}))) {task_poll_result}
            (#return (#match task
@@ -998,17 +1057,6 @@ fn lower_async_while(
                    ({task_pending} {task_wait_with_child}))
                  (#case ({child_ready} {base}-result)
                    (#call {task_resume} {call_resume})))))))",
-        await_binding.name,
-        await_binding.ty,
-        suffix_source,
-        if await_binding.mutable {
-            "#let-mut"
-        } else {
-            "#let"
-        },
-        await_binding.name,
-        await_binding.ty,
-        suffix_source,
     );
     let task_variable = format!("{base}-value");
     let result_variable = format!("{base}-result");

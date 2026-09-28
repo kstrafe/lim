@@ -1009,36 +1009,46 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
 }
 
 #[test]
-fn async_function_rejects_non_scalar_loop_outputs_explicitly() {
+fn async_function_returns_linear_state_after_a_loop() {
     let source = "(#struct State ((value u64)))
-      (#enum Child ((Waiting u64)))
-      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
-      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
-        (#return (ChildReady 1u64)))
+      (#linear State)
+      (#enum ChildPoll ((ChildPending u64) (ChildReady u64)))
+      (#fn child-poll ((task u64) (waker (#ref u64))) ChildPoll
+        (#return (#if (#u64.== task 0u64)
+          (ChildPending 1u64)
+          (ChildReady task))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
           (#let-mut state State (#struct-literal State ((value 0u64))))
-          (#while false
+          (#while (#u64.< (#get state value) 3u64)
             (#let result u64
-              (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
-            (#set state (#struct-literal State ((value result)))))
-          (#return (#get state value)))))";
-    let scratch = support::Scratch::new("async-loop-nonscalar-output");
-    let input = scratch.path().join("loop.lim");
-    let diagnostic = lim::compile_source_to_assembly(
-        source,
-        &input,
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
-    assert!(
-        diagnostic
-            .message
-            .contains("only mutable Copy scalars are supported"),
-        "{diagnostic:?}"
-    );
+              (#await u64 ChildPending ChildReady child-poll (#get state value)))
+            (#let next-value u64 (#u64.+.wrap result 1u64))
+            (#forget state)
+            (#set state (#struct-literal State
+              ((value next-value)))))
+          (#return (#block
+            (#let value u64 (#get state value))
+            (#forget state)
+            value)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let cancel-frame Frame (#call work (:)))
+        (#let cancel-first Poll (#call poll (: task cancel-frame : waker (#borrow waker))))
+        (#let-else (Pending cancelled-task) Poll cancel-first (#unreachable))
+        (#forget cancelled-task)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending pending-again)
+              (#block (#forget pending-again) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 3);
+    assert!(generated.contains("-outputs"), "{generated}");
 }
 
 #[test]
