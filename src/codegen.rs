@@ -7325,26 +7325,28 @@ impl FunctionContext {
                 }
                 return Ok(());
             }
-            if matches!(
-                self.global_types.get(name),
-                Some(Type::Named(global_name)) if global_name == struct_name
-            ) {
-                for field in fields {
-                    let words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
-                    if words == 0 {
-                        continue;
+            if let Some(global_name) = self.checked_global_name(value, name)? {
+                if matches!(
+                    self.global_types.get(&global_name),
+                    Some(Type::Named(global_name)) if global_name == struct_name
+                ) {
+                    for field in fields {
+                        let words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
+                        if words == 0 {
+                            continue;
+                        }
+                        for word in 0..words {
+                            self.load_global_word(&global_name, offset + word)?;
+                            self.output.push_str(&format!(
+                                "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                                pointer_slot * 8,
+                                (offset + word) * 8
+                            ));
+                        }
+                        offset += words;
                     }
-                    for word in 0..words {
-                        self.load_global_word(name, offset + word)?;
-                        self.output.push_str(&format!(
-                            "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
-                            pointer_slot * 8,
-                            (offset + word) * 8
-                        ));
-                    }
-                    offset += words;
+                    return Ok(());
                 }
-                return Ok(());
             }
         }
         if let Expr::List(items) = value {

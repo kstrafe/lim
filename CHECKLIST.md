@@ -616,6 +616,11 @@ the checklist is committed alongside the implementation it tracks.
   static storage. Preserve local and computed array paths, bounds checks, and
   scalar/multiword element loading; validate global array native examples.
 
+- [x] **IR-02bl: Return global structs by checked global identity.** Resolve
+  global struct sources through their retained `GlobalId` before copying into
+  indirect return storage. Preserve local and constructed values; exercise
+  large static struct returns and nested aggregate layouts.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
