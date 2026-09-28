@@ -625,6 +625,11 @@ the checklist is committed alongside the implementation it tracks.
   tuple sources by `GlobalId` for both register and indirect returns. Preserve
   tuple locals and constructors; cover nested and multiword static tuples.
 
+- [x] **IR-02bn: Copy global aggregates by checked identity.** Resolve global
+  aggregate sources through `GlobalId` before copying their words into
+  indirect aggregate destinations. Preserve locals, dereferences, and
+  constructors; cover nested static aggregate values.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

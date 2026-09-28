@@ -7937,12 +7937,14 @@ impl FunctionContext {
                     return Ok(());
                 }
             }
-            if self.global_types.get(name) == Some(ty) {
-                for index in 0..words {
-                    self.load_global_word(name, index)?;
-                    self.store_indirect_word("rax", offset + index)?;
+            if let Some(global_name) = self.checked_global_name(value, name)? {
+                if self.global_types.get(&global_name) == Some(ty) {
+                    for index in 0..words {
+                        self.load_global_word(&global_name, index)?;
+                        self.store_indirect_word("rax", offset + index)?;
+                    }
+                    return Ok(());
                 }
-                return Ok(());
             }
         }
         if let (Expr::String(string), Type::Array(element, length)) = (value, ty) {
