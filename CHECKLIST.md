@@ -411,6 +411,11 @@ the checklist is committed alongside the implementation it tracks.
   aggregate element layout, and static/global paths. Exercise scalar and
   multiword array mutation in native examples.
 
+- [x] **IR-02ai: Resolve projected aggregate writes by binding identity.**
+  Use checked local storage and type lookups for tuple, struct-field, and enum
+  payload assignments instead of syntax-name maps. Preserve checked member
+  declarations and native layouts; exercise each write form in native tests.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

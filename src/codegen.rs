@@ -5981,8 +5981,8 @@ impl FunctionContext {
             }
             Statement::FieldAssign { name, field, value } => {
                 let Storage::Struct(fields) = self
-                    .locals
-                    .get(name)
+                    .local_storage(name)
+                    .cloned()
                     .ok_or_else(|| format!("unknown struct '{name}'"))?
                 else {
                     return Err(format!("'{name}' is not a struct"));
@@ -5992,13 +5992,13 @@ impl FunctionContext {
                     .find(|(field_name, _)| field_name == field)
                     .map(|(_, slots)| slots.clone())
                     .ok_or_else(|| format!("unknown field '{field}'"))?;
-                let struct_name = match self.local_types.get(name) {
+                let struct_name = match self.local_type(name).cloned() {
                     Some(Type::Named(name)) => name,
                     _ => return Err(format!("'{name}' is not a struct")),
                 };
                 let field_type = self
                     .structs
-                    .get(struct_name)
+                    .get(&struct_name)
                     .and_then(|fields| fields.iter().find(|field_info| field_info.name == *field))
                     .map(|field_info| field_info.ty.clone())
                     .ok_or_else(|| format!("unknown field '{field}'"))?;
@@ -6018,15 +6018,14 @@ impl FunctionContext {
                     discriminant,
                     payload,
                 } = self
-                    .locals
-                    .get(name)
+                    .local_storage(name)
                     .ok_or_else(|| format!("unknown enum '{name}'"))?
                     .clone()
                 else {
                     return Err(format!("'{name}' is not a payload enum"));
                 };
-                let enum_name = match self.local_types.get(name) {
-                    Some(Type::Named(enum_name)) => enum_name.clone(),
+                let enum_name = match self.local_type(name).cloned() {
+                    Some(Type::Named(enum_name)) => enum_name,
                     _ => return Err(format!("'{name}' is not a payload enum")),
                 };
                 let variants = self
@@ -6064,14 +6063,13 @@ impl FunctionContext {
             }
             Statement::TupleAssign { name, index, value } => {
                 let Storage::Tuple(slots) = self
-                    .locals
-                    .get(name)
+                    .local_storage(name)
                     .ok_or_else(|| format!("unknown tuple local '{name}'"))?
                     .clone()
                 else {
                     return Err(format!("'{name}' is not a tuple"));
                 };
-                let fields = match self.local_types.get(name).cloned() {
+                let fields = match self.local_type(name).cloned() {
                     Some(Type::Tuple(fields)) => fields,
                     _ => return Err(format!("'{name}' is not a tuple")),
                 };
