@@ -1818,6 +1818,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   `#await` nested in `#set-index` into the resume helper while retaining the
   mutable array across Pending. Verify the indexed write and subsequent read
   natively, and inspect the generated continuation assignment.
+- [x] **ASYNC-01b33: Await before conditional branch selection.** Suspend on a
+  typed boolean `#await` in an `#if` condition, resume, and only then select the
+  branch. Verify the Pending/resume path natively and inspect that the generated
+  continuation branches on the awaited result.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
