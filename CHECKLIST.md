@@ -1826,6 +1826,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   `#await` used as a `#match` scrutinee, then select an arm from the resumed
   result. Verify the Pending/resume path natively, including payload binding,
   and inspect that matching occurs in the generated continuation.
+- [x] **ASYNC-01b35: Resume through a value-producing block.** Lower a block
+  containing one typed awaited binding followed by a value expression that
+  uses the binding. Preserve the post-await expression in the continuation,
+  including value-position rewriting, and verify Pending/resume natively.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

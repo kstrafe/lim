@@ -616,6 +616,46 @@ fn async_function_awaits_before_selecting_a_match_arm() {
 }
 
 #[test]
+fn async_function_resumes_inside_a_value_producing_block() {
+    let source = "(#struct DecisionResult ((condition bool) (value u64)))
+      (#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady bool)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting remaining)
+            (#if (#u64.== remaining 0u64)
+              (ChildReady true)
+              (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let result DecisionResult
+            (#block
+              (#let condition bool
+                (#await bool Child ChildPending ChildReady child-poll (Waiting 1u64)))
+              (#struct-literal DecisionResult
+                ((condition condition)
+                 (value (#if condition 42u64 0u64))))))
+          (#return (#get result value)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending running-task) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task running-task : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(
+        generated.contains("(condition lim.async.nested-await-0)"),
+        "{generated}"
+    );
+}
+
+#[test]
 fn async_function_requires_types_for_nested_awaits() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

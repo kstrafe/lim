@@ -101,6 +101,124 @@ fn block_await_result(expression: &Expr) -> Option<Expr> {
     ]))
 }
 
+fn block_await_continuation(expression: &Expr) -> Option<(String, Expr, Expr, Expr)> {
+    let block = form(expression, "#block")?;
+    if block.len() != 3 {
+        return None;
+    }
+    let binding = form(&block[1], "#let")?;
+    if binding.len() != 4 {
+        return None;
+    }
+    let name = symbol(&binding[1], "binding name").ok()?.to_owned();
+    let await_form = form(&binding[3], "#await")?;
+    if await_form.len() != 7 {
+        return None;
+    }
+    parse_type(Some(&normalize_keywords(await_form[1].clone()))).ok()?;
+    Some((
+        name,
+        binding[2].clone(),
+        binding[3].clone(),
+        block[2].clone(),
+    ))
+}
+
+fn replace_await_local(expression: &mut Expr, name: &str, replacement: &str) {
+    match expression {
+        Expr::Symbol(symbol) if symbol == name => *symbol = replacement.to_owned(),
+        Expr::List(items) => {
+            let Some(Expr::Symbol(head)) = items.first() else {
+                for item in items {
+                    replace_await_local(item, name, replacement);
+                }
+                return;
+            };
+            match head.as_str() {
+                "#quote" | "quote" | "#quasiquote" | "quasiquote" => {}
+                "#call" | "call" if items.len() == 3 => {
+                    if let Expr::List(arguments) = &mut items[2] {
+                        for argument in arguments {
+                            if let Expr::List(pair) = argument {
+                                if let Some(value) = pair.get_mut(1) {
+                                    replace_await_local(value, name, replacement);
+                                }
+                            }
+                        }
+                    }
+                }
+                "#struct-literal" | "struct-literal" if items.len() == 3 => {
+                    if let Expr::List(fields) = &mut items[2] {
+                        for field in fields {
+                            if let Expr::List(pair) = field {
+                                if let Some(value) = pair.get_mut(1) {
+                                    replace_await_local(value, name, replacement);
+                                }
+                            }
+                        }
+                    }
+                }
+                "#get" | "get" | "#get-field" | "get-field" if items.len() >= 3 => {
+                    replace_await_local(&mut items[1], name, replacement);
+                }
+                "#set-field" | "set-field" | "#pin-set-field" | "pin-set-field"
+                    if items.len() >= 4 =>
+                {
+                    replace_await_local(&mut items[1], name, replacement);
+                    for value in items.iter_mut().skip(3) {
+                        replace_await_local(value, name, replacement);
+                    }
+                }
+                "#index" | "index" | "#slice-idx" | "slice-idx" if items.len() >= 3 => {
+                    for value in items.iter_mut().skip(1) {
+                        replace_await_local(value, name, replacement);
+                    }
+                }
+                "#set-index" | "set-index" if items.len() >= 4 => {
+                    for value in items.iter_mut().skip(1) {
+                        replace_await_local(value, name, replacement);
+                    }
+                }
+                "#as" | "as" | "#cast" | "cast" if items.len() == 3 => {
+                    replace_await_local(&mut items[1], name, replacement);
+                }
+                "#array" | "array" | "#array-of" | "array-of" | "#tuple" | "tuple" => {
+                    let start = if items
+                        .get(1)
+                        .is_some_and(|ty| parse_type(Some(&normalize_keywords(ty.clone()))).is_ok())
+                    {
+                        2
+                    } else {
+                        1
+                    };
+                    for value in items.iter_mut().skip(start) {
+                        replace_await_local(value, name, replacement);
+                    }
+                }
+                "#case" | "case" if items.len() >= 3 => {
+                    for value in items.iter_mut().skip(2) {
+                        replace_await_local(value, name, replacement);
+                    }
+                }
+                "#let" | "let" | "#let-mut" | "let-mut" if items.len() == 4 => {
+                    replace_await_local(&mut items[3], name, replacement);
+                }
+                "#if" | "if" | "#match" | "match" | "#block" | "block" => {
+                    for value in items.iter_mut().skip(1) {
+                        replace_await_local(value, name, replacement);
+                    }
+                }
+                _ => {
+                    for value in items.iter_mut().skip(1) {
+                        replace_await_local(value, name, replacement);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 #[derive(Clone, PartialEq)]
 struct AwaitProtocol {
     result_type: Expr,
@@ -379,6 +497,34 @@ fn extract_nested_awaits(
     next_name: &mut usize,
     waker: &str,
 ) -> Result<(), String> {
+    if let Some((name, result_type, await_expression, mut continuation)) =
+        block_await_continuation(expression)
+    {
+        let temporary = nested_await_name(source, next_name);
+        let await_form = form(&await_expression, "#await")
+            .expect("block_await_continuation validated an await expression");
+        let normalized_await = Expr::List(
+            std::iter::once(Expr::Symbol("#await".into()))
+                .chain(await_form[2..].iter().cloned())
+                .collect(),
+        );
+        generated.push(Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol(temporary.clone()),
+            result_type,
+            normalized_await,
+        ]));
+        replace_await_local(&mut continuation, &name, &temporary);
+        *expression = continuation;
+        return extract_nested_awaits(
+            expression,
+            generated,
+            generated_helpers,
+            source,
+            next_name,
+            waker,
+        );
+    }
     if let Some(await_form) = form(expression, "#await") {
         if await_form.len() != 7 {
             return Err(
