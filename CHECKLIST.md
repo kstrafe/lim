@@ -1759,6 +1759,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   borrowed referent itself is rejected. Verify native state changes and both
   disjoint/overlapping borrow cases. This is groundwork only; linear slot
   transitions still need explicit Empty/Full state and move-out operations.
+- [x] **ASYNC-01c2c: Generate stable linear Empty/Full slots.** Add a concrete
+  `@pin-slot` generator with a linear slot enum and an explicitly unsafe
+  move-out operation that replaces the value with Empty at the same pinned
+  address. Keep the unsafe generated code inspectable; verify a native Full to
+  Empty transition and reject taking the slot while it is borrowed. This is a
+  storage primitive only; async-frame lowering must still use slots and order
+  internal-reference cleanup before taking their referents.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
