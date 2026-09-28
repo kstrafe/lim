@@ -95,6 +95,12 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
             FlowAction::Release { place, .. } => (place, AccessKind::Release),
             _ => continue,
         };
+        let reference_value_access = match node.action {
+            FlowAction::Read { value, .. } | FlowAction::Clone { value, .. } => {
+                reads_through_reference(body, value)
+            }
+            _ => false,
+        };
         let event = FlowNodeId(index);
         let mut projected = Vec::new();
         let mut reborrow_parent = None;
@@ -138,6 +144,7 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
             }
             for held in origins.before(event, binding) {
                 let forbidden_pinned_access = held.pinned
+                    && !reference_value_access
                     && access_places.iter().any(|place| {
                         held.place.overlaps(place)
                             && match access {
@@ -301,6 +308,34 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
         }
     }
     Ok(())
+}
+
+fn reads_through_reference(body: &Body, value: NodeId) -> bool {
+    let Some(node) = body.nodes.get(value.0) else {
+        return false;
+    };
+    match &node.kind {
+        NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
+            reads_through_reference(body, children[1])
+        }
+        NodeKind::Form { head, children, .. } if head == "deref" && children.len() == 2 => true,
+        NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "get" | "get-payload" | "index") =>
+        {
+            children
+                .get(1)
+                .and_then(|base| body.nodes.get(base.0))
+                .is_some_and(|base| {
+                    matches!(
+                        base.ty,
+                        Some(Type::Reference { .. } | Type::PinnedReference { .. })
+                    ) || children
+                        .get(1)
+                        .is_some_and(|base| reads_through_reference(body, *base))
+                })
+        }
+        _ => false,
+    }
 }
 
 fn scoped_borrows_before(flow: &FlowGraph, scoped_ids: &HashSet<NodeId>) -> Vec<HashSet<NodeId>> {

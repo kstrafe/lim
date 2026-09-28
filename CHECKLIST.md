@@ -1613,6 +1613,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   reads, rejection of conflicting owner writes, anchor escape rejection, and
   unsafe-context diagnostics. This is a primitive for a future
   allocator-backed pin owner, not itself a safe allocation abstraction.
+- [x] **ASYNC-01a5: Generate allocator-owned pinned boxes.** Add a user-defined
+  `@pin-box` specialization that owns one initialized allocation, borrows its
+  concrete allocator, exposes only pinned shared/mutable pointee borrows from
+  a pinned box handle, and explicitly destroys then deallocates the value.
+  Allocation failure must return both the allocator error and the original
+  value. Test native round trips, handle movement/destruction exclusion while
+  pinned, generated-code inspection, and allocation failure ownership.
 - [ ] **ASYNC-01b: Lower async functions to concrete poll state machines.**
   Extend the initial `@async-fn` lowering beyond sequential immutable `#let`
   bindings. Support control-flow joins, mutable locals, and expression-level

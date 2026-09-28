@@ -35,6 +35,7 @@ module - echo_input.lim - -
 module - modules/parse_errors.lim - -
 exit 42 nested_aliases.lim - -
 exit 42 allocator_state.lim - -
+exit 42 pin_box.lim - -
 exit 42 linux_memfd.lim - -
 exit 42 linux_memory.lim - -
 exit 42 linux_memory_lock.lim tests/fixtures/memory_lock.stdout -

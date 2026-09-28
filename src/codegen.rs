@@ -12847,7 +12847,9 @@ impl FunctionContext {
             Expr::Symbol(name) => name,
             _ => return Err("get requires a field name".into()),
         };
-        if let Some(Type::Reference { target, .. }) = self.expression_type(&items[1]) {
+        if let Some(Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
+            self.expression_type(&items[1])
+        {
             let Type::Named(struct_name) = *target else {
                 return Err("named field access through a reference requires a struct".into());
             };

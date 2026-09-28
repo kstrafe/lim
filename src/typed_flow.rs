@@ -2218,7 +2218,16 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 "ptr-borrow" | "ptr-borrow-mut" | "pin-ptr-borrow" | "pin-ptr-borrow-mut"
             ) && children.len() == 3 =>
         {
-            value_loan_origins(body, children[1], state)
+            let mut origins = value_loan_origins(body, children[1], state);
+            if matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut") {
+                // The pinned type describes the raw pointer's referent, while
+                // this tracked place is only the lifetime anchor. Do not treat
+                // the anchor value itself as the pointer's pinned pointee.
+                for origin in &mut origins {
+                    origin.pinned = false;
+                }
+            }
+            origins
         }
         NodeKind::Form {
             children,
@@ -2569,7 +2578,14 @@ fn value_loan_origins_at_events(
             "ptr-borrow" | "ptr-borrow-mut" | "pin-ptr-borrow" | "pin-ptr-borrow-mut"
         ) && children.len() == 3
         {
-            return value_loan_origins_at_events(body, flow, origins, children[1], state);
+            let mut pointer_origins =
+                value_loan_origins_at_events(body, flow, origins, children[1], state);
+            if matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut") {
+                for origin in &mut pointer_origins {
+                    origin.pinned = false;
+                }
+            }
+            return pointer_origins;
         }
         if matches!(
             head.as_str(),

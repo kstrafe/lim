@@ -1,0 +1,78 @@
+;; A concrete, allocator-owned stable allocation for one pinned value.
+;;
+;; Types: (Element Allocator Box CreateResult AllocError AllocResult).
+;; Names: (Created AllocationFailed create borrow borrow-mut destroy
+;;         AllocOk AllocError allocate deallocate destroy-element).
+;;
+;; allocate: ((allocator (#ref Allocator)) (layout usize) (alignment usize))
+;;           -> AllocResult, where `(@result (: ok (#ptr-mut Element) :
+;;           error AllocError : name AllocResult))` supplies the variants.
+;; deallocate: ((allocator (#ref Allocator)) (pointer (#ptr-mut Element))
+;;              (layout usize) (alignment usize)) -> ()
+;; destroy-element: ((allocator (#ref Allocator)) (value Element)) -> ()
+;;
+;; A box must first be pinned by its owner. The accessors accept that pinned
+;; reference, so moving or destroying the handle while the pointee is borrowed
+;; is rejected by the ordinary borrow checker.
+(#gn-fn pin-box-second (values) (#gn-first (#gn-rest values)))
+(#gn-fn pin-box-third (values) (#gn-first (#gn-rest (#gn-rest values))))
+(#gn-fn pin-box-fourth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest values)))))
+(#gn-fn pin-box-fifth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest values))))))
+(#gn-fn pin-box-sixth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values)))))))
+(#gn-fn pin-box-seventh (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values))))))))
+(#gn-fn pin-box-eighth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values)))))))))
+(#gn-fn pin-box-ninth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values))))))))))
+(#gn-fn pin-box-tenth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values)))))))))))
+(#gn-fn pin-box-eleventh (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values))))))))))))
+
+(#gn pin-box (types names)
+  `((#enum ,(#gn-call pin-box-fourth types)
+          ((,(#gn-first names) ,(#gn-call pin-box-third types))
+           (,(#gn-call pin-box-second names) (#tuple ,(#gn-call pin-box-fifth types) ,(#gn-first types)))))
+        (#struct ,(#gn-call pin-box-third types)
+          ((allocator (#ref ,(#gn-call pin-box-second types)))
+           (pointer (#ptr-mut ,(#gn-first types)))))
+        (#linear ,(#gn-call pin-box-third types))
+        (#fn ,(#gn-call pin-box-third names)
+          ((allocator (#ref ,(#gn-call pin-box-second types)))
+           (value ,(#gn-first types)))
+          ,(#gn-call pin-box-fourth types)
+          (#let allocation ,(#gn-call pin-box-sixth types)
+            (#call ,(#gn-call pin-box-ninth names)
+              (: allocator allocator
+               : layout (#size-of ,(#gn-first types))
+               : alignment (#align-of ,(#gn-first types)))))
+          (#return
+            (#match allocation
+              (#case (,(#gn-call pin-box-seventh names) pointer)
+                (#block
+                  (#unsafe (#ptr-write pointer value))
+                  (,(#gn-first names)
+                    (#struct-literal ,(#gn-call pin-box-third types)
+                      ((allocator (#clone allocator)) (pointer pointer))))))
+              (#case (,(#gn-call pin-box-eighth names) error)
+                (,(#gn-call pin-box-second names) (#tuple error value))))))
+        (#fn ,(#gn-call pin-box-fourth names)
+          ((owner (#pin-ref ,(#gn-call pin-box-third types))))
+          (#pin-ref ,(#gn-first types))
+          (#return
+            (#unsafe
+              (#pin-ptr-borrow owner (#get owner pointer)))))
+        (#fn ,(#gn-call pin-box-fifth names)
+          ((owner (#pin-ref-mut ,(#gn-call pin-box-third types))))
+          (#pin-ref-mut ,(#gn-first types))
+          (#return
+            (#unsafe
+              (#pin-ptr-borrow-mut owner (#get owner pointer)))))
+        (#fn ,(#gn-call pin-box-sixth names) ((owner ,(#gn-call pin-box-third types))) ()
+          (#let (,(#gn-call pin-box-third types) allocator pointer) ,(#gn-call pin-box-third types) owner)
+          (#let value ,(#gn-first types) (#unsafe (#ptr-read pointer)))
+          (#call ,(#gn-call pin-box-eleventh names)
+            (: allocator (#clone allocator) : value value))
+          (#call ,(#gn-call pin-box-tenth names)
+            (: allocator (#clone allocator)
+             : pointer pointer
+             : layout (#size-of ,(#gn-first types))
+             : alignment (#align-of ,(#gn-first types))))
+          (#return ())
+        )))
