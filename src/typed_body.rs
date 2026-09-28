@@ -1041,6 +1041,7 @@ pub(crate) enum PlaceRoot {
 pub(crate) struct ParameterLoanSummary {
     pub parameter: usize,
     pub mutable: bool,
+    pub pinned: bool,
     pub input_storage: Vec<crate::typed_place::Segment>,
     pub storage: Vec<crate::typed_place::Segment>,
 }
@@ -1048,6 +1049,7 @@ pub(crate) struct ParameterLoanSummary {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ParameterLoanSeed {
     pub mutable: bool,
+    pub pinned: bool,
     pub storage: Vec<crate::typed_place::Segment>,
 }
 
@@ -2141,7 +2143,10 @@ impl Builder<'_> {
                         .map(|child| self.expression(child))
                         .collect::<Vec<_>>();
                     if let Some(Expr::Symbol(head)) = items.first() {
-                        if matches!(head.as_str(), "borrow" | "borrow-mut") {
+                        if matches!(
+                            head.as_str(),
+                            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                        ) {
                             if let Some(Expr::Symbol(name)) = items.get(1) {
                                 if let Some(binding) = self.names.get(name).copied() {
                                     self.body.nodes[children[1].0].kind = NodeKind::Symbol {

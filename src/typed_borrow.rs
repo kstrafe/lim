@@ -103,7 +103,10 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
             if !projected.is_empty() {
                 reborrow_parent = Some(*binding);
             } else if matches!(access, AccessKind::Borrow { .. })
-                && matches!(body.bindings[binding.0].ty, Type::Reference { .. })
+                && matches!(
+                    body.bindings[binding.0].ty,
+                    Type::Reference { .. } | Type::PinnedReference { .. }
+                )
             {
                 // Borrowing the reference handle itself is not an access to
                 // the referent; its existing loan is the parent of a direct
@@ -134,6 +137,35 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
                 continue;
             }
             for held in origins.before(event, binding) {
+                let forbidden_pinned_access = held.pinned
+                    && access_places.iter().any(|place| {
+                        held.place.overlaps(place)
+                            && match access {
+                                AccessKind::Read => held.place == *place,
+                                AccessKind::Clone => true,
+                                _ => false,
+                            }
+                    });
+                if forbidden_pinned_access {
+                    let owner = match &held.place.root {
+                        PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
+                            body.bindings[binding.0].name.as_str()
+                        }
+                        PlaceRoot::Global(_) => "static",
+                    };
+                    return Err(BorrowConflict {
+                        message: crate::analysis_error::failure!(
+                            "cannot copy pinned referent '{owner}' while its pinned reference is live"
+                        )
+                        .message,
+                        span: node.span,
+                        labels: held
+                            .span
+                            .into_iter()
+                            .map(|span| (span, "referent pinned here".into()))
+                            .collect(),
+                    });
+                }
                 let conflicts = match access {
                     AccessKind::Read | AccessKind::Clone => held.mutable,
                     AccessKind::Borrow { mutable } => held.mutable || mutable,
@@ -652,7 +684,12 @@ fn returned_borrows_with_bindings(
             ..
         } if matches!(
             node.ty,
-            Some(Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_))
+            Some(
+                Type::Reference { .. }
+                    | Type::PinnedReference { .. }
+                    | Type::Slice(_)
+                    | Type::MutableSlice(_)
+            )
         ) =>
         {
             let mut alternatives = Vec::new();
@@ -925,7 +962,10 @@ fn resolve_projected_borrow(
         return Ok(None);
     };
     if borrow.place.segments.is_empty()
-        || !matches!(body.bindings[binding.0].ty, Type::Reference { .. })
+        || !matches!(
+            body.bindings[binding.0].ty,
+            Type::Reference { .. } | Type::PinnedReference { .. }
+        )
     {
         return Ok(None);
     }
@@ -964,7 +1004,12 @@ fn resolve_alias_places(
     let PlaceRoot::Local(binding) = place.root else {
         return Ok(Some(vec![place.clone()]));
     };
-    if place.segments.is_empty() || !matches!(body.bindings[binding.0].ty, Type::Reference { .. }) {
+    if place.segments.is_empty()
+        || !matches!(
+            body.bindings[binding.0].ty,
+            Type::Reference { .. } | Type::PinnedReference { .. }
+        )
+    {
         return Ok(Some(vec![place.clone()]));
     }
     let Some(origins) = bindings.get(&binding) else {
@@ -1106,12 +1151,16 @@ fn direct_borrow(body: &Body, id: NodeId) -> Option<DirectBorrow> {
     if head == "unsafe" && children.len() == 2 {
         return direct_borrow(body, children[1]);
     }
-    if !matches!(head.as_str(), "borrow" | "borrow-mut") || children.len() != 2 {
+    if !matches!(
+        head.as_str(),
+        "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+    ) || children.len() != 2
+    {
         return None;
     }
     Some(DirectBorrow {
         place: Place::from_expression(body, children[1])?,
-        mutable: head == "borrow-mut",
+        mutable: matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut"),
         span: node.span,
         storage: Vec::new(),
     })

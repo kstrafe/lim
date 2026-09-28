@@ -103,6 +103,7 @@ pub(crate) struct FlowLiveness {
 pub(crate) struct LoanOrigin {
     pub place: Place,
     pub mutable: bool,
+    pub pinned: bool,
     pub span: Option<Span>,
     /// Immediate reference binding whose referent this loan reborrows.
     pub borrowed_from: Option<BindingId>,
@@ -116,6 +117,7 @@ impl PartialEq for LoanOrigin {
     fn eq(&self, other: &Self) -> bool {
         self.place == other.place
             && self.mutable == other.mutable
+            && self.pinned == other.pinned
             && self.borrowed_from == other.borrowed_from
             && self.storage == other.storage
             && self.parameter_storage == other.parameter_storage
@@ -541,6 +543,8 @@ impl FlowGraph {
                     | "index"
                     | "borrow"
                     | "borrow-mut"
+                    | "pin-borrow"
+                    | "pin-borrow-mut"
                     | "clone"
                     | "drop"
                     | "forget"
@@ -591,6 +595,7 @@ impl FlowGraph {
                 empty[index].push(LoanOrigin {
                     place: Place::root(PlaceRoot::Parameter(BindingId(index))),
                     mutable: slot.mutable,
+                    pinned: slot.pinned,
                     span: None,
                     borrowed_from: None,
                     storage: slot.storage.clone(),
@@ -1536,9 +1541,11 @@ impl FlowGraph {
                     let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
                         return Err(format!("typed flow borrow {value:?} is not a form"));
                     };
-                    let borrow_form = matches!(head.as_str(), "borrow" | "borrow-mut")
-                        && matches!(children.len(), 2 | 3)
-                        && (head == "borrow-mut") == *mutable;
+                    let borrow_form = matches!(
+                        head.as_str(),
+                        "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                    ) && matches!(children.len(), 2 | 3)
+                        && matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut") == *mutable;
                     let slice_form = matches!(head.as_str(), "slice-idx" | "slice-mut-idx")
                         && children.len() == 3
                         && (head == "slice-mut-idx") == *mutable;
@@ -2111,6 +2118,7 @@ fn apply_parameter_loan_summary(
     storage.extend(origin.storage);
     origin.storage = storage;
     origin.mutable = summary.mutable;
+    origin.pinned = summary.pinned;
     Some(origin)
 }
 
@@ -2143,7 +2151,10 @@ fn reference_binding(body: &Body, id: NodeId) -> Option<BindingId> {
     };
     matches!(
         body.bindings[binding.0].ty,
-        Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_)
+        Type::Reference { .. }
+            | Type::PinnedReference { .. }
+            | Type::Slice(_)
+            | Type::MutableSlice(_)
     )
     .then_some(binding)
 }
@@ -2156,14 +2167,28 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             ..
         } => state[binding.0].clone(),
         NodeKind::Form { head, children, .. }
-            if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() == 2 =>
+            if matches!(
+                head.as_str(),
+                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+            ) && children.len() == 2 =>
         {
             Place::from_expression(body, children[1]).map_or_else(Vec::new, |place| {
+                let inherited_pin = match &place.root {
+                    PlaceRoot::Local(binding) => {
+                        state[binding.0].iter().any(|origin| origin.pinned)
+                    }
+                    _ => false,
+                };
+                let pinned =
+                    inherited_pin || matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut");
                 let borrowed_from = match &place.root {
                     PlaceRoot::Local(binding)
                         if matches!(
                             body.bindings[binding.0].ty,
-                            Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_)
+                            Type::Reference { .. }
+                                | Type::PinnedReference { .. }
+                                | Type::Slice(_)
+                                | Type::MutableSlice(_)
                         ) =>
                     {
                         Some(*binding)
@@ -2176,7 +2201,8 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     .map(|place| LoanOrigin {
                         borrowed_from,
                         place,
-                        mutable: head == "borrow-mut",
+                        mutable: matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut"),
+                        pinned,
                         span: node.span,
                         storage: Vec::new(),
                         parameter_storage: None,
@@ -2209,7 +2235,12 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 result
             } else if matches!(
                 node.ty,
-                Some(Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_))
+                Some(
+                    Type::Reference { .. }
+                        | Type::PinnedReference { .. }
+                        | Type::Slice(_)
+                        | Type::MutableSlice(_)
+                )
             ) {
                 let mut origins = Vec::new();
                 for argument in children.iter().skip(1) {
@@ -2604,7 +2635,10 @@ fn value_loan_origins_at_events(
             if body.nodes[value.0].ty.as_ref().is_some_and(|ty| {
                 matches!(
                     ty,
-                    Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_)
+                    Type::Reference { .. }
+                        | Type::PinnedReference { .. }
+                        | Type::Slice(_)
+                        | Type::MutableSlice(_)
                 )
             }) {
                 let mut result = Vec::new();
@@ -2686,7 +2720,10 @@ fn resolve_known_referents(
         return vec![place.clone()];
     };
     if place.segments.is_empty()
-        || !matches!(body.bindings[binding.0].ty, Type::Reference { .. })
+        || !matches!(
+            body.bindings[binding.0].ty,
+            Type::Reference { .. } | Type::PinnedReference { .. }
+        )
         || seen.len() >= 128
         || !seen.insert(binding)
     {
@@ -3170,14 +3207,17 @@ impl Builder<'_> {
                 Ok(self.push(FlowAction::Diverge, span, vec![]))
             }
             NodeKind::Form { head, children, .. }
-                if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() == 2 =>
+                if matches!(
+                    head.as_str(),
+                    "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                ) && children.len() == 2 =>
             {
                 let action = Place::from_expression(self.body, children[1]).map_or(
                     FlowAction::Evaluate(id),
                     |place| FlowAction::Borrow {
                         value: id,
                         place,
-                        mutable: head == "borrow-mut",
+                        mutable: matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut"),
                     },
                 );
                 let done = self.push(action, span, vec![next]);

@@ -799,7 +799,10 @@ fn check_function(
                 parameter.name.clone(),
                 HashSet::from([parameter.name.clone()]),
             );
-            if matches!(parameter.ty, crate::Type::Reference { .. }) {
+            if matches!(
+                parameter.ty,
+                crate::Type::Reference { .. } | crate::Type::PinnedReference { .. }
+            ) {
                 reference_bindings.insert(parameter.name.clone());
             }
             let contains_mutable_references =
@@ -918,7 +921,10 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                 &context.reference_types,
                 &context.mutable_reference_types,
             );
-            let is_reference_binding = matches!(ty, crate::Type::Reference { .. });
+            let is_reference_binding = matches!(
+                ty,
+                crate::Type::Reference { .. } | crate::Type::PinnedReference { .. }
+            );
             let mut reference_fields = HashMap::new();
             if contains_references {
                 collect_reference_fields(
@@ -1417,7 +1423,10 @@ fn bind_pattern_reference_fields(
         context.reference_loans.insert(name.clone(), loans);
         if matches!(
             ty,
-            crate::Type::Reference { .. } | crate::Type::Slice(_) | crate::Type::MutableSlice(_)
+            crate::Type::Reference { .. }
+                | crate::Type::PinnedReference { .. }
+                | crate::Type::Slice(_)
+                | crate::Type::MutableSlice(_)
         ) {
             context.reference_bindings.insert(name.clone());
         }
@@ -1612,7 +1621,10 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     for argument in items.iter().skip(2).take(items.len() - 3) {
                         check_expression(argument, context)?;
                     }
-                } else if matches!(operator.as_str(), "borrow" | "borrow-mut") {
+                } else if matches!(
+                    operator.as_str(),
+                    "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                ) {
                     if items.len() != 3 {
                         if items.len() == 2 {
                             let origins = borrow_place_origins(&items[1], context);
@@ -1650,7 +1662,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                         return Err(failure!("{operator} place has no tracked owner"));
                     }
                     let loans = borrow_place_loans(&items[1], context);
-                    let kind = if operator == "borrow" {
+                    let kind = if matches!(operator.as_str(), "borrow" | "pin-borrow") {
                         LoanKind::Shared(1)
                     } else {
                         LoanKind::Mutable
@@ -1681,7 +1693,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                         } else {
                             context.loans.borrow(loan, kind)?;
                         }
-                        if operator == "borrow-mut" {
+                        if matches!(operator.as_str(), "borrow-mut" | "pin-borrow-mut") {
                             context.scoped_mutable_owners.insert(owner.clone());
                         }
                     }
@@ -1692,7 +1704,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     }
                     let result = check_expression(&items[2], context);
                     for (owner, loan) in &loans {
-                        if operator == "borrow-mut" {
+                        if matches!(operator.as_str(), "borrow-mut" | "pin-borrow-mut") {
                             context.scoped_mutable_owners.remove(owner);
                         }
                         if reborrow_mutable_parent {
@@ -2217,7 +2229,9 @@ fn contains_mutable_reference(
     mutable_reference_types: &HashSet<String>,
 ) -> bool {
     match ty {
-        crate::Type::Reference { mutable, .. } => *mutable,
+        crate::Type::Reference { mutable, .. } | crate::Type::PinnedReference { mutable, .. } => {
+            *mutable
+        }
         crate::Type::Array(element, _) => {
             contains_mutable_reference(element, reference_types, mutable_reference_types)
         }
@@ -2258,7 +2272,7 @@ fn projection_path(expression: &Expr) -> Option<(&Expr, Vec<String>)> {
         Expr::Symbol(_) => Some((expression, Vec::new())),
         Expr::List(items)
             if items.len() == 2
-                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "borrow" | "borrow-mut")) =>
+                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut")) =>
         {
             projection_path(&items[1])
         }
@@ -2461,7 +2475,7 @@ fn borrowed_field_parent(expression: &Expr) -> Option<String> {
             _ => None,
         };
     }
-    if !matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut"))
+    if !matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"))
         || (items.len() != 2 && items.len() != 3)
     {
         return None;
@@ -2641,7 +2655,11 @@ fn reference_origins(
             let Some(Expr::Symbol(operator)) = items.first() else {
                 return HashSet::new();
             };
-            if matches!(operator.as_str(), "borrow" | "borrow-mut") && items.len() == 2 {
+            if matches!(
+                operator.as_str(),
+                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+            ) && items.len() == 2
+            {
                 return borrow_place_origins(&items[1], context);
             }
             if matches!(
@@ -2761,9 +2779,10 @@ fn reference_origins(
 
 fn direct_reference_return(ty: &crate::Type, items: &[Item], seen: &mut HashSet<String>) -> bool {
     match ty {
-        crate::Type::Reference { .. } | crate::Type::Slice(_) | crate::Type::MutableSlice(_) => {
-            true
-        }
+        crate::Type::Reference { .. }
+        | crate::Type::PinnedReference { .. }
+        | crate::Type::Slice(_)
+        | crate::Type::MutableSlice(_) => true,
         crate::Type::Named(name) if seen.insert(name.clone()) => items.iter().any(|item| {
             matches!(item, Item::TypeAlias { name: alias, target, .. }
                 if alias == name && direct_reference_return(target, items, seen))
@@ -2774,9 +2793,10 @@ fn direct_reference_return(ty: &crate::Type, items: &[Item], seen: &mut HashSet<
 
 fn type_contains_reference(ty: &crate::Type, items: &[Item], seen: &mut HashSet<String>) -> bool {
     match ty {
-        crate::Type::Reference { .. } | crate::Type::Slice(_) | crate::Type::MutableSlice(_) => {
-            true
-        }
+        crate::Type::Reference { .. }
+        | crate::Type::PinnedReference { .. }
+        | crate::Type::Slice(_)
+        | crate::Type::MutableSlice(_) => true,
         crate::Type::Array(element, _) => type_contains_reference(element, items, seen),
         crate::Type::Tuple(fields) => fields
             .iter()
@@ -2818,10 +2838,13 @@ fn type_contains_mutable_reference(
     seen: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        crate::Type::Reference { mutable: true, .. } => true,
+        crate::Type::Reference { mutable: true, .. }
+        | crate::Type::PinnedReference { mutable: true, .. } => true,
         crate::Type::Slice(_) => false,
         crate::Type::MutableSlice(_) => true,
-        crate::Type::Reference { mutable: false, .. } | crate::Type::RawPointer { .. } => false,
+        crate::Type::Reference { mutable: false, .. }
+        | crate::Type::PinnedReference { mutable: false, .. }
+        | crate::Type::RawPointer { .. } => false,
         crate::Type::Array(element, _) => type_contains_mutable_reference(element, items, seen),
         crate::Type::Tuple(fields) => fields
             .iter()
@@ -2859,9 +2882,10 @@ fn type_contains_mutable_reference(
 
 fn contains_reference_type(ty: &crate::Type, reference_types: &HashSet<String>) -> bool {
     match ty {
-        crate::Type::Reference { .. } | crate::Type::Slice(_) | crate::Type::MutableSlice(_) => {
-            true
-        }
+        crate::Type::Reference { .. }
+        | crate::Type::PinnedReference { .. }
+        | crate::Type::Slice(_)
+        | crate::Type::MutableSlice(_) => true,
         crate::Type::Array(element, _) => contains_reference_type(element, reference_types),
         crate::Type::Tuple(fields) => fields
             .iter()

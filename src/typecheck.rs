@@ -6305,19 +6305,27 @@ fn list_expression(
                 ]))
             }
         }
-        "borrow" | "borrow-mut" => {
+        "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut" => {
+            let mutable_borrow = matches!(operator, "borrow-mut" | "pin-borrow-mut");
+            let pin_referent = matches!(operator, "pin-borrow" | "pin-borrow-mut");
             if items.len() == 2 {
-                let (target, base_mutable) = match &items[1] {
+                if pin_referent {
+                    require_arity(operator, items, 2)?;
+                }
+                let (target, base_mutable, inherited_pin) = match &items[1] {
                     Expr::Symbol(name) => {
                         let owner_type = variables.get(name).ok_or_else(|| {
                             format!("{operator} refers to unknown variable '{name}'")
                         })?;
-                        if matches!(owner_type, Type::Reference { .. }) {
+                        if matches!(
+                            owner_type,
+                            Type::Reference { .. } | Type::PinnedReference { .. }
+                        ) {
                             return Err(semantic_at!(ErrorSite::Argument(operator.into(), 1),
                                 "{operator} cannot borrow a reference variable directly; borrow one of its fields"
                             ));
                         }
-                        (owner_type.clone(), mutable.contains(name))
+                        (owner_type.clone(), mutable.contains(name), false)
                     }
                     Expr::List(place)
                         if (place.len() == 3
@@ -6331,20 +6339,20 @@ fn list_expression(
                         let base_type = expression(
                             root, variables, functions, structs, enums, mutable, aliases, None,
                         )?;
-                        let Type::Reference {
-                            mutable: reference_mutable,
-                            target,
-                        } = base_type
-                        else {
-                            return Err(semantic_format!(
-                                "{operator} projection borrowing requires a reference"
-                            ));
+                        let (reference_mutable, inherited_pin, target) = match base_type {
+                            Type::Reference { mutable, target } => (mutable, false, target),
+                            Type::PinnedReference { mutable, target } => (mutable, true, target),
+                            _ => {
+                                return Err(semantic_format!(
+                                    "{operator} projection borrowing requires a reference"
+                                ))
+                            }
                         };
                         let _ = target;
                         let field_type = expression(
                             &items[1], variables, functions, structs, enums, mutable, aliases, None,
                         )?;
-                        (field_type, reference_mutable)
+                        (field_type, reference_mutable, inherited_pin)
                     }
                     _ => {
                         return Err(semantic_format!(
@@ -6352,7 +6360,7 @@ fn list_expression(
                         ))
                     }
                 };
-                if operator == "borrow-mut" && !base_mutable {
+                if mutable_borrow && !base_mutable {
                     return Err(borrow_error(
                         "cannot mutably borrow through an immutable reference",
                     ));
@@ -6362,10 +6370,20 @@ fn list_expression(
                         "{operator} cannot borrow a unit or never value"
                     ));
                 }
-                return Ok(Type::Reference {
-                    mutable: operator == "borrow-mut",
-                    target: Box::new(target),
+                return Ok(if pin_referent || inherited_pin {
+                    Type::PinnedReference {
+                        mutable: mutable_borrow,
+                        target: Box::new(target),
+                    }
+                } else {
+                    Type::Reference {
+                        mutable: mutable_borrow,
+                        target: Box::new(target),
+                    }
                 });
+            }
+            if pin_referent {
+                return Err(semantic_format!("{operator} accepts one place"));
             }
             require_arity(operator, items, 3)?;
             match &items[1] {
@@ -6375,7 +6393,7 @@ fn list_expression(
                             "{operator} refers to unknown variable '{owner}'"
                         ));
                     }
-                    if operator == "borrow-mut" && !mutable.contains(owner) {
+                    if mutable_borrow && !mutable.contains(owner) {
                         return Err(semantic_format!(
                             "cannot mutably borrow immutable variable '{owner}'"
                         ));
@@ -6390,18 +6408,18 @@ fn list_expression(
                     let root = projection_root(&items[1]).ok_or_else(|| {
                         format!("{operator} projection borrowing requires a reference")
                     })?;
-                    let Type::Reference {
-                        mutable: reference_mutable,
-                        ..
-                    } = expression(
+                    let (reference_mutable, _) = match expression(
                         root, variables, functions, structs, enums, mutable, aliases, None,
-                    )?
-                    else {
-                        return Err(semantic_format!(
-                            "{operator} projection borrowing requires a reference"
-                        ));
+                    )? {
+                        Type::Reference { mutable, .. } => (mutable, false),
+                        Type::PinnedReference { mutable, .. } => (mutable, true),
+                        _ => {
+                            return Err(semantic_format!(
+                                "{operator} projection borrowing requires a reference"
+                            ))
+                        }
                     };
-                    if operator == "borrow-mut" && !reference_mutable {
+                    if mutable_borrow && !reference_mutable {
                         return Err(borrow_error(
                             "cannot mutably borrow through an immutable reference",
                         ));
@@ -6426,7 +6444,9 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             match actual {
-                Type::Reference { target, .. } => Ok(*target),
+                Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                    Ok(*target)
+                }
                 _ => Err("deref requires a reference".into()),
             }
         }
@@ -6435,6 +6455,12 @@ fn list_expression(
             let reference_type = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
+            if matches!(&reference_type, Type::PinnedReference { mutable: true, .. }) {
+                return Err(semantic_at!(
+                    ErrorSite::Argument("deref-set".into(), 1),
+                    "deref-set through a pinned reference is not supported because it would replace the referent"
+                ));
+            }
             let Type::Reference {
                 mutable: true,
                 target,
@@ -7080,7 +7106,7 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             let value_type = match value_type {
-                Type::Reference { target, .. } => *target,
+                Type::Reference { target, .. } | Type::PinnedReference { target, .. } => *target,
                 other => other,
             };
             if let Type::Tuple(fields) = value_type {

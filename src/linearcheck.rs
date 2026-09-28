@@ -1120,7 +1120,10 @@ fn check_expr(
                 if let Some(value) = items.get(value_index) {
                     check_expr(value, bindings, moved, globals, false, types)?;
                 }
-            } else if head == "borrow" || head == "borrow-mut" {
+            } else if matches!(
+                head,
+                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+            ) {
                 if items.len() == 3 {
                     let owner = simple_place_name(&items[1]);
                     if let Some(owner) = owner {

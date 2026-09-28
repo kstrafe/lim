@@ -1590,6 +1590,15 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   alias resolution, reference containment, and thread-property analysis. This
   is compiler groundwork only; the surface syntax and pinning guarantees remain
   unsupported until ASYNC-01a is complete.
+- [x] **ASYNC-01a2: Pin stack places with tracked references.** Add distinct
+  `#pin-ref` / `#pin-ref-mut` types and `#pin-borrow` / `#pin-borrow-mut`
+  operations. Carry pin provenance through field reborrows, aggregate storage,
+  and reference-returning calls. While the loan is live, reject referent copies,
+  moves, writes through other aliases, and whole-referent replacement; dropping
+  the pin releases the place. Verify native reads through direct and projected
+  pins, a native function return, exact UI diagnostics, and focused
+  move/copy/reborrow/lifetime cases. Allocator-owned pin handles and
+  self-reference initialization remain open under ASYNC-01a/01c.
 - [ ] **ASYNC-01b: Lower async functions to concrete poll state machines.**
   Extend the initial `@async-fn` lowering beyond sequential immutable `#let`
   bindings. Support control-flow joins, mutable locals, and expression-level

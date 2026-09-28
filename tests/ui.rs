@@ -240,6 +240,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "pinned-reference-replacement",
+            diagnostic_code: "E4000",
+            offending_line: "  (#deref-set pinned 2u64)",
+            line_number: 4,
+        },
+        Case {
             name: "reordered-named-argument-error",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#call combine (: right 1u64 : left 2u64)))",
@@ -941,6 +947,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "atomic-invalid-load-order" => Some("(#atomic-load (#borrow counter) #memory-release)"),
             "local-name-type-error" => Some("flag"),
             "shadowing" => Some("value"),
+            "pinned-reference-replacement" => Some("pinned"),
             "reordered-named-argument-error" => Some("1u64"),
             "nested-case-pattern-error" => Some("0u64"),
             "positional-call" => Some("add"),

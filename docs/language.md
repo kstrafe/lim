@@ -1555,6 +1555,10 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
+| `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. While any derived pin is live, safe code cannot copy, move, replace, or destroy the referent. |
+| `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
+| `#pin-ref` | `(#pin-ref TargetType)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (type) | Shared pinned-reference type. It is distinct from an ordinary reference and keeps its referent immovable while the loan is live. |
+| `#pin-ref-mut` | `(#pin-ref-mut TargetType)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (type) | Exclusive pinned-reference type; it cannot be used to replace the complete referent. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr u8) (#ptr-null (#ptr u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr u8)))` (expression) | Converts a raw pointer to its machine address as `usize` without dereferencing it; useful for checking syscall error-pointer results before access. |

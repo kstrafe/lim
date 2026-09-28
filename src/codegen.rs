@@ -4170,7 +4170,10 @@ fn is_float_type(ty: &Type) -> bool {
 }
 
 fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
-    if matches!(ty, Type::Reference { .. } | Type::RawPointer { .. }) {
+    if matches!(
+        ty,
+        Type::Reference { .. } | Type::PinnedReference { .. } | Type::RawPointer { .. }
+    ) {
         return Ok(());
     }
     if matches!(ty, Type::F32 | Type::F64) {
@@ -5447,6 +5450,7 @@ fn native_scalar_type(ty: &Type) -> bool {
             | Type::F32
             | Type::F64
             | Type::Reference { .. }
+            | Type::PinnedReference { .. }
             | Type::RawPointer { .. }
     )
 }
@@ -6968,10 +6972,12 @@ impl FunctionContext {
                 }
                 Some(Expr::Symbol(operator)) if operator == "atomic-load" && items.len() == 3 => {
                     match self.expression_type(&items[1])? {
-                        Type::Reference { target, .. } => match *target {
-                            Type::Atomic(inner) => Some(*inner),
-                            _ => None,
-                        },
+                        Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                            match *target {
+                                Type::Atomic(inner) => Some(*inner),
+                                _ => None,
+                            }
+                        }
                         _ => None,
                     }
                 }
@@ -6980,10 +6986,12 @@ impl FunctionContext {
                         && items.len() == 4 =>
                 {
                     match self.expression_type(&items[1])? {
-                        Type::Reference { target, .. } => match *target {
-                            Type::Atomic(inner) => Some(*inner),
-                            _ => None,
-                        },
+                        Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                            match *target {
+                                Type::Atomic(inner) => Some(*inner),
+                                _ => None,
+                            }
+                        }
                         _ => None,
                     }
                 }
@@ -6997,15 +7005,19 @@ impl FunctionContext {
                     ) && items.len() == 6 =>
                 {
                     match self.expression_type(&items[1])? {
-                        Type::Reference { target, .. } => match *target {
-                            Type::Atomic(inner) => Some(Type::Tuple(vec![Type::Bool, *inner])),
-                            _ => None,
-                        },
+                        Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                            match *target {
+                                Type::Atomic(inner) => Some(Type::Tuple(vec![Type::Bool, *inner])),
+                                _ => None,
+                            }
+                        }
                         _ => None,
                     }
                 }
                 Some(Expr::Symbol(operator)) if operator == "slice-of" && items.len() == 2 => {
-                    let Type::Reference { target, .. } = self.expression_type(&items[1])? else {
+                    let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
+                        self.expression_type(&items[1])?
+                    else {
                         return None;
                     };
                     let Type::Array(element, _) = *target else {
@@ -7014,7 +7026,9 @@ impl FunctionContext {
                     Some(Type::Slice(element))
                 }
                 Some(Expr::Symbol(operator)) if operator == "slice-mut-of" && items.len() == 2 => {
-                    let Type::Reference { target, .. } = self.expression_type(&items[1])? else {
+                    let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
+                        self.expression_type(&items[1])?
+                    else {
                         return None;
                     };
                     let Type::Array(element, _) = *target else {
@@ -7065,7 +7079,9 @@ impl FunctionContext {
                 Some(Expr::Symbol(operator)) if operator == "get" && items.len() == 3 => {
                     let base = self.expression_type(&items[1])?;
                     let base = match base {
-                        Type::Reference { target, .. } => *target,
+                        Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                            *target
+                        }
                         other => other,
                     };
                     match (base, &items[2]) {
@@ -7084,7 +7100,9 @@ impl FunctionContext {
                 Some(Expr::Symbol(operator)) if operator == "get-payload" && items.len() == 4 => {
                     let base = self.expression_type(&items[1])?;
                     let Type::Named(enum_name) = (match base {
-                        Type::Reference { target, .. } => *target,
+                        Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                            *target
+                        }
                         other => other,
                     }) else {
                         return None;
@@ -7114,7 +7132,10 @@ impl FunctionContext {
                         .and_then(|ty| resolve_type(&ty, &self.aliases).ok())
                 }
                 Some(Expr::Symbol(operator))
-                    if matches!(operator.as_str(), "borrow" | "borrow-mut") && items.len() == 2 =>
+                    if matches!(
+                        operator.as_str(),
+                        "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                    ) && items.len() == 2 =>
                 {
                     let target = match items.get(1)? {
                         Expr::Symbol(name) => self
@@ -7127,14 +7148,24 @@ impl FunctionContext {
                         }
                         _ => return None,
                     };
-                    Some(Type::Reference {
-                        mutable: operator == "borrow-mut",
-                        target: Box::new(target),
-                    })
+                    let mutable = matches!(operator.as_str(), "borrow-mut" | "pin-borrow-mut");
+                    if matches!(operator.as_str(), "pin-borrow" | "pin-borrow-mut") {
+                        Some(Type::PinnedReference {
+                            mutable,
+                            target: Box::new(target),
+                        })
+                    } else {
+                        Some(Type::Reference {
+                            mutable,
+                            target: Box::new(target),
+                        })
+                    }
                 }
                 Some(Expr::Symbol(operator)) if operator == "deref" && items.len() == 2 => {
                     match self.expression_type(&items[1])? {
-                        Type::Reference { target, .. } => Some(*target),
+                        Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                            Some(*target)
+                        }
                         _ => None,
                     }
                 }
@@ -9217,7 +9248,9 @@ impl FunctionContext {
                 let base_type = self.expression_type(&place[1]).ok_or_else(|| {
                     "cannot determine reference type for enum payload borrow".to_owned()
                 })?;
-                let Type::Reference { target, .. } = base_type else {
+                let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
+                    base_type
+                else {
                     return Err("enum payload borrow requires a reference".into());
                 };
                 let Type::Named(enum_name) = *target else {
@@ -9268,7 +9301,9 @@ impl FunctionContext {
                 let base_type = self
                     .expression_type(&place[1])
                     .ok_or_else(|| "cannot determine reference type for field borrow".to_owned())?;
-                let Type::Reference { target, .. } = base_type else {
+                let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
+                    base_type
+                else {
                     return Err("field borrow requires a reference to a struct".into());
                 };
                 let Type::Named(struct_name) = *target else {
@@ -9302,7 +9337,7 @@ impl FunctionContext {
                 .ok_or_else(|| format!("cannot borrow zero-sized variable '{owner}'"))?;
             self.output
                 .push_str(&format!("    lea rax, [rbp-{}]\n", slot * 8));
-            if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut"))
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"))
                 && self
                     .expression_type(owner_expression)
                     .or_else(|| self.local_type(owner).cloned())
@@ -9397,7 +9432,10 @@ impl FunctionContext {
             let offset = (arguments.len() - 1 - index) * 8;
             self.output
                 .push_str(&format!("    mov {register}, QWORD PTR [rsp+{offset}]\n"));
-            if matches!(self.expression_type(argument), Some(Type::Reference { .. })) {
+            if matches!(
+                self.expression_type(argument),
+                Some(Type::Reference { .. } | Type::PinnedReference { .. })
+            ) {
                 self.output.push_str(&format!("    and {register}, -2\n"));
             }
         }
@@ -9923,7 +9961,7 @@ impl FunctionContext {
                 self.comparison(operator, operand_type.as_ref(), items)
             }
             "if" => self.if_expression(items),
-            "borrow" | "borrow-mut" => {
+            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut" => {
                 if items.len() == 3 {
                     return self.expression(&items[2]);
                 }
@@ -9936,13 +9974,14 @@ impl FunctionContext {
                 if items.len() != 2 {
                     return Err("deref requires a reference".into());
                 }
-                let target = self
-                    .expression_type(&items[1])
-                    .and_then(|ty| match ty {
-                        Type::Reference { target, .. } => Some(*target),
-                        _ => None,
-                    })
-                    .ok_or_else(|| "deref requires a reference".to_owned())?;
+                let target =
+                    self.expression_type(&items[1])
+                        .and_then(|ty| match ty {
+                            Type::Reference { target, .. }
+                            | Type::PinnedReference { target, .. } => Some(*target),
+                            _ => None,
+                        })
+                        .ok_or_else(|| "deref requires a reference".to_owned())?;
                 self.expression(&items[1])?;
                 match &target {
                     Type::F32 => self
@@ -13304,6 +13343,7 @@ impl FunctionContext {
             | Type::Usize
             | Type::F64
             | Type::Reference { .. }
+            | Type::PinnedReference { .. }
             | Type::RawPointer { .. } => Ok(8),
             Type::I128 | Type::U128 => Ok(16),
             _ => self.native_type_size(ty),
@@ -13388,6 +13428,7 @@ impl FunctionContext {
             | Type::Isize
             | Type::Usize
             | Type::F64
+            | Type::PinnedReference { .. }
             | Type::RawPointer { .. } => Some((8, 8)),
             _ => None,
         };

@@ -853,6 +853,7 @@ impl Declarations {
                     let summary = crate::typed_body::ParameterLoanSummary {
                         parameter: binding.0,
                         mutable: origin.mutable,
+                        pinned: origin.pinned,
                         input_storage: origin.parameter_storage.unwrap_or_default(),
                         storage: origin.storage,
                     };
@@ -882,13 +883,17 @@ impl Declarations {
     ) {
         use crate::typed_place::Segment;
         match ty {
-            Type::Reference { mutable, .. } => output.push(crate::typed_body::ParameterLoanSeed {
-                mutable: *mutable,
-                storage: path.clone(),
-            }),
+            Type::Reference { mutable, .. } | Type::PinnedReference { mutable, .. } => {
+                output.push(crate::typed_body::ParameterLoanSeed {
+                    mutable: *mutable,
+                    pinned: matches!(ty, Type::PinnedReference { .. }),
+                    storage: path.clone(),
+                })
+            }
             Type::Slice(_) | Type::MutableSlice(_) => {
                 output.push(crate::typed_body::ParameterLoanSeed {
                     mutable: matches!(ty, Type::MutableSlice(_)),
+                    pinned: false,
                     storage: path.clone(),
                 });
             }

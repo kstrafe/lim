@@ -1,0 +1,217 @@
+use lim::{check_types, parse_program};
+use std::{fs, process::Command, time::Duration};
+
+mod support;
+
+fn check(source: &str) -> Result<(), String> {
+    let program = parse_program(source).map_err(|error| error.to_string())?;
+    check_types(&program).map_err(|error| error.to_string())
+}
+
+#[test]
+fn a_pinned_shared_reference_can_read_its_referent() {
+    let source = "(#fn main () u64
+      (#let owner u64 7u64)
+      (#let pinned (#pin-ref u64) (#pin-borrow owner))
+      (#return (#deref pinned)))";
+    check(source).unwrap();
+}
+
+#[test]
+fn a_pinned_referent_cannot_be_copied_while_the_pin_is_live() {
+    let source = "(#fn main () u64
+      (#let owner u64 7u64)
+      (#let pinned (#pin-ref u64) (#pin-borrow owner))
+      (#let snapshot u64 owner)
+      (#return (#u64.+.wrap snapshot (#deref pinned))))";
+    let error = check(source).unwrap_err();
+    assert!(error.contains("pinned referent"), "{error}");
+}
+
+#[test]
+fn a_pinned_linear_referent_cannot_be_moved() {
+    let source = "(#struct Resource ((value u64)))
+      (#linear Resource)
+      (#fn main () u64
+        (#let owner Resource (#struct-literal Resource ((value 7u64))))
+        (#let pinned (#pin-ref Resource) (#pin-borrow owner))
+        (#let moved Resource owner)
+        (#forget moved)
+        (#return (#get (#deref pinned) value)))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("pinned"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_pinned_mutable_reference_cannot_replace_its_referent() {
+    let source = "(#fn main () ()
+      (#let-mut owner u64 7u64)
+      (#let pinned (#pin-ref-mut u64) (#pin-borrow-mut owner))
+      (#deref-set pinned 8u64)
+      (#return ()))";
+    let error = check(source).unwrap_err();
+    assert!(error.contains("would replace the referent"), "{error}");
+}
+
+#[test]
+fn fields_of_a_pinned_referent_cannot_be_replaced_implicitly() {
+    let source = "(#struct Pair ((left u64)))
+      (#fn main () u64
+        (#let-mut pair Pair (#struct-literal Pair ((left 7u64))))
+        (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
+        (#set-field pinned left 8u64)
+        (#return (#get (#deref pinned) left)))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("pinned") || error.contains("borrow"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_live_pin_prevents_mutating_the_original_owner() {
+    let source = "(#fn main () u64
+      (#let-mut owner u64 7u64)
+      (#let pinned (#pin-ref u64) (#pin-borrow owner))
+      (#set owner 8u64)
+      (#return (#deref pinned)))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("mutate"),
+        "{error}"
+    );
+}
+
+#[test]
+fn dropping_the_pin_releases_the_referent() {
+    let source = "(#fn main () u64
+      (#let-mut owner u64 7u64)
+      (#let pinned (#pin-ref u64) (#pin-borrow owner))
+      (#drop pinned)
+      (#set owner 8u64)
+      (#return owner))";
+    check(source).unwrap();
+}
+
+#[test]
+fn a_pin_stays_effective_when_stored_in_an_aggregate() {
+    let source = "(#fn main () u64
+      (#let owner u64 7u64)
+      (#let pinned (#pin-ref u64) (#pin-borrow owner))
+      (#let holder (#tuple (#pin-ref u64))
+        (#tuple (#tuple (#pin-ref u64)) pinned))
+      (#let snapshot u64 owner)
+      (#return (#u64.+.wrap snapshot (#deref (#get holder 0)))))";
+    let error = check(source).unwrap_err();
+    assert!(error.contains("pinned referent"), "{error}");
+}
+
+#[test]
+fn a_pin_stays_effective_across_a_reference_returning_function() {
+    let source = "(#fn retain ((value (#pin-ref u64))) (#pin-ref u64)
+        (#return value))
+      (#fn main () u64
+        (#let owner u64 7u64)
+        (#let pinned (#pin-ref u64) (#pin-borrow owner))
+        (#let retained (#pin-ref u64) (#call retain (: value pinned)))
+        (#let snapshot u64 owner)
+        (#return (#u64.+.wrap snapshot (#deref retained))))";
+    let error = check(source).unwrap_err();
+    assert!(error.contains("pinned referent"), "{error}");
+}
+
+#[test]
+fn field_reborrows_preserve_the_pin() {
+    let source = "(#struct Pair ((left u64) (right u64)))
+      (#fn main () u64
+        (#let pair Pair (#struct-literal Pair ((left 7u64) (right 8u64))))
+        (#let pinned (#pin-ref Pair) (#pin-borrow pair))
+        (#let left-pin (#pin-ref u64) (#borrow (#get pinned left)))
+        (#let copied u64 (#get pair left))
+        (#return (#u64.+.wrap copied (#deref left-pin))))";
+    let error = check(source).unwrap_err();
+    assert!(error.contains("pinned referent"), "{error}");
+}
+
+#[test]
+fn a_pinned_reference_runs_through_the_native_backend() {
+    let source = "(#fn main () u64
+      (#let owner u64 42u64)
+      (#let pinned (#pin-ref u64) (#pin-borrow owner))
+      (#return (#deref pinned)))";
+    let scratch = support::Scratch::new("pinned-reference");
+    let input = scratch.path().join("main.lim");
+    let binary = scratch.path().join("program");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary),
+        Duration::from_secs(20),
+        64 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+    assert_eq!(status.code(), Some(42), "{stderr:?}");
+}
+
+#[test]
+fn a_pinned_field_reborrow_runs_through_the_native_backend() {
+    let source = "(#struct Pair ((left u64) (right u64)))
+      (#fn main () u64
+        (#let pair Pair (#struct-literal Pair ((left 40u64) (right 2u64))))
+        (#let pinned (#pin-ref Pair) (#pin-borrow pair))
+        (#let left-pin (#pin-ref u64) (#borrow (#get pinned left)))
+        (#return (#deref left-pin)))";
+    let scratch = support::Scratch::new("pinned-field-reborrow");
+    let input = scratch.path().join("main.lim");
+    let binary = scratch.path().join("program");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary),
+        Duration::from_secs(20),
+        64 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+    assert_eq!(status.code(), Some(40), "{stderr:?}");
+}
+
+#[test]
+fn a_pinned_reference_can_cross_a_function_boundary_natively() {
+    let source = "(#fn retain ((value (#pin-ref u64))) (#pin-ref u64)
+        (#return value))
+      (#fn main () u64
+        (#let owner u64 42u64)
+        (#let pinned (#pin-ref u64) (#pin-borrow owner))
+        (#let retained (#pin-ref u64) (#call retain (: value pinned)))
+        (#return (#deref retained)))";
+    let scratch = support::Scratch::new("pinned-function-return");
+    let input = scratch.path().join("main.lim");
+    let binary = scratch.path().join("program");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary),
+        Duration::from_secs(20),
+        64 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+    assert_eq!(status.code(), Some(42), "{stderr:?}");
+}
