@@ -1966,6 +1966,16 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   slot in place and returns the unconsumed value when the slot is Full. Keep
   the move-out operation explicitly unsafe, and verify both insertion paths
   natively so generated async frames can reuse stable storage across states.
+- [x] **ASYNC-01c2i: Retain a parameter-backed self-reference across Pending.**
+  For a top-level immutable `#pin-ref` binding initialized by `#pin-borrow` of
+  an owned function parameter, hoist the owner to a stable sibling frame field
+  and form the reference only after pinning. Require that the owner is used
+  only to initialize this reference; carry the reference through the suspended
+  state, preserve the field-sensitive owner loan, and require cancellation
+  cleanup to end the state scope before the owner can be mutated or destroyed.
+  Verify native Pending/resume and cancellation, generated frame layout, and a
+  rejected owner mutation before cleanup. Body-local owners and other
+  self-reference shapes remain open under ASYNC-01c2.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue

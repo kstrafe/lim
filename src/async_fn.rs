@@ -5,13 +5,21 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{expression_source, normalize_keywords, parse_type, Expr};
+use crate::{expression_source, normalize_keywords, parse_type, Expr, Type};
 
 #[derive(Clone)]
 struct Binding {
     name: String,
     ty: String,
     mutable: bool,
+}
+
+#[derive(Clone)]
+struct PinnedSelfReference {
+    binding: Binding,
+    owner: Binding,
+    helper_parameter: String,
+    source_index: usize,
 }
 
 struct Stage {
@@ -2191,6 +2199,108 @@ fn binding(expr: &Expr, context: &str) -> Result<Binding, String> {
     })
 }
 
+fn pinned_self_references(
+    params: &[Binding],
+    body: &[Expr],
+) -> Result<Vec<PinnedSelfReference>, String> {
+    let mut references = Vec::new();
+    for (index, statement) in body.iter().enumerate() {
+        let Some(items) = form(statement, "#let") else {
+            continue;
+        };
+        if items.len() != 4 {
+            continue;
+        }
+        let Type::PinnedReference { mutable: false, .. } =
+            parse_type(Some(&normalize_keywords(items[2].clone())))?
+        else {
+            continue;
+        };
+        let Some(borrow) = form(&items[3], "#pin-borrow") else {
+            continue;
+        };
+        if borrow.len() != 2 {
+            continue;
+        }
+        let Expr::Symbol(owner_name) = &borrow[1] else {
+            continue;
+        };
+        let Some(owner) = params
+            .iter()
+            .find(|parameter| parameter.name == *owner_name)
+        else {
+            continue;
+        };
+        if owner.mutable {
+            return Err(format!(
+                "@async-fn-pinned self-reference owner '{}' must be an immutable parameter",
+                owner.name
+            ));
+        }
+        let local = binding(statement, "pinned self-reference")?;
+        if local.mutable {
+            return Err(format!(
+                "@async-fn-pinned self-reference '{}' must use immutable #let",
+                local.name
+            ));
+        }
+        references.push(PinnedSelfReference {
+            binding: local,
+            owner: owner.clone(),
+            helper_parameter: String::new(),
+            source_index: index,
+        });
+    }
+
+    Ok(references)
+}
+
+fn rewrite_pinned_self_references(expression: &mut Expr, references: &[PinnedSelfReference]) {
+    let replacement = match expression {
+        Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pin-borrow")
+                && items.len() == 2 =>
+        {
+            match &items[1] {
+                Expr::Symbol(owner) => references
+                    .iter()
+                    .find(|reference| reference.owner.name == *owner)
+                    .map(|reference| reference.helper_parameter.clone()),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    if let Some(replacement) = replacement {
+        *expression = Expr::Symbol(replacement);
+        return;
+    }
+    if let Expr::List(items) = expression {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote"))
+        {
+            return;
+        }
+        for item in items {
+            rewrite_pinned_self_references(item, references);
+        }
+    }
+}
+
+fn self_reference_live_after_await(reference: &PinnedSelfReference, body: &[Expr]) -> bool {
+    let mut crossed_await = false;
+    for statement in body.iter().skip(reference.source_index + 1) {
+        if crossed_await {
+            let mut used = HashSet::new();
+            collect_value_names(statement, &mut used);
+            if used.contains(&reference.binding.name) {
+                return true;
+            }
+        }
+        crossed_await |= has_await(statement);
+    }
+    false
+}
+
 fn parameters(expr: &Expr) -> Result<Vec<Binding>, String> {
     list(expr, "function parameters")?
         .iter()
@@ -2331,6 +2441,35 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         .map(|parameter| parameter.name.clone())
         .collect::<Vec<_>>();
     let body = &function[4..];
+    let mut self_references = if pinned {
+        pinned_self_references(&params, body)?
+    } else {
+        Vec::new()
+    };
+    let mut hoisted_owner_names = HashSet::new();
+    for reference in &self_references {
+        if self_reference_live_after_await(reference, body) {
+            if body.iter().take(reference.source_index).any(has_await) {
+                return Err(format!(
+                    "@async-fn-pinned self-reference '{}' must be initialized before the first #await",
+                    reference.binding.name
+                ));
+            }
+            hoisted_owner_names.insert(reference.owner.name.clone());
+        }
+    }
+    self_references.retain(|reference| hoisted_owner_names.contains(&reference.owner.name));
+    let mut hoisted_owners = Vec::new();
+    let mut owner_indices = HashMap::new();
+    for reference in &mut self_references {
+        let index = *owner_indices
+            .entry(reference.owner.name.clone())
+            .or_insert_with(|| {
+                hoisted_owners.push(reference.owner.clone());
+                hoisted_owners.len() - 1
+            });
+        reference.helper_parameter = format!("lim.async.self-ref.{index}");
+    }
     let last = form(body.last().unwrap(), "#return")
         .ok_or_else(|| "@async-fn body must end with (#return value)".to_owned())?;
     if last.len() != 2 {
@@ -2469,6 +2608,10 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         )?;
         statements.extend(generated);
     }
+    for statement in &mut statements {
+        rewrite_pinned_self_references(statement, &self_references);
+    }
+    rewrite_pinned_self_references(&mut return_value, &self_references);
     let returned = if return_await.is_some() {
         "lim.async.return-value".to_owned()
     } else {
@@ -2582,6 +2725,74 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             .filter_map(|name| known.get(name).cloned())
             .collect();
     }
+    let self_reference_declarations = self_references
+        .iter()
+        .map(|reference| reference.source_index)
+        .collect::<HashSet<_>>();
+    for reference in &self_references {
+        if reference.owner.name == "state" {
+            return Err("@async-fn-pinned self-reference owner cannot be named 'state'".into());
+        }
+        let mut used_elsewhere = false;
+        for (index, statement) in body.iter().enumerate() {
+            if self_reference_declarations.contains(&index) {
+                continue;
+            }
+            let mut names = HashSet::new();
+            collect_value_names(statement, &mut names);
+            used_elsewhere |= names.contains(&reference.owner.name);
+        }
+        if used_elsewhere {
+            return Err(format!(
+                "@async-fn-pinned self-reference owner '{}' may only be used to initialize its pinned reference",
+                reference.owner.name
+            ));
+        }
+    }
+    let start_params = params
+        .iter()
+        .filter(|parameter| !owner_indices.contains_key(&parameter.name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let frame_owner_fields = hoisted_owners
+        .iter()
+        .map(|owner| format!("({} {})", owner.name, owner.ty))
+        .collect::<Vec<_>>();
+    let self_reference_parameters = hoisted_owners
+        .iter()
+        .enumerate()
+        .map(|(index, owner)| format!("(lim.async.self-ref.{index} (#pin-ref {}))", owner.ty))
+        .collect::<Vec<_>>();
+    let self_reference_arguments = hoisted_owners
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!(": lim.async.self-ref.{index} lim.async.self-ref.{index}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let self_reference_borrows = hoisted_owners
+        .iter()
+        .enumerate()
+        .map(|(index, owner)| {
+            format!(
+                "(#let lim.async.self-ref.{index} (#pin-ref {})\n\
+                   (#pin-borrow (#get task {})))",
+                owner.ty, owner.name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let self_reference_parameter_suffix = self_reference_parameters.join(" ");
+    let self_reference_drops = hoisted_owners
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("(#drop lim.async.self-ref.{index})"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let self_reference_argument_suffix = if self_reference_arguments.is_empty() {
+        String::new()
+    } else {
+        format!(" {self_reference_arguments}")
+    };
     let reserved = [
         "waker",
         "lim.async.task",
@@ -2589,8 +2800,16 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         "lim.async.child",
         "lim.async.value",
         "lim.async.pin-state",
+        "lim.async.pending-state",
+        "lim.async.ready-state",
+        "lim.async.cancel-state",
     ];
-    if known.keys().any(|name| reserved.contains(&name.as_str())) {
+    let mut source_names = HashSet::new();
+    collect_value_names(&invocation[4], &mut source_names);
+    if known.keys().any(|name| reserved.contains(&name.as_str()))
+        || (0..hoisted_owners.len())
+            .any(|index| source_names.contains(&format!("lim.async.self-ref.{index}")))
+    {
         return Err("@async-fn bindings cannot use reserved waker or lim.async.* names".into());
     }
     let start_variant = format!("{frame}-start");
@@ -2601,7 +2820,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     {
         return Err("@async-fn start function collides with a generated helper".into());
     }
-    let mut variants = vec![format!("({start_variant} {})", types(&params))];
+    let mut variants = vec![format!("({start_variant} {})", types(&start_params))];
     let mut await_cases = Vec::new();
     let done_variant = format!("{frame}-done");
     if pinned {
@@ -2665,20 +2884,38 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let first = &stages[0];
     let start_case = format!(
         "(#case ({start_variant} {}) (#call {start_helper} ({} : waker waker)))",
-        arguments(&params),
-        named_arguments(&params),
+        arguments(&start_params),
+        format!(
+            "{}{}",
+            named_arguments(&start_params),
+            self_reference_argument_suffix
+        ),
     );
+    let frame_fields = std::iter::once(format!("(state {frame_state})"))
+        .chain(frame_owner_fields.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let frame_start_values = std::iter::once(format!(
+        "(state ({start_variant} {}))",
+        arguments(&start_params)
+    ))
+    .chain(
+        hoisted_owners
+            .iter()
+            .map(|owner| format!("({} {})", owner.name, owner.name)),
+    )
+    .collect::<Vec<_>>()
+    .join(" ");
     let frame_declarations = if pinned {
         format!(
             "(#enum {frame_state} ({}))\n\
              (#linear {frame_state})\n\
-             (#struct {frame} ((state {frame_state})))\n\
+             (#struct {frame} ({frame_fields}))\n\
              (#linear {frame})\n\
              (#fn {start} ({}) {frame}\n\
-               (#return (#struct-literal {frame} ((state ({start_variant} {}))))))",
+               (#return (#struct-literal {frame} ({frame_start_values}))))",
             variants.join(" "),
             signature(&params),
-            arguments(&params),
         )
     } else {
         format!(
@@ -2695,15 +2932,15 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         "{}\n{}
          (#enum {poll_result} (({pending} {frame_state}) ({ready} {result})))
          {}
-         (#fn {start_helper} ({} (waker (#ref {waker}))) {poll_result}
+         (#fn {start_helper} ({} (waker (#ref {waker})) {self_reference_parameter_suffix}) {poll_result}
            {}
            (#return (#call {poll}-child-0 ({} : lim.async.task {} : waker waker))))
-         (#fn {poll} ((task {frame_state}) (waker (#ref {waker}))) {poll_result}
+         (#fn {poll} ((task {frame_state}) (waker (#ref {waker})) {self_reference_parameter_suffix}) {poll_result}
            (#return (#match task {start_case} {})))",
         generated_helpers.join("\n"),
         frame_declarations,
         helpers.join("\n"),
-        signature(&params),
+        signature(&start_params),
         first.prefix.join(" "),
         named_arguments(&first.captures),
         first.value,
@@ -2728,24 +2965,31 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
            (#let lim.async.pin-state (#pin-ref-mut {frame_state})
              (#pin-borrow-mut (#get task state)))
            (#let state {frame_state} (#unsafe (#pin-read lim.async.pin-state)))
-           (#let outcome {poll_result} (#call {poll} (: task state : waker waker)))
+           (#drop lim.async.pin-state)
+           {self_reference_borrows}
+           (#let outcome {poll_result} (#call {poll} (: task state : waker waker{self_reference_argument_suffix})))
+           {self_reference_drops}
            (#return (#match outcome
              (#case ({pending} next-state)
                (#block
-                 (#unsafe (#pin-write lim.async.pin-state next-state))
-                 (#drop lim.async.pin-state)
+                 (#let lim.async.pending-state (#pin-ref-mut {frame_state})
+                   (#pin-borrow-mut (#get task state)))
+                 (#unsafe (#pin-write lim.async.pending-state next-state))
+                 (#drop lim.async.pending-state)
                  ({public_pending} task)))
              (#case ({ready} value)
                (#block
-                 (#unsafe (#pin-write lim.async.pin-state ({done_variant})))
-                 (#drop lim.async.pin-state)
+                 (#let lim.async.ready-state (#pin-ref-mut {frame_state})
+                   (#pin-borrow-mut (#get task state)))
+                 (#unsafe (#pin-write lim.async.ready-state ({done_variant})))
+                 (#drop lim.async.ready-state)
                  ({public_ready} value))))))
          (#fn {cancel} ((task (#pin-ref-mut {frame}))) {frame_state}
-           (#let lim.async.pin-state (#pin-ref-mut {frame_state})
+           (#let lim.async.cancel-state (#pin-ref-mut {frame_state})
              (#pin-borrow-mut (#get task state)))
-           (#let state {frame_state} (#unsafe (#pin-read lim.async.pin-state)))
-           (#unsafe (#pin-write lim.async.pin-state ({done_variant})))
-           (#drop lim.async.pin-state)
+           (#let state {frame_state} (#unsafe (#pin-read lim.async.cancel-state)))
+           (#unsafe (#pin-write lim.async.cancel-state ({done_variant})))
+           (#drop lim.async.cancel-state)
            (#return state))",
         public_pending = public_pending,
         public_ready = public_ready,

@@ -1,0 +1,59 @@
+; The pinned frame owns `owner`; its immutable self-reference is formed only
+; after the caller pins the Frame and is retained safely across Pending.
+(#enum Child ((Waiting u64)))
+(#linear Child)
+(#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+(#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+  (#return (#match task
+    (#case (Waiting count)
+      (#if (#u64.== count 0u64)
+        (ChildPending (Waiting 1u64))
+        (ChildReady 2u64))))))
+(#fn cancel-child ((task Child)) () (#forget task) (#return ()))
+
+(@async-fn-pinned (: names (SelfRefFrame SelfRefPoll SelfRefPending SelfRefReady self-ref-poll) : waker u64 : function
+  (#fn read-after-await ((owner u64)) u64
+    (#let view (#pin-ref u64) (#pin-borrow owner))
+    (#let result u64
+      (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+    (#return (#u64.+.wrap (#deref view) result)))))
+
+(#fn cancel-self-ref-state ((task SelfRefFrame-state)) ()
+  (#match task
+    (#case SelfRefFrame-start ())
+    (#case (SelfRefFrame-await-0 view child)
+      (#call cancel-child (: task child)))
+    (#case SelfRefFrame-done ()))
+  (#return ()))
+
+(#fn main () u64
+  (#let-mut frame SelfRefFrame (#call read-after-await (: owner 40u64)))
+  (#let waker u64 0u64)
+  (#let first SelfRefPoll
+    (#call self-ref-poll
+      (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+  (#let-else (SelfRefPending pending-frame) SelfRefPoll first (#unreachable))
+  (#let second SelfRefPoll
+    (#call self-ref-poll (: task pending-frame : waker (#borrow waker))))
+  (#let result u64
+    (#match second
+      (#case (SelfRefReady value) value)
+      (#case (SelfRefPending unexpected)
+        (#block (#forget unexpected) (#unreachable)))))
+  (#set-field frame owner 41u64)
+  (#forget frame)
+
+  (#let-mut cancelled SelfRefFrame (#call read-after-await (: owner 10u64)))
+  (#let first-cancel SelfRefPoll
+    (#call self-ref-poll
+      (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
+  (#let-else (SelfRefPending cancel-pin) SelfRefPoll first-cancel (#unreachable))
+  (#block
+    (#let state SelfRefFrame-state
+      (#call self-ref-poll-cancel (: task cancel-pin)))
+    (#call cancel-self-ref-state (: task state)))
+  (#set-field cancelled owner 11u64)
+  (#let cancelled-owner u64 (#get cancelled owner))
+  (#forget cancelled)
+  (#forget waker)
+  (#return (#u64.+.wrap result cancelled-owner)))

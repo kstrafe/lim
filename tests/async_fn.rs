@@ -211,7 +211,7 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
         "{generated}"
     );
     assert!(
-        generated.contains("(#pin-write lim.async.pin-state"),
+        generated.contains("(#pin-write lim.async.pending-state"),
         "{generated}"
     );
     assert!(
@@ -245,6 +245,56 @@ fn pinned_async_frames_reject_stack_pins_captured_across_suspension() {
             || error.contains("borrow")
             || error.contains("local"),
         "a stack pin must not be laundered into a pinned async frame: {error}"
+    );
+}
+
+#[test]
+fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel() {
+    let source = include_str!("../examples/async_fn_self_reference.lim");
+    let generated = build_and_run(source, 53);
+    assert!(
+        generated.contains("(#struct SelfRefFrame ((state SelfRefFrame-state) (owner u64)))"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("(#pin-borrow (#get task owner))"),
+        "the self-reference must be formed from the pinned frame field: {generated}"
+    );
+    assert!(
+        generated.contains("(SelfRefFrame-await-0 (#pin-ref u64) Child)"),
+        "the internal reference must be retained in the suspended state: {generated}"
+    );
+
+    let pending_mutation = source.replace(
+        "  (#let second SelfRefPoll",
+        "  (#set-field frame owner 99u64)\n  (#let second SelfRefPoll",
+    );
+    let error = lim::check_types(&lim::parse_program(&pending_mutation).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access") || error.contains("pinned"),
+        "the owner must stay borrowed while the frame is Pending: {error}"
+    );
+
+    let mutation = source.replace(
+        "  (#call cancel-self-ref-state (: task state))",
+        "  (#set-field cancelled owner 11u64)\n  (#call cancel-self-ref-state (: task state))",
+    );
+    let error = lim::check_types(&lim::parse_program(&mutation).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access") || error.contains("pinned"),
+        "the owner must stay borrowed until the suspended reference is consumed: {error}"
+    );
+
+    let direct_owner_use = source.replace(
+        "(#u64.+.wrap (#deref view) result)",
+        "(#u64.+.wrap (#u64.+.wrap (#deref view) result) owner)",
+    );
+    let error = lim::parse_program(&direct_owner_use)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("owner") && error.contains("only be used to initialize"),
+        "owner access must not bypass the retained reference loan: {error}"
     );
 }
 

@@ -295,14 +295,24 @@ condition is polled before each body decision, and Ready(false) skips the body;
 it cannot be combined with another body suspension or body loop transfer yet.
 Suspending `#for` conditions and compound awaited conditions remain unsupported.
 At most 32 awaits are accepted.
-References into pre-suspension locals cannot be retained in the frame; the
-ordinary borrow checker rejects them.
+For movable `@async-fn`, references into pre-suspension stack locals cannot be
+retained in the frame; the ordinary borrow checker rejects them. Pinned
+`@async-fn-pinned` only supports the parameter-backed internal-reference shape
+described below; references into body locals remain rejected.
 An `@async-fn-pinned` function may capture a caller-owned `#pin-ref` and use it
 after resume. The frame retains that external loan while it is alive, so its
 owner cannot be mutated in the meantime; explicitly consume or forget the
-completed frame before reusing the owner. This does not permit references into
-the frame itself, which still require stable generated slots and internal-loan
-cleanup.
+completed frame before reusing the owner. It can also form an immutable
+self-reference from an owned function parameter using a top-level
+`(#let view (#pin-ref T) (#pin-borrow owner))`. The generator moves `owner`
+into a stable sibling field of the pinned frame and forms the reference only
+after the frame is pinned. In this initial form, use the owner only to
+initialize the self-reference; use `view` for later access. The reference is
+retained in suspended state across Pending/resume. Other self-reference forms,
+including borrows from body locals, are not supported yet. After `poll-cancel`,
+consume and end the returned state's scope before accessing or destroying the
+owner; the borrow checker keeps the internal loan alive until that state is
+cleaned up.
 
 Cancellation is still explicit and caller-defined: a free-standing function
 must match each generated frame state, consume its captured values, and call
@@ -312,7 +322,9 @@ Adding a new `#await` adds a state and makes an old exhaustive cancellation
 match fail compilation until it is updated. `examples/async_fn.lim` shows the
 movable frame API; `examples/async_fn_pinned.lim` shows in-place Pending/resume
 and cancellation; `examples/async_fn_two_awaits.lim` exercises sequential
-awaits. These lowerings do not themselves add a scheduler or OS readiness.
+awaits; `examples/async_fn_self_reference.lim` exercises a pinned internal
+reference across Pending and cancellation. These lowerings do not themselves
+add a scheduler or OS readiness.
 The explicit `wake_ready4` protocol can prevent lost wakes when used around
 polling. `examples/async_fn_while_condition.lim` carries a mutable counter
 through Pending, advances it after Ready(true), then skips the body on
