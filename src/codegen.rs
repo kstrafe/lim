@@ -9385,7 +9385,9 @@ impl FunctionContext {
                 _ => return Err("slice-mut-split requires a mutable slice".into()),
             };
             if let Expr::Symbol(name) = &items[1] {
-                if let Some(Storage::Tuple(slots)) = self.locals.get(name).cloned() {
+                if let Some(Storage::Tuple(slots)) =
+                    self.local_storage_for_symbol(&items[1], name)?
+                {
                     self.output.push_str(&format!(
                         "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
                         slots[0] * 8,
@@ -9421,7 +9423,9 @@ impl FunctionContext {
                 _ => return Err("slice-range requires a slice".into()),
             };
             if let Expr::Symbol(name) = &items[1] {
-                if let Some(Storage::Tuple(slots)) = self.locals.get(name).cloned() {
+                if let Some(Storage::Tuple(slots)) =
+                    self.local_storage_for_symbol(&items[1], name)?
+                {
                     self.output.push_str(&format!(
                         "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
                         slots[0] * 8,
@@ -15263,19 +15267,21 @@ impl FunctionContext {
         }
         if matches!(ty, Type::Slice(_) | Type::MutableSlice(_)) {
             if let Expr::Symbol(local) = value {
-                let Some(Storage::Tuple(slots)) = self.locals.get(local) else {
-                    return Err(format!("'{local}' is not a slice local"));
-                };
-                let slots = slots.clone();
-                let order: &[usize] = if reverse { &[1, 0] } else { &[0, 1] };
-                for index in order {
-                    self.output.push_str(&format!(
-                        "    mov rax, QWORD PTR [rbp-{}]\n",
-                        slots[*index] * 8
-                    ));
-                    self.push_rax();
+                let storage = self.local_storage_for_symbol(value, local)?;
+                if let Some(Storage::Tuple(slots)) = storage {
+                    let order: &[usize] = if reverse { &[1, 0] } else { &[0, 1] };
+                    for index in order {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n",
+                            slots[*index] * 8
+                        ));
+                        self.push_rax();
+                    }
+                    return Ok(());
                 }
-                return Ok(());
+                if self.is_local_symbol_expression(value, local) {
+                    return Err(format!("'{local}' is not a slice local"));
+                }
             }
             self.expression(value)?;
             let order: &[&str] = if reverse {

@@ -380,6 +380,11 @@ the checklist is committed alongside the implementation it tracks.
   keep non-local and synthesized expressions on the existing evaluation path.
   Cover immutable and mutable slices with native tests.
 
+- [x] **IR-02ad: Resolve remaining slice value paths by identity.** Use checked
+  local identities in range, mutable-split, and slice argument emission paths;
+  preserve ordinary expression handling for non-local values. Cover immutable
+  and mutable slice operations and function calls.
+
 - [x] **IR-02ac: Resolve oversized array-element sources by identity.** When
   copying a large indexed element directly into aggregate storage, select its
   local array base through the checked `BindingId`. Preserve globals and
