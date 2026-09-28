@@ -7,6 +7,7 @@ use crate::Expr;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum Segment {
+    Dereference,
     Field(FieldId),
     Tuple(usize),
     Payload(VariantId, usize),
@@ -54,6 +55,9 @@ impl Place {
             NodeKind::Form { head, children, .. } => {
                 let mut place = Self::from_expression(body, *children.get(1)?)?;
                 match head.as_str() {
+                    "deref" if children.len() == 2 => {
+                        place.segments.push(Segment::Dereference);
+                    }
                     "get" if children.len() == 3 => match &body.nodes[children[2].0].kind {
                         NodeKind::Declaration(DeclarationId::Field(id)) => {
                             place.segments.push(Segment::Field(*id));

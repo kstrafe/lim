@@ -322,9 +322,20 @@ impl FlowLoanOrigins {
         binding: BindingId,
         segments: &[Segment],
     ) -> Vec<Place> {
+        let through_deref = segments
+            .iter()
+            .any(|segment| matches!(segment, Segment::Dereference));
+        let segments = segments
+            .iter()
+            .filter(|segment| !matches!(segment, Segment::Dereference))
+            .cloned()
+            .collect::<Vec<_>>();
         let mut places = Vec::new();
         for origin in self.before(node, binding) {
-            if segments.len() <= origin.storage.len() || !segments.starts_with(&origin.storage) {
+            if segments.len() < origin.storage.len()
+                || (!through_deref && segments.len() == origin.storage.len())
+                || !segments.starts_with(&origin.storage)
+            {
                 continue;
             }
             let mut place = origin.place.clone();

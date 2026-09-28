@@ -1064,6 +1064,12 @@ the checklist is committed alongside the implementation it tracks.
   break or continue that exits the scope must also release it. Test that a
   post-loop mutable borrow succeeds after per-iteration shared scopes.
 
+- [x] **IR-04ck: Rebase typed dereference reads to their referents.** Retain
+  dereference as a structural place projection and resolve it through the
+  reference's checked loan origins before overlap analysis. Verify a dereference
+  read resolves to the original binding without conflating the reference handle
+  with its referent. `#deref-set` remains on the transitional checker path.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

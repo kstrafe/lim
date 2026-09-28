@@ -1189,6 +1189,52 @@ mod tests {
     }
 
     #[test]
+    fn dereference_reads_rebase_to_the_referent() {
+        let source = "(#fn main () u64
+            (#let-mut value u64 1u64)
+            (#let parent (#ref u64) (#borrow value))
+            (#let observed u64 (#deref parent))
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let flow = FlowGraph::lower(body).unwrap();
+        let origins = flow.loan_origins(body);
+        let read = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match &node.action {
+                FlowAction::Read { place, .. }
+                    if place
+                        .segments
+                        .contains(&crate::typed_place::Segment::Dereference) =>
+                {
+                    Some((FlowNodeId(index), place))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let parent = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "parent")
+                .unwrap(),
+        );
+        let value = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "value")
+                .unwrap(),
+        );
+        assert_eq!(read.1.root, PlaceRoot::Local(parent));
+        assert_eq!(
+            origins.projected_referents(read.0, parent, &read.1.segments),
+            vec![Place::root(PlaceRoot::Local(value))]
+        );
+    }
+
+    #[test]
     fn scoped_borrow_conflicts_are_checked_on_typed_control_flow() {
         let source = "(#fn main () u64
             (#let-mut value u64 1u64)
