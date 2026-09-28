@@ -1889,6 +1889,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   stack pin into an internal self-reference merely by capturing it across
   `#await`. Preserve the source-local lifetime diagnostic until generated
   stable slots and frame-internal loan cleanup are implemented.
+- [x] **ASYNC-01c2h: Refill pinned linear slots without moving their address.**
+  Extend `@pin-slot` with a safe try-insert operation that writes into an Empty
+  slot in place and returns the unconsumed value when the slot is Full. Keep
+  the move-out operation explicitly unsafe, and verify both insertion paths
+  natively so generated async frames can reuse stable storage across states.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
