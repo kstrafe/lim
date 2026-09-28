@@ -124,12 +124,25 @@
       (#return (#match task
         ,@(#gn-for-each stage stages (#gn-call async-wake-poll-case names stage)))))))
 
-;; Cancellation is opt-in and explicit. Each state has one payload; every
-;; handler consumes it. A handler must finish cancelling any external operation
-;; before returning and releasing the state's retained borrows.
+;; Cancellation is opt-in and explicit. A state may carry one legacy payload,
+;; or an explicit list of typed fields that is passed to its handler as a
+;; concrete tuple. A handler consumes all owned state fields.
 (#gn-fn task-cancel-case (entry)
-  `(#case (,(#gn-first entry) lim.cancel.task)
-     (#call ,(#gn-call task-second entry) (: task lim.cancel.task))))
+  (#gn-if (#gn-equal (#gn-length entry) 2)
+    `(#case (,(#gn-first entry) lim.cancel.task)
+       (#call ,(#gn-call task-second entry) (: task lim.cancel.task)))
+    (#gn-if (#gn-equal (#gn-length entry) 3)
+      `(#case
+         (,(#gn-first entry)
+          ,@(#gn-for-each field (#gn-call task-third entry) (#gn-first field)))
+         (#call ,(#gn-call task-second entry)
+           (: task
+            (#tuple
+              (#tuple ,@(#gn-for-each field (#gn-call task-third entry)
+                         (#gn-call task-second field)))
+              ,@(#gn-for-each field (#gn-call task-third entry)
+                   (#gn-first field))))))
+      (#gn-error "task cancellation state requires (Variant handler) or (Variant handler ((field Type) ...))"))))
 
 (#gn task-cancel (cancel task states)
   `((#fn ,cancel ((task ,task)) ()

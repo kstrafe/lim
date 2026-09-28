@@ -1777,3 +1777,42 @@ fn async_function_pending_state_can_be_cancelled_explicitly() {
     );
     build_and_run(&source, 1);
 }
+
+#[test]
+fn generated_async_frames_support_exhaustive_task_cancellation() {
+    let source = "(#import \"{}/library/tasks.lim\")
+      (#enum Child ((Waiting u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting remaining)
+            (#if (#u64.== remaining 0u64)
+              (ChildReady 42u64)
+              (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
+      (#fn child-cancel ((task Child)) () (#forget task) (#return ()))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((offset u64)) u64
+          (#let value u64
+            (#await Child ChildPending ChildReady child-poll (Waiting 2u64)))
+          (#return (#u64.+.wrap value offset)))))
+      (#fn cancel-offset ((task u64)) () (#forget task) (#return ()))
+      (#fn cancel-await-state ((task (#tuple u64 Child))) ()
+        (#let (#tuple offset child) (#tuple u64 Child) task)
+        (#call cancel-offset (: task offset))
+        (#call child-cancel (: task child))
+        (#return ()))
+      (@task-cancel cancel-frame Frame
+        ((Frame-start cancel-offset)
+         (Frame-await-0 cancel-await-state ((offset u64) (child Child)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let frame Frame (#call work (: offset 40u64)))
+        (#let first Poll (#call poll (: task frame : waker (#borrow waker))))
+        (#let-else (Pending pending-frame) Poll first (#unreachable))
+        (#call cancel-frame (: task pending-frame))
+        (#forget waker)
+        (#return 42u64))";
+    let source = source.replace("{}", env!("CARGO_MANIFEST_DIR"));
+    build_and_run(&source, 42);
+}
