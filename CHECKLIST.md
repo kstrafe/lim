@@ -1705,6 +1705,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   turns immediate arms into Ready without polling a child. Verify both branch
   paths natively; keep the generated choice task linear so capture transfer
   and explicit cancellation retain their existing ownership checks.
+- [x] **ASYNC-01b14a: Verify captures and cancellation through a branch join.**
+  Capture an external reference needed after a conditional await, reject owner
+  mutation while the generated choice task is Pending, and prove explicit
+  cancellation releases the loan before owner mutation. Run the immediate
+  branch natively and inspect the generated frame for the captured reference.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

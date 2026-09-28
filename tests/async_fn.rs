@@ -466,6 +466,59 @@ fn async_conditional_await_joins_with_an_immediate_value() {
 }
 
 #[test]
+fn async_conditional_choice_captures_and_releases_a_borrow_on_cancel() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value)
+            (#if (#u64.== value 0u64)
+              (ChildPending (Waiting 1u64))
+              (ChildReady value))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((choose bool) (view (#ref u64))) u64
+          (#let result u64
+            (#if choose
+              (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
+              41u64))
+          (#return (#u64.+.wrap result (#deref view))))))
+      (#fn main () u64
+        (#let-mut owner u64 1u64)
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (: choose true : view (#borrow owner)))
+            : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        CHECK_HERE
+        (#forget pending)
+        (#set owner 42u64)
+        (#let immediate Poll
+          (#call poll (: task (#call work (: choose false : view (#borrow owner)))
+            : waker (#borrow waker))))
+        (#let answer u64
+          (#match immediate
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget waker)
+        (#return answer))";
+
+    let rejected = source.replace("CHECK_HERE", "(#set owner 40u64)");
+    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "{error}"
+    );
+
+    let accepted = source.replace("CHECK_HERE", "");
+    let generated = build_and_run(&accepted, 83);
+    assert!(
+        generated.contains("(view (#ref u64))"),
+        "the frame must retain the live external borrow: {generated}"
+    );
+}
+
+#[test]
 fn async_function_rejects_incompatible_conditional_awaits() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64) (ChildAlternateReady u64)))
