@@ -635,7 +635,7 @@ fn mutable_assignment_target(expr: &Expr) -> Option<&str> {
     if !matches!(
         items.first(),
         Some(Expr::Symbol(head))
-            if matches!(head.as_str(), "#set" | "set" | "#set-field" | "set-field" | "#set-index" | "set-index")
+            if matches!(head.as_str(), "#set" | "set" | "#set-field" | "set-field" | "#set-index" | "set-index" | "#pin-set-field" | "pin-set-field")
     ) {
         return None;
     }

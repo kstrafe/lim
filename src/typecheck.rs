@@ -1748,8 +1748,9 @@ fn check_opaque_access(
             ));
         }
         for node in &declarations.flows[function_name].nodes {
-            let FlowAction::Assign { place, .. } = &node.action else {
-                continue;
+            let place = match &node.action {
+                FlowAction::Assign { place, .. } | FlowAction::Write { place, .. } => place,
+                _ => continue,
             };
             for segment in &place.segments {
                 let Segment::Field(field) = segment else {
@@ -6483,6 +6484,50 @@ fn list_expression(
                 Some(&target),
             )?;
             require_type(&actual, &target, "pin-write value")?;
+            Ok(Type::Unit)
+        }
+        "pin-set-field" => {
+            require_arity(operator, items, 4)?;
+            let reference_type = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let Type::PinnedReference {
+                mutable: true,
+                target,
+            } = reference_type
+            else {
+                return Err("pin-set-field requires a mutable pinned struct reference".into());
+            };
+            let Type::Named(struct_name) = *target else {
+                return Err("pin-set-field requires a pinned reference to a struct".into());
+            };
+            let field_name = match &items[2] {
+                Expr::Symbol(name) => name,
+                _ => return Err("pin-set-field requires a field name".into()),
+            };
+            let field_type = structs
+                .get(&struct_name)
+                .and_then(|fields| fields.iter().find(|field| field.name == *field_name))
+                .map(|field| field.ty.clone())
+                .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))?;
+            if !matches!(
+                field_type,
+                Type::Reference { mutable: false, .. }
+                    | Type::PinnedReference { mutable: false, .. }
+            ) {
+                return Err("pin-set-field may only replace a shared reference field".into());
+            }
+            let actual = expression(
+                &items[3],
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                Some(&field_type),
+            )?;
+            require_type(&actual, &field_type, "pin-set-field value")?;
             Ok(Type::Unit)
         }
         "deref-set" => {

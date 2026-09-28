@@ -648,6 +648,30 @@ impl FlowGraph {
                         replace_projected_origins(&mut state[binding.0], segments, incoming);
                     }
                 }
+                FlowAction::Write { place, value } => {
+                    let source = match &body.nodes[value.0].kind {
+                        NodeKind::Form { head, children, .. }
+                            if head == "pin-set-field" && children.len() == 4 =>
+                        {
+                            children[3]
+                        }
+                        _ => *value,
+                    };
+                    let incoming = value_loan_origins(body, source, &state);
+                    for destination in
+                        resolve_known_referents(body, place, &state, &mut HashSet::new())
+                    {
+                        if let PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) =
+                            destination.root
+                        {
+                            replace_projected_origins(
+                                &mut state[binding.0],
+                                &destination.segments,
+                                incoming.clone(),
+                            );
+                        }
+                    }
+                }
                 FlowAction::Release {
                     place:
                         Place {
@@ -1653,10 +1677,21 @@ impl FlowGraph {
                     else {
                         return Err(format!("typed flow writes invalid node {value:?}"));
                     };
-                    if !matches!(head.as_str(), "deref-set" | "pin-write")
-                        || children.len() != 3
-                        || Place::from_dereference_write(body, children[1]).as_ref() != Some(place)
-                    {
+                    let valid = match head.as_str() {
+                        "deref-set" | "pin-write" => {
+                            children.len() == 3
+                                && Place::from_dereference_write(body, children[1]).as_ref()
+                                    == Some(place)
+                        }
+                        "pin-set-field" => {
+                            children.len() == 4
+                                && Place::from_pin_field_write(body, children[1], children[2])
+                                    .as_ref()
+                                    == Some(place)
+                        }
+                        _ => false,
+                    };
+                    if !valid {
                         return Err(format!("typed flow write {value:?} has invalid metadata"));
                     }
                 }
@@ -3330,6 +3365,18 @@ impl Builder<'_> {
                 );
                 let done = self.push(action, span, vec![next]);
                 let value = self.expression(children[2], done, targets, None)?;
+                self.expression(children[1], value, targets, None)
+            }
+            NodeKind::Form { head, children, .. }
+                if head == "pin-set-field" && children.len() == 4 =>
+            {
+                let action = Place::from_pin_field_write(self.body, children[1], children[2])
+                    .map_or(FlowAction::Evaluate(id), |place| FlowAction::Write {
+                        place,
+                        value: id,
+                    });
+                let done = self.push(action, span, vec![next]);
+                let value = self.expression(children[3], done, targets, None)?;
                 self.expression(children[1], value, targets, None)
             }
             NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {

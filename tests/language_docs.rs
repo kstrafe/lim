@@ -81,6 +81,7 @@ fn builtin_reference_is_sorted_and_covers_parser_forms() {
         "#os",
         "#platform",
         "#pin-read",
+        "#pin-set-field",
         "#pin-write",
         "#repr-c",
         "#send",

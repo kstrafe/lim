@@ -7075,7 +7075,11 @@ impl FunctionContext {
                 Some(Expr::Symbol(operator)) if operator == "clone" && items.len() == 2 => {
                     self.expression_type(&items[1])
                 }
-                Some(Expr::Symbol(operator)) if operator == "deref-set" => Some(Type::Unit),
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "deref-set" | "pin-set-field") =>
+                {
+                    Some(Type::Unit)
+                }
                 Some(Expr::Symbol(operator)) if operator == "get" && items.len() == 3 => {
                     let base = self.expression_type(&items[1])?;
                     let base = match base {
@@ -10097,6 +10101,61 @@ impl FunctionContext {
                     Type::F64 => self.output.push_str("    movq QWORD PTR [rcx], xmm0\n"),
                     _ => self.output.push_str("    mov QWORD PTR [rcx], rax\n"),
                 }
+                Ok(())
+            }
+            "pin-set-field" => {
+                if items.len() != 4 {
+                    return Err(
+                        "pin-set-field requires a pinned reference, field, and reference value"
+                            .into(),
+                    );
+                }
+                let Type::PinnedReference {
+                    mutable: true,
+                    target,
+                } = self.expression_type(&items[1]).ok_or_else(|| {
+                    "pin-set-field requires a mutable pinned reference".to_owned()
+                })?
+                else {
+                    return Err("pin-set-field requires a mutable pinned reference".into());
+                };
+                let Type::Named(struct_name) = *target else {
+                    return Err("pin-set-field requires a pinned reference to a struct".into());
+                };
+                let Expr::Symbol(field_name) = &items[2] else {
+                    return Err("pin-set-field requires a field name".into());
+                };
+                let fields = self
+                    .structs
+                    .get(&struct_name)
+                    .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
+                let mut field_offset = 0usize;
+                let mut field_type = None;
+                for field in fields {
+                    if field.name == *field_name {
+                        field_type = Some(field.ty.clone());
+                        break;
+                    }
+                    field_offset = field_offset
+                        .checked_add(storage_word_count(&field.ty, &self.structs, &self.enums)?)
+                        .ok_or_else(|| "pinned field offset overflows native storage".to_owned())?;
+                }
+                let field_type = field_type
+                    .ok_or_else(|| format!("struct '{struct_name}' has no field '{field_name}'"))?;
+                if !matches!(
+                    field_type,
+                    Type::Reference { mutable: false, .. }
+                        | Type::PinnedReference { mutable: false, .. }
+                ) {
+                    return Err("pin-set-field may only replace a shared reference field".into());
+                }
+                self.emit_reference_field_address(&items[1], field_offset, false)?;
+                self.output.push_str("    push rax\n");
+                self.stack_depth += 1;
+                self.expression_as_expected(&items[3], &field_type)?;
+                self.output
+                    .push_str("    pop rcx\n    mov QWORD PTR [rcx], rax\n");
+                self.stack_depth -= 1;
                 Ok(())
             }
             "unsafe" => {

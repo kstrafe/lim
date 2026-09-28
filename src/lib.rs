@@ -946,6 +946,7 @@ pub(crate) fn source_value_expression(expression: &SpannedExpr) -> &SpannedExpr 
         "#return" | "return" | "#break" | "break" | "#break-to" => Some(1),
         "#set" | "set" => Some(2),
         "#set-field" | "set-field" | "#set-index" | "set-index" => Some(3),
+        "#pin-set-field" | "pin-set-field" => Some(4),
         _ => None,
     };
     value_index
@@ -3743,6 +3744,14 @@ fn rename_expression(
                         rename_expression(value, bindings, used, next_id, globals, variants);
                     }
                 }
+                "pin-set-field" => {
+                    if let Some(reference) = items.get_mut(1) {
+                        rename_expression(reference, bindings, used, next_id, globals, variants);
+                    }
+                    if let Some(value) = items.get_mut(3) {
+                        rename_expression(value, bindings, used, next_id, globals, variants);
+                    }
+                }
                 "array" | "array-repeat" => {
                     for item in items.iter_mut().skip(2) {
                         rename_expression(item, bindings, used, next_id, globals, variants);
@@ -4042,6 +4051,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "borrow-mut"
             | "pin-borrow"
             | "pin-borrow-mut"
+            | "pin-set-field"
             | "ref"
             | "ref-mut"
             | "pin-ref"

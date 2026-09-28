@@ -92,6 +92,110 @@ fn pin_write_cannot_invalidate_a_live_projected_reference() {
 }
 
 #[test]
+fn pin_set_field_initializes_and_releases_a_self_reference_in_place() {
+    let source = "(#struct Link ((value u64) (view (#pin-ref u64))))
+      (#fn main () u64
+        (#let-mut outside u64 3u64)
+        (#let external (#pin-ref u64) (#pin-borrow outside))
+        (#let-mut link Link
+          (#struct-literal Link ((value 42u64) (view external))))
+        (#let pinned (#pin-ref-mut Link) (#pin-borrow-mut link))
+        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#pin-set-field pinned view view)
+        (#let observed u64 (#deref view))
+        (#pin-set-field pinned view external)
+        (#drop view)
+        (#drop pinned)
+        (#forget link)
+        (#drop external)
+        (#forget outside)
+        (#return observed))";
+    let scratch = support::Scratch::new("pin-self-reference-field");
+    let input = scratch.path().join("main.lim");
+    let binary = scratch.path().join("program");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary),
+        Duration::from_secs(20),
+        64 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+    assert_eq!(status.code(), Some(42), "{stderr:?}");
+}
+
+#[test]
+fn pin_set_field_rejects_replacing_a_borrowed_reference_field() {
+    let source = "(#struct Link ((value u64) (view (#pin-ref u64))))
+      (#fn main () ()
+        (#let-mut outside u64 3u64)
+        (#let external (#pin-ref u64) (#pin-borrow outside))
+        (#let-mut link Link
+          (#struct-literal Link ((value 42u64) (view external))))
+        (#let pinned (#pin-ref-mut Link) (#pin-borrow-mut link))
+        (#let view (#pin-ref (#pin-ref u64)) (#borrow (#get pinned view)))
+        (#pin-set-field pinned view external)
+        (#drop view)
+        (#drop pinned)
+        (#forget link)
+        (#drop external)
+        (#forget outside)
+        (#return ()))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "{error}"
+    );
+}
+
+#[test]
+fn pin_set_field_does_not_duplicate_mutable_references() {
+    let source = "(#struct Link ((view (#pin-ref-mut u64))))
+      (#fn main () ()
+        (#let-mut target u64 3u64)
+        (#let replacement (#pin-ref-mut u64) (#pin-borrow-mut target))
+        (#let-mut link Link (#struct-literal Link ((view replacement))))
+        (#let pinned (#pin-ref-mut Link) (#pin-borrow-mut link))
+        (#pin-set-field pinned view replacement)
+        (#drop pinned)
+        (#forget link)
+        (#drop replacement)
+        (#forget target)
+        (#return ()))";
+    let error = check(source).unwrap_err();
+    assert!(error.contains("shared reference field"), "{error}");
+}
+
+#[test]
+fn a_stored_self_reference_keeps_its_pinned_owner_borrowed() {
+    let source = "(#struct Link ((value u64) (view (#pin-ref u64))))
+      (#fn main () ()
+        (#let-mut outside u64 3u64)
+        (#let external (#pin-ref u64) (#pin-borrow outside))
+        (#let-mut link Link
+          (#struct-literal Link ((value 42u64) (view external))))
+        (#let pinned (#pin-ref-mut Link) (#pin-borrow-mut link))
+        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#pin-set-field pinned view view)
+        (#drop view)
+        (#drop pinned)
+        (#forget link)
+        (#drop external)
+        (#forget outside)
+        (#return ()))";
+    let error = check(source).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "{error}"
+    );
+}
+
+#[test]
 fn a_pinned_referent_cannot_be_copied_while_the_pin_is_live() {
     let source = "(#fn main () u64
       (#let owner u64 7u64)

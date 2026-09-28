@@ -2050,11 +2050,11 @@ impl Builder<'_> {
             if let Some(owner) = self.declarations.aggregate_id(ty) {
                 self.resolve_node(children[1], DeclarationId::Aggregate(owner));
             }
-        } else if matches!(head.as_str(), "get" | "get-payload") {
+        } else if matches!(head.as_str(), "get" | "get-payload" | "pin-set-field") {
             if let (Some(owner), Some(Expr::Symbol(name))) =
                 (self.body.nodes[children[1].0].ty.as_ref(), items.get(2))
             {
-                let id = if head == "get" {
+                let id = if matches!(head.as_str(), "get" | "pin-set-field") {
                     self.declarations
                         .field_id(owner, name)
                         .map(DeclarationId::Field)

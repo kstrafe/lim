@@ -1737,6 +1737,15 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   projections, return, and cancellation that could invalidate a live internal
   reference. Start with immutable references and add mutable projections only
   as a separately verified extension.
+- [x] **ASYNC-01c2a: Initialize pinned self-reference fields in place.** Add a
+  checked operation that can install a reference into a reference-valued field
+  through a mutable pinned struct reference without replacing the containing
+  object. Preserve field-sensitive loan identity so a reference to one field
+  may be stored into a disjoint reference field, while overlapping writes,
+  moving the referent, and owner destruction remain rejected. Exercise a
+  native self-reference setup and a conflicting-projection diagnostic. This
+  is only the borrow-checking primitive; async frame lowering must still emit
+  stable slots and end internal loans during cancellation.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue

@@ -143,6 +143,33 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
                 continue;
             }
             for held in origins.before(event, binding) {
+                let releasing_reborrow_parent =
+                    match (&place.root, place.segments.is_empty(), access) {
+                        (
+                            PlaceRoot::Local(parent),
+                            true,
+                            AccessKind::Write | AccessKind::Release,
+                        ) => held.borrowed_from == Some(*parent),
+                        _ => false,
+                    };
+                if releasing_reborrow_parent {
+                    let parent = match &place.root {
+                        PlaceRoot::Local(parent) => body.bindings[parent.0].name.as_str(),
+                        _ => unreachable!(),
+                    };
+                    return Err(BorrowConflict {
+                        message: crate::analysis_error::failure!(
+                            "cannot move or destroy reference '{parent}' while a derived reference is stored"
+                        )
+                        .message,
+                        span: node.span,
+                        labels: held
+                            .span
+                            .map(|span| (span, "derived reference originates here".into()))
+                            .into_iter()
+                            .collect(),
+                    });
+                }
                 let forbidden_pinned_access = held.pinned
                     && !reference_value_access
                     && access_places.iter().any(|place| {

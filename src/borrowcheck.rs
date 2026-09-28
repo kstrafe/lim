@@ -1835,6 +1835,13 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     });
                     context.allow_local_reference = previous;
                     checked?;
+                } else if operator == "pin-set-field" && items.len() == 4 {
+                    // The checked-place analysis records this as a write to
+                    // one projected field of the pinned referent. Treating
+                    // the pin handle as an unprojected read here would reject
+                    // safe updates to a disjoint reference field whenever a
+                    // sibling field is borrowed.
+                    check_expression(&items[3], context)?;
                 } else if matches!(operator.as_str(), "get" | "index" | "get-payload") {
                     if let Some((base, path)) = projection_path(expression) {
                         let through_mutable_reference = matches!(base, Expr::Symbol(name)

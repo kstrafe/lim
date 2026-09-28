@@ -106,6 +106,16 @@ impl Place {
         Some(place)
     }
 
+    pub fn from_pin_field_write(body: &Body, reference: NodeId, field: NodeId) -> Option<Self> {
+        let mut place = Self::from_expression(body, reference)?;
+        let NodeKind::Declaration(DeclarationId::Field(field)) = body.nodes.get(field.0)?.kind
+        else {
+            return None;
+        };
+        place.segments.push(Segment::Field(field));
+        Some(place)
+    }
+
     /// A parent place overlaps any descendant. A dynamic index may name any
     /// element of the same array, while distinct concrete indices do not
     /// overlap. This is about identity, not whether a particular loan is live.
