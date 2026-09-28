@@ -7277,7 +7277,7 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             let value_type = match value_type {
-                Type::Reference { target, .. } => *target,
+                Type::Reference { target, .. } | Type::PinnedReference { target, .. } => *target,
                 other => other,
             };
             let Type::Named(enum_name) = value_type else {
