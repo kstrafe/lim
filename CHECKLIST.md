@@ -446,6 +446,12 @@ the checklist is committed alongside the implementation it tracks.
   narrow reconstruction path for backend-synthesized expressions only; test
   checked-versus-synthesized identity and run all native examples.
 
+- [x] **IR-03ab: Reject missing types on checked local symbol reads.** Do not
+  recover a checked binding's scalar/storage classification from the legacy
+  name-keyed type table when its retained node type is missing. Keep that
+  compatibility lookup only for synthesized nodes; test both paths and retain
+  numeric and native-example coverage.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

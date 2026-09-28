@@ -5324,6 +5324,21 @@ fn checked_scalar_argument_type(
         .ok_or_else(|| "internal error: checked scalar call argument lost its type".to_owned())
 }
 
+fn local_symbol_type<'a>(
+    metadata: Option<&'a crate::typed_body::EmissionNode>,
+    legacy_type: Option<&'a Type>,
+) -> Result<Option<&'a Type>, String> {
+    match metadata {
+        Some(node) if node.binding.is_some() => node
+            .ty
+            .as_ref()
+            .map(Some)
+            .ok_or_else(|| "internal error: checked local symbol lost its type".to_owned()),
+        Some(node) => Ok(node.ty.as_ref().or(legacy_type)),
+        None => Ok(legacy_type),
+    }
+}
+
 fn native_scalar_type(ty: &Type) -> bool {
     matches!(
         ty,
@@ -5400,6 +5415,30 @@ fn checked_scalar_arguments_require_retained_types() {
     assert_eq!(
         checked_scalar_argument_type(&argument, Some(callee), &emission).unwrap(),
         Some(Type::U64)
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn checked_local_symbols_require_retained_types() {
+    let legacy_type = Type::U64;
+    let checked = crate::typed_body::EmissionNode {
+        ty: None,
+        binding: Some(crate::typed_body::BindingId(0)),
+        numeric: None,
+        callee: None,
+    };
+    assert!(local_symbol_type(Some(&checked), Some(&legacy_type))
+        .unwrap_err()
+        .contains("checked local symbol lost its type"));
+
+    let synthesized = crate::typed_body::EmissionNode {
+        binding: None,
+        ..checked
+    };
+    assert_eq!(
+        local_symbol_type(Some(&synthesized), Some(&legacy_type)).unwrap(),
+        Some(&legacy_type)
     );
 }
 
@@ -8702,9 +8741,7 @@ impl FunctionContext {
                 let binding = metadata.and_then(|metadata| metadata.binding);
                 let local_storage =
                     binding.and_then(|binding| self.locals_by_binding.get(&binding));
-                let local_type = metadata
-                    .and_then(|metadata| metadata.ty.as_ref())
-                    .or_else(|| self.local_types.get(name));
+                let local_type = local_symbol_type(metadata, self.local_types.get(name))?;
                 if local_type.is_some_and(|ty| matches!(ty, Type::Unit | Type::Never)) {
                     return Ok(());
                 }
