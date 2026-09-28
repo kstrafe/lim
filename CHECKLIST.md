@@ -344,6 +344,11 @@ the checklist is committed alongside the implementation it tracks.
   the checked destination binding, not the spelling-keyed compatibility map.
   Keep source-expression resolution independent and test aggregate mutations.
 
+- [x] **IR-02v: Resolve aggregate copy sources by identity.** Use checked
+  symbol identities when copying local structs, enums, tuples, and arrays, and
+  when writing aggregate locals into indirect return storage. Keep global and
+  synthesized expression handling on their existing paths.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

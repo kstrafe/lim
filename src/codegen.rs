@@ -5636,6 +5636,36 @@ impl FunctionContext {
                 && self.locals.contains_key(name))
     }
 
+    fn local_storage_for_symbol(
+        &self,
+        expression: &Expr,
+        name: &str,
+    ) -> Result<Option<Storage>, String> {
+        if !self.is_local_symbol_expression(expression, name) {
+            return Ok(None);
+        }
+        if let Some(binding) = self
+            .expression_types
+            .get(expression)
+            .and_then(|metadata| metadata.binding)
+        {
+            return self
+                .locals_by_binding
+                .get(&binding)
+                .cloned()
+                .map(Some)
+                .ok_or_else(|| {
+                    format!("internal error: missing storage for checked binding '{name}'")
+                });
+        }
+        if self.expression_types.has_checked_identity(expression) {
+            return Err(format!(
+                "internal error: checked local symbol '{name}' lost its binding ID"
+            ));
+        }
+        Ok(self.locals.get(name).cloned())
+    }
+
     /// Tagged local references grow toward lower addresses; untagged static
     /// and raw-backed references grow toward higher addresses. Keep the tag
     /// intact while projecting a slice, just as aggregate projections do.
@@ -7022,7 +7052,9 @@ impl FunctionContext {
             .ok_or_else(|| "missing indirect return pointer".to_owned())?;
         let mut offset = 0usize;
         if let Expr::Symbol(name) = value {
-            if let Some(Storage::Struct(source_fields)) = self.locals.get(name).cloned() {
+            if let Some(Storage::Struct(source_fields)) =
+                self.local_storage_for_symbol(value, name)?
+            {
                 for ((_, source_slots), field) in source_fields.iter().zip(fields) {
                     let words = storage_word_count(&field.ty, &self.structs, &self.enums)?;
                     if words == 0 {
@@ -7110,7 +7142,7 @@ impl FunctionContext {
             if let Some(Storage::Enum {
                 discriminant,
                 payload,
-            }) = self.locals.get(name).cloned()
+            }) = self.local_storage_for_symbol(value, name)?
             {
                 if payload.len() + 1 != storage_words {
                     return Err("enum return has an inconsistent flattened layout".into());
@@ -8081,7 +8113,9 @@ impl FunctionContext {
             }
         }
         if let Expr::Symbol(source) = value {
-            if let Some(Storage::Struct(source_fields)) = self.locals.get(source).cloned() {
+            if let Some(Storage::Struct(source_fields)) =
+                self.local_storage_for_symbol(value, source)?
+            {
                 let source_slots = source_fields
                     .iter()
                     .flat_map(|(_, field_slots)| field_slots.iter().copied())
@@ -8169,7 +8203,7 @@ impl FunctionContext {
             if let Some(Storage::Enum {
                 discriminant: source_discriminant,
                 payload: source_payload,
-            }) = self.locals.get(source).cloned()
+            }) = self.local_storage_for_symbol(value, source)?
             {
                 if source_payload.len() != payload.len() {
                     return Err("enum assignment has an inconsistent storage layout".into());
@@ -8344,7 +8378,9 @@ impl FunctionContext {
             }
         }
         if let Expr::Symbol(source) = value {
-            if let Some(Storage::Tuple(source_slots)) = self.locals.get(source).cloned() {
+            if let Some(Storage::Tuple(source_slots)) =
+                self.local_storage_for_symbol(value, source)?
+            {
                 if source_slots.len() != slots.len() {
                     return Err("tuple assignment has an inconsistent flattened layout".into());
                 }
@@ -8502,7 +8538,7 @@ impl FunctionContext {
                 base: source_base,
                 length: source_length,
                 element_words: source_element_words,
-            }) = self.locals.get(source).cloned()
+            }) = self.local_storage_for_symbol(value, source)?
             {
                 if source_length != length || source_element_words != element_words {
                     return Err("array assignment has an inconsistent flattened layout".into());
