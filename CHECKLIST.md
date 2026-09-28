@@ -465,6 +465,12 @@ the checklist is committed alongside the implementation it tracks.
   lookup for inline-assembly operands and backend-synthesized syntax that has
   no language binding; test both paths and native local/aggregate emission.
 
+- [x] **IR-02ao: Keep checked unsafe nodes in the emission bridge.** Reconstruct
+  function bodies without erasing `#unsafe` wrappers, associate their stable
+  checked IDs in the ordinary postorder walk, and let the backend erase their
+  runtime effect at expression emission. Keep compile-time global-initializer
+  normalization separate; verify wrapper identity and unchanged native output.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

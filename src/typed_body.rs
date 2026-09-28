@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn checked_node_metadata_survives_unsafe_erasure() {
+    fn checked_node_metadata_survives_unsafe_wrapper_lowering() {
         let source = "(#fn main () u64\n\
           (#return (#unsafe (#u64.+.wrap 40u64 2u64))))";
         let program = crate::parse_program(source).unwrap();
@@ -460,7 +460,7 @@ mod tests {
         let checked_type = checked_operator.ty.clone();
 
         let mut lowered = original.clone();
-        lowered.body = body.statements(&body.instructions, true);
+        lowered.body = body.statements(&body.instructions, false);
         assert_eq!(stable_nodes, body.emission_nodes);
         assert_eq!(body.statements(&body.instructions, false), original.body);
         let overlay = body.emission_types(&lowered).unwrap();
@@ -473,7 +473,7 @@ mod tests {
                 })
         }));
         assert!(checked_span.is_some());
-        assert!(!format!("{:?}", lowered.body).contains("unsafe"));
+        assert!(format!("{:?}", lowered.body).contains("unsafe"));
     }
 
     #[test]
@@ -493,9 +493,12 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        lowered.body = body.statements(&body.instructions, true);
+        lowered.body = body.statements(&body.instructions, false);
         body.emission_types(&lowered).unwrap();
-        let Statement::Return(Some(Expr::List(operands))) = &mut lowered.body[0] else {
+        let Statement::Return(Some(Expr::List(wrapper))) = &mut lowered.body[0] else {
+            unreachable!()
+        };
+        let Expr::List(operands) = &mut wrapper[1] else {
             unreachable!()
         };
         operands.swap(1, 2);
@@ -1062,10 +1065,6 @@ impl Body {
 
     fn walk_emission_node(&self, id: NodeId, order: &mut Vec<NodeId>) {
         match &self.nodes[id.0].kind {
-            NodeKind::Form { head, children, .. } if head == "unsafe" && children.len() == 2 => {
-                self.walk_emission_node(children[1], order);
-                return;
-            }
             NodeKind::Form { children, .. } | NodeKind::Syntax(children) => {
                 for child in children {
                     self.walk_emission_node(*child, order);
@@ -1113,8 +1112,8 @@ impl Body {
         order.push(id);
     }
 
-    /// Bridge stable nodes into the legacy instruction selector after unsafe
-    /// erasure and call-name specialization. No semantic analysis is repeated.
+    /// Bridge stable nodes into the legacy instruction selector after
+    /// call-name normalization. No semantic analysis is repeated.
     pub fn emission_types(&self, lowered: &Function) -> Result<EmissionTypes, String> {
         let mut after = Vec::new();
         walk_statements(&lowered.body, &mut after);
@@ -1494,10 +1493,6 @@ impl Body {
 fn walk_expression<'a>(expression: &'a Expr, output: &mut Vec<&'a Expr>) {
     match expression {
         Expr::List(items) => {
-            if items.len() == 2 && matches!(&items[0], Expr::Symbol(head) if head == "unsafe") {
-                walk_expression(&items[1], output);
-                return;
-            }
             for item in items {
                 walk_expression(item, output);
             }

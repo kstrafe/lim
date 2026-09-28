@@ -1020,7 +1020,7 @@ fn non_generic_program_does_not_copy_for_monomorphization() {
     assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
 }
 
-fn erase_unsafe_blocks(
+fn prepare_checked_program(
     program: &Program,
     bodies: &HashMap<String, crate::typed_body::Body>,
 ) -> Program {
@@ -1157,7 +1157,7 @@ fn erase_unsafe_blocks(
                 function.body = bodies
                     .get(&function.name)
                     .expect("checked function has a typed body")
-                    .statements(&bodies[&function.name].instructions, true);
+                    .statements(&bodies[&function.name].instructions, false);
             }
             Item::Let { value, .. } | Item::Static { value, .. } => *value = expr(value),
             _ => {}
@@ -1190,8 +1190,8 @@ pub(crate) fn generate_checked_assembly(
         return Err("native backend has no implementation for the selected target".into());
     }
     let program = checked.program();
-    let erased_program = erase_unsafe_blocks(program, &checked.declarations().bodies);
-    let program = &erased_program;
+    let prepared_program = prepare_checked_program(program, &checked.declarations().bodies);
+    let program = &prepared_program;
     let declarations = checked.declarations();
     let aliases = &declarations.aliases;
     let structs = &declarations.structs;
@@ -3434,6 +3434,7 @@ fn collected_expression_type(
     aliases: &HashMap<String, Type>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Option<Type> {
+    let expression = strip_unsafe_wrappers(expression);
     match expression {
         Expr::Symbol(name) => types.get(name).cloned(),
         Expr::List(items) => match items.first() {
@@ -5361,6 +5362,21 @@ fn local_symbol_binding(
     Ok(legacy_binding)
 }
 
+fn strip_unsafe_wrappers(mut expression: &Expr) -> &Expr {
+    loop {
+        let Expr::List(items) = expression else {
+            return expression;
+        };
+        if items.len() == 2
+            && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unsafe")
+        {
+            expression = &items[1];
+        } else {
+            return expression;
+        }
+    }
+}
+
 fn native_scalar_type(ty: &Type) -> bool {
     matches!(
         ty,
@@ -5437,6 +5453,17 @@ fn checked_scalar_arguments_require_retained_types() {
     assert_eq!(
         checked_scalar_argument_type(&argument, Some(callee), &emission).unwrap(),
         Some(Type::U64)
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn unsafe_wrapper_lowering_preserves_native_output() {
+    let plain = crate::parse_program("(#fn main () u64 (#return 1u64))").unwrap();
+    let wrapped = crate::parse_program("(#fn main () u64 (#return (#unsafe 1u64)))").unwrap();
+    assert_eq!(
+        generate_assembly(&plain).unwrap(),
+        generate_assembly(&wrapped).unwrap()
     );
 }
 
@@ -7297,6 +7324,13 @@ impl FunctionContext {
     }
 
     fn return_value(&mut self, value: &Expr) -> Result<(), String> {
+        if let Expr::List(items) = value {
+            if items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unsafe")
+            {
+                return self.return_value(&items[1]);
+            }
+        }
         if matches!(self.return_type, Type::Unit) {
             // Unit has no payload, but computing it can run cleanup, I/O, or
             // control flow. Never discard a unit-valued return expression.
@@ -7676,6 +7710,13 @@ impl FunctionContext {
         ty: &Type,
         offset: usize,
     ) -> Result<(), String> {
+        if let Expr::List(items) = value {
+            if items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unsafe")
+            {
+                return self.store_indirect_value_words(&items[1], ty, offset);
+            }
+        }
         let words = storage_word_count(ty, &self.structs, &self.enums)?;
         if words == 0 {
             self.expression(value)?;
@@ -10354,7 +10395,8 @@ impl FunctionContext {
         if items.len() < 3 {
             return Err("match requires a value and an arm".into());
         }
-        if let Expr::List(clone) = &items[1] {
+        let scrutinee = strip_unsafe_wrappers(&items[1]);
+        if let Expr::List(clone) = scrutinee {
             if matches!(clone.first(), Some(Expr::Symbol(head)) if head == "clone")
                 && clone.len() == 2
             {
@@ -10363,9 +10405,10 @@ impl FunctionContext {
                 return self.match_expression(&unwrapped, float_type, result_type);
             }
         }
-        if let Some(Type::Tuple(fields)) = self.expression_type(&items[1]) {
+        if let Some(Type::Tuple(fields)) = self.expression_type(scrutinee) {
             return self.aggregate_match_expression(
                 items,
+                scrutinee,
                 "tuple",
                 &fields,
                 Type::Tuple(fields.clone()),
@@ -10373,11 +10416,12 @@ impl FunctionContext {
                 result_type,
             );
         }
-        if let Some(Type::Array(element, length)) = self.expression_type(&items[1]) {
+        if let Some(Type::Array(element, length)) = self.expression_type(scrutinee) {
             let element_type = (*element).clone();
             let fields = vec![*element; length];
             return self.aggregate_match_expression(
                 items,
+                scrutinee,
                 "array",
                 &fields,
                 Type::Array(Box::new(element_type), length),
@@ -10385,11 +10429,12 @@ impl FunctionContext {
                 result_type,
             );
         }
-        if let Some(Type::Named(name)) = self.expression_type(&items[1]) {
+        if let Some(Type::Named(name)) = self.expression_type(scrutinee) {
             if let Some(fields) = self.structs.get(&name).cloned() {
                 let field_types = fields.into_iter().map(|field| field.ty).collect::<Vec<_>>();
                 return self.aggregate_match_expression(
                     items,
+                    scrutinee,
                     &name,
                     &field_types,
                     Type::Named(name.clone()),
@@ -10398,15 +10443,15 @@ impl FunctionContext {
                 );
             }
         }
-        let direct_enum_call = match &items[1] {
+        let direct_enum_call = match scrutinee {
             Expr::List(call_items) => match call_items.first() {
                 Some(Expr::Symbol(_))
-                    if self.is_indirect_return_call(&items[1])?
+                    if self.is_indirect_return_call(scrutinee)?
                         && self
-                            .expression_type(&items[1])
+                            .expression_type(scrutinee)
                             .is_some_and(|ty| self.is_enum_type(&ty)) =>
                 {
-                    Some(&items[1])
+                    Some(scrutinee)
                 }
                 _ => None,
             },
@@ -10419,13 +10464,13 @@ impl FunctionContext {
         };
         let end = self.label("match_end");
         let base_depth = self.stack_depth;
-        let local_enum_storage = match &items[1] {
-            Expr::Symbol(name) => self.local_storage_for_symbol(&items[1], name)?,
+        let local_enum_storage = match scrutinee {
+            Expr::Symbol(name) => self.local_storage_for_symbol(scrutinee, name)?,
             _ => None,
         };
         let payload_slots = if let Some(base) = direct_enum_base {
             let ty = self
-                .expression_type(&items[1])
+                .expression_type(scrutinee)
                 .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
             let payload_words = storage_word_count(&ty, &self.structs, &self.enums)? - 1;
             Some((base + 1..base + 1 + payload_words).collect())
@@ -10439,7 +10484,7 @@ impl FunctionContext {
             payload_slots.len()
         } else {
             let ty = self
-                .expression_type(&items[1])
+                .expression_type(scrutinee)
                 .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
             if self.is_enum_type(&ty) {
                 self.enum_payload_count(&ty)?
@@ -10449,7 +10494,7 @@ impl FunctionContext {
         };
         let wide_scrutinee = payload_slots.is_none()
             && self
-                .expression_type(&items[1])
+                .expression_type(scrutinee)
                 .is_some_and(|ty| is_wide_integer(&ty));
         let staged_words = if payload_slots.is_some() {
             1
@@ -10458,7 +10503,7 @@ impl FunctionContext {
         } else {
             payload_count + 1
         };
-        match &items[1] {
+        match scrutinee {
             Expr::Symbol(_) if matches!(&local_enum_storage, Some(Storage::Enum { .. })) => {
                 let Some(Storage::Enum { discriminant, .. }) = &local_enum_storage else {
                     unreachable!()
@@ -10531,12 +10576,12 @@ impl FunctionContext {
                     if pattern.len() >= 2
                         && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "or")
                         && self
-                            .expression_type(&items[1])
+                            .expression_type(scrutinee)
                             .is_some_and(|ty| self.is_enum_type(&ty)) =>
                 {
                     let matched = self.label("enum_or_pattern_matched");
                     let scrutinee_type = self
-                        .expression_type(&items[1])
+                        .expression_type(scrutinee)
                         .ok_or_else(|| "enum match scrutinee has no known type".to_owned())?;
                     let Type::Named(enum_name) = scrutinee_type else {
                         return Err("enum or-pattern scrutinee has no named type".into());
@@ -10610,7 +10655,7 @@ impl FunctionContext {
                         && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "or") =>
                 {
                     let scrutinee_type = self
-                        .expression_type(&items[1])
+                        .expression_type(scrutinee)
                         .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
                     let matched = self.label("or_pattern_matched");
                     for (index, alternative) in pattern[1..].iter().enumerate() {
@@ -10638,7 +10683,7 @@ impl FunctionContext {
                         && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "literal") =>
                 {
                     let scrutinee_type = self
-                        .expression_type(&items[1])
+                        .expression_type(scrutinee)
                         .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
                     self.emit_scalar_pattern_test(
                         &Expr::List(pattern.clone()),
@@ -10652,7 +10697,7 @@ impl FunctionContext {
                         && matches!(pattern.first(), Some(Expr::Symbol(name)) if name == "range") =>
                 {
                     let scrutinee_type = self
-                        .expression_type(&items[1])
+                        .expression_type(scrutinee)
                         .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
                     self.emit_scalar_range_pattern(
                         &Expr::List(pattern.clone()),
@@ -10735,7 +10780,7 @@ impl FunctionContext {
             }
             let payload_fields = if !variant_name.is_empty() {
                 let scrutinee_type = self
-                    .expression_type(&items[1])
+                    .expression_type(scrutinee)
                     .ok_or_else(|| "match scrutinee has no known type".to_owned())?;
                 let Type::Named(enum_name) = scrutinee_type else {
                     return Err("enum match scrutinee has no named type".into());
@@ -11135,6 +11180,7 @@ impl FunctionContext {
     fn aggregate_match_expression(
         &mut self,
         items: &[Expr],
+        scrutinee: &Expr,
         constructor: &str,
         fields: &[Type],
         ty: Type,
@@ -11146,9 +11192,9 @@ impl FunctionContext {
             if fields.iter().all(|field| {
                 value_word_count(field, &self.structs, &self.enums).is_ok_and(|words| words == 1)
             }) {
-                if let Expr::Symbol(name) = &items[1] {
-                    if self.is_local_symbol_expression(&items[1], name) {
-                        let source_slots = self.local_slots_for_symbol(&items[1], name)?;
+                if let Expr::Symbol(name) = scrutinee {
+                    if self.is_local_symbol_expression(scrutinee, name) {
+                        let source_slots = self.local_slots_for_symbol(scrutinee, name)?;
                         return self.large_scalar_aggregate_match_slots(
                             items,
                             constructor,
@@ -11159,10 +11205,10 @@ impl FunctionContext {
                         );
                     }
                 }
-                if let Expr::List(call_items) = &items[1] {
+                if let Expr::List(call_items) = scrutinee {
                     if let Some(Expr::Symbol(_)) = call_items.first() {
-                        if self.is_indirect_return_call(&items[1])? {
-                            let base = self.call_to_aggregate_temp(&items[1])?;
+                        if self.is_indirect_return_call(scrutinee)? {
+                            let base = self.call_to_aggregate_temp(scrutinee)?;
                             let storage_words =
                                 storage_word_count(&ty, &self.structs, &self.enums)?;
                             let source_slots = flat_slots(base, storage_words);
@@ -11178,14 +11224,14 @@ impl FunctionContext {
                     }
                 }
             }
-            let source_slots = if let Expr::Symbol(name) = &items[1] {
-                self.is_local_symbol_expression(&items[1], name)
-                    .then(|| self.local_slots_for_symbol(&items[1], name))
+            let source_slots = if let Expr::Symbol(name) = scrutinee {
+                self.is_local_symbol_expression(scrutinee, name)
+                    .then(|| self.local_slots_for_symbol(scrutinee, name))
                     .transpose()?
-            } else if let Expr::List(call_items) = &items[1] {
+            } else if let Expr::List(call_items) = scrutinee {
                 match call_items.first() {
-                    Some(Expr::Symbol(_)) if self.is_indirect_return_call(&items[1])? => {
-                        let base = self.call_to_aggregate_temp(&items[1])?;
+                    Some(Expr::Symbol(_)) if self.is_indirect_return_call(scrutinee)? => {
+                        let base = self.call_to_aggregate_temp(scrutinee)?;
                         Some(flat_slots(base, storage_words))
                     }
                     _ => None,
@@ -11204,7 +11250,7 @@ impl FunctionContext {
                     result_type,
                 );
             }
-            if let Expr::List(value_items) = &items[1] {
+            if let Expr::List(value_items) = scrutinee {
                 if matches!(
                     value_items.first(),
                     Some(Expr::Symbol(name)) if name == constructor
@@ -11222,7 +11268,7 @@ impl FunctionContext {
                     );
                 }
             }
-            if let Expr::Symbol(name) = &items[1] {
+            if let Expr::Symbol(name) = scrutinee {
                 if self.global_types.get(name) == Some(&ty) {
                     let base_depth = self.stack_depth;
                     for index in (0..storage_words).rev() {
@@ -11243,7 +11289,7 @@ impl FunctionContext {
         }
         let words = value_word_count(&ty, &self.structs, &self.enums)?;
         let base_depth = self.stack_depth;
-        let direct_values = if let Expr::List(value_items) = &items[1] {
+        let direct_values = if let Expr::List(value_items) = scrutinee {
             let value_start = match constructor {
                 "tuple" | "array" if matches!(value_items.first(), Some(Expr::Symbol(name)) if name == constructor) => {
                     if parse_type(value_items.get(1))
@@ -11282,7 +11328,7 @@ impl FunctionContext {
         }
         let empty_direct_array = words == 0
             && constructor == "array"
-            && matches!(&items[1], Expr::List(value) if matches!(value.first(), Some(Expr::Symbol(name)) if name == "array"));
+            && matches!(scrutinee, Expr::List(value) if matches!(value.first(), Some(Expr::Symbol(name)) if name == "array"));
         if empty_direct_array {
             // An empty value has no ABI words to evaluate or stage.
         } else if direct_values.is_some() {
@@ -11290,10 +11336,10 @@ impl FunctionContext {
                 self.output.push_str(&format!("    push {register}\n"));
                 self.stack_depth += 1;
             }
-        } else if let Expr::Symbol(name) = &items[1] {
-            if self.is_local_symbol_expression(&items[1], name) {
+        } else if let Expr::Symbol(name) = scrutinee {
+            if self.is_local_symbol_expression(scrutinee, name) {
                 for slot in self
-                    .local_slots_for_symbol(&items[1], name)?
+                    .local_slots_for_symbol(scrutinee, name)?
                     .into_iter()
                     .rev()
                 {
@@ -13944,6 +13990,13 @@ impl FunctionContext {
         ty: &Type,
         slots: &[usize],
     ) -> Result<(), String> {
+        if let Expr::List(items) = value {
+            if items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unsafe")
+            {
+                return self.store_value_to_slots(&items[1], ty, slots);
+            }
+        }
         let words = storage_word_count(ty, &self.structs, &self.enums)?;
         if slots.len() != words {
             return Err("aggregate temporary has an inconsistent layout".into());
@@ -15050,6 +15103,11 @@ impl FunctionContext {
 
     fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
         if let Expr::List(items) = value {
+            if items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unsafe")
+            {
+                return self.push_value_words(&items[1], ty, reverse);
+            }
             if matches!(items.first(), Some(Expr::Symbol(head)) if head == "clone")
                 && items.len() == 2
             {
