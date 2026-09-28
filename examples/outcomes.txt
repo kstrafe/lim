@@ -19,6 +19,7 @@ exit 42 wake_ready4.lim - -
 exit 42 local_waker.lim - -
 exit 42 async_wake_pipeline.lim - -
 exit 42 async_registered_wake.lim - -
+exit 42 async_wake_before_wait.lim - -
 exit 42 async_mixed_wait.lim - -
 exit 0 async_stdin_byte.lim - -
 exit 42 async_stdin_cancel.lim - -

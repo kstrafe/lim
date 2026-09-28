@@ -1964,6 +1964,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   open-file-description status flags, return `EAGAIN` as Pending, and document
   that aliases observe the flag change. Test rejection, opt-in, and a competing
   read consuming readiness without stalling the event loop.
+- [x] **ASYNC-02k: Consume queued wakes before blocking.** Before entering
+  `poll`, take any wake bits already published to the bounded local queue and
+  return those ready slots immediately. This preserves a wake issued by a task
+  before it returned Pending, instead of sleeping despite the recorded wake.
+  Verify an indefinite wait with a disabled descriptor returns from the queued
+  wake alone, and that the token is consumed and retired exactly once.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,

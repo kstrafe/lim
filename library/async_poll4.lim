@@ -50,10 +50,27 @@
               (#unsafe (#ptr-write
                 (#ptr-offset (#clone memory)
                   (#usize.+.wrap (#usize.*.wrap slot 8usize) 4usize)) 1u8)))))
-          (#let count-ready i64 (#unsafe (#call linux-poll
-            (: pollfds (#clone memory) : count count : timeout-ms timeout-ms))))
-          (#let-mut error i64 (#if (#i64.< count-ready 0i64) count-ready 0i64))
+          ;; A task may wake its local executor before the executor enters the
+          ;; kernel wait. Consume those already-published wake bits first so a
+          ;; pre-wait wake cannot be lost behind an indefinite poll().
           (#let-mut ready-mask u32 0u32)
+          (#for-range (slot usize) 0usize count
+            (#block
+              (#let source AsyncPollSource4
+                (#deref (#slice-idx sources slot)))
+              (#if (#call wake-ready4-take
+                    (: queue (#get source queue) : token (#get source token)))
+                (#block
+                  (#set ready-mask
+                    (#u32.| ready-mask (#u32.<< 1u32 (#as slot u32))))
+                  ())
+                ())))
+          (#let count-ready i64
+            (#if (#u32.!= ready-mask 0u32)
+              0i64
+              (#unsafe (#call linux-poll
+                (: pollfds (#clone memory) : count count : timeout-ms timeout-ms)))))
+          (#let-mut error i64 (#if (#i64.< count-ready 0i64) count-ready 0i64))
           (#if (#i64.>= count-ready 0i64)
             (#block
               (#for-range (slot usize) 0usize count
