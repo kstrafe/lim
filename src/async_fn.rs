@@ -2270,17 +2270,6 @@ fn pinned_self_references(
                     local.name
                 ));
             }
-            let mut initializer_names = HashSet::new();
-            collect_value_names(&owner_binding[3], &mut initializer_names);
-            if params
-                .iter()
-                .any(|parameter| initializer_names.contains(&parameter.name))
-            {
-                return Err(format!(
-                    "@async-fn-pinned local self-reference owner '{}' initializer cannot use function parameters",
-                    local.name
-                ));
-            }
             (local, Some(initializer))
         };
         if owner.mutable {

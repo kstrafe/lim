@@ -1990,11 +1990,16 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   mutation rejection in the native example.
 - [x] **ASYNC-01c2l: Promote a first-statement local owner into the pinned frame.**
   Move an immutable body-local owner into the stable frame before returning it,
-  then form its internal reference only after pinning. Initially require the
-  owner to be the first function statement and its initializer to be independent
-  of parameters; reject unsupported shapes explicitly. Verify native
-  Pending/resume and generated layout, plus diagnostics for late and
-  parameter-dependent initializers.
+  then form its internal reference only after pinning. Require the owner to be
+  the first function statement; reject unsupported shapes explicitly. Verify
+  native Pending/resume, generated layout, and diagnostics for late owners.
+  ASYNC-01c2m extends initializer inputs.
+- [x] **ASYNC-01c2m: Initialize promoted local owners from parameters.** Allow
+  the first-statement local owner initializer to read ordinary function
+  parameters before moving the value into the frame. Preserve linear moves and
+  explicit Copy semantics when a parameter is also live after suspension.
+  Verify a parameter-fed nested owner in the native example and retain the
+  late-owner rejection.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
