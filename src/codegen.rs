@@ -7380,11 +7380,6 @@ impl FunctionContext {
         let pointer_slot = self
             .return_pointer_slot
             .ok_or_else(|| "missing indirect return pointer".to_owned())?;
-        let variants = self
-            .enums
-            .get(enum_name)
-            .cloned()
-            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?;
         let storage_words = storage_word_count(
             &Type::Named(enum_name.to_owned()),
             &self.structs,
@@ -7431,21 +7426,22 @@ impl FunctionContext {
         let Some(Expr::Symbol(variant_name)) = items.first() else {
             return Err("enum constructor must start with a variant name".into());
         };
-        let variant_index = variants
-            .iter()
-            .position(|variant| variant.name == *variant_name)
+        let (variant_owner, discriminant, fields) = self
+            .enum_variant_info(&items[0], variant_name)?
             .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
-        let variant = &variants[variant_index];
-        if items.len() - 1 != variant.fields.len() {
+        if variant_owner != enum_name {
+            return Err("internal error: checked enum return constructor owner changed".into());
+        }
+        if items.len() - 1 != fields.len() {
             return Err(format!("variant '{variant_name}' has wrong payload count"));
         }
         self.output.push_str(&format!(
             "    mov rax, {}\n    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11], rax\n",
-            variant.discriminant,
+            discriminant,
             pointer_slot * 8
         ));
         let mut offset = 1usize;
-        for (field_value, field_type) in items[1..].iter().zip(&variant.fields) {
+        for (field_value, field_type) in items[1..].iter().zip(&fields) {
             let words = storage_word_count(field_type, &self.structs, &self.enums)?;
             self.store_indirect_value_words(field_value, field_type, offset)?;
             offset += words;

@@ -580,6 +580,12 @@ the checklist is committed alongside the implementation it tracks.
   register padding, without re-finding the selected variant by spelling.
   Validate all native examples.
 
+- [x] **IR-02be: Return large enum constructors by checked identity.** Write
+  indirect enum results using the constructor head's `VariantId`, owner,
+  discriminant, and payload fields. Reject owner drift while retaining local
+  and global enum-copy paths; validate all native examples and aggregate
+  linking.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
