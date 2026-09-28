@@ -472,6 +472,11 @@ the checklist is committed alongside the implementation it tracks.
   instead of falling through to syntax-based operator or call resolution;
   preserve the narrow synthesized-node path and test both cases.
 
+- [x] **IR-03af: Pass static aggregates by checked identity.** Use `GlobalId`
+  when pushing global arrays, tuples, structs, and payload enums as call
+  arguments. Preserve local storage and evaluation order; cover direct and
+  indirect ABI layouts in native linking tests.
+
 - [x] **IR-02am: Keep function specialization before the checked boundary.**
   Reject generic function/type declarations even for programmatically built
   `Program` values, matching the source grammar's concrete-only rule. Remove

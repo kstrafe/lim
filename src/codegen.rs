@@ -15478,31 +15478,33 @@ impl FunctionContext {
                 return Ok(());
             }
             if let Expr::Symbol(local) = value {
-                if matches!(
-                    self.global_types.get(local),
-                    Some(Type::Array(_, global_length)) if *global_length == *length
-                ) {
-                    let Type::Array(element, _) = ty else {
-                        unreachable!()
-                    };
-                    let element_words = value_word_count(element, &self.structs, &self.enums)?;
-                    let indices: Box<dyn Iterator<Item = usize>> = if reverse {
-                        Box::new((0..*length).rev())
-                    } else {
-                        Box::new(0..*length)
-                    };
-                    for index in indices {
-                        let words: Box<dyn Iterator<Item = usize>> = if reverse {
-                            Box::new((0..element_words).rev())
-                        } else {
-                            Box::new(0..element_words)
+                if let Some(global_name) = self.checked_global_name(value, local)? {
+                    if matches!(
+                        self.global_types.get(&global_name),
+                        Some(Type::Array(_, global_length)) if *global_length == *length
+                    ) {
+                        let Type::Array(element, _) = ty else {
+                            unreachable!()
                         };
-                        for word in words {
-                            self.load_global_word(local, index * element_words + word)?;
-                            self.push_rax();
+                        let element_words = value_word_count(element, &self.structs, &self.enums)?;
+                        let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                            Box::new((0..*length).rev())
+                        } else {
+                            Box::new(0..*length)
+                        };
+                        for index in indices {
+                            let words: Box<dyn Iterator<Item = usize>> = if reverse {
+                                Box::new((0..element_words).rev())
+                            } else {
+                                Box::new(0..element_words)
+                            };
+                            for word in words {
+                                self.load_global_word(&global_name, index * element_words + word)?;
+                                self.push_rax();
+                            }
                         }
+                        return Ok(());
                     }
-                    return Ok(());
                 }
                 let Storage::Array {
                     base,
@@ -15607,21 +15609,23 @@ impl FunctionContext {
         }
         if let Type::Tuple(fields) = ty {
             let slots = if let Expr::Symbol(local) = value {
-                if matches!(
-                    self.global_types.get(local),
-                    Some(Type::Tuple(global_fields)) if global_fields == fields
-                ) {
-                    let words = value_word_count(ty, &self.structs, &self.enums)?;
-                    let indices: Box<dyn Iterator<Item = usize>> = if reverse {
-                        Box::new((0..words).rev())
-                    } else {
-                        Box::new(0..words)
-                    };
-                    for index in indices {
-                        self.load_global_word(local, index)?;
-                        self.push_rax();
+                if let Some(global_name) = self.checked_global_name(value, local)? {
+                    if matches!(
+                        self.global_types.get(&global_name),
+                        Some(Type::Tuple(global_fields)) if global_fields == fields
+                    ) {
+                        let words = value_word_count(ty, &self.structs, &self.enums)?;
+                        let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                            Box::new((0..words).rev())
+                        } else {
+                            Box::new(0..words)
+                        };
+                        for index in indices {
+                            self.load_global_word(&global_name, index)?;
+                            self.push_rax();
+                        }
+                        return Ok(());
                     }
-                    return Ok(());
                 }
                 let Storage::Tuple(slots) = self
                     .local_storage_for_symbol(value, local)?
@@ -15722,21 +15726,23 @@ impl FunctionContext {
         if let Type::Named(name) = ty {
             if let Some(fields) = self.structs.get(name).cloned() {
                 if let Expr::Symbol(local) = value {
-                    if matches!(
-                        self.global_types.get(local),
-                        Some(Type::Named(global_name)) if global_name == name
-                    ) {
-                        let words = value_word_count(ty, &self.structs, &self.enums)?;
-                        let indices: Box<dyn Iterator<Item = usize>> = if reverse {
-                            Box::new((0..words).rev())
-                        } else {
-                            Box::new(0..words)
-                        };
-                        for index in indices {
-                            self.load_global_word(local, index)?;
-                            self.push_rax();
+                    if let Some(global_name) = self.checked_global_name(value, local)? {
+                        if matches!(
+                            self.global_types.get(&global_name),
+                            Some(Type::Named(global_type)) if global_type == name
+                        ) {
+                            let words = value_word_count(ty, &self.structs, &self.enums)?;
+                            let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                                Box::new((0..words).rev())
+                            } else {
+                                Box::new(0..words)
+                            };
+                            for index in indices {
+                                self.load_global_word(&global_name, index)?;
+                                self.push_rax();
+                            }
+                            return Ok(());
                         }
-                        return Ok(());
                     }
                     let Storage::Struct(slots) = self
                         .local_storage_for_symbol(value, local)?
@@ -15796,21 +15802,23 @@ impl FunctionContext {
                 .is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty()))
             {
                 if let Expr::Symbol(local) = value {
-                    if matches!(
-                        self.global_types.get(local),
-                        Some(Type::Named(global_name)) if global_name == name
-                    ) {
-                        let words = value_word_count(ty, &self.structs, &self.enums)?;
-                        let indices: Box<dyn Iterator<Item = usize>> = if reverse {
-                            Box::new((0..words).rev())
-                        } else {
-                            Box::new(0..words)
-                        };
-                        for index in indices {
-                            self.load_global_word(local, index)?;
-                            self.push_rax();
+                    if let Some(global_name) = self.checked_global_name(value, local)? {
+                        if matches!(
+                            self.global_types.get(&global_name),
+                            Some(Type::Named(global_type)) if global_type == name
+                        ) {
+                            let words = value_word_count(ty, &self.structs, &self.enums)?;
+                            let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+                                Box::new((0..words).rev())
+                            } else {
+                                Box::new(0..words)
+                            };
+                            for index in indices {
+                                self.load_global_word(&global_name, index)?;
+                                self.push_rax();
+                            }
+                            return Ok(());
                         }
-                        return Ok(());
                     }
                     let local_storage = self.local_storage_for_symbol(value, local)?;
                     let Some(Storage::Enum {
