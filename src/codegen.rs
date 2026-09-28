@@ -7401,6 +7401,26 @@ impl FunctionContext {
     }
 
     fn return_indirect_enum_value(&mut self, enum_name: &str, value: &Expr) -> Result<(), String> {
+        if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                let mut staged_match = items.clone();
+                for arm in &mut staged_match[2..] {
+                    let Expr::List(parts) = arm else {
+                        return Err("match arms must have the form (pattern expression)".into());
+                    };
+                    let body_index = match parts.len() {
+                        2 => 1,
+                        3 => 2,
+                        _ => {
+                            return Err("match arms must have the form (pattern expression)".into())
+                        }
+                    };
+                    let body = parts[body_index].clone();
+                    parts[body_index] = Expr::Block(vec![Statement::Return(Some(body))]);
+                }
+                return self.expression(&Expr::List(staged_match));
+            }
+        }
         if self.enums.get(enum_name).is_some_and(|variants| {
             variants.iter().any(|variant| {
                 variant.fields.iter().any(|field| {
@@ -7520,6 +7540,15 @@ impl FunctionContext {
         {
             let return_type = self.return_type.clone();
             return self.store_indirect_value_words(value, &return_type, 0);
+        }
+        if self.return_pointer_slot.is_some()
+            && matches!(&self.return_type, Type::Named(name) if self.enums.contains_key(name))
+            && matches!(&value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match"))
+        {
+            let Type::Named(enum_name) = self.return_type.clone() else {
+                unreachable!()
+            };
+            return self.return_indirect_enum_value(&enum_name, value);
         }
         if self.return_pointer_slot.is_some() && self.is_aggregate_type(&self.return_type) {
             let return_type = self.return_type.clone();
@@ -7987,6 +8016,17 @@ impl FunctionContext {
                     return Ok(());
                 }
             }
+        }
+        if self.is_indirect_return_call(value)? {
+            let temporary = self.call_to_aggregate_temp(value)?;
+            for index in 0..words {
+                self.output.push_str(&format!(
+                    "    mov rax, QWORD PTR [rbp-{}]\n",
+                    (temporary + index) * 8
+                ));
+                self.store_indirect_word("rax", offset + index)?;
+            }
+            return Ok(());
         }
         if let (Expr::String(string), Type::Array(element, length)) = (value, ty) {
             if matches!(element.as_ref(), Type::Char) && string.chars().count() == *length {
@@ -8467,7 +8507,43 @@ impl FunctionContext {
         else {
             return Err(format!("'{name}' is not a payload enum"));
         };
+        if let Expr::Block(statements) = value {
+            let Some((last, preceding)) = statements.split_last() else {
+                return Err("aggregate block expression cannot be empty".into());
+            };
+            for statement in preceding {
+                self.statement(statement)?;
+            }
+            return match last {
+                Statement::Expr(expression) => self.store_enum(name, enum_name, expression),
+                statement => self.statement(statement),
+            };
+        }
         if let Expr::List(items) = value {
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                let mut staged_match = items.clone();
+                for arm in &mut staged_match[2..] {
+                    let Expr::List(parts) = arm else {
+                        return Err("match arms must have the form (pattern expression)".into());
+                    };
+                    let body_index = match parts.len() {
+                        2 => 1,
+                        3 => 2,
+                        _ => {
+                            return Err("match arms must have the form (pattern expression)".into())
+                        }
+                    };
+                    let body = parts[body_index].clone();
+                    parts[body_index] = Expr::Block(vec![
+                        Statement::Assign {
+                            name: name.to_owned(),
+                            value: body,
+                        },
+                        Statement::Expr(Expr::List(Vec::new())),
+                    ]);
+                }
+                return self.expression(&Expr::List(staged_match));
+            }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
                 if items.len() != 4 {
                     return Err(

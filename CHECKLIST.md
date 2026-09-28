@@ -1940,6 +1940,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   ABI. Verify a native function returning an enum with a nine-word tagged
   array payload, pass it as an indirect argument, then match and read its last
   element.
+- [x] **BACKEND-ABI-02: Store large enum match results directly to slots.**
+  Lower assignments whose right-hand side is a match by dispatching each arm
+  into the destination enum's existing stack storage, rather than trying to
+  materialize an oversized enum in return registers. Preserve guards,
+  discriminants, and payload move semantics. Route nested indirect aggregate
+  calls through temporary slots into the correct return-storage offset.
+  Verify large enum matches and generated async run-state enums natively.
 
 - [x] **BACKEND-REF-01: Preserve the base of multiword reference fields.**
   Load projected aggregate words through a dedicated scratch register so the

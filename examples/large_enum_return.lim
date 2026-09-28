@@ -10,6 +10,13 @@
     (#case (Values values) (#index values 7usize))
     (#case Empty 0u64))))
 
+(#fn bounce-large-choice ((choice LargeChoice)) LargeChoice
+  (#return (#match choice
+    (#case (Values values) (Values values))
+    (#case Empty Empty))))
+
 (#fn main () u64
-  (#let result LargeChoice (#call make-large-choice (:)))
+  (#let result LargeChoice
+    (#call bounce-large-choice
+      (: choice (#call make-large-choice (:)))))
   (#return (#call read-large-choice (: choice result))))
