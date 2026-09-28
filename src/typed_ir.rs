@@ -206,14 +206,27 @@ fn source_child(source: Option<&crate::SpannedExpr>, index: usize) -> Option<&cr
 fn collect_simple_local_binding_spans(
     function: &crate::Function,
     program: &crate::Program,
-    expression_spans: &HashMap<usize, Span>,
+    expression_spans: &HashMap<ExpressionId, Span>,
+    expression_ids: &HashMap<usize, ExpressionId>,
 ) -> Vec<Option<Span>> {
+    // Binding-name extraction still walks the legacy AST. Materialize an
+    // address adapter only for this traversal; retained expression spans are
+    // keyed by stable IDs.
+    let expression_spans_by_address = expression_ids
+        .iter()
+        .filter_map(|(address, id)| expression_spans.get(id).map(|span| (*address, *span)))
+        .collect::<HashMap<_, _>>();
     let mut output = Vec::new();
     for (index, statement) in function.body.iter().enumerate() {
         let source = program
             .statement_expressions
             .get(&(function.name.clone(), index));
-        collect_statement_binding_spans(statement, source, expression_spans, &mut output);
+        collect_statement_binding_spans(
+            statement,
+            source,
+            &expression_spans_by_address,
+            &mut output,
+        );
     }
     output
 }
@@ -543,7 +556,8 @@ impl Declarations {
         program: &crate::Program,
         types: &HashMap<ExpressionId, Type>,
         expression_ids: &HashMap<usize, ExpressionId>,
-        spans: &HashMap<usize, Span>,
+        expression_spans: &HashMap<ExpressionId, Span>,
+        statement_spans: &HashMap<usize, Span>,
     ) -> Result<(), String> {
         self.bodies = program
             .items
@@ -568,8 +582,12 @@ impl Declarations {
                                 .then_some(identifier.span)
                         })
                         .collect::<Vec<_>>();
-                    let binding_spans =
-                        collect_simple_local_binding_spans(function, program, spans);
+                    let binding_spans = collect_simple_local_binding_spans(
+                        function,
+                        program,
+                        expression_spans,
+                        expression_ids,
+                    );
                     Some((
                         function.name.clone(),
                         crate::typed_body::Body::lower(
@@ -577,7 +595,8 @@ impl Declarations {
                             self,
                             types,
                             expression_ids,
-                            spans,
+                            expression_spans,
+                            statement_spans,
                             &binding_spans,
                             &parameter_spans,
                         ),

@@ -491,6 +491,13 @@ the checklist is committed alongside the implementation it tracks.
   runtime effect at expression emission. Keep compile-time global-initializer
   normalization separate; verify wrapper identity and unchanged native output.
 
+- [x] **IR-02ap: Key retained expression spans by stable IDs.** Store checked
+  expression spans under their deterministic `ExpressionId` rather than AST
+  addresses. Keep statement spans separate until statements have stable IDs;
+  use only a temporary address adapter while legacy AST binding-span extraction
+  remains. Verify imported/generated source slices and preserve exact compiler
+  diagnostics across the full suite. The complete serial test suite passes.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

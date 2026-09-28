@@ -105,7 +105,8 @@ struct FunctionTable {
     signatures: HashMap<String, Signature>,
     expression_ids: HashMap<usize, crate::typed_ir::ExpressionId>,
     expression_types: std::cell::RefCell<HashMap<crate::typed_ir::ExpressionId, Type>>,
-    source_spans: std::cell::RefCell<HashMap<usize, crate::Span>>,
+    expression_spans: std::cell::RefCell<HashMap<crate::typed_ir::ExpressionId, crate::Span>>,
+    statement_spans: std::cell::RefCell<HashMap<usize, crate::Span>>,
     collecting_sources: std::cell::Cell<bool>,
 }
 
@@ -1316,13 +1317,15 @@ fn check_types_inner(
         &program.declaration_spans,
     );
     let checked_expression_types = std::sync::Arc::new(functions.expression_types.into_inner());
-    let checked_expression_spans = std::sync::Arc::new(functions.source_spans.into_inner());
+    let checked_expression_spans = std::sync::Arc::new(functions.expression_spans.into_inner());
+    let checked_statement_spans = std::sync::Arc::new(functions.statement_spans.into_inner());
     let expression_ids = std::sync::Arc::new(functions.expression_ids);
     declarations.lower_bodies(
         program,
         &checked_expression_types,
         &expression_ids,
         &checked_expression_spans,
+        &checked_statement_spans,
     )?;
     *diagnostic_code = crate::DiagnosticCode::Type;
     check_opaque_access(
@@ -3480,7 +3483,7 @@ fn semantic_statement_source<'a>(
 ) -> Option<&'a crate::SpannedExpr> {
     if functions.collecting_sources.get() {
         functions
-            .source_spans
+            .statement_spans
             .borrow_mut()
             .insert(std::ptr::from_ref(statement) as usize, source.span);
     }
@@ -3625,10 +3628,16 @@ fn semantic_expression_source<'a>(
 ) -> Option<&'a crate::SpannedExpr> {
     let origin = origin?;
     if functions.collecting_sources.get() {
-        functions
-            .source_spans
-            .borrow_mut()
-            .insert(std::ptr::from_ref(value) as usize, source.span);
+        if let Some(id) = functions
+            .expression_ids
+            .get(&(std::ptr::from_ref(value) as usize))
+            .copied()
+        {
+            functions
+                .expression_spans
+                .borrow_mut()
+                .insert(id, source.span);
+        }
     }
     if !statement_origin && std::ptr::from_ref(value) as usize == origin {
         return Some(source);

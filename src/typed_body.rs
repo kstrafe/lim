@@ -1477,7 +1477,8 @@ impl Body {
         declarations: &Declarations,
         types: &HashMap<ExpressionId, Type>,
         expression_ids: &HashMap<usize, ExpressionId>,
-        spans: &HashMap<usize, Span>,
+        expression_spans: &HashMap<ExpressionId, Span>,
+        statement_spans: &HashMap<usize, Span>,
         binding_spans: &[Option<Span>],
         parameter_spans: &[Option<Span>],
     ) -> Self {
@@ -1487,7 +1488,8 @@ impl Body {
             declarations,
             types,
             expression_ids,
-            spans,
+            expression_spans,
+            statement_spans,
             binding_spans: binding_spans.iter().copied().collect(),
         };
         builder.body.parameter_count = function.parameters.len();
@@ -1582,7 +1584,8 @@ struct Builder<'a> {
     declarations: &'a Declarations,
     types: &'a HashMap<ExpressionId, Type>,
     expression_ids: &'a HashMap<usize, ExpressionId>,
-    spans: &'a HashMap<usize, Span>,
+    expression_spans: &'a HashMap<ExpressionId, Span>,
+    statement_spans: &'a HashMap<usize, Span>,
     binding_spans: VecDeque<Option<Span>>,
 }
 
@@ -1592,6 +1595,14 @@ impl Builder<'_> {
         self.expression_ids
             .get(&address)
             .and_then(|id| self.types.get(id))
+    }
+
+    fn expression_span(&self, expression: &Expr) -> Option<Span> {
+        let address = std::ptr::from_ref(expression) as usize;
+        self.expression_ids
+            .get(&address)
+            .and_then(|id| self.expression_spans.get(id))
+            .copied()
     }
 
     fn binding(&mut self, name: &str, ty: Type, span: Option<Span>) -> BindingId {
@@ -1912,10 +1923,11 @@ impl Builder<'_> {
     fn record(&mut self, expression: &Expr, kind: NodeKind) -> NodeId {
         let address = std::ptr::from_ref(expression) as usize;
         let id = NodeId(self.body.nodes.len());
+        let expression_id = self.expression_ids.get(&address).copied();
         self.body.nodes.push(Node {
-            expression_id: self.expression_ids.get(&address).copied(),
+            expression_id,
             ty: self.expression_type(expression).cloned(),
-            span: self.spans.get(&address).copied(),
+            span: self.expression_span(expression),
             kind,
         });
         id
@@ -2053,7 +2065,7 @@ impl Builder<'_> {
         };
         Instruction {
             span: self
-                .spans
+                .statement_spans
                 .get(&(std::ptr::from_ref(statement) as usize))
                 .copied(),
             control,
