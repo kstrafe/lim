@@ -8921,6 +8921,10 @@ impl FunctionContext {
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         let typed_literal = checked_scalar_literal(expression, &self.expression_types)?;
         let expression = typed_literal.as_ref().unwrap_or(expression);
+        let enum_variant = match expression {
+            Expr::Symbol(name) => self.enum_variant_info(expression, name)?,
+            _ => None,
+        };
         match expression {
             Expr::Integer(value) => {
                 if *value < i64::MIN as i128 || *value > i64::MAX as i128 {
@@ -8972,22 +8976,18 @@ impl FunctionContext {
             }
             Expr::Symbol(name) if name == "true" => self.output.push_str("    mov eax, 1\n"),
             Expr::Symbol(name) if name == "false" => self.output.push_str("    xor eax, eax\n"),
-            Expr::Symbol(name) if self.enum_value(name).is_some() => {
+            Expr::Symbol(name) if enum_variant.is_some() => {
+                let (enum_name, discriminant) = enum_variant.as_ref().unwrap();
                 self.output.push_str(&format!(
                     "    mov rax, {}\n",
-                    asm_u64_immediate(self.enum_value(name).unwrap())
+                    asm_u64_immediate(*discriminant)
                 ));
-                if let Some(payload_count) = self.enums.values().find_map(|variants| {
+                if let Some(payload_count) = self.enums.get(enum_name).map(|variants| {
                     variants
                         .iter()
-                        .find(|variant| variant.name == *name)
-                        .map(|_| {
-                            variants
-                                .iter()
-                                .map(|variant| variant.fields.len())
-                                .max()
-                                .unwrap_or(0)
-                        })
+                        .map(|variant| variant.fields.len())
+                        .max()
+                        .unwrap_or(0)
                 }) {
                     if payload_count + 1 > VALUE_REGISTERS.len() {
                         return Err(
@@ -10241,6 +10241,54 @@ impl FunctionContext {
                 .find(|variant| variant.name == name)
                 .map(|variant| variant.discriminant)
         })
+    }
+
+    fn enum_variant_info(
+        &self,
+        expression: &Expr,
+        name: &str,
+    ) -> Result<Option<(String, u64)>, String> {
+        if !self.expression_types.has_checked_identity(expression) {
+            return Ok(self.enums.iter().find_map(|(enum_name, variants)| {
+                variants
+                    .iter()
+                    .find(|variant| variant.name == name)
+                    .map(|variant| (enum_name.clone(), variant.discriminant))
+            }));
+        }
+        let metadata = checked_expression_metadata(expression, &self.expression_types)?
+            .expect("checked expression metadata was verified");
+        match metadata.declaration {
+            Some(crate::typed_ir::DeclarationId::Variant(id)) => {
+                let enum_name = self
+                    .expression_types
+                    .aggregate_names
+                    .get(&id.owner)
+                    .ok_or_else(|| {
+                        "internal error: checked enum variant lost its owner".to_owned()
+                    })?;
+                let variant = self
+                    .enums
+                    .get(enum_name)
+                    .and_then(|variants| variants.get(id.index))
+                    .ok_or_else(|| {
+                        "internal error: checked enum variant index is out of bounds".to_owned()
+                    })?;
+                if variant.name != name {
+                    return Err(format!(
+                        "internal error: checked enum variant identity changed from '{}' to '{name}'",
+                        variant.name
+                    ));
+                }
+                Ok(Some((enum_name.clone(), variant.discriminant)))
+            }
+            Some(_) => Ok(None),
+            None if metadata.binding.is_some() => Ok(None),
+            None if self.enum_value(name).is_some() => Err(format!(
+                "internal error: checked enum variant '{name}' lost its declaration identity"
+            )),
+            None => Ok(None),
+        }
     }
 
     fn index_expression(&mut self, items: &[Expr]) -> Result<(), String> {

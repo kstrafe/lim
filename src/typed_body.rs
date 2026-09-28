@@ -105,6 +105,41 @@ mod tests {
     }
 
     #[test]
+    fn emission_metadata_retains_enum_variant_owner_and_identity() {
+        let source = "(#enum Maybe ((Some u64) None))
+          (#fn main () Maybe (#return None))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let body = &declarations.bodies["main"];
+        let function = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        let variant = declarations
+            .variant_id(&Type::Named("Maybe".into()), "None")
+            .unwrap();
+        let declaration = DeclarationId::Variant(variant);
+        let node = body
+            .nodes
+            .iter()
+            .find(|node| matches!(node.kind, NodeKind::Declaration(id) if id == declaration))
+            .unwrap();
+        let expression_id = node.expression_id.unwrap();
+
+        let emission = body.emission_types(function).unwrap();
+        assert_eq!(emission.aggregate_names[&variant.owner], "Maybe");
+        assert_eq!(
+            emission.by_id[&expression_id].declaration,
+            Some(declaration)
+        );
+    }
+
+    #[test]
     fn match_arms_use_the_checked_scrutinee_node_type() {
         let source = "(#enum Choice ((Value u64) Empty))
           (#fn main () u64

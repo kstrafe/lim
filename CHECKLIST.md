@@ -536,6 +536,11 @@ the checklist is committed alongside the implementation it tracks.
   backend bridge. Use retained locations in internal member-identity errors
   and verify a field selector maps back to its exact source token.
 
+- [x] **IR-02aw: Emit unit enum variants by checked identity.** Resolve a
+  checked unit-variant value through its `VariantId` and owner enum instead of
+  scanning all enum declarations by spelling. Preserve name lookup only for
+  synthesized syntax; verify stable owner metadata and native enum examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
