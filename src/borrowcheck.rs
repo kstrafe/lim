@@ -940,12 +940,20 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                     &mut Vec::new(),
                     &mut reference_fields,
                 );
+                if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match"))
+                {
+                    for (_, loans) in reference_fields.values_mut() {
+                        *loans = flatten_transferred_loans(loans.clone(), context);
+                    }
+                }
             }
             let task_loans = thread_spawn_origins(value, context);
             context.allow_local_reference = true;
             let checked = check_expression(value, context);
             context.allow_local_reference = false;
             checked?;
+            let match_transferred_loans = contains_references
+                && matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match"));
             let moves_thread_task = if let Expr::Symbol(source) = value {
                 context.thread_task_loans.contains_key(source).then(|| {
                     move_thread_task_loans(source, name, context);
@@ -995,7 +1003,26 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                         .map(|owner| (owner.clone(), owner))
                         .collect();
                 }
+                if match_transferred_loans {
+                    loans = flatten_transferred_loans(loans, context);
+                }
                 for (owner, loan) in &loans {
+                    let kind = if contains_mutable_references {
+                        LoanKind::Mutable
+                    } else {
+                        LoanKind::Shared(1)
+                    };
+                    if match_transferred_loans
+                        && context.loans.active.get(loan).is_some_and(|active| {
+                            matches!((active, kind), (LoanKind::Mutable, LoanKind::Mutable))
+                                || matches!(
+                                    (active, kind),
+                                    (LoanKind::Shared(_), LoanKind::Shared(_))
+                                )
+                        })
+                    {
+                        continue;
+                    }
                     if derived_parent
                         .as_ref()
                         .is_some_and(|parent| context.mutable_references.contains(parent))
@@ -1004,19 +1031,12 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                             context.loans.active.remove(owner);
                         }
                         if contains_mutable_references {
-                            context.loans.borrow(loan, LoanKind::Mutable)?;
+                            context.loans.borrow(loan, kind)?;
                         } else {
-                            context.loans.borrow(loan, LoanKind::Shared(1))?;
+                            context.loans.borrow(loan, kind)?;
                         }
                     } else {
-                        context.loans.borrow(
-                            loan,
-                            if contains_mutable_references {
-                                LoanKind::Mutable
-                            } else {
-                                LoanKind::Shared(1)
-                            },
-                        )?;
+                        context.loans.borrow(loan, kind)?;
                     }
                 }
                 if origins.is_empty() || !contains_references {
@@ -1610,7 +1630,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                         }
                     });
                     let release_scrutinee = thread_operation.is_none()
-                        && result_origins.is_empty()
+                        && (result_origins.is_empty() || context.typed_scope_escapes)
                         && patterns_transfer_known_payloads
                         && matches!(items[1], Expr::Symbol(_));
                     if release_scrutinee {
@@ -1830,6 +1850,31 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                                 &reference_origins(item, context, true),
                                 context,
                             )?;
+                        }
+                        let transfers_mutable_reference = context
+                            .program_items
+                            .iter()
+                            .find_map(|declaration| match declaration {
+                                Item::Function(function) if function.name == *operator => {
+                                    function.parameters.get(index).map(|parameter| {
+                                        type_contains_mutable_reference(
+                                            &parameter.ty,
+                                            &context.program_items,
+                                            &mut HashSet::new(),
+                                        )
+                                    })
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or(false);
+                        // A by-value mutable-reference aggregate is moved into
+                        // the callee. Retire its caller-side loan at the call;
+                        // if the result carries it onward, the enclosing let
+                        // reconstructs that loan from the result's provenance.
+                        // Typed borrow checking independently validates this
+                        // transfer and the returned lifetime.
+                        if transfers_mutable_reference {
+                            release_dropped_value(item, context);
                         }
                         Ok::<(), Error>(())
                     });
@@ -2079,6 +2124,50 @@ fn release_dropped_value(expression: &Expr, context: &mut Context) {
     }
     context.mutable_references.remove(&name);
     context.reference_bindings.remove(&name);
+}
+
+/// Collapse loan chains when a reference-bearing value is moved out of another
+/// reference-bearing value (for example, an enum payload extracted by match).
+/// The destination then owns the actual referent loan rather than a loan whose
+/// identity is the now-consumed wrapper binding.
+fn flatten_transferred_loans(
+    loans: Vec<(String, String)>,
+    context: &Context,
+) -> Vec<(String, String)> {
+    fn flatten(
+        owner: String,
+        loan: String,
+        context: &Context,
+        seen: &mut HashSet<String>,
+        output: &mut Vec<(String, String)>,
+    ) {
+        if owner == loan && seen.insert(loan.clone()) {
+            if let Some(nested) = context.reference_loans.get(&loan) {
+                for (nested_owner, nested_loan) in nested {
+                    flatten(
+                        nested_owner.clone(),
+                        nested_loan.clone(),
+                        context,
+                        seen,
+                        output,
+                    );
+                }
+                seen.remove(&loan);
+                return;
+            }
+            seen.remove(&loan);
+        }
+        let pair = (owner, loan);
+        if !output.contains(&pair) {
+            output.push(pair);
+        }
+    }
+
+    let mut result = Vec::new();
+    for (owner, loan) in loans {
+        flatten(owner, loan, context, &mut HashSet::new(), &mut result);
+    }
+    result
 }
 
 fn release_projected_value(expression: &Expr, context: &mut Context) {

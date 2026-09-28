@@ -1,7 +1,8 @@
 ;; Safe ownership wrappers for one native Linux AIO request at a time.
-;; A pending request owns its mmap and borrows its AIO context until a
-;; completion event is reaped. Cancellation returns the request owner on any
-;; path that has not yet established kernel completion.
+;; A pending request owns its mmap and exclusively borrows its AIO context
+;; until a completion event is reaped. This safe wrapper permits one in-flight
+;; operation per context so its completion event cannot belong to another
+;; outstanding request. Cancellation preserves the owner until terminal.
 (#import "linux_x86_64.lim")
 
 (#struct AioOwnedContext ((id usize)))
@@ -11,11 +12,11 @@
   ((AioOwnedContextCreated AioOwnedContext) (AioOwnedContextCreateFailed i64)))
 
 (#struct AioOwnedPending
-  ((context (#ref AioOwnedContext)) (memory (#ptr-mut u8)) (length usize)))
+  ((context (#ref-mut AioOwnedContext)) (memory (#ptr-mut u8)) (length usize)))
 (#opaque AioOwnedPending)
 (#linear AioOwnedPending)
 (#struct AioOwnedCompleted
-  ((context (#ref AioOwnedContext)) (memory (#ptr-mut u8))
+  ((context (#ref-mut AioOwnedContext)) (memory (#ptr-mut u8))
    (length usize) (result i64)))
 (#opaque AioOwnedCompleted)
 (#linear AioOwnedCompleted)
@@ -45,7 +46,7 @@
 ;; iocb at 0, pointer list at 64, io_event at 128, read bytes at 256.
 ;; The kernel may access this mapping until a completion is reaped.
 (#fn aio-owned-read-submit
-  ((context (#ref AioOwnedContext)) (fd i64) (length usize) (offset i64))
+  ((context (#ref-mut AioOwnedContext)) (fd i64) (length usize) (offset i64))
   AioOwnedSubmit
   (#return (#if (#bool.|| (#usize.== length 0usize) (#usize.> length 512usize))
     (AioOwnedSubmitFailed -22i64)
@@ -72,7 +73,7 @@
           (#if (#i64.== submitted 1i64)
             (AioOwnedSubmitted
               (#struct-literal AioOwnedPending
-                ((context (#clone context)) (memory memory) (length length))))
+                ((context context) (memory memory) (length length))))
             (#block
               (#unsafe (#call linux-munmap
                 (: address memory : length 4096usize)))
@@ -82,7 +83,7 @@
 ;; the iocb mapping while waiting for readiness. Its completion result is the
 ;; returned poll mask, or zero for an acknowledged cancellation.
 (#fn aio-owned-poll-submit
-  ((context (#ref AioOwnedContext)) (fd i64) (events u16)) AioOwnedSubmit
+  ((context (#ref-mut AioOwnedContext)) (fd i64) (events u16)) AioOwnedSubmit
   (#let memory (#ptr-mut u8)
     (#unsafe (#call linux-mmap
       (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
@@ -102,7 +103,7 @@
       (#if (#i64.== submitted 1i64)
         (AioOwnedSubmitted
           (#struct-literal AioOwnedPending
-            ((context (#clone context)) (memory memory) (length 0usize))))
+            ((context context) (memory memory) (length 0usize))))
         (#block
           (#unsafe (#call linux-munmap
             (: address memory : length 4096usize)))

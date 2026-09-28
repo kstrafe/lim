@@ -22,7 +22,7 @@ pub(crate) struct BorrowConflict {
     pub labels: Vec<(Span, String)>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum AccessKind {
     Read,
     Borrow { mutable: bool },
@@ -124,20 +124,22 @@ pub(crate) fn check_live_direct_loans_with_types(
         let event = FlowNodeId(index);
         let mut projected = Vec::new();
         let mut reborrow_parent = None;
-        if let PlaceRoot::Local(binding) = &place.root {
-            projected = origins.projected_referents(event, *binding, &place.segments);
-            if !projected.is_empty() {
-                reborrow_parent = Some(*binding);
-            } else if matches!(access, AccessKind::Borrow { .. })
-                && matches!(
-                    body.bindings[binding.0].ty,
-                    Type::Reference { .. } | Type::PinnedReference { .. }
-                )
-            {
-                // Borrowing the reference handle itself is not an access to
-                // the referent; its existing loan is the parent of a direct
-                // reborrow and is handled when a place is projected through it.
-                continue;
+        if !matches!(access, AccessKind::Move) {
+            if let PlaceRoot::Local(binding) = &place.root {
+                projected = origins.projected_referents(event, *binding, &place.segments);
+                if !projected.is_empty() {
+                    reborrow_parent = Some(*binding);
+                } else if matches!(access, AccessKind::Borrow { .. })
+                    && matches!(
+                        body.bindings[binding.0].ty,
+                        Type::Reference { .. } | Type::PinnedReference { .. }
+                    )
+                {
+                    // Borrowing the reference handle itself is not an access to
+                    // the referent; its existing loan is the parent of a direct
+                    // reborrow and is handled when a place is projected through it.
+                    continue;
+                }
             }
         }
         let access_places = if projected.is_empty() {
@@ -160,6 +162,11 @@ pub(crate) fn check_live_direct_loans_with_types(
         }
         for binding in live.before(event) {
             if suspended_parents.contains(&binding) {
+                continue;
+            }
+            if consumptions
+                .definitely_consumed_before(event, &Place::root(PlaceRoot::Local(binding)))
+            {
                 continue;
             }
             for held in origins.before(event, binding) {
@@ -299,7 +306,10 @@ pub(crate) fn check_live_direct_loans_with_types(
                     return true;
                 }
                 live.before(event).iter().any(|binding| {
-                    origins
+                    !consumptions.definitely_consumed_before(
+                        event,
+                        &Place::root(PlaceRoot::Local(*binding)),
+                    ) && origins
                         .before(event, *binding)
                         .iter()
                         .any(|origin| origin.span == Some(span))

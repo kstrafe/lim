@@ -150,6 +150,7 @@ pub(crate) struct FlowConsumptions {
     before: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     at: Vec<HashSet<Place>>,
+    definitely_before: Vec<Option<HashSet<Place>>>,
 }
 
 impl FlowConsumptions {
@@ -166,6 +167,12 @@ impl FlowConsumptions {
     /// different predecessor path.
     pub fn consumes_at(&self, node: FlowNodeId, place: &Place) -> bool {
         self.at[node.0].contains(place)
+    }
+
+    pub fn definitely_consumed_before(&self, node: FlowNodeId, place: &Place) -> bool {
+        self.definitely_before[node.0]
+            .as_ref()
+            .is_some_and(|state| state.contains(place))
     }
 
     pub fn dump(&self) -> String {
@@ -1027,10 +1034,63 @@ impl FlowGraph {
                 }
             }
         }
+        let mut definitely_before = vec![None; self.nodes.len()];
+        let mut queued = vec![false; self.nodes.len()];
+        let mut pending = VecDeque::from([self.entry]);
+        definitely_before[self.entry.0] = Some(HashSet::new());
+        queued[self.entry.0] = true;
+        while let Some(id) = pending.pop_front() {
+            queued[id.0] = false;
+            let mut state = definitely_before[id.0].as_ref().unwrap().clone();
+            state.extend(consumed_at[id.0].iter().cloned());
+            match &self.nodes[id.0].action {
+                FlowAction::Bind { binding, .. } => {
+                    state.retain(|place| place.root != PlaceRoot::Local(*binding));
+                }
+                FlowAction::Pattern { pattern, .. } => {
+                    let mut bindings = HashSet::new();
+                    collect_pattern_bindings(body, *pattern, &mut bindings);
+                    state.retain(|place| {
+                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                FlowAction::Assign { place, .. } => {
+                    if !place.segments.contains(&Segment::DynamicIndex) {
+                        state.retain(|moved| {
+                            moved.root != place.root || !moved.segments.starts_with(&place.segments)
+                        });
+                    }
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    state.retain(|place| {
+                        !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                _ => {}
+            }
+            for successor in &self.nodes[id.0].successors {
+                let changed = match &mut definitely_before[successor.0] {
+                    Some(existing) => {
+                        let prior_len = existing.len();
+                        existing.retain(|place| state.contains(place));
+                        existing.len() != prior_len
+                    }
+                    slot @ None => {
+                        *slot = Some(state.clone());
+                        true
+                    }
+                };
+                if changed && !queued[successor.0] {
+                    pending.push_back(*successor);
+                    queued[successor.0] = true;
+                }
+            }
+        }
         FlowConsumptions {
             before,
             after,
             at: consumed_at,
+            definitely_before,
         }
     }
 
