@@ -288,6 +288,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "destructure-reference-escape",
+            diagnostic_code: "E4100",
+            offending_line: "  (#let (#tuple escaped) (#tuple (#ref u64)) (#tuple (#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local))))",
+            line_number: 2,
+        },
+        Case {
             name: "match-reference-escape",
             diagnostic_code: "E4100",
             offending_line: "  (#return (#match holder (#case (Has view) view))))",
@@ -908,6 +914,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "borrow" => Some("#set"),
             "overlapping-call-borrows" => Some("(#borrow value)"),
             "block-reference-escape" => Some("(#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local))"),
+            "destructure-reference-escape" => Some("(#tuple (#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local)))"),
             "match-reference-escape" => Some("(#return (#match holder (#case (Has view) view)))"),
             "borrow-conflict-field-name" => Some("owner"),
             "borrow-conflict-callee-name" => Some("owner"),
@@ -1010,7 +1017,10 @@ fn compilation_errors_render_the_offending_source_line() {
                     .skip_while(|character| *character != '^')
                     .take_while(|character| *character == '^')
                     .count();
-                let expected_width = if case.name == "aggregate-layout-overflow" {
+                let expected_width = if matches!(
+                    case.name,
+                    "aggregate-layout-overflow" | "destructure-reference-escape"
+                ) {
                     fragment.chars().count().min(80)
                 } else {
                     fragment.chars().count()

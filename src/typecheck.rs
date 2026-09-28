@@ -1294,6 +1294,21 @@ fn check_types_inner(
                 declarations.bodies.get(&function.name),
                 declarations.flows.get(&function.name),
             ) {
+                crate::typed_borrow::check_scope_escapes(body, flow).map_err(|error| {
+                    *diagnostic_span = error.span;
+                    *diagnostic_labels = error
+                        .labels
+                        .into_iter()
+                        .map(|(span, label)| {
+                            (
+                                typed_borrow_origin_span(program, span).unwrap_or(span),
+                                label,
+                            )
+                        })
+                        .collect();
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                    error.message
+                })?;
                 crate::typed_borrow::check_return_escapes(body, flow, function.parameters.len())
                     .map_err(|error| {
                         *diagnostic_span = error.span;

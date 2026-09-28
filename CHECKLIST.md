@@ -2626,3 +2626,12 @@ commit, documentation, and focused regression coverage.
   Report the newly introduced identifier with an exact source underline. Unit,
   declaration-identity, and compiler UI tests cover local, nested, pattern,
   parameter/global, and repeated same-scope bindings.
+
+- [x] **IR-04cr: Check local-reference scope escapes on typed flow.** Add a
+  must-analysis of bindings definitely in scope at each CFG point, then inspect
+  checked loan origins when references are bound or destructured. Reject a
+  transfer whose local referent has exited on any incoming path. Route normal
+  compilation through this typed diagnostic before the syntax checker and stop
+  the syntax fallback from repeating local-binding scope checks. Preserve
+  standalone legacy checking, exact value/origin spans, and cover both direct
+  and destructured block-reference escapes plus valid in-scope references.

@@ -556,8 +556,8 @@ impl FlowGraph {
                 });
             }
         }
-        let mut before = vec![None; self.nodes.len()];
-        let mut after = vec![None; self.nodes.len()];
+        let mut before: Vec<Option<LoanState>> = vec![None; self.nodes.len()];
+        let mut after: Vec<Option<LoanState>> = vec![None; self.nodes.len()];
         let mut queued = vec![false; self.nodes.len()];
         let mut pending = VecDeque::from([self.entry]);
         before[self.entry.0] = Some(empty);
@@ -1216,6 +1216,65 @@ impl FlowGraph {
                 if changed && !queued[successor.0] {
                     queued[successor.0] = true;
                     pending.push_back(*successor);
+                }
+            }
+        }
+        before
+    }
+
+    /// Bindings guaranteed to be in lexical scope on every path reaching each
+    /// node. Unlike `active_bindings_before`, this is a must-analysis and is
+    /// suitable for proving a borrowed local outlives a value transfer.
+    pub fn definitely_active_bindings_before(
+        &self,
+        body: &Body,
+    ) -> Vec<Option<HashSet<BindingId>>> {
+        let mut before: Vec<Option<HashSet<BindingId>>> = vec![None; self.nodes.len()];
+        let mut after: Vec<Option<HashSet<BindingId>>> = vec![None; self.nodes.len()];
+        let mut pending = VecDeque::from([self.entry]);
+        let mut queued = vec![false; self.nodes.len()];
+        before[self.entry.0] = Some((0..body.parameter_count).map(BindingId).collect());
+        queued[self.entry.0] = true;
+        while let Some(id) = pending.pop_front() {
+            queued[id.0] = false;
+            let mut state = before[id.0].as_ref().unwrap().clone();
+            match &self.nodes[id.0].action {
+                FlowAction::Bind { binding, .. } => {
+                    state.insert(*binding);
+                }
+                FlowAction::Pattern { pattern, .. } => {
+                    collect_pattern_bindings(body, *pattern, &mut state);
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    for binding in bindings {
+                        state.remove(binding);
+                    }
+                }
+                _ => {}
+            }
+            after[id.0] = Some(state.clone());
+            for successor in &self.nodes[id.0].successors {
+                let changed = match &mut before[successor.0] {
+                    Some(existing) => {
+                        let intersection = existing
+                            .intersection(&state)
+                            .copied()
+                            .collect::<HashSet<_>>();
+                        if intersection != *existing {
+                            *existing = intersection;
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    slot @ None => {
+                        *slot = Some(state.clone());
+                        true
+                    }
+                };
+                if changed && !queued[successor.0] {
+                    pending.push_back(*successor);
+                    queued[successor.0] = true;
                 }
             }
         }

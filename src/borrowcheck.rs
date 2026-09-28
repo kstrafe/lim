@@ -332,6 +332,7 @@ struct Context {
     thread_exclusive_owners: HashMap<String, usize>,
     return_contains_references: bool,
     typed_return_escapes: bool,
+    typed_scope_escapes: bool,
     mutable_reference_types: HashSet<String>,
     program_items: Arc<Vec<Item>>,
 }
@@ -698,6 +699,7 @@ fn check_program_impl(
                             &reference_types,
                             &program.items,
                         )),
+                    declarations.is_some(),
                 )?;
             }
         }
@@ -763,6 +765,7 @@ fn check_function(
     statement_spans: &HashMap<(String, usize), crate::Span>,
     _statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
     typed_return_escapes: bool,
+    typed_scope_escapes: bool,
 ) -> Result<(), BorrowDiagnostic> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
@@ -824,6 +827,7 @@ fn check_function(
         thread_exclusive_owners: HashMap::new(),
         return_contains_references: contains_reference_type(&function.return_type, reference_types),
         typed_return_escapes,
+        typed_scope_escapes,
         program_items: Arc::new(program.items.clone()),
     };
     for parameter in &function.parameters {
@@ -879,7 +883,9 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             let _origin = Site::expression(value).enter();
             let contains_references = contains_reference_type(ty, &context.reference_types);
             let origins = reference_origins(value, context, contains_references);
-            ensure_origins_in_scope(&origins, context)?;
+            if !context.typed_scope_escapes {
+                ensure_origins_in_scope(&origins, context)?;
+            }
             let derived_parent = borrowed_field_parent(value);
             let contains_mutable_references = contains_mutable_reference(
                 ty,
@@ -1010,14 +1016,16 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             mutable,
         } => {
             check_expression(value, context)?;
-            ensure_origins_in_scope(
-                &reference_origins(
-                    value,
+            if !context.typed_scope_escapes {
+                ensure_origins_in_scope(
+                    &reference_origins(
+                        value,
+                        context,
+                        contains_reference_type(ty, &context.reference_types),
+                    ),
                     context,
-                    contains_reference_type(ty, &context.reference_types),
-                ),
-                context,
-            )?;
+                )?;
+            }
             bind_pattern_references(pattern, ty, value, context)?;
             let mut names = Vec::new();
             pattern_names(pattern, &mut names);
@@ -1032,14 +1040,16 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             pattern, ty, value, ..
         } => {
             check_expression(value, context)?;
-            ensure_origins_in_scope(
-                &reference_origins(
-                    value,
+            if !context.typed_scope_escapes {
+                ensure_origins_in_scope(
+                    &reference_origins(
+                        value,
+                        context,
+                        contains_reference_type(ty, &context.reference_types),
+                    ),
                     context,
-                    contains_reference_type(ty, &context.reference_types),
-                ),
-                context,
-            )?;
+                )?;
+            }
             bind_pattern_references(pattern, ty, value, context)?;
             let mut names = Vec::new();
             pattern_names(pattern, &mut names);

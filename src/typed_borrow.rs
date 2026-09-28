@@ -408,6 +408,43 @@ pub(crate) fn check_return_escapes(
     Ok(())
 }
 
+/// Reject reference-bearing values transferred out of a lexical scope that
+/// owns one of their referents. The source value may be nested in a block,
+/// branch, match arm, or aggregate; typed loan origins resolve those forms
+/// without reconstructing ownership from syntax names.
+pub(crate) fn check_scope_escapes(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
+    let origins = flow.loan_origins(body);
+    let active = flow.definitely_active_bindings_before(body);
+    for (index, node) in flow.nodes.iter().enumerate() {
+        let value = match node.action {
+            FlowAction::Bind { value, .. } | FlowAction::Pattern { value, .. } => value,
+            _ => continue,
+        };
+        let Some(active) = active[index].as_ref() else {
+            continue;
+        };
+        for origin in origins.value_before(body, flow, FlowNodeId(index), value) {
+            let PlaceRoot::Local(binding) = origin.place.root else {
+                continue;
+            };
+            if active.contains(&binding) {
+                continue;
+            }
+            let name = &body.bindings[binding.0].name;
+            return Err(BorrowConflict {
+                message: format!("reference to block-local variable '{name}' escapes its scope"),
+                span: body.nodes[value.0].span.or(node.span),
+                labels: origin
+                    .span
+                    .map(|span| (span, "reference originates here".into()))
+                    .into_iter()
+                    .collect(),
+            });
+        }
+    }
+    Ok(())
+}
+
 type BoundBorrows = HashMap<BindingId, Vec<Vec<DirectBorrow>>>;
 
 fn origin_alternatives(
@@ -1135,7 +1172,7 @@ fn distribute_pattern_borrows(
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded, check_live_direct_loans, combine, origin_alternatives,
+        bounded, check_live_direct_loans, check_scope_escapes, combine, origin_alternatives,
         returned_borrows_with_bindings, BoundBorrows, DirectBorrow, MAX_BORROW_ALTERNATIVES,
     };
     use crate::typed_body::{BindingId, NodeId, NodeKind, PlaceRoot};
@@ -1151,6 +1188,22 @@ mod tests {
                (#let-mut value u64 1u64)
                (#return (#call inspect ( {args}))))"
         )
+    }
+
+    #[test]
+    fn scope_escape_analysis_accepts_references_that_stay_with_their_owner() {
+        let source = "(#fn main () u64
+          (#let result u64
+            (#block
+              (#let owner u64 41u64)
+              (#let view (#ref u64) (#borrow owner))
+              (#deref view)))
+          (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let flow = &checked.declarations().flows["main"];
+        check_scope_escapes(body, flow).unwrap();
     }
 
     #[test]
