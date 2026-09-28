@@ -1791,6 +1791,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Test an immutable linear value used by the loop condition and after Ready,
   including its explicit consumption in the continuation; inspect the concrete
   output payload to ensure both the mutated and unchanged owners are returned.
+- [x] **ASYNC-01b28: Suspend in a direct `#while` condition.** Lower a boolean
+  condition that is exactly one `#await` into a resumable child poll before
+  each loop-body decision. Preserve while semantics so Ready(false) skips the
+  body, and re-evaluate by polling a fresh child on the next iteration after
+  Ready(true). Keep compound awaited conditions, a second suspension in the
+  body, and loop transfers from the body rejected until their control-flow
+  joins are represented explicitly. Verify Pending followed by Ready(false)
+  natively with a body assertion proving it was skipped.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

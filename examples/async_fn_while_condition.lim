@@ -1,0 +1,31 @@
+; Await a boolean condition. Pending resumes before the loop decides whether
+; the body runs; Ready(false) must skip the body.
+(#enum ConditionTask ((Waiting u64)))
+(#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+(#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+  (#return (#match task
+    (#case (Waiting iteration)
+      (#if (#u64.== iteration 0u64)
+        (ConditionPending (Waiting 1u64))
+        (ConditionReady false))))))
+
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+  (#fn work () ()
+    (#while (#await ConditionTask ConditionPending ConditionReady
+              condition-poll (Waiting 0u64))
+      (#assert false))
+    (#return ())))
+)
+
+(#fn main () u64
+  (#let waker u64 0u64)
+  (#let first Poll
+    (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+  (#let-else (Pending pending) Poll first (#unreachable))
+  (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+  (#let result bool (#match second
+    (#case (Ready) true)
+    (#case (Pending pending-again)
+      (#block (#forget pending-again) false))))
+  (#forget waker)
+  (#return (#if result 42u64 0u64)))

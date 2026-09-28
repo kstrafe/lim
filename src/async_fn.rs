@@ -713,7 +713,65 @@ fn lower_async_while(
     }
     let condition = &items[1];
     if has_await(condition) {
-        return Err("@async-fn #await in a loop condition is not supported".into());
+        let Some(await_form) = form(condition, "#await") else {
+            return Err(
+                "@async-fn awaited #while condition must be one direct #await expression".into(),
+            );
+        };
+        if await_form.len() != 6 {
+            return Err(
+                "@async-fn awaited #while condition requires (#await Child Pending Ready poll task)"
+                    .into(),
+            );
+        }
+        let body = &items[2..];
+        if body.iter().any(has_await) {
+            return Err("@async-fn awaited #while cannot also suspend in its body yet".into());
+        }
+        if body.iter().any(|expression| {
+            contains_loop_control(expression) || matches!(form(expression, "#return"), Some(_))
+        }) {
+            return Err("@async-fn awaited #while body cannot transfer control yet".into());
+        }
+
+        // Re-express an awaited condition as a loop whose first operation is
+        // the suspension. The guarded body preserves while's rule that a
+        // false condition skips the body; the final transfers are lowered to
+        // explicit generated done state by lower_async_loop.
+        let condition_name = fresh_async_name(source, next_name);
+        let await_binding = Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol(condition_name.clone()),
+            Expr::Symbol("bool".into()),
+            Expr::List(await_form.to_vec()),
+        ]);
+        let mut body_block = vec![Expr::Symbol("#block".into())];
+        body_block.extend(body.iter().cloned());
+        let guarded_body = Expr::List(vec![
+            Expr::Symbol("#if".into()),
+            Expr::Symbol(condition_name.clone()),
+            Expr::List(body_block),
+            Expr::List(Vec::new()),
+        ]);
+        let terminal = Expr::List(vec![
+            Expr::Symbol("#if".into()),
+            Expr::Symbol(condition_name),
+            Expr::List(vec![Expr::Symbol("#continue".into())]),
+            Expr::List(vec![Expr::Symbol("#break".into())]),
+        ]);
+        let mut loop_form = vec![Expr::Symbol("#loop".into()), await_binding];
+        loop_form.push(guarded_body);
+        loop_form.push(terminal);
+        return lower_async_loop(
+            &Expr::List(loop_form),
+            known,
+            known_order,
+            following,
+            return_value,
+            source,
+            next_name,
+            waker,
+        );
     }
     let body = &items[2..];
     let await_indices = body

@@ -282,8 +282,13 @@ body still ends with one explicit `#return`; a direct `#await` in that return
 is lowered as a final stage.
 `#await` in a binding must still be the entire initializer of a top-level
 binding. An `#if`, `#match`, or `#block` that contains no nested `#await` may
-run between stages. Control flow whose branches themselves suspend and loops
-crossing a suspension are not yet lowered. At most 32 awaits are accepted.
+run between stages. Awaited branches and loop bodies have explicit supported
+shapes rather than general CFG lowering: `#while` can suspend once in its body
+per iteration, or use one direct boolean `#await` as its condition. An awaited
+condition is polled before each body decision, and Ready(false) skips the body;
+it cannot be combined with another body suspension or body loop transfer yet.
+Suspending `#for` conditions and compound awaited conditions remain unsupported.
+At most 32 awaits are accepted.
 References into pre-suspension locals cannot be retained in the frame; the
 ordinary borrow checker rejects them.
 
@@ -297,7 +302,8 @@ movable frame API; `examples/async_fn_pinned.lim` shows in-place Pending/resume
 and cancellation; `examples/async_fn_two_awaits.lim` exercises sequential
 awaits. These lowerings do not themselves add a scheduler or OS readiness.
 The explicit `wake_ready4` protocol can prevent lost wakes when used around
-polling.
+polling. `examples/async_fn_while_condition.lim` demonstrates a boolean
+condition that suspends, resumes, and skips the loop body on Ready(false).
 
 ## Cancellation and threads
 

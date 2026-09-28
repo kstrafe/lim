@@ -1036,6 +1036,13 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
 }
 
 #[test]
+fn async_function_resumes_a_child_await_in_a_while_condition() {
+    let source = include_str!("../examples/async_fn_while_condition.lim");
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("-wait"), "{generated}");
+}
+
+#[test]
 fn async_function_returns_linear_state_after_a_loop() {
     let source = "(#struct State ((value u64)))
       (#linear State)

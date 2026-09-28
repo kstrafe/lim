@@ -27,6 +27,7 @@ exit 42 async_fn.lim - -
 exit 41 async_fn_pinned.lim - -
 exit 44 pinned_self_reference.lim - -
 exit 42 async_fn_two_awaits.lim tests/fixtures/async_fn_two_awaits.stdout -
+exit 42 async_fn_while_condition.lim - -
 exit 42 cell.lim - -
 exit 42 colon_groups.lim - -
 exit 42 async_pipeline.lim - -
