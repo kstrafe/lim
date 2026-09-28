@@ -1247,12 +1247,6 @@ fn check_types_inner(
         diagnostic_labels,
     )?;
     *diagnostic_code = crate::DiagnosticCode::Linear;
-    crate::linearcheck::check_program_with_span(program, checked_expression_types, expression_ids)
-        .map_err(|(message, span, labels)| {
-            *diagnostic_span = span;
-            *diagnostic_labels = labels;
-            message
-        })?;
     let linear_types = crate::linearcheck::LinearTypes::from_program(program);
     for body in declarations.bodies.values() {
         for node in &body.nodes {
@@ -1279,35 +1273,40 @@ fn check_types_inner(
             }
         }
     }
+    let mut typed_linear_error = None;
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {
-                declarations.flows[&function.name]
-                    .check_linear_releases(body, &linear_types)
-                    .map_err(|error| {
-                        *diagnostic_span = error.span;
-                        *diagnostic_labels = error.labels;
-                        error.message
-                    })?;
-                declarations.flows[&function.name]
-                    .check_linear_consumptions(body, &linear_types)
-                    .map_err(|error| {
-                        *diagnostic_span = error.span;
-                        *diagnostic_labels = error.labels;
-                        error.message
-                    })?;
-                let typed_exit = declarations.flows[&function.name].check_linear_exit_obligations(
-                    body,
-                    &linear_types,
-                    &declarations,
-                );
-                typed_exit.map_err(|error| {
-                    *diagnostic_span = error.span;
-                    *diagnostic_labels = error.labels;
-                    error.message
-                })?;
+                let flow = &declarations.flows[&function.name];
+                for result in [
+                    flow.check_linear_releases(body, &linear_types),
+                    flow.check_linear_consumptions(body, &linear_types),
+                    flow.check_linear_exit_obligations(body, &linear_types, &declarations),
+                ] {
+                    if typed_linear_error.is_none() {
+                        typed_linear_error = result.err();
+                    }
+                }
             }
         }
+    }
+    // The syntax checker has more specific explanations for overlapping
+    // cases (for example, the repeated field or index). Prefer that detail,
+    // while typed flow remains the fallback authority for cases it alone
+    // detects.
+    if let Err((message, span, labels)) = crate::linearcheck::check_program_with_span(
+        program,
+        checked_expression_types,
+        expression_ids,
+    ) {
+        *diagnostic_span = span;
+        *diagnostic_labels = labels;
+        return Err(message);
+    }
+    if let Some(error) = typed_linear_error {
+        *diagnostic_span = error.span;
+        *diagnostic_labels = error.labels;
+        return Err(error.message);
     }
     *diagnostic_code = crate::DiagnosticCode::Borrow;
     for item in &program.items {

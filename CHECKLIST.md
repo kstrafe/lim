@@ -2764,3 +2764,10 @@ commit, documentation, and focused regression coverage.
   validation error with its retained declaration/transfer spans. Keep legacy
   checking for ownership paths not yet represented in typed flow; cover
   missing and complete fieldwise consumption at return and scope exit.
+
+- [x] **IR-04cu: Run typed linear analysis before the diagnostic fallback.**
+  Check typed releases, consumptions, and exit obligations before legacy
+  ownership analysis. Use typed errors when the syntax checker misses a case;
+  when both catch it, preserve the legacy checker's more specific message and
+  underline. Verify exact UI spans and accepted branch, loop, and aggregate
+  ownership cases.
