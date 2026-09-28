@@ -68,6 +68,40 @@ fn build_and_run(source: &str, expected: i32) -> String {
 }
 
 #[test]
+fn async_generated_code_does_not_allow_shadowing_in_nested_branches() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (ChildReady 0u64)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((value u64)) u64
+          (#let result u64
+            (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#if true
+            (#block (#let value u64 2u64) ())
+            ())
+          (#return result))))";
+    let scratch = support::Scratch::new("async-shadow");
+    let input = scratch.path().join("shadow.lim");
+    let diagnostic = lim::compile_source_to_assembly(
+        source,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        diagnostic
+            .message
+            .contains("binding 'value' shadows an existing binding"),
+        "{diagnostic:?}"
+    );
+    let span = diagnostic.span.expect("shadowed binding source span");
+    assert_eq!(&source[span.start..span.end], "value");
+}
+
+#[test]
 fn async_function_suspends_resumes_and_is_inspectable() {
     let generated = build_and_run(&example_source(), 42);
     assert!(generated.contains("(#enum Work ((Work-start u64) (Work-await-0 u64 Step)))"));

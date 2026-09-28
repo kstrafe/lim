@@ -2347,9 +2347,22 @@ fn parse_program_in_directory(
                     parse_generated_items(forms)
                 };
                 generated.map_err(|error| {
-                    let error_span = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned")
-                        && (error.contains("await") || error.contains("capture"))
-                    {
+                    let is_async_fn = matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned");
+                    let error_span = if is_async_fn && error.contains("shadowing") {
+                        let details = match &normalized_invocation {
+                            Expr::List(invocation) => invocation.get(4),
+                            _ => None,
+                        }
+                        .and_then(|function| async_function_shadowing(function).ok().flatten());
+                        details
+                            .and_then(|(name, statement_index)| {
+                                let statement = statement_index.and_then(|index| {
+                                    async_function_statement_source(&source_expression, index)
+                                })?;
+                                shadow_binding_span(statement.span, &name, &source_files)
+                            })
+                            .unwrap_or(form_span)
+                    } else if is_async_fn && (error.contains("await") || error.contains("capture")) {
                         source_form_head_span(&source_expression, &["#await"])
                             .unwrap_or(form_span)
                     } else {
@@ -3411,6 +3424,22 @@ fn shadow_binding_span(span: Span, name: &str, source_files: &[SourceFile]) -> O
     })
 }
 
+fn async_function_statement_source(
+    expression: &SpannedExpr,
+    statement_index: usize,
+) -> Option<&SpannedExpr> {
+    if matches!(
+        &expression.expr,
+        Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#fn" || head == "fn")
+    ) {
+        return expression.children.get(4 + statement_index);
+    }
+    expression
+        .children
+        .iter()
+        .find_map(|child| async_function_statement_source(child, statement_index))
+}
+
 fn is_identifier_character(character: char) -> bool {
     character.is_alphanumeric() || matches!(character, '_' | '-' | '.')
 }
@@ -3454,6 +3483,31 @@ fn rename_function_locals(
         })
         .min_by_key(|(index, name)| (*index, *name))
         .map(|(index, name)| (name.to_owned(), (index >= 0).then_some(index as usize)))
+}
+
+/// Validate lexical shadowing in the source async function before lowering
+/// splits it into helpers and omits dead locals from later states.
+pub(crate) fn validate_async_function_shadowing(expression: &Expr) -> Result<(), String> {
+    if let Some((name, _)) = async_function_shadowing(expression)? {
+        return Err(format!(
+            "binding '{name}' shadows an existing binding; shadowing is not allowed"
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn async_function_shadowing(
+    expression: &Expr,
+) -> Result<Option<(String, Option<usize>)>, String> {
+    let normalized = normalize_keywords(expression.clone());
+    let Item::Function(mut function) = parse_item(&normalized)? else {
+        return Err("@async-fn source must be a function declaration".into());
+    };
+    Ok(rename_function_locals(
+        &mut function,
+        &HashSet::new(),
+        &HashSet::new(),
+    ))
 }
 
 fn fresh_binding(

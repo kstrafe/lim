@@ -789,6 +789,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     parse_type(Some(&normalize_keywords(invocation[3].clone())))?;
     let function = form(&invocation[4], "#fn")
         .ok_or_else(|| "@async-fn last argument must be a #fn declaration".to_owned())?;
+    crate::validate_async_function_shadowing(&invocation[4])?;
     if function.len() < 5 {
         return Err("@async-fn #fn requires a name, parameters, result type, and body".into());
     }

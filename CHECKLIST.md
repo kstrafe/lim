@@ -3167,9 +3167,11 @@ commit, documentation, and focused regression coverage.
 - [x] **SEM-01: Reject lexical binding shadowing.** Parameters, locals,
   destructured names, and match bindings may not hide a visible parameter,
   outer local, or global. Keep non-overlapping sibling scopes independent.
-  Report the newly introduced identifier with an exact source underline. Unit,
+  Validate original `@async-fn` bodies before suspension splitting can discard
+  dead bindings; report a nested branch's newly introduced identifier with an
+  exact source underline. Unit,
   declaration-identity, and compiler UI tests cover local, nested, pattern,
-  parameter/global, and repeated same-scope bindings.
+  parameter/global, repeated same-scope, and async-generated bindings.
 
 - [x] **IR-04cr: Check local-reference scope escapes on typed flow.** Add a
   must-analysis of bindings definitely in scope at each CFG point, then inspect
