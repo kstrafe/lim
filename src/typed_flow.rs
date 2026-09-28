@@ -52,6 +52,12 @@ pub(crate) enum FlowAction {
         place: Place,
         value: NodeId,
     },
+    /// A write through a reference, such as `#deref-set`. This mutates the
+    /// referent, not the local slot that stores the reference.
+    Write {
+        place: Place,
+        value: NodeId,
+    },
     Pattern {
         pattern: NodeId,
         value: NodeId,
@@ -1471,6 +1477,19 @@ impl FlowGraph {
                     return Err(format!(
                         "typed flow cannot assign to abstract parameter referent {binding:?}"
                     ));
+                }
+                FlowAction::Write { place, value } => {
+                    let Some(NodeKind::Form { head, children, .. }) =
+                        body.nodes.get(value.0).map(|node| &node.kind)
+                    else {
+                        return Err(format!("typed flow writes invalid node {value:?}"));
+                    };
+                    if head != "deref-set"
+                        || children.len() != 3
+                        || Place::from_dereference_write(body, children[1]).as_ref() != Some(place)
+                    {
+                        return Err(format!("typed flow write {value:?} has invalid metadata"));
+                    }
                 }
                 FlowAction::Pattern { pattern, value } => {
                     if pattern.0 >= body.nodes.len() || value.0 >= body.nodes.len() {
@@ -2986,6 +3005,15 @@ impl Builder<'_> {
                     vec![body],
                 );
                 self.expression(children[1], start, targets, None)
+            }
+            NodeKind::Form { head, children, .. } if head == "deref-set" && children.len() == 3 => {
+                let action = Place::from_dereference_write(self.body, children[1]).map_or(
+                    FlowAction::Evaluate(id),
+                    |place| FlowAction::Write { place, value: id },
+                );
+                let done = self.push(action, span, vec![next]);
+                let value = self.expression(children[2], done, targets, None)?;
+                self.expression(children[1], value, targets, None)
             }
             NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
                 let action = Place::from_expression(self.body, children[1]).map_or(

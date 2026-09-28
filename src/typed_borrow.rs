@@ -91,6 +91,7 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
             }
             FlowAction::Clone { place, .. } => (place, AccessKind::Clone),
             FlowAction::Assign { place, .. } => (place, AccessKind::Write),
+            FlowAction::Write { place, .. } => (place, AccessKind::Write),
             FlowAction::Release { place, .. } => (place, AccessKind::Release),
             _ => continue,
         };
@@ -1134,7 +1135,7 @@ mod tests {
         returned_borrows_with_bindings, BoundBorrows, DirectBorrow, MAX_BORROW_ALTERNATIVES,
     };
     use crate::typed_body::{BindingId, NodeId, NodeKind, PlaceRoot};
-    use crate::typed_flow::{FlowAction, FlowGraph, FlowNodeId, LoanOrigin};
+    use crate::typed_flow::{FlowAction, FlowGraph, FlowNode, FlowNodeId, LoanOrigin};
     use crate::typed_place::Place;
     use crate::Type;
 
@@ -1232,6 +1233,73 @@ mod tests {
             origins.projected_referents(read.0, parent, &read.1.segments),
             vec![Place::root(PlaceRoot::Local(value))]
         );
+    }
+
+    #[test]
+    fn dereference_writes_conflict_with_live_child_borrows() {
+        let source = "(#struct Point ((x u64) (y u64)))
+            (#fn main () u64
+              (#let-mut point Point (#struct-literal Point ((x 1u64) (y 2u64))))
+              (#let parent (#ref-mut Point) (#borrow-mut point))
+              (#let child (#ref u64) (#borrow (#get parent x)))
+              (#forget child)
+              (#deref-set parent (#struct-literal Point ((x 3u64) (y 4u64))))
+              (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut flow = FlowGraph::lower(body).unwrap();
+        let parent = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "parent")
+                .unwrap(),
+        );
+        let child = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "child")
+                .unwrap(),
+        );
+        let release = flow
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(&node.action, FlowAction::Release { place, .. }
+                    if place.root == PlaceRoot::Local(child))
+            })
+            .unwrap();
+        let (place, value) = flow
+            .nodes
+            .iter()
+            .find_map(|node| match &node.action {
+                FlowAction::Write { place, value } => Some((place.clone(), *value)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(place.root, PlaceRoot::Local(parent));
+        assert_eq!(
+            place.segments,
+            vec![crate::typed_place::Segment::Dereference]
+        );
+        let write = FlowNodeId(flow.nodes.len());
+        flow.nodes.push(FlowNode {
+            action: FlowAction::Write { place, value },
+            successors: vec![FlowNodeId(release)],
+            span: None,
+        });
+        let predecessor = flow
+            .nodes
+            .iter_mut()
+            .find(|node| node.successors.contains(&FlowNodeId(release)))
+            .unwrap();
+        for successor in &mut predecessor.successors {
+            if *successor == FlowNodeId(release) {
+                *successor = write;
+            }
+        }
+        let error = check_live_direct_loans(body, &flow).unwrap_err();
+        assert!(error.message.contains("cannot mutate 'point'"));
     }
 
     #[test]

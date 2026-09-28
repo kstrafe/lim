@@ -86,6 +86,22 @@ impl Place {
         }
     }
 
+    pub fn from_dereference_write(body: &Body, target: NodeId) -> Option<Self> {
+        if let NodeKind::Form { head, children, .. } = &body.nodes.get(target.0)?.kind {
+            if head == "slice-mut-idx" {
+                // Mutable split-slice elements carry a partition projection
+                // that is not yet represented by ordinary place segments.
+                return None;
+            }
+            if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() >= 2 {
+                return Self::from_expression(body, children[1]);
+            }
+        }
+        let mut place = Self::from_expression(body, target)?;
+        place.segments.push(Segment::Dereference);
+        Some(place)
+    }
+
     /// A parent place overlaps any descendant. A dynamic index may name any
     /// element of the same array, while distinct concrete indices do not
     /// overlap. This is about identity, not whether a particular loan is live.

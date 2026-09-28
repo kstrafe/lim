@@ -1068,7 +1068,14 @@ the checklist is committed alongside the implementation it tracks.
   dereference as a structural place projection and resolve it through the
   reference's checked loan origins before overlap analysis. Verify a dereference
   read resolves to the original binding without conflating the reference handle
-  with its referent. `#deref-set` remains on the transitional checker path.
+  with its referent. Typed writes are tracked separately in IR-04cl.
+
+- [x] **IR-04cl: Check direct dereference writes on typed flow.** Lower
+  `#deref-set` through a checked reference or field place to a distinct typed
+  write event, then rebase it to the referent for loan overlap checks. Preserve
+  borrows of sibling fields and reject writes while a child borrow is live.
+  Mutable-slice element writes remain on the syntax checker path until slice
+  partition projections have structural place identities.
 
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
