@@ -553,6 +553,11 @@ the checklist is committed alongside the implementation it tracks.
   Preserve generated scope bindings and verify all native enum/or-pattern
   examples.
 
+- [x] **IR-02az: Project enum payloads by checked variant identity.** Resolve
+  `#get-payload` selectors through their `VariantId` in both scalar and
+  oversized aggregate projection paths. Validate the owner enum and use the
+  retained discriminant and payload layout; preserve all native examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

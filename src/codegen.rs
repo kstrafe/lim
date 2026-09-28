@@ -13057,18 +13057,16 @@ impl FunctionContext {
                     .map_err(|_| "enum payload index is too large".to_owned())?,
                 _ => return Err("get-payload requires a non-negative integer index".into()),
             };
-        let variant = self
-            .enums
-            .get(&enum_name)
-            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
-            .iter()
-            .find(|variant| variant.name == *variant_name)
-            .cloned()
+        let (variant_owner, discriminant, fields) = self
+            .enum_variant_info(&items[2], variant_name)?
             .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
-        let field_type = variant.fields.get(index).cloned().ok_or_else(|| {
+        if variant_owner != enum_name {
+            return Err("internal error: checked payload variant owner changed".into());
+        }
+        let field_type = fields.get(index).cloned().ok_or_else(|| {
             format!("variant '{variant_name}' has no payload field at index {index}")
         })?;
-        let payload_offset = 1 + variant.fields[..index]
+        let payload_offset = 1 + fields[..index]
             .iter()
             .map(|field| storage_word_count(field, &self.structs, &self.enums))
             .collect::<Result<Vec<_>, _>>()?
@@ -13079,7 +13077,7 @@ impl FunctionContext {
         self.expression(&items[1])?;
         self.output.push_str(&format!(
             "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
-            variant.discriminant
+            discriminant
         ));
         self.emit_reference_field_address(&items[1], payload_offset, false)?;
         let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
@@ -14896,15 +14894,13 @@ impl FunctionContext {
                     .map_err(|_| "enum payload index is too large".to_owned())?,
                 _ => return Err("get-payload requires a non-negative integer index".into()),
             };
-        let variant = self
-            .enums
-            .get(&enum_name)
-            .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
-            .iter()
-            .find(|variant| variant.name == *variant_name)
-            .cloned()
+        let (variant_owner, discriminant, fields) = self
+            .enum_variant_info(&items[2], variant_name)?
             .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
-        let field_type = variant.fields.get(index).ok_or_else(|| {
+        if variant_owner != enum_name {
+            return Err("internal error: checked payload variant owner changed".into());
+        }
+        let field_type = fields.get(index).ok_or_else(|| {
             format!("variant '{variant_name}' has no payload field at index {index}")
         })?;
         let field_words = storage_word_count(field_type, &self.structs, &self.enums)?;
@@ -14913,7 +14909,7 @@ impl FunctionContext {
         }
         let payload_offset = 1usize
             .checked_add(
-                variant.fields[..index]
+                fields[..index]
                     .iter()
                     .map(|field| storage_word_count(field, &self.structs, &self.enums))
                     .collect::<Result<Vec<_>, _>>()?
@@ -14928,7 +14924,7 @@ impl FunctionContext {
         self.expression(&items[1])?;
         self.output.push_str(&format!(
             "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
-            variant.discriminant
+            discriminant
         ));
         self.emit_reference_field_address(&items[1], payload_offset, true)?;
         self.output.push_str(&format!(
