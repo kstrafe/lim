@@ -1088,6 +1088,11 @@ the checklist is committed alongside the implementation it tracks.
   nested origin tied to the original array loan and pass typed live-loan
   checking.
 
+- [x] **IR-04co: Retain exact local binding spans in typed ownership state.**
+  Associate each top-level local `BindingId` with the source identifier span,
+  rather than the complete `#let` statement. Use that span for typed linear
+  exit diagnostics and verify the source slice is the binding name.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

@@ -315,10 +315,38 @@ impl Declarations {
             .items
             .iter()
             .filter_map(|item| match item {
-                crate::Item::Function(function) if !function.external => Some((
-                    function.name.clone(),
-                    crate::typed_body::Body::lower(function, self, types, expression_ids, spans),
-                )),
+                crate::Item::Function(function) if !function.external => {
+                    let binding_spans = function
+                        .body
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, statement)| {
+                            let crate::Statement::Let { name, .. } = statement else {
+                                return None;
+                            };
+                            let source = program
+                                .statement_expressions
+                                .get(&(function.name.clone(), index))?;
+                            let identifier = source.children.get(1)?;
+                            matches!(&identifier.expr, crate::Expr::Symbol(symbol) if symbol == name)
+                                .then_some((
+                                    std::ptr::from_ref(statement) as usize,
+                                    identifier.span,
+                                ))
+                        })
+                        .collect();
+                    Some((
+                        function.name.clone(),
+                        crate::typed_body::Body::lower(
+                            function,
+                            self,
+                            types,
+                            expression_ids,
+                            spans,
+                            &binding_spans,
+                        ),
+                    ))
+                }
                 _ => None,
             })
             .collect();

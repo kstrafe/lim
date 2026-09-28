@@ -114,6 +114,27 @@ mod tests {
     }
 
     #[test]
+    fn typed_bindings_retain_the_source_identifier_span() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#fn main () u64
+            (#let resource Resource (#struct-literal Resource ((value 1u64))))
+            (#forget resource)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let binding = checked.declarations().bodies["main"]
+            .bindings
+            .iter()
+            .find(|binding| binding.name == "resource")
+            .unwrap();
+        let span = binding
+            .span
+            .expect("typed local keeps its declaration span");
+        assert_eq!(&source[span.start..span.end], "resource");
+    }
+
+    #[test]
     fn nodes_keep_contextual_types_numeric_modes_and_reordered_call_spans() {
         let source = "(#fn add ((left u32) (right u32)) u32 (#return (#u32.+.saturate left right)))
           (#fn main () u32 (#let x u32 40) (#return (#call add (: right 2 : left x))))";
@@ -761,6 +782,7 @@ pub(crate) struct Node {
 pub(crate) struct Binding {
     pub name: String,
     pub ty: Type,
+    pub span: Option<Span>,
 }
 
 #[derive(Clone, Debug)]
@@ -1332,6 +1354,7 @@ impl Body {
         types: &HashMap<ExpressionId, Type>,
         expression_ids: &HashMap<usize, ExpressionId>,
         spans: &HashMap<usize, Span>,
+        binding_spans: &HashMap<usize, Span>,
     ) -> Self {
         let mut builder = Builder {
             body: Body::default(),
@@ -1340,12 +1363,14 @@ impl Body {
             types,
             expression_ids,
             spans,
+            binding_spans,
         };
         builder.body.parameter_count = function.parameters.len();
         for parameter in &function.parameters {
             builder.binding(
                 &parameter.name,
                 resolve_type(&parameter.ty, &declarations.aliases).expect("checked parameter"),
+                None,
             );
         }
         builder.body.instructions = builder.statements(&function.body);
@@ -1437,6 +1462,7 @@ struct Builder<'a> {
     types: &'a HashMap<ExpressionId, Type>,
     expression_ids: &'a HashMap<usize, ExpressionId>,
     spans: &'a HashMap<usize, Span>,
+    binding_spans: &'a HashMap<usize, Span>,
 }
 
 impl Builder<'_> {
@@ -1447,11 +1473,12 @@ impl Builder<'_> {
             .and_then(|id| self.types.get(id))
     }
 
-    fn binding(&mut self, name: &str, ty: Type) -> BindingId {
+    fn binding(&mut self, name: &str, ty: Type, span: Option<Span>) -> BindingId {
         let id = BindingId(self.body.bindings.len());
         self.body.bindings.push(Binding {
             name: name.into(),
             ty,
+            span,
         });
         self.names.insert(name.into(), id);
         id
@@ -1546,7 +1573,7 @@ impl Builder<'_> {
         }
         match pattern {
             Expr::Symbol(name) if !matches!(name.as_str(), "_" | "true" | "false") => {
-                let binding = self.binding(name, ty);
+                let binding = self.binding(name, ty, self.body.nodes[node.0].span);
                 self.body.nodes[node.0].kind = NodeKind::Symbol {
                     name: name.clone(),
                     binding: Some(binding),
@@ -1784,6 +1811,7 @@ impl Builder<'_> {
     }
 
     fn statement(&mut self, statement: &Statement) -> Instruction {
+        let statement_address = std::ptr::from_ref(statement) as usize;
         let control = match statement {
             Statement::Let {
                 name,
@@ -1795,6 +1823,7 @@ impl Builder<'_> {
                 let binding = self.binding(
                     name,
                     resolve_type(ty, &self.declarations.aliases).expect("checked local"),
+                    self.binding_spans.get(&statement_address).copied(),
                 );
                 Control::Bind(binding, value, *mutable)
             }

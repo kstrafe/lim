@@ -1047,13 +1047,15 @@ impl FlowGraph {
                         .map(|span| (span, "value was consumed on only some paths".into()))
                         .into_iter()
                         .collect();
-                    let binding_span = self.nodes.iter().find_map(|declaration| match declaration
-                        .action
-                    {
-                        FlowAction::Bind {
-                            binding: declared, ..
-                        } if declared == *binding => declaration.span,
-                        _ => None,
+                    let binding_span = body.bindings[binding.0].span.or_else(|| {
+                        self.nodes
+                            .iter()
+                            .find_map(|declaration| match declaration.action {
+                                FlowAction::Bind {
+                                    binding: declared, ..
+                                } if declared == *binding => declaration.span,
+                                _ => None,
+                            })
                     });
                     return Err(ReleaseConflict {
                         message: format!("linear value '{name}' must be consumed before returning"),
@@ -3250,6 +3252,7 @@ mod tests {
         body.bindings.push(crate::typed_body::Binding {
             name: "value".into(),
             ty: crate::Type::U64,
+            span: None,
         });
         body.nodes.push(crate::typed_body::Node {
             expression_id: None,
@@ -3427,6 +3430,7 @@ mod tests {
         body.bindings.push(crate::typed_body::Binding {
             name: "value".into(),
             ty: crate::Type::U64,
+            span: None,
         });
         body.nodes.push(crate::typed_body::Node {
             expression_id: None,
@@ -3882,18 +3886,14 @@ mod tests {
             unreachable!()
         };
         *place_base = true;
-        let binding_span = graph
-            .nodes
-            .iter()
-            .find_map(|node| match node.action {
-                FlowAction::Bind { binding, .. } if binding == token => node.span,
-                _ => None,
-            })
-            .unwrap();
+        let binding_span = body.bindings[token.0]
+            .span
+            .expect("typed binding has an identifier span");
         let error = one_branch_skips_transfer
             .check_linear_exit_obligations(body, &types, declarations)
             .unwrap_err();
         assert_eq!(error.span, Some(binding_span));
+        assert_eq!(&source[binding_span.start..binding_span.end], "token");
         assert_eq!(error.labels.len(), 1);
         let consumed = error.labels[0].0;
         assert_eq!(&source[consumed.start..consumed.end], "token");
@@ -3947,6 +3947,7 @@ mod tests {
         body.bindings.push(crate::typed_body::Binding {
             name: "token".into(),
             ty: Type::Named("Token".into()),
+            span: None,
         });
         body.nodes.push(crate::typed_body::Node {
             expression_id: None,
