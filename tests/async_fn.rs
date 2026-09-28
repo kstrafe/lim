@@ -1008,18 +1008,50 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
 }
 
 #[test]
-fn async_function_does_not_hoist_awaits_out_of_for_range_loops() {
+fn async_function_resumes_child_await_inside_a_for_range_loop() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value)
+            (#if (#u64.== value 0u64)
+              (ChildPending (Waiting 1u64))
+              (ChildReady value))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#for-range (iteration u64) 0u64 2u64
+            (#let result u64
+              (#await Child ChildPending ChildReady child-poll (Waiting iteration))))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending pending-again)
+              (#block (#forget pending-again) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("-wait"), "{generated}");
+}
+
+#[test]
+fn async_function_does_not_hoist_awaits_out_of_loop_forms() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
         (#return (ChildReady 1u64)))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
-          (#for-range (iteration u64) 0u64 2u64
+          (#loop
             (#let result u64
-              (#await Child ChildPending ChildReady child-poll (Waiting iteration))))
+              (#await Child ChildPending ChildReady child-poll (Waiting 0u64))))
           (#return 42u64))))";
-    let scratch = support::Scratch::new("async-for-range-await");
+    let scratch = support::Scratch::new("async-loop-await");
     let input = scratch.path().join("loop.lim");
     let diagnostic = lim::compile_source_to_assembly(
         source,
@@ -1030,7 +1062,9 @@ fn async_function_does_not_hoist_awaits_out_of_for_range_loops() {
     )
     .unwrap_err();
     assert!(
-        diagnostic.message.contains("only supported #while forms"),
+        diagnostic
+            .message
+            .contains("cannot lower #await inside #for or #loop"),
         "{diagnostic:?}"
     );
     let span = diagnostic.span.expect("await source span");

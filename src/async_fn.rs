@@ -501,9 +501,9 @@ fn extract_nested_awaits(
                 }
                 return Ok(());
             };
-            if contains_await && matches!(head.as_str(), "#for" | "#for-range" | "#loop") {
+            if contains_await && matches!(head.as_str(), "#for" | "#loop") {
                 return Err(
-                    "@async-fn cannot lower #await inside #for, #for-range, or #loop yet; only supported #while forms preserve loop-carried suspension state".into(),
+                    "@async-fn cannot lower #await inside #for or #loop yet; supported #while and #for-range forms preserve loop-carried suspension state".into(),
                 );
             }
             if matches!(head.as_str(), "#if" | "#match" | "#block") && contains_await {
@@ -995,6 +995,115 @@ fn lower_async_while(
     Ok(Some((replacement, task_source)))
 }
 
+/// Desugar a `#for-range` with one direct await per iteration to a while loop,
+/// then reuse the same concrete loop-task lowering. The generated counter is
+/// carried in the task state so Pending resumes the same range iteration.
+fn lower_async_for_range(
+    statement: &Expr,
+    known: &HashMap<String, Binding>,
+    known_order: &[String],
+    following: &[Expr],
+    return_value: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(Vec<Expr>, String)>, String> {
+    if !has_await(statement) {
+        return Ok(None);
+    }
+    let Some(items) = form(statement, "#for-range") else {
+        return Ok(None);
+    };
+    if items.len() < 5 {
+        return Err("@async-fn #for-range await requires a binding, bounds, and body".into());
+    }
+    let Expr::List(range_binding) = &items[1] else {
+        return Err("@async-fn #for-range binding must have the form (name Type)".into());
+    };
+    if range_binding.len() != 2 {
+        return Err("@async-fn #for-range binding must have the form (name Type)".into());
+    }
+    let iteration_name = symbol(&range_binding[0], "for-range binding name")?.to_owned();
+    let iteration_type = symbol(&range_binding[1], "for-range integer type")?.to_owned();
+    if !matches!(
+        iteration_type.as_str(),
+        "u8" | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+    ) {
+        return Err(format!(
+            "@async-fn #for-range await requires an integer index type, got '{iteration_type}'"
+        ));
+    }
+
+    let index = fresh_async_name(source, next_name);
+    let index_binding = Expr::List(vec![
+        Expr::Symbol("#let-mut".into()),
+        Expr::Symbol(index.clone()),
+        Expr::Symbol(iteration_type.clone()),
+        items[2].clone(),
+    ]);
+    let iteration_binding = Expr::List(vec![
+        Expr::Symbol("#let".into()),
+        Expr::Symbol(iteration_name),
+        Expr::Symbol(iteration_type.clone()),
+        Expr::Symbol(index.clone()),
+    ]);
+    let condition = Expr::List(vec![
+        Expr::Symbol(format!("#{iteration_type}.<")),
+        Expr::Symbol(index.clone()),
+        items[3].clone(),
+    ]);
+    let increment = Expr::List(vec![
+        Expr::Symbol("#set".into()),
+        Expr::Symbol(index.clone()),
+        Expr::List(vec![
+            Expr::Symbol(format!("#{iteration_type}.+.wrap")),
+            Expr::Symbol(index.clone()),
+            Expr::Integer(1),
+        ]),
+    ]);
+    let mut while_items = vec![Expr::Symbol("#while".into()), condition, iteration_binding];
+    while_items.extend(items[4..].iter().cloned());
+    while_items.push(increment);
+    let lowered_loop = Expr::List(while_items);
+
+    let mut loop_known = known.clone();
+    loop_known.insert(
+        index.clone(),
+        Binding {
+            name: index.clone(),
+            ty: iteration_type,
+            mutable: true,
+        },
+    );
+    let mut loop_order = known_order.to_vec();
+    loop_order.push(index.clone());
+    let Some((mut replacement, helper)) = lower_async_while(
+        &lowered_loop,
+        &loop_known,
+        &loop_order,
+        following,
+        return_value,
+        source,
+        next_name,
+        waker,
+    )?
+    else {
+        return Err("@async-fn failed to lower awaited #for-range".into());
+    };
+    replacement.insert(0, index_binding);
+    Ok(Some((replacement, helper)))
+}
+
 fn mutable_assignment_target(expr: &Expr) -> Option<&str> {
     let Expr::List(items) = expr else {
         return None;
@@ -1193,6 +1302,20 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let mut lowering_known = known.clone();
     let mut lowering_known_order = known_order.clone();
     for (source_index, mut statement) in statements.iter().cloned().enumerate() {
+        if let Some((replacement, helper)) = lower_async_for_range(
+            &statement,
+            &lowering_known,
+            &lowering_known_order,
+            &statements[source_index + 1..],
+            &return_value,
+            &source,
+            &mut next_nested_await,
+            &waker_source,
+        )? {
+            generated_helpers.push(helper);
+            lowered_statements.extend(replacement);
+            continue;
+        }
         if let Some((replacement, helper)) = lower_async_while(
             &statement,
             &lowering_known,

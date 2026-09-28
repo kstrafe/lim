@@ -1728,8 +1728,8 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   value initializes the child task and survives through native polling without
   becoming an unnecessary frame capture.
 - [x] **ASYNC-01b18: Prevent loop-await hoisting from changing semantics.**
-  Lower supported `#while` awaits as loop-carried suspension state and reject
-  unsupported `#for`, `#for-range`, and `#loop` awaits before expression
+  Lower supported `#while` and `#for-range` awaits as loop-carried suspension
+  state and reject unsupported `#for` and `#loop` awaits before expression
   lowering can hoist them outside the loop. Diagnostics underline `#await`.
 - [x] **ASYNC-01b19: Resume a direct child await inside a `#while` loop.**
   Support a loop condition and body with one direct `#let`/`#let-mut` await per
@@ -1737,16 +1737,22 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   generated state. A Pending poll must resume that same iteration; Ready runs
   the continuation and proceeds to the next iteration. Reject awaits in the
   condition, multiple awaits per iteration, unsupported local bindings or
-  control transfers around the await, and loop forms other than `#while`.
-  Verify multiple iterations and Pending/resume natively, and retain a targeted
-  `#for-range` diagnostic.
-- [ ] **ASYNC-01b20: Preserve safe per-iteration setup before loop awaits.**
+  control transfers around the await. Verify multiple `#while` iterations and
+  Pending/resume natively; range-loop coverage is tracked separately below.
+- [x] **ASYNC-01b20: Preserve safe per-iteration setup before loop awaits.**
   Allow ordinary `#let` and `#let-mut` setup before the loop's direct await.
   These locals remain scoped to the current iteration and may initialize the
   child task, but must not be referenced by the post-await continuation because
   they are not retained across suspension. Reject shadowing and verify both a
   native child initialized from a loop-local value and a diagnostic when that
   local is used after suspension.
+- [x] **ASYNC-01b21: Lower awaited `#for-range` loops without hoisting.**
+  Convert a half-open integer range with one direct child await per iteration
+  into a resumable task that retains its counter while Pending and increments
+  only after Ready. Preserve the range start/end and per-iteration binding
+  semantics; test a Pending first iteration followed by a Ready later
+  iteration natively. `#for` and `#loop` await forms remain explicitly
+  unsupported until their control-flow state can be represented safely.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
