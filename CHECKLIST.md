@@ -492,6 +492,12 @@ the checklist is committed alongside the implementation it tracks.
   standalone legacy checks; test mutable field reborrows, disjoint siblings,
   mutable slices, and failure when checked body/flow metadata is absent.
 
+- [x] **IR-04b: Check reads of Copy projections after linear moves.** Typed
+  consumption checks must reject reading a Copy field or element after its
+  linear owner was consumed, and format diagnostics from checked binding and
+  projection identities. Keep syntax diagnostics authoritative until typed
+  transfer and exit diagnostics match their coverage and source precision.
+
 - [x] **IR-04cw: Preserve direct-borrow operator spans in typed diagnostics.**
   Map two-argument `#borrow` and `#borrow-mut` loan origins to the operator
   token, just as scoped borrows already do. Test the exact source slice so

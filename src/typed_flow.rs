@@ -470,6 +470,48 @@ struct Builder<'a> {
     active_borrow_scopes: Vec<NodeId>,
 }
 
+fn display_linear_place(body: &Body, place: &Place) -> String {
+    let root = match place.root {
+        PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => body
+            .bindings
+            .get(binding.0)
+            .map(|binding| binding.name.clone())
+            .unwrap_or_else(|| format!("binding#{}", binding.0)),
+        PlaceRoot::Global(global) => body
+            .declaration_name(DeclarationId::Global(global))
+            .unwrap_or("global")
+            .to_owned(),
+    };
+    let mut output = root;
+    for segment in &place.segments {
+        match segment {
+            Segment::Dereference => output.push_str(".*"),
+            Segment::Field(field) => {
+                output.push('.');
+                output.push_str(
+                    body.declaration_name(DeclarationId::Field(*field))
+                        .unwrap_or("field"),
+                );
+            }
+            Segment::Tuple(index) => output.push_str(&format!(".{index}")),
+            Segment::Payload(variant, index) => {
+                output.push('.');
+                output.push_str(
+                    body.declaration_name(DeclarationId::Variant(*variant))
+                        .unwrap_or("variant"),
+                );
+                output.push_str(&format!("[{index}]"));
+            }
+            Segment::Index(index) => output.push_str(&format!("[{index}]")),
+            Segment::DynamicIndex => output.push_str("[*]"),
+            Segment::SliceHalf(half) => output.push_str(&format!(".half-{half}")),
+            Segment::SliceIndex(index) => output.push_str(&format!("[{index}]")),
+            Segment::SliceDynamicIndex => output.push_str("[*]"),
+        }
+    }
+    output
+}
+
 impl FlowGraph {
     pub fn lower(body: &Body) -> Result<Self, String> {
         let mut builder = Builder {
@@ -933,31 +975,15 @@ impl FlowGraph {
         body: &Body,
         types: &LinearTypes,
     ) -> Result<(), ReleaseConflict> {
-        if !self.nodes.iter().any(|node| match &node.action {
-            FlowAction::Read {
-                value,
-                place_base: false,
-                ..
-            } => body.nodes[value.0]
-                .ty
-                .as_ref()
-                .is_some_and(|ty| types.is_linear(ty)),
-            FlowAction::Release { value, .. } => release_operand_is_linear(body, *value, types),
-            _ => false,
-        }) {
-            return Ok(());
-        }
         let moves = self.consumptions(body, types);
         for (index, node) in self.nodes.iter().enumerate() {
-            let (place, message) = match &node.action {
+            let place = match &node.action {
                 FlowAction::Read {
                     place,
                     place_base: false,
                     ..
-                } => (place, "cannot read a value after it was consumed"),
-                FlowAction::Release { place, .. } => {
-                    (place, "cannot destroy a value after it was consumed")
                 }
+                | FlowAction::Release { place, .. } => place,
                 _ => continue,
             };
             let Some(state) = moves.before[index].as_ref() else {
@@ -972,8 +998,14 @@ impl FlowGraph {
             let Some(previous) = previous else {
                 continue;
             };
+            let place_name = display_linear_place(body, place);
+            let message = if place.segments.is_empty() {
+                format!("linear value '{place_name}' was used more than once")
+            } else {
+                format!("linear projection '{place_name}' was used more than once")
+            };
             return Err(ReleaseConflict {
-                message: message.into(),
+                message,
                 span: node.span,
                 labels: vec![(*previous, "value was consumed here".into())],
             });
@@ -1037,7 +1069,7 @@ impl FlowGraph {
                     .as_ref()
                     .is_some_and(|state| state.contains(place));
                 if !consumed {
-                    let labels = possible.before[index]
+                    let labels: Vec<(Span, String)> = possible.before[index]
                         .as_ref()
                         .into_iter()
                         .flat_map(|state| state.iter())
@@ -1057,8 +1089,20 @@ impl FlowGraph {
                                 _ => None,
                             })
                     });
+                    let message = match &node.action {
+                        FlowAction::ScopeExit(_) => {
+                            format!("linear value '{name}' must be consumed before leaving its scope")
+                        }
+                        FlowAction::Return(_) if !labels.is_empty() => format!(
+                            "linear value '{name}' must be consumed consistently on every control-flow path"
+                        ),
+                        FlowAction::Return(_) => {
+                            format!("linear value '{name}' must be consumed before returning")
+                        }
+                        _ => unreachable!(),
+                    };
                     return Err(ReleaseConflict {
-                        message: format!("linear value '{name}' must be consumed before returning"),
+                        message,
                         span: node.span.or(binding_span),
                         labels,
                     });
@@ -3875,10 +3919,91 @@ mod tests {
         };
         place.root = PlaceRoot::Local(a);
         let error = graph.check_linear_consumptions(body, &types).unwrap_err();
+        assert!(error
+            .message
+            .contains("linear value 'a' was used more than once"));
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end], "(#forget a)");
         let first = error.labels[0].0;
         assert_eq!(&source[first.start..first.end], "b");
+    }
+
+    #[test]
+    fn a_copy_projection_is_rejected_after_its_linear_owner_moves() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#struct Pair ((item Resource) (other u64)))
+          (#fn main () u64
+            (#let pair Pair (#struct-literal Pair
+              ((item (#struct-literal Resource ((value 1u64)))) (other 2u64))))
+            (#let observed u64 (#get pair other))
+            (#forget pair)
+            (#return observed))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut graph = checked.declarations().flows["main"].clone();
+        let pair = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "pair")
+                .unwrap(),
+        );
+        let projection = graph
+            .nodes
+            .iter()
+            .position(|node| match &node.action {
+                FlowAction::Read {
+                    value,
+                    place,
+                    place_base: false,
+                } if place.root == PlaceRoot::Local(pair)
+                    && &source[body.nodes[value.0].span.unwrap().start
+                        ..body.nodes[value.0].span.unwrap().end]
+                        == "(#get pair other)" =>
+                {
+                    true
+                }
+                _ => false,
+            })
+            .unwrap();
+        let release = graph
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(&node.action, FlowAction::Release { place, .. }
+                    if place.root == PlaceRoot::Local(pair))
+            })
+            .unwrap();
+        if projection < release {
+            let (before_release, release_and_after) = graph.nodes.split_at_mut(release);
+            std::mem::swap(
+                &mut before_release[projection].action,
+                &mut release_and_after[0].action,
+            );
+            std::mem::swap(
+                &mut before_release[projection].span,
+                &mut release_and_after[0].span,
+            );
+        } else {
+            let (before_projection, projection_and_after) = graph.nodes.split_at_mut(projection);
+            std::mem::swap(
+                &mut before_projection[release].action,
+                &mut projection_and_after[0].action,
+            );
+            std::mem::swap(
+                &mut before_projection[release].span,
+                &mut projection_and_after[0].span,
+            );
+        }
+
+        let error = graph
+            .check_linear_consumptions(body, &LinearTypes::from_program(&program))
+            .unwrap_err();
+        assert_eq!(
+            error.message,
+            "linear projection 'pair.other' was used more than once"
+        );
     }
 
     #[test]

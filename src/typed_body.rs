@@ -1010,6 +1010,10 @@ impl EmissionTypes {
 }
 
 impl Body {
+    pub fn declaration_name(&self, id: DeclarationId) -> Option<&str> {
+        self.declaration_names.get(&id).map(String::as_str)
+    }
+
     fn emission_node_order(&self) -> Vec<NodeId> {
         let mut order = Vec::new();
         self.walk_emission_instructions(&self.instructions, &mut order);
