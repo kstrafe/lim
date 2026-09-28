@@ -228,7 +228,7 @@ exit 42 loop_value.lim - -
 exit 1 loop.lim - -
 exit 7 match_guard_fallback.lim - -
 exit 50 match_guard.lim - -
-exit 2 match_shadowing.lim - -
+exit 41 match_bindings.lim - -
 exit 42 match_u128.lim - -
 exit 42 match_value.lim - -
 exit 42 max_enum_discriminant.lim - -
@@ -268,7 +268,7 @@ exit 32 nested_tuple_return.lim - -
 signal 4 never.lim - -
 exit 42 optional.lim - -
 exit 84 or_pattern.lim - -
-exit 42 parameter_shadowing.lim - -
+exit 52 parameter_scope.lim - -
 exit 41 point_mut.lim - -
 exit 37 point_param.lim - -
 exit 34 point_return.lim - -
@@ -288,7 +288,7 @@ exit 42 saturating_wide.lim - -
 exit 42 saturating.lim - -
 exit 42 scalar_let_else.lim - -
 exit 20 scalar_match.lim - -
-exit 43 shadowing.lim - -
+exit 43 bindings.lim - -
 exit 42 shift_bounds.lim - -
 exit 21 six_field_struct.lim - -
 exit 32 size_of.lim - -

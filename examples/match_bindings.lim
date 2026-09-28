@@ -1,0 +1,8 @@
+(#enum Maybe ((Some u64) None))
+
+(#fn main () u64
+  (#let value u64 40u64)
+  (#return
+    (#match (Some 1u64)
+      (#case (Some matched) (#u64.+.wrap matched value))
+      (#case None value))))

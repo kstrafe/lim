@@ -366,6 +366,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let reserved = [
         "waker",
         "lim.async.task",
+        "lim.async.polled-task",
         "lim.async.child",
         "lim.async.value",
     ];

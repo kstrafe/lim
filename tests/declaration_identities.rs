@@ -90,38 +90,36 @@ fn enum_constructor_match_and_payload_projection_share_variant_identity() {
 }
 
 #[test]
-fn global_and_shadowing_local_references_have_distinct_declaration_kinds() {
-    // Parameters keep their source spelling. Local and pattern bindings are
-    // alpha-renamed by the parser before static access is checked.
+fn global_and_local_references_have_distinct_declaration_kinds() {
     let source = "(#static TOTAL u64 40u64)
       (#enum Maybe ((Some u64) None))
-      (#fn shadow ((TOTAL u64)) u64 (#return TOTAL))
-      (#fn shadow-local () u64
-        (#let TOTAL u64 42u64)
-        (#return TOTAL))
-      (#fn shadow-pattern ((value Maybe)) u64
+      (#fn parameter ((argument u64)) u64 (#return argument))
+      (#fn local () u64
+        (#let local-total u64 42u64)
+        (#return local-total))
+      (#fn pattern ((value Maybe)) u64
         (#return (#match value
-          (#case (Some TOTAL) TOTAL)
+          (#case (Some matched) matched)
           (#case None 0u64))))
       (#fn main () u64
         (#return (#unsafe TOTAL)))";
     let dump = checked_dump(source);
-    let shadow_dump = dump
-        .split_once("function shadow\n")
+    let parameter_dump = dump
+        .split_once("function parameter\n")
         .unwrap()
         .1
         .split("\nfunction ")
         .next()
         .unwrap();
     assert!(
-        shadow_dump.contains("Symbol { name: \"TOTAL\", binding: Some(BindingId("),
-        "shadowed parameter should remain a local binding: {shadow_dump}"
+        parameter_dump.contains("Symbol { name: \"argument\", binding: Some(BindingId("),
+        "parameter should resolve as a local binding: {parameter_dump}"
     );
     assert!(
-        !shadow_dump.contains("Declaration(Global("),
-        "shadowed parameter must not resolve to the global: {shadow_dump}"
+        !parameter_dump.contains("Declaration(Global("),
+        "parameter must not resolve to a global: {parameter_dump}"
     );
-    for function in ["shadow-local", "shadow-pattern"] {
+    for function in ["local", "pattern"] {
         let body = dump
             .split_once(&format!("function {function}\n"))
             .unwrap()
@@ -135,6 +133,19 @@ fn global_and_shadowing_local_references_have_distinct_declaration_kinds() {
         main_dump.contains("Declaration(Global(GlobalId(0)))"),
         "main's unshadowed reference must resolve to the global: {main_dump}"
     );
+}
+
+#[test]
+fn local_bindings_may_not_shadow_visible_names() {
+    for source in [
+        "(#fn main () u64 (#let value u64 1u64) (#let value u64 2u64) (#return value))",
+        "(#fn main () u64 (#let value u64 1u64) (#return (#block (#let value u64 2u64) value)))",
+        "(#enum Maybe ((Some u64) None)) (#fn main ((value Maybe)) u64 (#return (#match value (#case (Some value) value) (#case None 0u64))))",
+        "(#static value u64 1u64) (#fn read ((value u64)) u64 (#return value))",
+    ] {
+        let error = lim::parse_program(source).unwrap_err();
+        assert!(error.contains("shadowing is not allowed"), "{error}");
+    }
 }
 
 #[test]

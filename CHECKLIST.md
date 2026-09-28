@@ -2619,3 +2619,10 @@ commit, documentation, and focused regression coverage.
   and final empty queues. Preserve the wake-instead-of-move negative test.
   The corrected executable passed 1,000 consecutive untraced runs and both
   normal/mutation regressions. SYS-01ah remains a separate investigation.
+
+- [x] **SEM-01: Reject lexical binding shadowing.** Parameters, locals,
+  destructured names, and match bindings may not hide a visible parameter,
+  outer local, or global. Keep non-overlapping sibling scopes independent.
+  Report the newly introduced identifier with an exact source underline. Unit,
+  declaration-identity, and compiler UI tests cover local, nested, pattern,
+  parameter/global, and repeated same-scope bindings.

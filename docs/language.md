@@ -1195,8 +1195,10 @@ Local bindings always state their type:
 (#let-mut total u64 0u64)
 ```
 
-`#let` creates an immutable binding; use `#let-mut` for a mutable binding. Later bindings
-may shadow earlier bindings lexically.  `#set` assigns a mutable scalar or
+`#let` creates an immutable binding; use `#let-mut` for a mutable binding.
+Bindings may not shadow a visible parameter, local, or global; choose a distinct
+name instead. Names may be reused in separate sibling scopes when neither
+binding is visible from the other. `#set` assigns a mutable scalar or
 aggregate local:
 
 ```lisp syntax

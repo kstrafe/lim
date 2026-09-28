@@ -7,12 +7,12 @@
   (#return (#match task (#case (Number value) (NumberReady value)))))
 
 (@threaded-executor run-worker WorkerResults
-  ((number NumberTask NumberPoll NumberPending NumberReady number-poll u64))
+  ((number NumberTask NumberPoll NumberPending NumberReady number-poll u64 number-input))
   Worker)
 
 (#fn main () u64
   (#return
-    (#match (#call Worker-spawn (: number (Number 42u64)))
+    (#match (#call Worker-spawn (: number-input (Number 42u64)))
       (#case (Worker-spawn-ok thread)
         (#match (#call Worker-join (: task thread))
           (#case (Worker-join-ok results) (#get results number))

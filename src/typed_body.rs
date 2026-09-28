@@ -176,25 +176,16 @@ mod tests {
     }
 
     #[test]
-    fn nested_initializer_and_shadowed_binding_spans_follow_lowering_order() {
+    fn nested_initializer_and_distinct_binding_spans_follow_lowering_order() {
         let source = "(#fn main () u64
           (#let item u64 1u64)
-          (#block (#let item u64 2u64) item)
+          (#block (#let nested-item u64 2u64) nested-item)
           (#let outer u64 (#block (#let inner u64 3u64) inner))
           (#return (#u64.+.wrap item outer)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let bindings = &checked.declarations().bodies["main"].bindings;
-        let shadowed = bindings
-            .iter()
-            .filter(|binding| binding.name == "item" || binding.name.starts_with("__lim_shadow_"))
-            .collect::<Vec<_>>();
-        assert_eq!(shadowed.len(), 2);
-        for binding in shadowed {
-            let span = binding.span.expect("shadowed binding source span");
-            assert_eq!(&source[span.start..span.end], "item");
-        }
-        for name in ["inner", "outer"] {
+        for name in ["item", "nested-item", "inner", "outer"] {
             let binding = bindings
                 .iter()
                 .find(|binding| binding.name == name)
@@ -379,11 +370,11 @@ mod tests {
     }
 
     #[test]
-    fn emission_overlay_keeps_shadowed_local_binding_ids_distinct() {
+    fn emission_overlay_keeps_nonoverlapping_local_binding_ids_distinct() {
         let source = "(#fn main () u64
-          (#let value u64 1u64)
-          (#block (#let value u64 2u64) value)
-          (#return value))";
+          (#let outer-value u64 1u64)
+          (#block (#let inner-value u64 2u64) inner-value)
+          (#return outer-value))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let function = program

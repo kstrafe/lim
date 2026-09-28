@@ -228,10 +228,16 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
-            name: "shadowed-name-type-error",
+            name: "local-name-type-error",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (#block (#let value bool true) (#call needs-value (: input value))))",
+            offending_line: "  (#return (#call needs-value (: input flag)))",
             line_number: 4,
+        },
+        Case {
+            name: "shadowing",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let value u64 2u64)",
+            line_number: 3,
         },
         Case {
             name: "reordered-named-argument-error",
@@ -919,7 +925,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "aggregate-layout-overflow" => Some("(#fn main ((values (#array (#array u64 18446744073709551615) 2))) () (#return ()))"),
             "array-repeat-linear" => Some("(#array-repeat (#struct-literal Token ((value 1u64))))"),
             "atomic-invalid-load-order" => Some("(#atomic-load (#borrow counter) #memory-release)"),
-            "shadowed-name-type-error" => Some("value"),
+            "local-name-type-error" => Some("flag"),
+            "shadowing" => Some("value"),
             "reordered-named-argument-error" => Some("1u64"),
             "nested-case-pattern-error" => Some("0u64"),
             "positional-call" => Some("add"),
@@ -973,7 +980,7 @@ fn compilation_errors_render_the_offending_source_line() {
                         | "match-branch-mismatch"
                         | "borrow-conflict-field-name"
                         | "borrow-conflict-callee-name"
-                        | "shadowed-name-type-error"
+                        | "local-name-type-error"
                 ) {
                     source_row.rfind(fragment)
                 } else if matches!(

@@ -2390,7 +2390,12 @@ fn parse_program_in_directory(
             items.push(item);
         }
     }
-    rename_shadowed_locals(&mut items);
+    rename_shadowed_locals(
+        &mut items,
+        &statement_spans,
+        &declaration_spans,
+        &source_files,
+    )?;
     synthesize_thread_join_results(&mut items, &declaration_spans, &source_files)?;
     let mut items = specialize_generic_types(
         items,
@@ -3324,7 +3329,12 @@ fn normalize_struct_expr(
     Ok(())
 }
 
-fn rename_shadowed_locals(items: &mut [Item]) {
+fn rename_shadowed_locals(
+    items: &mut [Item],
+    statement_spans: &HashMap<(String, usize), Span>,
+    declaration_spans: &HashMap<String, Span>,
+    source_files: &[SourceFile],
+) -> Result<(), SourceError> {
     let globals = items
         .iter()
         .filter_map(|item| match item {
@@ -3342,16 +3352,66 @@ fn rename_shadowed_locals(items: &mut [Item]) {
         .collect::<HashSet<_>>();
     for item in items {
         if let Item::Function(function) = item {
-            rename_function_locals(function, &globals, &variants);
+            let shadow = rename_function_locals(function, &globals, &variants);
+            if let Some((name, statement_index)) = shadow {
+                let span = statement_index
+                    .and_then(|index| {
+                        statement_spans
+                            .get(&(function.name.clone(), index))
+                            .copied()
+                    })
+                    .or_else(|| declaration_spans.get(&function.name).copied())
+                    .and_then(|span| shadow_binding_span(span, &name, source_files));
+                let error = SourceError::new(
+                    format!(
+                        "binding '{name}' shadows an existing binding; shadowing is not allowed"
+                    ),
+                    DiagnosticCode::Type,
+                );
+                return Err(span
+                    .map_or(error.clone(), |span| error.at(span))
+                    .attach(source_files));
+            }
         }
     }
+    Ok(())
+}
+
+fn shadow_binding_span(span: Span, name: &str, source_files: &[SourceFile]) -> Option<Span> {
+    let source = &source_files.get(span.source_id as usize)?.source;
+    let form = source.get(span.start..span.end)?;
+    let (offset, _) = form.match_indices(name).find(|(offset, _)| {
+        let before = form[..*offset].chars().next_back();
+        let after = form[*offset + name.len()..].chars().next();
+        !before.is_some_and(is_identifier_character) && !after.is_some_and(is_identifier_character)
+    })?;
+    let start = span.start + offset;
+    let prefix = &source[..start];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix
+        .rsplit_once('\n')
+        .map_or(prefix, |(_, tail)| tail)
+        .chars()
+        .count()
+        + 1;
+    Some(Span {
+        start,
+        end: start + name.len(),
+        line,
+        column,
+        source_id: span.source_id,
+    })
+}
+
+fn is_identifier_character(character: char) -> bool {
+    character.is_alphanumeric() || matches!(character, '_' | '-' | '.')
 }
 
 fn rename_function_locals(
     function: &mut Function,
     globals: &HashSet<String>,
     variants: &HashSet<String>,
-) {
+) -> Option<(String, Option<usize>)> {
     let mut bindings = function
         .parameters
         .iter()
@@ -3359,15 +3419,33 @@ fn rename_function_locals(
         .collect::<HashMap<_, _>>();
     let mut used = bindings.values().cloned().collect::<HashSet<_>>();
     used.extend(globals.iter().cloned());
+    for parameter in &function.parameters {
+        if globals.contains(&parameter.name) {
+            used.insert(format!("\0lim-shadow:-1:{}", parameter.name));
+        }
+    }
     let mut next_id = 0usize;
-    rename_statements(
-        &mut function.body,
-        &mut bindings,
-        &mut used,
-        &mut next_id,
-        globals,
-        variants,
-    );
+    for (statement_index, statement) in function.body.iter_mut().enumerate() {
+        used.insert(format!("\0lim-current:{statement_index}"));
+        rename_statement(
+            statement,
+            &mut bindings,
+            &mut used,
+            &mut next_id,
+            globals,
+            variants,
+        );
+        used.retain(|entry| !entry.starts_with("\0lim-current:"));
+    }
+    used.iter()
+        .filter_map(|entry| {
+            let rest = entry.strip_prefix("\0lim-shadow:")?;
+            let (index, name) = rest.split_once(':')?;
+            let index = index.parse::<isize>().ok()?;
+            Some((index, name))
+        })
+        .min_by_key(|(index, name)| (*index, *name))
+        .map(|(index, name)| (name.to_owned(), (index >= 0).then_some(index as usize)))
 }
 
 fn fresh_binding(
@@ -3377,6 +3455,13 @@ fn fresh_binding(
     next_id: &mut usize,
     globals: &HashSet<String>,
 ) -> String {
+    if bindings.contains_key(name) || globals.contains(name) {
+        let statement_index = used
+            .iter()
+            .find_map(|entry| entry.strip_prefix("\0lim-current:"))
+            .unwrap_or("-1");
+        used.insert(format!("\0lim-shadow:{statement_index}:{name}"));
+    }
     if !bindings.contains_key(name) && !globals.contains(name) && !used.contains(name) {
         used.insert(name.to_owned());
         return name.to_owned();
@@ -10347,33 +10432,30 @@ mod tests {
     }
 
     #[test]
-    fn supports_shadowed_local_bindings() {
+    fn rejects_shadowed_local_bindings() {
         let program = parse_program(
             "(#fn main () u64 (#let value u64 40) (#let value u64 (#u64.+.wrap value 1)) (#return (#u64.+.wrap value (#block (#let value u64 1) (#u64.+.wrap value 1)))))",
         )
-        .unwrap();
-        assert!(check_types(&program).is_ok());
-        assert!(generate_assembly(&program).is_ok());
+        .unwrap_err();
+        assert!(program.contains("binding 'value' shadows an existing binding"));
     }
 
     #[test]
     fn allows_parameters_to_shadow_globals() {
-        let program = parse_program(
+        let error = parse_program(
             "(#let value u64 10) (#fn read ((value u64)) u64 (#return value)) (#fn main () u64 (#return (#call read (: value 42))))",
         )
-        .unwrap();
-        assert!(check_types(&program).is_ok());
-        assert!(generate_assembly(&program).is_ok());
+        .unwrap_err();
+        assert!(error.contains("binding 'value' shadows an existing binding"));
     }
 
     #[test]
     fn allows_match_bindings_to_shadow_outer_locals() {
-        let program = parse_program(
+        let error = parse_program(
             "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#let value u64 40) (#return (#match (Some 1) (#case (Some value) (#u64.+.wrap value 1)) (#case None value))))",
         )
-        .unwrap();
-        assert!(check_types(&program).is_ok());
-        assert!(generate_assembly(&program).is_ok());
+        .unwrap_err();
+        assert!(error.contains("binding 'value' shadows an existing binding"));
     }
 
     #[test]

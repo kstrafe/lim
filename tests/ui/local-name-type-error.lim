@@ -1,0 +1,4 @@
+(#fn needs-value ((input u64)) u64 (#return input))
+(#fn main () u64
+  (#let flag bool true)
+  (#return (#call needs-value (: input flag))))

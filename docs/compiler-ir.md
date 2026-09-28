@@ -75,8 +75,9 @@ Pattern declaration nodes and their uses refer to the same binding ID. Match
 arms, nested blocks, loops, and let-else failure bodies have separate scopes;
 the for-loop step can see declarations in its body, matching current checking
 semantics. Assignment roots distinguish local binding IDs from global IDs.
-The parser's existing shadow-renaming remains a compatibility aid for the
-legacy backend, not the IR's binding identity scheme.
+Visible-name shadowing is rejected before lowering. The parser may still assign
+distinct internal names to same-spelled bindings in disjoint sibling scopes;
+those compiler identities are separate from the typed IR's binding IDs.
 
 The current ownership passes still operate on reconstructed syntax. Their
 branch join now retains loans from paths where they remain active without

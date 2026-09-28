@@ -76,11 +76,11 @@
     (#case (PipelinePending task) (#block (#forget task) (#unreachable)))))
   (#call local-waker-destroy (: waker waker))
   outcome))
-  (#let executor-mut (#ref-mut WakeExecutor) (#borrow-mut executor))
+  (#let executor-mut-again (#ref-mut WakeExecutor) (#borrow-mut executor))
   (#let retired WakeRetire4
     (#call wake-ready4-retire
-      (: queue (#borrow-mut (#get executor-mut queue)) : token token)))
-  (#drop executor-mut)
+      (: queue (#borrow-mut (#get executor-mut-again queue)) : token token)))
+  (#drop executor-mut-again)
   (#assert (#match retired (#case WakeRetired4 true) (#case WakeStale4 false)))
   (#let executor-ref (#ref WakeExecutor) (#borrow executor))
   (#assert (#bool.! (#call wake-ready4-notify

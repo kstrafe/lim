@@ -1443,12 +1443,12 @@ mod tests {
             (#let a R (#struct-literal R ((b 1u64))))
             (#let a.b R (#struct-literal R ((b 2u64))))
             (#forget (#get a b)) (#forget a.b) (#forget a)
-            (#let a.b R (#struct-literal R ((b 3u64))))
-            (#forget a.b) (#return 0u64))";
+            (#let a.b-again R (#struct-literal R ((b 3u64))))
+            (#forget a.b-again) (#return 0u64))";
         check_types(&parse_program(source).unwrap()).unwrap();
         let duplicate = source.replace(
-            "(#forget a.b) (#return",
-            "(#forget a.b) (#forget a.b) (#return",
+            "(#forget a.b-again) (#return",
+            "(#forget a.b-again) (#forget a.b-again) (#return",
         );
         assert!(check_types(&parse_program(&duplicate).unwrap()).is_err());
     }

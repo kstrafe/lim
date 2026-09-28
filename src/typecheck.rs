@@ -206,7 +206,7 @@ mod checked_program_tests {
     fn semantic_locations_do_not_depend_on_rendered_wording() {
         let cases = [
             ("(#fn main () u64 (#let value u64 (#u64.+.wrap 1u64 false)) (#return value))", "false"),
-            ("(#fn main () u64 (#let value u64 1u64) (#let value bool false) (#return (#u64.+.wrap 2u64 value)))", "value"),
+            ("(#fn main () u64 (#let value u64 1u64) (#let flag bool false) (#return (#u64.+.wrap 2u64 flag)))", "flag"),
             ("(#fn add ((first u64) (second u64)) u64 (#return (#u64.+.wrap first second))) (#fn main () u64 (#return (#call add (: second false : first 1u64))))", "false"),
             ("(#struct Inner ((value u64))) (#struct Outer ((first Inner) (second Inner))) (#fn main () Outer (#return (#struct-literal Outer ((first (#struct-literal Inner ((value 1u64)))) (second (#struct-literal Inner ((value false))))))))", "false"),
             ("(#fn main () u64 (#let-mut value u64 0u64) (#let shared (#ref u64) (#borrow value)) (#let mutable (#ref-mut u64) (#borrow-mut shared)) (#return 0u64))", "shared"),
@@ -214,7 +214,7 @@ mod checked_program_tests {
             ("(#fn main () u64 (#return (#u64.+.wrap (#if false 1u64 2u64) false)))", "false"),
             ("(#fn choose ((flag bool) (value u64)) u64 (#return value)) (#fn main () u64 (#return (#call choose (: value false : flag false))))", "false"),
             ("(#struct Point ((value u64))) (#fn main () u64 (#let-mut owner Point (#struct-literal Point ((value 1u64)))) (#let shared (#ref Point) (#borrow owner)) (#let exclusive (#ref-mut u64) (#borrow-mut (#get shared value))) (#return 0u64))", "(#get shared value)"),
-            ("(#fn main () u64 (#return (#block (#let value u64 1u64) (#u64.+.wrap value 2u64) (#let value bool false) (#u64.+.wrap value 2u64))))", "value"),
+            ("(#fn main () u64 (#return (#block (#let value u64 1u64) (#u64.+.wrap value 2u64) (#let flag bool false) (#u64.+.wrap flag 2u64))))", "flag"),
         ];
         for (source, offending) in cases {
             let program = crate::parse_program(source).unwrap();
@@ -246,7 +246,7 @@ mod checked_program_tests {
                 );
             }
             if source.contains("(#return (#block") {
-                assert_eq!(span.start, source.rfind("value").unwrap());
+                assert_eq!(span.start, source.rfind(offending).unwrap());
             }
         }
     }

@@ -149,11 +149,11 @@
 
 (#fn timer-reactor1-cancel ((timer TimerReactor1)) i64
   (#let (TimerReactor1 fd memory queue token) TimerReactor1 timer)
-  (#let-mut queue WakeReady4 queue)
+  (#let-mut queue-mut WakeReady4 queue)
   (#let retired WakeRetire4
-    (#call wake-ready4-retire (: queue (#borrow-mut queue) : token token)))
+    (#call wake-ready4-retire (: queue (#borrow-mut queue-mut) : token token)))
   (#assert (#match retired (#case WakeRetired4 true) (#case WakeStale4 false)))
-  (#forget queue)
+  (#forget queue-mut)
   (#let closed i64 (#call linux-close (: fd fd)))
   (#let unmapped i64 (#unsafe (#call linux-munmap
     (: address memory : length 4096usize))))

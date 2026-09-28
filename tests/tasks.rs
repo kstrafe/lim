@@ -78,7 +78,7 @@ fn generated_tasks_preserve_borrow_linearity_exhaustiveness_and_send_checks() {
         (
             "(@task (Held Poll Pending Ready) u64 ((Holding (#ref (#ptr u8)))))
           (#fn poll ((task Held)) Poll (#forget task) (#return (Ready 1u64)))
-          (@threaded-executor run Results ((held Held Poll Pending Ready poll u64)) Worker)",
+          (@threaded-executor run Results ((held Held Poll Pending Ready poll u64 held-input)) Worker)",
             "Send",
         ),
     ];

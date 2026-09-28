@@ -12,11 +12,11 @@
           (CountPending (Counting (#u64.-.wrap remaining 1u64))))))))
 
 (@executor run-counts Counts
-  ((first CountTask CountPoll CountPending CountReady count-poll u64)
-   (second CountTask CountPoll CountPending CountReady count-poll u64)))
+  ((first CountTask CountPoll CountPending CountReady count-poll u64 first-input)
+   (second CountTask CountPoll CountPending CountReady count-poll u64 second-input)))
 
 (#fn main () u64
   (#let results Counts
     (#call run-counts
-      (: first (Counting 2u64) : second (Counting 3u64))))
+      (: first-input (Counting 2u64) : second-input (Counting 3u64))))
   (#return (#u64.+.wrap (#get results first) (#get results second))))

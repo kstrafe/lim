@@ -7,6 +7,7 @@
 (#gn-fn task-fifth (values) (#gn-call task-fourth (#gn-rest values)))
 (#gn-fn task-sixth (values) (#gn-call task-fifth (#gn-rest values)))
 (#gn-fn task-seventh (values) (#gn-call task-sixth (#gn-rest values)))
+(#gn-fn task-eighth (values) (#gn-call task-seventh (#gn-rest values)))
 
 (#gn task (names result states)
   `((#enum ,(#gn-first names) ,states)
@@ -23,14 +24,16 @@
     (#gn-first job)))
 
 (#gn-fn executor-parameter (job)
-  `(,(#gn-call executor-name job) ,(#gn-call task-second job)))
+  (#gn-if (#gn-equal (#gn-first job) (#gn-call task-eighth job))
+    (#gn-error "executor input parameter must differ from its state binding")
+    `,(#gn-list (#gn-call task-eighth job) (#gn-call task-second job))))
 
 (#gn-fn executor-field (job)
   `(,(#gn-call executor-name job) ,(#gn-call task-seventh job)))
 
 (#gn-fn executor-initialize (job)
   `(#let-mut ,(#gn-call executor-name job) ,(#gn-call task-third job)
-     (,(#gn-call task-fourth job) ,(#gn-call executor-name job))))
+     (,(#gn-call task-fourth job) ,(#gn-call task-eighth job))))
 
 (#gn-fn executor-poll (job)
   `(#set ,(#gn-call executor-name job)
@@ -87,8 +90,8 @@
        (#match
          (#call ,(#gn-call task-fifth (#gn-call task-second stage))
            (: task lim.async.task))
-         (#case (,(#gn-call task-third (#gn-call task-second stage)) lim.async.task)
-           (,(#gn-call task-third names) (,(#gn-first stage) lim.async.task)))
+         (#case (,(#gn-call task-third (#gn-call task-second stage)) lim.async.polled-task)
+           (,(#gn-call task-third names) (,(#gn-first stage) lim.async.polled-task)))
          (#case (,(#gn-call task-fourth (#gn-call task-second stage)) lim.async.value)
            ,(#gn-call async-complete names (#gn-call task-third stage)))))
     (#gn-error "async stage requires (#await Task Pending Ready poll-function)")))
@@ -108,8 +111,8 @@
        (#match
          (#call ,(#gn-call task-fifth (#gn-call task-second stage))
            (: task lim.async.task : waker waker))
-         (#case (,(#gn-call task-third (#gn-call task-second stage)) lim.async.task)
-           (,(#gn-call task-third names) (,(#gn-first stage) lim.async.task)))
+         (#case (,(#gn-call task-third (#gn-call task-second stage)) lim.async.polled-task)
+           (,(#gn-call task-third names) (,(#gn-first stage) lim.async.polled-task)))
          (#case (,(#gn-call task-fourth (#gn-call task-second stage)) lim.async.value)
            ,(#gn-call async-complete names (#gn-call task-third stage)))))
     (#gn-error "async stage requires (#await Task Pending Ready poll-function)")))

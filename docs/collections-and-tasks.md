@@ -72,11 +72,12 @@ layout or Send/Sync. Reference values themselves retain their existing rules.
 
 ```lisp syntax
 (@executor run-counts Counts
-  ((first Count CountPoll CountPending CountReady count-poll u64)
-   (second Count CountPoll CountPending CountReady count-poll u64)))
+  ((first Count CountPoll CountPending CountReady count-poll u64 first-input)
+   (second Count CountPoll CountPending CountReady count-poll u64 second-input)))
 ```
 
-Each job descriptor is `(name Task Poll Pending Ready poll-function Result)`.
+Each job descriptor is
+`(name Task Poll Pending Ready poll-function Result input-parameter)`.
 The generator emits a result struct with one field per job and a function
 accepting one task per job. This is a statically sized, heterogeneous join:
 capacity is the number of descriptors, with no dynamic spawn queue. Job lists
@@ -314,8 +315,13 @@ buffered asynchronous I/O, and scheduler shutdown remain open. An executor's
 blocking run call cannot currently be externally interrupted.
 
 `(@threaded-executor run Result jobs Worker)` expands an executor plus
-`(@thread-spawn (: task Worker : worker run))`. Each explicit spawn transfers the fixed job set
-to one OS worker. Multiple spawns can run concurrently; this is not task
+`(@thread-spawn (: task Worker : worker run))`. Each job names both its result
+field/state binding and a distinct worker-input parameter, for example
+`(number NumberTask NumberPoll NumberPending NumberReady number-poll u64 number-input)`.
+The spawn call uses that worker-input name as its named argument; the result
+field keeps the first name (`number` in this example).
+Each explicit spawn transfers the fixed job set to one OS worker. Multiple
+spawns can run concurrently; this is not task
 migration or a worker pool. Structural Send/Sync, spawn failures, mandatory
 joins, and captured-reference restrictions come from the existing thread
 implementation. OS thread creation still uses its existing allocation path.
