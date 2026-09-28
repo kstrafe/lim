@@ -5576,6 +5576,38 @@ impl FunctionContext {
             .or_else(|| self.locals.get(name))
     }
 
+    fn local_slots_for_binding(
+        &self,
+        binding: crate::typed_body::BindingId,
+        name: &str,
+    ) -> Result<Vec<usize>, String> {
+        let storage = self.locals_by_binding.get(&binding).ok_or_else(|| {
+            format!("internal error: missing storage for checked binding '{name}'")
+        })?;
+        Ok(storage_slots(storage))
+    }
+
+    fn checked_pattern_binding_id(
+        &self,
+        pattern: &Expr,
+        name: &str,
+    ) -> Result<crate::typed_body::BindingId, String> {
+        if let Some(binding) = self
+            .expression_types
+            .get(pattern)
+            .and_then(|metadata| metadata.binding)
+        {
+            return Ok(binding);
+        }
+        if self.expression_types.has_checked_identity(pattern) {
+            return Err(format!(
+                "internal error: checked pattern symbol '{name}' lost its binding ID"
+            ));
+        }
+        self.local_binding_id(name)
+            .ok_or_else(|| format!("internal error: no unique binding ID for '{name}'"))
+    }
+
     fn local_type(&self, name: &str) -> Option<&Type> {
         self.local_binding_id(name)
             .and_then(|binding| self.expression_types.binding_types.get(binding.0))
@@ -5585,10 +5617,7 @@ impl FunctionContext {
     fn local_slots_for_symbol(&self, expression: &Expr, name: &str) -> Result<Vec<usize>, String> {
         if let Some(metadata) = self.expression_types.get(expression) {
             if let Some(binding) = metadata.binding {
-                let storage = self.locals_by_binding.get(&binding).ok_or_else(|| {
-                    format!("internal error: missing storage for checked binding '{name}'")
-                })?;
-                return Ok(storage_slots(storage));
+                return self.local_slots_for_binding(binding, name);
             }
         }
         if self.expression_types.has_checked_identity(expression) {
@@ -6099,8 +6128,8 @@ impl FunctionContext {
                         )?;
                     }
                 }
-                for (name, offset, binding_type) in bindings {
-                    let slots = local_slots(&self.locals, &name)?;
+                for (binding_id, name, offset, binding_type) in bindings {
+                    let slots = self.local_slots_for_binding(binding_id, &name)?;
                     let binding_words =
                         storage_word_count(&binding_type, &self.structs, &self.enums)?;
                     if slots.len() != binding_words {
@@ -10599,8 +10628,8 @@ impl FunctionContext {
                 )?;
                 binding_offset += storage_word_count(field_type, &self.structs, &self.enums)?;
             }
-            for (binding, offset, binding_type) in bindings {
-                let slots = local_slots(&self.locals, &binding)?;
+            for (binding_id, binding, offset, binding_type) in bindings {
+                let slots = self.local_slots_for_binding(binding_id, &binding)?;
                 let binding_words = storage_word_count(&binding_type, &self.structs, &self.enums)?;
                 if slots.len() != binding_words {
                     return Err(format!("enum binding '{binding}' has inconsistent storage"));
@@ -11139,8 +11168,8 @@ impl FunctionContext {
             let next = self.label("tuple_match_next");
             let mut bindings = Vec::new();
             self.emit_aggregate_pattern(pattern, constructor, &ty, 0, &next, &mut bindings)?;
-            for (name, offset, binding_type) in bindings {
-                let slots = local_slots(&self.locals, &name)?;
+            for (binding_id, name, offset, binding_type) in bindings {
+                let slots = self.local_slots_for_binding(binding_id, &name)?;
                 let binding_words = value_word_count(&binding_type, &self.structs, &self.enums)?;
                 if slots.len() != binding_words {
                     return Err(format!("match binding '{name}' has inconsistent storage"));
@@ -11228,8 +11257,8 @@ impl FunctionContext {
             let next = self.label("aggregate_match_next");
             let mut bindings = Vec::new();
             self.emit_aggregate_pattern(pattern, constructor, ty, 0, &next, &mut bindings)?;
-            for (name, offset, binding_type) in bindings {
-                let slots = local_slots(&self.locals, &name)?;
+            for (binding_id, name, offset, binding_type) in bindings {
+                let slots = self.local_slots_for_binding(binding_id, &name)?;
                 let binding_words = storage_word_count(&binding_type, &self.structs, &self.enums)?;
                 if slots.len() != binding_words {
                     return Err(format!(
@@ -11292,8 +11321,8 @@ impl FunctionContext {
                 &next,
                 &mut bindings,
             )?;
-            for (binding, source_slot, binding_type) in bindings {
-                let destination_slots = local_slots(&self.locals, &binding)?;
+            for (binding_id, binding, source_slot, binding_type) in bindings {
+                let destination_slots = self.local_slots_for_binding(binding_id, &binding)?;
                 if destination_slots.len() != 1
                     || value_word_count(&binding_type, &self.structs, &self.enums)? != 1
                 {
@@ -11330,7 +11359,7 @@ impl FunctionContext {
         fields: &[Type],
         source_slots: &[usize],
         next: &str,
-        bindings: &mut Vec<(String, usize, Type)>,
+        bindings: &mut Vec<(crate::typed_body::BindingId, String, usize, Type)>,
     ) -> Result<(), String> {
         if matches!(pattern, Expr::Symbol(name) if name == "_") {
             return Ok(());
@@ -11414,8 +11443,10 @@ impl FunctionContext {
                             if field == "true" { 1 } else { 0 }
                         ));
                     }
-                    Expr::Symbol(field) => {
-                        bindings.push((field.clone(), slot, field_type.clone()));
+                    Expr::Symbol(field_name) => {
+                        let binding_id =
+                            self.checked_pattern_binding_id(field_pattern, field_name)?;
+                        bindings.push((binding_id, field_name.clone(), slot, field_type.clone()));
                     }
                     Expr::Integer(value) => {
                         if ensure_integer_type(field_type).is_err() {
@@ -11464,7 +11495,7 @@ impl FunctionContext {
         ty: &Type,
         offset: usize,
         next: &str,
-        bindings: &mut Vec<(String, usize, Type)>,
+        bindings: &mut Vec<(crate::typed_body::BindingId, String, usize, Type)>,
     ) -> Result<(), String> {
         if matches!(pattern, Expr::Symbol(name) if name == "_") {
             return Ok(());
@@ -11565,7 +11596,8 @@ impl FunctionContext {
                     ));
                 }
                 Expr::Symbol(name) => {
-                    bindings.push((name.clone(), field_offset, field_type.clone()))
+                    let binding_id = self.checked_pattern_binding_id(field, name)?;
+                    bindings.push((binding_id, name.clone(), field_offset, field_type.clone()))
                 }
                 Expr::Integer(value) => {
                     if field_words == 2 {
@@ -11643,7 +11675,7 @@ impl FunctionContext {
         pattern: &Expr,
         ty: &Type,
         failure: &str,
-        bindings: &mut Vec<(String, usize, Type)>,
+        bindings: &mut Vec<(crate::typed_body::BindingId, String, usize, Type)>,
     ) -> Result<(), String> {
         if matches!(pattern, Expr::Symbol(name) if name == "_") {
             return Ok(());
@@ -11978,7 +12010,7 @@ impl FunctionContext {
         pattern: &Expr,
         ty: &Type,
         offset: usize,
-        bindings: &mut Vec<(String, usize, Type)>,
+        bindings: &mut Vec<(crate::typed_body::BindingId, String, usize, Type)>,
     ) -> Result<(), String> {
         if typed_integer_pattern_value(pattern, ty)?.is_some()
             || matches!(
@@ -12010,7 +12042,8 @@ impl FunctionContext {
             }
         } else if let Expr::Symbol(name) = pattern {
             if name != "_" && name != "true" && name != "false" {
-                bindings.push((name.clone(), offset, ty.clone()));
+                let binding_id = self.checked_pattern_binding_id(pattern, name)?;
+                bindings.push((binding_id, name.clone(), offset, ty.clone()));
             }
         }
         Ok(())

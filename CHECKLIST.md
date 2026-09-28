@@ -319,6 +319,11 @@ the checklist is committed alongside the implementation it tracks.
   retain spelling lookup only for synthesized syntax. Cover tuple, struct,
   array, nested, and let-else patterns.
 
+- [x] **IR-02q: Resolve match-arm destinations by `BindingId`.** Retain binding
+  identities when aggregate and enum pattern lowering collects arm bindings;
+  use those IDs for stack destinations in ordinary, nested, large-value, and
+  let-else match paths. Preserve source names for diagnostics only.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
