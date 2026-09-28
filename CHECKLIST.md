@@ -329,6 +329,11 @@ the checklist is committed alongside the implementation it tracks.
   array, and struct match lowering, including large aggregates. Keep globals
   and synthesized expressions on their own paths.
 
+- [x] **IR-02s: Resolve large aggregate call arguments by identity.** Use a
+  checked local symbol's `BindingId` to select indirect-call argument storage;
+  keep global and synthesized aggregate values on their existing paths. Cover
+  large tuple, struct, and enum arguments, including nested calls.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

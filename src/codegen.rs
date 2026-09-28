@@ -14288,8 +14288,13 @@ impl FunctionContext {
         if !indirect {
             return self.push_value_words(value, ty, false);
         }
-        let base = if let Expr::Symbol(name) = value {
-            let slots = local_slots(&self.locals, name)?;
+        let local_slots = match value {
+            Expr::Symbol(name) if self.is_local_symbol_expression(value, name) => {
+                Some(self.local_slots_for_symbol(value, name)?)
+            }
+            _ => None,
+        };
+        let base = if let Some(slots) = local_slots {
             *slots
                 .first()
                 .ok_or_else(|| "large aggregate argument has no storage".to_owned())?
