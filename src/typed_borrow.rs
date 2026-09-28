@@ -1969,7 +1969,7 @@ mod tests {
         let second = error.2.unwrap();
         assert_eq!(&source[second.start..second.end], "(#borrow value)");
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow-mut value)");
+        assert_eq!(&source[first.start..first.end], "#borrow-mut");
     }
 
     #[test]
@@ -2039,7 +2039,7 @@ mod tests {
         let conflict = error.2.unwrap();
         assert_eq!(&source[conflict.start..conflict.end], "(#borrow-mut value)");
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+        assert_eq!(&source[first.start..first.end], "#borrow");
     }
 
     #[test]
@@ -2063,7 +2063,7 @@ mod tests {
         let conflict = error.2.unwrap();
         assert_eq!(&source[conflict.start..conflict.end], "(#borrow-mut value)");
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+        assert_eq!(&source[first.start..first.end], "#borrow");
 
         let disjoint = source
             .replace(
@@ -2155,7 +2155,7 @@ mod tests {
         let second = error.2.unwrap();
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+        assert_eq!(&source[first.start..first.end], "#borrow");
 
         let disjoint = source
             .replace(
@@ -2183,7 +2183,7 @@ mod tests {
         let second = error.2.unwrap();
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+        assert_eq!(&source[first.start..first.end], "#borrow");
 
         let disjoint = source
             .replace(
@@ -2239,7 +2239,7 @@ mod tests {
         let second = error.2.unwrap();
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+        assert_eq!(&source[first.start..first.end], "#borrow");
 
         let disjoint = source
             .replace(
@@ -2271,7 +2271,7 @@ mod tests {
         let second = error.2.unwrap();
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+        assert_eq!(&source[first.start..first.end], "#borrow");
     }
 
     #[test]
@@ -2421,7 +2421,7 @@ mod tests {
         let second = error.2.unwrap();
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+        assert_eq!(&source[first.start..first.end], "#borrow");
 
         let disjoint = source
             .replace(
@@ -2456,7 +2456,7 @@ mod tests {
             .unwrap();
         assert!(error.0.contains("overlapping borrows"), "{}", error.0);
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+        assert_eq!(&source[first.start..first.end], "#borrow");
 
         let disjoint = source
             .replace(
@@ -2543,7 +2543,7 @@ mod tests {
         let second = error.2.unwrap();
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+        assert_eq!(&source[first.start..first.end], "#borrow");
 
         let disjoint = source
             .replace(
@@ -2574,7 +2574,7 @@ mod tests {
         let second = error.2.unwrap();
         assert_eq!(&source[second.start..second.end], "(#borrow-mut value)");
         let first = error.3[0].0;
-        assert_eq!(&source[first.start..first.end], "(#borrow value)");
+        assert_eq!(&source[first.start..first.end], "#borrow");
     }
 
     #[test]

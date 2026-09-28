@@ -203,6 +203,27 @@ mod checked_program_tests {
     use super::*;
 
     #[test]
+    fn direct_borrow_origin_span_points_at_the_operator() {
+        let source = "(#fn main () u64 (#let owner u64 1u64) (#let view (#ref u64) (#borrow owner)) (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let statement = program
+            .statement_expressions
+            .get(&("main".into(), 1))
+            .unwrap();
+        let borrow = &statement.children[3];
+        assert_eq!(
+            &source[borrow.span.start..borrow.span.end],
+            "(#borrow owner)"
+        );
+        let operator = borrow.children.first().unwrap().span;
+        assert_eq!(&source[operator.start..operator.end], "#borrow");
+        assert_eq!(
+            typed_borrow_origin_span(&program, borrow.span),
+            Some(operator)
+        );
+    }
+
+    #[test]
     fn semantic_locations_do_not_depend_on_rendered_wording() {
         let cases = [
             ("(#fn main () u64 (#let value u64 (#u64.+.wrap 1u64 false)) (#return value))", "false"),
@@ -1403,7 +1424,7 @@ fn typed_borrow_origin_span(program: &Program, span: crate::Span) -> Option<crat
     fn find(expression: &crate::SpannedExpr, span: crate::Span) -> Option<crate::Span> {
         if expression.span == span {
             if let Expr::List(items) = &expression.expr {
-                if items.len() == 3
+                if matches!(items.len(), 2 | 3)
                     && matches!(items.first(), Some(Expr::Symbol(head))
                         if matches!(head.as_str(), "#borrow" | "#borrow-mut" | "borrow" | "borrow-mut"))
                 {

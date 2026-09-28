@@ -316,6 +316,12 @@ the checklist is committed alongside the implementation it tracks.
   Checked referent/place transfer must ultimately replace the remaining
   syntax-side reborrow handling.
 
+- [x] **IR-04cw: Preserve direct-borrow operator spans in typed diagnostics.**
+  Map two-argument `#borrow` and `#borrow-mut` loan origins to the operator
+  token, just as scoped borrows already do. Test the exact source slice so
+  future typed-flow diagnostics underline the offending operation, not its
+  surrounding form.
+
 - [x] **IR-04: Permit bounded mutable-slice element reborrows.** Track a
   `#slice-mut-idx` child loan while its parent slice is suspended, restore the
   parent after explicit release, and reject parent use or overlapping shared
