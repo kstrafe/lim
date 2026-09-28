@@ -501,9 +501,9 @@ fn extract_nested_awaits(
                 }
                 return Ok(());
             };
-            if contains_await && matches!(head.as_str(), "#for" | "#loop") {
+            if contains_await && head == "#loop" {
                 return Err(
-                    "@async-fn cannot lower #await inside #for or #loop yet; supported #while and #for-range forms preserve loop-carried suspension state".into(),
+                    "@async-fn cannot lower #await inside #loop yet; supported #while, #for-range, and existing-counter #for forms preserve loop-carried suspension state".into(),
                 );
             }
             if matches!(head.as_str(), "#if" | "#match" | "#block") && contains_await {
@@ -1104,6 +1104,68 @@ fn lower_async_for_range(
     Ok(Some((replacement, helper)))
 }
 
+/// Lower a `#for` loop that uses an existing counter. Initializer-local
+/// declarations are intentionally rejected because their source scope ends
+/// with the loop and must not leak into the generated async function.
+fn lower_async_for(
+    statement: &Expr,
+    known: &HashMap<String, Binding>,
+    known_order: &[String],
+    following: &[Expr],
+    return_value: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(Vec<Expr>, String)>, String> {
+    if !has_await(statement) {
+        return Ok(None);
+    }
+    let Some(items) = form(statement, "#for") else {
+        return Ok(None);
+    };
+    if items.len() < 5 {
+        return Err("@async-fn #for await requires init, condition, step, and body".into());
+    }
+    let initializer = &items[1];
+    if has_await(initializer) || has_await(&items[2]) || has_await(&items[3]) {
+        return Err(
+            "@async-fn #for await cannot suspend in its initializer, condition, or step".into(),
+        );
+    }
+    if matches!(
+        initializer,
+        Expr::List(parts)
+            if matches!(parts.first(), Some(Expr::Symbol(head))
+                if matches!(head.as_str(), "#let" | "#let-mut" | "#let-else"))
+    ) {
+        return Err(
+            "@async-fn #for await currently requires an existing counter; initializer bindings remain scoped to the source loop".into(),
+        );
+    }
+
+    let mut while_items = vec![Expr::Symbol("#while".into()), items[2].clone()];
+    while_items.extend(items[4..].iter().cloned());
+    while_items.push(items[3].clone());
+    let lowered_loop = Expr::List(while_items);
+    let Some((mut replacement, helper)) = lower_async_while(
+        &lowered_loop,
+        known,
+        known_order,
+        following,
+        return_value,
+        source,
+        next_name,
+        waker,
+    )?
+    else {
+        return Err("@async-fn failed to lower awaited #for".into());
+    };
+    if !matches!(initializer, Expr::List(items) if items.is_empty()) {
+        replacement.insert(0, initializer.clone());
+    }
+    Ok(Some((replacement, helper)))
+}
+
 fn mutable_assignment_target(expr: &Expr) -> Option<&str> {
     let Expr::List(items) = expr else {
         return None;
@@ -1302,6 +1364,20 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let mut lowering_known = known.clone();
     let mut lowering_known_order = known_order.clone();
     for (source_index, mut statement) in statements.iter().cloned().enumerate() {
+        if let Some((replacement, helper)) = lower_async_for(
+            &statement,
+            &lowering_known,
+            &lowering_known_order,
+            &statements[source_index + 1..],
+            &return_value,
+            &source,
+            &mut next_nested_await,
+            &waker_source,
+        )? {
+            generated_helpers.push(helper);
+            lowered_statements.extend(replacement);
+            continue;
+        }
         if let Some((replacement, helper)) = lower_async_for_range(
             &statement,
             &lowering_known,

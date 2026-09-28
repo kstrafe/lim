@@ -1728,9 +1728,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   value initializes the child task and survives through native polling without
   becoming an unnecessary frame capture.
 - [x] **ASYNC-01b18: Prevent loop-await hoisting from changing semantics.**
-  Lower supported `#while` and `#for-range` awaits as loop-carried suspension
-  state and reject unsupported `#for` and `#loop` awaits before expression
-  lowering can hoist them outside the loop. Diagnostics underline `#await`.
+  Lower supported `#while`, `#for-range`, and existing-counter `#for` awaits
+  as loop-carried suspension state and reject unsupported `#loop` awaits
+  before expression lowering can hoist them outside the loop. Diagnostics
+  underline `#await`.
 - [x] **ASYNC-01b19: Resume a direct child await inside a `#while` loop.**
   Support a loop condition and body with one direct `#let`/`#let-mut` await per
   iteration, capturing the loop-carried values and child task in a concrete
@@ -1752,7 +1753,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   only after Ready. Preserve the range start/end and per-iteration binding
   semantics; test a Pending first iteration followed by a Ready later
   iteration natively. `#for` and `#loop` await forms remain explicitly
-  unsupported until their control-flow state can be represented safely.
+  unsupported except for `#for` with an already-declared counter.
+- [x] **ASYNC-01b22: Lower awaited `#for` loops with existing counters.**
+  Preserve initializer execution, condition, and step ordering by lowering a
+  `#for` that mutates an already-declared counter to the resumable loop state
+  machine. Execute the step only after the awaited child is Ready; retain the
+  counter across Pending. Reject initializer-local bindings until their source
+  scope can be preserved. Verify native Pending/resume over multiple iterations
+  and keep a focused diagnostic for `#loop`.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
