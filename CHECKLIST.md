@@ -1706,10 +1706,24 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   paths natively; keep the generated choice task linear so capture transfer
   and explicit cancellation retain their existing ownership checks.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
-  Initialize owned fields before pinning, then establish internal references
-  with field-sensitive loans. Reject escaping references and incompatible
-  projections. Require cancellation to end internal loans before consuming
-  their referents; test movement, cancellation, and storage lifetime.
+  First give generated frames a stationary polling/cancellation lifecycle;
+  then initialize owned fields before pinning and establish internal
+  references with field-sensitive loans. Reject escaping references and
+  incompatible projections. Require cancellation to end internal loans before
+  consuming their referents; test movement, cancellation, and storage lifetime.
+- [ ] **ASYNC-01c1: Keep async frames stationary across polling.** Add an
+  opt-in pinned-frame representation whose poll and cancellation operations
+  borrow the frame in place rather than consuming and returning it by value.
+  Do not permit self-references yet. Keep state transitions and cancellation
+  explicit, reject moving, replacing, or destroying the pinned owner while its
+  handle is live, and verify Pending/resume, cancellation, movement, and escape.
+- [ ] **ASYNC-01c2: Form checked references into pinned async frames.** After
+  the stationary lifecycle is established, allow internal references only
+  after their owned referents are initialized and pinned. Track field-sensitive
+  loans through every state transition; reject moves, replacement, incompatible
+  projections, return, and cancellation that could invalidate a live internal
+  reference. Start with immutable references and add mutable projections only
+  as a separately verified extension.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
