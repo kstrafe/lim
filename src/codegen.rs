@@ -9324,7 +9324,9 @@ impl FunctionContext {
                 return Err("slice-len requires a slice".into());
             }
             if let Expr::Symbol(name) = &items[1] {
-                if let Some(Storage::Tuple(slots)) = self.locals.get(name) {
+                if let Some(Storage::Tuple(slots)) =
+                    self.local_storage_for_symbol(&items[1], name)?
+                {
                     self.output
                         .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slots[1] * 8));
                     return Ok(());
@@ -9343,7 +9345,9 @@ impl FunctionContext {
                 _ => return Err("slice-idx requires a slice".into()),
             };
             if let Expr::Symbol(name) = &items[1] {
-                if let Some(Storage::Tuple(slots)) = self.locals.get(name).cloned() {
+                if let Some(Storage::Tuple(slots)) =
+                    self.local_storage_for_symbol(&items[1], name)?
+                {
                     self.output.push_str(&format!(
                         "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
                         slots[0] * 8,

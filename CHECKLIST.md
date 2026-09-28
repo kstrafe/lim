@@ -375,6 +375,11 @@ the checklist is committed alongside the implementation it tracks.
   mutable borrows; retain static and synthesized place handling. Cover scalar
   and aggregate borrows, including projected field reborrows.
 
+- [x] **IR-02ab: Resolve direct slice reads by identity.** Use checked binding
+  metadata for tuple-backed slice locals in length and indexing fast paths;
+  keep non-local and synthesized expressions on the existing evaluation path.
+  Cover immutable and mutable slices with native tests.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
