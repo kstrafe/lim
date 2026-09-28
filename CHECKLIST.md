@@ -2011,6 +2011,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   loans on completion or cancellation. Verify native results, reject mutable
   borrows of either projected field while pending, and permit owner mutation
   after cancellation cleanup.
+- [x] **ASYNC-01c2p: Retain a self-reference into a pinned enum payload.**
+  Recognize a `#pin-get-payload` initializer whose enum owner is a promoted
+  frame field. Preserve the payload's exact place through temporary
+  `#pin-borrow` expressions, emit checked in-place payload access on each poll,
+  and retain that reference across Pending. Verify native execution and reject
+  a conflicting mutable borrow of the enum owner until the task is resumed.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue

@@ -30,7 +30,8 @@ exit 42 timer_reactor_many.lim - -
 exit 42 aio_owned.lim - -
 exit 42 async_fn.lim - -
 exit 41 async_fn_pinned.lim - -
-exit 53 async_fn_self_reference.lim - -
+exit 58 async_fn_self_reference.lim - -
+exit 42 async_fn_enum_self_reference.lim - -
 exit 42 async_fn_local_self_reference.lim - -
 exit 44 pinned_self_reference.lim - -
 exit 42 async_fn_two_awaits.lim tests/fixtures/async_fn_two_awaits.stdout -

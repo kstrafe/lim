@@ -19,10 +19,16 @@ struct PinnedSelfReference {
     binding: Binding,
     owner: Binding,
     owner_initializer: Option<String>,
-    projection: Vec<String>,
+    projection: Vec<PinnedProjection>,
     target_ty: String,
     helper_parameter: String,
     source_index: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum PinnedProjection {
+    Field(String),
+    EnumPayload { variant: String, index: usize },
 }
 
 struct Stage {
@@ -2219,13 +2225,7 @@ fn pinned_self_references(
         else {
             continue;
         };
-        let Some(borrow) = form(&items[3], "#pin-borrow") else {
-            continue;
-        };
-        if borrow.len() != 2 {
-            continue;
-        }
-        let Some((owner_name, projection)) = pinned_borrow_target(&borrow[1]) else {
+        let Some((owner_name, projection)) = pinned_self_reference_target(&items[3]) else {
             continue;
         };
         let (owner, owner_initializer) = if let Some(parameter) =
@@ -2323,6 +2323,45 @@ fn pinned_borrow_target(expression: &Expr) -> Option<(String, Vec<String>)> {
     Some((owner, projection))
 }
 
+fn pinned_self_reference_target(expression: &Expr) -> Option<(String, Vec<PinnedProjection>)> {
+    if let Some(items) = form(expression, "#pin-get-payload") {
+        if items.len() != 4 {
+            return None;
+        }
+        let borrow = form(&items[1], "#pin-borrow")?;
+        if borrow.len() != 2 {
+            return None;
+        }
+        let (owner, fields) = pinned_borrow_target(&borrow[1])?;
+        let Expr::Symbol(variant) = &items[2] else {
+            return None;
+        };
+        let index = match &items[3] {
+            Expr::Integer(index) if *index >= 0 => usize::try_from(*index).ok()?,
+            Expr::UnsignedInteger(index) => usize::try_from(*index).ok()?,
+            _ => return None,
+        };
+        let mut projection = fields
+            .into_iter()
+            .map(PinnedProjection::Field)
+            .collect::<Vec<_>>();
+        projection.push(PinnedProjection::EnumPayload {
+            variant: variant.clone(),
+            index,
+        });
+        return Some((owner, projection));
+    }
+    let borrow = form(expression, "#pin-borrow")?;
+    if borrow.len() != 2 {
+        return None;
+    }
+    let (owner, fields) = pinned_borrow_target(&borrow[1])?;
+    Some((
+        owner,
+        fields.into_iter().map(PinnedProjection::Field).collect(),
+    ))
+}
+
 fn pinned_reference_target_source(type_expression: &Expr) -> Result<String, String> {
     let Expr::List(items) = type_expression else {
         return Err("pinned reference binding requires (#pin-ref Type)".into());
@@ -2336,20 +2375,14 @@ fn pinned_reference_target_source(type_expression: &Expr) -> Result<String, Stri
 
 fn rewrite_pinned_self_references(expression: &mut Expr, references: &[PinnedSelfReference]) {
     let replacement = match expression {
-        Expr::List(items)
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pin-borrow")
-                && items.len() == 2 =>
-        {
-            pinned_borrow_target(&items[1]).and_then(|(owner, projection)| {
-                references
-                    .iter()
-                    .find(|reference| {
-                        reference.owner.name == owner && reference.projection == projection
-                    })
-                    .map(|reference| reference.helper_parameter.clone())
-            })
-        }
-        _ => None,
+        _ => pinned_self_reference_target(expression).and_then(|(owner, projection)| {
+            references
+                .iter()
+                .find(|reference| {
+                    reference.owner.name == owner && reference.projection == projection
+                })
+                .map(|reference| reference.helper_parameter.clone())
+        }),
     };
     if let Some(replacement) = replacement {
         *expression = Expr::Symbol(replacement);
@@ -2888,13 +2921,24 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         .iter()
         .enumerate()
         .map(|(index, reference)| {
-            let place = reference.projection.iter().fold(
-                format!("(#get task {})", reference.owner.name),
-                |base, field| format!("(#get {base} {field})"),
-            );
+            let mut place = format!("(#get task {})", reference.owner.name);
+            let mut initializer = None;
+            for projection in &reference.projection {
+                match projection {
+                    PinnedProjection::Field(field) => {
+                        place = format!("(#get {place} {field})");
+                    }
+                    PinnedProjection::EnumPayload { variant, index } => {
+                        initializer = Some(format!(
+                            "(#pin-get-payload (#pin-borrow {place}) {variant} {index})"
+                        ));
+                    }
+                }
+            }
+            let initializer = initializer.unwrap_or_else(|| format!("(#pin-borrow {place})"));
             format!(
                 "(#let lim.async.self-ref.{index} (#pin-ref {})\n\
-                   (#pin-borrow {place}))",
+                   {initializer})",
                 reference.target_ty
             )
         })

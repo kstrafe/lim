@@ -58,6 +58,13 @@ impl Place {
             NodeKind::Form { head, children, .. } => {
                 let mut place = Self::from_expression(body, *children.get(1)?)?;
                 match head.as_str() {
+                    // A borrow expression preserves the identity of its
+                    // referent when it is used as the base of a projection.
+                    // In particular, `#pin-get-payload (#pin-borrow place)`
+                    // must retain the enum-field path instead of falling back
+                    // to an imprecise borrow of the whole containing value.
+                    "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                        if children.len() == 2 => {}
                     "deref" if children.len() == 2 => {
                         place.segments.push(Segment::Dereference);
                     }

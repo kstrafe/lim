@@ -321,6 +321,31 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
 }
 
 #[test]
+fn pinned_async_frame_retains_enum_payload_reference_across_pending() {
+    let source = include_str!("../examples/async_fn_enum_self_reference.lim");
+    let generated = build_and_run(source, 42);
+    assert!(
+        generated
+            .contains("(#pin-get-payload (#pin-borrow (#get (#get task owner) choice)) Number 0)"),
+        "the frame should reborrow the selected enum payload in place: {generated}"
+    );
+    assert!(
+        generated.contains("(EnumFrame-await-0 (#pin-ref u64) Child)"),
+        "the enum-payload reference should be carried in the pending state: {generated}"
+    );
+
+    let pending_mutation = source.replace(
+        "  (#let second EnumPoll",
+        "  (#let choice-pin (#pin-ref-mut Choice)\n    (#pin-borrow-mut (#get (#get pending-frame owner) choice)))\n  (#let second EnumPoll",
+    );
+    let error = lim::check_types(&lim::parse_program(&pending_mutation).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access") || error.contains("pinned"),
+        "the enum owner must remain borrowed while its payload reference is pending: {error}"
+    );
+}
+
+#[test]
 fn pinned_async_frame_promotes_a_local_owner_before_self_borrowing_it() {
     let source = include_str!("../examples/async_fn_local_self_reference.lim");
     let generated = build_and_run(source, 42);
