@@ -440,6 +440,14 @@ the checklist is committed alongside the implementation it tracks.
   differential tests, every native example, reproducibility, and benchmark
   smoke tests pass with unchanged source syntax and one validation pass.
 
+- [x] **IR-03ad: Emit checked scalar literals from retained IR values.** Store
+  literal payloads in expression metadata and consume them for integer, float,
+  character, and string emission. Checked literal nodes without a retained
+  payload or with a mismatched literal kind must fail internally; synthesized
+  backend expressions may retain their narrow syntax fallback. Test the
+  metadata contract and preserve the full native-example suite. The full
+  serial test suite passes.
+
 - [x] **IR-03aa: Keep syntax type reconstruction off checked nodes.** When a
   source expression has a stable typed identity but its retained type is
   missing, do not infer a replacement from its surface syntax. Keep the

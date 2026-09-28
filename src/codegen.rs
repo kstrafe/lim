@@ -5316,6 +5316,33 @@ fn checked_expression_metadata<'a>(
     Ok(metadata)
 }
 
+fn checked_scalar_literal(
+    expression: &Expr,
+    emission: &crate::typed_body::EmissionTypes,
+) -> Result<Option<Expr>, String> {
+    if !matches!(
+        expression,
+        Expr::Integer(_)
+            | Expr::UnsignedInteger(_)
+            | Expr::Char(_)
+            | Expr::Float(_)
+            | Expr::String(_)
+    ) {
+        return Ok(None);
+    }
+    let Some(metadata) = checked_expression_metadata(expression, emission)? else {
+        return Ok(None);
+    };
+    let value = metadata
+        .literal
+        .as_ref()
+        .ok_or_else(|| "internal error: checked scalar literal lost its typed value".to_owned())?;
+    if std::mem::discriminant(value) != std::mem::discriminant(expression) {
+        return Err("internal error: checked scalar literal changed its kind".into());
+    }
+    Ok(Some(value.clone()))
+}
+
 fn checked_scalar_argument_type(
     argument: &Expr,
     callee: Option<crate::typed_ir::FunctionId>,
@@ -5485,6 +5512,7 @@ fn checked_local_symbols_require_retained_types() {
     let checked = crate::typed_body::EmissionNode {
         ty: None,
         binding: Some(crate::typed_body::BindingId(0)),
+        literal: None,
         numeric: None,
         callee: None,
     };
@@ -5616,11 +5644,48 @@ fn checked_expression_metadata_cannot_fall_back_to_syntax() {
 
 #[cfg(test)]
 #[test]
+fn checked_scalar_literals_require_and_use_retained_values() {
+    let expression = Expr::Integer(41);
+    let mut emission = crate::typed_body::EmissionTypes::default();
+    assert_eq!(
+        checked_scalar_literal(&expression, &emission).unwrap(),
+        None
+    );
+
+    let id = crate::typed_ir::ExpressionId(0);
+    emission
+        .address_to_id
+        .insert(std::ptr::from_ref(&expression) as usize, id);
+    emission.by_id.insert(
+        id,
+        crate::typed_body::EmissionNode {
+            literal: Some(Expr::Integer(42)),
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        checked_scalar_literal(&expression, &emission).unwrap(),
+        Some(Expr::Integer(42))
+    );
+
+    emission.by_id.get_mut(&id).unwrap().literal = None;
+    assert!(checked_scalar_literal(&expression, &emission)
+        .unwrap_err()
+        .contains("lost its typed value"));
+    emission.by_id.get_mut(&id).unwrap().literal = Some(Expr::UnsignedInteger(42));
+    assert!(checked_scalar_literal(&expression, &emission)
+        .unwrap_err()
+        .contains("changed its kind"));
+}
+
+#[cfg(test)]
+#[test]
 fn checked_numeric_expressions_require_retained_operations() {
     let head = Expr::Symbol("u64.+.wrap".into());
     let missing = crate::typed_body::EmissionNode {
         ty: Some(Type::U64),
         binding: None,
+        literal: None,
         numeric: None,
         callee: None,
     };
@@ -8771,6 +8836,8 @@ impl FunctionContext {
     }
 
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
+        let typed_literal = checked_scalar_literal(expression, &self.expression_types)?;
+        let expression = typed_literal.as_ref().unwrap_or(expression);
         match expression {
             Expr::Integer(value) => {
                 if *value < i64::MIN as i128 || *value > i64::MAX as i128 {

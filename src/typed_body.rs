@@ -978,6 +978,7 @@ pub(crate) struct EmissionTypes {
 pub(crate) struct EmissionNode {
     pub ty: Option<Type>,
     pub binding: Option<BindingId>,
+    pub literal: Option<Expr>,
     pub numeric: Option<NumericOperation>,
     pub callee: Option<FunctionId>,
 }
@@ -1200,6 +1201,10 @@ impl Body {
                 NodeKind::Symbol { binding, .. } => *binding,
                 _ => None,
             };
+            let literal = match &node.kind {
+                NodeKind::Literal(value) => Some(value.clone()),
+                _ => None,
+            };
             let expression_id = node.expression_id.ok_or_else(|| {
                 format!("internal error: checked node {} has no expression ID", id.0)
             })?;
@@ -1220,6 +1225,7 @@ impl Body {
                     EmissionNode {
                         ty: node.ty.clone(),
                         binding,
+                        literal,
                         numeric,
                         callee,
                     },
