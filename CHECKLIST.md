@@ -2010,18 +2010,22 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   between registration and Pending, and make stale wakes and duplicate queue
   entries harmless. Reject forged authority until module privacy or opaque
   compiler-owned handles are available.
-- [ ] **ASYNC-02: Add non-busy waiting and safe asynchronous I/O.** Define a
+- [x] **ASYNC-02: Add non-busy waiting and safe asynchronous I/O.** Define a
   bounded ready queue and explicit wake handles (no callbacks), readiness or
   completion registration, and OS-operation ownership. Cancellation must not
   release buffers until completion/cancellation is acknowledged. Test stale
   wake handles, lost wakeups, capacity exhaustion, shutdown, and cancellation.
+  The Linux x86_64 implementation covers one-shot and mixed readiness,
+  owned descriptor operations, native-AIO completion routing, wake-before-wait,
+  and explicit scheduler cancellation. These APIs remain concrete and bounded;
+  a portable cross-platform reactor is outside this milestone.
 - [x] **ASYNC-02a: Own one-shot timer readiness without retained buffers.**
   Add a concrete Linux timerfd operation with an opaque linear owner, a
   bounded registered wake, blocking kernel wait, explicit poll and cancellation,
   and cleanup of fd and scratch mapping. Verify one-shot completion and
   cancellation before completion in a native example. Runtime-sized bounded
-  timer waits are covered by ASYNC-02f; general readiness sources, mixed I/O
-  registration, and shutdown policy remain open under ASYNC-02.
+  timer waits are covered by ASYNC-02f, mixed readiness by ASYNC-02h, and
+  scheduler shutdown by ASYNC-03b.
 - [x] **ASYNC-02b: Return recoverable timer setup errors.** Lower block-valued
   large aggregate branches through indirect result storage, then return a
   concrete success/error enum from timer creation. Clean up each acquired
@@ -2032,7 +2036,7 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   each wake token independently. Reject aliasing the same owner in both slots;
   cover whichever timer fires first, eventual completion of both, and cleanup
   in a native example. Runtime-sized timer registration is covered by
-  ASYNC-02f; other readiness sources remain part of ASYNC-02.
+  ASYNC-02f; other readiness sources are covered by ASYNC-02g and ASYNC-02h.
 - [x] **ASYNC-02d: Keep native-AIO buffers owned through completion or cancel.**
   Add opaque linear AIO context, pending-operation, and completed-operation
   types. Each submitted read or readiness request owns its mmap containing the
@@ -2050,15 +2054,15 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   acknowledgements through the same path. The native regression completes B
   before A, waits for A first, then verifies B's routed result; multiple
   outstanding operations share a !Send/!Sync context safely. Scheduler wake
-  integration remains open.
+  integration is covered by ASYNC-03a.
 - [x] **ASYNC-02f: Wait over a bounded runtime slice of timer owners.** Accept
   one to four shared borrows of opaque timer owners, reject duplicate owners,
   populate poll records in scratch storage, and perform one blocking poll.
   Notify each ready token independently and return a bit mask of ready slots;
   reject invalid poll events without exposing descriptors or transferring
   ownership. Verify a three-timer native wait and duplicate-owner rejection.
-  General readiness sources, buffered-I/O cancellation integration, and
-  shutdown remain open.
+  General readiness sources are covered by ASYNC-02g and ASYNC-02h;
+  scheduler shutdown is covered by ASYNC-03b.
 - [x] **ASYNC-02g: Add a cancellable, borrowed one-byte readiness read.** Add a
   concrete Linux operation that retains an exclusive destination borrow, uses
   the bounded wake queue, blocks in `poll` rather than spinning, and performs
@@ -2066,16 +2070,16 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   destination pointer across Pending or cancellation; destruction retires the
   wake token and releases the borrow. Verify echoed input, EOF, and cancellation
   while the input stream remains open, including mutation after destruction.
-  General descriptor ownership, multi-source registration, and shutdown
-  remain open under ASYNC-02.
+  General descriptor ownership is covered by ASYNC-02i, multi-source
+  registration by ASYNC-02h, and scheduler shutdown by ASYNC-03b.
 - [x] **ASYNC-02h: Share one bounded wait across mixed readiness sources.** Add
   an opaque borrowed source view that adapts concrete timers and byte-read
   tasks without exposing their descriptors or wake tokens. Wait on one to four
   sources with a single blocking poll, notify every ready source independently,
   and reject invalid capacity before touching the kernel. Test a timer and a
   pipe read in the same set, including either source becoming ready first, plus
-  capacity rejection. Keep descriptor ownership and shutdown explicit under
-  ASYNC-02.
+  capacity rejection. Descriptor ownership is covered by ASYNC-02i and
+  scheduler shutdown by ASYNC-03b.
 - [x] **ASYNC-02i: Make readiness operations own their descriptors.** Duplicate
   each caller descriptor into an opaque linear operation owner with
   close-on-exec semantics. Close it exactly once on explicit destruction, and
