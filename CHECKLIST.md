@@ -1093,6 +1093,10 @@ the checklist is committed alongside the implementation it tracks.
   rather than the complete `#let` statement. Use that span for typed linear
   exit diagnostics and verify the source slice is the binding name.
 
+- [x] **IR-04cp: Retain parameter identifier spans in typed ownership state.**
+  Associate each parameter `BindingId` with its declared identifier span from
+  the function signature, and verify the span through checked-body lowering.
+
 - [x] **SAFE-01: Resolve static access by identity, not spelling.** Exclude
   function parameter names from each function's static access set; local and
   pattern declarations that shadow statics are alpha-renamed before checking.

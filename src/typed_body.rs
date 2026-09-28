@@ -135,6 +135,22 @@ mod tests {
     }
 
     #[test]
+    fn typed_parameters_retain_the_source_identifier_span() {
+        let source = "(#struct Resource ((value u64)))
+          (#linear Resource)
+          (#fn consume ((token Resource)) ()
+            (#forget token)
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let binding = &checked.declarations().bodies["consume"].bindings[0];
+        let span = binding
+            .span
+            .expect("typed parameter keeps its declaration span");
+        assert_eq!(&source[span.start..span.end], "token");
+    }
+
+    #[test]
     fn nodes_keep_contextual_types_numeric_modes_and_reordered_call_spans() {
         let source = "(#fn add ((left u32) (right u32)) u32 (#return (#u32.+.saturate left right)))
           (#fn main () u32 (#let x u32 40) (#return (#call add (: right 2 : left x))))";
@@ -1355,6 +1371,7 @@ impl Body {
         expression_ids: &HashMap<usize, ExpressionId>,
         spans: &HashMap<usize, Span>,
         binding_spans: &HashMap<usize, Span>,
+        parameter_spans: &[Option<Span>],
     ) -> Self {
         let mut builder = Builder {
             body: Body::default(),
@@ -1366,11 +1383,11 @@ impl Body {
             binding_spans,
         };
         builder.body.parameter_count = function.parameters.len();
-        for parameter in &function.parameters {
+        for (index, parameter) in function.parameters.iter().enumerate() {
             builder.binding(
                 &parameter.name,
                 resolve_type(&parameter.ty, &declarations.aliases).expect("checked parameter"),
-                None,
+                parameter_spans.get(index).copied().flatten(),
             );
         }
         builder.body.instructions = builder.statements(&function.body);

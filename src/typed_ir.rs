@@ -316,6 +316,24 @@ impl Declarations {
             .iter()
             .filter_map(|item| match item {
                 crate::Item::Function(function) if !function.external => {
+                    let parameter_source = program
+                        .declaration_expressions
+                        .get(&function.name)
+                        .and_then(|source| source.children.get(2));
+                    let parameter_spans = function
+                        .parameters
+                        .iter()
+                        .enumerate()
+                        .map(|(index, parameter)| {
+                            let identifier = parameter_source?
+                                .children
+                                .get(index)?
+                                .children
+                                .first()?;
+                            matches!(&identifier.expr, crate::Expr::Symbol(symbol) if symbol == &parameter.name)
+                                .then_some(identifier.span)
+                        })
+                        .collect::<Vec<_>>();
                     let binding_spans = function
                         .body
                         .iter()
@@ -344,6 +362,7 @@ impl Declarations {
                             expression_ids,
                             spans,
                             &binding_spans,
+                            &parameter_spans,
                         ),
                     ))
                 }
