@@ -5320,14 +5320,18 @@ fn checked_scalar_literal(
     expression: &Expr,
     emission: &crate::typed_body::EmissionTypes,
 ) -> Result<Option<Expr>, String> {
-    if !matches!(
-        expression,
-        Expr::Integer(_)
-            | Expr::UnsignedInteger(_)
-            | Expr::Char(_)
-            | Expr::Float(_)
-            | Expr::String(_)
-    ) {
+    let is_boolean =
+        matches!(expression, Expr::Symbol(name) if matches!(name.as_str(), "true" | "false"));
+    if !is_boolean
+        && !matches!(
+            expression,
+            Expr::Integer(_)
+                | Expr::UnsignedInteger(_)
+                | Expr::Char(_)
+                | Expr::Float(_)
+                | Expr::String(_)
+        )
+    {
         return Ok(None);
     }
     let Some(metadata) = checked_expression_metadata(expression, emission)? else {
@@ -5339,6 +5343,9 @@ fn checked_scalar_literal(
         .ok_or_else(|| "internal error: checked scalar literal lost its typed value".to_owned())?;
     if std::mem::discriminant(value) != std::mem::discriminant(expression) {
         return Err("internal error: checked scalar literal changed its kind".into());
+    }
+    if matches!(expression, Expr::Symbol(_)) && value != expression {
+        return Err("internal error: checked boolean constant changed its value".into());
     }
     Ok(Some(value.clone()))
 }
@@ -5676,6 +5683,27 @@ fn checked_scalar_literals_require_and_use_retained_values() {
     assert!(checked_scalar_literal(&expression, &emission)
         .unwrap_err()
         .contains("changed its kind"));
+
+    let boolean = Expr::Symbol("true".into());
+    let boolean_id = crate::typed_ir::ExpressionId(1);
+    emission
+        .address_to_id
+        .insert(std::ptr::from_ref(&boolean) as usize, boolean_id);
+    emission.by_id.insert(
+        boolean_id,
+        crate::typed_body::EmissionNode {
+            literal: Some(Expr::Symbol("false".into())),
+            ..Default::default()
+        },
+    );
+    assert!(checked_scalar_literal(&boolean, &emission)
+        .unwrap_err()
+        .contains("boolean constant changed its value"));
+    emission.by_id.get_mut(&boolean_id).unwrap().literal = Some(boolean.clone());
+    assert_eq!(
+        checked_scalar_literal(&boolean, &emission).unwrap(),
+        Some(boolean)
+    );
 }
 
 #[cfg(test)]

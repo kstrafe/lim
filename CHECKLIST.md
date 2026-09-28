@@ -448,6 +448,12 @@ the checklist is committed alongside the implementation it tracks.
   metadata contract and preserve the full native-example suite. The full
   serial test suite passes.
 
+- [x] **IR-03ae: Emit boolean constants from checked IR values.** Retain
+  `true`/`false` as checked constant payloads instead of relying on the
+  name-based symbol special case. Reject a lost or mismatched boolean value and
+  preserve native examples and typed-constant metadata tests. The full serial
+  test suite passes.
+
 - [x] **IR-03aa: Keep syntax type reconstruction off checked nodes.** When a
   source expression has a stable typed identity but its retained type is
   missing, do not infer a replacement from its surface syntax. Keep the

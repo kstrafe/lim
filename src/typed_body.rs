@@ -1203,6 +1203,10 @@ impl Body {
             };
             let literal = match &node.kind {
                 NodeKind::Literal(value) => Some(value.clone()),
+                NodeKind::Symbol {
+                    name,
+                    binding: None,
+                } if matches!(name.as_str(), "true" | "false") => Some(Expr::Symbol(name.clone())),
                 _ => None,
             };
             let expression_id = node.expression_id.ok_or_else(|| {
