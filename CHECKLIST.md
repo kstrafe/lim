@@ -2095,7 +2095,7 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   before it returned Pending, instead of sleeping despite the recorded wake.
   Verify an indefinite wait with a disabled descriptor returns from the queued
   wake alone, and that the token is consumed and retired exactly once.
-- [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
+- [x] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,
   shutdown, and cancellation behavior explicit. Test multiple tasks sharing
@@ -2118,11 +2118,16 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
     slot's cancellation function in descriptor order, including already-Ready
     states. Native coverage cancels two Pending timer-backed tasks and one
     completed task while idle.
-  - [ ] **ASYNC-03c: Verify scheduling fairness and bounded wake behavior.**
+  - [x] **ASYNC-03c: Verify scheduling fairness and bounded wake behavior.**
     Test multiple simultaneous ready tasks, wake bursts and coalescing,
     capacity exhaustion, repeated idle waits, and prove no task is polled while
     its bit is absent. Define the wait callback's zero-mask and invalid-bit
-    behavior.
+    behavior. Coverage includes three fixed slots with successive masks that
+    wake two tasks together and leave the third untouched until its bit is
+    returned; capacity and slot validation; duplicate wake coalescing; and
+    repeated waits before completion. The callback contract explicitly states
+    that zero and non-pending bits are ignored, so a mask with no pending bit
+    can make no progress.
 
 ## Test reliability
 

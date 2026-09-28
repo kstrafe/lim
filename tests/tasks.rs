@@ -211,6 +211,92 @@ fn wake_executor_runs_every_supported_fixed_capacity() {
 }
 
 #[test]
+fn wake_executor_polls_only_selected_slots_across_ready_masks() {
+    let scratch = support::Scratch::new("wake-executor-fairness");
+    let body = "
+      (@task (Task Poll Pending Ready) u64 ((Run u64 u64)))
+      (#struct Waker ((marker u64)))
+      (#struct WaitContext ((waits u32)))
+      (#fn poll ((task Task) (waker (#ref Waker))) Poll
+        (#forget waker)
+        (#return (#match task
+          (#case (Run target attempts)
+            (#block
+              (#let next u64 (#u64.+.wrap attempts 1u64))
+              (#if (#u64.>= next target)
+                (Ready next)
+                (Pending (Run target next))))))))
+      (#fn wait ((context (#ref-mut WaitContext))) WaitResult
+        (#let waits (#ref-mut u32) (#borrow-mut (#get context waits)))
+        (#deref-set waits (#u32.+.wrap (#deref waits) 1u32))
+        (#drop waits)
+        (#return (#if (#u32.== (#get context waits) 1u32)
+          (WaitReady 6u32)
+          (WaitReady 1u32))))
+      (#fn cancel-poll ((state Poll)) ()
+        (#match state
+          (#case (Pending task)
+            (#match task (#case (Run target attempts)
+              (#block (#forget target) (#forget attempts)))))
+          (#case (Ready value) (#forget value)))
+        (#return ()))
+      (@wake-executor run
+        (Results Outcome Lifecycle Running Complete Cancelling Stopped)
+        (Task Poll Pending Ready u64 poll Waker)
+        (WaitResult WaitReady WaitStopped i64 wait (context (#ref-mut WaitContext)))
+        cancel-poll
+        ((first-state first-task first-waker first 0u32)
+         (second-state second-task second-waker second 1u32)
+         (third-state third-task third-waker third 2u32)))
+      (#fn main () u64
+        (#let waker Waker (#struct-literal Waker ((marker 0u64))))
+        (#let waker-ref (#ref Waker) (#borrow waker))
+        (#let-mut wait-context WaitContext
+          (#struct-literal WaitContext ((waits 0u32))))
+        (#let wait-context-ref (#ref-mut WaitContext) (#borrow-mut wait-context))
+        (#let outcome Outcome (#call run
+          (: first-task (Run 2u64 0u64)
+           : second-task (Run 2u64 0u64)
+           : third-task (Run 2u64 0u64)
+           : first-waker waker-ref
+           : second-waker waker-ref
+           : third-waker waker-ref
+           : context wait-context-ref)))
+        (#drop wait-context-ref)
+        (#assert (#u32.== (#get wait-context waits) 2u32))
+        (#forget wait-context)
+        (#forget waker)
+        (#return (#match outcome
+          (#case (Complete results)
+            (#block
+              (#assert (#u64.== (#get results first) 2u64))
+              (#assert (#u64.== (#get results second) 2u64))
+              (#assert (#u64.== (#get results third) 2u64))
+              (#forget results)
+              0u64))
+          (#case (Stopped reason) (#block (#forget reason) 1u64)))))";
+    let program = source(body);
+    let assembly = lim::compile_source_to_assembly(
+        &program,
+        &scratch.path().join("fairness.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_or_else(|error| panic!("{error:?}"));
+    let binary = scratch.path().join("fairness");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    assert_eq!(Command::new(binary).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn wake_executor_shutdown_cancels_pending_and_completed_states() {
     let scratch = support::Scratch::new("wake-executor-shutdown");
     let body = format!(

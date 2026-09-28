@@ -225,9 +225,12 @@ adapt `async-poll4-wait` or another bounded reactor without hidden global
 state. The callback maps OS errors and shutdown to `WaitStopped`; the
 executor itself has no timeout policy, since a callback may represent timeout
 as a stop reason. A `WaitReady` result must contain at least one valid pending
-slot bit. Zero masks and bits for unregistered or completed tasks are caller
-errors and may leave the executor without progress. Poll functions must return
-promptly, and the single-threaded executor does not preempt them.
+slot bit. The executor does not validate the callback's mask: zero masks and
+bits for unregistered or completed tasks are ignored, and the callback is
+invoked again while any task remains Pending. Thus a zero mask or a mask with
+no bit for a Pending task can repeatedly wait without progress; callbacks must
+return a nonzero mask intersecting the currently pending slots. Poll functions
+must return promptly, and the single-threaded executor does not preempt them.
 `examples/wake_executor.lim` demonstrates two tasks, per-task generational
 wake tokens, duplicate-wake coalescing, timer-backed blocking wait, and
 explicit waker destruction. The shutdown test verifies cancellation of both
