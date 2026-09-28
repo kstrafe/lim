@@ -936,17 +936,16 @@ fn async_function_lowers_await_in_terminal_binding_block() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
-        (#forget task)
-        (#return (ChildReady 1u64)))
+        (#return (#match task (#case (Waiting value) (ChildReady value)))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
-          (#if true
+          (#return (#if true
             (#block
+              (#let task-input u64 17u64)
               (#let result u64
-                (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+                (#await Child ChildPending ChildReady child-poll (Waiting task-input)))
               result)
-            0u64)
-          (#return 0u64))))
+            0u64)))))
       (#fn main () u64
         (#let waker u64 0u64)
         (#let outcome Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
@@ -956,8 +955,16 @@ fn async_function_lowers_await_in_terminal_binding_block() {
             (#case (Pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return value))";
-    let generated = build_and_run(source, 0);
+    let generated = build_and_run(source, 17);
     assert!(generated.contains(".choice-"), "{generated}");
+    let frame_declaration = generated
+        .lines()
+        .find(|line| line.contains("(#enum Frame "))
+        .expect("generated async frame");
+    assert!(
+        !frame_declaration.contains("task-input"),
+        "branch-local setup must not become a suspended-frame capture: {frame_declaration}"
+    );
 }
 
 #[test]

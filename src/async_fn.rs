@@ -63,21 +63,33 @@ fn has_await(expr: &Expr) -> bool {
 /// suspension and another branch.
 fn block_await_result(expression: &Expr) -> Option<Expr> {
     let block = form(expression, "#block")?;
-    if block.len() != 3 {
+    if block.len() < 3 {
         return None;
     }
-    let binding = form(&block[1], "#let")?;
+    let await_binding_index = block.len() - 2;
+    if block[1..await_binding_index].iter().any(has_await) {
+        return None;
+    }
+    let binding = form(&block[await_binding_index], "#let")?;
     if binding.len() != 4 {
         return None;
     }
     let binding_name = symbol(&binding[1], "binding name").ok()?;
-    if !matches!(&block[2], Expr::Symbol(name) if name == binding_name) {
+    if !matches!(&block[block.len() - 1], Expr::Symbol(name) if name == binding_name) {
         return None;
     }
     let await_form = form(&binding[3], "#await")?;
     if await_form.len() != 6 {
         return None;
     }
+    let task = if await_binding_index == 1 {
+        await_form[5].clone()
+    } else {
+        let mut task_block = vec![Expr::Symbol("#block".into())];
+        task_block.extend(block[1..await_binding_index].iter().cloned());
+        task_block.push(await_form[5].clone());
+        Expr::List(task_block)
+    };
     Some(Expr::List(vec![
         Expr::Symbol("#await".into()),
         binding[2].clone(),
@@ -85,7 +97,7 @@ fn block_await_result(expression: &Expr) -> Option<Expr> {
         await_form[2].clone(),
         await_form[3].clone(),
         await_form[4].clone(),
-        await_form[5].clone(),
+        task,
     ]))
 }
 

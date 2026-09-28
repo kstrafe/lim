@@ -1722,6 +1722,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   type while lowering the branch through the existing concrete choice task;
   verify an awaited branch natively alongside an immediate branch. Arbitrary
   post-await block continuations and loop suspension remain open.
+- [x] **ASYNC-01b17: Preserve branch-local setup before suspension.** Allow
+  non-suspending statements before the terminal await binding, keeping them
+  inside the selected branch's task-construction block. Verify a branch-local
+  value initializes the child task and survives through native polling without
+  becoming an unnecessary frame capture.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
