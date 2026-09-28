@@ -1880,6 +1880,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   direct boolean `#await` in the loop condition; keep initializer execution
   once, run the body only on Ready(true), and run the step after the body but
   not after Ready(false). Test Pending/resume and multiple iterations.
+- [x] **ASYNC-01b48: Preserve `#for` step order with terminal transfers.** In
+  an awaited condition loop, run the step before `#continue`, skip it on
+  `#break`, and keep it on normal/continuing `#if` branches. Verify Pending,
+  continue, break, and final counter natively.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

@@ -1764,6 +1764,37 @@ fn async_for_condition_can_await_and_step_only_after_ready_true() {
 }
 
 #[test]
+fn awaited_for_condition_runs_step_after_continue_but_not_break() {
+    let source = "(#enum ChildTask ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value)
+            (#if (#u64.== value 0u64)
+              (ChildPending (Waiting 1u64))
+              (ChildReady (#u64.< value 2u64)))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#for (#set iteration 0u64)
+                (#await ChildTask ChildPending ChildReady child-poll (Waiting iteration))
+                (#set iteration (#u64.+.wrap iteration 1u64))
+            (#if (#u64.< iteration 1u64) (#continue) (#break)))
+          (#return iteration))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let value u64 (#match second
+          (#case (Ready result) result)
+          (#case (Pending pending-again) (#block (#forget pending-again) 0u64))))
+        (#forget waker)
+        (#return (#if (#u64.== value 1u64) 42u64 0u64)))";
+    build_and_run(source, 42);
+}
+
+#[test]
 fn async_function_resumes_child_await_inside_for_with_local_initializer() {
     let source = "(#struct Child ((iteration u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

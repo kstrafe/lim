@@ -1773,11 +1773,6 @@ fn lower_async_for(
     if awaited_condition && loop_body.iter().any(has_await) {
         return Err("@async-fn #for condition and body cannot both suspend yet".into());
     }
-    if awaited_condition && loop_body.iter().any(contains_loop_control) {
-        return Err(
-            "@async-fn #for condition suspension does not yet support body loop transfers".into(),
-        );
-    }
     if form(initializer, "#let-else").is_some() {
         return Err("@async-fn #for await does not support #let-else initializers".into());
     }
@@ -1819,9 +1814,24 @@ fn lower_async_for(
         ]);
     }
 
+    if awaited_condition {
+        let terminal_index = loop_body.len().saturating_sub(1);
+        if loop_body[..terminal_index]
+            .iter()
+            .any(contains_loop_control)
+        {
+            return Err("@async-fn #for loop transfers must be terminal statements".into());
+        }
+        if loop_body.last().is_some_and(contains_loop_control) {
+            rewrite_for_terminal_control(loop_body.last_mut().unwrap(), &step)?;
+        } else {
+            loop_body.push(step.clone());
+        }
+    } else {
+        loop_body.push(step.clone());
+    }
     let mut while_items = vec![Expr::Symbol("#while".into()), condition];
     while_items.extend(loop_body);
-    while_items.push(step);
     let lowered_loop = Expr::List(while_items);
     let Some((mut replacement, helper, renames)) = lower_async_while(
         &lowered_loop,
@@ -1864,6 +1874,69 @@ fn contains_loop_control(expression: &Expr) -> bool {
     }
 }
 
+/// Preserve a C-style for-loop step when its final body form transfers control.
+/// A continue runs the step first, a break skips it, and ordinary branch exits
+/// run it before the next awaited condition.
+fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bool, String> {
+    if let Some(items) = form(expression, "#break") {
+        if items.len() != 1 {
+            return Err("@async-fn awaited #for does not support value-bearing #break".into());
+        }
+        return Ok(true);
+    }
+    if let Some(items) = form(expression, "#continue") {
+        if items.len() != 1 {
+            return Err("@async-fn awaited #for does not support labeled #continue".into());
+        }
+        *expression = Expr::List(vec![
+            Expr::Symbol("#block".into()),
+            step.clone(),
+            expression.clone(),
+        ]);
+        return Ok(true);
+    }
+    if let Some(items) = form(expression, "#block") {
+        if items.len() < 2 {
+            return Ok(false);
+        }
+        if items[1..items.len() - 1].iter().any(contains_loop_control) {
+            return Err("@async-fn awaited #for transfers must be terminal statements".into());
+        }
+        let last = items.len() - 1;
+        return rewrite_for_terminal_control(&mut expression_list_mut(expression)[last], step);
+    }
+    if let Some(items) = form(expression, "#if") {
+        if items.len() != 4 {
+            return Err("@async-fn awaited #for requires a complete terminal #if".into());
+        }
+        let mut has_transfer = false;
+        for branch_index in [2, 3] {
+            let branch = &mut expression_list_mut(expression)[branch_index];
+            if contains_loop_control(branch) {
+                has_transfer |= rewrite_for_terminal_control(branch, step)?;
+            } else {
+                *branch = Expr::List(vec![
+                    Expr::Symbol("#block".into()),
+                    branch.clone(),
+                    step.clone(),
+                ]);
+            }
+        }
+        return Ok(has_transfer);
+    }
+    if contains_loop_control(expression) {
+        return Err(
+            "@async-fn awaited #for only supports terminal #break/#continue or #if branches".into(),
+        );
+    }
+    *expression = Expr::List(vec![
+        Expr::Symbol("#block".into()),
+        expression.clone(),
+        step.clone(),
+    ]);
+    Ok(false)
+}
+
 /// Rewrite a terminal loop transfer after an await into state carried by the
 /// generated while loop. Only direct transfers and terminal #if branches are
 /// accepted; more complex control flow remains explicit and diagnosable.
@@ -1889,6 +1962,16 @@ fn rewrite_terminal_loop_control(expression: &mut Expr, done: &str) -> Result<bo
         }
         *expression = Expr::List(Vec::new());
         return Ok(true);
+    }
+    if let Some(items) = form(expression, "#block") {
+        if items.len() < 2 {
+            return Ok(false);
+        }
+        if items[1..items.len() - 1].iter().any(contains_loop_control) {
+            return Err("@async-fn awaited #loop transfers must be terminal statements".into());
+        }
+        let last = items.len() - 1;
+        return rewrite_terminal_loop_control(&mut expression_list_mut(expression)[last], done);
     }
     if let Some(items) = form(expression, "#if") {
         if items.len() != 4 {
