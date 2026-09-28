@@ -621,6 +621,10 @@ the checklist is committed alongside the implementation it tracks.
   indirect return storage. Preserve local and constructed values; exercise
   large static struct returns and nested aggregate layouts.
 
+- [x] **IR-02bm: Return global tuples by checked global identity.** Resolve
+  tuple sources by `GlobalId` for both register and indirect returns. Preserve
+  tuple locals and constructors; cover nested and multiword static tuples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

@@ -7716,26 +7716,28 @@ impl FunctionContext {
                 }
                 return Ok(());
             }
-            if matches!(
-                self.global_types.get(name),
-                Some(Type::Tuple(global_fields)) if global_fields == fields
-            ) {
-                for field in fields {
-                    let words = storage_word_count(field, &self.structs, &self.enums)?;
-                    if words == 0 {
-                        continue;
+            if let Some(global_name) = self.checked_global_name(value, name)? {
+                if matches!(
+                    self.global_types.get(&global_name),
+                    Some(Type::Tuple(global_fields)) if global_fields == fields
+                ) {
+                    for field in fields {
+                        let words = storage_word_count(field, &self.structs, &self.enums)?;
+                        if words == 0 {
+                            continue;
+                        }
+                        for word in 0..words {
+                            self.load_global_word(&global_name, offset + word)?;
+                            self.output.push_str(&format!(
+                                "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                                pointer_slot * 8,
+                                (offset + word) * 8
+                            ));
+                        }
+                        offset += words;
                     }
-                    for word in 0..words {
-                        self.load_global_word(name, offset + word)?;
-                        self.output.push_str(&format!(
-                            "    mov r11, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
-                            pointer_slot * 8,
-                            (offset + word) * 8
-                        ));
-                    }
-                    offset += words;
+                    return Ok(());
                 }
-                return Ok(());
             }
         }
         if let Expr::List(items) = value {
@@ -7767,18 +7769,20 @@ impl FunctionContext {
             return self.return_indirect_tuple_value(fields, value);
         }
         if let Expr::Symbol(name) = value {
-            if matches!(self.global_types.get(name), Some(Type::Tuple(global_fields)) if global_fields == fields)
-            {
-                if fields.len() > VALUE_REGISTERS.len() {
-                    return Err("native tuple return has too many fields".into());
+            if let Some(global_name) = self.checked_global_name(value, name)? {
+                if matches!(self.global_types.get(&global_name), Some(Type::Tuple(global_fields)) if global_fields == fields)
+                {
+                    if fields.len() > VALUE_REGISTERS.len() {
+                        return Err("native tuple return has too many fields".into());
+                    }
+                    let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                    for index in (0..words).rev() {
+                        let register = VALUE_REGISTERS[index];
+                        self.load_global_word(&global_name, index)?;
+                        self.output.push_str(&format!("    mov {register}, rax\n"));
+                    }
+                    return Ok(());
                 }
-                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
-                for index in (0..words).rev() {
-                    let register = VALUE_REGISTERS[index];
-                    self.load_global_word(name, index)?;
-                    self.output.push_str(&format!("    mov {register}, rax\n"));
-                }
-                return Ok(());
             }
             let Storage::Tuple(slots) = self
                 .local_storage(name)
