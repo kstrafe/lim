@@ -14,17 +14,22 @@ fn resolve_pin_slot_import(source: &str) -> String {
 fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
     let source = "(#import \"../library/pin_slot.lim\")
       (@pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take) u64)
-      (#struct Frame ((payload StableU64)))
+      (#struct Frame ((value u64) (view (#pin-ref u64)) (payload StableU64)))
       (#linear Frame)
       (#fn main () u64
+        (#let-mut outside u64 3u64)
+        (#let external (#pin-ref u64) (#pin-borrow outside))
         (#let-mut frame Frame
-          (#struct-literal Frame ((payload (StableU64-full 41u64)))))
+          (#struct-literal Frame
+            ((value 41u64) (view external) (payload (StableU64-full 1u64)))))
         (#let pinned (#pin-ref-mut Frame) (#pin-borrow-mut frame))
+        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#pin-set-field pinned view view)
         (#let slot StableU64
           (#unsafe
-          (#call stable-u64-take
-            (: slot (#pin-borrow-mut (#get pinned payload))))))
-        (#let value u64
+            (#call stable-u64-take
+              (: slot (#pin-borrow-mut (#get pinned payload))))))
+        (#let extracted u64
           (#match slot
             (#case (StableU64-full value) value)
             (#case StableU64-empty (#unreachable))))
@@ -36,9 +41,14 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
           (#case StableU64-empty true)
           (#case (StableU64-full unexpected)
             (#block (#forget unexpected) false))))
+        (#let observed u64 (#deref view))
+        (#pin-set-field pinned view external)
+        (#drop view)
         (#drop pinned)
         (#forget frame)
-        (#return value))";
+        (#drop external)
+        (#forget outside)
+        (#return (#u64.+.wrap observed extracted)))";
     let scratch = support::Scratch::new("pinned-linear-slot");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
@@ -71,7 +81,7 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
     );
     let (status, _, stderr) =
         support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
-    assert_eq!(status.code(), Some(41), "{stderr:?}");
+    assert_eq!(status.code(), Some(42), "{stderr:?}");
 }
 
 #[test]

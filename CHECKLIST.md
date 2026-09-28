@@ -1766,6 +1766,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Empty transition and reject taking the slot while it is borrowed. This is a
   storage primitive only; async-frame lowering must still use slots and order
   internal-reference cleanup before taking their referents.
+- [x] **ASYNC-01c2d: Keep disjoint self-references live across slot moves.**
+  Place a generated linear slot beside an owned referent and a self-reference
+  in a pinned struct. Move a value out of the slot while the reference into
+  the sibling referent remains live; prove the reference still reads the same
+  value, then clear it before consuming the owner. Preserve the separate
+  rejection of taking the slot through an overlapping live borrow.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
