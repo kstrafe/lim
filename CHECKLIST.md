@@ -433,7 +433,7 @@ the checklist is committed alongside the implementation it tracks.
   values, argument evaluation order, and ABI word order; test narrow and
   multiword argument layouts.
 
-- [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
+- [x] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
   fall back when a migrated node lacks type information. Acceptance: numeric
