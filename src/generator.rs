@@ -1329,6 +1329,11 @@ fn evaluate(
         "#gn-for-each" => {
             arity(operator, items, 4)?;
             let variable = symbol(items.get(1), "#gn-for-each binding")?.to_owned();
+            if environment.contains_key(&variable) {
+                return Err(format!(
+                    "#gn-for-each binding '{variable}' shadows an existing generator binding; shadowing is not allowed"
+                ));
+            }
             let list = syntax(evaluate(&items[2], environment, context)?, operator)?;
             let Expr::List(values) = list else {
                 return Err("#gn-for-each requires a list of syntax values".into());
@@ -1521,6 +1526,22 @@ fn expression_nodes(expression: &Expr) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generator_iteration_bindings_cannot_shadow_parameters_or_outer_bindings() {
+        for source in [
+            "(#gn bad (items) (#gn-for-each items items (#gn-first items))) (@bad (one))",
+            "(#gn bad (items) (#gn-for-each item items (#gn-for-each item items (#gn-first item)))) (@bad (one))",
+        ] {
+            let error = expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "")
+                .unwrap_err();
+            assert!(
+                error.message.contains("shadowing is not allowed"),
+                "source: {source}\nerror: {}",
+                error.message
+            );
+        }
+    }
 
     #[test]
     fn generator_parameter_forms_bind_one_name_each() {

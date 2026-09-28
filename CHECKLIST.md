@@ -3047,6 +3047,12 @@ commit, documentation, and focused regression coverage.
   one annotated parameter from two bare parameters and underline nested-list
   patterns. Syntax remains unchanged pending actual usage feedback.
 
+- [x] **GEN-API-02: Reject shadowing in generator iteration bindings.**
+  A `#gn-for-each` binding cannot reuse a generator parameter or an enclosing
+  iteration binding. Independent sibling expansions may reuse a name because
+  their lexical scopes do not overlap. Test parameter and nested-loop
+  collisions, alongside the language-wide no-shadowing rule.
+
 - [x] **SYS-01: Establish a target-specific syscall boundary for Lim libraries.**
   Establish an explicitly unsafe, typed primitive for the supported target,
   including register arguments, clobbers, errno representation, and source
