@@ -100,9 +100,7 @@ fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>,
             return Ok(None);
         };
         if protocol != else_protocol {
-            return Err(
-                "conditional #await branches must use the same result type, child type, variants, and poll function".into(),
-            );
+            return Ok(None);
         }
         return Ok(Some((
             protocol,
@@ -119,7 +117,7 @@ fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>,
         if items.len() < 3 {
             return Ok(None);
         }
-        let mut protocol = None;
+        let mut protocol: Option<AwaitProtocol> = None;
         let mut task_arms = Vec::with_capacity(items.len());
         task_arms.push(items[0].clone());
         task_arms.push(items[1].clone());
@@ -137,9 +135,7 @@ fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>,
                 .as_ref()
                 .is_some_and(|expected| expected != &case_protocol)
             {
-                return Err(
-                    "conditional #await branches must use the same result type, child type, variants, and poll function".into(),
-                );
+                return Ok(None);
             }
             protocol = Some(case_protocol);
             task_arms.push(Expr::List(vec![case[0].clone(), case[1].clone(), task]));
@@ -233,15 +229,16 @@ fn conditional_await_with_immediate(
     if branches.iter().any(|(branch_protocol, _)| {
         branch_protocol
             .as_ref()
-            .is_some_and(|branch_protocol| branch_protocol != &protocol)
+            .is_some_and(|branch_protocol| branch_protocol.result_type != protocol.result_type)
     }) {
-        return Err(
-            "conditional #await branches must use the same result type, child type, variants, and poll function".into(),
-        );
+        return Err("conditional #await branches must produce the same result type".into());
     }
     if branches
         .iter()
         .all(|(branch_protocol, _)| branch_protocol.is_some())
+        && branches
+            .iter()
+            .all(|(branch_protocol, _)| branch_protocol.as_ref() == Some(&protocol))
     {
         return Ok(None);
     }
@@ -253,34 +250,49 @@ fn conditional_await_with_immediate(
     let choice_pending = format!("{choice_task}-pending");
     let choice_ready = format!("{choice_task}-complete");
     let choice_poll = format!("{choice_task}-poll");
-    let child_type = expression_source(&protocol.child_type)?;
     let result_type = expression_source(&protocol.result_type)?;
-    let child_pending = expression_source(&protocol.pending)?;
-    let child_ready = expression_source(&protocol.ready)?;
-    let child_poll = expression_source(&protocol.poll)?;
+    let mut choice_variants = Vec::new();
+    let mut poll_arms = Vec::new();
+    let mut branch_waits = Vec::with_capacity(branches.len());
+    for (index, (branch_protocol, _)) in branches.iter().enumerate() {
+        if let Some(branch_protocol) = branch_protocol {
+            let variant = format!("{choice_wait}-{index}");
+            let child_type = expression_source(&branch_protocol.child_type)?;
+            let child_pending = expression_source(&branch_protocol.pending)?;
+            let child_ready = expression_source(&branch_protocol.ready)?;
+            let child_poll = expression_source(&branch_protocol.poll)?;
+            choice_variants.push(format!("({variant} {child_type})"));
+            poll_arms.push(format!(
+                "(#case ({variant} child)\n\
+                   (#match (#call {child_poll} (: task child : waker waker))\n\
+                     (#case ({child_pending} pending) ({choice_pending} ({variant} pending)))\n\
+                     (#case ({child_ready} value) ({choice_ready} value))))"
+            ));
+            branch_waits.push(Some(variant));
+        } else {
+            branch_waits.push(None);
+        }
+    }
+    choice_variants.push(format!("({choice_done} {result_type})"));
+    poll_arms.push(format!(
+        "(#case ({choice_done} value) ({choice_ready} value))"
+    ));
     let helper = format!(
-        "(#enum {choice_task} (({choice_wait} {child_type}) ({choice_done} {result_type})))\n\
+        "(#enum {choice_task} ({}))\n\
          (#linear {choice_task})\n\
          (#enum {choice_poll_result} (({choice_pending} {choice_task}) ({choice_ready} {result_type})))\n\
          (#fn {choice_poll} ((task {choice_task}) (waker (#ref {waker}))) {choice_poll_result}\n\
-           (#return (#match task\n\
-             (#case ({choice_wait} child)\n\
-               (#match (#call {child_poll} (: task child : waker waker))\n\
-                 (#case ({child_pending} pending) ({choice_pending} ({choice_wait} pending)))\n\
-                 (#case ({child_ready} value) ({choice_ready} value))))\n\
-             (#case ({choice_done} value) ({choice_ready} value)))))"
+           (#return (#match task {})))",
+        choice_variants.join(" "),
+        poll_arms.join(" "),
     );
-    let wrap = |protocol: Option<AwaitProtocol>, value: Expr| -> Expr {
-        let constructor = if protocol.is_some() {
-            &choice_wait
-        } else {
-            &choice_done
-        };
+    let wrap = |index: usize, value: Expr| -> Expr {
+        let constructor = branch_waits[index].as_ref().unwrap_or(&choice_done);
         Expr::List(vec![Expr::Symbol(constructor.clone()), value])
     };
     let selected = if is_if {
-        let then_branch = wrap(branches[0].0.clone(), branches[0].1.clone());
-        let else_branch = wrap(branches[1].0.clone(), branches[1].1.clone());
+        let then_branch = wrap(0, branches[0].1.clone());
+        let else_branch = wrap(1, branches[1].1.clone());
         Expr::List(vec![
             Expr::Symbol("#if".into()),
             condition_or_scrutinee,
@@ -289,12 +301,12 @@ fn conditional_await_with_immediate(
         ])
     } else {
         let mut items = vec![Expr::Symbol("#match".into()), condition_or_scrutinee];
-        for (branch_protocol, branch) in branches {
+        for (index, (_, branch)) in branches.into_iter().enumerate() {
             let Expr::List(mut case) = branch else {
                 unreachable!()
             };
             let value = case.pop().expect("case body");
-            case.push(wrap(branch_protocol, value));
+            case.push(wrap(index, value));
             items.push(Expr::List(case));
         }
         Expr::List(items)

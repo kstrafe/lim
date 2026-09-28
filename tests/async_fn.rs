@@ -604,7 +604,7 @@ fn async_conditional_choice_captures_and_releases_a_borrow_on_cancel() {
 }
 
 #[test]
-fn async_function_rejects_incompatible_conditional_awaits() {
+fn async_function_rejects_conditional_awaits_with_different_result_types() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64) (ChildAlternateReady u64)))
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
@@ -616,17 +616,76 @@ fn async_function_rejects_incompatible_conditional_awaits() {
           (#return (#if true
             (#await u64 Child ChildPending ChildReady child-poll (Waiting 1u64))
             (#await u64 Child ChildPending ChildAlternateReady child-poll-alt (Waiting 2u64)))))))";
-    let error = lim::parse_program(source).unwrap_err();
+    let mismatched = source.replace(
+        "#await u64 Child ChildPending ChildAlternateReady child-poll-alt",
+        "#await u32 Child ChildPending ChildAlternateReady child-poll-alt",
+    );
+    let error = lim::parse_program(&mismatched).unwrap_err();
     assert!(
-        error.contains("conditional #await branches must use the same"),
+        error.contains("conditional #await branches must produce the same result type"),
         "{error}"
     );
+}
 
-    let mixed = source.replace(
-        "(#await u64 Child ChildPending ChildAlternateReady child-poll-alt (Waiting 2u64))",
-        "2u64",
-    );
-    assert!(lim::parse_program(&mixed).is_ok());
+#[test]
+fn async_conditional_awaits_support_distinct_child_poll_protocols() {
+    let source = "(#enum LeftChild ((LeftWaiting u64)))
+      (#enum LeftPoll ((LeftPending LeftChild) (LeftReady u64)))
+      (#fn left-poll ((task LeftChild) (waker (#ref u64))) LeftPoll
+        (#return (#match task
+          (#case (LeftWaiting value)
+            (#if (#u64.== value 0u64)
+              (LeftPending (LeftWaiting 1u64))
+              (LeftReady value))))))
+      (#enum RightChild ((RightWaiting u64)))
+      (#enum RightPoll ((RightPending RightChild) (RightReady u64)))
+      (#fn right-poll ((task RightChild) (waker (#ref u64))) RightPoll
+        (#return (#match task (#case (RightWaiting value) (RightReady (#u64.+.wrap value 1u64))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((choose-left bool)) u64
+          (#return (#if choose-left
+            (#await u64 LeftChild LeftPending LeftReady left-poll (LeftWaiting 0u64))
+            (#await u64 RightChild RightPending RightReady right-poll (RightWaiting 2u64)))))))
+      (#enum Choice (Left Right))
+      (@async-fn (: names (MatchFrame MatchPoll MatchPending MatchReady match-poll) : waker u64 : function
+        (#fn work-match ((choice Choice)) u64
+          (#return (#match choice
+            (#case Left
+              (#await u64 LeftChild LeftPending LeftReady left-poll (LeftWaiting 0u64)))
+            (#case Right
+              (#await u64 RightChild RightPending RightReady right-poll (RightWaiting 2u64))))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let left-first Poll
+          (#call poll (: task (#call work (: choose-left true)) : waker (#borrow waker))))
+        (#let left Poll
+          (#match left-first
+            (#case (Pending task)
+              (#call poll (: task task : waker (#borrow waker))))
+            (#case (Ready value) (Ready value))))
+        (#let left-value u64
+          (#match left
+            (#case (Ready value) value)
+            (#case (Pending task) (#block (#forget task) (#unreachable)))))
+        (#let right Poll
+          (#call poll (: task (#call work (: choose-left false)) : waker (#borrow waker))))
+        (#let right-value u64
+          (#match right
+            (#case (Ready value) value)
+            (#case (Pending task) (#block (#forget task) (#unreachable)))))
+        (#let matched MatchPoll
+          (#call match-poll (: task (#call work-match (: choice Right)) : waker (#borrow waker))))
+        (#let matched-value u64
+          (#match matched
+            (#case (MatchReady value) value)
+            (#case (MatchPending task) (#block (#forget task) (#unreachable)))))
+        (#forget waker)
+        (#return (#u64.+.wrap (#u64.+.wrap left-value right-value) matched-value)))";
+    let generated = build_and_run(source, 7);
+    assert!(generated.contains("LeftChild"), "{generated}");
+    assert!(generated.contains("RightChild"), "{generated}");
+    assert!(generated.contains("left-poll"), "{generated}");
+    assert!(generated.contains("right-poll"), "{generated}");
 }
 
 #[test]

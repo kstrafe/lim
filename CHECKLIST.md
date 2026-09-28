@@ -1710,6 +1710,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   mutation while the generated choice task is Pending, and prove explicit
   cancellation releases the loan before owner mutation. Run the immediate
   branch natively and inspect the generated frame for the captured reference.
+- [x] **ASYNC-01b15: Join branch-specific child poll protocols.** Permit
+  conditional await branches to use different concrete child types, pending
+  and ready variants, and poll functions when their result type agrees. Emit a
+  concrete tagged choice task with per-branch polling and preserve each child
+  across Pending/resume. Reject branches with incompatible result types; test
+  distinct protocols natively across both Pending/resume and immediate Ready.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
