@@ -335,6 +335,7 @@ struct Context {
     typed_scope_escapes: bool,
     mutable_reference_types: HashSet<String>,
     program_items: Arc<Vec<Item>>,
+    typed_reborrow_parents: HashMap<usize, String>,
 }
 
 impl Loans {
@@ -674,6 +675,23 @@ fn check_program_impl(
     for item in &program.items {
         if let Item::Function(function) = item {
             if !function.external {
+                let typed_reborrow_parents = if let Some(declarations) = declarations {
+                    let body = declarations.bodies.get(&function.name).ok_or_else(|| {
+                        BorrowDiagnostic::from(format!(
+                            "internal error: typed body missing for '{}'",
+                            function.name
+                        ))
+                    })?;
+                    typed_reborrow_parents(
+                        function,
+                        body,
+                        declarations.flows.get(&function.name),
+                        &reference_types,
+                        &mutable_reference_types,
+                    )?
+                } else {
+                    HashMap::new()
+                };
                 check_function(
                     function,
                     program,
@@ -700,6 +718,7 @@ fn check_program_impl(
                             &program.items,
                         )),
                     declarations.is_some(),
+                    typed_reborrow_parents,
                 )?;
             }
         }
@@ -766,6 +785,7 @@ fn check_function(
     _statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
     typed_return_escapes: bool,
     typed_scope_escapes: bool,
+    typed_reborrow_parents: HashMap<usize, String>,
 ) -> Result<(), BorrowDiagnostic> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
@@ -829,6 +849,7 @@ fn check_function(
         typed_return_escapes,
         typed_scope_escapes,
         program_items: Arc::new(program.items.clone()),
+        typed_reborrow_parents,
     };
     for parameter in &function.parameters {
         if contains_reference_type(&parameter.ty, reference_types) {
@@ -886,7 +907,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             if !context.typed_scope_escapes {
                 ensure_origins_in_scope(&origins, context)?;
             }
-            let derived_parent = borrowed_field_parent(value);
+            let derived_parent = context_reborrow_parent(value, context);
             let contains_mutable_references = contains_mutable_reference(
                 ty,
                 &context.reference_types,
@@ -1629,7 +1650,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     } else {
                         LoanKind::Mutable
                     };
-                    let parent = borrowed_field_parent(expression);
+                    let parent = context_reborrow_parent(expression, context);
                     if let Some((base, path)) = projection_path(&items[1]) {
                         if path.is_empty() {
                             check_expression(&items[1], context)?;
@@ -2270,6 +2291,157 @@ fn projection_path(expression: &Expr) -> Option<(&Expr, Vec<String>)> {
         }
         _ => None,
     }
+}
+
+fn context_reborrow_parent(expression: &Expr, context: &Context) -> Option<String> {
+    if context.typed_scope_escapes {
+        return context
+            .typed_reborrow_parents
+            .get(&(std::ptr::from_ref(expression) as usize))
+            .cloned();
+    }
+    borrowed_field_parent(expression)
+}
+
+fn typed_reborrow_parents(
+    function: &Function,
+    body: &crate::typed_body::Body,
+    flow: Option<&crate::typed_flow::FlowGraph>,
+    reference_types: &HashSet<String>,
+    mutable_reference_types: &HashSet<String>,
+) -> Result<HashMap<usize, String>, String> {
+    let flow = flow.ok_or_else(|| {
+        format!(
+            "internal error: typed flow missing for '{}' while resolving reborrows",
+            function.name
+        )
+    })?;
+    let emission = body.emission_types(function)?;
+    let loan_origins = flow.loan_origins(body);
+    let mut parent_by_expression = HashMap::new();
+    for (index, node) in flow.nodes.iter().enumerate() {
+        let crate::typed_flow::FlowAction::Borrow { value, place, .. } = &node.action else {
+            continue;
+        };
+        let borrowed_from = loan_origins
+            .value_before(body, flow, crate::typed_flow::FlowNodeId(index), *value)
+            .into_iter()
+            .find_map(|origin| origin.borrowed_from);
+        if let Some(binding) = borrowed_from {
+            if let Some(binding_info) = body.bindings.get(binding.0) {
+                parent_by_expression.insert(
+                    body.nodes[value.0]
+                        .expression_id
+                        .expect("checked borrow expression identity"),
+                    binding_info.name.clone(),
+                );
+                continue;
+            }
+        }
+        let crate::typed_body::PlaceRoot::Local(binding) = place.root else {
+            continue;
+        };
+        let Some(binding_info) = body.bindings.get(binding.0) else {
+            continue;
+        };
+        let has_mutable_reference =
+            contains_mutable_reference(&binding_info.ty, reference_types, mutable_reference_types);
+        let mutable_slice = matches!(binding_info.ty, crate::Type::MutableSlice(_));
+        if !has_mutable_reference || (place.segments.is_empty() && !mutable_slice) {
+            continue;
+        }
+        let Some(expression_id) = body.nodes.get(value.0).and_then(|node| node.expression_id)
+        else {
+            continue;
+        };
+        parent_by_expression.insert(expression_id, binding_info.name.clone());
+    }
+    Ok(emission
+        .address_to_id
+        .into_iter()
+        .filter_map(|(address, expression_id)| {
+            parent_by_expression
+                .get(&expression_id)
+                .cloned()
+                .map(|parent| (address, parent))
+        })
+        .collect())
+}
+
+#[cfg(test)]
+#[test]
+fn projected_reborrow_parent_comes_from_checked_binding_identity() {
+    let source = "(#struct Pair ((left u64) (right u64)))
+      (#fn main () u64
+        (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
+        (#let parent (#ref-mut Pair) (#borrow-mut pair))
+        (#let child (#ref-mut u64) (#borrow-mut (#get parent left)))
+        (#drop child) (#drop parent) (#forget pair) (#return 0u64))";
+    let program = crate::parse_program(source).unwrap();
+    let checked = crate::CheckedProgram::validate(&program).unwrap();
+    let function = program
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) if function.name == "main" => Some(function),
+            _ => None,
+        })
+        .unwrap();
+    let body = &checked.declarations().bodies["main"];
+    let parents = typed_reborrow_parents(
+        function,
+        body,
+        checked.declarations().flows.get("main"),
+        &HashSet::new(),
+        &HashSet::new(),
+    )
+    .unwrap();
+    assert!(
+        typed_reborrow_parents(function, body, None, &HashSet::new(), &HashSet::new(),).is_err()
+    );
+    let Statement::Let { value, .. } = &function.body[2] else {
+        unreachable!()
+    };
+    assert_eq!(
+        parents
+            .get(&(std::ptr::from_ref(value) as usize))
+            .map(String::as_str),
+        Some("parent")
+    );
+
+    let slice_source = "(#fn main () u64
+      (#let-mut values (#array u64 2) (#array-of (#array u64 2) 1u64 2u64))
+      (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
+      (#let item (#ref-mut u64) (#slice-mut-idx view 0usize))
+      (#forget item) (#forget view) (#forget values) (#return 0u64))";
+    let slice_program = crate::parse_program(slice_source).unwrap();
+    let checked = crate::CheckedProgram::validate(&slice_program).unwrap();
+    let slice_function = slice_program
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) if function.name == "main" => Some(function),
+            _ => None,
+        })
+        .unwrap();
+    let body = &checked.declarations().bodies["main"];
+    let parents = typed_reborrow_parents(
+        slice_function,
+        body,
+        checked.declarations().flows.get("main"),
+        &HashSet::new(),
+        &HashSet::new(),
+    )
+    .unwrap();
+    let Statement::Let { value, .. } = &slice_function.body[2] else {
+        unreachable!()
+    };
+    assert_eq!(
+        parents
+            .get(&(std::ptr::from_ref(value) as usize))
+            .map(String::as_str),
+        Some("view")
+    );
 }
 
 fn borrowed_field_parent(expression: &Expr) -> Option<String> {

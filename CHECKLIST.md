@@ -485,6 +485,13 @@ the checklist is committed alongside the implementation it tracks.
   Checked referent/place transfer must ultimately replace the remaining
   syntax-side reborrow handling.
 
+- [x] **IR-04a: Resolve legacy reborrow parents from typed places.** For the
+  compatibility borrow checker used during normal compilation, associate each
+  borrow expression with its typed flow `Place` and recover projected parent
+  bindings from stable checked IDs. Keep syntax projection recovery only for
+  standalone legacy checks; test mutable field reborrows, disjoint siblings,
+  mutable slices, and failure when checked body/flow metadata is absent.
+
 - [x] **IR-04cw: Preserve direct-borrow operator spans in typed diagnostics.**
   Map two-argument `#borrow` and `#borrow-mut` loan origins to the operator
   token, just as scoped borrows already do. Test the exact source slice so
