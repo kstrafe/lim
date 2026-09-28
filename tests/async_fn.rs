@@ -426,6 +426,63 @@ fn async_function_rejects_incompatible_conditional_awaits() {
 }
 
 #[test]
+fn async_function_retains_external_borrows_across_pending() {
+    let source = "(#struct Waker ((count u64)))
+      (#enum Step ((Waiting u64)))
+      (#linear Step)
+      (#enum StepPoll ((StepPending Step) (StepReady u64)))
+      (#fn step-poll ((task Step) (waker (#ref Waker))) StepPoll
+        (#return (#match task
+          (#case (Waiting count)
+            (#if (#u64.== count 0u64)
+              (StepPending (Waiting 1u64))
+              (StepReady count))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function
+        (#fn read-after-await ((view (#ref u64))) u64
+          (#let result u64
+            (#await Step StepPending StepReady step-poll (Waiting 0u64)))
+          (#return (#u64.+.wrap (#deref view) result)))))
+      (#fn main () u64
+        (#let-mut owner u64 37u64)
+        (#let waker Waker (#struct-literal Waker ((count 0u64))))
+        (#let first Poll
+          (#call poll (: task (#call read-after-await (: view (#borrow owner)))
+            : waker (#borrow waker))))
+        (#let-else (Pending task) Poll first (#unreachable))
+        MUTATE_WHILE_PENDING
+        (#let second Poll
+          (#call poll (: task task : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending extra-task) (#block (#forget extra-task) (#unreachable)))))
+        (#forget waker)
+        (#return (#u64.+.wrap owner result)))";
+    let accepted = source.replace("MUTATE_WHILE_PENDING", "");
+    build_and_run(&accepted, 75);
+
+    let rejected = source.replace(
+        "MUTATE_WHILE_PENDING",
+        "(#set owner (#u64.+.wrap owner 1u64))",
+    );
+    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("mutate") || error.contains("loan"),
+        "{error}"
+    );
+
+    let escaping = accepted.replace(
+        "(#fn main () u64",
+        "(#fn escape () Frame\n          (#let owner u64 3u64)\n          (#return (#call read-after-await (: view (#borrow owner)))))\n      (#fn main () u64",
+    );
+    let error = lim::check_types(&lim::parse_program(&escaping).unwrap()).unwrap_err();
+    assert!(
+        error.contains("local") || error.contains("outlive") || error.contains("borrow"),
+        "{error}"
+    );
+}
+
+#[test]
 fn async_function_carries_mutable_locals_across_pending_resume() {
     let source = "(#struct Waker ((count u64)))
       (#enum Step ((Waiting u64)))

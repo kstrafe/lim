@@ -1645,6 +1645,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   explicitly typed child/pending/ready/poll protocol by selecting the concrete
   child first and suspending once. Diagnose partial or incompatible protocols;
   branch-specific poll protocols and immediate non-await arms remain open.
+- [x] **ASYNC-01b11: Preserve external borrows across suspension.** Infer a
+  live reference parameter into the generated frame, retain its caller loan
+  across Pending/resume, and reject mutation of the referent while suspended
+  or a returned task borrowing a local owner. This does not permit self-refs
+  or prove precise loan release at every Ready/cancellation join.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible
