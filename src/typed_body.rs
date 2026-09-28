@@ -35,6 +35,40 @@ mod tests {
     }
 
     #[test]
+    fn emission_metadata_retains_resolved_field_declaration_ids() {
+        let source = "(#struct Pair ((left u64) (right u64)))
+          (#fn read ((pair Pair)) u64 (#return (#get pair left)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let body = &declarations.bodies["read"];
+        let function = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "read" => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        let field = declarations
+            .field_id(&Type::Named("Pair".into()), "left")
+            .unwrap();
+        let declaration = DeclarationId::Field(field);
+        let node = body
+            .nodes
+            .iter()
+            .find(|node| matches!(node.kind, NodeKind::Declaration(id) if id == declaration))
+            .unwrap();
+        let expression_id = node.expression_id.unwrap();
+
+        let emission = body.emission_types(function).unwrap();
+        assert_eq!(
+            emission.by_id[&expression_id].declaration,
+            Some(declaration)
+        );
+    }
+
+    #[test]
     fn match_arms_use_the_checked_scrutinee_node_type() {
         let source = "(#enum Choice ((Value u64) Empty))
           (#fn main () u64
@@ -1000,6 +1034,7 @@ pub(crate) struct EmissionTypes {
 pub(crate) struct EmissionNode {
     pub ty: Option<Type>,
     pub binding: Option<BindingId>,
+    pub declaration: Option<DeclarationId>,
     pub literal: Option<Expr>,
     pub numeric: Option<NumericOperation>,
     pub callee: Option<FunctionId>,
@@ -1223,6 +1258,10 @@ impl Body {
                 NodeKind::Symbol { binding, .. } => *binding,
                 _ => None,
             };
+            let declaration = match &node.kind {
+                NodeKind::Declaration(id) => Some(*id),
+                _ => None,
+            };
             let literal = match &node.kind {
                 NodeKind::Literal(value) => Some(value.clone()),
                 NodeKind::Symbol {
@@ -1251,6 +1290,7 @@ impl Body {
                     EmissionNode {
                         ty: node.ty.clone(),
                         binding,
+                        declaration,
                         literal,
                         numeric,
                         callee,

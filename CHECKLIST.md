@@ -513,6 +513,12 @@ the checklist is committed alongside the implementation it tracks.
   consumption and preserve node order, contextual typing, generated/imported
   spans, and emission-bridge shape checks. The full serial test suite passes.
 
+- [x] **IR-02as: Preserve resolved declaration IDs in emission metadata.**
+  Carry resolved field, variant, aggregate, and global declaration identities
+  across the checked-body emission bridge instead of retaining only names.
+  Verify a field projection keeps its exact declaration ID under its stable
+  expression ID.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

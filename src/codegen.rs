@@ -5519,6 +5519,7 @@ fn checked_local_symbols_require_retained_types() {
     let checked = crate::typed_body::EmissionNode {
         ty: None,
         binding: Some(crate::typed_body::BindingId(0)),
+        declaration: None,
         literal: None,
         numeric: None,
         callee: None,
@@ -5713,6 +5714,7 @@ fn checked_numeric_expressions_require_retained_operations() {
     let missing = crate::typed_body::EmissionNode {
         ty: Some(Type::U64),
         binding: None,
+        declaration: None,
         literal: None,
         numeric: None,
         callee: None,
