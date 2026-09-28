@@ -1,0 +1,122 @@
+(#import "../library/tasks.lim")
+(#import "../library/local_waker.lim")
+(#import "../library/wake_ready4.lim")
+(#import "../library/async_poll4.lim")
+(#import "../library/timer_reactor1.lim")
+
+(#struct WakeExecutor ((queue WakeReady4)))
+(#struct WakeMetadata ((token WakeToken4)))
+(#struct WakeWaitContext ((sources (#slice AsyncPollSource4)) (waits u64)))
+(#linear WakeMetadata)
+
+(#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref WakeMetadata))) ()
+  (#assert (#call wake-ready4-notify
+    (: queue (#borrow (#get executor queue)) : token (#get metadata token))))
+  (#return ()))
+
+(#fn clone-metadata ((metadata (#ref WakeMetadata))) WakeMetadata
+  (#return (#struct-literal WakeMetadata ((token (#get metadata token))))))
+
+(#fn destroy-metadata
+  ((executor (#ref WakeExecutor)) (metadata WakeMetadata)) ()
+  (#forget metadata)
+  (#return ()))
+
+(@local-waker
+  (LocalWaker local-waker-create local-waker-wake
+    local-waker-wake-by-ref local-waker-clone local-waker-destroy)
+  (WakeExecutor WakeMetadata)
+  (notify clone-metadata destroy-metadata))
+
+(@task (JobTask JobPoll JobPending JobReady) u64
+  ((First u64) (Second u64)))
+
+(#fn job-poll ((task JobTask) (waker (#ref LocalWaker))) JobPoll
+  (#return (#match task
+    (#case (First remaining)
+      (#if (#u64.== remaining 0u64)
+        (JobReady 40u64)
+        (#block
+          (#call local-waker-wake-by-ref (: waker waker))
+          (#call local-waker-wake-by-ref (: waker waker))
+          (JobPending (First (#u64.-.wrap remaining 1u64))))))
+    (#case (Second remaining)
+      (#if (#u64.== remaining 0u64)
+        (JobReady 2u64)
+        (JobPending (Second (#u64.-.wrap remaining 1u64))))))))
+
+(#fn wait-ready ((context (#ref-mut WakeWaitContext))) u32
+  (#let waits (#ref-mut u64) (#borrow-mut (#get context waits)))
+  (#deref-set waits (#u64.+.wrap (#deref waits) 1u64))
+  (#drop waits)
+  (#let waited AsyncPoll4Result
+    (#call async-poll4-wait
+      (: sources (#get context sources) : timeout-ms -1i32)))
+  (#return (#match waited
+    (#case (AsyncPoll4Ready mask) mask)
+    (#case (AsyncPoll4Failed error) (#block (#forget error) (#unreachable))))))
+
+(@wake-executor run-jobs JobResults
+  JobTask JobPoll JobPending JobReady u64 job-poll LocalWaker
+  wait-ready (context (#ref-mut WakeWaitContext))
+  ((first-state first-task first-waker first 0u32)
+   (second-state second-task second-waker second 1u32)))
+
+(#fn main () u64
+  (#let timer-created TimerCreate1
+    (#call timer-reactor1-create (: nanoseconds 20000000u64)))
+  (#let-else (TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))
+  (#let queue WakeReady4 (#call wake-ready4-create (:)))
+  (#let-mut executor WakeExecutor (#struct-literal WakeExecutor ((queue queue))))
+  (#let executor-mut (#ref-mut WakeExecutor) (#borrow-mut executor))
+  (#let registration-first WakeRegister4
+    (#call wake-ready4-register
+      (: queue (#borrow-mut (#get executor-mut queue)) : slot 0usize)))
+  (#let-else (WakeRegistered4 first-token) WakeRegister4 registration-first
+    (#unreachable))
+  (#let registration-second WakeRegister4
+    (#call wake-ready4-register
+      (: queue (#borrow-mut (#get executor-mut queue)) : slot 1usize)))
+  (#let-else (WakeRegistered4 second-token) WakeRegister4 registration-second
+    (#unreachable))
+  (#drop executor-mut)
+  (#let executor-ref (#ref WakeExecutor) (#borrow executor))
+  (#let first-waker LocalWaker
+    (#call local-waker-create
+      (: executor executor-ref
+       : metadata (#struct-literal WakeMetadata ((token first-token))))))
+  (#let second-waker LocalWaker
+    (#call local-waker-create
+      (: executor executor-ref
+       : metadata (#struct-literal WakeMetadata ((token second-token))))))
+  (#let-mut wait-count u64 0u64)
+  (#let result JobResults
+    (#block
+      (#let first-source AsyncPollSource4
+        (#call async-poll4-source
+          (: fd -1i64 : queue (#borrow (#get executor-ref queue)) : token first-token)))
+      (#let second-source AsyncPollSource4
+        (#call timer-reactor1-source (: timer (#borrow timer))))
+      (#let source-array (#array AsyncPollSource4 2)
+        (#array-of (#array AsyncPollSource4 2) first-source second-source))
+      (#let sources (#slice AsyncPollSource4) (#slice-of (#borrow source-array)))
+      (#let-mut wait-context WakeWaitContext
+        (#struct-literal WakeWaitContext ((sources sources) (waits 0u64))))
+      (#let result JobResults
+        (#call run-jobs
+          (: first-task (First 1u64) : second-task (Second 1u64)
+           : first-waker (#borrow first-waker)
+           : second-waker (#borrow second-waker)
+           : context (#borrow-mut wait-context))))
+      (#let context-ref (#ref WakeWaitContext) (#borrow wait-context))
+      (#set wait-count (#get context-ref waits))
+      (#drop context-ref)
+      (#forget wait-context)
+      result))
+  (#assert (#u64.== wait-count 2u64))
+  (#let total u64 (#u64.+.wrap (#get result first) (#get result second)))
+  (#call local-waker-destroy (: waker first-waker))
+  (#call local-waker-destroy (: waker second-waker))
+  (#let timer-closed i64 (#call timer-reactor1-cancel (: timer timer)))
+  (#forget executor)
+  (#return (#if (#i64.== timer-closed 0i64) total 0u64)))

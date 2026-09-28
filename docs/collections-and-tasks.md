@@ -1,8 +1,9 @@
 # Collections and cooperative tasks
 
 These are initial, closed-world facilities. They do not implement dynamic
-plugins, a linker-section registration ABI, a work-stealing scheduler, an OS
-I/O reactor, or suspension at arbitrary points in ordinary functions.
+plugins, a linker-section registration ABI, a work-stealing scheduler, a
+general-purpose OS I/O reactor, or suspension at arbitrary points in ordinary
+functions.
 
 ## Frozen syntax collections
 
@@ -87,10 +88,10 @@ can also come from frozen syntax collections via an explicit
 The executor polls each pending job once per round using direct calls, retains
 completed results, and returns when every job is ready. Poll functions must
 return promptly for cooperative fairness. A permanently pending task keeps
-the executor running. This initial driver busy-polls: it has no wake queue,
-blocking I/O integration, timeout, or preemption. Task and result storage is
-inline; task implementations can still explicitly allocate if they choose.
-The local name `lim.executor.waiting` is reserved by this generator.
+the executor running. This basic driver busy-polls; use `@wake-executor` when
+tasks can register wake handles. Task and result storage is inline; task
+implementations can still explicitly allocate if they choose. The local name
+`lim.executor.waiting` is reserved by this generator.
 
 ## Bounded ready queue foundation
 
@@ -138,8 +139,9 @@ one bit, and a retired token cannot affect a reused slot. Registration and
 retirement require a mutable queue reference; notify and take use a shared
 one. The opaque queue is local-only, not a cross-thread notifier.
 `examples/wake_ready4.lim` covers capacity, duplicates, and stale handles;
-`examples/async_registered_wake.lim` connects it to `@async-wake`. There is
-still no non-busy wait, OS readiness, or general task scheduler.
+`examples/async_registered_wake.lim` connects it to `@async-wake`. The bounded
+`@wake-executor` below composes the ready set with task polling and blocking
+readiness.
 
 ## Borrowed local wakers
 
@@ -180,6 +182,39 @@ metadata should carry an opaque `WakeToken4` and validate it against live
 registration state. The `wake_ready4` protocol supplies a bounded ready set;
 the adapter alone does not provide OS I/O registration or non-busy waiting.
 See `examples/local_waker.lim` for a complete runnable example.
+
+## Wake-driven fixed task set
+
+Import `library/tasks.lim` and use `@wake-executor` when all task slots have the
+same concrete task, poll-result, output, and waker types:
+
+```lisp syntax
+(@wake-executor run-jobs JobResults
+  JobTask JobPoll JobPending JobReady u64 job-poll LocalWaker
+  wait-ready (sources (#slice AsyncPollSource4))
+  ((first-state first-task first-waker first 0u32)
+   (second-state second-task second-waker second 1u32)))
+```
+
+Each job descriptor names its generated poll-state local, task input, borrowed
+waker input, output field, and slot. Slots must be consecutive from zero and
+there may be one to four jobs. The generated function polls every task once at
+startup, then calls `wait-ready` only while tasks remain Pending. That function
+must block until at least one pending task is ready and return a `u32` mask;
+bit N selects slot N. The executor directly calls the named poll function only
+for selected pending slots, retains Ready values, and returns a concrete
+result struct once every task is Ready. Repeated wakes can coalesce into one
+bit. There are no function pointers, heap allocations, or worker threads.
+
+The wait context is an ordinary named function parameter, so callers can
+adapt `async-poll4-wait` or another bounded reactor without hidden global
+state. The callback owns its OS-error policy; the executor currently has no
+shutdown, timeout, or cancellation path for pending tasks. A wait callback
+that returns zero or a bit for no registered task can block forever or fail to
+make progress. Poll functions must return promptly, and the single-threaded
+executor does not preempt them. `examples/wake_executor.lim` demonstrates two
+tasks, per-task generational wake tokens, duplicate-wake coalescing, a blocking
+poll adapter, and explicit waker destruction.
 
 ## Explicit async composition
 

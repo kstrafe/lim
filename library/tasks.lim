@@ -65,6 +65,156 @@
       (#return (#struct-literal ,result
         ,(#gn-for-each job jobs (#gn-call executor-result job)))))))
 
+;; A wake-driven executor for up to four homogeneous task slots. Each job is
+;; (state-name task-parameter waker-parameter result-field slot-u32). Poll and
+;; wait functions are statically named; no function pointers are generated.
+;; The wait function must block until at least one task is ready and return a
+;; mask whose bit N identifies slot N. Wakes may coalesce in that mask.
+(#gn-fn wake-executor-state-name (job) (#gn-first job))
+(#gn-fn wake-executor-task-parameter (job) (#gn-call task-second job))
+(#gn-fn wake-executor-waker-parameter (job) (#gn-call task-third job))
+(#gn-fn wake-executor-result-field (job) (#gn-call task-fourth job))
+(#gn-fn wake-executor-slot (job)
+  (#gn-if (#gn-equal (#gn-call task-fifth job) 0u32)
+    0u32
+    (#gn-if (#gn-equal (#gn-call task-fifth job) 1u32)
+      1u32
+      (#gn-if (#gn-equal (#gn-call task-fifth job) 2u32)
+        2u32
+        (#gn-if (#gn-equal (#gn-call task-fifth job) 3u32)
+          3u32
+          (#gn-error "@wake-executor task slot must be 0u32 through 3u32"))))))
+
+(#gn-fn wake-executor-slots-valid (jobs)
+  (#gn-if (#gn-equal (#gn-length jobs) 1)
+    (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-first jobs)) 0u32)
+      valid invalid)
+    (#gn-if (#gn-equal (#gn-length jobs) 2)
+      (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-first jobs)) 0u32)
+        (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-call task-second jobs)) 1u32)
+          valid invalid)
+        invalid)
+      (#gn-if (#gn-equal (#gn-length jobs) 3)
+        (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-first jobs)) 0u32)
+          (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-call task-second jobs)) 1u32)
+            (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-call task-third jobs)) 2u32)
+              valid invalid)
+            invalid)
+          invalid)
+        (#gn-if (#gn-equal (#gn-length jobs) 4)
+          (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-first jobs)) 0u32)
+            (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-call task-second jobs)) 1u32)
+              (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-call task-third jobs)) 2u32)
+                (#gn-if (#gn-equal (#gn-call wake-executor-slot (#gn-call task-fourth jobs)) 3u32)
+                  valid invalid)
+                invalid)
+              invalid)
+            invalid)
+          invalid)))))
+
+(#gn-fn wake-executor-field (result-type job)
+  `(,(#gn-call wake-executor-result-field job) ,result-type))
+
+(#gn-fn wake-executor-task-parameter-form (task-type job)
+  `(,(#gn-call wake-executor-task-parameter job) ,task-type))
+
+(#gn-fn wake-executor-waker-parameter-form (waker-type job)
+  `(,(#gn-call wake-executor-waker-parameter job) (#ref ,waker-type)))
+
+(#gn-fn wake-executor-initialize (task-type poll-type pending job)
+  `(#let-mut ,(#gn-call wake-executor-state-name job) ,poll-type
+     (,pending ,(#gn-call wake-executor-task-parameter job))))
+
+(#gn-fn wake-executor-poll (poll-type pending ready result-type poll-function job)
+  `(#set ,(#gn-call wake-executor-state-name job)
+     (#match ,(#gn-call wake-executor-state-name job)
+       (#case (,pending lim.wake-executor.task)
+         (#if (#u32.!=
+                (#u32.& lim.wake-executor.ready-mask
+                  (#u32.<< 1u32 ,(#gn-call wake-executor-slot job)))
+                0u32)
+           (#block
+             (#let lim.wake-executor.next ,poll-type
+               (#call ,poll-function
+                 (: task lim.wake-executor.task
+                  : waker ,(#gn-call wake-executor-waker-parameter job))))
+             (#match lim.wake-executor.next
+               (#case (,pending lim.wake-executor.pending-task)
+                 (#block
+                   (#set lim.wake-executor.waiting true)
+                   (,pending lim.wake-executor.pending-task)))
+               (#case (,ready lim.wake-executor.value)
+                 (,ready lim.wake-executor.value))))
+           (#block
+             (#set lim.wake-executor.waiting true)
+             (,pending lim.wake-executor.task))))
+       (#case (,ready lim.wake-executor.value)
+         (,ready lim.wake-executor.value)))))
+
+(#gn-fn wake-executor-result (poll-type pending ready job)
+  `(,(#gn-call wake-executor-result-field job)
+     (#match ,(#gn-call wake-executor-state-name job)
+       (#case (,ready lim.wake-executor.value) lim.wake-executor.value)
+       (#case (,pending lim.wake-executor.task)
+         (#block (#forget lim.wake-executor.task) (#unreachable))))))
+
+(#gn wake-executor
+  (run result task poll pending ready result-type poll-function waker-type
+    wait-function wait-parameter jobs)
+  (#gn-if (#gn-equal (#gn-length jobs) 0)
+    (#gn-error "@wake-executor requires one to four task jobs")
+    (#gn-if (#gn-equal (#gn-length jobs) 1)
+      (#gn-call wake-executor-generate
+        run result task poll pending ready result-type poll-function waker-type
+        wait-function wait-parameter jobs)
+      (#gn-if (#gn-equal (#gn-length jobs) 2)
+        (#gn-call wake-executor-generate
+          run result task poll pending ready result-type poll-function waker-type
+          wait-function wait-parameter jobs)
+        (#gn-if (#gn-equal (#gn-length jobs) 3)
+          (#gn-call wake-executor-generate
+            run result task poll pending ready result-type poll-function waker-type
+            wait-function wait-parameter jobs)
+          (#gn-if (#gn-equal (#gn-length jobs) 4)
+            (#gn-call wake-executor-generate
+              run result task poll pending ready result-type poll-function waker-type
+              wait-function wait-parameter jobs)
+            (#gn-error "@wake-executor supports at most four task jobs")))))))
+
+(#gn-fn wake-executor-generate
+  (run result task poll pending ready result-type poll-function waker-type
+    wait-function wait-parameter jobs)
+  (#gn-if (#gn-equal (#gn-call wake-executor-slots-valid jobs) valid)
+  `((#struct ,result
+        ,(#gn-for-each job jobs (#gn-call wake-executor-field result-type job)))
+      (#fn ,run
+        (,@(#gn-for-each job jobs
+             (#gn-call wake-executor-task-parameter-form task job))
+         ,@(#gn-for-each job jobs
+             (#gn-call wake-executor-waker-parameter-form waker-type job))
+         ,wait-parameter)
+        ,result
+        ,@(#gn-for-each job jobs
+             (#gn-call wake-executor-initialize task poll pending job))
+        (#let-mut lim.wake-executor.ready-mask u32 15u32)
+        (#let-mut lim.wake-executor.waiting bool true)
+        (#while lim.wake-executor.waiting
+          (#set lim.wake-executor.waiting false)
+          ,@(#gn-for-each job jobs
+               (#gn-call wake-executor-poll
+                 poll pending ready result-type poll-function job))
+          (#if lim.wake-executor.waiting
+            (#block
+              (#set lim.wake-executor.ready-mask
+                (#call ,wait-function
+                  (: ,(#gn-first wait-parameter) ,(#gn-first wait-parameter))))
+              ())
+            ()))
+        (#return (#struct-literal ,result
+          ,(#gn-for-each job jobs
+               (#gn-call wake-executor-result poll pending ready job))))))
+    (#gn-error "@wake-executor slots must be consecutive from 0u32")))
+
 ;; Explicit async composition. Names: (Task Poll Pending Ready poll-function).
 ;; Each stage is (State (#await ChildTask Pending Ready poll) continuation).
 ;; A continuation is (#then NextState start-next) or (#return).
