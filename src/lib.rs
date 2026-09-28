@@ -10449,7 +10449,7 @@ mod tests {
     }
 
     #[test]
-    fn allows_parameters_to_shadow_globals() {
+    fn rejects_parameters_that_shadow_globals() {
         let error = parse_program(
             "(#let value u64 10) (#fn read ((value u64)) u64 (#return value)) (#fn main () u64 (#return (#call read (: value 42))))",
         )
@@ -10458,7 +10458,7 @@ mod tests {
     }
 
     #[test]
-    fn allows_match_bindings_to_shadow_outer_locals() {
+    fn rejects_match_bindings_that_shadow_outer_locals() {
         let error = parse_program(
             "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#let value u64 40) (#return (#match (Some 1) (#case (Some value) (#u64.+.wrap value 1)) (#case None value))))",
         )

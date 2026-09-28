@@ -149,6 +149,16 @@ fn local_bindings_may_not_shadow_visible_names() {
 }
 
 #[test]
+fn sibling_scopes_may_reuse_local_names() {
+    let source = "(#fn main () u64
+      (#let first u64 (#block (#let value u64 1u64) value))
+      (#let second u64 (#block (#let value u64 2u64) value))
+      (#return (#u64.+.wrap first second)))";
+    let program = lim::parse_program(source).unwrap();
+    assert!(lim::check_types(&program).is_ok());
+}
+
+#[test]
 fn actual_static_access_still_requires_unsafe_and_points_at_its_name() {
     let scratch = support::Scratch::new("static-unsafe");
     let source = "(#static TOTAL u64 40u64)\n(#fn main () u64 (#return TOTAL))";
