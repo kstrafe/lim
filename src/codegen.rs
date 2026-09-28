@@ -8024,7 +8024,7 @@ impl FunctionContext {
     }
 
     fn store_struct(&mut self, name: &str, struct_name: &str, value: &Expr) -> Result<(), String> {
-        let Some(Storage::Struct(slots)) = self.locals.get(name).cloned() else {
+        let Some(Storage::Struct(slots)) = self.local_storage(name).cloned() else {
             return Err(format!("'{name}' is not a struct"));
         };
         let fields = self
@@ -8115,7 +8115,7 @@ impl FunctionContext {
         let Some(Storage::Enum {
             discriminant,
             payload,
-        }) = self.locals.get(name).cloned()
+        }) = self.local_storage(name).cloned()
         else {
             return Err(format!("'{name}' is not a payload enum"));
         };
@@ -8280,14 +8280,13 @@ impl FunctionContext {
 
     fn store_tuple(&mut self, name: &str, value: &Expr) -> Result<(), String> {
         let Storage::Tuple(slots) = self
-            .locals
-            .get(name)
+            .local_storage(name)
             .ok_or_else(|| format!("unknown tuple local '{name}'"))?
         else {
             return Err(format!("'{name}' is not a tuple"));
         };
         let slots = slots.clone();
-        let fields = match self.local_types.get(name).cloned() {
+        let fields = match self.local_type(name).cloned() {
             Some(Type::Tuple(fields)) => fields,
             _ => return Err(format!("'{name}' is not a tuple")),
         };
@@ -8394,16 +8393,14 @@ impl FunctionContext {
             length,
             element_words,
         } = self
-            .locals
-            .get(name)
+            .local_storage(name)
             .ok_or_else(|| format!("unknown array '{name}'"))?
         else {
             return Err(format!("'{name}' is not an array"));
         };
         let (base, length, element_words) = (*base, *length, *element_words);
         let array_type = self
-            .local_types
-            .get(name)
+            .local_type(name)
             .cloned()
             .ok_or_else(|| format!("unknown array local '{name}'"))?;
         let Type::Array(element_type, declared_length) = &array_type else {

@@ -339,6 +339,11 @@ the checklist is committed alongside the implementation it tracks.
   or projecting oversized aggregate fields. Preserve global and synthesized
   expression paths; cover nested tuple, array, and struct values.
 
+- [x] **IR-02u: Resolve aggregate local destinations by identity.** Select
+  struct, enum, tuple, and array storage for initialization and assignment via
+  the checked destination binding, not the spelling-keyed compatibility map.
+  Keep source-expression resolution independent and test aggregate mutations.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
