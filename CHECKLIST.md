@@ -390,6 +390,11 @@ the checklist is committed alongside the implementation it tracks.
   local array base through the checked `BindingId`. Preserve globals and
   synthesized array expressions; add a large-element indexing regression.
 
+- [x] **IR-02ae: Resolve local array indexing by identity.** Read the base,
+  length, and element layout from the checked local binding rather than the
+  spelling-keyed storage map. Keep global arrays and computed array expressions
+  separate, and verify bounds checks plus scalar/aggregate element reads.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

@@ -10222,24 +10222,27 @@ impl FunctionContext {
             }
             return Ok(());
         }
+        let local_storage = self
+            .local_storage_for_symbol(&items[1], name)?
+            .ok_or_else(|| format!("unknown array '{name}'"))?;
         let Storage::Array {
             base,
             element_words,
             ..
-        } = self
-            .locals
-            .get(name)
-            .ok_or_else(|| format!("unknown array '{name}'"))?
+        } = &local_storage
         else {
             return Err(format!("'{name}' is not an array"));
         };
         let base = *base;
         let element_words = *element_words;
-        let Storage::Array { length, .. } = self.locals.get(name).unwrap() else {
+        let Storage::Array { length, .. } = &local_storage else {
             unreachable!()
         };
         let length = *length;
-        let element_type = match self.local_types.get(name).cloned() {
+        let element_type = match self
+            .expression_type(&items[1])
+            .or_else(|| self.local_type(name).cloned())
+        {
             Some(Type::Array(element, _)) => *element,
             _ => return Err(format!("'{name}' is not an array")),
         };
