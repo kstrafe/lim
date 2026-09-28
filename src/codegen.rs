@@ -14573,10 +14573,15 @@ impl FunctionContext {
                     self.local_storage_for_symbol(&items[1], name)?
                 {
                     Some(Source::Local(base))
-                } else if matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) {
-                    Some(Source::Global(name.clone()))
                 } else {
-                    None
+                    self.checked_global_name(&items[1], name)?
+                        .filter(|global_name| {
+                            matches!(
+                                self.globals.get(global_name),
+                                Some(GlobalValue::Aggregate(_))
+                            )
+                        })
+                        .map(Source::Global)
                 }
             }
             Expr::List(call_items) => match call_items.first() {
@@ -14723,10 +14728,15 @@ impl FunctionContext {
                 if self.is_local_symbol_expression(&items[1], name) {
                     let slots = self.local_slots_for_symbol(&items[1], name)?;
                     Some(Source::Slots(slots))
-                } else if matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) {
-                    Some(Source::Global(name.clone()))
                 } else {
-                    None
+                    self.checked_global_name(&items[1], name)?
+                        .filter(|global_name| {
+                            matches!(
+                                self.globals.get(global_name),
+                                Some(GlobalValue::Aggregate(_))
+                            )
+                        })
+                        .map(Source::Global)
                 }
             }
             Expr::List(call_items) => match call_items.first() {

@@ -655,6 +655,11 @@ the checklist is committed alongside the implementation it tracks.
   for pattern matching. Preserve local and computed scrutinees; cover payload
   enums and nested/multiword aggregate patterns.
 
+- [x] **IR-02bt: Project large global aggregates by checked identity.** Use
+  `GlobalId` to select static sources in oversized array-index and struct/tuple
+  field projections. Preserve local and computed sources; validate large
+  nested projections and bounds behavior.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
