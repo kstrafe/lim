@@ -272,6 +272,90 @@ fn async_function_awaits_directly_in_explicit_return() {
 }
 
 #[test]
+fn async_function_extracts_typed_awaits_from_value_expressions() {
+    let source = "(#struct Waker ((count u64)))
+      (#enum Child ((Waiting u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref Waker))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildReady value)))))
+      (#fn sum ((a u64) (b u64)) u64 (#return (#u64.+.wrap a b)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function
+        (#fn work () u64
+          (#let result u64 (#call sum (:
+            b (#await u64 Child ChildPending ChildReady child-poll (Waiting 20u64))
+            : a (#await u64 Child ChildPending ChildReady child-poll (Waiting 10u64)))))
+          (#return result))))
+      (#fn main () u64
+        (#let waker Waker (#struct-literal Waker ((count 0u64))))
+        (#let outcome Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let result u64
+          (#match outcome
+            (#case (Ready value) value)
+            (#case (Pending task) (#block (#forget task) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 30);
+    assert!(
+        generated.contains("lim.async.nested-await-0"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("lim.async.nested-await-1"),
+        "{generated}"
+    );
+}
+
+#[test]
+fn async_function_requires_types_for_nested_awaits() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll (#return (ChildReady 1u64)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#return (#u64.+.wrap
+            (#await Child ChildPending ChildReady child-poll (Waiting 0u64))
+            1u64)))))";
+    let error = lim::parse_program(source).unwrap_err();
+    assert!(
+        error.contains("nested #await requires an explicit result type"),
+        "{error}"
+    );
+}
+
+#[test]
+fn async_function_extracts_awaits_from_keyed_struct_literals() {
+    let source = "(#struct Waker ((count u64)))
+      (#struct Pair ((left u64) (right u64)))
+      (#enum Child ((Waiting u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref Waker))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function
+        (#fn work () Pair
+          (#let result Pair (#struct-literal Pair
+            ((right (#await u64 Child ChildPending ChildReady child-poll (Waiting 20u64)))
+             (left (#await u64 Child ChildPending ChildReady child-poll (Waiting 10u64))))))
+          (#return result))))
+      (#fn main () u64
+        (#let waker Waker (#struct-literal Waker ((count 0u64))))
+        (#let outcome Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let result u64
+          (#match outcome
+            (#case (Ready pair)
+              (#u64.+.wrap (#get pair left) (#u64.*.wrap 2u64 (#get pair right))))
+            (#case (Pending task) (#block (#forget task) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    build_and_run(source, 50);
+}
+
+#[test]
 fn async_function_carries_mutable_locals_across_pending_resume() {
     let source = "(#struct Waker ((count u64)))
       (#enum Step ((Waiting u64)))

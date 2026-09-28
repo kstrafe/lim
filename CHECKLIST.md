@@ -1635,6 +1635,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   values must be consumed before suspension, and same-spelled parameter/field
   labels do not cause false captures. This syntax-level pass remains a
   restricted precursor to full CFG liveness in ASYNC-01b.
+- [x] **ASYNC-01b9: Extract typed awaits from eager value expressions.** Allow
+  nested `#await` in value-producing forms by requiring its result type
+  explicitly, then lower awaits left-to-right into ordinary concrete stages.
+  Preserve call/constructor argument evaluation order; keep awaits in
+  conditional control flow rejected until branch-state lowering exists.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible

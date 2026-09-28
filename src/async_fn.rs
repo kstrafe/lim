@@ -57,6 +57,163 @@ fn has_await(expr: &Expr) -> bool {
     }
 }
 
+fn extract_nested_awaits(
+    expression: &mut Expr,
+    generated: &mut Vec<Expr>,
+    source: &str,
+    next_name: &mut usize,
+) -> Result<(), String> {
+    if let Some(await_form) = form(expression, "#await") {
+        if await_form.len() != 7 {
+            return Err(
+                "nested #await requires an explicit result type: (#await Type Child Pending Ready poll task)"
+                    .into(),
+            );
+        }
+        parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+        let result_type = await_form[1].clone();
+        let normalized_await = Expr::List(
+            std::iter::once(Expr::Symbol("#await".into()))
+                .chain(await_form[2..].iter().cloned())
+                .collect(),
+        );
+        let name = loop {
+            let name = format!("lim.async.nested-await-{}", *next_name);
+            *next_name += 1;
+            if !source.contains(&name) {
+                break name;
+            }
+        };
+        generated.push(Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol(name.clone()),
+            result_type,
+            normalized_await,
+        ]));
+        *expression = Expr::Symbol(name);
+        return Ok(());
+    }
+
+    let contains_await = has_await(expression);
+    match expression {
+        Expr::List(items) => {
+            let Some(Expr::Symbol(head)) = items.first() else {
+                for item in items {
+                    extract_nested_awaits(item, generated, source, next_name)?;
+                }
+                return Ok(());
+            };
+            if matches!(head.as_str(), "#if" | "#match" | "#block") && contains_await {
+                return Err(format!(
+                    "@async-fn awaits inside #if/#match/#block are not lowered yet"
+                ));
+            }
+            match head.as_str() {
+                "#quote" | "quote" | "#quasiquote" | "quasiquote" => return Ok(()),
+                "#call" | "call" if items.len() == 3 => {
+                    if let Expr::List(arguments) = &mut items[2] {
+                        for argument in arguments {
+                            if let Expr::List(pair) = argument {
+                                if let Some(value) = pair.get_mut(1) {
+                                    extract_nested_awaits(value, generated, source, next_name)?;
+                                }
+                            }
+                        }
+                    }
+                }
+                "#struct-literal" | "struct-literal" if items.len() == 3 => {
+                    if let Expr::List(fields) = &mut items[2] {
+                        for field in fields {
+                            if let Expr::List(pair) = field {
+                                if let Some(value) = pair.get_mut(1) {
+                                    extract_nested_awaits(value, generated, source, next_name)?;
+                                }
+                            }
+                        }
+                    }
+                }
+                "#array" | "array" | "#array-of" | "array-of" | "#tuple" | "tuple" => {
+                    let start = if items
+                        .get(1)
+                        .is_some_and(|ty| parse_type(Some(&normalize_keywords(ty.clone()))).is_ok())
+                    {
+                        2
+                    } else {
+                        1
+                    };
+                    for item in items.iter_mut().skip(start) {
+                        extract_nested_awaits(item, generated, source, next_name)?;
+                    }
+                }
+                _ => {
+                    for item in items.iter_mut().skip(1) {
+                        extract_nested_awaits(item, generated, source, next_name)?;
+                    }
+                }
+            }
+        }
+        Expr::Block(_) | Expr::Loop(_) if contains_await => {
+            return Err("@async-fn cannot lower suspension inside #block or #loop yet".into());
+        }
+        Expr::Labeled { expression, .. } => {
+            extract_nested_awaits(expression, generated, source, next_name)?;
+        }
+        Expr::Unquote(value) | Expr::UnquoteSplicing(value) => {
+            extract_nested_awaits(value, generated, source, next_name)?;
+        }
+        Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::Block(_) | Expr::Loop(_) => {}
+        Expr::Integer(_)
+        | Expr::UnsignedInteger(_)
+        | Expr::Float(_)
+        | Expr::Char(_)
+        | Expr::String(_)
+        | Expr::Symbol(_)
+        | Expr::At => {}
+    }
+    Ok(())
+}
+
+fn extract_statement_awaits(
+    statement: &mut Expr,
+    generated: &mut Vec<Expr>,
+    source: &str,
+    next_name: &mut usize,
+) -> Result<(), String> {
+    if !has_await(statement) {
+        return Ok(());
+    }
+    if is_control_flow_statement(statement) {
+        return Err("@async-fn awaits inside #if/#match/#block are not lowered yet".into());
+    }
+    if let Some(items) = form(statement, "#let")
+        .or_else(|| form(statement, "#let-mut"))
+        .or_else(|| form(statement, "let"))
+        .or_else(|| form(statement, "let-mut"))
+    {
+        if form(&items[3], "#await").is_some() {
+            return Ok(());
+        }
+        let Expr::List(items) = statement else {
+            unreachable!()
+        };
+        extract_nested_awaits(&mut items[3], generated, source, next_name)?;
+    } else if let Some(items) = form(statement, "#return") {
+        if items.len() == 2 && form(&items[1], "#await").is_some() {
+            return Ok(());
+        }
+        let Expr::List(items) = statement else {
+            unreachable!()
+        };
+        if items.len() != 2 {
+            return Err("@async-fn #return requires exactly one value".into());
+        }
+        extract_nested_awaits(&mut items[1], generated, source, next_name)?;
+    } else {
+        extract_nested_awaits(statement, generated, source, next_name)?;
+    }
+    Ok(())
+}
+
 fn mutable_assignment_target(expr: &Expr) -> Option<&str> {
     let Expr::List(items) = expr else {
         return None;
@@ -223,27 +380,46 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     if last.len() != 2 {
         return Err("@async-fn final #return requires exactly one value".into());
     }
-    let return_await = form(&last[1], "#await");
-    if has_await(&last[1]) && return_await.is_none() {
-        return Err(
-            "@async-fn supports #await directly in #return, not nested within another expression"
-                .into(),
-        );
-    }
-    let returned = if return_await.is_some() {
-        "lim.async.return-value".to_owned()
-    } else {
-        expression_source(&last[1])?
-    };
+    let return_await = form(&last[1], "#await").map(<[Expr]>::to_vec);
+    let mut return_value = last[1].clone();
+    let source = expression_source(&invocation[4])?;
     let mut statements = body[..body.len() - 1].to_vec();
-    if let Some(await_expression) = return_await {
+    let mut next_nested_await = 0;
+    let mut lowered_statements = Vec::new();
+    for mut statement in statements {
+        let mut generated = Vec::new();
+        extract_statement_awaits(
+            &mut statement,
+            &mut generated,
+            &source,
+            &mut next_nested_await,
+        )?;
+        lowered_statements.extend(generated);
+        lowered_statements.push(statement);
+    }
+    statements = lowered_statements;
+    if let Some(await_expression) = &return_await {
         statements.push(Expr::List(vec![
             Expr::Symbol("#let".into()),
             Expr::Symbol("lim.async.return-value".into()),
             function[3].clone(),
-            Expr::List(await_expression.to_vec()),
+            Expr::List(await_expression.clone()),
         ]));
+    } else {
+        let mut generated = Vec::new();
+        extract_nested_awaits(
+            &mut return_value,
+            &mut generated,
+            &source,
+            &mut next_nested_await,
+        )?;
+        statements.extend(generated);
     }
+    let returned = if return_await.is_some() {
+        "lim.async.return-value".to_owned()
+    } else {
+        expression_source(&return_value)?
+    };
     let mut stages = Vec::new();
     let mut prefix = Vec::new();
     for (source_index, statement) in statements.iter().enumerate() {
@@ -340,7 +516,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             collect_value_names(statement, &mut live);
         }
         if return_await.is_none() {
-            collect_value_names(&last[1], &mut live);
+            collect_value_names(&return_value, &mut live);
         }
         stage.captures = stage
             .available
