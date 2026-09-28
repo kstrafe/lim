@@ -563,6 +563,11 @@ the checklist is committed alongside the implementation it tracks.
   `VariantId`, checking each owner against the matched enum. Preserve payload
   binding layout and validate the complete native-example corpus.
 
+- [x] **IR-02bb: Borrow enum payloads by checked variant identity.** Resolve
+  the `#borrow` projection's variant through its `VariantId` and validate
+  its owner against the referenced enum before selecting the payload offset.
+  Preserve native payload-borrow and projection behavior.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

@@ -9190,18 +9190,18 @@ impl FunctionContext {
                         .map_err(|_| "enum payload index is too large".to_owned())?,
                     _ => return Err("enum payload borrow requires a non-negative index".into()),
                 };
-                let variant = self
-                    .enums
-                    .get(&enum_name)
-                    .ok_or_else(|| format!("unknown enum '{enum_name}'"))?
-                    .iter()
-                    .find(|variant| variant.name == *variant_name)
-                    .cloned()
+                let (variant_owner, discriminant, fields) = self
+                    .enum_variant_info(&place[2], variant_name)?
                     .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
-                let _field_type = variant.fields.get(index).ok_or_else(|| {
+                if variant_owner != enum_name {
+                    return Err(
+                        "internal error: checked payload-borrow variant owner changed".into(),
+                    );
+                }
+                let _field_type = fields.get(index).ok_or_else(|| {
                     format!("variant '{variant_name}' has no payload field at index {index}")
                 })?;
-                let payload_offset = 1 + variant.fields[..index]
+                let payload_offset = 1 + fields[..index]
                     .iter()
                     .map(|field| storage_word_count(field, &self.structs, &self.enums))
                     .collect::<Result<Vec<_>, _>>()?
@@ -9212,7 +9212,7 @@ impl FunctionContext {
                 self.expression(&place[1])?;
                 self.output.push_str(&format!(
                     "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
-                    variant.discriminant
+                    discriminant
                 ));
                 self.emit_reference_field_address(&place[1], payload_offset, true)?;
                 self.output
