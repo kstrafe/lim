@@ -456,10 +456,11 @@ fn async_function_retains_external_borrows_across_pending() {
           (#match second
             (#case (Ready value) value)
             (#case (Pending extra-task) (#block (#forget extra-task) (#unreachable)))))
+        (#set owner 39u64)
         (#forget waker)
         (#return (#u64.+.wrap owner result)))";
     let accepted = source.replace("MUTATE_WHILE_PENDING", "");
-    build_and_run(&accepted, 75);
+    build_and_run(&accepted, 77);
 
     let rejected = source.replace(
         "MUTATE_WHILE_PENDING",
@@ -514,11 +515,60 @@ fn async_function_retains_mutable_external_borrows_across_pending() {
           (#match second
             (#case (Ready value) value)
             (#case (Pending extra-task) (#block (#forget extra-task) (#unreachable)))))
-        (#return result))";
+        (#set owner 39u64)
+        (#return (#u64.+.wrap result owner)))";
     let accepted = source.replace("READ_WHILE_PENDING", "");
-    build_and_run(&accepted, 38);
+    build_and_run(&accepted, 77);
 
     let rejected = source.replace("READ_WHILE_PENDING", "(#let snapshot u64 owner)");
+    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "{error}"
+    );
+}
+
+#[test]
+fn cancelling_a_pending_async_frame_releases_its_external_mutable_borrow() {
+    let source = "(#struct Waker ((count u64)))
+      (#enum Step ((Waiting u64)))
+      (#linear Step)
+      (#enum StepPoll ((StepPending Step) (StepReady u64)))
+      (#fn step-poll ((task Step) (waker (#ref Waker))) StepPoll
+        (#return (#match task
+          (#case (Waiting count) (StepPending (Waiting count))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function
+        (#fn work ((view (#ref-mut u64))) u64
+          (#let result u64
+            (#await Step StepPending StepReady step-poll (Waiting 0u64)))
+          (#return (#deref view)))))
+      (#fn main () u64
+        (#let-mut owner u64 37u64)
+        (#let waker Waker (#struct-literal Waker ((count 0u64))))
+        (#let first Poll
+          (#call poll (: task (#call work (: view (#borrow-mut owner)))
+            : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        WHILE_PENDING
+        (#forget pending)
+        (#set owner 42u64)
+        (#return owner))";
+    let accepted = source.replace("WHILE_PENDING", "");
+    lim::check_types(&lim::parse_program(&accepted).unwrap()).unwrap();
+
+    let rejected = source.replace("WHILE_PENDING", "(#set owner 40u64)");
+    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "{error}"
+    );
+
+    let shared = source
+        .replace("#ref-mut", "#ref")
+        .replace("#borrow-mut owner", "#borrow owner");
+    let accepted = shared.replace("WHILE_PENDING", "");
+    lim::check_types(&lim::parse_program(&accepted).unwrap()).unwrap();
+    let rejected = shared.replace("WHILE_PENDING", "(#set owner 40u64)");
     let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
     assert!(
         error.contains("borrow") || error.contains("access"),

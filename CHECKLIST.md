@@ -1692,6 +1692,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   moving/matching an aggregate parameter containing mutable references as
   transferring handles, not reading through the referents. Precise loan
   release at Ready remains open.
+- [x] **ASYNC-01b13: End captured loans at Ready and cancellation.** Release
+  external shared/exclusive loans once the generated frame is consumed by a
+  Ready transition or explicit cancellation; preserve them on every Pending
+  path. Verify owner access stays rejected while Pending, becomes legal after
+  Ready/cancellation, and remains rejected if any returned value retains the
+  reference.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible

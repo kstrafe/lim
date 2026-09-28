@@ -593,9 +593,15 @@ fn check_program_impl(
             .items
             .iter()
             .filter_map(|item| match item {
-                Item::Enum { name, variants, .. } if reference_types.contains(name) => {
-                    Some(variants.iter().map(|variant| variant.name.clone()))
-                }
+                Item::Enum { variants, .. } => Some(variants.iter().filter_map(|variant| {
+                    variant
+                        .fields
+                        .iter()
+                        .any(|field| {
+                            type_contains_reference(field, &program.items, &mut HashSet::new())
+                        })
+                        .then(|| variant.name.clone())
+                })),
                 _ => None,
             })
             .flatten()
@@ -1568,6 +1574,48 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     let thread_operation = thread_match_operation(&items[1], context);
                     check_expression(&items[1], context)?;
                     let scrutinee_origins = reference_origins(&items[1], context, true);
+                    let result_origins = reference_origins(expression, context, true);
+                    let scrutinee_loans = match &items[1] {
+                        Expr::Symbol(name) => context.reference_loans.get(name).cloned(),
+                        _ => None,
+                    }
+                    .unwrap_or_else(|| {
+                        scrutinee_origins
+                            .iter()
+                            .cloned()
+                            .map(|owner| (owner.clone(), owner))
+                            .collect()
+                    });
+                    let patterns_transfer_known_payloads = items[2..].iter().all(|arm| {
+                        let Expr::List(parts) = arm else {
+                            return false;
+                        };
+                        let Some(pattern) = parts.first() else {
+                            return false;
+                        };
+                        let mut names = Vec::new();
+                        pattern_names(pattern, &mut names);
+                        match pattern {
+                            Expr::List(pattern) => pattern
+                                .first()
+                                .and_then(|head| match head {
+                                    Expr::Symbol(variant) => Some(variant),
+                                    _ => None,
+                                })
+                                .is_some_and(|variant| {
+                                    !context.reference_variants.contains(variant)
+                                        || names.len() <= 1
+                                }),
+                            _ => names.is_empty(),
+                        }
+                    });
+                    let release_scrutinee = thread_operation.is_none()
+                        && result_origins.is_empty()
+                        && patterns_transfer_known_payloads
+                        && matches!(items[1], Expr::Symbol(_));
+                    if release_scrutinee {
+                        release_dropped_value(&items[1], context);
+                    }
                     let base = context.clone();
                     let mut branches = Vec::with_capacity(items.len() - 2);
                     for arm in &items[2..] {
@@ -1580,11 +1628,52 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                         let mut branch = base.clone();
                         let mut names = Vec::new();
                         pattern_names(&parts[0], &mut names);
+                        let selected_variant = match &parts[0] {
+                            Expr::List(pattern) => pattern.first().and_then(|head| match head {
+                                Expr::Symbol(variant) => Some(variant),
+                                _ => None,
+                            }),
+                            _ => None,
+                        };
+                        let carries_references = selected_variant
+                            .is_none_or(|variant| context.reference_variants.contains(variant));
+                        let variant_has_mutable_references = selected_variant.is_some_and(|name| {
+                            context.program_items.iter().any(|item| match item {
+                                Item::Enum { variants, .. } => variants
+                                    .iter()
+                                    .find(|variant| variant.name == *name)
+                                    .is_some_and(|variant| {
+                                        variant.fields.iter().any(|field| {
+                                            type_contains_mutable_reference(
+                                                field,
+                                                &context.program_items,
+                                                &mut HashSet::new(),
+                                            )
+                                        })
+                                    }),
+                                _ => false,
+                            })
+                        });
+                        if release_scrutinee && carries_references && names.len() == 1 {
+                            let kind = if variant_has_mutable_references {
+                                LoanKind::Mutable
+                            } else {
+                                LoanKind::Shared(1)
+                            };
+                            for (_, loan) in &scrutinee_loans {
+                                branch.loans.borrow(loan, kind)?;
+                            }
+                        }
                         for name in &names {
-                            if !scrutinee_origins.is_empty() {
+                            if carries_references && !scrutinee_origins.is_empty() {
                                 branch
                                     .reference_origins
                                     .insert(name.clone(), scrutinee_origins.clone());
+                                if names.len() == 1 && !scrutinee_loans.is_empty() {
+                                    branch
+                                        .reference_loans
+                                        .insert(name.clone(), scrutinee_loans.clone());
+                                }
                             }
                         }
                         branch.scope_bindings.extend(names);
@@ -2699,10 +2788,22 @@ fn reference_origins(
                         let mut arm_context = context.clone();
                         let mut bindings = Vec::new();
                         pattern_names(&parts[0], &mut bindings);
-                        for binding in bindings {
-                            arm_context
-                                .reference_origins
-                                .insert(binding, scrutinee_origins.clone());
+                        let carries_references = match &parts[0] {
+                            Expr::List(pattern) => pattern
+                                .first()
+                                .and_then(|head| match head {
+                                    Expr::Symbol(variant) => Some(variant),
+                                    _ => None,
+                                })
+                                .is_none_or(|variant| context.reference_variants.contains(variant)),
+                            _ => true,
+                        };
+                        if carries_references {
+                            for binding in bindings {
+                                arm_context
+                                    .reference_origins
+                                    .insert(binding, scrutinee_origins.clone());
+                            }
                         }
                         reference_origins(
                             parts.last().expect("validated match arm has a result"),

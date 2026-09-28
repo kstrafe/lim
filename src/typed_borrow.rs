@@ -231,6 +231,33 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
             let Some((held_places, held_mutable, held_span)) = scoped_places.get(&scope) else {
                 continue;
             };
+            // A temporary borrow normally ends with its expression scope.
+            // If a returned value carries that borrow, its precise lifetime
+            // is instead governed by the live binding that owns the loan.
+            // This matters for async start/poll calls: Pending retains the
+            // returned frame, while Ready can consume it and release the
+            // captured external borrow before the lexical block ends.
+            let carried_by_live_value = held_span.is_some_and(|span| {
+                let scoped_node = body.nodes[scope.0].kind.clone();
+                let is_temporary_reference = matches!(
+                    scoped_node,
+                    NodeKind::Form { ref head, ref children, .. }
+                        if matches!(head.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut")
+                            && children.len() == 2
+                );
+                if !is_temporary_reference {
+                    return true;
+                }
+                live.before(event).iter().any(|binding| {
+                    origins
+                        .before(event, *binding)
+                        .iter()
+                        .any(|origin| origin.span == Some(span))
+                })
+            });
+            if !carried_by_live_value {
+                continue;
+            }
             let mutable_scope_access = *held_mutable
                 && matches!(
                     access,

@@ -619,6 +619,14 @@ impl FlowGraph {
                 FlowAction::Pattern { pattern, value } => {
                     let origins = value_loan_origins(body, *value, &state);
                     distribute_pattern_origins(body, *pattern, &origins, &mut state);
+                    if let (Some(place), Some(selected)) = (
+                        Place::from_expression(body, *value),
+                        origins_selected_by_variant(body, *pattern, &origins),
+                    ) {
+                        if let PlaceRoot::Local(binding) = place.root {
+                            state[binding.0] = selected;
+                        }
+                    }
                 }
                 FlowAction::ScopeExit(bindings) => {
                     for binding in bindings {
@@ -2854,6 +2862,34 @@ fn distribute_pattern_origins(
         }
         _ => {}
     }
+}
+
+/// A matched enum discriminant rules out loans stored in every other variant.
+/// Retain only origins whose payload belongs to the selected variant so a
+/// consumed Ready result does not conservatively keep the Pending frame's
+/// captured references alive after a match.
+fn origins_selected_by_variant(
+    body: &Body,
+    pattern: NodeId,
+    origins: &[LoanOrigin],
+) -> Option<Vec<LoanOrigin>> {
+    let NodeKind::Form { children, .. } = &body.nodes[pattern.0].kind else {
+        return None;
+    };
+    let NodeKind::Declaration(DeclarationId::Variant(selected)) =
+        &body.nodes[children.first()?.0].kind
+    else {
+        return None;
+    };
+    Some(
+        origins
+            .iter()
+            .filter(|origin| {
+                matches!(origin.storage.first(), Some(Segment::Payload(found, _)) if found == selected)
+            })
+            .cloned()
+            .collect(),
+    )
 }
 
 fn direct_scope_bindings(body: &Body, instructions: &[Instruction]) -> Vec<BindingId> {
