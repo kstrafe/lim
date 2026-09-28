@@ -3058,6 +3058,11 @@ commit, documentation, and focused regression coverage.
   their lexical scopes do not overlap. Test parameter and nested-loop
   collisions, alongside the language-wide no-shadowing rule.
 
+- [x] **GEN-API-03: Document generator binding scope.** Explain that loop
+  bindings cannot shadow parameters or enclosing iterations, while sibling
+  iteration forms have independent scopes. Keep the reference and its tests in
+  sync with the interpreter's binding rules.
+
 - [x] **SYS-01: Establish a target-specific syscall boundary for Lim libraries.**
   Establish an explicitly unsafe, typed primitive for the supported target,
   including register arguments, clobbers, errno representation, and source

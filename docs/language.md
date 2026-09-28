@@ -856,7 +856,9 @@ call runtime functions. Recursive expansion is rejected. Repeating an
 invocation with the same generator name and structurally identical literal
 syntax arguments emits its output only once. Each compilation allows at most
 200,000 generator evaluation steps, 128 nested expansions, and 1,000,000
-generated syntax nodes; exceeding a limit is a compile-time error. Unknown
+generated syntax nodes; exceeding a limit is a compile-time error. A
+`#gn-for-each` binding cannot shadow a generator parameter or an enclosing
+iteration binding; sibling iteration forms have independent scopes. Unknown
 `#gn-*` operations are reported as generator errors with invocation and
 definition locations.
 

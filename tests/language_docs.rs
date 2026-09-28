@@ -112,6 +112,19 @@ fn builtin_reference_is_sorted_and_covers_parser_forms() {
 }
 
 #[test]
+fn generator_reference_documents_iteration_shadowing() {
+    let reference = include_str!("../docs/language.md");
+    assert!(
+        reference.contains("`#gn-for-each` binding cannot shadow a generator parameter"),
+        "the generator reference must describe the no-shadowing rule"
+    );
+    assert!(
+        reference.contains("sibling iteration forms have independent scopes"),
+        "the generator reference must clarify sibling binding scopes"
+    );
+}
+
+#[test]
 fn operator_reference_examples_typecheck() {
     let reference = include_str!("../docs/language.md")
         .split("#### Typed operator families (alphabetical)")
