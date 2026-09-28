@@ -8906,6 +8906,38 @@ impl FunctionContext {
             .ok_or_else(|| format!("unknown field '{field_name}'"))
     }
 
+    fn checked_global_name(
+        &self,
+        expression: &Expr,
+        spelling: &str,
+    ) -> Result<Option<String>, String> {
+        if !self.expression_types.has_checked_identity(expression) {
+            return Ok(self
+                .globals
+                .contains_key(spelling)
+                .then(|| spelling.to_owned()));
+        }
+        let metadata = checked_expression_metadata(expression, &self.expression_types)?
+            .expect("checked expression metadata was verified");
+        match metadata.declaration {
+            Some(crate::typed_ir::DeclarationId::Global(id)) => self
+                .expression_types
+                .global_names
+                .get(&id)
+                .cloned()
+                .map(Some)
+                .ok_or_else(|| {
+                    "internal error: checked global lost its declaration name".to_owned()
+                }),
+            Some(_) => Ok(None),
+            None if metadata.binding.is_some() => Ok(None),
+            None if self.globals.contains_key(spelling) => Err(format!(
+                "internal error: checked global symbol '{spelling}' lost its declaration identity"
+            )),
+            None => Ok(None),
+        }
+    }
+
     fn expression(&mut self, expression: &Expr) -> Result<(), String> {
         let typed_literal = checked_scalar_literal(expression, &self.expression_types)?;
         let expression = typed_literal.as_ref().unwrap_or(expression);
@@ -12790,48 +12822,58 @@ impl FunctionContext {
         }
         match &items[1] {
             Expr::Symbol(local) => {
-                if let Some(Type::Named(struct_name)) = self.global_types.get(local) {
-                    let fields = self
-                        .structs
-                        .get(struct_name)
-                        .ok_or_else(|| format!("'{local}' is not a struct"))?;
-                    let index = self.checked_field_index(&items[2], struct_name, fields)?;
-                    let field_type = fields[index].ty.clone();
-                    if !matches!(self.globals.get(local), Some(GlobalValue::Aggregate(_))) {
-                        return Err(format!("global '{local}' is not an aggregate struct"));
-                    }
-                    let offset_words = fields[..index]
-                        .iter()
-                        .map(|field| value_word_count(&field.ty, &self.structs, &self.enums))
-                        .collect::<Result<Vec<_>, _>>()?
-                        .into_iter()
-                        .sum::<usize>();
-                    let offset = offset_words * 8;
-                    let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
-                    if field_words > 1 {
-                        for (word, register) in VALUE_REGISTERS[..field_words].iter().enumerate() {
-                            self.load_global_word(local, offset_words + word)?;
-                            self.output.push_str(&format!("    mov {register}, rax\n"));
+                if let Some(global_name) = self.checked_global_name(&items[1], local)? {
+                    if let Some(Type::Named(struct_name)) = self.global_types.get(&global_name) {
+                        let fields = self
+                            .structs
+                            .get(struct_name)
+                            .ok_or_else(|| format!("'{global_name}' is not a struct"))?;
+                        let index = self.checked_field_index(&items[2], struct_name, fields)?;
+                        let field_type = fields[index].ty.clone();
+                        if !matches!(
+                            self.globals.get(&global_name),
+                            Some(GlobalValue::Aggregate(_))
+                        ) {
+                            return Err(format!(
+                                "global '{global_name}' is not an aggregate struct"
+                            ));
+                        }
+                        let offset_words = fields[..index]
+                            .iter()
+                            .map(|field| value_word_count(&field.ty, &self.structs, &self.enums))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into_iter()
+                            .sum::<usize>();
+                        let offset = offset_words * 8;
+                        let field_words =
+                            value_word_count(&field_type, &self.structs, &self.enums)?;
+                        if field_words > 1 {
+                            for (word, register) in
+                                VALUE_REGISTERS[..field_words].iter().enumerate()
+                            {
+                                self.load_global_word(&global_name, offset_words + word)?;
+                                self.output.push_str(&format!("    mov {register}, rax\n"));
+                            }
+                            return Ok(());
+                        }
+                        if matches!(field_type, Type::F32) {
+                            self.output.push_str(&format!(
+                                "    movss xmm0, DWORD PTR [rip+{}+{offset}]\n",
+                                asm_symbol(&global_name)
+                            ));
+                        } else if matches!(field_type, Type::F64) {
+                            self.output.push_str(&format!(
+                                "    movq xmm0, QWORD PTR [rip+{}+{offset}]\n",
+                                asm_symbol(&global_name)
+                            ));
+                        } else {
+                            self.output.push_str(&format!(
+                                "    mov rax, QWORD PTR [rip+{}+{offset}]\n",
+                                asm_symbol(&global_name)
+                            ));
                         }
                         return Ok(());
                     }
-                    if matches!(field_type, Type::F32) {
-                        self.output.push_str(&format!(
-                            "    movss xmm0, DWORD PTR [rip+{}+{offset}]\n",
-                            asm_symbol(local)
-                        ));
-                    } else if matches!(field_type, Type::F64) {
-                        self.output.push_str(&format!(
-                            "    movq xmm0, QWORD PTR [rip+{}+{offset}]\n",
-                            asm_symbol(local)
-                        ));
-                    } else {
-                        self.output.push_str(&format!(
-                            "    mov rax, QWORD PTR [rip+{}+{offset}]\n",
-                            asm_symbol(local)
-                        ));
-                    }
-                    return Ok(());
                 }
                 let Storage::Struct(fields) = self
                     .local_storage_for_symbol(&items[1], local)?

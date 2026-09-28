@@ -601,6 +601,11 @@ the checklist is committed alongside the implementation it tracks.
   storage, including payload type recovery for `#get-payload`. Validate the
   owner enum and preserve enum/aggregate native execution.
 
+- [x] **IR-02bi: Project global structs by checked global identity.** Resolve
+  the base of a global `#get` through its `GlobalId` before selecting field
+  storage; preserve local and synthesized fallbacks. Validate field identity
+  and all native examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
