@@ -6,6 +6,8 @@
 (#import "wake_ready4.lim")
 (#import "async_poll4.lim")
 
+(#const LINUX-FCNTL-F_DUPFD-CLOEXEC i32 1030i32)
+
 (#struct AsyncByteRead1
   ((fd i64) (destination (#ref-mut u8)) (memory (#ptr-mut u8))
    (queue WakeReady4) (token WakeToken4)))
@@ -27,33 +29,41 @@
 
 (#fn async-byte-read1-create
   ((fd i64) (destination (#ref-mut u8))) AsyncByteReadCreate1
-  (#let memory (#ptr-mut u8)
-    (#unsafe (#call linux-mmap
-      (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
-       : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  (#let address i64 (#as (#ptr-address memory) i64))
-  (#return (#if (#i64.< address 0i64)
-    (AsyncByteReadCreateFailed1 address)
+  (#let owned-fd i64 (#unsafe (#call linux-fcntl
+    (: fd fd : command LINUX-FCNTL-F_DUPFD-CLOEXEC : argument 0usize))))
+  (#return (#if (#i64.< owned-fd 0i64)
+    (AsyncByteReadCreateFailed1 owned-fd)
     (#block
-      ;; pollfd { fd: i32, events: i16, revents: i16 }, requesting POLLIN.
-      (#for-range (byte usize) 0usize 8usize
-        (#unsafe (#ptr-write (#ptr-offset (#clone memory) byte) 0u8)))
-      (#let fd-bits u64 (#as fd u64))
-      (#for-range (byte usize) 0usize 4usize
-        (#unsafe (#ptr-write
-          (#ptr-offset (#clone memory) byte)
-          (#as (#u64.>> fd-bits (#as (#usize.*.wrap byte 8usize) u64)) u8))))
-      (#unsafe (#ptr-write (#ptr-offset (#clone memory) 4usize) 1u8))
-      (#let-mut queue WakeReady4 (#call wake-ready4-create (:)))
-      (#let registration WakeRegister4
-        (#call wake-ready4-register (: queue (#borrow-mut queue) : slot 0usize)))
-      (#let token WakeToken4 (#match registration
-        (#case (WakeRegistered4 value) value)
-        (#case _ (#unreachable))))
-      (AsyncByteReadCreated1
-        (#struct-literal AsyncByteRead1
-          ((fd fd) (destination destination) (memory memory)
-           (queue queue) (token token))))))))
+      (#let memory (#ptr-mut u8)
+        (#unsafe (#call linux-mmap
+          (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
+           : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+      (#let address i64 (#as (#ptr-address memory) i64))
+      (#if (#i64.< address 0i64)
+        (#block
+          (#let closed i64 (#call linux-close (: fd owned-fd)))
+          (AsyncByteReadCreateFailed1
+            (#if (#i64.< closed 0i64) closed address)))
+        (#block
+          ;; pollfd { fd: i32, events: i16, revents: i16 }, requesting POLLIN.
+          (#for-range (byte usize) 0usize 8usize
+            (#unsafe (#ptr-write (#ptr-offset (#clone memory) byte) 0u8)))
+          (#let fd-bits u64 (#as owned-fd u64))
+          (#for-range (byte usize) 0usize 4usize
+            (#unsafe (#ptr-write
+              (#ptr-offset (#clone memory) byte)
+              (#as (#u64.>> fd-bits (#as (#usize.*.wrap byte 8usize) u64)) u8))))
+          (#unsafe (#ptr-write (#ptr-offset (#clone memory) 4usize) 1u8))
+          (#let-mut queue WakeReady4 (#call wake-ready4-create (:)))
+          (#let registration WakeRegister4
+            (#call wake-ready4-register (: queue (#borrow-mut queue) : slot 0usize)))
+          (#let token WakeToken4 (#match registration
+            (#case (WakeRegistered4 value) value)
+            (#case _ (#unreachable))))
+          (AsyncByteReadCreated1
+            (#struct-literal AsyncByteRead1
+              ((fd owned-fd) (destination destination) (memory memory)
+               (queue queue) (token token))))))))))
 
 ;; Blocks in the kernel without borrowing or exposing the destination buffer.
 ;; A failed wait preserves the operation owner for retry or explicit cancel.
@@ -102,5 +112,7 @@
   (#assert (#bool.== stale false))
   (#forget queue-mut)
   (#forget destination)
-  (#forget fd)
-  (#return (#unsafe (#call linux-munmap (: address memory : length 4096usize)))))
+  (#let closed i64 (#call linux-close (: fd fd)))
+  (#let unmapped i64 (#unsafe (#call linux-munmap
+    (: address memory : length 4096usize))))
+  (#return (#if (#i64.< closed 0i64) closed unmapped)))

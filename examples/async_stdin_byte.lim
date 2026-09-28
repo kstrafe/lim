@@ -4,11 +4,22 @@
 
 (#fn main () i32
   (#let-mut byte u8 0u8)
+  (#let invalid AsyncByteReadCreate1
+    (#call async-byte-read1-create
+      (: fd -1i64 : destination (#borrow-mut byte))))
+  (#assert (#match invalid
+    (#case (AsyncByteReadCreateFailed1 error) (#i64.== error -9i64))
+    (#case (AsyncByteReadCreated1 unexpected)
+      (#block
+        (#let cleanup i64
+          (#call async-byte-read1-destroy (: task unexpected)))
+        false))))
   (#let created AsyncByteReadCreate1
     (#call async-byte-read1-create
       (: fd 0i64 : destination (#borrow-mut byte))))
   (#let-else (AsyncByteReadCreated1 task) AsyncByteReadCreate1 created
     (#unreachable))
+  (#let original-closed i64 (#call linux-close (: fd 0i64)))
   (#let first AsyncByteReadPoll1
     (#call async-byte-read1-poll (: task (#borrow task))))
   (#let wait AsyncByteReadWait1
@@ -26,7 +37,8 @@
     (#case (AsyncByteReadFailed1 error)
       (#block (#forget error) 6i32))
     (#case AsyncByteReadPending1 7i32)))
-  (#return (#if (#i64.== destroyed 0i64)
+  (#return (#if (#bool.&& (#i64.== destroyed 0i64)
+                         (#i64.== original-closed 0i64))
     (#if (#match first
       (#case AsyncByteReadPending1 true)
       (#case _ false))

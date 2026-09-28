@@ -342,13 +342,17 @@ three-timer case is exercised by `examples/timer_reactor_many.lim`.
 
 `library/async_stdin_byte.lim` demonstrates a cancellable one-shot readiness
 read. `async-byte-read1-create` retains an exclusive borrow of the destination
-in an opaque linear task. Polling before readiness returns Pending; the wait
+and duplicates the supplied descriptor with close-on-exec into an opaque
+linear task. The task closes that owned descriptor during destruction; if
+scratch allocation fails after duplication, creation closes it before
+returning the setup or cleanup error. Polling before readiness returns Pending; the wait
 blocks in Linux `poll` and records a generation-checked wake. A later poll
 performs one synchronous byte read only after readiness, returning a byte, EOF,
 or an OS error. The OS never retains the destination pointer, so destroying a
 pending task retires its wake and releases the borrow immediately; callers must
 not poll or wait after destruction. `examples/async_stdin_byte.lim` echoes one
-byte, and `examples/async_stdin_cancel.lim` verifies that the destination can
+byte after closing the caller's original stdin descriptor, and
+`examples/async_stdin_cancel.lim` verifies that the destination can
 be mutated after cancellation while the input stream is still open. These
 examples use `library/async_poll4.lim`, which waits on one to four borrowed
 poll sources with one blocking syscall and notifies each corresponding token.

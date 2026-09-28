@@ -1951,6 +1951,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   pipe read in the same set, including either source becoming ready first, plus
   capacity rejection. Keep descriptor ownership and shutdown explicit under
   ASYNC-02.
+- [x] **ASYNC-02i: Make readiness operations own their descriptors.** Duplicate
+  each caller descriptor into an opaque linear operation owner with
+  close-on-exec semantics. Close it exactly once on explicit destruction, and
+  close it on every later setup failure before returning its setup or cleanup
+  error.
+  Verify the operation still completes after the caller closes its descriptor,
+  invalid-descriptor errors, and cancellation cleanup.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,
