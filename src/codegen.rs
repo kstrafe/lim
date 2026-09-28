@@ -14415,12 +14415,13 @@ impl FunctionContext {
                 Ok(())
             }
             Type::Named(enum_name) if self.enums.contains_key(enum_name) => {
-                let variants = self.enums.get(enum_name).cloned().unwrap_or_default();
-                let variant = variants
-                    .iter()
-                    .find(|variant| variant.name == *constructor)
+                let (variant_owner, discriminant, fields) = self
+                    .enum_variant_info(&items[0], constructor)?
                     .ok_or_else(|| format!("unknown enum variant '{constructor}'"))?;
-                if items.len() - 1 != variant.fields.len() {
+                if variant_owner != *enum_name {
+                    return Err("internal error: checked large enum argument owner changed".into());
+                }
+                if items.len() - 1 != fields.len() {
                     return Err(format!(
                         "large enum variant '{constructor}' has the wrong payload count"
                     ));
@@ -14428,10 +14429,10 @@ impl FunctionContext {
                 self.output.push_str(&format!(
                     "    mov QWORD PTR [rbp-{}], {}\n",
                     slots[0] * 8,
-                    variant.discriminant
+                    discriminant
                 ));
                 let mut offset = 1;
-                for (item, field) in items[1..].iter().zip(&variant.fields) {
+                for (item, field) in items[1..].iter().zip(&fields) {
                     let field_words = storage_word_count(field, &self.structs, &self.enums)?;
                     self.store_value_to_slots(item, field, &slots[offset..offset + field_words])?;
                     offset += field_words;

@@ -586,6 +586,11 @@ the checklist is committed alongside the implementation it tracks.
   and global enum-copy paths; validate all native examples and aggregate
   linking.
 
+- [x] **IR-02bf: Store large enum arguments by checked identity.** Resolve
+  large payload-enum argument constructors through the head's `VariantId`,
+  verify the owner enum, and store the retained discriminant and field layout.
+  Preserve aggregate/thread native coverage.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
