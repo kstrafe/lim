@@ -991,7 +991,7 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
             (#let result u64
               (#await Child ChildPending ChildReady child-poll (Waiting child-input)))
             (#set iteration (#u64.+.wrap iteration 1u64)))
-          (#return 42u64))))
+          (#return iteration))))
       (#fn main () u64
         (#let waker u64 0u64)
         (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
@@ -1004,8 +1004,41 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
+    let generated = build_and_run(source, 2);
     assert!(generated.contains("-wait"), "{generated}");
+}
+
+#[test]
+fn async_function_rejects_non_scalar_loop_outputs_explicitly() {
+    let source = "(#struct State ((value u64)))
+      (#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (ChildReady 1u64)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut state State (#struct-literal State ((value 0u64))))
+          (#while false
+            (#let result u64
+              (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+            (#set state (#struct-literal State ((value result)))))
+          (#return (#get state value)))))";
+    let scratch = support::Scratch::new("async-loop-nonscalar-output");
+    let input = scratch.path().join("loop.lim");
+    let diagnostic = lim::compile_source_to_assembly(
+        source,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        diagnostic
+            .message
+            .contains("only mutable Copy scalars are supported"),
+        "{diagnostic:?}"
+    );
 }
 
 #[test]

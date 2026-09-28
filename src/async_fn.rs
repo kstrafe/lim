@@ -700,6 +700,28 @@ fn collect_mutated_names(expression: &Expr, names: &mut HashSet<String>) {
     }
 }
 
+fn is_async_copy_scalar(ty: &str) -> bool {
+    matches!(
+        ty,
+        "bool"
+            | "char"
+            | "f32"
+            | "f64"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+    )
+}
+
 /// Lower a while loop with one await binding per iteration into a concrete
 /// child task. Its poll helper runs ready iterations in a normal Lim loop and
 /// stores the current captures plus child task only when the child is pending.
@@ -712,7 +734,7 @@ fn lower_async_while(
     source: &str,
     next_name: &mut usize,
     waker: &str,
-) -> Result<Option<(Vec<Expr>, String)>, String> {
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if !has_await(statement) {
         return Ok(None);
     }
@@ -819,17 +841,23 @@ fn lower_async_while(
     }
     collect_value_names(return_value, &mut used_after);
     let mut mutated = HashSet::new();
+    collect_mutated_names(condition, &mut mutated);
     for expression in prefix.iter().chain(suffix) {
         collect_mutated_names(expression, &mut mutated);
     }
     collect_mutated_names(&await_form[5], &mut mutated);
-    if let Some(name) = captures
+    let output_captures = captures
         .iter()
-        .find(|binding| mutated.contains(&binding.name) && used_after.contains(&binding.name))
+        .filter(|binding| mutated.contains(&binding.name) && used_after.contains(&binding.name))
+        .cloned()
+        .collect::<Vec<_>>();
+    if let Some(binding) = output_captures
+        .iter()
+        .find(|binding| !binding.mutable || !is_async_copy_scalar(&binding.ty))
     {
         return Err(format!(
-            "@async-fn loop mutates '{}' and uses it after the loop; loop-result capture transfer is not supported yet",
-            name.name
+            "@async-fn loop cannot return mutated live-after capture '{}' of type '{}'; only mutable Copy scalars are supported",
+            binding.name, binding.ty
         ));
     }
 
@@ -838,6 +866,24 @@ fn lower_async_while(
     let task_start = format!("{base}-start");
     let task_wait = format!("{base}-wait");
     let task_poll_result = format!("{base}-poll-result");
+    let output_type = format!("{base}-outputs");
+    let (output_type_source, ready_type, ready_value) = if output_captures.is_empty() {
+        (String::new(), "()".to_owned(), "()".to_owned())
+    } else {
+        let fields = output_captures
+            .iter()
+            .map(|binding| format!("({} {})", binding.name, binding.ty))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let values = output_captures
+            .iter()
+            .map(|binding| format!("({} {})", binding.name, binding.name))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let declarations = format!("(#struct {output_type} ({fields}))");
+        let value = format!("(#struct-literal {output_type} ({values}))");
+        (declarations, output_type.clone(), value)
+    };
     let task_pending = format!("{base}-pending");
     let task_ready = format!("{base}-ready");
     let task_run = format!("{base}-run");
@@ -917,11 +963,12 @@ fn lower_async_while(
         .join(" ");
     let child_poll_call = format!("(#call {child_poll} (: task {base}-child : waker waker))");
     let task_source = format!(
-        "(#enum {task_type} ({start_variant} {wait_variant}))
+        "{output_type_source}
+         (#enum {task_type} ({start_variant} {wait_variant}))
          (#linear {task_type})
-         (#enum {task_poll_result} (({task_pending} {task_type}) ({task_ready} ())))
+         (#enum {task_poll_result} (({task_pending} {task_type}) ({task_ready} {ready_type})))
          (#fn {task_run} ({run_parameters}) {task_poll_result}
-           (#let-mut {base}-outcome {task_poll_result} ({task_ready} ()))
+           (#let-mut {base}-outcome {task_poll_result} ({task_ready} {ready_value}))
            (#let-mut {base}-stopped bool false)
            (#while (#bool.&& (#bool.== {base}-stopped false) {loop_condition})
              {prefix_source}
@@ -935,7 +982,9 @@ fn lower_async_while(
                    ()))
                (#case ({child_ready} {base}-result)
                  (#block (#let {} {} {base}-result) {} ()))))
-           (#return {base}-outcome))
+           (#return (#if (#bool.== {base}-stopped true)
+             {base}-outcome
+             (#block (#forget {base}-outcome) ({task_ready} {ready_value})))))
          (#fn {task_resume} ({resume_parameters}) {task_poll_result}
            ({} {} {} {base}-result)
            {}
@@ -980,8 +1029,12 @@ fn lower_async_while(
         ]),
         Expr::List(vec![
             Expr::Symbol("#let".into()),
-            Expr::Symbol(result_variable),
-            Expr::List(Vec::new()),
+            Expr::Symbol(result_variable.clone()),
+            if output_captures.is_empty() {
+                Expr::List(Vec::new())
+            } else {
+                Expr::Symbol(output_type)
+            },
             Expr::List(vec![
                 Expr::Symbol("#await".into()),
                 Expr::Symbol(task_type),
@@ -992,7 +1045,30 @@ fn lower_async_while(
             ]),
         ]),
     ];
-    Ok(Some((replacement, task_source)))
+    let mut replacement = replacement;
+    let mut renamed_outputs = Vec::new();
+    for binding in &output_captures {
+        let resumed_name = fresh_async_name(source, next_name);
+        replacement.push(Expr::List(vec![
+            Expr::Symbol(if binding.mutable { "#let-mut" } else { "#let" }.into()),
+            Expr::Symbol(resumed_name.clone()),
+            Expr::Symbol(binding.ty.clone()),
+            Expr::List(vec![
+                Expr::Symbol("#get".into()),
+                Expr::Symbol(result_variable.clone()),
+                Expr::Symbol(binding.name.clone()),
+            ]),
+        ]));
+        renamed_outputs.push((
+            binding.name.clone(),
+            Binding {
+                name: resumed_name,
+                ty: binding.ty.clone(),
+                mutable: binding.mutable,
+            },
+        ));
+    }
+    Ok(Some((replacement, task_source, renamed_outputs)))
 }
 
 /// Desugar a `#for-range` with one direct await per iteration to a while loop,
@@ -1007,7 +1083,7 @@ fn lower_async_for_range(
     source: &str,
     next_name: &mut usize,
     waker: &str,
-) -> Result<Option<(Vec<Expr>, String)>, String> {
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if !has_await(statement) {
         return Ok(None);
     }
@@ -1087,7 +1163,7 @@ fn lower_async_for_range(
     );
     let mut loop_order = known_order.to_vec();
     loop_order.push(index.clone());
-    let Some((mut replacement, helper)) = lower_async_while(
+    let Some((mut replacement, helper, renames)) = lower_async_while(
         &lowered_loop,
         &loop_known,
         &loop_order,
@@ -1101,7 +1177,7 @@ fn lower_async_for_range(
         return Err("@async-fn failed to lower awaited #for-range".into());
     };
     replacement.insert(0, index_binding);
-    Ok(Some((replacement, helper)))
+    Ok(Some((replacement, helper, renames)))
 }
 
 /// Lower a `#for` loop that uses an existing counter. Initializer-local
@@ -1116,7 +1192,7 @@ fn lower_async_for(
     source: &str,
     next_name: &mut usize,
     waker: &str,
-) -> Result<Option<(Vec<Expr>, String)>, String> {
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if !has_await(statement) {
         return Ok(None);
     }
@@ -1183,7 +1259,7 @@ fn lower_async_for(
     while_items.extend(loop_body);
     while_items.push(step);
     let lowered_loop = Expr::List(while_items);
-    let Some((mut replacement, helper)) = lower_async_while(
+    let Some((mut replacement, helper, renames)) = lower_async_while(
         &lowered_loop,
         &loop_known,
         &loop_order,
@@ -1199,7 +1275,7 @@ fn lower_async_for(
     if !matches!(initializer, Expr::List(items) if items.is_empty()) {
         replacement.insert(0, initializer_statement);
     }
-    Ok(Some((replacement, helper)))
+    Ok(Some((replacement, helper, renames)))
 }
 
 fn contains_loop_control(expression: &Expr) -> bool {
@@ -1285,7 +1361,7 @@ fn lower_async_loop(
     source: &str,
     next_name: &mut usize,
     waker: &str,
-) -> Result<Option<(Vec<Expr>, String)>, String> {
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if !has_await(statement) {
         return Ok(None);
     }
@@ -1329,7 +1405,7 @@ fn lower_async_loop(
     );
     let mut loop_order = known_order.to_vec();
     loop_order.push(done.clone());
-    let Some((mut replacement, helper)) = lower_async_while(
+    let Some((mut replacement, helper, renames)) = lower_async_while(
         &lowered_loop,
         &loop_known,
         &loop_order,
@@ -1351,7 +1427,7 @@ fn lower_async_loop(
             Expr::Symbol("false".into()),
         ]),
     );
-    Ok(Some((replacement, helper)))
+    Ok(Some((replacement, helper, renames)))
 }
 
 fn mutable_assignment_target(expr: &Expr) -> Option<&str> {
@@ -1551,59 +1627,89 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let mut lowered_statements = Vec::new();
     let mut lowering_known = known.clone();
     let mut lowering_known_order = known_order.clone();
-    for (source_index, mut statement) in statements.iter().cloned().enumerate() {
-        if let Some((replacement, helper)) = lower_async_loop(
+    for source_index in 0..statements.len() {
+        let mut statement = statements[source_index].clone();
+        let following = statements[source_index + 1..].to_vec();
+        if let Some((replacement, helper, renames)) = lower_async_loop(
             &statement,
             &lowering_known,
             &lowering_known_order,
-            &statements[source_index + 1..],
+            &following,
             &return_value,
             &source,
             &mut next_nested_await,
             &waker_source,
         )? {
+            apply_async_output_renames(
+                &mut statements[source_index + 1..],
+                &mut return_value,
+                &mut lowering_known,
+                &mut lowering_known_order,
+                &renames,
+            );
             generated_helpers.push(helper);
             lowered_statements.extend(replacement);
             continue;
         }
-        if let Some((replacement, helper)) = lower_async_for(
+        if let Some((replacement, helper, renames)) = lower_async_for(
             &statement,
             &lowering_known,
             &lowering_known_order,
-            &statements[source_index + 1..],
+            &following,
             &return_value,
             &source,
             &mut next_nested_await,
             &waker_source,
         )? {
+            apply_async_output_renames(
+                &mut statements[source_index + 1..],
+                &mut return_value,
+                &mut lowering_known,
+                &mut lowering_known_order,
+                &renames,
+            );
             generated_helpers.push(helper);
             lowered_statements.extend(replacement);
             continue;
         }
-        if let Some((replacement, helper)) = lower_async_for_range(
+        if let Some((replacement, helper, renames)) = lower_async_for_range(
             &statement,
             &lowering_known,
             &lowering_known_order,
-            &statements[source_index + 1..],
+            &following,
             &return_value,
             &source,
             &mut next_nested_await,
             &waker_source,
         )? {
+            apply_async_output_renames(
+                &mut statements[source_index + 1..],
+                &mut return_value,
+                &mut lowering_known,
+                &mut lowering_known_order,
+                &renames,
+            );
             generated_helpers.push(helper);
             lowered_statements.extend(replacement);
             continue;
         }
-        if let Some((replacement, helper)) = lower_async_while(
+        if let Some((replacement, helper, renames)) = lower_async_while(
             &statement,
             &lowering_known,
             &lowering_known_order,
-            &statements[source_index + 1..],
+            &following,
             &return_value,
             &source,
             &mut next_nested_await,
             &waker_source,
         )? {
+            apply_async_output_renames(
+                &mut statements[source_index + 1..],
+                &mut return_value,
+                &mut lowering_known,
+                &mut lowering_known_order,
+                &renames,
+            );
             generated_helpers.push(helper);
             lowered_statements.extend(replacement);
             continue;
@@ -2132,5 +2238,24 @@ fn rename_async_value(expr: &mut Expr, from: &str, to: &str) {
         | Expr::Float(_)
         | Expr::Char(_)
         | Expr::String(_) => {}
+    }
+}
+
+fn apply_async_output_renames(
+    following: &mut [Expr],
+    return_value: &mut Expr,
+    known: &mut HashMap<String, Binding>,
+    known_order: &mut Vec<String>,
+    renames: &[(String, Binding)],
+) {
+    for (old_name, new_binding) in renames {
+        for expression in following.iter_mut() {
+            rename_async_value(expression, old_name, &new_binding.name);
+        }
+        rename_async_value(return_value, old_name, &new_binding.name);
+        known.remove(old_name);
+        known_order.retain(|name| name != old_name);
+        known_order.push(new_binding.name.clone());
+        known.insert(new_binding.name.clone(), new_binding.clone());
     }
 }

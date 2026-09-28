@@ -1770,6 +1770,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   stop or repeat only after the terminal transfer. Keep value-bearing breaks,
   nonterminal transfers, and more complex branch control flow rejected; verify
   a Pending/resume sequence that repeats once and then exits natively.
+- [x] **ASYNC-01b25: Return mutable scalar captures after awaited loops.**
+  If a mutable Copy scalar is changed by the loop and used by the continuation,
+  include it in the generated Ready payload and restore it after `#await`.
+  Preserve explicit diagnostics for unsupported non-Copy or immutable outputs.
+  Verify a loop increments a captured counter over Pending and Ready iterations
+  and the caller observes the final value.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
