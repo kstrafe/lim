@@ -1655,7 +1655,7 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   appropriate start or resume helper. Require values used by later stages to
   remain in explicit capture lists; verify a mutable branch update between two
   awaits in a native Pending/resume regression. Branches containing suspension
-  and loop state across suspension remain open.
+  and other loop state across suspension remain open.
 - [x] **ASYNC-01b6: Verify match-stage state mutation.** Extend the native
   two-await regression with scalar `#match` arms that update captured mutable
   state in a resume helper; retain the `#if` case and check the final Ready
@@ -1721,17 +1721,25 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   `#await` and yielding that binding. Preserve the binding's explicit result
   type while lowering the branch through the existing concrete choice task;
   verify an awaited branch natively alongside an immediate branch. Arbitrary
-  post-await block continuations and loop suspension remain open.
+  post-await block continuations and other loop suspension remain open.
 - [x] **ASYNC-01b17: Preserve branch-local setup before suspension.** Allow
   non-suspending statements before the terminal await binding, keeping them
   inside the selected branch's task-construction block. Verify a branch-local
   value initializes the child task and survives through native polling without
   becoming an unnecessary frame capture.
 - [x] **ASYNC-01b18: Prevent loop-await hoisting from changing semantics.**
-  Detect `#await` nested in `#while`, `#for`, `#for-range`, or `#loop` before
-  expression lowering can hoist it outside the loop. Emit a targeted error
-  underlining the `#await`; implementing loop-carried suspension state remains
-  part of ASYNC-01b.
+  Lower supported `#while` awaits as loop-carried suspension state and reject
+  unsupported `#for`, `#for-range`, and `#loop` awaits before expression
+  lowering can hoist them outside the loop. Diagnostics underline `#await`.
+- [x] **ASYNC-01b19: Resume a direct child await inside a `#while` loop.**
+  Support a loop condition and body with one direct `#let`/`#let-mut` await per
+  iteration, capturing the loop-carried values and child task in a concrete
+  generated state. A Pending poll must resume that same iteration; Ready runs
+  the continuation and proceeds to the next iteration. Reject awaits in the
+  condition, multiple awaits per iteration, unsupported local bindings or
+  control transfers around the await, and loop forms other than `#while`.
+  Verify multiple iterations and Pending/resume natively, and retain a targeted
+  `#for-range` diagnostic.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

@@ -501,10 +501,9 @@ fn extract_nested_awaits(
                 }
                 return Ok(());
             };
-            if contains_await && matches!(head.as_str(), "#while" | "#for" | "#for-range" | "#loop")
-            {
+            if contains_await && matches!(head.as_str(), "#for" | "#for-range" | "#loop") {
                 return Err(
-                    "@async-fn cannot lower #await inside a loop yet; loop-carried suspension state is not supported".into(),
+                    "@async-fn cannot lower #await inside #for, #for-range, or #loop yet; only supported #while forms preserve loop-carried suspension state".into(),
                 );
             }
             if matches!(head.as_str(), "#if" | "#match" | "#block") && contains_await {
@@ -688,6 +687,287 @@ fn extract_statement_awaits(
         )?;
     }
     Ok(())
+}
+
+fn collect_mutated_names(expression: &Expr, names: &mut HashSet<String>) {
+    if let Some(name) = mutable_assignment_target(expression) {
+        names.insert(name.to_owned());
+    }
+    if let Expr::List(items) = expression {
+        for item in items.iter().skip(1) {
+            collect_mutated_names(item, names);
+        }
+    }
+}
+
+/// Lower a while loop with one await binding per iteration into a concrete
+/// child task. Its poll helper runs ready iterations in a normal Lim loop and
+/// stores the current captures plus child task only when the child is pending.
+fn lower_async_while(
+    statement: &Expr,
+    known: &HashMap<String, Binding>,
+    known_order: &[String],
+    following: &[Expr],
+    return_value: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(Vec<Expr>, String)>, String> {
+    if !has_await(statement) {
+        return Ok(None);
+    }
+    let Some(items) = form(statement, "#while") else {
+        return Ok(None);
+    };
+    if items.len() < 3 {
+        return Err("@async-fn awaited #while requires a condition and body".into());
+    }
+    let condition = &items[1];
+    if has_await(condition) {
+        return Err("@async-fn #await in a loop condition is not supported".into());
+    }
+    let body = &items[2..];
+    let await_indices = body
+        .iter()
+        .enumerate()
+        .filter_map(|(index, expression)| has_await(expression).then_some(index))
+        .collect::<Vec<_>>();
+    if await_indices.len() != 1 {
+        return Err(
+            "@async-fn loop lowering currently requires exactly one await binding per iteration"
+                .into(),
+        );
+    }
+    let await_index = await_indices[0];
+    let await_binding = binding(&body[await_index], "loop await")?;
+    let binding_form = form(&body[await_index], "#let")
+        .or_else(|| form(&body[await_index], "#let-mut"))
+        .ok_or_else(|| "@async-fn loop await must be a direct binding".to_owned())?;
+    let await_form = form(&binding_form[3], "#await").ok_or_else(|| {
+        "@async-fn loop binding must be initialized directly by #await".to_owned()
+    })?;
+    if await_form.len() != 6 || has_await(&await_form[5]) {
+        return Err("@async-fn loop #await requires one non-suspending child task".into());
+    }
+    let prefix = &body[..await_index];
+    if prefix.iter().any(|expression| {
+        has_await(expression)
+            || matches!(
+                expression,
+                Expr::List(parts)
+                    if matches!(parts.first(), Some(Expr::Symbol(head))
+                        if matches!(head.as_str(), "#let" | "#let-mut" | "#let-else" | "#return" | "#break" | "#continue"))
+            )
+    }) {
+        return Err(
+            "@async-fn loop-await prefix cannot bind locals or transfer control".into(),
+        );
+    }
+    let suffix = &body[await_index + 1..];
+    if suffix.iter().any(|expression| {
+        has_await(expression)
+            || matches!(
+                expression,
+                Expr::List(parts)
+                    if matches!(parts.first(), Some(Expr::Symbol(head))
+                        if matches!(head.as_str(), "#return" | "#break" | "#continue"))
+            )
+    }) {
+        return Err("@async-fn loop-await suffix cannot suspend or transfer control".into());
+    }
+
+    let mut used_names = HashSet::new();
+    collect_value_names(condition, &mut used_names);
+    collect_value_names(&await_form[5], &mut used_names);
+    for expression in prefix.iter().chain(suffix) {
+        collect_value_names(expression, &mut used_names);
+    }
+    let captures = known_order
+        .iter()
+        .filter(|name| used_names.contains(name.as_str()))
+        .filter_map(|name| known.get(name).cloned())
+        .collect::<Vec<_>>();
+
+    let mut used_after = HashSet::new();
+    for expression in following {
+        collect_value_names(expression, &mut used_after);
+    }
+    collect_value_names(return_value, &mut used_after);
+    let mut mutated = HashSet::new();
+    for expression in prefix.iter().chain(suffix) {
+        collect_mutated_names(expression, &mut mutated);
+    }
+    collect_mutated_names(&await_form[5], &mut mutated);
+    if let Some(name) = captures
+        .iter()
+        .find(|binding| mutated.contains(&binding.name) && used_after.contains(&binding.name))
+    {
+        return Err(format!(
+            "@async-fn loop mutates '{}' and uses it after the loop; loop-result capture transfer is not supported yet",
+            name.name
+        ));
+    }
+
+    let base = fresh_async_name(source, next_name);
+    let task_type = format!("{base}-task");
+    let task_start = format!("{base}-start");
+    let task_wait = format!("{base}-wait");
+    let task_poll_result = format!("{base}-poll-result");
+    let task_pending = format!("{base}-pending");
+    let task_ready = format!("{base}-ready");
+    let task_run = format!("{base}-run");
+    let task_resume = format!("{base}-resume");
+    let task_poll = format!("{base}-poll");
+    let child_type = expression_source(&await_form[1])?;
+    let child_pending = symbol(&await_form[2], "loop child Pending variant")?;
+    let child_ready = symbol(&await_form[3], "loop child Ready variant")?;
+    let child_poll = symbol(&await_form[4], "loop child poll function")?;
+    let child_task = expression_source(&await_form[5])?;
+    parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+
+    let capture_types = types(&captures);
+    let capture_names = arguments(&captures);
+    let capture_arguments = named_arguments(&captures);
+    let start_variant = if capture_types.is_empty() {
+        task_start.clone()
+    } else {
+        format!("({task_start} {capture_types})")
+    };
+    let wait_fields = if capture_types.is_empty() {
+        child_type.clone()
+    } else {
+        format!("{capture_types} {child_type}")
+    };
+    let wait_variant = format!("({task_wait} {wait_fields})");
+    let start_pattern = if capture_names.is_empty() {
+        task_start.clone()
+    } else {
+        format!("({task_start} {capture_names})")
+    };
+    let wait_pattern = if capture_names.is_empty() {
+        format!("({task_wait} {base}-child)")
+    } else {
+        format!("({task_wait} {capture_names} {base}-child)")
+    };
+    let task_wait_with_child = if capture_names.is_empty() {
+        format!("({task_wait} {base}-child-state)")
+    } else {
+        format!("({task_wait} {capture_names} {base}-child-state)")
+    };
+    let mut run_parameters = captures.iter().map(parameter).collect::<Vec<_>>();
+    run_parameters.push(format!("(waker (#ref {waker}))"));
+    let run_parameters = run_parameters.join(" ");
+    let mut resume_parameters = captures.iter().map(parameter).collect::<Vec<_>>();
+    let result_parameter = if await_binding.mutable {
+        format!("(#mut {base}-result {})", await_binding.ty)
+    } else {
+        format!("({base}-result {})", await_binding.ty)
+    };
+    resume_parameters.push(result_parameter);
+    resume_parameters.push(format!("(waker (#ref {waker}))"));
+    let resume_parameters = resume_parameters.join(" ");
+    let call_run = if capture_arguments.is_empty() {
+        "(: waker waker)".to_owned()
+    } else {
+        format!("({capture_arguments} : waker waker)")
+    };
+    let call_resume = {
+        let mut arguments = capture_arguments;
+        if !arguments.is_empty() {
+            arguments.push(' ');
+        }
+        arguments.push_str(&format!(": {base}-result {base}-result : waker waker"));
+        format!("({arguments})")
+    };
+    let loop_condition = expression_source(condition)?;
+    let prefix_source = prefix
+        .iter()
+        .map(expression_source)
+        .collect::<Result<Vec<_>, _>>()?
+        .join(" ");
+    let suffix_source = suffix
+        .iter()
+        .map(expression_source)
+        .collect::<Result<Vec<_>, _>>()?
+        .join(" ");
+    let child_poll_call = format!("(#call {child_poll} (: task {base}-child : waker waker))");
+    let task_source = format!(
+        "(#enum {task_type} ({start_variant} {wait_variant}))
+         (#linear {task_type})
+         (#enum {task_poll_result} (({task_pending} {task_type}) ({task_ready} ())))
+         (#fn {task_run} ({run_parameters}) {task_poll_result}
+           (#let-mut {base}-outcome {task_poll_result} ({task_ready} ()))
+           (#let-mut {base}-stopped bool false)
+           (#while (#bool.&& (#bool.== {base}-stopped false) {loop_condition})
+             {prefix_source}
+             (#let {base}-child {child_type} {child_task})
+             (#match {child_poll_call}
+               (#case ({child_pending} {base}-child-state)
+                 (#block
+                   (#forget {base}-outcome)
+                   (#set {base}-outcome ({task_pending} {task_wait_with_child}))
+                   (#set {base}-stopped true)
+                   ()))
+               (#case ({child_ready} {base}-result)
+                 (#block (#let {} {} {base}-result) {} ()))))
+           (#return {base}-outcome))
+         (#fn {task_resume} ({resume_parameters}) {task_poll_result}
+           ({} {} {} {base}-result)
+           {}
+           (#return (#call {task_run} {call_run})))
+         (#fn {task_poll} ((task {task_type}) (waker (#ref {waker}))) {task_poll_result}
+           (#return (#match task
+             (#case {start_pattern} (#call {task_run} {call_run}))
+             (#case {wait_pattern}
+               (#match {child_poll_call}
+                 (#case ({child_pending} {base}-child-state)
+                   ({task_pending} {task_wait_with_child}))
+                 (#case ({child_ready} {base}-result)
+                   (#call {task_resume} {call_resume})))))))",
+        await_binding.name,
+        await_binding.ty,
+        suffix_source,
+        if await_binding.mutable {
+            "#let-mut"
+        } else {
+            "#let"
+        },
+        await_binding.name,
+        await_binding.ty,
+        suffix_source,
+    );
+    let task_variable = format!("{base}-value");
+    let result_variable = format!("{base}-result");
+    let replacement = vec![
+        Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol(task_variable.clone()),
+            Expr::Symbol(task_type.clone()),
+            Expr::List(
+                std::iter::once(Expr::Symbol(task_start))
+                    .chain(
+                        captures
+                            .iter()
+                            .map(|binding| Expr::Symbol(binding.name.clone())),
+                    )
+                    .collect(),
+            ),
+        ]),
+        Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol(result_variable),
+            Expr::List(Vec::new()),
+            Expr::List(vec![
+                Expr::Symbol("#await".into()),
+                Expr::Symbol(task_type),
+                Expr::Symbol(task_pending),
+                Expr::Symbol(task_ready),
+                Expr::Symbol(task_poll),
+                Expr::Symbol(task_variable),
+            ]),
+        ]),
+    ];
+    Ok(Some((replacement, task_source)))
 }
 
 fn mutable_assignment_target(expr: &Expr) -> Option<&str> {
@@ -885,7 +1165,23 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let mut next_nested_await = 0;
     let mut generated_helpers = Vec::new();
     let mut lowered_statements = Vec::new();
-    for mut statement in statements {
+    let mut lowering_known = known.clone();
+    let mut lowering_known_order = known_order.clone();
+    for (source_index, mut statement) in statements.iter().cloned().enumerate() {
+        if let Some((replacement, helper)) = lower_async_while(
+            &statement,
+            &lowering_known,
+            &lowering_known_order,
+            &statements[source_index + 1..],
+            &return_value,
+            &source,
+            &mut next_nested_await,
+            &waker_source,
+        )? {
+            generated_helpers.push(helper);
+            lowered_statements.extend(replacement);
+            continue;
+        }
         let mut generated = Vec::new();
         extract_statement_awaits(
             &mut statement,
@@ -896,7 +1192,11 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             &waker_source,
         )?;
         lowered_statements.extend(generated);
-        lowered_statements.push(statement);
+        lowered_statements.push(statement.clone());
+        if let Ok(local) = binding(&statement, "source local") {
+            lowering_known_order.push(local.name.clone());
+            lowering_known.insert(local.name.clone(), local);
+        }
     }
     statements = lowered_statements;
     if let Some(await_expression) = &return_await {

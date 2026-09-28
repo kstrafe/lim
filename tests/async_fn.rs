@@ -43,8 +43,7 @@ fn build_and_run(source: &str, expected: i32) -> String {
         1024 * 1024,
     )
     .unwrap();
-    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
-    let generated = fs::read_dir(scratch.path().join(".lim/cache"))
+    let generated_sources = fs::read_dir(scratch.path().join(".lim/cache"))
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| {
@@ -56,6 +55,12 @@ fn build_and_run(source: &str, expected: i32) -> String {
         .map(|entry| fs::read_to_string(entry.path()).unwrap())
         .collect::<Vec<_>>()
         .join("\n");
+    assert!(
+        status.success(),
+        "{}\ngenerated source:\n{generated_sources}",
+        String::from_utf8_lossy(&stderr)
+    );
+    let generated = generated_sources;
     let (status, _, stderr) =
         support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
     assert_eq!(
@@ -968,11 +973,15 @@ fn async_function_lowers_await_in_terminal_binding_block() {
 }
 
 #[test]
-fn async_function_rejects_loop_await_without_hoisting_it() {
+fn async_function_resumes_a_child_await_inside_a_while_loop() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
-        (#return (ChildReady 1u64)))
+        (#return (#match task
+          (#case (Waiting value)
+            (#if (#u64.== value 0u64)
+              (ChildPending (Waiting 1u64))
+              (ChildReady value))))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
           (#let-mut iteration u64 0u64)
@@ -980,8 +989,36 @@ fn async_function_rejects_loop_await_without_hoisting_it() {
             (#let result u64
               (#await Child ChildPending ChildReady child-poll (Waiting iteration)))
             (#set iteration (#u64.+.wrap iteration 1u64)))
-          (#return iteration))))";
-    let scratch = support::Scratch::new("async-loop-await");
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending pending-again)
+              (#block (#forget pending-again) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("-wait"), "{generated}");
+}
+
+#[test]
+fn async_function_does_not_hoist_awaits_out_of_for_range_loops() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (ChildReady 1u64)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#for-range (iteration u64) 0u64 2u64
+            (#let result u64
+              (#await Child ChildPending ChildReady child-poll (Waiting iteration))))
+          (#return 42u64))))";
+    let scratch = support::Scratch::new("async-for-range-await");
     let input = scratch.path().join("loop.lim");
     let diagnostic = lim::compile_source_to_assembly(
         source,
@@ -992,9 +1029,7 @@ fn async_function_rejects_loop_await_without_hoisting_it() {
     )
     .unwrap_err();
     assert!(
-        diagnostic
-            .message
-            .contains("loop-carried suspension state is not supported"),
+        diagnostic.message.contains("only supported #while forms"),
         "{diagnostic:?}"
     );
     let span = diagnostic.span.expect("await source span");
