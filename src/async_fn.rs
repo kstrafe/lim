@@ -1844,6 +1844,45 @@ fn lower_async_for(
         ]);
     }
 
+    let mut post_step = Vec::new();
+    if awaited_step {
+        if let Some(set) = form(&step, "#set") {
+            if set.len() != 3 {
+                return Err(
+                    "@async-fn awaited #for step assignment requires a target and value".into(),
+                );
+            }
+            let target = symbol(&set[1], "#for step assignment target")?.to_owned();
+            let target_binding = loop_known.get(&target).ok_or_else(|| {
+                format!("@async-fn awaited #for step assigns unknown local '{target}'")
+            })?;
+            let await_form = form(&set[2], "#await").ok_or_else(|| {
+                "@async-fn awaited #for step assignment currently requires a direct #await value".to_owned()
+            })?;
+            if await_form.len() != 6 {
+                return Err(
+                    "@async-fn awaited #for step assignment requires (#await Child Pending Ready poll task)".into(),
+                );
+            }
+            let result_name = fresh_async_name(source, next_name);
+            step = Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(result_name.clone()),
+                Expr::Symbol(target_binding.ty.clone()),
+                Expr::List(await_form.to_vec()),
+            ]);
+            post_step.push(Expr::List(vec![
+                Expr::Symbol("#set".into()),
+                Expr::Symbol(target),
+                Expr::Symbol(result_name),
+            ]));
+        } else if form(&step, "#let").is_none() && form(&step, "#let-mut").is_none() {
+            return Err(
+                "@async-fn awaited #for step currently requires a direct await binding or assignment".into(),
+            );
+        }
+    }
+
     if awaited_condition {
         let terminal_index = loop_body.len().saturating_sub(1);
         if loop_body[..terminal_index]
@@ -1859,6 +1898,7 @@ fn lower_async_for(
         }
     } else {
         loop_body.push(step.clone());
+        loop_body.extend(post_step);
     }
     let mut while_items = vec![Expr::Symbol("#while".into()), condition];
     while_items.extend(loop_body);

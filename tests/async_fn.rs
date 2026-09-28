@@ -1920,26 +1920,29 @@ fn async_for_condition_can_await_and_step_only_after_ready_true() {
 fn async_for_step_can_suspend_after_the_loop_body() {
     let source = "(#enum StepTask ((Waiting u64) (Resuming u64)))
       (#linear StepTask)
-      (#enum StepPoll ((StepPending StepTask) (StepReady ())))
+      (#enum StepPoll ((StepPending StepTask) (StepReady u64)))
       (#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
         (#return (#match task
           (#case (Waiting iteration)
             (#block
-              (#assert (#u64.> iteration 0u64))
+              (#assert (#u64.== (#u64.%.wrap iteration 2u64) 1u64))
               (#if (#u64.== iteration 1u64)
                 (StepPending (Resuming iteration))
-                (StepReady ()))))
+                (StepReady (#u64.+.wrap iteration 1u64)))))
           (#case (Resuming iteration)
-            (#block (#assert (#u64.> iteration 0u64)) (StepReady ()))))))
+            (#block
+              (#assert (#u64.== (#u64.%.wrap iteration 2u64) 1u64))
+              (StepReady (#u64.+.wrap iteration 1u64)))))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
           (#let-mut iteration u64 0u64)
           (#for (#set iteration 0u64)
-                (#u64.< iteration 3u64)
-                (#let step-result ()
-                  (#await StepTask StepPending StepReady step-poll (Waiting iteration)))
+                (#u64.< iteration 6u64)
+                (#set iteration
+                  (#await StepTask StepPending StepReady step-poll
+                    (Waiting iteration)))
             (#set iteration (#u64.+.wrap iteration 1u64)))
-          (#return (#if (#u64.== iteration 3u64) 42u64 0u64)))))
+          (#return (#if (#u64.== iteration 6u64) 42u64 0u64)))))
       (#fn main () u64
         (#let waker u64 0u64)
         (#let first Poll
@@ -1955,7 +1958,7 @@ fn async_for_step_can_suspend_after_the_loop_body() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("step-result"), "{generated}");
+    assert!(generated.contains("StepPending"), "{generated}");
 }
 
 #[test]

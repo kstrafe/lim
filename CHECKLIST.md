@@ -1893,6 +1893,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   step ordering through Pending/resume, then recheck the condition only after
   the awaited step is Ready. Verify an iteration-sensitive child task suspends
   once and the loop completes with the expected result.
+- [x] **ASYNC-01b51: Assign an awaited result in a `#for` step.** Lower a direct
+  `#set target (#await ...)` into a typed temporary followed by the assignment
+  only after Ready. Resolve the target's explicit type from the checked async
+  binding environment; reject unknown targets and non-direct await values.
+  Verify the step sees body-updated state and transfers the awaited value across
+  Pending/resume before the next condition check.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
