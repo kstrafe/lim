@@ -307,6 +307,12 @@ the checklist is committed alongside the implementation it tracks.
   retained type. Keep aggregate lowering on the existing bridge until it is
   migrated. Cover nested distinct bindings and dotted local identifiers.
 
+- [x] **IR-02o: Resolve local scalar writes by `BindingId`.** Bridge each
+  legacy statement destination name to its unique checked binding, then select
+  scalar/wide type and storage through that ID for initialization and
+  assignment. Preserve aggregate assignment on the bridge until its place
+  lowering is migrated; cover dotted mutable locals and wide values.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

@@ -931,6 +931,8 @@ pub(crate) struct EmissionTypes {
     /// Local names in BindingId order, used only to bridge existing storage
     /// allocation into the checked backend identity space.
     pub binding_names: Vec<String>,
+    /// Checked local types in the same identity order.
+    pub binding_types: Vec<Type>,
     /// Temporary bridge for legacy codegen, which still visits AST references.
     pub address_to_id: HashMap<usize, ExpressionId>,
     /// Backend-created expressions have no source identity and retain a narrow
@@ -1091,6 +1093,11 @@ impl Body {
             .bindings
             .iter()
             .map(|binding| binding.name.clone())
+            .collect();
+        emission.binding_types = self
+            .bindings
+            .iter()
+            .map(|binding| binding.ty.clone())
             .collect();
         for (id, target) in self.emission_nodes.iter().zip(after) {
             let address = std::ptr::from_ref(target) as usize;

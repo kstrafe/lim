@@ -10108,8 +10108,13 @@ mod tests {
         let program = parse_program(
             "(#fn util.add-one () u64 (#return 42))
              (#fn main () u64
-               (#let value.local u64 (#call util.add-one (:)))
-               (#return value.local))",
+               (#let-mut value.local u64 (#call util.add-one (:)))
+               (#set value.local 84u64)
+               (#return value.local))
+             (#fn wide.value () i128
+               (#let-mut wide.local i128 12)
+               (#set wide.local 15)
+               (#return wide.local))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());

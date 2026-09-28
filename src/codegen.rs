@@ -5552,6 +5552,32 @@ fn checked_numeric_operands_require_retained_opcode_types() {
 }
 
 impl FunctionContext {
+    fn local_binding_id(&self, name: &str) -> Option<crate::typed_body::BindingId> {
+        let mut matches = self
+            .expression_types
+            .binding_names
+            .iter()
+            .enumerate()
+            .filter(|(_, candidate)| candidate.as_str() == name);
+        let (index, _) = matches.next()?;
+        matches
+            .next()
+            .is_none()
+            .then_some(crate::typed_body::BindingId(index))
+    }
+
+    fn local_storage(&self, name: &str) -> Option<&Storage> {
+        self.local_binding_id(name)
+            .and_then(|binding| self.locals_by_binding.get(&binding))
+            .or_else(|| self.locals.get(name))
+    }
+
+    fn local_type(&self, name: &str) -> Option<&Type> {
+        self.local_binding_id(name)
+            .and_then(|binding| self.expression_types.binding_types.get(binding.0))
+            .or_else(|| self.local_types.get(name))
+    }
+
     /// Tagged local references grow toward lower addresses; untagged static
     /// and raw-backed references grow toward higher addresses. Keep the tag
     /// intact while projecting a slice, just as aggregate projections do.
@@ -5624,8 +5650,7 @@ impl FunctionContext {
                 } else if is_wide_integer(&ty) {
                     self.expression(value)?;
                     let Storage::Wide { low, high } = self
-                        .locals
-                        .get(name)
+                        .local_storage(name)
                         .ok_or_else(|| format!("unknown variable '{name}'"))?
                     else {
                         return Err(format!("'{name}' is not a 128-bit integer"));
@@ -5644,7 +5669,13 @@ impl FunctionContext {
                             self.normalize_integer(&ty)?;
                         }
                     }
-                    let slot = scalar_slot(&self.locals, name) * 8;
+                    let Storage::Scalar(slot) = self
+                        .local_storage(name)
+                        .ok_or_else(|| format!("unknown variable '{name}'"))?
+                    else {
+                        return Err(format!("'{name}' is not a scalar local"));
+                    };
+                    let slot = slot * 8;
                     if matches!(ty, Type::F32) {
                         self.output.push_str(&format!(
                             "    movd eax, xmm0\n    mov DWORD PTR [rbp-{slot}], eax\n"
@@ -5665,7 +5696,7 @@ impl FunctionContext {
                 self.emit_destructure(pattern, ty, value)?;
             }
             Statement::Assign { name, value } => {
-                let expected = self.local_types.get(name).cloned();
+                let expected = self.local_type(name).cloned();
                 if expected
                     .as_ref()
                     .is_some_and(|ty| matches!(ty, Type::Unit | Type::Never))
@@ -5699,8 +5730,7 @@ impl FunctionContext {
                     }
                 }
                 let storage = self
-                    .locals
-                    .get(name)
+                    .local_storage(name)
                     .ok_or_else(|| format!("unknown variable '{name}'"))?;
                 if let Storage::Wide { low, high } = storage {
                     let (low, high) = (*low, *high);
@@ -5715,11 +5745,13 @@ impl FunctionContext {
                     return Err(format!("cannot assign aggregate local '{name}'"));
                 };
                 if self
-                    .local_types
-                    .get(name)
+                    .local_type(name)
                     .is_some_and(|ty| matches!(ty, Type::F32 | Type::F64))
                 {
-                    if expected.as_ref().is_some_and(|ty| matches!(ty, Type::F32)) {
+                    if self
+                        .local_type(name)
+                        .is_some_and(|ty| matches!(ty, Type::F32))
+                    {
                         self.output.push_str(&format!(
                             "    movd eax, xmm0\n    mov DWORD PTR [rbp-{}], eax\n",
                             slot * 8
