@@ -142,9 +142,15 @@ fn local_bindings_may_not_shadow_visible_names() {
         "(#fn main () u64 (#let value u64 1u64) (#return (#block (#let value u64 2u64) value)))",
         "(#enum Maybe ((Some u64) None)) (#fn main ((value Maybe)) u64 (#return (#match value (#case (Some value) value) (#case None 0u64))))",
         "(#static value u64 1u64) (#fn read ((value u64)) u64 (#return value))",
+        "(#fn main ((value u64)) u64 (#let (#tuple value) (#tuple u64) (#tuple 2u64)) (#return value))",
+        "(#enum Maybe ((Some u64) None)) (#fn main ((value u64) (maybe Maybe)) u64 (#return (#if-let (Some value) maybe value value)))",
+        "(#enum Maybe ((Some u64) None)) (#fn main ((value u64) (maybe Maybe)) u64 (#let-else (Some value) Maybe maybe (#return 0u64)) (#return value))",
     ] {
         let error = lim::parse_program(source).unwrap_err();
-        assert!(error.contains("shadowing is not allowed"), "{error}");
+        assert!(
+            error.contains("shadowing is not allowed"),
+            "source: {source}\nerror: {error}"
+        );
     }
 }
 
