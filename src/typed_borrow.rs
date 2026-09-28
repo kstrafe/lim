@@ -345,6 +345,7 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
         })
         .collect::<HashMap<_, _>>();
     let origins = flow.loan_origins(body);
+    let active = flow.definitely_active_bindings_before(body);
     for (index, node) in calls {
         let NodeKind::Form {
             head,
@@ -356,9 +357,10 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
             continue;
         };
         let mut bindings = BoundBorrows::new();
-        if let Some(event) = call_events.get(&NodeId(index)) {
+        let call_event = call_events.get(&NodeId(index)).copied();
+        if let Some(event) = call_event {
             for index in 0..body.bindings.len() {
-                let held = origins.before(*event, BindingId(index));
+                let held = origins.before(event, BindingId(index));
                 if let Some(alternatives) = origin_alternatives(held, node.span)? {
                     bindings.insert(BindingId(index), alternatives);
                 }
@@ -367,6 +369,29 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
         let mut prior = vec![Vec::<DirectBorrow>::new()];
         for argument in children.iter().skip(1) {
             let alternatives = returned_borrows_with_bindings(body, *argument, head, &bindings)?;
+            if let Some(event) = call_event {
+                if let Some(active) = active[event.0].as_ref() {
+                    for borrow in alternatives.iter().flatten() {
+                        let PlaceRoot::Local(binding) = &borrow.place.root else {
+                            continue;
+                        };
+                        if !active.contains(&binding) {
+                            let name = &body.bindings[binding.0].name;
+                            return Err(BorrowConflict {
+                                message: format!(
+                                    "reference to block-local variable '{name}' escapes its scope"
+                                ),
+                                span: body.nodes[argument.0].span.or(node.span),
+                                labels: borrow
+                                    .span
+                                    .map(|span| (span, "reference originates here".into()))
+                                    .into_iter()
+                                    .collect(),
+                            });
+                        }
+                    }
+                }
+            }
             prior = combine(prior, alternatives, head, node.span)?;
         }
     }
@@ -1172,8 +1197,9 @@ fn distribute_pattern_borrows(
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded, check_live_direct_loans, check_scope_escapes, combine, origin_alternatives,
-        returned_borrows_with_bindings, BoundBorrows, DirectBorrow, MAX_BORROW_ALTERNATIVES,
+        bounded, check_call_arguments, check_live_direct_loans, check_scope_escapes, combine,
+        origin_alternatives, returned_borrows_with_bindings, BoundBorrows, DirectBorrow,
+        MAX_BORROW_ALTERNATIVES,
     };
     use crate::typed_body::{BindingId, NodeId, NodeKind, PlaceRoot};
     use crate::typed_flow::{FlowAction, FlowGraph, FlowNode, FlowNodeId, LoanOrigin};
@@ -1204,6 +1230,19 @@ mod tests {
         let body = &checked.declarations().bodies["main"];
         let flow = &checked.declarations().flows["main"];
         check_scope_escapes(body, flow).unwrap();
+    }
+
+    #[test]
+    fn call_scope_analysis_accepts_arguments_borrowed_from_live_locals() {
+        let source = "(#fn read ((input (#ref u64))) u64 (#return (#deref input)))
+          (#fn main () u64
+            (#let owner u64 42u64)
+            (#return (#call read (: input (#borrow owner)))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let flow = &checked.declarations().flows["main"];
+        check_call_arguments(body, flow).unwrap();
     }
 
     #[test]

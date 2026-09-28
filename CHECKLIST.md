@@ -2635,3 +2635,10 @@ commit, documentation, and focused regression coverage.
   the syntax fallback from repeating local-binding scope checks. Preserve
   standalone legacy checking, exact value/origin spans, and cover both direct
   and destructured block-reference escapes plus valid in-scope references.
+
+- [x] **IR-04cs: Check call-argument referents at the typed call event.** Use
+  checked argument borrow origins and bindings definitely in scope when the
+  callee is invoked. Reject a temporary block reference whose owner was already
+  exited, while accepting borrows from locals that remain live through the
+  call. Remove the corresponding syntax-side call-argument scope check on the
+  normal compiler path; retain exact argument and borrow-origin spans.

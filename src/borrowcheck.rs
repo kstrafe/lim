@@ -1692,11 +1692,12 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     let checked = items[1..].iter().enumerate().try_for_each(|(index, item)| {
                         let _argument_site = Site::expression(item).enter();
                         check_expression(item, context)?;
-                        if reference_parameters
-                            .as_ref()
-                            .and_then(|parameters| parameters.get(index))
-                            .copied()
-                            .unwrap_or_else(|| context.thread_join_functions.contains(operator))
+                        if !context.typed_scope_escapes
+                            && reference_parameters
+                                .as_ref()
+                                .and_then(|parameters| parameters.get(index))
+                                .copied()
+                                .unwrap_or_else(|| context.thread_join_functions.contains(operator))
                         {
                             ensure_origins_in_scope(
                                 &reference_origins(item, context, true),
