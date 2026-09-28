@@ -3736,29 +3736,33 @@ fn add_local(
 }
 
 fn local_slots(locals: &HashMap<String, Storage>, name: &str) -> Result<Vec<usize>, String> {
-    match locals
+    let storage = locals
         .get(name)
-        .ok_or_else(|| format!("unknown local '{name}'"))?
-    {
-        Storage::Zero => Ok(Vec::new()),
-        Storage::Scalar(slot) => Ok(vec![*slot]),
-        Storage::Wide { low, high } => Ok(vec![*low, *high]),
-        Storage::Struct(slots) => Ok(slots
+        .ok_or_else(|| format!("unknown local '{name}'"))?;
+    Ok(storage_slots(storage))
+}
+
+fn storage_slots(storage: &Storage) -> Vec<usize> {
+    match storage {
+        Storage::Zero => Vec::new(),
+        Storage::Scalar(slot) => vec![*slot],
+        Storage::Wide { low, high } => vec![*low, *high],
+        Storage::Struct(slots) => slots
             .iter()
             .flat_map(|(_, slots)| slots.iter().copied())
-            .collect()),
+            .collect(),
         Storage::Enum {
             discriminant,
             payload,
-        } => Ok(std::iter::once(*discriminant)
+        } => std::iter::once(*discriminant)
             .chain(payload.iter().copied())
-            .collect()),
+            .collect(),
         Storage::Array {
             base,
             length,
             element_words,
-        } => Ok((*base..*base + *length * *element_words).collect()),
-        Storage::Tuple(slots) => Ok(slots.clone()),
+        } => (*base..*base + *length * *element_words).collect(),
+        Storage::Tuple(slots) => slots.clone(),
     }
 }
 
@@ -5578,6 +5582,23 @@ impl FunctionContext {
             .or_else(|| self.local_types.get(name))
     }
 
+    fn local_slots_for_symbol(&self, expression: &Expr, name: &str) -> Result<Vec<usize>, String> {
+        if let Some(metadata) = self.expression_types.get(expression) {
+            if let Some(binding) = metadata.binding {
+                let storage = self.locals_by_binding.get(&binding).ok_or_else(|| {
+                    format!("internal error: missing storage for checked binding '{name}'")
+                })?;
+                return Ok(storage_slots(storage));
+            }
+        }
+        if self.expression_types.has_checked_identity(expression) {
+            return Err(format!(
+                "internal error: checked local symbol '{name}' lost its binding ID"
+            ));
+        }
+        local_slots(&self.locals, name)
+    }
+
     /// Tagged local references grow toward lower addresses; untagged static
     /// and raw-backed references grow toward higher addresses. Keep the tag
     /// intact while projecting a slice, just as aggregate projections do.
@@ -6287,7 +6308,7 @@ impl FunctionContext {
         let storage_words = storage_word_count(ty, &self.structs, &self.enums)?;
         if storage_words > VALUE_REGISTERS.len() {
             let source_slots = if let Expr::Symbol(name) = value {
-                Some(local_slots(&self.locals, name)?)
+                Some(self.local_slots_for_symbol(value, name)?)
             } else if let Expr::List(items) = value {
                 match items.first() {
                     Some(Expr::Symbol(_)) if self.is_indirect_return_call(value)? => {
@@ -6338,7 +6359,7 @@ impl FunctionContext {
             match binding {
                 Expr::Symbol(name) if name == "_" => {}
                 Expr::Symbol(name) => {
-                    let slots = local_slots(&self.locals, name)?;
+                    let slots = self.local_slots_for_symbol(binding, name)?;
                     if slots.len() != field_words {
                         return Err(
                             "destructuring binding has an inconsistent flattened layout".into()
@@ -6390,7 +6411,7 @@ impl FunctionContext {
             match binding {
                 Expr::Symbol(name) if name == "_" => {}
                 Expr::Symbol(name) => {
-                    let slots = local_slots(&self.locals, name)?;
+                    let slots = self.local_slots_for_symbol(binding, name)?;
                     if slots.len() != field_words {
                         return Err(
                             "destructuring binding has an inconsistent flattened layout".into()

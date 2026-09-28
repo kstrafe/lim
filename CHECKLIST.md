@@ -313,6 +313,12 @@ the checklist is committed alongside the implementation it tracks.
   assignment. Preserve aggregate assignment on the bridge until its place
   lowering is migrated; cover dotted mutable locals and wide values.
 
+- [x] **IR-02p: Resolve destructuring destinations by `BindingId`.** Use the
+  checked pattern symbol's binding identity for slot writes and large-value
+  destructuring reads. Reject checked pattern symbols that have lost identity;
+  retain spelling lookup only for synthesized syntax. Cover tuple, struct,
+  array, nested, and let-else patterns.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently
