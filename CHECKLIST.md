@@ -370,7 +370,7 @@ the checklist is committed alongside the implementation it tracks.
   return storage, retaining global and synthesized paths. Cover nested wide
   elements and direct aggregate return cases.
 
-- [ ] **IR-02aa: Resolve borrowed local addresses by identity.** Use the
+- [x] **IR-02aa: Resolve borrowed local addresses by identity.** Use the
   checked place symbol's `BindingId` to locate the base slot for shared and
   mutable borrows; retain static and synthesized place handling. Cover scalar
   and aggregate borrows, including projected field reborrows.
