@@ -301,6 +301,12 @@ the checklist is committed alongside the implementation it tracks.
   synthetic call. This keeps nested operand metadata available for ABI checks.
   Preserve native allocator, Cell, local-waker, and explicit-clone examples.
 
+- [x] **IR-02n: Resolve scalar local reads by `BindingId`.** Carry binding
+  names in identity order only as a temporary storage-allocation bridge, then
+  read scalar and wide local slots from the symbol's checked `BindingId` and
+  retained type. Keep aggregate lowering on the existing bridge until it is
+  migrated. Cover nested distinct bindings and dotted local identifiers.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

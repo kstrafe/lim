@@ -2159,6 +2159,17 @@ fn generate_function(
             &local_types,
         )?;
     }
+    let locals_by_binding = expression_types
+        .binding_names
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| {
+            locals
+                .get(name)
+                .cloned()
+                .map(|storage| (crate::typed_body::BindingId(index), storage))
+        })
+        .collect();
     let indirect_return = functions
         .get(&function.name)
         .is_some_and(|abi| abi.indirect_return);
@@ -2380,6 +2391,7 @@ fn generate_function(
     let return_label = format!(".Lreturn_{}", asm_symbol(&function.name));
     let mut context = FunctionContext {
         expression_types,
+        locals_by_binding,
         locals,
         structs: structs.clone(),
         enums: enums.clone(),
@@ -5177,6 +5189,7 @@ fn normalize_global_integer(value: i128, ty: &Type) -> i128 {
 
 struct FunctionContext {
     expression_types: crate::typed_body::EmissionTypes,
+    locals_by_binding: HashMap<crate::typed_body::BindingId, Storage>,
     locals: HashMap<String, Storage>,
     structs: HashMap<String, Vec<Field>>,
     enums: HashMap<String, Vec<EnumVariant>>,
@@ -8548,14 +8561,40 @@ impl FunctionContext {
                 }
             }
             Expr::Symbol(name) => {
-                if self
-                    .local_types
-                    .get(name)
-                    .is_some_and(|ty| matches!(ty, Type::Unit | Type::Never))
-                {
+                let metadata = self.expression_types.get(expression);
+                let binding = metadata.and_then(|metadata| metadata.binding);
+                let local_storage =
+                    binding.and_then(|binding| self.locals_by_binding.get(&binding));
+                let local_type = metadata
+                    .and_then(|metadata| metadata.ty.as_ref())
+                    .or_else(|| self.local_types.get(name));
+                if local_type.is_some_and(|ty| matches!(ty, Type::Unit | Type::Never)) {
                     return Ok(());
                 }
-                if self.locals.contains_key(name) {
+                if let Some(Storage::Wide { low, high }) = local_storage {
+                    self.output.push_str(&format!(
+                        "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
+                        low * 8,
+                        high * 8
+                    ));
+                } else if let Some(Storage::Scalar(slot)) = local_storage {
+                    if local_type.is_some_and(|ty| matches!(ty, Type::F32 | Type::F64)) {
+                        if local_type.is_some_and(|ty| matches!(ty, Type::F32)) {
+                            self.output.push_str(&format!(
+                                "    movss xmm0, DWORD PTR [rbp-{}]\n",
+                                slot * 8
+                            ));
+                        } else {
+                            self.output.push_str(&format!(
+                                "    movq xmm0, QWORD PTR [rbp-{}]\n",
+                                slot * 8
+                            ));
+                        }
+                    } else {
+                        self.output
+                            .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
+                    }
+                } else if self.locals.contains_key(name) {
                     if let Some(Storage::Wide { low, high }) = self.locals.get(name) {
                         self.output.push_str(&format!(
                             "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",

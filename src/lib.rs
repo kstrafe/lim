@@ -10106,7 +10106,10 @@ mod tests {
         assert_eq!(tokens[2].kind, TokenKind::Symbol(".".into()));
         assert_eq!(tokens[3].kind, TokenKind::Symbol("#u64.+.wrap".into()));
         let program = parse_program(
-            "(#fn util.add-one () u64 (#return 42)) (#fn main () u64 (#return (#call util.add-one (:))))",
+            "(#fn util.add-one () u64 (#return 42))
+             (#fn main () u64
+               (#let value.local u64 (#call util.add-one (:)))
+               (#return value.local))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());

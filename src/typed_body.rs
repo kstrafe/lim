@@ -393,6 +393,7 @@ mod tests {
             .filter_map(|node| node.binding)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(bindings.len(), 2);
+        assert_eq!(overlay.binding_names, ["outer-value", "inner-value"]);
     }
 
     #[test]
@@ -927,6 +928,9 @@ pub(crate) struct Body {
 pub(crate) struct EmissionTypes {
     /// Checked metadata is authoritative under deterministic source identities.
     pub by_id: HashMap<ExpressionId, EmissionNode>,
+    /// Local names in BindingId order, used only to bridge existing storage
+    /// allocation into the checked backend identity space.
+    pub binding_names: Vec<String>,
     /// Temporary bridge for legacy codegen, which still visits AST references.
     pub address_to_id: HashMap<usize, ExpressionId>,
     /// Backend-created expressions have no source identity and retain a narrow
@@ -937,8 +941,6 @@ pub(crate) struct EmissionTypes {
 #[derive(Default)]
 pub(crate) struct EmissionNode {
     pub ty: Option<Type>,
-    /// Retained for the upcoming BindingId-keyed local-slot migration.
-    #[allow(dead_code)]
     pub binding: Option<BindingId>,
     pub numeric: Option<NumericOperation>,
     pub callee: Option<FunctionId>,
@@ -1085,6 +1087,11 @@ impl Body {
             ));
         }
         let mut emission = EmissionTypes::default();
+        emission.binding_names = self
+            .bindings
+            .iter()
+            .map(|binding| binding.name.clone())
+            .collect();
         for (id, target) in self.emission_nodes.iter().zip(after) {
             let address = std::ptr::from_ref(target) as usize;
             let node = &self.nodes[id.0];
