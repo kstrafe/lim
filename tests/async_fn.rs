@@ -483,6 +483,50 @@ fn async_function_retains_external_borrows_across_pending() {
 }
 
 #[test]
+fn async_function_retains_mutable_external_borrows_across_pending() {
+    let source = "(#struct Waker ((count u64)))
+      (#enum Step ((Waiting u64)))
+      (#linear Step)
+      (#enum StepPoll ((StepPending Step) (StepReady u64)))
+      (#fn step-poll ((task Step) (waker (#ref Waker))) StepPoll
+        (#return (#match task
+          (#case (Waiting count)
+            (#if (#u64.== count 0u64)
+              (StepPending (Waiting 1u64))
+              (StepReady count))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function
+        (#fn write-after-await ((view (#ref-mut u64))) u64
+          (#let result u64
+            (#await Step StepPending StepReady step-poll (Waiting 0u64)))
+          (#deref-set view (#u64.+.wrap (#deref view) result))
+          (#return (#deref view)))))
+      (#fn main () u64
+        (#let-mut owner u64 37u64)
+        (#let waker Waker (#struct-literal Waker ((count 0u64))))
+        (#let first Poll
+          (#call poll (: task (#call write-after-await (: view (#borrow-mut owner)))
+            : waker (#borrow waker))))
+        (#let-else (Pending task) Poll first (#unreachable))
+        READ_WHILE_PENDING
+        (#let second Poll
+          (#call poll (: task task : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending extra-task) (#block (#forget extra-task) (#unreachable)))))
+        (#return result))";
+    let accepted = source.replace("READ_WHILE_PENDING", "");
+    build_and_run(&accepted, 38);
+
+    let rejected = source.replace("READ_WHILE_PENDING", "(#let snapshot u64 owner)");
+    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "{error}"
+    );
+}
+
+#[test]
 fn async_function_carries_mutable_locals_across_pending_resume() {
     let source = "(#struct Waker ((count u64)))
       (#enum Step ((Waiting u64)))

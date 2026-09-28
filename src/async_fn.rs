@@ -613,11 +613,16 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
                     ));
                 }
                 prefix.push(expression_source(statement)?);
+            } else if form(statement, "#deref-set").is_some() {
+                // The type checker validates that this writes through a
+                // mutable reference. Captures are inferred from the resolved
+                // value uses just like other statements between stages.
+                prefix.push(expression_source(statement)?);
             } else if is_control_flow_statement(statement) {
                 prefix.push(expression_source(statement)?);
             } else {
                 return Err(format!(
-                    "@async-fn between #await forms supports explicit bindings, mutable assignments, and #if/#match/#block forms: {statement:?}"
+                    "@async-fn between #await forms supports explicit bindings, mutable assignments, #deref-set, and #if/#match/#block forms: {statement:?}"
                 ));
             }
             continue;

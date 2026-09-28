@@ -802,10 +802,15 @@ fn check_function(
             if matches!(parameter.ty, crate::Type::Reference { .. }) {
                 reference_bindings.insert(parameter.name.clone());
             }
-            if contains_mutable_reference(&parameter.ty, reference_types, mutable_reference_types)
-                || matches!(parameter.ty, crate::Type::MutableSlice(_))
-            {
+            let contains_mutable_references =
+                contains_mutable_reference(&parameter.ty, reference_types, mutable_reference_types);
+            if contains_mutable_references || matches!(parameter.ty, crate::Type::MutableSlice(_)) {
                 mutable_references.insert(parameter.name.clone());
+            }
+            // Moving or matching an aggregate transfers its contained mutable
+            // references; it is not a read through those referents.
+            if contains_mutable_references {
+                reference_bindings.insert(parameter.name.clone());
             }
         }
         if parameter.mutable {

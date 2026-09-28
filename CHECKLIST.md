@@ -1650,6 +1650,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   across Pending/resume, and reject mutation of the referent while suspended
   or a returned task borrowing a local owner. This does not permit self-refs
   or prove precise loan release at every Ready/cancellation join.
+- [x] **ASYNC-01b12: Preserve exclusive external borrows across suspension.**
+  Capture a live `#ref-mut` in the generated frame, allow mutation through it
+  after resume, and reject direct access to its owner while Pending. Treat
+  moving/matching an aggregate parameter containing mutable references as
+  transferring handles, not reading through the referents. Precise loan
+  release at Ready remains open.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible
