@@ -3936,11 +3936,6 @@ fn value_word_count(
                 let total_words = payload_words
                     .checked_add(1)
                     .ok_or_else(|| "aggregate value word count overflowed usize".to_owned())?;
-                if total_words > VALUE_REGISTERS.len() {
-                    return Err(format!(
-                        "native ABI does not support enum value type {ty:?}"
-                    ));
-                }
                 return Ok(total_words);
             }
         }

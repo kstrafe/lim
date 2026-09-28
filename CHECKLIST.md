@@ -1934,6 +1934,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 
 ## Test reliability
 
+- [x] **BACKEND-ABI-01: Pass oversized enums through indirect storage.** Keep
+  enum layout size independent of the six-register direct-return limit, and
+  route large enum parameters/returns through the existing indirect aggregate
+  ABI. Verify a native function returning an enum with a nine-word tagged
+  array payload, pass it as an indirect argument, then match and read its last
+  element.
+
 - [x] **BACKEND-REF-01: Preserve the base of multiword reference fields.**
   Load projected aggregate words through a dedicated scratch register so the
   first value word cannot overwrite the address for later words. Cover a
