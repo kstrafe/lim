@@ -12648,40 +12648,50 @@ impl FunctionContext {
                 }
             }
             if let Expr::Symbol(local) = &items[1] {
-                if matches!(self.global_types.get(local), Some(Type::Tuple(_))) {
-                    if !matches!(self.globals.get(local), Some(GlobalValue::Aggregate(_))) {
-                        return Err(format!("global '{local}' is not an aggregate tuple"));
-                    }
-                    let offset_words = fields[..index]
-                        .iter()
-                        .map(|field| value_word_count(field, &self.structs, &self.enums))
-                        .collect::<Result<Vec<_>, _>>()?
-                        .into_iter()
-                        .sum::<usize>();
-                    let offset = offset_words * 8;
-                    let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
-                    if field_words > 1 {
-                        for (word, register) in VALUE_REGISTERS[..field_words].iter().enumerate() {
-                            self.load_global_word(local, offset_words + word)?;
-                            self.output.push_str(&format!("    mov {register}, rax\n"));
+                if let Some(global_name) = self.checked_global_name(&items[1], local)? {
+                    if matches!(self.global_types.get(&global_name), Some(Type::Tuple(_))) {
+                        if !matches!(
+                            self.globals.get(&global_name),
+                            Some(GlobalValue::Aggregate(_))
+                        ) {
+                            return Err(format!(
+                                "global '{global_name}' is not an aggregate tuple"
+                            ));
+                        }
+                        let offset_words = fields[..index]
+                            .iter()
+                            .map(|field| value_word_count(field, &self.structs, &self.enums))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into_iter()
+                            .sum::<usize>();
+                        let offset = offset_words * 8;
+                        let field_words =
+                            value_word_count(&field_type, &self.structs, &self.enums)?;
+                        if field_words > 1 {
+                            for (word, register) in
+                                VALUE_REGISTERS[..field_words].iter().enumerate()
+                            {
+                                self.load_global_word(&global_name, offset_words + word)?;
+                                self.output.push_str(&format!("    mov {register}, rax\n"));
+                            }
+                            return Ok(());
+                        }
+                        match field_type {
+                            Type::F32 => self.output.push_str(&format!(
+                                "    movss xmm0, DWORD PTR [rip+{}+{offset}]\n",
+                                asm_symbol(&global_name)
+                            )),
+                            Type::F64 => self.output.push_str(&format!(
+                                "    movq xmm0, QWORD PTR [rip+{}+{offset}]\n",
+                                asm_symbol(&global_name)
+                            )),
+                            _ => self.output.push_str(&format!(
+                                "    mov rax, QWORD PTR [rip+{}+{offset}]\n",
+                                asm_symbol(&global_name)
+                            )),
                         }
                         return Ok(());
                     }
-                    match field_type {
-                        Type::F32 => self.output.push_str(&format!(
-                            "    movss xmm0, DWORD PTR [rip+{}+{offset}]\n",
-                            asm_symbol(local)
-                        )),
-                        Type::F64 => self.output.push_str(&format!(
-                            "    movq xmm0, QWORD PTR [rip+{}+{offset}]\n",
-                            asm_symbol(local)
-                        )),
-                        _ => self.output.push_str(&format!(
-                            "    mov rax, QWORD PTR [rip+{}+{offset}]\n",
-                            asm_symbol(local)
-                        )),
-                    }
-                    return Ok(());
                 }
                 let Storage::Tuple(slots) = self
                     .local_storage_for_symbol(&items[1], local)?

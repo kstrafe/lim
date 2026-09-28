@@ -606,6 +606,11 @@ the checklist is committed alongside the implementation it tracks.
   storage; preserve local and synthesized fallbacks. Validate field identity
   and all native examples.
 
+- [x] **IR-02bj: Project global tuples by checked global identity.** Resolve a
+  tuple-valued global base through its retained `GlobalId` before loading
+  tuple words. Preserve local tuple slots and validate static aggregate and
+  full native examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.
