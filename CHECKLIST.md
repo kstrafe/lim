@@ -1822,6 +1822,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   typed boolean `#await` in an `#if` condition, resume, and only then select the
   branch. Verify the Pending/resume path natively and inspect that the generated
   continuation branches on the awaited result.
+- [x] **ASYNC-01b34: Await before match-arm selection.** Suspend on a typed
+  `#await` used as a `#match` scrutinee, then select an arm from the resumed
+  result. Verify the Pending/resume path natively, including payload binding,
+  and inspect that matching occurs in the generated continuation.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
