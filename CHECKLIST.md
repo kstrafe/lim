@@ -650,6 +650,11 @@ the checklist is committed alongside the implementation it tracks.
   registers. Preserve local struct and constructor paths; cover mixed scalar,
   float, and nested-field layouts.
 
+- [x] **IR-02bs: Match static aggregates by checked identity.** Resolve static
+  enum and aggregate scrutinees through `GlobalId` before staging their data
+  for pattern matching. Preserve local and computed scrutinees; cover payload
+  enums and nested/multiword aggregate patterns.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

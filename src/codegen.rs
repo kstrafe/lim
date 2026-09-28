@@ -10798,6 +10798,11 @@ impl FunctionContext {
         } else {
             payload_count + 1
         };
+        let global_enum_name = if let Expr::Symbol(name) = scrutinee {
+            self.checked_global_name(scrutinee, name)?
+        } else {
+            None
+        };
         match scrutinee {
             Expr::Symbol(_) if matches!(&local_enum_storage, Some(Storage::Enum { .. })) => {
                 let Some(Storage::Enum { discriminant, .. }) = &local_enum_storage else {
@@ -10814,13 +10819,17 @@ impl FunctionContext {
                     direct_enum_base.unwrap() * 8
                 ));
             }
-            Expr::Symbol(name)
-                if self
-                    .global_types
-                    .get(name)
-                    .is_some_and(|ty| self.is_enum_type(ty))
-                    && matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_))) =>
+            Expr::Symbol(_)
+                if global_enum_name.as_ref().is_some_and(|name| {
+                    self.global_types
+                        .get(name)
+                        .is_some_and(|ty| self.is_enum_type(ty))
+                        && matches!(self.globals.get(name), Some(GlobalValue::Aggregate(_)))
+                }) =>
             {
+                let name = global_enum_name
+                    .as_deref()
+                    .expect("guard verifies the checked global enum name");
                 let words = 1 + payload_count;
                 if words > VALUE_REGISTERS.len() {
                     for index in (0..words).rev() {
@@ -11563,21 +11572,23 @@ impl FunctionContext {
                 }
             }
             if let Expr::Symbol(name) = scrutinee {
-                if self.global_types.get(name) == Some(&ty) {
-                    let base_depth = self.stack_depth;
-                    for index in (0..storage_words).rev() {
-                        self.load_global_word(name, index)?;
-                        self.push_rax();
+                if let Some(global_name) = self.checked_global_name(scrutinee, name)? {
+                    if self.global_types.get(&global_name) == Some(&ty) {
+                        let base_depth = self.stack_depth;
+                        for index in (0..storage_words).rev() {
+                            self.load_global_word(&global_name, index)?;
+                            self.push_rax();
+                        }
+                        return self.aggregate_match_from_staged_stack(
+                            items,
+                            constructor,
+                            &ty,
+                            storage_words,
+                            float_type,
+                            result_type,
+                            base_depth,
+                        );
                     }
-                    return self.aggregate_match_from_staged_stack(
-                        items,
-                        constructor,
-                        &ty,
-                        storage_words,
-                        float_type,
-                        result_type,
-                        base_depth,
-                    );
                 }
             }
         }
