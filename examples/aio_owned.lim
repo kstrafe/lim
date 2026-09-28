@@ -32,7 +32,7 @@
   (#assert (#i64.>= poll-fd 0i64))
   (#let poll-submission AioOwnedSubmit
     (#call aio-owned-poll-submit
-      (: context (#borrow-mut context) : fd poll-fd : events 1u16)))
+      (: context (#borrow context) : fd poll-fd : events 1u16)))
   (#let poll-operation AioOwnedPending
     (#match poll-submission
       (#case (AioOwnedSubmitted operation) operation)
@@ -59,7 +59,7 @@
 
   (#let read-submission AioOwnedSubmit
     (#call aio-owned-read-submit
-      (: context (#borrow-mut context) : fd fd : length 4usize : offset 0i64)))
+      (: context (#borrow context) : fd fd : length 4usize : offset 0i64)))
   (#let read-operation AioOwnedPending
     (#match read-submission
       (#case (AioOwnedSubmitted operation) operation)

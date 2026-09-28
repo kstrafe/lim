@@ -1892,15 +1892,21 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-02d: Keep native-AIO buffers owned through completion or cancel.**
   Add opaque linear AIO context, pending-operation, and completed-operation
   types. Each submitted read or readiness request owns its mmap containing the
-  `iocb`, event record, and read buffer; it exclusively borrows its context
-  until the request reaches a terminal event, preventing ambiguous concurrent
-  completions in the single-request API. Provide a blocking `min=1` wait rather
-  than polling. If asynchronous cancellation is accepted, reap its completion
-  event before exposing the completed owner; on any unacknowledged error,
-  return the pending owner intact. Verify byte contents, cancellable eventfd
-  readiness, reject simultaneous requests on one context, and test cleanup
-  natively. Multi-request completion routing and scheduler wake integration
-  remain open.
+  `iocb`, event record, and read buffer, and shares an immutable borrow of its
+  single-thread-only context. Provide blocking `min=1` waiting and cancellation
+  that keeps the owner intact until the terminal event is acknowledged; return
+  the pending owner on every unacknowledged error. Verify byte contents,
+  cancellable eventfd readiness, and native cleanup. Multi-request routing is
+  tracked separately in ASYNC-02e.
+- [x] **ASYNC-02e: Route concurrent native-AIO completion events.** Put each
+  request's owned event-buffer address in `aio_data`. When a blocking wait for
+  one request receives another's event, copy the complete record into that
+  request's still-owned mapping and continue waiting. Its later wait must
+  consume the saved event without another syscall. Route asynchronous cancel
+  acknowledgements through the same path. The native regression completes B
+  before A, waits for A first, then verifies B's routed result; multiple
+  outstanding operations share a !Send/!Sync context safely. Scheduler wake
+  integration remains open.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,
