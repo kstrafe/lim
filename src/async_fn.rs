@@ -1,4 +1,4 @@
-//! Syntactic lowering for concrete async functions with explicit captures.
+//! Syntactic lowering for concrete async functions with inferred live captures.
 //!
 //! This deliberately emits ordinary Lim declarations before type and borrow
 //! checking. No suspension point can hide a reference from those passes.
@@ -213,6 +213,10 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             return Err(format!("@async-fn duplicate binding '{}'", parameter.name));
         }
     }
+    let mut known_order = params
+        .iter()
+        .map(|parameter| parameter.name.clone())
+        .collect::<Vec<_>>();
     let body = &function[4..];
     let last = form(body.last().unwrap(), "#return")
         .ok_or_else(|| "@async-fn body must end with (#return value)".to_owned())?;
@@ -254,6 +258,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
                 if known.insert(local.name.clone(), local.clone()).is_some() {
                     return Err(format!("@async-fn duplicate binding '{}'", local.name));
                 }
+                known_order.push(local.name.clone());
                 prefix.push(expression_source(statement)?);
             } else if let Some(name) = mutable_assignment_target(statement) {
                 if !known.get(name).is_some_and(|binding| binding.mutable) {
@@ -291,50 +296,35 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             "@async-fn #await must be the entire initializer of a top-level #let or #let-mut"
                 .to_owned()
         })?;
-        if await_form.len() != 7 {
-            return Err("#await requires (#await (captures ...) ChildTask Pending Ready poll task-expression)".into());
+        if await_form.len() != 6 {
+            return Err(
+                "#await requires (#await ChildTask Pending Ready poll task-expression)".into(),
+            );
         }
         if known.contains_key(&local.name) {
             return Err(format!("@async-fn duplicate binding '{}'", local.name));
         }
-        let mut captures = Vec::new();
-        let mut captured = HashSet::new();
-        for name in list(&await_form[1], "#await captures")? {
-            let name = symbol(name, "captured name")?;
-            let capture = known.get(name).ok_or_else(|| {
-                format!("@async-fn capture '{name}' is not an earlier parameter or #let")
-            })?;
-            if !captured.insert(name) {
-                return Err(format!("@async-fn duplicate capture '{name}'"));
-            }
-            captures.push(Binding {
-                name: name.to_owned(),
-                ty: capture.ty.clone(),
-                mutable: capture.mutable,
-            });
-        }
-        let child = expression_source(&await_form[2])?;
-        parse_type(Some(&normalize_keywords(await_form[2].clone())))?;
-        let value = expression_source(&await_form[6])?;
-        if has_await(&await_form[6]) {
+        let child = expression_source(&await_form[1])?;
+        parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+        let value = expression_source(&await_form[5])?;
+        if has_await(&await_form[5]) {
             return Err("@async-fn nested #await is not supported".into());
         }
-        let mut available = known.keys().cloned().collect::<Vec<_>>();
-        available.sort();
         stages.push(Stage {
             prefix: std::mem::take(&mut prefix),
             source_index,
-            available,
-            captures,
+            available: known_order.clone(),
+            captures: Vec::new(),
             binding: local,
             child,
-            pending: symbol(&await_form[3], "child Pending variant")?.to_owned(),
-            ready: symbol(&await_form[4], "child Ready variant")?.to_owned(),
-            poll: symbol(&await_form[5], "child poll function")?.to_owned(),
+            pending: symbol(&await_form[2], "child Pending variant")?.to_owned(),
+            ready: symbol(&await_form[3], "child Ready variant")?.to_owned(),
+            poll: symbol(&await_form[4], "child poll function")?.to_owned(),
             value,
         });
         let local = &stages.last().unwrap().binding;
         known.insert(local.name.clone(), local.clone());
+        known_order.push(local.name.clone());
         if stages.len() > 32 {
             return Err("@async-fn supports at most 32 suspension points".into());
         }
@@ -344,24 +334,20 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             "@async-fn requires at least one top-level (#let name Type (#await ...))".into(),
         );
     }
-    for stage in &stages {
-        let captured = stage
-            .captures
-            .iter()
-            .map(|binding| binding.name.as_str())
-            .collect::<HashSet<_>>();
-        for name in &stage.available {
-            if !captured.contains(name.as_str())
-                && statements[stage.source_index + 1..]
-                    .iter()
-                    .any(|statement| contains_symbol(statement, name))
-                || (!captured.contains(name.as_str()) && contains_symbol(&last[1], name))
-            {
-                return Err(format!(
-                    "@async-fn value '{name}' is used after #await but is absent from its capture list"
-                ));
-            }
+    for stage in &mut stages {
+        let mut live = HashSet::new();
+        for statement in &statements[stage.source_index + 1..] {
+            collect_value_names(statement, &mut live);
         }
+        if return_await.is_none() {
+            collect_value_names(&last[1], &mut live);
+        }
+        stage.captures = stage
+            .available
+            .iter()
+            .filter(|name| live.contains(name.as_str()))
+            .filter_map(|name| known.get(name).cloned())
+            .collect();
     }
     let reserved = [
         "waker",
@@ -463,10 +449,115 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     ))
 }
 
-fn contains_symbol(expr: &Expr, name: &str) -> bool {
+fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
     match expr {
-        Expr::Symbol(symbol) => symbol == name,
-        Expr::List(items) => items.iter().any(|item| contains_symbol(item, name)),
-        _ => false,
+        Expr::Symbol(symbol) => {
+            names.insert(symbol.clone());
+        }
+        Expr::List(items) => {
+            let Some(Expr::Symbol(head)) = items.first() else {
+                for item in items {
+                    collect_value_names(item, names);
+                }
+                return;
+            };
+            match head.as_str() {
+                "#await" => {
+                    if let Some(value) = items.get(5) {
+                        collect_value_names(value, names);
+                    }
+                }
+                "#let" | "#let-mut" | "let" | "let-mut" if items.len() >= 4 => {
+                    collect_value_names(&items[3], names);
+                }
+                "#struct-literal" if items.len() >= 3 => {
+                    if let Expr::List(fields) = &items[2] {
+                        for field in fields {
+                            if let Expr::List(pair) = field {
+                                if let Some(value) = pair.get(1) {
+                                    collect_value_names(value, names);
+                                }
+                            }
+                        }
+                    }
+                }
+                "#get" | "get" if items.len() >= 2 => {
+                    collect_value_names(&items[1], names);
+                }
+                "#get-payload" | "get-payload" if items.len() >= 2 => {
+                    collect_value_names(&items[1], names);
+                }
+                "#set-field" | "set-field" if items.len() >= 4 => {
+                    collect_value_names(&items[1], names);
+                    collect_value_names(&items[3], names);
+                }
+                "#call" | "call" => {
+                    for item in items.iter().skip(2) {
+                        collect_named_values(item, names);
+                    }
+                }
+                "#case" | "case" => {
+                    for item in items.iter().skip(2) {
+                        collect_value_names(item, names);
+                    }
+                }
+                "#match" | "match" => {
+                    if let Some(scrutinee) = items.get(1) {
+                        collect_value_names(scrutinee, names);
+                    }
+                    for arm in items.iter().skip(2) {
+                        collect_value_names(arm, names);
+                    }
+                }
+                "#quote" | "quote" | "#quasiquote" | "quasiquote" => {}
+                _ => {
+                    for item in items.iter().skip(1) {
+                        collect_named_values(item, names);
+                    }
+                }
+            }
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            for statement in statements {
+                match statement {
+                    crate::Statement::Let { value, .. }
+                    | crate::Statement::Expr(value)
+                    | crate::Statement::Return(Some(value))
+                    | crate::Statement::BreakValue(value)
+                    | crate::Statement::BreakToValue { value, .. } => {
+                        collect_value_names(value, names);
+                    }
+                    crate::Statement::Assign { name, value }
+                    | crate::Statement::ArrayAssign { name, value, .. }
+                    | crate::Statement::FieldAssign { name, value, .. }
+                    | crate::Statement::TupleAssign { name, value, .. }
+                    | crate::Statement::EnumPayloadAssign { name, value, .. } => {
+                        names.insert(name.clone());
+                        collect_value_names(value, names);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Expr::Labeled { expression, .. } => collect_value_names(expression, names),
+        Expr::Unquote(value) | Expr::UnquoteSplicing(value) => collect_value_names(value, names),
+        Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::At => {}
+        Expr::Integer(_)
+        | Expr::UnsignedInteger(_)
+        | Expr::Float(_)
+        | Expr::Char(_)
+        | Expr::String(_) => {}
     }
+}
+
+fn collect_named_values(expr: &Expr, names: &mut HashSet<String>) {
+    if let Expr::List(items) = expr {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if head == ":") {
+            for value in items.iter().skip(2).step_by(2) {
+                collect_value_names(value, names);
+            }
+            return;
+        }
+    }
+    collect_value_names(expr, names);
 }

@@ -106,21 +106,62 @@ fn async_function_can_complete_without_suspension() {
 }
 
 #[test]
-fn async_function_requires_explicit_capture() {
-    let source = example_source().replace("(#await (offset)", "(#await ()");
-    let error = lim::parse_program(&source).unwrap_err();
-    assert!(error.contains("absent from its capture list"), "{error}");
-    let scratch = support::Scratch::new("async-fn-diagnostic");
-    let diagnostic = lim::compile_source_to_assembly(
-        &source,
-        &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
-    let span = diagnostic.span.expect("#await has a source span");
-    assert_eq!(&source[span.start..span.end], "#await");
+fn async_function_infers_only_live_across_await_values() {
+    let source = "(#struct Box ((value u64)))
+      (#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (#block (#forget value) (ChildReady 1u64))))))
+      (#fn echo ((value u64)) u64 (#return value))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+      (#fn work ((first u64)) u64
+          (#let value u64 5u64)
+          (#let box Box (#struct-literal Box ((value 7u64))))
+          (#let child Child (Waiting 0u64))
+          (#let result u64
+            (#await Child ChildPending ChildReady child-poll child))
+          (#return (#u64.+.wrap
+            (#call echo (: value 8u64))
+            (#u64.+.wrap first (#get box value)))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let outcome Poll
+          (#call poll (: task (#call work (: first 2u64)) : waker (#borrow waker))))
+        (#return (#match outcome
+          (#case (Ready result) result)
+          (#case (Pending task) (#block (#forget task) (#unreachable))))))";
+    let generated = build_and_run(source, 17);
+    assert!(generated.contains("Frame-await-0"), "{generated}");
+    assert!(
+        generated.contains("(first u64) (box Box) (result u64)"),
+        "captures must preserve declaration order: {generated}"
+    );
+}
+
+#[test]
+fn async_function_requires_unused_linear_values_to_be_consumed_before_await() {
+    let source = "(#struct Token ((value u64)))
+      (#linear Token)
+      (#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (#block (#forget value) (ChildReady 1u64))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let token Token (#struct-literal Token ((value 1u64))))
+          (#let child Child (Waiting 0u64))
+          (#let result u64
+            (#await Child ChildPending ChildReady child-poll child))
+          (#return result))))
+      (#fn main () () (#return ()))";
+    let program = lim::parse_program(source).unwrap();
+    let error = lim::check_types(&program).unwrap_err();
+    assert!(
+        error.contains("token") && (error.contains("linear") || error.contains("consum")),
+        "{error}"
+    );
 }
 
 #[test]
@@ -136,7 +177,7 @@ fn async_function_rejects_reference_to_pre_suspension_local() {
             (#let view (#ref u64) (#borrow owner))
             (#let child Child (Waiting 1u64))
             (#let value u64
-              (#await (view) Child ChildPending ChildReady child-poll child))
+              (#await Child ChildPending ChildReady child-poll child))
             (#return (#deref view)))))
         (#fn main () u64 (#return 0u64))";
     let program = lim::parse_program(source).unwrap();
@@ -158,7 +199,7 @@ fn async_function_accepts_no_arguments_or_captures() {
         (#return (ChildReady 7u64)))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function (#fn work () u64
           (#let value u64
-            (#await () Child ChildPending ChildReady child-poll (Waiting 0u64)))
+            (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
           (#return value))))
       (#fn main () u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
@@ -185,7 +226,7 @@ fn async_function_supports_multiple_awaits() {
            (#case 6u64 (#block (#set offset (#u64.+.wrap offset 1u64)) ()))
            (#case _ (#block (#set offset 99u64) ())))
          (#let second u64
-           (#await (offset value) Step StepPending StepReady step-poll (Waiting 0u64)))
+           (#await Step StepPending StepReady step-poll (Waiting 0u64)))
          (#return (#u64.+.wrap value offset))",
         )
         .replace("((offset u64)) u64", "((#mut offset u64)) u64");
@@ -208,7 +249,7 @@ fn async_function_awaits_directly_in_explicit_return() {
               (StepReady count))))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker Waker : function
         (#fn work ((initial u64)) u64
-          (#return (#await (initial) Step StepPending StepReady step-poll (Waiting initial))))))
+          (#return (#await Step StepPending StepReady step-poll (Waiting initial))))))
       (#fn main () u64
         (#let waker Waker (#struct-literal Waker ((count 0u64))))
         (#let first Poll
@@ -246,7 +287,7 @@ fn async_function_carries_mutable_locals_across_pending_resume() {
         (#fn work ((#mut initial u64)) u64
           (#let-mut total u64 initial)
           (#let-mut result u64
-            (#await (total) Step StepPending StepReady step-poll (Waiting 0u64)))
+            (#await Step StepPending StepReady step-poll (Waiting 0u64)))
           (#set result (#u64.+.wrap result 0u64))
           (#set total (#u64.+.wrap total result))
           (#return total))))
@@ -278,7 +319,7 @@ fn async_function_rejects_assignment_to_immutable_capture() {
         (#fn work () u64
           (#let total u64 2u64)
           (#let result u64
-            (#await (total) Child ChildPending ChildReady child-poll (Waiting 0u64)))
+            (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
           (#set total result)
           (#return result))))";
     let error = lim::parse_program(source).unwrap_err();
@@ -300,7 +341,7 @@ fn async_function_reports_nested_await_as_unsupported_control_flow() {
           (#if true
             (#block
               (#let result u64
-                (#await () Child ChildPending ChildReady child-poll (Waiting 0u64)))
+                (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
               result)
             0u64)
           (#return 0u64))))";
@@ -318,7 +359,7 @@ fn async_function_can_suspend_at_each_await() {
     let prefix = prefix.replace(
         "(#return (#u64.+.wrap value offset))",
         "(#let second u64
-           (#await (offset value) Step StepPending StepReady step-poll (Waiting 1u64)))
+           (#await Step StepPending StepReady step-poll (Waiting 1u64)))
          (#return (#u64.+.wrap value offset))",
     );
     let source = format!(

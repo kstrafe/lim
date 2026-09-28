@@ -28,14 +28,14 @@
           (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
 
 ; @async-fn generates TwoSteps, TwoStepsPoll, and the start/poll functions.
-; Each #await lists the locals it must carry across that suspension point.
+; #async-fn infers which locals must live across each suspension point.
 (@async-fn (: names (TwoSteps TwoStepsPoll TwoStepsPending TwoStepsReady two-steps-poll) : waker Wake : function (#fn two-steps ((extra u64)) u64
     (#let first Step (Waiting 1u64))
     (#let left u64
-      (#await (extra) Step StepPending StepReady step-poll first))
+      (#await Step StepPending StepReady step-poll first))
     (#let second Step (Waiting 1u64))
     (#let right u64
-      (#await (extra left) Step StepPending StepReady step-poll second))
+      (#await Step StepPending StepReady step-poll second))
     (#return (#u64.+.wrap (#u64.+.wrap left right) extra)))))
 
 (#fn main () u64

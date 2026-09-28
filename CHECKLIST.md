@@ -1396,6 +1396,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-01b7: Diagnose suspension nested in control flow.** Reject
   `#await` inside `#if`, `#match`, or `#block` with a targeted generator error
   instead of a generic unsupported-binding message; test the diagnostic text.
+- [x] **ASYNC-01b8: Infer values live across sequential suspension points.**
+  Remove user-maintained capture lists from `#await`; determine the concrete
+  bindings referenced by the continuation, skipping constructor/type/field and
+  named-argument labels. Preserve declaration order and mutability in generated
+  frame fields. Verify that used values survive Pending/resume, unused linear
+  values must be consumed before suspension, and same-spelled parameter/field
+  labels do not cause false captures. This syntax-level pass remains a
+  restricted precursor to full CFG liveness in ASYNC-01b.
 - [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
   Initialize owned fields before pinning, then establish internal references
   with field-sensitive loans. Reject escaping references and incompatible
