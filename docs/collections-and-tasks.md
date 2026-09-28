@@ -335,13 +335,25 @@ failure paths clean up any acquired fd or mapping. Multi-operation readiness
 is available for two distinct borrowed timers through `timer-reactor2-wait`:
 one blocking kernel poll marks each ready token independently, without moving
 either owner or exposing its fd. `examples/timer_pair.lim` exercises both
-owners, including the same-owner rejection. Arbitrary registration, general
 owners, including the same-owner rejection. `timer-reactor-many-wait` accepts
 a runtime slice of one to four shared timer borrows, rejects duplicate owners,
 and reports each ready slot in a bit mask after one blocking poll. The
-three-timer case is exercised by `examples/timer_reactor_many.lim`. Registration
-for other descriptor types, joining timer and I/O sources in one wait,
-executor shutdown, and externally interrupting a blocking run remain open.
+three-timer case is exercised by `examples/timer_reactor_many.lim`.
+
+`library/async_stdin_byte.lim` demonstrates a cancellable one-shot readiness
+read. `async-byte-read1-create` retains an exclusive borrow of the destination
+in an opaque linear task. Polling before readiness returns Pending; the wait
+blocks in Linux `poll` and records a generation-checked wake. A later poll
+performs one synchronous byte read only after readiness, returning a byte, EOF,
+or an OS error. The OS never retains the destination pointer, so destroying a
+pending task retires its wake and releases the borrow immediately; callers must
+not poll or wait after destruction. `examples/async_stdin_byte.lim` echoes one
+byte, and `examples/async_stdin_cancel.lim` verifies that the destination can
+be mutated after cancellation while the input stream is still open. These
+examples cover stdin only and do not provide mixed-source registration,
+descriptor ownership, or executor shutdown. Registration for other descriptor
+types, joining timer and I/O sources in one wait, executor shutdown, and
+externally interrupting a blocking run remain open.
 
 `(@threaded-executor run Result jobs Worker)` expands an executor plus
 `(@thread-spawn (: task Worker : worker run))`. Each job names both its result
@@ -358,7 +370,8 @@ implementation. OS thread creation still uses its existing allocation path.
 Runnable examples: `distributed_errors.lim`, `distributed_slice.lim`,
 `local_waker.lim`, `async_wake_pipeline.lim`, `async_registered_wake.lim`,
 `wake_ready4.lim`, `timer_reactor1.lim`, `timer_pair.lim`,
-`timer_reactor_many.lim`, `async_fn.lim`,
+`timer_reactor_many.lim`, `async_stdin_byte.lim`, `async_stdin_cancel.lim`,
+`async_fn.lim`,
 `async_fn_two_awaits.lim`,
 `cooperative_tasks.lim`, `async_pipeline.lim`, `task_cancellation.lim`, and
 `threaded_tasks.lim` in `examples/`.

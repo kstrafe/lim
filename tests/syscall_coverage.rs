@@ -211,6 +211,8 @@ fn linux_wrappers_have_runnable_call_sites_and_catalogued_syscalls() {
         "tests/fixtures/exec_target.lim".into(),
         // The echo harness supplies stdin; the generic runner treats it as a module.
         "examples/echo_input.lim".into(),
+        // These operation wrappers are exercised through their imported Lim example.
+        "library/async_stdin_byte.lim".into(),
     ]);
     for path in sources {
         for name in calls(&fs::read_to_string(root.join(&path)).unwrap()) {

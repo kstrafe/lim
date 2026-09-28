@@ -97,6 +97,80 @@ fn echo_example_prints_the_bytes_read_from_standard_input() {
 }
 
 #[test]
+fn async_stdin_read_waits_without_spinning_and_echoes_one_byte() {
+    let scratch = support::Scratch::new("async-stdin");
+    let executable = scratch.path().join("async-stdin-byte");
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_stdin_byte.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile async stdin example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    let mut child = Command::new(&executable)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run async stdin example");
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(b"Q")
+        .expect("write test input");
+    let output = child.wait_with_output().expect("wait for async read");
+    assert!(
+        output.status.success(),
+        "async stdin example failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"Q");
+}
+
+#[test]
+fn async_stdin_cancellation_releases_the_borrow_while_input_stays_open() {
+    let scratch = support::Scratch::new("async-stdin-cancel");
+    let executable = scratch.path().join("async-stdin-cancel");
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_stdin_cancel.lim");
+    let compilation = Command::new(env!("CARGO_BIN_EXE_lim"))
+        .arg(example)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .expect("compile async stdin cancellation example");
+    assert!(
+        compilation.status.success(),
+        "compiler failed:\n{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+
+    let child = Command::new(&executable)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run async stdin cancellation example");
+    let output = child
+        .wait_with_output()
+        .expect("wait for cancelled operation");
+    assert_eq!(
+        output.status.code(),
+        Some(42),
+        "cancellation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn linux_memory_mapping_syscalls_match_kernel_results() {
     let scratch = support::Scratch::new("linux-memory");
     let executable = scratch.path().join("memory-checks");

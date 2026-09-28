@@ -1,0 +1,19 @@
+; Destroying a pending operation releases its exclusive buffer borrow without
+; leaving any kernel operation that could still access the destination.
+(#import "../library/async_stdin_byte.lim")
+
+(#fn main () i32
+  (#let-mut byte u8 0u8)
+  (#let created AsyncByteReadCreate1
+    (#call async-byte-read1-create
+      (: fd 0i64 : destination (#borrow-mut byte))))
+  (#let-else (AsyncByteReadCreated1 task) AsyncByteReadCreate1 created
+    (#unreachable))
+  (#let first AsyncByteReadPoll1
+    (#call async-byte-read1-poll (: task (#borrow task))))
+  (#let destroyed i64 (#call async-byte-read1-destroy (: task task)))
+  (#set byte 91u8)
+  (#return (#if (#bool.&& (#i64.== destroyed 0i64)
+    (#match first
+      (#case AsyncByteReadPending1 true)
+      (#case _ false))) 42i32 1i32)))

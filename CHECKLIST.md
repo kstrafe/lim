@@ -1934,6 +1934,15 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   ownership. Verify a three-timer native wait and duplicate-owner rejection.
   General readiness sources, buffered-I/O cancellation integration, and
   shutdown remain open.
+- [x] **ASYNC-02g: Add a cancellable, borrowed one-byte readiness read.** Add a
+  concrete Linux operation that retains an exclusive destination borrow, uses
+  the bounded wake queue, blocks in `poll` rather than spinning, and performs
+  the read only after readiness is notified. The kernel never retains the
+  destination pointer across Pending or cancellation; destruction retires the
+  wake token and releases the borrow. Verify echoed input, EOF, and cancellation
+  while the input stream remains open, including mutation after destruction.
+  General descriptor ownership, multi-source registration, and shutdown
+  remain open under ASYNC-02.
 - [ ] **ASYNC-03: Add a simple, bounded single-threaded task scheduler.**
   Run ready tasks cooperatively on one OS thread, using the wake handles and
   non-busy waiting from ASYNC-02. Make queue capacity, fairness, wake ordering,

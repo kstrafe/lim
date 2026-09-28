@@ -1,0 +1,101 @@
+;; One-shot, poll-based asynchronous read of one byte from a Linux descriptor.
+;; Polling only observes readiness; the destination reference is used only by
+;; the synchronous one-byte read after a registered wake. The kernel never
+;; retains the destination across Pending or cancellation.
+(#import "linux_x86_64.lim")
+(#import "wake_ready4.lim")
+
+(#struct AsyncByteRead1
+  ((fd i64) (destination (#ref-mut u8)) (memory (#ptr-mut u8))
+   (queue WakeReady4) (token WakeToken4)))
+(#opaque AsyncByteRead1)
+(#linear AsyncByteRead1)
+(#enum AsyncByteReadCreate1
+  ((AsyncByteReadCreated1 AsyncByteRead1) (AsyncByteReadCreateFailed1 i64)))
+(#enum AsyncByteReadPoll1
+  (AsyncByteReadPending1 (AsyncByteReadReady1 u8)
+   AsyncByteReadEof1 (AsyncByteReadFailed1 i64)))
+(#enum AsyncByteReadWait1
+  (AsyncByteReadWoken1 (AsyncByteReadWaitFailed1 i64)))
+
+(#fn async-byte-read1-create
+  ((fd i64) (destination (#ref-mut u8))) AsyncByteReadCreate1
+  (#let memory (#ptr-mut u8)
+    (#unsafe (#call linux-mmap
+      (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
+       : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+  (#let address i64 (#as (#ptr-address memory) i64))
+  (#return (#if (#i64.< address 0i64)
+    (AsyncByteReadCreateFailed1 address)
+    (#block
+      ;; pollfd { fd: i32, events: i16, revents: i16 }, requesting POLLIN.
+      (#for-range (byte usize) 0usize 8usize
+        (#unsafe (#ptr-write (#ptr-offset (#clone memory) byte) 0u8)))
+      (#let fd-bits u64 (#as fd u64))
+      (#for-range (byte usize) 0usize 4usize
+        (#unsafe (#ptr-write
+          (#ptr-offset (#clone memory) byte)
+          (#as (#u64.>> fd-bits (#as (#usize.*.wrap byte 8usize) u64)) u8))))
+      (#unsafe (#ptr-write (#ptr-offset (#clone memory) 4usize) 1u8))
+      (#let-mut queue WakeReady4 (#call wake-ready4-create (:)))
+      (#let registration WakeRegister4
+        (#call wake-ready4-register (: queue (#borrow-mut queue) : slot 0usize)))
+      (#let token WakeToken4 (#match registration
+        (#case (WakeRegistered4 value) value)
+        (#case _ (#unreachable))))
+      (AsyncByteReadCreated1
+        (#struct-literal AsyncByteRead1
+          ((fd fd) (destination destination) (memory memory)
+           (queue queue) (token token))))))))
+
+;; Blocks in the kernel without borrowing or exposing the destination buffer.
+;; A failed wait preserves the operation owner for retry or explicit cancel.
+(#fn async-byte-read1-wait
+  ((task (#ref AsyncByteRead1))) AsyncByteReadWait1
+  (#let count i64 (#unsafe (#call linux-poll
+    (: pollfds (#get task memory) : count 1usize : timeout-ms -1i32))))
+  (#return (#if (#i64.== count 1i64)
+    (#block
+      (#let flags u8 (#unsafe (#ptr-read
+        (#ptr-offset (#get task memory) 6usize))))
+      (#if (#u8.!= (#u8.& flags 40u8) 0u8)
+        (AsyncByteReadWaitFailed1 -5i64)
+        (#if (#u8.!= (#u8.& flags 17u8) 0u8)
+          (#if (#call wake-ready4-notify
+                (: queue (#borrow (#get task queue)) : token (#get task token)))
+            AsyncByteReadWoken1
+            (AsyncByteReadWaitFailed1 -22i64))
+          (AsyncByteReadWaitFailed1 -5i64))))
+    (AsyncByteReadWaitFailed1 count))))
+
+(#fn async-byte-read1-poll
+  ((task (#ref AsyncByteRead1))) AsyncByteReadPoll1
+  (#return (#if (#call wake-ready4-take
+                (: queue (#borrow (#get task queue)) : token (#get task token)))
+    (#block
+      (#let count i64 (#call linux-read-byte-from
+        (: fd (#get task fd) : destination (#get task destination))))
+      (#if (#i64.== count -11i64)
+        AsyncByteReadPending1
+        (#if (#i64.== count 1i64)
+          (AsyncByteReadReady1 (#deref (#get task destination)))
+          (#if (#i64.== count 0i64)
+            AsyncByteReadEof1
+            (AsyncByteReadFailed1 count)))))
+    AsyncByteReadPending1)))
+
+;; This also cancels a pending read: poll() never leaves a buffer referenced by
+;; the kernel. The caller must stop using the consumed task handle afterward.
+(#fn async-byte-read1-destroy ((task AsyncByteRead1)) i64
+  (#let (AsyncByteRead1 fd destination memory queue token) AsyncByteRead1 task)
+  (#let-mut queue-mut WakeReady4 queue)
+  (#let retired WakeRetire4
+    (#call wake-ready4-retire (: queue (#borrow-mut queue-mut) : token token)))
+  (#let stale bool (#match retired
+    (#case WakeRetired4 false)
+    (#case WakeStale4 true)))
+  (#assert (#bool.== stale false))
+  (#forget queue-mut)
+  (#forget destination)
+  (#forget fd)
+  (#return (#unsafe (#call linux-munmap (: address memory : length 4096usize)))))

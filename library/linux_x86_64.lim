@@ -25,6 +25,10 @@
     (#return (#unsafe (#asm i64
       ((rax LINUX-SYS-READ) (rdi 0usize) (rsi destination) (rdx 1usize))
       "and rsi, -2\nmov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
+  (#fn linux-read-byte-from ((fd i64) (destination (#ref-mut u8))) i64
+    (#return (#unsafe (#asm i64
+      ((rax LINUX-SYS-READ) (rdi fd) (rsi destination) (rdx 1usize))
+      "and rsi, -2\nmov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
   (#fn linux-write-byte ((source (#ref u8))) i64
     (#return (#unsafe (#asm i64
       ((rax LINUX-SYS-WRITE) (rdi 1usize) (rsi source) (rdx 1usize))
@@ -1001,6 +1005,7 @@
       (destination size flags)))))
   (#cfg-else
     (#fn linux-read-byte ((destination (#ref-mut u8))) i64 (#return -38i64))
+    (#fn linux-read-byte-from ((fd i64) (destination (#ref-mut u8))) i64 (#return -38i64))
     (#fn linux-write-byte ((source (#ref u8))) i64 (#return -38i64))
     (#fn linux-getpid () i64 (#return -38i64))
     (#fn linux-getuid () i64 (#return -38i64))
