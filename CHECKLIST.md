@@ -320,6 +320,12 @@ the checklist is committed alongside the implementation it tracks.
   differential tests, every native example, reproducibility, and benchmark
   smoke tests pass with unchanged source syntax and one validation pass.
 
+- [x] **IR-03aa: Keep syntax type reconstruction off checked nodes.** When a
+  source expression has a stable typed identity but its retained type is
+  missing, do not infer a replacement from its surface syntax. Keep the
+  narrow reconstruction path for backend-synthesized expressions only; test
+  checked-versus-synthesized identity and run all native examples.
+
 - [ ] **IR-04: Migrate ownership analyses to shared typed control flow.**
   Use stable binding/place identities and explicit branches, joins, loops,
   returns, and unreachable paths. Retain loan and consumption origin spans.

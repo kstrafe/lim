@@ -6588,6 +6588,9 @@ impl FunctionContext {
         if let Some(ty) = self.expression_types.get(expression) {
             return ty.ty.clone();
         }
+        if self.expression_types.has_checked_identity(expression) {
+            return None;
+        }
         match expression {
             Expr::Integer(_) => Some(Type::I64),
             Expr::UnsignedInteger(_) => Some(Type::U128),

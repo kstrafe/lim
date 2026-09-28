@@ -326,6 +326,27 @@ mod tests {
 
     #[test]
     fn emission_overlay_distinguishes_checked_syntax_from_synthesized_nodes() {
+        fn find_symbol<'a>(expression: &'a Expr, name: &str) -> Option<&'a Expr> {
+            match expression {
+                Expr::Symbol(found) if found == name => Some(expression),
+                Expr::List(items) => items.iter().find_map(|item| find_symbol(item, name)),
+                Expr::Block(statements) | Expr::Loop(statements) => {
+                    statements.iter().find_map(|statement| match statement {
+                        Statement::Expr(value)
+                        | Statement::Return(Some(value))
+                        | Statement::Let { value, .. } => find_symbol(value, name),
+                        _ => None,
+                    })
+                }
+                Expr::Labeled { expression, .. }
+                | Expr::Quote(expression)
+                | Expr::QuasiQuote(expression)
+                | Expr::Unquote(expression)
+                | Expr::UnquoteSplicing(expression) => find_symbol(expression, name),
+                _ => None,
+            }
+        }
+
         let source = "(#fn increment ((value u32)) u32 (#return (#u32.+.wrap value 1u32)))\n\
           (#fn main () u32\n\
             (#let value u32 40)\n\
@@ -343,6 +364,16 @@ mod tests {
         let overlay = checked.declarations().bodies["main"]
             .emission_types(function)
             .unwrap();
+        let checked_symbol = function
+            .body
+            .iter()
+            .find_map(|statement| match statement {
+                Statement::Return(Some(expression)) => find_symbol(expression, "value"),
+                _ => None,
+            })
+            .unwrap();
+        assert!(overlay.has_checked_identity(checked_symbol));
+        assert!(!overlay.has_checked_identity(&Expr::Symbol("value".into())));
         assert_eq!(overlay.address_to_id.len(), overlay.by_id.len());
         assert!(overlay
             .address_to_id
@@ -949,6 +980,11 @@ pub(crate) struct EmissionNode {
 }
 
 impl EmissionTypes {
+    pub fn has_checked_identity(&self, expression: &Expr) -> bool {
+        self.address_to_id
+            .contains_key(&(std::ptr::from_ref(expression) as usize))
+    }
+
     pub fn get(&self, expression: &Expr) -> Option<&EmissionNode> {
         let address = std::ptr::from_ref(expression) as usize;
         self.address_to_id
