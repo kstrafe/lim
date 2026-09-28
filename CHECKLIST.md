@@ -354,6 +354,11 @@ the checklist is committed alongside the implementation it tracks.
   rather than spelling, preserving global and synthesized fallbacks. Cover
   large aggregate returns through nested branches and blocks.
 
+- [x] **IR-02x: Reject checked scalar reads that lost local identity.** Use
+  the legacy spelling-based local read only for backend-synthesized syntax;
+  if checked syntax names an existing local but lacks a `BindingId`, report an
+  internal error instead of silently recovering its stack slot by name.
+
 - [ ] **IR-03: Emit typed scalar expressions and calls.** Route backend
   emission through IR-02, then extend to aggregates and control flow. Remove
   corresponding AST type reconstruction as each path migrates; do not silently

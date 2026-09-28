@@ -8721,7 +8721,15 @@ impl FunctionContext {
                         self.output
                             .push_str(&format!("    mov rax, QWORD PTR [rbp-{}]\n", slot * 8));
                     }
-                } else if self.locals.contains_key(name) {
+                } else if self.expression_types.has_checked_identity(expression)
+                    && self.locals.contains_key(name)
+                {
+                    return Err(format!(
+                        "internal error: checked local symbol '{name}' lost its binding ID"
+                    ));
+                } else if !self.expression_types.has_checked_identity(expression)
+                    && self.locals.contains_key(name)
+                {
                     if let Some(Storage::Wide { low, high }) = self.locals.get(name) {
                         self.output.push_str(&format!(
                             "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
