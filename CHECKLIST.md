@@ -1584,6 +1584,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   prohibit safe moves, replacement, copies, or owner destruction while pinned
   references exist. Distinguish pinning the referent from pinning a handle,
   and test move, reborrow, field projection, and scope-exit diagnostics.
+- [x] **ASYNC-01a1: Represent pinned-reference types distinctly.** Add an
+  internal typed representation that preserves pointee and mutability and
+  remains distinct from ordinary references through type-source serialization,
+  alias resolution, reference containment, and thread-property analysis. This
+  is compiler groundwork only; the surface syntax and pinning guarantees remain
+  unsupported until ASYNC-01a is complete.
 - [ ] **ASYNC-01b: Lower async functions to concrete poll state machines.**
   Extend the initial `@async-fn` lowering beyond sequential immutable `#let`
   bindings. Support control-flow joins, mutable locals, and expression-level

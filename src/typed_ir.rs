@@ -600,8 +600,11 @@ impl Declarations {
 
     pub fn aggregate_id(&self, ty: &Type) -> Option<AggregateId> {
         let mut ty = resolve_type(ty, &self.aliases).ok()?;
-        while let Type::Reference { target, .. } = ty {
-            ty = *target;
+        loop {
+            ty = match ty {
+                Type::Reference { target, .. } | Type::PinnedReference { target, .. } => *target,
+                _ => break,
+            };
         }
         let Type::Named(name) = ty else {
             return None;
@@ -972,6 +975,10 @@ pub(crate) fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result
             }
             Type::Atomic(element) => Type::Atomic(Box::new(resolve(element, aliases, seen)?)),
             Type::Reference { mutable, target } => Type::Reference {
+                mutable: *mutable,
+                target: Box::new(resolve(target, aliases, seen)?),
+            },
+            Type::PinnedReference { mutable, target } => Type::PinnedReference {
                 mutable: *mutable,
                 target: Box::new(resolve(target, aliases, seen)?),
             },

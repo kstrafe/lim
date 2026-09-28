@@ -668,6 +668,7 @@ fn is_linear(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool
         | Type::F32
         | Type::F64
         | Type::Reference { .. }
+        | Type::PinnedReference { .. }
         | Type::RawPointer { .. }
         | Type::Slice(_) => false,
         Type::MutableSlice(_) | Type::Atomic(_) => true,
@@ -715,7 +716,7 @@ fn contains_exclusive_reference(
     seen: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        Type::Reference { mutable: true, .. } => true,
+        Type::Reference { mutable: true, .. } | Type::PinnedReference { mutable: true, .. } => true,
         Type::Tuple(items) => items
             .iter()
             .any(|item| contains_exclusive_reference(item, types, seen)),
@@ -750,7 +751,10 @@ fn contains_exclusive_reference(
 
 fn contains_reference(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool {
     match ty {
-        Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_) => true,
+        Type::Reference { .. }
+        | Type::PinnedReference { .. }
+        | Type::Slice(_)
+        | Type::MutableSlice(_) => true,
         Type::Tuple(items) => items
             .iter()
             .any(|item| contains_reference(item, types, seen)),

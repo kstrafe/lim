@@ -1977,6 +1977,7 @@ fn type_mentions_task(
                     }))
         }
         Type::Reference { target, .. }
+        | Type::PinnedReference { target, .. }
         | Type::RawPointer { target, .. }
         | Type::Array(target, _) => type_mentions_task(target, tasks, enums, seen),
         Type::Tuple(fields) => fields
@@ -2854,6 +2855,26 @@ fn type_has_thread_property_inner(
         Type::Generic(_) => Ok(false),
         Type::RawPointer { .. } => Ok(false),
         Type::Reference { mutable, target } => match (property, mutable) {
+            (ThreadProperty::Send, false) | (ThreadProperty::Sync, _) => {
+                type_has_thread_property_inner(
+                    target,
+                    ThreadProperty::Sync,
+                    structs,
+                    enums,
+                    overrides,
+                    active,
+                )
+            }
+            (ThreadProperty::Send, true) => type_has_thread_property_inner(
+                target,
+                ThreadProperty::Send,
+                structs,
+                enums,
+                overrides,
+                active,
+            ),
+        },
+        Type::PinnedReference { mutable, target } => match (property, mutable) {
             (ThreadProperty::Send, false) | (ThreadProperty::Sync, _) => {
                 type_has_thread_property_inner(
                     target,
@@ -4336,6 +4357,7 @@ fn first_unresolved_type<'a>(
             Some(name)
         }
         Type::Reference { target, .. }
+        | Type::PinnedReference { target, .. }
         | Type::RawPointer { target, .. }
         | Type::Slice(target)
         | Type::MutableSlice(target)
@@ -5573,6 +5595,7 @@ fn type_contains_thread_task_value(
                     }))
         }
         Type::Reference { target, .. }
+        | Type::PinnedReference { target, .. }
         | Type::RawPointer { target, .. }
         | Type::Array(target, _) => {
             type_contains_thread_task_value(target, functions, enums, aliases, seen)
@@ -8220,6 +8243,10 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
             mutable: *mutable,
             target: Box::new(substitute_type(target, substitutions)),
         },
+        Type::PinnedReference { mutable, target } => Type::PinnedReference {
+            mutable: *mutable,
+            target: Box::new(substitute_type(target, substitutions)),
+        },
         Type::RawPointer { mutable, target } => Type::RawPointer {
             mutable: *mutable,
             target: Box::new(substitute_type(target, substitutions)),
@@ -8398,7 +8425,10 @@ fn contains_reference_type(
     seen: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_) => true,
+        Type::Reference { .. }
+        | Type::PinnedReference { .. }
+        | Type::Slice(_)
+        | Type::MutableSlice(_) => true,
         Type::Array(element, _) => contains_reference_type(element, structs, enums, seen),
         Type::Tuple(fields) => fields
             .iter()
@@ -8428,9 +8458,11 @@ fn type_contains_mutable_reference(
     seen: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        Type::Reference { mutable: true, .. } => true,
+        Type::Reference { mutable: true, .. } | Type::PinnedReference { mutable: true, .. } => true,
         Type::MutableSlice(_) => true,
-        Type::Reference { mutable: false, .. } | Type::RawPointer { .. } => false,
+        Type::Reference { mutable: false, .. }
+        | Type::PinnedReference { mutable: false, .. }
+        | Type::RawPointer { .. } => false,
         Type::Array(element, _) => type_contains_mutable_reference(element, structs, enums, seen),
         Type::Tuple(fields) => fields
             .iter()
@@ -8474,6 +8506,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::F32 => "f32",
         Type::F64 => "f64",
         Type::Reference { .. } => "reference",
+        Type::PinnedReference { .. } => "pinned reference",
         Type::Slice(_) => "slice",
         Type::MutableSlice(_) => "mutable slice",
         Type::Atomic(_) => "atomic",

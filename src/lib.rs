@@ -1365,6 +1365,12 @@ pub enum Type {
         mutable: bool,
         target: Box<Type>,
     },
+    /// A reference whose referent has been pinned in place. This is distinct
+    /// from pinning the reference handle itself.
+    PinnedReference {
+        mutable: bool,
+        target: Box<Type>,
+    },
     RawPointer {
         mutable: bool,
         target: Box<Type>,
@@ -5183,6 +5189,11 @@ fn type_source(ty: &Type) -> String {
             if *mutable { "ref-mut" } else { "ref" },
             type_source(target)
         ),
+        Type::PinnedReference { mutable, target } => format!(
+            "(#{} {})",
+            if *mutable { "pin-ref-mut" } else { "pin-ref" },
+            type_source(target)
+        ),
         Type::RawPointer { mutable, target } => format!(
             "(#{} {})",
             if *mutable { "ptr-mut" } else { "ptr" },
@@ -7656,6 +7667,18 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
                 target: Box::new(parse_type(items.get(1))?),
             });
         }
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "pin-ref") {
+            return Ok(Type::PinnedReference {
+                mutable: false,
+                target: Box::new(parse_type(items.get(1))?),
+            });
+        }
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "pin-ref-mut") {
+            return Ok(Type::PinnedReference {
+                mutable: true,
+                target: Box::new(parse_type(items.get(1))?),
+            });
+        }
         if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "slice") {
             return Ok(Type::Slice(Box::new(parse_type(items.get(1))?)));
         }
@@ -8005,6 +8028,21 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pinned_reference_type_metadata_preserves_mutability_and_target() {
+        let shared = Type::PinnedReference {
+            mutable: false,
+            target: Box::new(Type::U64),
+        };
+        let exclusive = Type::PinnedReference {
+            mutable: true,
+            target: Box::new(Type::U64),
+        };
+        assert_ne!(shared, exclusive);
+        assert_eq!(type_source(&shared), "(#pin-ref u64)");
+        assert_eq!(type_source(&exclusive), "(#pin-ref-mut u64)");
+    }
 
     fn structured_type_error(program: &Program) -> Diagnostic {
         let (message, code, span, labels) = typecheck::check_types_with_span(program).unwrap_err();

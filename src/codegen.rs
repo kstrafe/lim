@@ -439,6 +439,11 @@ fn specialized_type_name(ty: &Type) -> String {
             if *mutable { "mut_" } else { "_" },
             specialized_type_name(target)
         ),
+        Type::PinnedReference { mutable, target } => format!(
+            "pin_ref{}{}",
+            if *mutable { "mut_" } else { "_" },
+            specialized_type_name(target)
+        ),
         Type::RawPointer { mutable, target } => format!(
             "ptr{}{}",
             if *mutable { "mut_" } else { "_" },
