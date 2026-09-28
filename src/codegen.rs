@@ -10351,6 +10351,10 @@ impl FunctionContext {
         };
         let end = self.label("match_end");
         let base_depth = self.stack_depth;
+        let local_enum_storage = match &items[1] {
+            Expr::Symbol(name) => self.local_storage_for_symbol(&items[1], name)?,
+            _ => None,
+        };
         let payload_slots = if let Some(base) = direct_enum_base {
             let ty = self
                 .expression_type(&items[1])
@@ -10358,11 +10362,8 @@ impl FunctionContext {
             let payload_words = storage_word_count(&ty, &self.structs, &self.enums)? - 1;
             Some((base + 1..base + 1 + payload_words).collect())
         } else {
-            match &items[1] {
-                Expr::Symbol(name) => match self.locals.get(name) {
-                    Some(Storage::Enum { payload, .. }) => Some(payload.clone()),
-                    _ => None,
-                },
+            match &local_enum_storage {
+                Some(Storage::Enum { payload, .. }) => Some(payload.clone()),
                 _ => None,
             }
         };
@@ -10390,8 +10391,8 @@ impl FunctionContext {
             payload_count + 1
         };
         match &items[1] {
-            Expr::Symbol(name) if matches!(self.locals.get(name), Some(Storage::Enum { .. })) => {
-                let Storage::Enum { discriminant, .. } = self.locals.get(name).unwrap() else {
+            Expr::Symbol(_) if matches!(&local_enum_storage, Some(Storage::Enum { .. })) => {
+                let Some(Storage::Enum { discriminant, .. }) = &local_enum_storage else {
                     unreachable!()
                 };
                 self.output.push_str(&format!(
