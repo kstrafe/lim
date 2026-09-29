@@ -3160,40 +3160,102 @@ fn lower_async_while(
     waker: &str,
 ) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if let Some(items) = form(statement, "#while") {
-        if items.len() == 3 {
-            if let Some(return_form) = form(&items[2], "#return") {
-                let await_form = form(&items[1], "#await");
-                if return_form.len() != 2 {
-                    return Err("@async-fn awaited #while return requires exactly one value".into());
-                }
-                if let Some(await_form) = await_form {
-                    if !following.is_empty()
-                        || has_await(return_value)
-                        || has_await(&return_form[1])
-                        || await_form.len() != 6
-                        || has_await(&await_form[5])
-                    {
-                        return Err(
-                            "@async-fn awaited #while body cannot return in this shape yet; early return requires a terminal direct condition #await and a non-suspending return value"
-                                .into(),
-                        );
+        let direct_condition_await = form(&items[1], "#await");
+        let body_return = match items.len() {
+            3 => form(&items[2], "#return")
+                .map(|return_form| (return_form, None::<(&[Expr], Binding)>)),
+            4 => {
+                let return_form = form(&items[3], "#return");
+                let body_binding = form(&items[2], "#let").or_else(|| form(&items[2], "#let-mut"));
+                match (return_form, body_binding) {
+                    (Some(return_form), Some(body_binding)) => {
+                        let local = binding(&items[2], "awaited while return")?;
+                        Some((return_form, Some((body_binding, local))))
                     }
-                    let condition_name = fresh_async_name(source, next_name);
-                    let condition_binding = Expr::List(vec![
-                        Expr::Symbol("#let".into()),
-                        Expr::Symbol(condition_name.clone()),
-                        Expr::Symbol("bool".into()),
-                        items[1].clone(),
-                    ]);
-                    *return_value = Expr::List(vec![
-                        Expr::Symbol("#if".into()),
-                        Expr::Symbol(condition_name),
-                        return_form[1].clone(),
-                        return_value.clone(),
-                    ]);
-                    return Ok(Some((vec![condition_binding], String::new(), Vec::new())));
+                    _ => None,
                 }
             }
+            _ => None,
+        };
+        if let (Some(await_form), Some((return_form, body_binding))) =
+            (direct_condition_await, body_return)
+        {
+            if return_form.len() != 2 {
+                return Err("@async-fn awaited #while return requires exactly one value".into());
+            }
+            if !following.is_empty()
+                || has_await(return_value)
+                || await_form.len() != 6
+                || has_await(&await_form[5])
+            {
+                return Err(
+                    "@async-fn awaited #while body cannot return in this shape yet; early return requires a terminal direct condition #await and a non-suspending function tail"
+                        .into(),
+                );
+            }
+            let condition_name = fresh_async_name(source, next_name);
+            let condition_binding = Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(condition_name.clone()),
+                Expr::Symbol("bool".into()),
+                items[1].clone(),
+            ]);
+            let mut replacement = vec![condition_binding];
+            let return_expression = if let Some((body_binding_form, body_binding)) = body_binding {
+                if return_form.len() != 2
+                    || !matches!(&return_form[1], Expr::Symbol(name) if name == &body_binding.name)
+                    || has_await(&return_form[1])
+                {
+                    return Err(
+                        "@async-fn awaited #while body cannot return in this shape yet; awaited body binding must be returned directly"
+                            .into(),
+                    );
+                }
+                let mut body_await = form(&body_binding_form[3], "#await")
+                    .ok_or_else(|| {
+                        "@async-fn awaited #while return binding must initialize with #await"
+                            .to_owned()
+                    })?
+                    .to_vec();
+                if body_await.len() == 6 {
+                    body_await.insert(1, crate::parse(&body_binding.ty)?[0].expr.clone());
+                }
+                if body_await.len() != 7 || has_await(&body_await[6]) {
+                    return Err(
+                        "@async-fn awaited #while return binding requires one direct typed #await"
+                            .into(),
+                    );
+                }
+                let result_name = fresh_async_name(source, next_name);
+                replacement.push(Expr::List(vec![
+                    Expr::Symbol("#let".into()),
+                    Expr::Symbol(result_name.clone()),
+                    crate::parse(&body_binding.ty)?[0].expr.clone(),
+                    Expr::List(vec![
+                        Expr::Symbol("#if".into()),
+                        Expr::Symbol(condition_name),
+                        Expr::List(body_await),
+                        return_value.clone(),
+                    ]),
+                ]));
+                Expr::Symbol(result_name)
+            } else {
+                if has_await(&return_form[1]) {
+                    return Err(
+                        "@async-fn awaited #while early return requires a non-suspending return value"
+                            .into(),
+                    );
+                }
+                *return_value = Expr::List(vec![
+                    Expr::Symbol("#if".into()),
+                    Expr::Symbol(condition_name),
+                    return_form[1].clone(),
+                    return_value.clone(),
+                ]);
+                return Ok(Some((replacement, String::new(), Vec::new())));
+            };
+            *return_value = return_expression;
+            return Ok(Some((replacement, String::new(), Vec::new())));
         }
     }
     lower_async_while_with_transfers(
@@ -3207,6 +3269,23 @@ fn lower_async_while(
         next_name,
         waker,
     )
+}
+
+fn async_while_has_terminal_return(statement: &Expr) -> bool {
+    let Some(items) = form(statement, "#while") else {
+        return false;
+    };
+    if items.len() < 3 || form(&items[1], "#await").is_none() {
+        return false;
+    }
+    match items.len() {
+        3 => form(&items[2], "#return").is_some(),
+        4 => {
+            (form(&items[2], "#let").is_some() || form(&items[2], "#let-mut").is_some())
+                && form(&items[3], "#return").is_some()
+        }
+        _ => false,
+    }
 }
 
 fn lower_async_while_with_transfers(
@@ -7263,6 +7342,51 @@ fn generated_source_with_capture_selection(
             lowered_statements.extend(replacement);
             return_value = Expr::Symbol(result_name);
             continue;
+        }
+        if async_while_has_terminal_return(&statement) {
+            if let Some((replacement, helper, renames)) = lower_async_while(
+                &statement,
+                &lowering_known,
+                &lowering_known_order,
+                &following,
+                &mut return_value,
+                &source,
+                &mut next_nested_await,
+                &waker_source,
+            )
+            .map_err(|error| format!("async statement {source_index}: {error}"))?
+            {
+                apply_async_output_renames(
+                    &mut statements[source_index + 1..],
+                    &mut return_value,
+                    &mut lowering_known,
+                    &mut lowering_known_order,
+                    &renames,
+                );
+                generated_helpers.push(helper);
+                let mut replacement_known = lowering_known.clone();
+                let mut replacement_known_order = lowering_known_order.clone();
+                for mut generated_statement in replacement {
+                    let mut extracted = Vec::new();
+                    extract_statement_awaits(
+                        &mut generated_statement,
+                        &mut extracted,
+                        &mut generated_helpers,
+                        &replacement_known,
+                        &source,
+                        &mut next_nested_await,
+                        &waker_source,
+                    )
+                    .map_err(|error| format!("async statement {source_index}: {error}"))?;
+                    lowered_statements.extend(extracted);
+                    lowered_statements.push(generated_statement.clone());
+                    if let Ok(local) = binding(&generated_statement, "generated loop local") {
+                        replacement_known_order.push(local.name.clone());
+                        replacement_known.insert(local.name.clone(), local);
+                    }
+                }
+                continue;
+            }
         }
         if let Some((replacement, helper, renames)) = lower_async_loop(
             &statement,

@@ -2235,6 +2235,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   evaluate the return expression only when the awaited condition is Ready(true);
   on Ready(false), preserve the function's ordinary final return. Verify both
   outcomes natively after Pending/resume.
+- [x] **ASYNC-01b113: Return an awaited loop-body result from a resumed
+  condition.** For a terminal awaited `#while` whose body binds one child
+  await and immediately returns that binding, create the body child only after
+  the condition resumes Ready(true). On Ready(false), return the function's
+  ordinary final value without constructing or polling the body task. Verify
+  both branches natively, including Pending/resume for each child.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
