@@ -1777,6 +1777,13 @@ fn awaited_while_condition_and_body_resume_in_source_order() {
     assert!(generated.contains("condition-body-task"), "{generated}");
     assert!(generated.contains("wait-condition"), "{generated}");
     assert!(generated.contains("wait-body"), "{generated}");
+
+    let conditional_source = source.replace(
+        "(#await u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting input))",
+        "(#if true\n                (#await u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting input))\n                42u64)",
+    );
+    let generated = build_and_run(&conditional_source, 42);
+    assert!(generated.contains("choice"), "{generated}");
 }
 
 #[test]

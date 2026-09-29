@@ -1307,10 +1307,30 @@ fn lower_async_while(
                 .ok_or_else(|| {
                     "@async-fn awaited while body suspension requires a direct binding".to_owned()
                 })?;
-            let body_await = form(&body_form[3], "#await").ok_or_else(|| {
-                "@async-fn awaited while body suspension requires a direct #await binding"
-                    .to_owned()
-            })?;
+            let (body_await, body_helper) = if let Some(await_form) = form(&body_form[3], "#await")
+            {
+                (await_form.to_vec(), String::new())
+            } else if let Some((protocol, task, helper)) =
+                conditional_await_with_immediate(&body_form[3], source, next_name, waker)?
+            {
+                (
+                    vec![
+                        Expr::Symbol("#await".into()),
+                        protocol.result_type,
+                        protocol.child_type,
+                        protocol.pending,
+                        protocol.ready,
+                        protocol.poll,
+                        task,
+                    ],
+                    helper,
+                )
+            } else {
+                return Err(
+                    "@async-fn awaited while body binding requires a direct or conditional #await"
+                        .into(),
+                );
+            };
             if body_await.len() != 7
                 || body[1..].iter().any(has_await)
                 || has_await(&body_await[6])
@@ -1512,7 +1532,7 @@ fn lower_async_while(
             else {
                 return Ok(None);
             };
-            let helper = [condition_helper, composite_helper, loop_helper]
+            let helper = [condition_helper, body_helper, composite_helper, loop_helper]
                 .into_iter()
                 .filter(|helper| !helper.is_empty())
                 .collect::<Vec<_>>()

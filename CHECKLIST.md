@@ -1981,6 +1981,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   otherwise non-Copy captures with the offending local name instead of
   producing malformed generated code. Named aggregate Copy proofs and
   mutable/linear captures remain open under ASYNC-01.
+- [x] **ASYNC-01b67: Compose conditional awaits in an awaited `#while` body.**
+  Reuse the concrete choice-task protocol when the one body binding selects
+  between a child `#await` and an immediate value. Evaluate that selection
+  only after the awaited condition is Ready(true), retain the selected child
+  across Pending, and preserve the ordinary body continuation. Verify native
+  child resumption and retain the Ready(false) body-skip regression; broader
+  body control-flow joins remain open under ASYNC-01.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
