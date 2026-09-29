@@ -91,7 +91,8 @@ fn struct_field_type(structure: &str, field: &str) -> Option<String> {
 fn async_argument_is_trivial(expression: &Expr) -> bool {
     matches!(
         expression,
-        Expr::Integer(_)
+        Expr::Symbol(_)
+            | Expr::Integer(_)
             | Expr::UnsignedInteger(_)
             | Expr::Float(_)
             | Expr::Char(_)
@@ -2675,6 +2676,61 @@ fn extract_nested_awaits(
                             item.clone(),
                         ]));
                         *item = Expr::Symbol(temporary);
+                    }
+                }
+                head if items.len() == 3
+                    && crate::typed_body::NumericOperation::parse(
+                        head.strip_prefix('#').unwrap_or(head),
+                    )
+                    .is_some() =>
+                {
+                    let operand_type = crate::type_source(
+                        &crate::typed_body::NumericOperation::parse(
+                            head.strip_prefix('#').unwrap_or(head),
+                        )
+                        .expect("guard parsed the numeric operation")
+                        .operand_type,
+                    );
+                    let has_suspending_operand = items.iter().skip(1).any(has_await);
+                    for operand in items.iter_mut().skip(1) {
+                        extract_nested_awaits(
+                            operand,
+                            generated,
+                            generated_helpers,
+                            known,
+                            source,
+                            next_name,
+                            waker,
+                        )?;
+                        let already_sequenced = match operand {
+                            Expr::Symbol(name) => generated.iter().any(|statement| {
+                                form(statement, "#let").is_some_and(|binding| {
+                                    binding.len() == 4
+                                        && matches!(&binding[1], Expr::Symbol(bound) if bound == name)
+                                })
+                            }),
+                            _ => false,
+                        };
+                        if !has_suspending_operand
+                            || async_argument_is_trivial(operand)
+                            || already_sequenced
+                        {
+                            continue;
+                        }
+                        let temporary = nested_await_name(source, next_name);
+                        generated.push(Expr::List(vec![
+                            Expr::Symbol("#let".into()),
+                            Expr::Symbol(temporary.clone()),
+                            crate::parse(&operand_type)?
+                                .into_iter()
+                                .next()
+                                .ok_or_else(|| {
+                                    "@async-fn numeric operand has an empty type".to_owned()
+                                })?
+                                .expr,
+                            operand.clone(),
+                        ]));
+                        *operand = Expr::Symbol(temporary);
                     }
                 }
                 _ => {
