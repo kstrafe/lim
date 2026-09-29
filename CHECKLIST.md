@@ -2401,6 +2401,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   multi-await condition expressions through a generated task frame, making the
   initializer binding available to capture analysis before the loop variable
   is renamed. Verify sequential Pending/resume and loop entry natively.
+- [x] **ASYNC-01b149: Resolve globals separately from async frame captures.**
+  Do not turn unresolved source symbols into generated closure captures; keep
+  them in the generated body for normal global/constructor resolution, while
+  capturing only known lexical bindings. Verify a global constant referenced
+  in a resumed conditional expression and retain ordinary typechecking for
+  invalid names.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

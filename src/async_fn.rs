@@ -1003,11 +1003,11 @@ fn conditional_value_expression_task(
     for parameter in &captured_parameters {
         captures.remove(&parameter.name);
     }
-    if let Some(name) = captures.iter().next() {
-        return Err(format!(
-            "@async-fn conditional branch await captures outer local '{name}'; bind it inside a branch block"
-        ));
-    }
+    // Unknown names here may be enum constructors or global declarations, not
+    // lexical captures. Keep them in the generated body for ordinary name
+    // resolution; any unavailable local is still rejected when the generated
+    // function is typechecked. The language's no-shadowing rule prevents a
+    // missing local from silently resolving to a same-named global.
 
     let base = fresh_async_name(source, next_name);
     let function_name = format!("{base}-expression-function");

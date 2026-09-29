@@ -3131,6 +3131,57 @@ fn async_while_condition_sequences_short_circuit_awaits() {
 }
 
 #[test]
+fn async_while_condition_keeps_global_names_out_of_frame_captures() {
+    let source = "(#const fallback bool false)
+      (#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady true)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#while
+            (#if (#bool.&&
+                (#await bool ChildTask ChildPending ChildReady child-poll (Waiting 0u64))
+                (#await bool ChildTask ChildPending ChildReady child-poll (Waiting 0u64)))
+              true
+              fallback)
+            (#break))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending first-frame) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task first-frame : waker (#borrow waker))))
+        (#let-else (Pending second-frame) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task second-frame : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("expression-frame"), "{generated}");
+    let invalid_source = source
+        .replace(
+            "(#const fallback bool false)",
+            "(#const unrelated bool false)",
+        )
+        .replace("              fallback)", "              missing_global)");
+    let invalid_program = lim::parse_program(&invalid_source).unwrap();
+    let error = match lim::CheckedProgram::validate(&invalid_program) {
+        Ok(_) => panic!("an unresolved name in the generated async body must be rejected"),
+        Err(error) => error,
+    };
+    assert!(
+        format!("{error:?}").contains("unknown variable or enum variant"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn awaited_while_condition_preserves_terminal_break_and_continue() {
     let source = "(#enum ConditionTask ((Waiting u64)))
       (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
