@@ -3985,6 +3985,29 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
         .replace("{}", env!("CARGO_MANIFEST_DIR"));
     let generated = build_and_run(&source, 2);
     assert!(generated.contains("Payload"), "{generated}");
+
+    let returning_source = source.replace("(#set decision false)", "(#return payload)");
+    let (prefix, _) = returning_source
+        .split_once("(#fn cancel-body-start")
+        .expect("cancellation helpers follow the async declaration");
+    let returning_source = format!(
+        "{prefix}(#fn main () u64
+          (#let waker u64 0u64)
+          (#let task Frame (#call work (: decision true)))
+          (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+          (#let-else (Pending after-condition) Poll first (#unreachable))
+          (#let second Poll (#call poll (: task after-condition : waker (#borrow waker))))
+          (#let-else (Pending after-first) Poll second (#unreachable))
+          (#let third Poll (#call poll (: task after-first : waker (#borrow waker))))
+          (#let-else (Pending after-second) Poll third (#unreachable))
+          (#let fourth Poll (#call poll (: task after-second : waker (#borrow waker))))
+          (#let-else (Ready payload) Poll fourth (#unreachable))
+          (#let result u64 (#get payload value))
+          (#forget payload)
+          (#forget waker)
+          (#return (#if (#u64.== result 2u64) 42u64 0u64)))"
+    );
+    build_and_run(&returning_source, 42);
 }
 
 #[test]

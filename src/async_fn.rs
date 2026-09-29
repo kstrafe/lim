@@ -806,7 +806,11 @@ fn conditional_block_continuation(
             .next()
             .ok_or_else(|| "@async-fn captured binding type is empty".to_owned())?
             .expr;
-        parameters.push(Expr::List(vec![name.clone(), ty]));
+        parameters.push(Expr::List(if binding.mutable {
+            vec![Expr::Symbol("#mut".into()), name.clone(), ty]
+        } else {
+            vec![name.clone(), ty]
+        }));
         call_arguments.push(Expr::Symbol(":".into()));
         call_arguments.push(name.clone());
         call_arguments.push(name);
@@ -1038,14 +1042,17 @@ fn conditional_value_expression_task(
     let mut helper_parameters = Vec::with_capacity(captured_parameters.len());
     let mut call_arguments = Vec::new();
     for parameter in &captured_parameters {
-        helper_parameters.push(Expr::List(vec![
-            Expr::Symbol(parameter.name.clone()),
-            crate::parse(&parameter.ty)?
-                .into_iter()
-                .next()
-                .ok_or_else(|| "@async-fn captured parameter type is empty".to_owned())?
-                .expr,
-        ]));
+        let name = Expr::Symbol(parameter.name.clone());
+        let ty = crate::parse(&parameter.ty)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| "@async-fn captured parameter type is empty".to_owned())?
+            .expr;
+        helper_parameters.push(Expr::List(if parameter.mutable {
+            vec![Expr::Symbol("#mut".into()), name.clone(), ty]
+        } else {
+            vec![name.clone(), ty]
+        }));
         call_arguments.push(Expr::Symbol(":".into()));
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
