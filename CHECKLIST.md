@@ -2420,6 +2420,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Lower non-binding body awaits in `#for-range`; execute the generated step
   exactly once on `#continue` and skip it on `#break`. Verify both terminal
   transfers after a Pending/resume body task in native runs.
+- [x] **ASYNC-01b153: Preserve conditional range transfers after suspension.**
+  Exercise `#continue` and `#break` in opposite branches following an awaited
+  body statement across two range iterations. The native run proves that the
+  continue branch increments once and the break branch skips the step.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
