@@ -669,6 +669,13 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "async-let-else-await",
+            diagnostic_code: "E4000",
+            offending_line:
+                "      (#return (#await u64 Child ChildPending ChildReady child-poll (Waiting 7u64))))",
+            line_number: 10,
+        },
+        Case {
             name: "duplicate-enum-match-pattern",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#match value (#case Ready 0u64) (#case Ready 1u64)))",
@@ -925,6 +932,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-match-variant" => Some("Missing"),
             "non-exhaustive-match" => Some("#match"),
             "unknown-let-else-variant" => Some("Missing"),
+            "async-let-else-await" => Some("#await"),
             "duplicate-enum-match-pattern" => Some("Ready"),
             "enum-match-payload-arity" => Some("One"),
             "duplicate-wildcard-match-pattern" => Some("_"),

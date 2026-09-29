@@ -1518,6 +1518,65 @@ fn extract_statement_awaits(
             next_name,
             waker,
         )?;
+    } else if let Some(items) = form(statement, "#let-else") {
+        if items.len() != 5 {
+            return Err("@async-fn #let-else requires pattern, type, value, and else body".into());
+        }
+        if has_await(&items[4]) {
+            return Err(
+                "@async-fn cannot lower #await inside a #let-else diverging body yet".into(),
+            );
+        }
+        let Expr::List(statement_items) = statement else {
+            unreachable!()
+        };
+        if let Some(await_form) = form(&statement_items[3], "#await") {
+            if await_form.len() != 6 {
+                return Err(
+                    "@async-fn #let-else scrutinee #await requires (#await Child Pending Ready poll task)"
+                        .into(),
+                );
+            }
+            if has_await(&await_form[5]) {
+                let Expr::List(await_items) = &mut statement_items[3] else {
+                    unreachable!()
+                };
+                extract_nested_awaits(
+                    &mut await_items[5],
+                    generated,
+                    generated_helpers,
+                    known,
+                    source,
+                    next_name,
+                    waker,
+                )?;
+            }
+            let await_form = form(&statement_items[3], "#await")
+                .expect("validated let-else await remains an await");
+            let normalized_await = Expr::List(
+                std::iter::once(Expr::Symbol("#await".into()))
+                    .chain(await_form[1..].iter().cloned())
+                    .collect(),
+            );
+            let temp_name = nested_await_name(source, next_name);
+            generated.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(temp_name.clone()),
+                statement_items[2].clone(),
+                normalized_await,
+            ]));
+            statement_items[3] = Expr::Symbol(temp_name);
+        } else {
+            extract_nested_awaits(
+                &mut statement_items[3],
+                generated,
+                generated_helpers,
+                known,
+                source,
+                next_name,
+                waker,
+            )?;
+        }
     } else if let Some(items) = form(statement, "#return") {
         if items.len() == 2 && form(&items[1], "#await").is_some() {
             return Ok(());
