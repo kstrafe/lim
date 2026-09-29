@@ -1432,6 +1432,12 @@ fn lower_awaited_let_else_return(
         return Ok(None);
     };
     if await_form.len() != 7 {
+        if form(&failure_value, "#await").is_none() {
+            return Err(
+                "nested #await requires an explicit result type: (#await Type Child Pending Ready poll task)"
+                    .into(),
+            );
+        }
         return Ok(None);
     }
     if following.iter().any(has_await) || has_await(return_value) {
