@@ -14,6 +14,42 @@ struct Binding {
     mutable: bool,
 }
 
+fn async_task_capture_is_copy(ty: &Type) -> bool {
+    match ty {
+        Type::Unit
+        | Type::Bool
+        | Type::Char
+        | Type::I8
+        | Type::I16
+        | Type::I32
+        | Type::I64
+        | Type::I128
+        | Type::Isize
+        | Type::U8
+        | Type::U16
+        | Type::U32
+        | Type::U64
+        | Type::U128
+        | Type::Usize
+        | Type::F32
+        | Type::F64
+        | Type::RawPointer { .. }
+        | Type::Slice(_) => true,
+        Type::Reference { mutable: false, .. } | Type::PinnedReference { mutable: false, .. } => {
+            true
+        }
+        Type::Tuple(elements) => elements.iter().all(async_task_capture_is_copy),
+        Type::Array(element, _) => async_task_capture_is_copy(element),
+        Type::Never
+        | Type::Reference { mutable: true, .. }
+        | Type::PinnedReference { mutable: true, .. }
+        | Type::MutableSlice(_)
+        | Type::Atomic(_)
+        | Type::Generic(_)
+        | Type::Named(_) => false,
+    }
+}
+
 #[derive(Clone)]
 struct PinnedSelfReference {
     binding: Binding,
@@ -1285,12 +1321,24 @@ fn lower_async_while(
                 );
             }
             let mut task_names = HashSet::new();
-            collect_value_names(&await_form[5], &mut task_names);
             collect_value_names(&body_await[6], &mut task_names);
-            if let Some(name) = task_names.iter().find(|name| known.contains_key(*name)) {
-                return Err(format!(
-                    "@async-fn composed awaited while child task uses outer local '{name}'; carry it through an explicit child task"
-                ));
+            let captures = known_order
+                .iter()
+                .filter(|name| task_names.contains(*name))
+                .filter_map(|name| known.get(name).cloned())
+                .collect::<Vec<_>>();
+            for capture in &captures {
+                let parsed_type = crate::parse(&capture.ty)?;
+                let type_expression = parsed_type
+                    .first()
+                    .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
+                let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
+                if !async_task_capture_is_copy(&ty) {
+                    return Err(format!(
+                        "@async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
+                        capture.name
+                    ));
+                }
             }
 
             let base = fresh_async_name(source, next_name);
@@ -1314,25 +1362,57 @@ fn lower_async_while(
             let body_poll = symbol(&body_await[5], "while body poll function")?;
             let body_task = expression_source(&body_await[6])?;
             let body_result_type = expression_source(&body_form[2])?;
+            let capture_types = captures
+                .iter()
+                .map(|capture| capture.ty.as_str())
+                .collect::<Vec<_>>();
+            let capture_names = captures
+                .iter()
+                .map(|capture| capture.name.as_str())
+                .collect::<Vec<_>>();
+            let condition_fields = std::iter::once(condition_child.as_str())
+                .chain(capture_types.iter().copied())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let body_fields = std::iter::once(body_child.as_str())
+                .chain(capture_types.iter().copied())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let condition_pattern = std::iter::once("child")
+                .chain(capture_names.iter().copied())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let body_pattern = std::iter::once("child")
+                .chain(capture_names.iter().copied())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let condition_pending_state = std::iter::once(format!("{wait_condition} pending"))
+                .chain(capture_names.iter().map(|name| (*name).to_owned()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let body_pending_state = std::iter::once(format!("{wait_body} pending"))
+                .chain(capture_names.iter().map(|name| (*name).to_owned()))
+                .collect::<Vec<_>>()
+                .join(" ");
             let composite_helper = format!(
                 "(#enum {decision_type} ({stop_variant} ({continue_variant} {body_result_type})))\n\
-                 (#enum {composite_task} (({wait_condition} {condition_child}) ({wait_body} {body_child})))\n\
+                 (#enum {composite_task} (({wait_condition} {condition_fields}) ({wait_body} {body_fields})))\n\
                  (#linear {composite_task})\n\
                  (#enum {composite_result} (({composite_pending} {composite_task}) ({composite_ready} {decision_type})))\n\
                  (#fn {composite_poll} ((task {composite_task}) (waker (#ref {waker}))) {composite_result}\n\
                    (#return (#match task\n\
-                     (#case ({wait_condition} child)\n\
+                     (#case ({wait_condition} {condition_pattern})\n\
                        (#match (#call {condition_poll} (: task child : waker waker))\n\
-                         (#case ({condition_pending} pending) ({composite_pending} ({wait_condition} pending)))\n\
+                         (#case ({condition_pending} pending) ({composite_pending} ({condition_pending_state})))\n\
                          (#case ({condition_ready} condition)\n\
                            (#if condition\n\
                              (#match (#call {body_poll} (: task {body_task} : waker waker))\n\
-                               (#case ({body_pending} pending) ({composite_pending} ({wait_body} pending)))\n\
+                               (#case ({body_pending} pending) ({composite_pending} ({body_pending_state})))\n\
                                (#case ({body_ready} value) ({composite_ready} ({continue_variant} value))))\n\
                              ({composite_ready} {stop_variant})))))\n\
-                     (#case ({wait_body} child)\n\
+                     (#case ({wait_body} {body_pattern})\n\
                        (#match (#call {body_poll} (: task child : waker waker))\n\
-                         (#case ({body_pending} pending) ({composite_pending} ({wait_body} pending)))\n\
+                         (#case ({body_pending} pending) ({composite_pending} ({body_pending_state})))\n\
                          (#case ({body_ready} value) ({composite_ready} ({continue_variant} value))))))))"
             );
 
@@ -1385,6 +1465,12 @@ fn lower_async_while(
                     Expr::List(body_success),
                 ]),
             ]);
+            let mut condition_state = vec![Expr::Symbol(wait_condition), await_form[5].clone()];
+            condition_state.extend(
+                captures
+                    .iter()
+                    .map(|capture| Expr::Symbol(capture.name.clone())),
+            );
             let loop_form = Expr::List(vec![
                 Expr::Symbol("#loop".into()),
                 Expr::List(vec![
@@ -1397,7 +1483,7 @@ fn lower_async_while(
                         Expr::Symbol(composite_pending),
                         Expr::Symbol(composite_ready),
                         Expr::Symbol(composite_poll),
-                        Expr::List(vec![Expr::Symbol(wait_condition), await_form[5].clone()]),
+                        Expr::List(condition_state),
                     ]),
                 ]),
                 Expr::List(vec![

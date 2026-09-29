@@ -1974,6 +1974,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   short-circuiting natively. Outer-local references in the two task
   constructors remain unsupported and must be carried explicitly in a later
   async-capture step; ASYNC-01 remains open.
+- [x] **ASYNC-01b66: Carry Copy locals into composed awaited body tasks.**
+  Preserve scalar, shared-reference, raw-pointer, tuple, and array Copy values
+  needed to construct the body child across condition and body Pending states.
+  Keep the value available to the source continuation, and diagnose linear or
+  otherwise non-Copy captures with the offending local name instead of
+  producing malformed generated code. Named aggregate Copy proofs and
+  mutable/linear captures remain open under ASYNC-01.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

@@ -1743,25 +1743,25 @@ fn awaited_while_condition_and_body_resume_in_source_order() {
         (#return (#match task
           (#case ConditionWaiting (ConditionPending ConditionResuming))
           (#case ConditionResuming (ConditionReady true)))))
-      (#enum BodyTask (BodyWaiting BodyResuming))
+      (#enum BodyTask ((BodyWaiting u64) (BodyResuming u64)))
       (#linear BodyTask)
       (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
       (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
         (#return (#match task
-          (#case BodyWaiting (BodyPending BodyResuming))
-          (#case BodyResuming (BodyReady 42u64)))))
+          (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
+          (#case (BodyResuming value) (BodyReady value)))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-        (#fn work () u64
+        (#fn work ((input u64)) u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll ConditionWaiting)
             (#let value u64
-              (#await u64 BodyTask BodyPending BodyReady body-poll BodyWaiting))
-            (#assert (#u64.== value 42u64))
+              (#await u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting input)))
+            (#assert (#u64.== value input))
             (#break))
-          (#return 42u64))))
+          (#return input))))
       (#fn main () u64
         (#let waker u64 0u64)
-        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let first Poll (#call poll (: task (#call work (: input 42u64)) : waker (#borrow waker))))
         (#let-else (Pending condition-pending) Poll first (#unreachable))
         (#let second Poll (#call poll (: task condition-pending : waker (#borrow waker))))
         (#let-else (Pending body-pending) Poll second (#unreachable))
@@ -1808,6 +1808,48 @@ fn awaited_false_while_condition_does_not_poll_the_body_task() {
         (#forget waker)
         (#return value))";
     build_and_run(source, 42);
+}
+
+#[test]
+fn awaited_while_body_reports_noncopy_task_captures() {
+    let source = "(#struct Resource ((value u64)))
+      (#linear Resource)
+      (#enum ConditionTask (ConditionWaiting ConditionResuming))
+      (#linear ConditionTask)
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case ConditionWaiting (ConditionPending ConditionResuming))
+          (#case ConditionResuming (ConditionReady true)))))
+      (#enum BodyTask ((BodyWaiting Resource)))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case (BodyWaiting resource) (BodyPending (BodyWaiting resource))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((resource Resource)) u64
+          (#while (#await ConditionTask ConditionPending ConditionReady
+                    condition-poll ConditionWaiting)
+            (#let value u64
+              (#await u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting resource)))
+            (#break))
+          (#return 42u64))))";
+    let scratch = support::Scratch::new("async-while-noncopy-capture");
+    let error = lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("composed awaited while body captures non-Copy local 'resource'"),
+        "{error:?}"
+    );
 }
 
 #[test]

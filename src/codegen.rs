@@ -6783,6 +6783,10 @@ impl FunctionContext {
     }
 
     fn expression_as_expected(&mut self, value: &Expr, ty: &Type) -> Result<(), String> {
+        if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unreachable"))
+        {
+            return self.expression(value);
+        }
         if is_float_type(ty) {
             self.expression_as_float(value, ty)
         } else if self.is_aggregate_type(ty) {
@@ -7918,6 +7922,10 @@ impl FunctionContext {
         ty: &Type,
         offset: usize,
     ) -> Result<(), String> {
+        if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unreachable"))
+        {
+            return self.expression(value);
+        }
         if let Expr::List(items) = value {
             if items.len() == 2
                 && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unsafe")
@@ -8507,6 +8515,10 @@ impl FunctionContext {
         else {
             return Err(format!("'{name}' is not a payload enum"));
         };
+        if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unreachable"))
+        {
+            return self.expression(value);
+        }
         if let Expr::Block(statements) = value {
             let Some((last, preceding)) = statements.split_last() else {
                 return Err("aggregate block expression cannot be empty".into());
