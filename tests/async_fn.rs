@@ -185,6 +185,43 @@ fn async_function_returns_ready_from_an_ordinary_if_branch() {
 }
 
 #[test]
+fn async_function_returns_ready_from_an_ordinary_match_branch() {
+    let source = "(#enum Child (Waiting Resume))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#enum Action (ReturnNow Wait))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case Waiting (ChildPending Resume))
+          (#case Resume (ChildReady 42u64)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((action Action)) u64
+          (#match action
+            (#case ReturnNow (#block (#return 7u64)))
+            (#case Wait ()))
+          (#let result u64
+            (#await u64 Child ChildPending ChildReady child-poll Waiting))
+          (#return result))))
+      (#fn run ((action Action) (waker (#ref u64))) u64
+        (#let task Frame (#call work (: action action)))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#return (#match first
+          (#case (Ready value) value)
+          (#case (Pending pending)
+            (#match (#call poll (: task pending : waker waker))
+              (#case (Ready value) value)
+              (#case (Pending unexpected)
+                (#block (#forget unexpected) 0u64)))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let early u64 (#call run (: action ReturnNow : waker (#borrow waker))))
+        (#let resumed u64 (#call run (: action Wait : waker (#borrow waker))))
+        (#forget waker)
+        (#return (#u64.+.wrap early resumed)))";
+    build_and_run(source, 49);
+}
+
+#[test]
 fn async_function_early_return_from_synchronous_loop_produces_ready() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

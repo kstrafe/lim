@@ -2482,6 +2482,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Normalize `#await bool ...` to the same condition protocol as a context-typed
   await, preserve the awaited return/loop behavior, and reject an explicitly
   non-boolean result. Verify Pending/resume natively and the type diagnostic.
+- [x] **ASYNC-01b167: Preserve early returns in ordinary async branches.**
+  Carry the enclosing function return type through nested blocks and treat
+  `#return` as diverging during typechecking. Rewrite early returns in ordinary
+  `#if` and `#match` branches to the async Ready state, while preserving other
+  branches that continue to a later suspension. Verify both paths natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
