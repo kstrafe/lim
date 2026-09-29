@@ -2207,10 +2207,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Extend the loop sequence task state to retain a prior ready result when the
   loop continuation uses it after a later await; preserve explicit ownership
   for Copy and linear values and verify both Pending/resume paths natively.
-- [ ] **ASYNC-01b107: Cancel a sequenced loop await while carrying a linear result.**
-  Make every generated nested loop/sequence state cancellable with explicit
-  cleanup, then cancel while the second child is pending and verify the carried
-  linear result and child task are each consumed exactly once.
+- [x] **ASYNC-01b107: Cancel a sequenced loop await while carrying a linear result.**
+  Extend `@task-cancel` to represent zero-payload states, then cancel while the
+  second child is pending and verify the carried linear result is explicitly
+  destroyed and the pending child task consumed exactly once.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

@@ -4128,6 +4128,36 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
             (#assert (#u64.== destroyed second-value))
             (#set done true))
           (#return 42u64))))
+      (#fn cancel-empty ((task ())) () (#return ()))
+      (#fn cancel-initializer-state ((task (#tuple bool InitTask))) ()
+        (#let (#tuple done child) (#tuple bool InitTask) task)
+        (#forget child)
+        (#return ()))
+      (#fn cancel-body-task ((task BodyTask)) ()
+        (#forget task)
+        (#return ()))
+      (#fn cancel-second-body-task ((task SecondBodyTask)) ()
+        (#forget task)
+        (#return ()))
+      (#fn cancel-sequence-task ((task lim.async.work.choice-2-sequence-task)) ()
+        (#return (#match task
+          (#case (lim.async.work.choice-2-wait-first child)
+            (#call cancel-body-task (: task child)))
+          (#case (lim.async.work.choice-2-wait-second resource child)
+            (#block
+              (#let destroyed u64 (#call Resource-destroy (: resource resource)))
+              (#assert (#u64.== destroyed 9u64))
+              (#call cancel-second-body-task (: task child))
+              (#return ()))))))
+      (#fn cancel-loop-task ((task lim.async.work.choice-4-task)) ()
+        (#return (#match task
+          (#case (lim.async.work.choice-4-start done index) ())
+          (#case (lim.async.work.choice-4-wait done index child)
+            (#call cancel-sequence-task (: task child))))))
+      (@task-cancel cancel-frame Frame
+        ((Frame-start cancel-empty ())
+         (Frame-await-0 cancel-initializer-state ((done bool) (child InitTask)))
+         (Frame-await-1 cancel-loop-task)))
       (#fn main () u64
         (#let waker u64 0u64)
         (#let task Frame (#call work (:)))
@@ -4142,9 +4172,23 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
           (#match fourth
             (#case (Ready value) value)
             (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#let cancel-task Frame (#call work (:)))
+        (#let cancel-first Poll (#call poll (: task cancel-task : waker (#borrow waker))))
+        (#let-else (Pending cancel-after-init) Poll cancel-first (#unreachable))
+        (#let cancel-second Poll
+          (#call poll (: task cancel-after-init : waker (#borrow waker))))
+        (#let-else (Pending cancel-after-body) Poll cancel-second (#unreachable))
+        (#let cancel-third Poll
+          (#call poll (: task cancel-after-body : waker (#borrow waker))))
+        (#let-else (Pending cancel-after-second-body) Poll cancel-third (#unreachable))
+        (#call cancel-frame (: task cancel-after-second-body))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
+    let source = format!(
+        "(#import \"{}/library/tasks.lim\")\n{source}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let generated = build_and_run(&source, 42);
     assert!(generated.contains("BodyPending"), "{generated}");
 }
 
