@@ -1872,7 +1872,7 @@ fn lower_awaited_let_else_return(
         let Some(last) = block.last() else {
             return Ok(None);
         };
-        let Some((branch_value, true)) = async_terminal_loop_exit_with_return_marker(
+        let Some((branch_value, has_return)) = async_terminal_loop_exit_with_return_marker(
             last,
             &Expr::Symbol("lim.async.unreachable-tail".into()),
             None,
@@ -1880,6 +1880,9 @@ fn lower_awaited_let_else_return(
         ) else {
             return Ok(None);
         };
+        if !has_return && !async_terminal_panics(&let_else[4]) {
+            return Ok(None);
+        }
         let prefix = &block[1..block.len() - 1];
         if prefix
             .iter()
@@ -1889,7 +1892,7 @@ fn lower_awaited_let_else_return(
         }
         (branch_value, Some(prefix))
     } else {
-        let Some((branch_value, true)) = async_terminal_loop_exit_with_return_marker(
+        let Some((branch_value, has_return)) = async_terminal_loop_exit_with_return_marker(
             &let_else[4],
             &Expr::Symbol("lim.async.unreachable-tail".into()),
             None,
@@ -1897,6 +1900,9 @@ fn lower_awaited_let_else_return(
         ) else {
             return Ok(None);
         };
+        if !has_return && !async_terminal_panics(&let_else[4]) {
+            return Ok(None);
+        }
         (branch_value, None)
     };
     let failure_value = if let Some(prefix) = branch_prefix {
@@ -4720,12 +4726,24 @@ fn async_terminal_loop_exit(expression: &Expr, tail: &Expr) -> Option<(Expr, boo
     async_terminal_loop_exit_with_return_marker(expression, tail, None, None)
 }
 
+fn async_terminal_panics(expression: &Expr) -> bool {
+    if form(expression, "#panic").is_some() {
+        return true;
+    }
+    form(expression, "#block")
+        .and_then(|block| block.last())
+        .is_some_and(async_terminal_panics)
+}
+
 fn async_terminal_loop_exit_with_return_marker(
     expression: &Expr,
     tail: &Expr,
     return_type: Option<&Expr>,
     unreachable_return_type: Option<&Expr>,
 ) -> Option<(Expr, bool)> {
+    if form(expression, "#panic").is_some() {
+        return Some((expression.clone(), false));
+    }
     if let Some(return_form) = form(expression, "#return") {
         return (return_form.len() == 2).then(|| {
             let returned = if let Some(return_type) = return_type {

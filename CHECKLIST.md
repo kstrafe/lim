@@ -2487,6 +2487,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   `#return` as diverging during typechecking. Rewrite early returns in ordinary
   `#if` and `#match` branches to the async Ready state, while preserving other
   branches that continue to a later suspension. Verify both paths natively.
+- [x] **ASYNC-01b168: Suspend before a panic in a `#let-else` mismatch arm.**
+  Preserve the mismatch-only awaited child when the diverging block terminates
+  in `#panic`; do not classify the panic as a function return. Verify the
+  generated child poll path exists and the successful pattern path completes
+  without polling it.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

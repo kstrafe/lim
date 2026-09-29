@@ -2479,6 +2479,8 @@ fn parse_program_in_directory_with_capture_plans(
     let live_parameters = match typecheck::typed_live_parameters(&probe) {
         Ok(live_parameters) => live_parameters,
         Err(_) => {
+            // Keep parsing semantically invalid programs so callers can ask
+            // the ordinary checked-program boundary for its source diagnostic.
             let no_typed_capture_plan = AsyncCapturePlans::new();
             let fallback = parse_program_in_directory_with_async_captures(
                 source,
