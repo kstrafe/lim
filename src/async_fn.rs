@@ -967,9 +967,14 @@ fn conditional_value_expression_task(
     let enclosing_return_type = async_terminal_return_type(expression);
     let block_ends_in_loop = form(expression, "#block")
         .and_then(|block| block.last())
-        .is_some_and(|tail| form(tail, "#loop").is_some() || form(tail, "#while").is_some());
+        .is_some_and(|tail| {
+            form(tail, "#loop").is_some()
+                || form(tail, "#while").is_some()
+                || form(tail, "#for-range").is_some()
+        });
     let standalone_loop = (form(expression, "#loop").is_some()
         || form(expression, "#while").is_some()
+        || form(expression, "#for-range").is_some()
         || block_ends_in_loop)
         && enclosing_return_type.is_none();
     let unit_result_type = Expr::List(Vec::new());
@@ -2156,7 +2161,7 @@ fn extract_nested_awaits(
                 }
                 return Ok(());
             };
-            if contains_await && matches!(head.as_str(), "#loop" | "#while") {
+            if contains_await && matches!(head.as_str(), "#loop" | "#while" | "#for-range") {
                 if let Some((protocol, task, helper)) =
                     conditional_value_expression_task(expression, known, source, next_name, waker)?
                 {
@@ -2987,6 +2992,37 @@ fn normalize_async_loop_await_types(expression: &mut Expr) -> Result<(), String>
 
     match expression {
         Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#for-range") {
+                for statement in items.iter_mut().skip(4) {
+                    if let Expr::List(binding) = statement {
+                        if matches!(binding.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
+                            && binding.len() == 4
+                        {
+                            let binding_type_expression = normalize_keywords(binding[2].clone());
+                            let binding_name =
+                                symbol(&binding[1], "for-range await binding")?.to_owned();
+                            if let Expr::List(await_items) = &mut binding[3] {
+                                if matches!(await_items.first(), Some(Expr::Symbol(head)) if head == "#await")
+                                    && await_items.len() == 7
+                                {
+                                    let await_type = parse_type(Some(&normalize_keywords(
+                                        await_items[1].clone(),
+                                    )))?;
+                                    let binding_type = parse_type(Some(&binding_type_expression))?;
+                                    if await_type != binding_type {
+                                        return Err(format!(
+                                            "@async-fn #for-range #await result type does not match binding '{binding_name}'"
+                                        ));
+                                    }
+                                    await_items.remove(1);
+                                }
+                            }
+                        }
+                    }
+                    normalize_async_loop_await_types(statement)?;
+                }
+                return Ok(());
+            }
             let loop_head = match items.first() {
                 Some(Expr::Symbol(head)) if head == "#loop" => Some("#loop"),
                 Some(Expr::Symbol(head)) if head == "#while" => Some("#while"),
@@ -9298,6 +9334,11 @@ fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
                         collect_value_names(value, names);
                     }
                 }
+                "#for-range" if items.len() >= 5 => {
+                    for value in items.iter().skip(2) {
+                        collect_value_names(value, names);
+                    }
+                }
                 "#let" | "#let-mut" | "let" | "let-mut" if items.len() >= 4 => {
                     collect_value_names(&items[3], names);
                 }
@@ -9384,6 +9425,17 @@ fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
 fn collect_local_binding_names(expr: &Expr, names: &mut HashSet<String>) {
     match expr {
         Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#for-range") {
+                if let Some(Expr::List(binding)) = items.get(1) {
+                    if let Some(Expr::Symbol(name)) = binding.first() {
+                        names.insert(name.clone());
+                    }
+                }
+                for value in items.iter().skip(2) {
+                    collect_local_binding_names(value, names);
+                }
+                return;
+            }
             if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut" | "let" | "let-mut"))
             {
                 if let Some(Expr::Symbol(name)) = items.get(1) {
