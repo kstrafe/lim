@@ -2153,6 +2153,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   previous two-await ceiling. Carry the child’s terminal break/continue status
   through a loop-condition flag so control transfer stays in the loop frame;
   verify three Pending/resume stages and final break on a native run.
+- [x] **ASYNC-01b96: Suspend conditionally inside a call argument.** Lower a
+  nested `#if` or `#match` that selects an awaited value into the existing
+  concrete choice-task protocol, then resume the enclosing call with that
+  value. Preserve branch selection and argument evaluation order; verify a
+  native Pending/resume through a nested call and an unselected immediate arm.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

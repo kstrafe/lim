@@ -1809,10 +1809,8 @@ fn extract_nested_awaits(
                     "@async-fn cannot lower #await inside #loop yet; supported #while, #for-range, and existing-counter #for forms preserve loop-carried suspension state".into(),
                 );
             }
-            if matches!(head.as_str(), "#if" | "#match" | "#block") && contains_await {
-                return Err(format!(
-                    "@async-fn awaits inside #if/#match/#block are not lowered yet"
-                ));
+            if head == "#block" && contains_await {
+                return Err("@async-fn awaits inside #block are not lowered yet".into());
             }
             match head.as_str() {
                 "#quote" | "quote" | "#quasiquote" | "quasiquote" => return Ok(()),
