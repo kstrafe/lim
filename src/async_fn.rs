@@ -452,8 +452,7 @@ fn conditional_block_continuation(
     let Some(block) = block_await_continuation(expression) else {
         return Ok(None);
     };
-    if !block.prefix.is_empty()
-        || block.binding.is_none()
+    if block.binding.is_none()
         || block.assignment.is_some()
         || has_await(&block.continuation)
         || contains_loop_control(&block.continuation)
@@ -461,12 +460,28 @@ fn conditional_block_continuation(
     {
         return Ok(None);
     }
-    let binding = block.binding.as_deref().expect("validated binding");
+    let await_local = block.binding.as_deref().expect("validated binding");
     let mut continuation_names = HashSet::new();
     collect_value_names(&block.continuation, &mut continuation_names);
-    continuation_names.remove(binding);
+    continuation_names.remove(await_local);
     continuation_names.remove("true");
     continuation_names.remove("false");
+    let mut prefix_bindings = Vec::new();
+    for statement in &block.prefix {
+        if has_await(statement) || contains_loop_control(statement) || contains_return(statement) {
+            return Err(
+                "@async-fn conditional await adapter prefixes cannot suspend or transfer control"
+                    .into(),
+            );
+        }
+        if form(statement, "#let").is_some() || form(statement, "#let-mut").is_some() {
+            prefix_bindings.push(binding(statement, "conditional await prefix")?);
+        }
+    }
+    let captures = prefix_bindings
+        .into_iter()
+        .filter(|capture| continuation_names.remove(&capture.name))
+        .collect::<Vec<_>>();
     if let Some(name) = continuation_names.iter().next() {
         return Err(format!(
             "@async-fn conditional await continuation captures outer local '{name}'; bind it inside the branch before suspension"
@@ -499,35 +514,93 @@ fn conditional_block_continuation(
     let child_value = format!("{base}-child-value");
     let continuation_value = format!("{base}-continuation-value");
     let await_binding = format!("{base}-await-value");
+    let capture_fields = captures
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("{base}-capture-{index}"))
+        .collect::<Vec<_>>();
+    let continuation_captures = captures
+        .iter()
+        .enumerate()
+        .map(|(index, capture)| (capture.name.clone(), format!("{base}-local-{index}")))
+        .collect::<Vec<_>>();
     let binding_head = if block.mutable_binding {
         "#let-mut"
     } else {
         "#let"
     };
     let mut continuation = block.continuation;
-    replace_await_local(&mut continuation, binding, &await_binding);
+    replace_await_local(&mut continuation, await_local, &await_binding);
+    for (original, replacement) in &continuation_captures {
+        replace_await_local(&mut continuation, original, replacement);
+    }
     let child_type = expression_source(&protocol.child_type)?;
     let result_type = expression_source(&protocol.result_type)?;
     let child_pending = expression_source(&protocol.pending)?;
     let child_ready = expression_source(&protocol.ready)?;
     let child_poll = expression_source(&protocol.poll)?;
     let continuation = expression_source(&continuation)?;
-    let task = Expr::List(vec![Expr::Symbol(waiting.clone()), await_form[6].clone()]);
+    let mut variant_fields = captures
+        .iter()
+        .map(|capture| capture.ty.clone())
+        .collect::<Vec<_>>();
+    variant_fields.push(child_type.clone());
+    let mut waiting_task = vec![Expr::Symbol(waiting.clone())];
+    waiting_task.extend(
+        captures
+            .iter()
+            .map(|capture| Expr::Symbol(capture.name.clone())),
+    );
+    waiting_task.push(await_form[6].clone());
+    let mut task_items = vec![Expr::Symbol("#block".into())];
+    task_items.extend(block.prefix);
+    task_items.push(Expr::List(waiting_task));
+    let task = if task_items.len() == 2 {
+        task_items.pop().expect("waiting task constructor")
+    } else {
+        Expr::List(task_items)
+    };
+    let capture_pattern = capture_fields.join(" ");
+    let capture_restore = capture_fields.join(" ");
+    let mut ready_bindings = vec![format!(
+        "({binding_head} {await_binding} {result_type} {child_value})"
+    )];
+    for (index, capture) in captures.iter().enumerate() {
+        let local = &continuation_captures[index].1;
+        let head = if capture.mutable { "#let-mut" } else { "#let" };
+        ready_bindings.push(format!(
+            "({head} {local} {} {})",
+            capture.ty, capture_fields[index]
+        ));
+    }
+    ready_bindings.push(format!(
+        "(#let {continuation_value} {result_type} {continuation})"
+    ));
+    ready_bindings.push(format!("({ready} {continuation_value})"));
+    let ready_bindings = ready_bindings.join(" ");
+    let variant_fields = variant_fields.join(" ");
+    let pending_constructor = if capture_restore.is_empty() {
+        format!("({waiting} {pending_child})")
+    } else {
+        format!("({waiting} {capture_restore} {pending_child})")
+    };
+    let pattern_fields = if capture_pattern.is_empty() {
+        child.clone()
+    } else {
+        format!("{capture_pattern} {child}")
+    };
     let helper = format!(
-        "(#enum {task_type} (({waiting} {child_type})))\n\
+        "(#enum {task_type} (({waiting} {variant_fields})))\n\
          (#linear {task_type})\n\
          (#enum {poll_result} (({pending} {task_type}) ({ready} {result_type})))\n\
          (#fn {poll} ((task {task_type}) (waker (#ref {waker}))) {poll_result}\n\
            (#return (#match task\n\
-             (#case ({waiting} {child})\n\
+             (#case ({waiting} {pattern_fields})\n\
                (#match (#call {child_poll} (: task {child} : waker waker))\n\
                  (#case ({child_pending} {pending_child})\n\
-                   ({pending} ({waiting} {pending_child})))\n\
+                   ({pending} {pending_constructor}))\n\
                  (#case ({child_ready} {child_value})\n\
-                   (#block\n\
-                     ({binding_head} {await_binding} {result_type} {child_value})\n\
-                     (#let {continuation_value} {result_type} {continuation})\n\
-                     ({ready} {continuation_value}))))))))",
+                   (#block {ready_bindings})))))))",
     );
     Ok(Some((
         AwaitProtocol {

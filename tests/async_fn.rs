@@ -1196,6 +1196,7 @@ fn async_function_awaits_after_conditional_task_selection() {
 #[test]
 fn async_conditional_await_joins_with_an_immediate_value() {
     let source = "(#enum Child ((Waiting u64)))
+      (#struct Increment ((value u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
         (#return (#match task
@@ -1208,9 +1209,11 @@ fn async_conditional_await_joins_with_an_immediate_value() {
           (#let result u64
             (#if choose
               (#block
+                (#let increment Increment
+                  (#struct-literal Increment ((value 1u64))))
                 (#let-mut awaited-value u64
                   (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
-                (#u64.+.wrap awaited-value 1u64))
+                (#u64.+.wrap awaited-value (#get increment value)))
               41u64))
           (#return result))))
       (#enum Choice (Await Immediate))
@@ -1220,9 +1223,11 @@ fn async_conditional_await_joins_with_an_immediate_value() {
             (#match choice
               (#case Await
                 (#block
+                  (#let increment Increment
+                    (#struct-literal Increment ((value 1u64))))
                   (#let-mut awaited-value u64
                     (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
-                  (#u64.+.wrap awaited-value 1u64)))
+                  (#u64.+.wrap awaited-value (#get increment value))))
               (#case Immediate 41u64)))
           (#return result))))
       (#fn main () u64

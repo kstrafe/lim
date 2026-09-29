@@ -2033,6 +2033,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   inspectable concrete adapter task that polls the selected child, preserves
   Pending, and evaluates the continuation exactly once on Ready. Keep immediate
   and unselected branches unchanged; diagnose unsupported outer captures.
+- [x] **ASYNC-01b76: Carry branch-local values through continuation adapters.**
+  Capture prefix bindings used after the await in the adapter task state,
+  restoring their original mutability in the Ready continuation and retaining
+  them across Pending. Keep prefix evaluation inside selected-branch task
+  construction; allow linear captures when ownership transfers into the task.
+  Verify a branch-local value remains usable after multiple polls.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
