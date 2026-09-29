@@ -1796,6 +1796,40 @@ fn async_function_runs_block_prefix_side_effect_once_before_await() {
 }
 
 #[test]
+fn async_function_suspends_on_a_discarded_copy_await_in_a_block() {
+    let source = "(#enum ChildTask (Start Resume))
+      (#linear ChildTask)
+      (#enum ChildPoll ((Pending ChildTask) (Ready ())))
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case Start (Pending Resume))
+          (#case Resume (Ready ())))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work () u64
+          (#let result u64
+            (#block
+              (#let base u64 40u64)
+              (#await () ChildTask Pending Ready child-poll Start)
+              (#u64.+.wrap base 2u64)))
+          (#return result))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (:)))
+        (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let-else (PollPending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (PollReady value) value)
+            (#case (PollPending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("poll-child"), "{generated}");
+}
+
+#[test]
 fn async_function_let_else_returns_ready_before_and_after_suspension() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum Child ((Waiting u64)))

@@ -434,43 +434,54 @@ fn block_await_continuation(expression: &Expr) -> Option<BlockAwait> {
     if block.len() < 3 {
         return None;
     }
-    let (statement_index, binding, assignment) = (1..block.len() - 1).find_map(|index| {
-        let statement = &block[index];
-        if let Some(binding) = form(statement, "#let").or_else(|| form(statement, "#let-mut")) {
-            if binding.len() == 4 {
-                if form(&binding[3], "#await").is_some_and(|await_form| await_form.len() == 7) {
-                    return Some((index, Some(binding), None));
+    let (statement_index, binding, assignment, discard_result) =
+        (1..block.len() - 1).find_map(|index| {
+            let statement = &block[index];
+            if let Some(binding) = form(statement, "#let").or_else(|| form(statement, "#let-mut")) {
+                if binding.len() == 4 {
+                    if form(&binding[3], "#await").is_some_and(|await_form| await_form.len() == 7) {
+                        return Some((index, Some(binding), None, false));
+                    }
                 }
             }
-        }
-        let Expr::List(items) = statement else {
-            return None;
-        };
-        let rhs_index = match items.first() {
-            Some(Expr::Symbol(head)) if matches!(head.as_str(), "#set" | "set") => 2,
-            Some(Expr::Symbol(head))
-                if matches!(
-                    head.as_str(),
-                    "#set-field"
-                        | "set-field"
-                        | "#set-index"
-                        | "set-index"
-                        | "#pin-set-field"
-                        | "pin-set-field"
-                ) =>
-            {
-                3
+            if let Some(await_form) = form(statement, "#await") {
+                if await_form.len() == 7
+                    && parse_type(Some(&normalize_keywords(await_form[1].clone())))
+                        .is_ok_and(|ty| async_task_capture_is_copy(&ty))
+                {
+                    return Some((index, None, None, true));
+                }
             }
-            _ => return None,
-        };
-        let value = items.get(rhs_index)?;
-        if !form(value, "#await").is_some_and(|await_form| await_form.len() == 7) {
-            return None;
-        }
-        Some((index, None, Some((statement.clone(), rhs_index))))
-    })?;
+            let Expr::List(items) = statement else {
+                return None;
+            };
+            let rhs_index = match items.first() {
+                Some(Expr::Symbol(head)) if matches!(head.as_str(), "#set" | "set") => 2,
+                Some(Expr::Symbol(head))
+                    if matches!(
+                        head.as_str(),
+                        "#set-field"
+                            | "set-field"
+                            | "#set-index"
+                            | "set-index"
+                            | "#pin-set-field"
+                            | "pin-set-field"
+                    ) =>
+                {
+                    3
+                }
+                _ => return None,
+            };
+            let value = items.get(rhs_index)?;
+            if !form(value, "#await").is_some_and(|await_form| await_form.len() == 7) {
+                return None;
+            }
+            Some((index, None, Some((statement.clone(), rhs_index)), false))
+        })?;
     let await_expression = if let Some(binding) = binding {
         binding[3].clone()
+    } else if discard_result {
+        block[statement_index].clone()
     } else {
         let (statement, rhs_index) = assignment.as_ref()?;
         let Expr::List(items) = statement else {
@@ -479,7 +490,15 @@ fn block_await_continuation(expression: &Expr) -> Option<BlockAwait> {
         items.get(*rhs_index)?.clone()
     };
     let await_form = form(&await_expression, "#await")?;
-    parse_type(Some(&normalize_keywords(await_form[1].clone()))).ok()?;
+    let result_type = if let Some(binding) = binding {
+        binding[2].clone()
+    } else {
+        await_form[1].clone()
+    };
+    let parsed_result_type = parse_type(Some(&normalize_keywords(result_type.clone()))).ok()?;
+    if discard_result && !async_task_capture_is_copy(&parsed_result_type) {
+        return None;
+    }
     if block[1..statement_index].iter().any(has_await) {
         return None;
     }
@@ -500,7 +519,7 @@ fn block_await_continuation(expression: &Expr) -> Option<BlockAwait> {
         prefix: block[1..statement_index].to_vec(),
         binding,
         mutable_binding: form(&block[statement_index], "#let-mut").is_some(),
-        result_type: await_form[1].clone(),
+        result_type,
         await_expression,
         assignment,
         continuation,
