@@ -1176,6 +1176,42 @@ fn async_function_runs_block_prefix_side_effect_once_before_await() {
 }
 
 #[test]
+fn async_function_let_else_returns_ready_before_and_after_suspension() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((input Maybe) (after Maybe)) u64
+          (#let-else (Some payload) Maybe input (#return 7u64))
+          (#let value u64
+            (#await Child ChildPending ChildReady child-poll (Waiting 42u64)))
+          (#let-else (Some ignored) Maybe after (#return 9u64))
+          (#return value))))
+      (#fn poll-work ((input Maybe) (after Maybe) (waker (#ref u64))) u64
+        (#let task Frame (#call work (: input input : after after)))
+        (#let result Poll (#call poll (: task task : waker waker)))
+        (#return (#match result
+          (#case (Ready value) value)
+          (#case (Pending pending) (#block (#forget pending) 0u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let early u64
+          (#call poll-work (: input None : after (Some 1u64) : waker (#borrow waker))))
+        (#let post-await u64
+          (#call poll-work (: input (Some 1u64) : after None : waker (#borrow waker))))
+        (#let awaited u64
+          (#call poll-work (: input (Some 1u64) : after (Some 1u64) : waker (#borrow waker))))
+        (#forget waker)
+        (#return (#u64.+.wrap (#u64.+.wrap early post-await) awaited)))";
+    let generated = build_and_run(source, 58);
+    assert!(generated.contains("#return (Ready"), "{generated}");
+}
+
+#[test]
 fn async_function_requires_types_for_nested_awaits() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

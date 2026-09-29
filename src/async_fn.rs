@@ -128,6 +128,53 @@ fn has_await(expr: &Expr) -> bool {
     }
 }
 
+/// Adapt the diverging return arm of `#let-else` to the async poll helper's
+/// result type. The successful pattern path continues through the function;
+/// only its required diverging arm returns early.
+fn rewrite_async_let_else_returns(expression: &mut Expr, ready: &str) -> Result<(), String> {
+    let Expr::List(items) = expression else {
+        return Ok(());
+    };
+    if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote"))
+    {
+        return Ok(());
+    }
+    if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#let-else") {
+        let Some(else_body) = items.get_mut(4) else {
+            return Err("@async-fn #let-else requires a diverging else body".into());
+        };
+        return rewrite_async_diverging_returns(else_body, ready);
+    }
+    for item in items.iter_mut().skip(1) {
+        rewrite_async_let_else_returns(item, ready)?;
+    }
+    Ok(())
+}
+
+fn rewrite_async_diverging_returns(expression: &mut Expr, ready: &str) -> Result<(), String> {
+    if let Some(items) = form(expression, "#return").or_else(|| form(expression, "return")) {
+        if items.len() != 2 {
+            return Err("@async-fn #let-else return requires exactly one value".into());
+        }
+        let Expr::List(items) = expression else {
+            unreachable!()
+        };
+        items[1] = Expr::List(vec![Expr::Symbol(ready.into()), items[1].clone()]);
+        return Ok(());
+    }
+    let Expr::List(items) = expression else {
+        return Ok(());
+    };
+    if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote"))
+    {
+        return Ok(());
+    }
+    for item in items.iter_mut().skip(1) {
+        rewrite_async_diverging_returns(item, ready)?;
+    }
+    Ok(())
+}
+
 /// Preserve short-circuit evaluation when an awaited right-hand operand is
 /// lowered into a condition-specific poll state machine.
 fn normalize_short_circuit_await(expression: &mut Expr) {
@@ -5476,6 +5523,9 @@ fn generated_source_with_capture_selection(
         }
     }
     statements = lowered_statements;
+    for statement in &mut statements {
+        rewrite_async_let_else_returns(statement, &ready)?;
+    }
     if let Some(await_expression) = &return_await {
         statements.push(Expr::List(vec![
             Expr::Symbol("#let".into()),
