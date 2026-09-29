@@ -2089,6 +2089,8 @@ fn async_while_body_child(
     source: &str,
     next_name: &mut usize,
     waker: &str,
+    return_true_on_initial_let_else_mismatch: bool,
+    owned_capture: Option<&str>,
 ) -> Result<(Binding, Vec<Expr>, String, Vec<Binding>), String> {
     fn has_outer_loop_control(expression: &Expr) -> bool {
         match expression {
@@ -2246,7 +2248,10 @@ fn async_while_body_child(
             .first()
             .ok_or_else(|| "@async-fn body capture type is empty".to_owned())?;
         let ty = parse_type(Some(&normalize_keywords(ty.expr.clone())))?;
-        if !async_task_capture_is_copy(&ty) && !async_task_capture_is_mutable_reference(&ty) {
+        if !async_task_capture_is_copy(&ty)
+            && !async_task_capture_is_mutable_reference(&ty)
+            && owned_capture != Some(capture.name.as_str())
+        {
             return Err(format!(
                 "@async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
                 capture.name
@@ -2368,6 +2373,32 @@ fn async_while_body_child(
         }
         Expr::List(fields)
     };
+    if return_true_on_initial_let_else_mismatch {
+        let Some(Expr::List(let_else)) = child_body.first_mut() else {
+            return Err("@async-fn child mismatch return requires a leading #let-else".into());
+        };
+        if !matches!(let_else.first(), Some(Expr::Symbol(head)) if head == "#let-else")
+            || let_else.len() != 5
+        {
+            return Err("@async-fn child mismatch return requires a leading #let-else".into());
+        }
+        let mismatch_value = if mutable_outputs.is_empty() {
+            Expr::Symbol("true".into())
+        } else {
+            Expr::List(
+                std::iter::once(Expr::Symbol("#tuple".into()))
+                    .chain(std::iter::once(body_result_type.clone()))
+                    .chain(std::iter::once(Expr::Symbol("true".into())))
+                    .chain(
+                        mutable_outputs
+                            .iter()
+                            .map(|capture| Expr::Symbol(capture.name.clone())),
+                    )
+                    .collect(),
+            )
+        };
+        let_else[4] = Expr::List(vec![Expr::Symbol("#return".into()), mismatch_value]);
+    }
     let mut parameters = Vec::with_capacity(captures.len());
     let mut arguments = Vec::with_capacity(captures.len() * 3);
     for capture in &captures {
@@ -2478,13 +2509,6 @@ fn lower_async_while_let_multi_await_body(
     next_name: &mut usize,
     waker: &str,
 ) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
-    let scrutinee_type = parse_type(Some(&normalize_keywords(condition_await[1].clone())))?;
-    if !async_task_capture_is_copy(&scrutinee_type) {
-        return Err(
-            "@async-fn multi-await #while-let body currently requires a Copy scrutinee".into(),
-        );
-    }
-
     let scrutinee = fresh_async_name(source, next_name);
     let mut child_known = known.clone();
     child_known.insert(
@@ -2513,6 +2537,8 @@ fn lower_async_while_let_multi_await_body(
         source,
         next_name,
         waker,
+        true,
+        child_order.last().map(String::as_str),
     )?;
 
     let mut lowered_items = items[..3].to_vec();
@@ -2705,22 +2731,34 @@ fn lower_async_while_let_body_await(
         .iter()
         .map(|capture| capture.name.as_str())
         .collect::<Vec<_>>();
+    let moves_scrutinee = body_task_scrutinee.is_some();
     let scrutinee_fields = std::iter::once(condition_child.as_str())
         .chain(capture_types.iter().copied())
         .collect::<Vec<_>>()
         .join(" ");
-    let body_fields = [scrutinee_type.as_str(), body_child.as_str()]
-        .into_iter()
-        .chain(capture_types.iter().copied())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let body_fields = if moves_scrutinee {
+        std::iter::once(body_child.as_str())
+            .chain(capture_types.iter().copied())
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        [scrutinee_type.as_str(), body_child.as_str()]
+            .into_iter()
+            .chain(capture_types.iter().copied())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
     let capture_pattern = capture_names.join(" ");
     let scrutinee_pattern = if capture_pattern.is_empty() {
         "child".to_owned()
     } else {
         format!("child {capture_pattern}")
     };
-    let body_pattern = if capture_pattern.is_empty() {
+    let body_pattern = if moves_scrutinee && capture_pattern.is_empty() {
+        "child".to_owned()
+    } else if moves_scrutinee {
+        format!("child {capture_pattern}")
+    } else if capture_pattern.is_empty() {
         "scrutinee child".to_owned()
     } else {
         format!("scrutinee child {capture_pattern}")
@@ -2729,12 +2767,45 @@ fn lower_async_while_let_body_await(
         .chain(capture_names.iter().map(|name| (*name).to_owned()))
         .collect::<Vec<_>>()
         .join(" ");
-    let body_pending_state = std::iter::once(format!("{wait_body} scrutinee pending"))
-        .chain(capture_names.iter().map(|name| (*name).to_owned()))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let body_pending_state = if moves_scrutinee {
+        std::iter::once(format!("{wait_body} pending"))
+            .chain(capture_names.iter().map(|name| (*name).to_owned()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        std::iter::once(format!("{wait_body} scrutinee pending"))
+            .chain(capture_names.iter().map(|name| (*name).to_owned()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let continue_fields = if moves_scrutinee {
+        body_result_type.to_owned()
+    } else {
+        format!("{scrutinee_type} {body_result_type}")
+    };
+    let condition_ready_body = if moves_scrutinee {
+        format!(
+            "(#match (#call {body_poll} (: task {body_task} : waker waker))\n\
+               (#case ({body_pending} pending) ({composite_pending} ({body_pending_state})))\n\
+               (#case ({body_ready} value) ({composite_ready} ({continue_variant} value))))"
+        )
+    } else {
+        format!(
+            "(#match scrutinee\n\
+               (#case {pattern}\n\
+                 (#match (#call {body_poll} (: task {body_task} : waker waker))\n\
+                   (#case ({body_pending} pending) ({composite_pending} ({body_pending_state})))\n\
+                   (#case ({body_ready} value) ({composite_ready} ({continue_variant} scrutinee value)))))\n\
+               (#case _ ({composite_ready} {stop_variant})))"
+        )
+    };
+    let body_ready_result = if moves_scrutinee {
+        format!("({composite_ready} ({continue_variant} value))")
+    } else {
+        format!("({composite_ready} ({continue_variant} scrutinee value))")
+    };
     let composite_helper = format!(
-        "(#enum {decision_type} ({stop_variant} ({continue_variant} {scrutinee_type} {body_result_type})))\n\
+        "(#enum {decision_type} ({stop_variant} ({continue_variant} {continue_fields})))\n\
          (#enum {composite_task} (({wait_scrutinee} {scrutinee_fields}) ({wait_body} {body_fields})))\n\
          (#linear {composite_task})\n\
          (#enum {composite_result} (({composite_pending} {composite_task}) ({composite_ready} {decision_type})))\n\
@@ -2744,16 +2815,11 @@ fn lower_async_while_let_body_await(
                (#match (#call {condition_poll} (: task child : waker waker))\n\
                  (#case ({condition_pending} pending) ({composite_pending} ({scrutinee_pending_state})))\n\
                  (#case ({condition_ready} scrutinee)\n\
-                   (#match scrutinee\n\
-                     (#case {pattern}\n\
-                       (#match (#call {body_poll} (: task {body_task} : waker waker))\n\
-                         (#case ({body_pending} pending) ({composite_pending} ({body_pending_state})))\n\
-                         (#case ({body_ready} value) ({composite_ready} ({continue_variant} scrutinee value)))))\n\
-                     (#case _ ({composite_ready} {stop_variant}))))))\n\
-             (#case ({wait_body} {body_pattern})\n\
-               (#match (#call {body_poll} (: task child : waker waker))\n\
-                 (#case ({body_pending} pending) ({composite_pending} ({body_pending_state})))\n\
-                 (#case ({body_ready} value) ({composite_ready} ({continue_variant} scrutinee value))))))))"
+                    {condition_ready_body})))\n\
+              (#case ({wait_body} {body_pattern})\n\
+                (#match (#call {body_poll} (: task child : waker waker))\n\
+                  (#case ({body_pending} pending) ({composite_pending} ({body_pending_state})))\n\
+                  (#case ({body_ready} value) {body_ready_result}))))))"
     );
 
     let decision_name = fresh_async_name(source, next_name);
@@ -2786,20 +2852,36 @@ fn lower_async_while_let_body_await(
         )?;
     }
     success.push(Expr::Symbol(body_stopped_name.clone()));
-    let matched = Expr::List(vec![
-        Expr::Symbol("#match".into()),
-        Expr::Symbol(scrutinee_name.clone()),
+    let matched = if moves_scrutinee {
+        Expr::List(success)
+    } else {
         Expr::List(vec![
-            Expr::Symbol("#case".into()),
-            items[1].clone(),
-            Expr::List(success),
-        ]),
+            Expr::Symbol("#match".into()),
+            Expr::Symbol(scrutinee_name.clone()),
+            Expr::List(vec![
+                Expr::Symbol("#case".into()),
+                items[1].clone(),
+                Expr::List(success),
+            ]),
+            Expr::List(vec![
+                Expr::Symbol("#case".into()),
+                Expr::Symbol("_".into()),
+                Expr::List(vec![Expr::Symbol("#unreachable".into())]),
+            ]),
+        ])
+    };
+    let continue_pattern = if moves_scrutinee {
         Expr::List(vec![
-            Expr::Symbol("#case".into()),
-            Expr::Symbol("_".into()),
-            Expr::List(vec![Expr::Symbol("#unreachable".into())]),
-        ]),
-    ]);
+            Expr::Symbol(continue_variant),
+            Expr::Symbol(body_value_name),
+        ])
+    } else {
+        Expr::List(vec![
+            Expr::Symbol(continue_variant),
+            Expr::Symbol(scrutinee_name),
+            Expr::Symbol(body_value_name),
+        ])
+    };
     let stopped_value = Expr::List(vec![
         Expr::Symbol("#match".into()),
         Expr::Symbol(decision_name.clone()),
@@ -2810,11 +2892,7 @@ fn lower_async_while_let_body_await(
         ]),
         Expr::List(vec![
             Expr::Symbol("#case".into()),
-            Expr::List(vec![
-                Expr::Symbol(continue_variant),
-                Expr::Symbol(scrutinee_name),
-                Expr::Symbol(body_value_name),
-            ]),
+            continue_pattern,
             matched,
         ]),
     ]);
@@ -3116,8 +3194,16 @@ fn lower_async_while_with_transfers(
             let use_body_child = body.len() > 1 && body[1..].iter().any(has_await);
             let (body_binding, body_form, body_await, body_helper, body_continuation, body_outputs) =
                 if use_body_child {
-                    let (binding, generated_form, helper, outputs) =
-                        async_while_body_child(body, known, known_order, source, next_name, waker)?;
+                    let (binding, generated_form, helper, outputs) = async_while_body_child(
+                        body,
+                        known,
+                        known_order,
+                        source,
+                        next_name,
+                        waker,
+                        false,
+                        None,
+                    )?;
                     let await_form = form(&generated_form[3], "#await")
                         .expect("generated loop body binding contains an await")
                         .to_vec();

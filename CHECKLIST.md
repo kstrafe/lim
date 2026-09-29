@@ -2144,9 +2144,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-01b94: Suspend multiple awaits in matched while-let bodies.**
   Lower a multi-await body into a nested async child only after the awaited
   scrutinee matches, preserving the loop's break/continue result across each
-  Pending/resume transition. Keep pattern bindings local to the child and
-  require a Copy scrutinee while the parent retains it for the loop join; test
-  two body awaits, terminal break, and the existing mismatch/pending paths.
+  Pending/resume transition. Transfer scrutinee ownership into the child and
+  return the stop status on mismatch, so linear enum scrutinees need not be
+  duplicated or retained in the parent frame. Test Copy and linear scrutinees,
+  two body awaits, terminal break, and existing mismatch/pending paths.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

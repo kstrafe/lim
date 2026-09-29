@@ -2499,6 +2499,13 @@ fn async_while_let_body_can_suspend_multiple_times_after_matching() {
     let generated = build_and_run(source, 42);
     assert!(generated.contains("body-frame"), "{generated}");
     assert!(generated.contains("body-poll-resume-1"), "{generated}");
+
+    let linear_source = source.replace(
+        "(#enum Maybe ((Some u64) None))",
+        "(#enum Maybe ((Some u64) None))\n      (#linear Maybe)",
+    );
+    let generated = build_and_run(&linear_source, 42);
+    assert!(generated.contains("body-frame"), "{generated}");
 }
 
 #[test]
