@@ -980,6 +980,38 @@ fn async_loop_expression_can_be_suspended_as_a_nested_value() {
 }
 
 #[test]
+fn async_while_expression_can_be_suspended_as_a_nested_value() {
+    let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work () u64
+          (#let ignored ()
+            (#block
+              (#let-mut iteration u64 0u64)
+              (#while (#u64.< iteration 1u64)
+                (#let result u64
+                  (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 41u64)))
+                (#set iteration 1u64))))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (:)))
+        (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let-else (PollPending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let-else (PollReady result) Poll second (#unreachable))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("expression-frame"), "{generated}");
+}
+
+#[test]
 fn async_function_suspends_inside_projected_assignment_rhs() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

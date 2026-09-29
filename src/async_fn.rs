@@ -965,7 +965,13 @@ fn conditional_value_expression_task(
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
     }
     let enclosing_return_type = async_terminal_return_type(expression);
-    let standalone_loop = form(expression, "#loop").is_some() && enclosing_return_type.is_none();
+    let block_ends_in_loop = form(expression, "#block")
+        .and_then(|block| block.last())
+        .is_some_and(|tail| form(tail, "#loop").is_some() || form(tail, "#while").is_some());
+    let standalone_loop = (form(expression, "#loop").is_some()
+        || form(expression, "#while").is_some()
+        || block_ends_in_loop)
+        && enclosing_return_type.is_none();
     let unit_result_type = Expr::List(Vec::new());
     let function_result_type = if standalone_loop {
         &unit_result_type
@@ -981,7 +987,11 @@ fn conditional_value_expression_task(
     if standalone_loop {
         let mut loop_expression = expression.clone();
         normalize_async_loop_await_types(&mut loop_expression)?;
-        function.push(loop_expression);
+        if let Some(block) = form(&loop_expression, "#block") {
+            function.extend(block[1..].iter().cloned());
+        } else {
+            function.push(loop_expression);
+        }
         function.push(Expr::List(vec![
             Expr::Symbol("#return".into()),
             Expr::List(Vec::new()),
@@ -1851,7 +1861,9 @@ fn extract_nested_awaits(
             }
         }
     }
-    if has_await(expression) && form(expression, "#loop").is_some() {
+    if has_await(expression)
+        && (form(expression, "#loop").is_some() || form(expression, "#while").is_some())
+    {
         if let Some((protocol, mut task, helper)) =
             conditional_value_expression_task(expression, known, source, next_name, waker)?
         {
@@ -2922,7 +2934,8 @@ fn normalize_async_loop_await_types(expression: &mut Expr) -> Result<(), String>
     fn find_nested_loops(expression: &mut Expr) -> Result<(), String> {
         match expression {
             Expr::List(items) => {
-                if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#loop") {
+                if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#loop" | "#while"))
+                {
                     return normalize_async_loop_await_types(expression);
                 }
                 for item in items.iter_mut().skip(1) {
@@ -2946,8 +2959,32 @@ fn normalize_async_loop_await_types(expression: &mut Expr) -> Result<(), String>
 
     match expression {
         Expr::List(items) => {
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#loop") {
-                for statement in items.iter_mut().skip(1) {
+            let loop_head = match items.first() {
+                Some(Expr::Symbol(head)) if head == "#loop" => Some("#loop"),
+                Some(Expr::Symbol(head)) if head == "#while" => Some("#while"),
+                _ => None,
+            };
+            if let Some(loop_head) = loop_head {
+                let body_start = if loop_head == "#while" { 2 } else { 1 };
+                if loop_head == "#while" {
+                    if let Some(Expr::List(await_items)) = items.get_mut(1) {
+                        if matches!(await_items.first(), Some(Expr::Symbol(head)) if head == "#await")
+                            && await_items.len() == 7
+                        {
+                            let await_type =
+                                parse_type(Some(&normalize_keywords(await_items[1].clone())))?;
+                            let bool_type = parse_type(Some(&Expr::Symbol("bool".into())))?;
+                            if await_type != bool_type {
+                                return Err(
+                                    "@async-fn nested while condition await must produce bool"
+                                        .into(),
+                                );
+                            }
+                            await_items.remove(1);
+                        }
+                    }
+                }
+                for statement in items.iter_mut().skip(body_start) {
                     if let Expr::List(binding) = statement {
                         if matches!(binding.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
                             && binding.len() == 4

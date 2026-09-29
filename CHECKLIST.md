@@ -2331,6 +2331,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   during expression extraction. For direct loop-body await bindings, verify
   that the annotated result type matches the binding before adapting the loop
   protocol. Test Pending/resume and loop completion through the outer frame.
+- [x] **ASYNC-01b132: Suspend a unit-valued `#while` at a nested block tail.**
+  Lift a block whose value is an awaited while into a nested async child while
+  keeping its local mutable loop state inside that child. Validate direct
+  awaited binding types before adapting them to loop lowering, then test
+  Pending/resume and the false-condition continuation natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
