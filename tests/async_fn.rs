@@ -115,17 +115,22 @@ fn async_function_early_returns_from_synchronous_loops_produce_ready() {
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
         (#return (#match task (#case (Waiting value) (ChildReady value)))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-        (#fn work ((finish-early bool) (range-early bool)) u64
+        (#fn work ((finish-early bool) (range-early bool) (for-early bool)) u64
           (#while finish-early
             (#return 41u64))
           (#for-range (iteration u32) 0u32
             (#if range-early 1u32 0u32)
             (#return 40u64))
+          (#for (#let-mut iteration u32 0u32)
+                (#u32.< iteration (#if for-early 1u32 0u32))
+                (#set iteration (#u32.+.wrap iteration 1u32))
+            (#return 39u64))
           (#let value u64
             (#await Child ChildPending ChildReady child-poll (Waiting 42u64)))
           (#return value))))
-      (#fn poll-work ((finish-early bool) (range-early bool) (waker (#ref u64))) u64
-        (#let task Frame (#call work (: finish-early finish-early : range-early range-early)))
+      (#fn poll-work ((finish-early bool) (range-early bool) (for-early bool) (waker (#ref u64))) u64
+        (#let task Frame
+          (#call work (: finish-early finish-early : range-early range-early : for-early for-early)))
         (#let result Poll (#call poll (: task task : waker waker)))
         (#return (#match result
           (#case (Ready value) value)
@@ -133,14 +138,16 @@ fn async_function_early_returns_from_synchronous_loops_produce_ready() {
       (#fn main () u64
         (#let waker u64 0u64)
         (#let early u64
-          (#call poll-work (: finish-early true : range-early false : waker (#borrow waker))))
+          (#call poll-work (: finish-early true : range-early false : for-early false : waker (#borrow waker))))
         (#let range u64
-          (#call poll-work (: finish-early false : range-early true : waker (#borrow waker))))
+          (#call poll-work (: finish-early false : range-early true : for-early false : waker (#borrow waker))))
+        (#let for u64
+          (#call poll-work (: finish-early false : range-early false : for-early true : waker (#borrow waker))))
         (#let resumed u64
-          (#call poll-work (: finish-early false : range-early false : waker (#borrow waker))))
+          (#call poll-work (: finish-early false : range-early false : for-early false : waker (#borrow waker))))
         (#forget waker)
-        (#return (#u64.+.wrap early (#u64.+.wrap range resumed))))";
-    build_and_run(source, 123);
+        (#return (#u64.+.wrap early (#u64.+.wrap range (#u64.+.wrap for resumed)))))";
+    build_and_run(source, 162);
 }
 
 #[test]
