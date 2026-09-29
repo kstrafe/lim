@@ -2264,6 +2264,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   block-local setup in scope when a terminal `#block` ends in conditional
   `#return` branches inside an awaited loop body. Verify its local values and
   each return arm natively after Pending/resume.
+- [x] **ASYNC-01b119: Join early return with loop break after suspension.**
+  In a terminal conditional loop-body transfer, preserve `#return value` as an
+  early function result and lower `#break` to the ordinary function-tail path.
+  Ensure branch-local setup remains scoped; verify both transfers and the
+  awaited-condition false path natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

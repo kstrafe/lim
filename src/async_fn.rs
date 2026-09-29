@@ -3163,12 +3163,12 @@ fn lower_async_while(
     if let Some(items) = form(statement, "#while") {
         let direct_condition_await = form(&items[1], "#await");
         let return_index = items.len().saturating_sub(1);
-        let body_return = if items.len() >= 3 {
-            async_terminal_return_value(&items[return_index])
+        let body_exit = if items.len() >= 3 {
+            async_terminal_loop_exit(&items[return_index], return_value)
         } else {
             None
         };
-        if let (Some(await_form), Some(body_return)) = (direct_condition_await, body_return) {
+        if let (Some(await_form), Some((body_return, true))) = (direct_condition_await, body_exit) {
             if !following.is_empty()
                 || has_await(return_value)
                 || await_form.len() != 6
@@ -3233,46 +3233,57 @@ fn async_while_has_terminal_return(statement: &Expr) -> bool {
     if items.len() < 3 || form(&items[1], "#await").is_none() {
         return false;
     }
-    items
-        .last()
-        .is_some_and(|last| async_terminal_return_value(last).is_some())
+    items.last().is_some_and(|last| {
+        async_terminal_loop_exit(last, &Expr::Symbol("lim.async.tail".into()))
+            .is_some_and(|(_, contains_return)| contains_return)
+    })
 }
 
-fn async_terminal_return_value(expression: &Expr) -> Option<Expr> {
+fn async_terminal_loop_exit(expression: &Expr, tail: &Expr) -> Option<(Expr, bool)> {
     if let Some(return_form) = form(expression, "#return") {
-        return (return_form.len() == 2).then(|| return_form[1].clone());
+        return (return_form.len() == 2).then(|| (return_form[1].clone(), true));
+    }
+    if let Some(break_form) = form(expression, "#break") {
+        return (break_form.len() == 1).then(|| (tail.clone(), false));
     }
     if let Some(block) = form(expression, "#block") {
         if block.len() < 2 {
             return None;
         }
-        let returned = async_terminal_return_value(block.last()?)?;
-        return Some(Expr::List(
-            block[..block.len() - 1]
-                .iter()
-                .cloned()
-                .chain(std::iter::once(returned))
-                .collect(),
+        let (returned, contains_return) = async_terminal_loop_exit(block.last()?, tail)?;
+        return Some((
+            Expr::List(
+                block[..block.len() - 1]
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(returned))
+                    .collect(),
+            ),
+            contains_return,
         ));
     }
     if let Some(conditional) = form(expression, "#if") {
         if conditional.len() != 4 {
             return None;
         }
-        let then_value = async_terminal_return_value(&conditional[2])?;
-        let else_value = async_terminal_return_value(&conditional[3])?;
-        return Some(Expr::List(vec![
-            conditional[0].clone(),
-            conditional[1].clone(),
-            then_value,
-            else_value,
-        ]));
+        let (then_value, then_returns) = async_terminal_loop_exit(&conditional[2], tail)?;
+        let (else_value, else_returns) = async_terminal_loop_exit(&conditional[3], tail)?;
+        return Some((
+            Expr::List(vec![
+                conditional[0].clone(),
+                conditional[1].clone(),
+                then_value,
+                else_value,
+            ]),
+            then_returns || else_returns,
+        ));
     }
     let match_form = form(expression, "#match")?;
     if match_form.len() < 3 {
         return None;
     }
     let mut lowered = match_form[..2].to_vec();
+    let mut any_return = false;
     for arm in &match_form[2..] {
         let case = form(arm, "#case")?;
         let body_index = match case.len() {
@@ -3280,7 +3291,8 @@ fn async_terminal_return_value(expression: &Expr) -> Option<Expr> {
             4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
             _ => return None,
         };
-        let returned = async_terminal_return_value(&case[body_index])?;
+        let (returned, contains_return) = async_terminal_loop_exit(&case[body_index], tail)?;
+        any_return |= contains_return;
         lowered.push(Expr::List(
             case[..body_index]
                 .iter()
@@ -3289,7 +3301,7 @@ fn async_terminal_return_value(expression: &Expr) -> Option<Expr> {
                 .collect(),
         ));
     }
-    Some(Expr::List(lowered))
+    Some((Expr::List(lowered), any_return))
 }
 
 fn lower_async_while_with_transfers(
