@@ -492,6 +492,7 @@ fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>,
 
 fn conditional_block_continuation(
     expression: &Expr,
+    known: &HashMap<String, Binding>,
     source: &str,
     next_name: &mut usize,
     waker: &str,
@@ -534,6 +535,14 @@ fn conditional_block_continuation(
             prefix_bindings.push((local, binding_form[2].clone()));
         }
     }
+    let mut captured_bindings = continuation_names
+        .iter()
+        .filter_map(|name| known.get(name).cloned())
+        .collect::<Vec<_>>();
+    captured_bindings.sort_by(|left, right| left.name.cmp(&right.name));
+    for binding in &captured_bindings {
+        continuation_names.remove(&binding.name);
+    }
     if let Some(name) = continuation_names.iter().next() {
         return Err(format!(
             "@async-fn conditional await continuation captures outer local '{name}'; bind it inside the branch before suspension"
@@ -556,6 +565,17 @@ fn conditional_block_continuation(
     let poll = format!("{base}-branch-poll");
     let mut parameters = Vec::new();
     let mut call_arguments = vec![Expr::Symbol(":".into())];
+    for binding in &captured_bindings {
+        let name = Expr::Symbol(binding.name.clone());
+        let ty = crate::parse(&binding.ty)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| "@async-fn captured binding type is empty".to_owned())?
+            .expr;
+        parameters.push(Expr::List(vec![name.clone(), ty]));
+        call_arguments.push(name.clone());
+        call_arguments.push(name);
+    }
     for (local, ty) in &prefix_bindings {
         let name = Expr::Symbol(local.name.clone());
         parameters.push(Expr::List(if local.mutable {
@@ -808,7 +828,7 @@ fn conditional_await_with_immediate(
             if let Some((protocol, task)) = lowered {
                 branches.push((Some(protocol), task));
             } else if let Some((protocol, task, helper)) =
-                conditional_block_continuation(branch, source, next_name, waker)?
+                conditional_block_continuation(branch, known, source, next_name, waker)?
             {
                 branches.push((Some(protocol), task));
                 branch_helpers.push(helper);
@@ -850,7 +870,7 @@ fn conditional_await_with_immediate(
                 task_arm.push(task);
                 branches.push((Some(protocol), Expr::List(task_arm)));
             } else if let Some((protocol, task, helper)) =
-                conditional_block_continuation(&case[body_index], source, next_name, waker)?
+                conditional_block_continuation(&case[body_index], known, source, next_name, waker)?
             {
                 let mut task_arm = vec![Expr::Symbol("#case".into()), case[1].clone()];
                 if body_index == 3 {
