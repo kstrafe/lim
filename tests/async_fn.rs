@@ -1007,6 +1007,52 @@ fn async_struct_fields_are_evaluated_in_source_order_before_suspension() {
 }
 
 #[test]
+fn async_tuple_and_array_elements_are_evaluated_before_later_awaits() {
+    let source = "(#enum Child (Waiting))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case Waiting (ChildPending Waiting)))))
+      (#fn mark ((counter (#ref-mut u64))) u64
+        (#deref-set counter 1u64)
+        (#return 3u64))
+      (@async-fn (: names (TupleFrame TuplePoll TuplePending TupleReady tuple-poll) : waker u64 : function
+        (#fn work-tuple ((counter (#ref-mut u64))) u64
+          (#let pair (#tuple u64 u64)
+            (#tuple (#tuple u64 u64)
+              (#call mark (: counter counter))
+              (#await u64 Child ChildPending ChildReady child-poll Waiting)))
+          (#return 0u64))))
+      (@async-fn (: names (ArrayFrame ArrayPoll ArrayPending ArrayReady array-poll) : waker u64 : function
+        (#fn work-array ((counter (#ref-mut u64))) u64
+          (#let values (#array u64 2)
+            (#array-of (#array u64 2)
+              (#call mark (: counter counter))
+              (#await u64 Child ChildPending ChildReady child-poll Waiting)))
+          (#return 0u64))))
+      (#fn main () u64
+        (#let-mut tuple-counter u64 0u64)
+        (#let-mut array-counter u64 0u64)
+        (#let waker u64 0u64)
+        (#let tuple-task TupleFrame
+          (#call work-tuple (: counter (#borrow-mut tuple-counter))))
+        (#let tuple-outcome TuplePoll
+          (#call tuple-poll (: task tuple-task : waker (#borrow waker))))
+        (#let-else (TuplePending tuple-pending) TuplePoll tuple-outcome (#unreachable))
+        (#forget tuple-pending)
+        (#let array-task ArrayFrame
+          (#call work-array (: counter (#borrow-mut array-counter))))
+        (#let array-outcome ArrayPoll
+          (#call array-poll (: task array-task : waker (#borrow waker))))
+        (#let-else (ArrayPending array-pending) ArrayPoll array-outcome (#unreachable))
+        (#forget array-pending)
+        (#forget waker)
+        (#return (#u64.+.wrap tuple-counter array-counter)))";
+    build_and_run(source, 2);
+}
+
+#[test]
 fn async_function_extracts_typed_await_from_another_await_task() {
     let source = "(#enum ChildTask ((Waiting u64)))
       (#linear ChildTask)

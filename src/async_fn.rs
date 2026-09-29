@@ -2622,7 +2622,11 @@ fn extract_nested_awaits(
                     } else {
                         1
                     };
-                    for item in items.iter_mut().skip(start) {
+                    let aggregate_type = items
+                        .get(1)
+                        .and_then(|ty| parse_type(Some(&normalize_keywords(ty.clone()))).ok());
+                    let has_suspending_element = items.iter().skip(start).any(has_await);
+                    for (element_index, item) in items.iter_mut().enumerate().skip(start) {
                         extract_nested_awaits(
                             item,
                             generated,
@@ -2632,6 +2636,45 @@ fn extract_nested_awaits(
                             next_name,
                             waker,
                         )?;
+                        let already_sequenced = match item {
+                            Expr::Symbol(name) => generated.iter().any(|statement| {
+                                form(statement, "#let").is_some_and(|binding| {
+                                    binding.len() == 4
+                                        && matches!(&binding[1], Expr::Symbol(bound) if bound == name)
+                                })
+                            }),
+                            _ => false,
+                        };
+                        if !has_suspending_element
+                            || async_argument_is_trivial(item)
+                            || already_sequenced
+                        {
+                            continue;
+                        }
+                        let element_type = match &aggregate_type {
+                            Some(Type::Tuple(elements)) => elements
+                                .get(element_index - start)
+                                .map(crate::type_source),
+                            Some(Type::Array(element, _)) => Some(crate::type_source(element)),
+                            _ => None,
+                        }
+                        .ok_or_else(|| {
+                            format!("@async-fn cannot determine the type of aggregate element {} while preserving evaluation order", element_index - start)
+                        })?;
+                        let temporary = nested_await_name(source, next_name);
+                        generated.push(Expr::List(vec![
+                            Expr::Symbol("#let".into()),
+                            Expr::Symbol(temporary.clone()),
+                            crate::parse(&element_type)?
+                                .into_iter()
+                                .next()
+                                .ok_or_else(|| {
+                                    "@async-fn aggregate element has an empty type".to_owned()
+                                })?
+                                .expr,
+                            item.clone(),
+                        ]));
+                        *item = Expr::Symbol(temporary);
                     }
                 }
                 _ => {
