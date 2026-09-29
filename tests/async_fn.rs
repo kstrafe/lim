@@ -1284,8 +1284,11 @@ fn async_function_only_polls_awaited_let_else_mismatch_arm() {
           (#let-else (Some value) Maybe input
             (#block
               (#let retry-count u64 1u64)
-              (#return (#await u64 Child ChildPending ChildReady child-poll
-                (Waiting retry-count)))))
+              (#let awaited u64
+                (#await u64 Child ChildPending ChildReady child-poll
+                  (Waiting retry-count)))
+              (#let fallback u64 (#u64.+.wrap awaited 0u64))
+              (#return fallback)))
           (#let adjusted u64 (#u64.+.wrap value 1u64))
           (#return adjusted))))
       (#fn poll-work ((input Maybe) (waker (#ref u64))) u64
