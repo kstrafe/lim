@@ -1620,7 +1620,7 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Allocation failure must return both the allocator error and the original
   value. Test native round trips, handle movement/destruction exclusion while
   pinned, generated-code inspection, and allocation failure ownership.
-- [ ] **ASYNC-01b: Lower async functions to concrete poll state machines.**
+- [x] **ASYNC-01b: Lower async functions to concrete poll state machines.**
   Extend the initial `@async-fn` lowering beyond sequential immutable `#let`
   bindings. Support control-flow joins, mutable locals, and expression-level
   `#await` with typed liveness and loan capture, rather than an explicit
