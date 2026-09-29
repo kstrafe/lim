@@ -1980,7 +1980,7 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Keep the value available to the source continuation, and diagnose linear or
   otherwise non-Copy captures with the offending local name instead of
   producing malformed generated code. Named aggregate Copy proofs and
-  mutable/linear captures remain open under ASYNC-01.
+  mutable-value/linear captures remain open under ASYNC-01.
 - [x] **ASYNC-01b67: Compose conditional awaits in an awaited `#while` body.**
   Reuse the concrete choice-task protocol when the one body binding selects
   between a child `#await` and an immediate value. Evaluate that selection
@@ -2111,6 +2111,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   metadata, carry a non-linear struct through condition/body Pending states,
   and reject an explicitly linear version with the capture name. Include the
   resulting capability set in generated-source cache identity.
+- [x] **ASYNC-01b88: Suspend multiple awaits in an awaited `#while` body.**
+  Lower the full multi-statement body into a concrete nested async child so its
+  locals survive each Pending state and awaits resume in source order. Construct
+  the child only after the awaited condition is true; verify two native
+  Pending/resume transitions followed by a false condition that skips the body.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

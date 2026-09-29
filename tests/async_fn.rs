@@ -3350,6 +3350,66 @@ fn async_while_let_carries_named_copy_aggregate_to_body_task() {
 }
 
 #[test]
+fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
+    let source = "(#struct Counter ((value (#atomic u64))))
+      (#linear Counter)
+      (#fn counter-create () Counter
+        (#return (#struct-literal Counter ((value (#atomic-init u64 1u64))))))
+      (#fn counter-get ((counter (#ref Counter))) u64
+        (#return (#atomic-load (#borrow (#get counter value)) #memory-relaxed)))
+      (#fn counter-clear ((counter (#ref Counter))) ()
+        (#atomic-store (#borrow (#get counter value)) 0u64 #memory-relaxed)
+        (#return ()))
+      (#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady value)))))
+      (#enum ConditionTask ((ConditionWaiting (#ref Counter))))
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case (ConditionWaiting counter)
+            (#if (#u64.== (#call counter-get (: counter counter)) 0u64)
+              (ConditionReady false)
+              (#block
+                (#call counter-clear (: counter counter))
+                (ConditionReady true)))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((counter (#ref Counter))) u64
+          (#while (#await ConditionTask ConditionPending ConditionReady condition-poll
+                    (ConditionWaiting counter))
+            (#let-mut subtotal u64 0u64)
+            (#let first u64
+              (#await ChildTask ChildPending ChildReady child-poll (Waiting 20u64)))
+            (#let second u64
+              (#await ChildTask ChildPending ChildReady child-poll (Waiting 22u64)))
+            (#set subtotal (#u64.+.wrap first second)))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let counter Counter (#call counter-create (:)))
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (: counter (#borrow counter))) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let-else (Pending pending-again) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task pending-again : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending task) (#block (#forget task) 0u64))))
+        (#forget counter)
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("body-function"), "{generated}");
+    assert!(generated.contains("body-poll-resume"), "{generated}");
+}
+
+#[test]
 fn async_while_condition_awaits_only_the_selected_branch_each_iteration() {
     let source = "(#enum ChildTask (Waiting Resuming))
       (#linear ChildTask)

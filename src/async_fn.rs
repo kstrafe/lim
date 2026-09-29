@@ -2055,6 +2055,213 @@ fn extract_statement_awaits(
     Ok(())
 }
 
+/// Turn a multi-statement `#while` body containing suspension into a nested
+/// async child. The child owns its per-iteration locals and keeps them in its
+/// own concrete frame across Pending; explicit Copy values or mutable-reference
+/// captures cross the condition/body boundary.
+fn async_while_body_child(
+    body: &[Expr],
+    known: &HashMap<String, Binding>,
+    known_order: &[String],
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<(Binding, Vec<Expr>, String), String> {
+    fn has_outer_loop_control(expression: &Expr) -> bool {
+        match expression {
+            Expr::List(items) => {
+                match items.first() {
+                    Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break" | "#continue") => {
+                        return true;
+                    }
+                    Some(Expr::Symbol(head))
+                        if matches!(
+                            head.as_str(),
+                            "#while" | "#while-let" | "#for" | "#for-range" | "#loop"
+                        ) =>
+                    {
+                        return false;
+                    }
+                    _ => {}
+                }
+                items.iter().any(has_outer_loop_control)
+            }
+            Expr::Block(statements) => statements.iter().any(|statement| match statement {
+                crate::Statement::Expr(value)
+                | crate::Statement::Return(Some(value))
+                | crate::Statement::BreakValue(value)
+                | crate::Statement::BreakToValue { value, .. } => has_outer_loop_control(value),
+                _ => false,
+            }),
+            Expr::Loop(_) => false,
+            Expr::Labeled { expression, .. }
+            | Expr::Unquote(expression)
+            | Expr::UnquoteSplicing(expression) => has_outer_loop_control(expression),
+            _ => false,
+        }
+    }
+    if body.iter().any(has_outer_loop_control) {
+        return Err(
+            "@async-fn composed awaited while body cannot transfer loop control from its child task yet"
+                .into(),
+        );
+    }
+    if body.iter().any(contains_return) {
+        return Err(
+            "@async-fn composed awaited while body cannot return from its child task yet".into(),
+        );
+    }
+
+    let mut names = HashSet::new();
+    for expression in body {
+        collect_value_names(expression, &mut names);
+    }
+    let mut locals = HashSet::new();
+    for expression in body {
+        collect_local_binding_names(expression, &mut locals);
+    }
+    names.retain(|name| !locals.contains(name) && name != "true" && name != "false");
+    let captures = known_order
+        .iter()
+        .filter(|name| names.contains(name.as_str()))
+        .filter_map(|name| known.get(name).cloned())
+        .collect::<Vec<_>>();
+    for capture in &captures {
+        let parsed = crate::parse(&capture.ty)?;
+        let ty = parsed
+            .first()
+            .ok_or_else(|| "@async-fn body capture type is empty".to_owned())?;
+        let ty = parse_type(Some(&normalize_keywords(ty.expr.clone())))?;
+        if !async_task_capture_is_copy(&ty) && !async_task_capture_is_mutable_reference(&ty) {
+            return Err(format!(
+                "@async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
+                capture.name
+            ));
+        }
+    }
+
+    let mut mutated = HashSet::new();
+    fn collect_assignments(expression: &Expr, names: &mut HashSet<String>) {
+        if let Some(name) = mutable_assignment_target(expression) {
+            names.insert(name.to_owned());
+        }
+        match expression {
+            Expr::List(items) => {
+                for item in items {
+                    collect_assignments(item, names);
+                }
+            }
+            Expr::Block(statements) | Expr::Loop(statements) => {
+                for statement in statements {
+                    match statement {
+                        crate::Statement::Expr(value)
+                        | crate::Statement::Return(Some(value))
+                        | crate::Statement::BreakValue(value)
+                        | crate::Statement::BreakToValue { value, .. } => {
+                            collect_assignments(value, names)
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Expr::Labeled { expression, .. }
+            | Expr::Unquote(expression)
+            | Expr::UnquoteSplicing(expression) => collect_assignments(expression, names),
+            _ => {}
+        }
+    }
+    for expression in body {
+        collect_assignments(expression, &mut mutated);
+    }
+    if let Some(capture) = captures
+        .iter()
+        .find(|capture| capture.mutable && mutated.contains(&capture.name))
+    {
+        return Err(format!(
+            "@async-fn composed awaited while body cannot mutate captured local '{}' through a copied child-task input",
+            capture.name
+        ));
+    }
+
+    let base = fresh_async_name(source, next_name);
+    let function_name = format!("{base}-body-function");
+    let frame = format!("{base}-body-frame");
+    let poll_result = format!("{base}-body-poll-result");
+    let pending = format!("{base}-body-pending");
+    let ready = format!("{base}-body-ready");
+    let poll = format!("{base}-body-poll");
+    let unit_type = Expr::List(Vec::new());
+    let mut parameters = Vec::with_capacity(captures.len());
+    let mut arguments = Vec::with_capacity(captures.len() * 3);
+    for capture in &captures {
+        let name = Expr::Symbol(capture.name.clone());
+        let ty = crate::parse(&capture.ty)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| "@async-fn body capture type is empty".to_owned())?
+            .expr;
+        parameters.push(Expr::List(vec![name.clone(), ty]));
+        arguments.extend([Expr::Symbol(":".into()), name.clone(), name]);
+    }
+    let mut function = vec![
+        Expr::Symbol("#fn".into()),
+        Expr::Symbol(function_name.clone()),
+        Expr::List(parameters),
+        unit_type.clone(),
+    ];
+    function.extend(body.iter().cloned());
+    function.push(Expr::List(vec![
+        Expr::Symbol("#return".into()),
+        unit_type.clone(),
+    ]));
+    let function = Expr::List(function);
+    let waker = crate::parse(waker)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "@async-fn waker type is empty".to_owned())?
+        .expr;
+    let invocation = Expr::List(vec![
+        Expr::At,
+        Expr::Symbol("async-fn".into()),
+        Expr::List(vec![
+            Expr::Symbol(frame.clone()),
+            Expr::Symbol(poll_result.clone()),
+            Expr::Symbol(pending.clone()),
+            Expr::Symbol(ready.clone()),
+            Expr::Symbol(poll.clone()),
+        ]),
+        waker,
+        function,
+    ]);
+    let helper = generated_source(&invocation)?;
+    let task = Expr::List(vec![
+        Expr::Symbol("#call".into()),
+        Expr::Symbol(function_name),
+        Expr::List(arguments),
+    ]);
+    let await_form = vec![
+        Expr::Symbol("#await".into()),
+        unit_type.clone(),
+        Expr::Symbol(frame),
+        Expr::Symbol(pending),
+        Expr::Symbol(ready),
+        Expr::Symbol(poll),
+        task,
+    ];
+    let binding = Binding {
+        name: format!("{base}-body-result"),
+        ty: expression_source(&unit_type)?,
+        mutable: false,
+    };
+    let form = vec![
+        Expr::Symbol("#let".into()),
+        Expr::Symbol(binding.name.clone()),
+        unit_type,
+        Expr::List(await_form.clone()),
+    ];
+    Ok((binding, form, helper))
+}
+
 /// Lower a while loop with one await binding per iteration into a concrete
 /// child task. Its poll helper runs ready iterations in a normal Lim loop and
 /// stores the current captures plus child task only when the child is pending.
@@ -2561,47 +2768,62 @@ fn lower_async_while_with_transfers(
         }
         let body = &items[2..];
         if body.iter().any(has_await) {
-            if body.is_empty() || body[1..].iter().any(has_await) {
-                return Err(
-                    "@async-fn an awaited #while condition can be composed with one direct body await binding"
-                        .into(),
-                );
-            }
-            let body_binding = binding(&body[0], "awaited while body")?;
-            let body_form = form(&body[0], "#let")
-                .or_else(|| form(&body[0], "#let-mut"))
-                .ok_or_else(|| {
-                    "@async-fn awaited while body suspension requires a direct binding".to_owned()
-                })?;
-            let (body_await, body_helper) = if let Some(await_form) = form(&body_form[3], "#await")
-            {
-                (await_form.to_vec(), String::new())
-            } else if let Some((protocol, task, helper)) =
-                conditional_await_with_immediate(&body_form[3], known, source, next_name, waker)?
-            {
-                (
-                    vec![
-                        Expr::Symbol("#await".into()),
-                        protocol.result_type,
-                        protocol.child_type,
-                        protocol.pending,
-                        protocol.ready,
-                        protocol.poll,
-                        task,
-                    ],
-                    helper,
-                )
-            } else {
-                return Err(
-                    "@async-fn awaited while body binding requires a direct or conditional #await"
-                        .into(),
-                );
-            };
-            if body_await.len() != 7
-                || body[1..].iter().any(has_await)
-                || has_await(&body_await[6])
-                || has_await(&await_form[5])
-            {
+            let use_body_child = body.len() > 1 && body[1..].iter().any(has_await);
+            let (body_binding, body_form, body_await, body_helper, body_continuation) =
+                if use_body_child {
+                    let (binding, generated_form, helper) =
+                        async_while_body_child(body, known, known_order, source, next_name, waker)?;
+                    let await_form = form(&generated_form[3], "#await")
+                        .expect("generated loop body binding contains an await")
+                        .to_vec();
+                    (binding, generated_form, await_form, helper, Vec::new())
+                } else {
+                    let body_binding = binding(&body[0], "awaited while body")?;
+                    let body_form = form(&body[0], "#let")
+                        .or_else(|| form(&body[0], "#let-mut"))
+                        .ok_or_else(|| {
+                            "@async-fn awaited while body suspension requires a direct binding"
+                                .to_owned()
+                        })?
+                        .to_vec();
+                    let (body_await, body_helper) = if let Some(await_form) =
+                        form(&body_form[3], "#await")
+                    {
+                        (await_form.to_vec(), String::new())
+                    } else if let Some((protocol, task, helper)) = conditional_await_with_immediate(
+                        &body_form[3],
+                        known,
+                        source,
+                        next_name,
+                        waker,
+                    )? {
+                        (
+                            vec![
+                                Expr::Symbol("#await".into()),
+                                protocol.result_type,
+                                protocol.child_type,
+                                protocol.pending,
+                                protocol.ready,
+                                protocol.poll,
+                                task,
+                            ],
+                            helper,
+                        )
+                    } else {
+                        return Err(
+                                "@async-fn awaited while body binding requires a direct or conditional #await"
+                                    .into(),
+                            );
+                    };
+                    (
+                        body_binding,
+                        body_form,
+                        body_await,
+                        body_helper,
+                        body[1..].to_vec(),
+                    )
+                };
+            if body_await.len() != 7 || has_await(&body_await[6]) || has_await(&await_form[5]) {
                 return Err(
                     "@async-fn awaited while condition/body composition requires direct awaits with non-suspending child-task expressions".into(),
                 );
@@ -2895,7 +3117,7 @@ fn lower_async_while_with_transfers(
                 Expr::Symbol("bool".into()),
                 Expr::Symbol("false".into()),
             ]));
-            body_success.extend(body[1..].iter().cloned());
+            body_success.extend(body_continuation);
             if body_success.len() > 3
                 && contains_loop_control(body_success.last().expect("body has a stop local"))
             {
