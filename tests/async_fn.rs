@@ -3434,17 +3434,25 @@ fn async_while_body_returns_after_a_composed_awaited_condition() {
     let source = "(#enum Child ((Waiting bool) (Resuming bool)))
       (#linear Child)
       (#enum ChildPoll ((ChildPending Child) (ChildReady bool)))
+      (#enum TailTask ((TailWaiting u64) (TailResuming u64)))
+      (#linear TailTask)
+      (#enum TailPoll ((TailPending TailTask) (TailReady u64)))
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
         (#return (#match task
           (#case (Waiting decision) (ChildPending (Resuming decision)))
           (#case (Resuming decision) (ChildReady decision)))))
+      (#fn tail-poll ((task TailTask) (waker (#ref u64))) TailPoll
+        (#return (#match task
+          (#case (TailWaiting value) (TailPending (TailResuming value)))
+          (#case (TailResuming value) (TailReady value)))))
       (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
         (#fn work ((decision bool)) u64
           (#while (#if decision
                     (#await bool Child ChildPending ChildReady child-poll (Waiting true))
                     false)
             (#return 7u64))
-          (#let fallback u64 3u64)
+          (#let fallback u64
+            (#await u64 TailTask TailPending TailReady tail-poll (TailWaiting 3u64)))
           (#return fallback))))
       (#fn main () u64
         (#let waker u64 0u64)
@@ -3455,7 +3463,9 @@ fn async_while_body_returns_after_a_composed_awaited_condition() {
         (#let-else (PollReady true-result) Poll true-second (#unreachable))
         (#let false-task Frame (#call work (: decision false)))
         (#let false-first Poll (#call poll (: task false-task : waker (#borrow waker))))
-        (#let-else (PollReady false-result) Poll false-first (#unreachable))
+        (#let-else (PollPending false-pending) Poll false-first (#unreachable))
+        (#let false-second Poll (#call poll (: task false-pending : waker (#borrow waker))))
+        (#let-else (PollReady false-result) Poll false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     build_and_run(source, 10);

@@ -2440,6 +2440,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   normally and begins another awaited-condition iteration. Do not require an
   explicit `#continue` for ordinary body fallthrough; test two condition
   suspensions before the later return and a false-condition exit natively.
+- [x] **ASYNC-01b157: Suspend in the condition-false continuation.** Permit
+  awaited statements after a while whose body may return, keeping the
+  continuation in the false branch. Verify that the true branch returns
+  without polling the tail task and that the false branch resumes its own
+  Pending/Ready task and returns its value natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

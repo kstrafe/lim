@@ -3751,16 +3751,15 @@ fn lower_async_while(
             None
         };
         if let (Some(await_form), Some((body_return, true))) = (condition.0, body_exit) {
-            if following.iter().any(|statement| {
-                has_await(statement)
-                    || contains_return(statement)
-                    || contains_loop_control(statement)
-            }) || has_await(return_value)
+            if following
+                .iter()
+                .any(|statement| contains_return(statement) || contains_loop_control(statement))
+                || has_await(return_value)
                 || await_form.len() != 6
                 || has_await(await_form.last().expect("await has a task"))
             {
                 return Err(
-                    "@async-fn awaited #while body cannot return in this shape yet; early return requires a terminal condition await and a non-suspending continuation"
+                    "@async-fn awaited #while body cannot return in this shape yet; early return requires a terminal condition await and a continuation without control transfers"
                         .into(),
                 );
             }
@@ -3876,11 +3875,8 @@ fn lower_async_while_with_return_continue(
     let return_type_is_copy = async_task_capture_is_copy(&return_type_ast);
     let terminal = items.len() - 1;
     if !contains_return(&items[terminal])
-        || async_terminal_loop_exit(
-            &items[terminal],
-            &Expr::Symbol("lim.async.tail".into()),
-        )
-        .is_some()
+        || async_terminal_loop_exit(&items[terminal], &Expr::Symbol("lim.async.tail".into()))
+            .is_some()
         || items[2..terminal]
             .iter()
             .any(|statement| contains_loop_control(statement) || contains_return(statement))
