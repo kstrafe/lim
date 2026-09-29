@@ -1899,12 +1899,15 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   binding environment; reject unknown targets and non-direct await values.
   Verify the step sees body-updated state and transfers the awaited value across
   Pending/resume before the next condition check.
-- [ ] **ASYNC-01c: Permit self-references only in pinned async frames.**
+- [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
   references with field-sensitive loans. Reject escaping references and
   incompatible projections. Require cancellation to end internal loans before
   consuming their referents; test movement, cancellation, and storage lifetime.
+  Completed by ASYNC-01c1 through ASYNC-01c2r: pinned frames now support
+  immutable and exclusive self-references into promoted owners and enum
+  payloads, with state-preserving poll transitions and explicit cancellation.
 - [x] **ASYNC-01c1: Keep async frames stationary across polling.** Add an
   opt-in pinned-frame representation whose poll and cancellation operations
   borrow the frame in place rather than consuming and returning it by value.
