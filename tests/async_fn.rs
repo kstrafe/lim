@@ -373,6 +373,73 @@ fn pinned_async_frame_promotes_a_local_owner_before_self_borrowing_it() {
 }
 
 #[test]
+fn pinned_async_frame_retains_mutable_self_reference_across_pending() {
+    let source = include_str!("../examples/async_fn_local_self_reference.lim")
+        .replace("(#pin-ref u64)", "(#pin-ref-mut u64)")
+        .replace(
+            "(#pin-borrow (#get (#get owner payload) left))",
+            "(#pin-borrow-mut (#get (#get owner payload) left))",
+        )
+        .replace(
+            "    (#return (#u64.+.wrap (#deref view) result))",
+            "    (#unsafe (#pin-write view 41u64))\n    (#return (#u64.+.wrap (#deref view) result))",
+        );
+    lim::check_types(&lim::parse_program(&source).unwrap()).unwrap();
+    let generated = build_and_run(&source, 43);
+    assert!(
+        generated.contains("(#pin-ref-mut u64)"),
+        "the exclusive reference must remain typed in the suspended state: {generated}"
+    );
+
+    let overlapping_owner_read = source.replace(
+        "    (#unsafe (#pin-write view 41u64))",
+        "    (#let overlapping u64 (#get (#get owner payload) left))\n    (#unsafe (#pin-write view 41u64))",
+    );
+    let error = match lim::parse_program(&overlapping_owner_read) {
+        Err(error) => error,
+        Ok(program) => lim::check_types(&program).unwrap_err(),
+    };
+    assert!(
+        error.contains("borrow") || error.contains("access") || error.contains("pinned"),
+        "reading through the owner must conflict with the retained exclusive projection: {error}"
+    );
+
+    let duplicate_exclusive_borrow = source.replace(
+        "    (#let result u64",
+        "    (#let second-view (#pin-ref-mut u64)\n      (#pin-borrow-mut (#get (#get owner payload) left)))\n    (#let result u64",
+    );
+    let error = match lim::parse_program(&duplicate_exclusive_borrow) {
+        Err(error) => error,
+        Ok(program) => lim::check_types(&program).unwrap_err(),
+    };
+    assert!(
+        error.contains("borrow") || error.contains("access") || error.contains("pinned"),
+        "the same pinned projection must not be borrowed exclusively twice: {error}"
+    );
+
+    let (prefix, after_second_poll) = source
+        .split_once("  (#let second LocalSelfRefPoll")
+        .unwrap();
+    let (_, suffix) = after_second_poll.split_once("  (#forget frame)").unwrap();
+    let cancelled = format!(
+        "{prefix}\
+          (#let cancelled-state LocalSelfRefFrame-state\n\
+            (#call local-self-ref-poll-cancel (: task pending-frame)))\n\
+          (#forget cancelled-state)\n\
+          (#set-field frame owner\n\
+            (#struct-literal LocalOwner ((payload\n\
+              (#struct-literal LocalPayload ((left 41u64) (right 5u64)))))))\n\
+          (#let result u64 (#get (#get (#get frame owner) payload) left))\n\
+          (#forget frame){suffix}"
+    );
+    let generated = build_and_run(&cancelled, 41);
+    assert!(
+        generated.contains("(#fn local-self-ref-poll-cancel"),
+        "the generated cancel path should be exercised: {generated}"
+    );
+}
+
+#[test]
 fn pinned_async_result_reference_keeps_its_frame_borrow_live() {
     let source = include_str!("../examples/async_fn_local_self_reference.lim")
         .replace(

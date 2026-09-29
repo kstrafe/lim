@@ -21,6 +21,7 @@ struct PinnedSelfReference {
     owner_initializer: Option<String>,
     projection: Vec<PinnedProjection>,
     target_ty: String,
+    mutable: bool,
     helper_parameter: String,
     source_index: usize,
 }
@@ -2267,7 +2268,7 @@ fn pinned_self_references(
         if items.len() != 4 {
             continue;
         }
-        let Type::PinnedReference { mutable: false, .. } =
+        let Type::PinnedReference { mutable, .. } =
             parse_type(Some(&normalize_keywords(items[2].clone())))?
         else {
             continue;
@@ -2338,6 +2339,7 @@ fn pinned_self_references(
             owner,
             owner_initializer,
             projection,
+            mutable,
             helper_parameter: String::new(),
             source_index: index,
         });
@@ -2368,7 +2370,8 @@ fn pinned_projection_target(
                 if items.len() == 4
                     && matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pin-get-payload") =>
             {
-                let borrow = form(&items[1], "#pin-borrow")?;
+                let borrow = form(&items[1], "#pin-borrow")
+                    .or_else(|| form(&items[1], "#pin-borrow-mut"))?;
                 if borrow.len() != 2 {
                     return None;
                 }
@@ -2395,7 +2398,9 @@ fn pinned_projection_target(
 }
 
 fn pinned_self_reference_target(expression: &Expr) -> Option<(String, Vec<PinnedProjection>)> {
-    let target = if let Some(borrow) = form(expression, "#pin-borrow") {
+    let target = if let Some(borrow) =
+        form(expression, "#pin-borrow").or_else(|| form(expression, "#pin-borrow-mut"))
+    {
         if borrow.len() != 2 {
             return None;
         }
@@ -2412,7 +2417,8 @@ fn pinned_reference_target_source(type_expression: &Expr) -> Result<String, Stri
     let Expr::List(items) = type_expression else {
         return Err("pinned reference binding requires (#pin-ref Type)".into());
     };
-    if items.len() != 2 || !matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pin-ref")
+    if items.len() != 2
+        || !matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#pin-ref" | "#pin-ref-mut"))
     {
         return Err("pinned reference binding requires (#pin-ref Type)".into());
     }
@@ -2442,6 +2448,92 @@ fn rewrite_pinned_self_references(expression: &mut Expr, references: &[PinnedSel
         for item in items {
             rewrite_pinned_self_references(item, references);
         }
+    }
+}
+
+fn rename_symbol(expression: &mut Expr, source: &str, replacement: &str) {
+    match expression {
+        Expr::Symbol(name) if name == source => *name = replacement.to_owned(),
+        Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote"))
+            {
+                return;
+            }
+            for item in items {
+                rename_symbol(item, source, replacement);
+            }
+        }
+        Expr::Block(items) | Expr::Loop(items) => {
+            for item in items {
+                rename_statement_symbols(item, source, replacement);
+            }
+        }
+        Expr::Labeled { expression, .. }
+        | Expr::Quote(expression)
+        | Expr::QuasiQuote(expression)
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => rename_symbol(expression, source, replacement),
+        _ => {}
+    }
+}
+
+fn rename_statement_symbols(statement: &mut crate::Statement, source: &str, replacement: &str) {
+    use crate::Statement;
+    match statement {
+        Statement::Let { value, .. }
+        | Statement::Destructure { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::FieldAssign { value, .. }
+        | Statement::TupleAssign { value, .. }
+        | Statement::EnumPayloadAssign { value, .. }
+        | Statement::BreakValue(value)
+        | Statement::BreakToValue { value, .. }
+        | Statement::Expr(value) => rename_symbol(value, source, replacement),
+        Statement::LetElse {
+            value, else_body, ..
+        } => {
+            rename_symbol(value, source, replacement);
+            for statement in else_body {
+                rename_statement_symbols(statement, source, replacement);
+            }
+        }
+        Statement::ArrayAssign { index, value, .. } => {
+            rename_symbol(index, source, replacement);
+            rename_symbol(value, source, replacement);
+        }
+        Statement::While { condition, body } => {
+            rename_symbol(condition, source, replacement);
+            for statement in body {
+                rename_statement_symbols(statement, source, replacement);
+            }
+        }
+        Statement::Loop { body } => {
+            for statement in body {
+                rename_statement_symbols(statement, source, replacement);
+            }
+        }
+        Statement::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            rename_statement_symbols(init, source, replacement);
+            rename_symbol(condition, source, replacement);
+            rename_statement_symbols(step, source, replacement);
+            for statement in body {
+                rename_statement_symbols(statement, source, replacement);
+            }
+        }
+        Statement::Labeled { statement, .. } => {
+            rename_statement_symbols(statement, source, replacement)
+        }
+        Statement::Return(Some(value)) => rename_symbol(value, source, replacement),
+        Statement::Break
+        | Statement::BreakTo(_)
+        | Statement::Continue
+        | Statement::ContinueTo(_)
+        | Statement::Return(None) => {}
     }
 }
 
@@ -2621,7 +2713,6 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let mut hoisted_owners = Vec::new();
     let mut owner_indices = HashMap::new();
     let mut self_reference_sources = Vec::new();
-    let mut self_reference_indices = HashMap::new();
     for reference in &mut self_references {
         owner_indices
             .entry(reference.owner.name.clone())
@@ -2629,12 +2720,8 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
                 hoisted_owners.push(reference.owner.clone());
                 hoisted_owners.len() - 1
             });
-        let key = (reference.owner.name.clone(), reference.projection.clone());
-        let index = *self_reference_indices.entry(key).or_insert_with(|| {
-            self_reference_sources.push(reference.clone());
-            self_reference_sources.len() - 1
-        });
-        reference.helper_parameter = format!("lim.async.self-ref.{index}");
+        reference.helper_parameter = format!("lim.async.self-ref.{}", self_reference_sources.len());
+        self_reference_sources.push(reference.clone());
     }
     let last = form(body.last().unwrap(), "#return")
         .ok_or_else(|| "@async-fn body must end with (#return value)".to_owned())?;
@@ -2778,6 +2865,24 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         rewrite_pinned_self_references(statement, &self_references);
     }
     rewrite_pinned_self_references(&mut return_value, &self_references);
+    for reference in self_references.iter().filter(|reference| reference.mutable) {
+        for statement in &mut statements {
+            let is_binding = binding(statement, "self-reference binding")
+                .is_ok_and(|binding| binding.name == reference.binding.name);
+            if !is_binding {
+                rename_symbol(
+                    statement,
+                    &reference.binding.name,
+                    &reference.helper_parameter,
+                );
+            }
+        }
+        rename_symbol(
+            &mut return_value,
+            &reference.binding.name,
+            &reference.helper_parameter,
+        );
+    }
     let returned = if return_await.is_some() {
         "lim.async.return-value".to_owned()
     } else {
@@ -2793,7 +2898,16 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
                 .or_else(|| form(statement, "let-mut"))
                 .is_some()
             {
-                let local = binding(statement, "between #await forms")?;
+                let mut local = binding(statement, "between #await forms")?;
+                if let Some(reference) = self_references
+                    .iter()
+                    .find(|reference| reference.binding.name == local.name && reference.mutable)
+                {
+                    local.name = reference.helper_parameter.clone();
+                    known.insert(local.name.clone(), local.clone());
+                    known_order.push(local.name);
+                    continue;
+                }
                 if known.insert(local.name.clone(), local.clone()).is_some() {
                     return Err(format!("@async-fn duplicate binding '{}'", local.name));
                 }
@@ -2950,9 +3064,15 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let self_reference_parameters = self_reference_sources
         .iter()
         .enumerate()
-        .map(|(index, reference)| {
+        .map(|(_, reference)| {
             format!(
-                "(lim.async.self-ref.{index} (#pin-ref {}))",
+                "({} ({} {}))",
+                reference.helper_parameter,
+                if reference.mutable {
+                    "#pin-ref-mut"
+                } else {
+                    "#pin-ref"
+                },
                 reference.target_ty
             )
         })
@@ -2960,7 +3080,12 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let self_reference_arguments = self_reference_sources
         .iter()
         .enumerate()
-        .map(|(index, _)| format!(": lim.async.self-ref.{index} lim.async.self-ref.{index}"))
+        .map(|(index, reference)| {
+            format!(
+                ": {} lim.async.self-ref.{index}",
+                reference.helper_parameter
+            )
+        })
         .collect::<Vec<_>>()
         .join(" ");
     let self_reference_borrows = self_reference_sources
@@ -2985,28 +3110,40 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             ) {
                 place
             } else {
-                format!("(#pin-borrow {place})")
+                format!(
+                    "({} {place})",
+                    if reference.mutable {
+                        "#pin-borrow-mut"
+                    } else {
+                        "#pin-borrow"
+                    }
+                )
             };
             format!(
-                "(#let lim.async.self-ref.{index} (#pin-ref {})\n\
+                "(#let lim.async.self-ref.{index} ({} {})\n\
                    {initializer})",
+                if reference.mutable {
+                    "#pin-ref-mut"
+                } else {
+                    "#pin-ref"
+                },
                 reference.target_ty
             )
         })
         .collect::<Vec<_>>()
         .join(" ");
     let self_reference_parameter_suffix = self_reference_parameters.join(" ");
+    let self_reference_argument_suffix = if self_reference_arguments.is_empty() {
+        String::new()
+    } else {
+        format!(" {self_reference_arguments}")
+    };
     let self_reference_drops = self_reference_sources
         .iter()
         .enumerate()
         .map(|(index, _)| format!("(#drop lim.async.self-ref.{index})"))
         .collect::<Vec<_>>()
         .join(" ");
-    let self_reference_argument_suffix = if self_reference_arguments.is_empty() {
-        String::new()
-    } else {
-        format!(" {self_reference_arguments}")
-    };
     let reserved = [
         "waker",
         "lim.async.task",
@@ -3109,14 +3246,22 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         .cloned()
         .collect::<Vec<_>>()
         .join(" ");
+    let has_mutable_self_references = self_reference_sources
+        .iter()
+        .any(|reference| reference.mutable);
+    let start_call = format!(
+        "(#call {start_helper} ({} : waker waker{}))",
+        named_arguments(&start_params),
+        self_reference_argument_suffix
+    );
+    let start_body = if !has_mutable_self_references || self_reference_borrows.is_empty() {
+        start_call
+    } else {
+        format!("(#block {} {start_call})", self_reference_borrows)
+    };
     let start_case = format!(
-        "(#case ({start_variant} {}) (#call {start_helper} ({} : waker waker)))",
-        arguments(&start_params),
-        format!(
-            "{}{}",
-            named_arguments(&start_params),
-            self_reference_argument_suffix
-        ),
+        "(#case ({start_variant} {}) {start_body})",
+        arguments(&start_params)
     );
     let frame_fields = std::iter::once(format!("(state {frame_state})"))
         .chain(frame_owner_fields.iter().cloned())
@@ -3156,6 +3301,25 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             arguments(&params),
         )
     };
+    let poll_function = if pinned && has_mutable_self_references {
+        String::new()
+    } else {
+        format!(
+            "(#fn {poll} ((task {frame_state}) (waker (#ref {waker})) {self_reference_parameter_suffix}) {poll_result}\n\
+               (#return (#match task {start_case} {})))",
+            await_cases.join(" ")
+        )
+    };
+    let pinned_poll_outcome = if has_mutable_self_references {
+        format!(
+            "(#let outcome {poll_result} (#match state {start_case} {}))",
+            await_cases.join(" ")
+        )
+    } else {
+        format!(
+            "{self_reference_borrows} (#let outcome {poll_result} (#call {poll} (: task state : waker waker{self_reference_argument_suffix}))) {self_reference_drops}"
+        )
+    };
     let generated = format!(
         "{}\n{}
          (#enum {poll_result} (({pending} {frame_state}) ({ready} {result})))
@@ -3163,8 +3327,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
          (#fn {start_helper} ({} (waker (#ref {waker})) {self_reference_parameter_suffix}) {poll_result}
            {}
            (#return (#call {poll}-child-0 ({} : lim.async.task {} : waker waker))))
-         (#fn {poll} ((task {frame_state}) (waker (#ref {waker})) {self_reference_parameter_suffix}) {poll_result}
-           (#return (#match task {start_case} {})))",
+         {poll_function}",
         generated_helpers.join("\n"),
         frame_declarations,
         helpers.join("\n"),
@@ -3172,7 +3335,6 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         first_prefix,
         named_arguments(&first.captures),
         first.value,
-        await_cases.join(" "),
     );
     if !pinned {
         return Ok(generated);
@@ -3194,9 +3356,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
              (#pin-borrow-mut (#get task state)))
            (#let state {frame_state} (#unsafe (#pin-read lim.async.pin-state)))
            (#drop lim.async.pin-state)
-           {self_reference_borrows}
-           (#let outcome {poll_result} (#call {poll} (: task state : waker waker{self_reference_argument_suffix})))
-           {self_reference_drops}
+           {pinned_poll_outcome}
            (#return (#match outcome
              (#case ({pending} next-state)
                (#block
@@ -3223,6 +3383,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         public_ready = public_ready,
         public_poll_result = public_poll_result,
         public_poll = public_poll,
+        pinned_poll_outcome = pinned_poll_outcome,
     ))
 }
 

@@ -2032,15 +2032,17 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   one of its inline struct fields. Retain the exact nested field reference in a
   pinned async frame across Pending, verify native reads after resume, and
   reject a mutable borrow of the containing enum while the loan is live.
-- [ ] **ASYNC-01c2r: Retain exclusive self-references across async suspension.**
+- [x] **ASYNC-01c2r: Retain exclusive self-references across async suspension.**
   Create each `#pin-borrow-mut` only in the frame's initial state, then transfer
   that exclusive reference through generated state and helper calls without
   reborrowing or aliasing it on resume. Preserve field-sensitive access so
   disjoint state transitions remain legal while overlapping owner access,
   replacement, and movement remain rejected. End the loan on Ready or explicit
-  cancellation. Verify native Pending/resume mutation and cancellation, plus
-  diagnostics for duplicate exclusive borrows and uses that overlap the
-  retained projection.
+  cancellation. Verified native mutation after Pending/resume and cancellation
+  followed by owner mutation, plus diagnostics for duplicate exclusive borrows
+  and overlapping owner access. The legacy borrow checker uses typed return
+  summaries for exclusive results to avoid treating unrelated shared inputs
+  (such as the waker) as mutable-reference origins.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue

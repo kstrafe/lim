@@ -326,6 +326,8 @@ struct Context {
     reference_functions: HashSet<String>,
     function_names: HashSet<String>,
     reference_parameters: Arc<HashMap<String, Vec<bool>>>,
+    typed_reference_return_parameters:
+        Arc<HashMap<String, Vec<crate::typed_body::ParameterLoanSummary>>>,
     thread_spawn_functions: HashMap<String, Vec<crate::Type>>,
     thread_join_functions: HashSet<String>,
     thread_task_loans: HashMap<String, Vec<(String, LoanKind)>>,
@@ -725,6 +727,24 @@ fn check_program_impl(
                         )),
                     declarations.is_some(),
                     typed_reborrow_parents,
+                    declarations.and_then(|declarations| {
+                        declarations.bodies.get(&function.name).map(|body| {
+                            program
+                                .items
+                                .iter()
+                                .filter_map(|item| match item {
+                                    Item::Function(callee) => {
+                                        declarations.function_id(&callee.name).and_then(|id| {
+                                            body.call_return_origins.get(&id).map(|origins| {
+                                                (callee.name.clone(), origins.clone())
+                                            })
+                                        })
+                                    }
+                                    _ => None,
+                                })
+                                .collect::<HashMap<_, _>>()
+                        })
+                    }),
                 )?;
             }
         }
@@ -792,6 +812,9 @@ fn check_function(
     typed_return_escapes: bool,
     typed_scope_escapes: bool,
     typed_reborrow_parents: HashMap<usize, String>,
+    typed_reference_return_parameters: Option<
+        HashMap<String, Vec<crate::typed_body::ParameterLoanSummary>>,
+    >,
 ) -> Result<(), BorrowDiagnostic> {
     let mut returnable = globals.clone();
     let mut mutable = std::collections::HashSet::new();
@@ -855,6 +878,9 @@ fn check_function(
         reference_functions: reference_functions.clone(),
         function_names: function_names.clone(),
         reference_parameters: reference_parameters.clone(),
+        typed_reference_return_parameters: Arc::new(
+            typed_reference_return_parameters.unwrap_or_default(),
+        ),
         thread_spawn_functions: thread_spawn_functions.clone(),
         thread_join_functions: thread_join_functions.clone(),
         thread_task_loans: HashMap::new(),
@@ -2957,6 +2983,23 @@ fn reference_origins(
                     .skip(2)
                     .flat_map(|item| reference_origins(item, context, true))
                     .collect();
+            }
+            if context.reference_functions.contains(operator) {
+                if let Some(parameters) = context.typed_reference_return_parameters.get(operator) {
+                    // Use the typed parameter summary for exclusive returns:
+                    // conservatively treating unrelated shared inputs (such
+                    // as a waker) as origins creates false mutable aliases.
+                    // Keep the legacy conservative rule for shared returns;
+                    // it also protects existing aggregate-loan diagnostics.
+                    if parameters.iter().any(|summary| summary.mutable) {
+                        return parameters
+                            .iter()
+                            .filter(|summary| summary.mutable)
+                            .filter_map(|summary| items.get(summary.parameter + 1))
+                            .flat_map(|argument| reference_origins(argument, context, true))
+                            .collect();
+                    }
+                }
             }
             if context.reference_types.contains(operator)
                 || context.reference_functions.contains(operator)
