@@ -1296,7 +1296,7 @@ fn async_value_loop_statement_can_discard_a_copy_break_result() {
           (#loop
             (#let value u64
               (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 41u64)))
-            (#break value))
+            (#break (#u64.+.wrap value 1u64)))
           (#return 42u64))))
       (#fn main () u64
         (#let waker u64 0u64)
