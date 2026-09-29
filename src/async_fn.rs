@@ -964,33 +964,52 @@ fn conditional_value_expression_task(
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
     }
+    let enclosing_return_type = async_terminal_return_type(expression);
+    let function_result_type = enclosing_return_type.as_ref().unwrap_or(&await_form[1]);
     let mut function = vec![
         Expr::Symbol("#fn".into()),
         Expr::Symbol(function_name.clone()),
         Expr::List(helper_parameters),
-        await_form[1].clone(),
+        function_result_type.clone(),
     ];
     if let Some(block) = form(expression, "#block") {
         if block.len() < 2 {
             return Ok(None);
         }
-        function.extend(block[1..block.len() - 1].iter().cloned());
-        let result_name = fresh_async_name(source, next_name);
-        function.push(Expr::List(vec![
-            Expr::Symbol("#let".into()),
-            Expr::Symbol(result_name.clone()),
-            await_form[1].clone(),
-            block.last().expect("nonempty value block").clone(),
-        ]));
-        function.push(Expr::List(vec![
-            Expr::Symbol("#return".into()),
-            Expr::Symbol(result_name),
-        ]));
+        if enclosing_return_type.is_some() {
+            if block[1..block.len() - 1].iter().any(contains_return) {
+                return Ok(None);
+            }
+            for statement in &block[1..] {
+                let mut statement = statement.clone();
+                lower_async_terminal_return_markers(&mut statement)?;
+                function.push(statement);
+            }
+        } else {
+            function.extend(block[1..block.len() - 1].iter().cloned());
+            let result_name = fresh_async_name(source, next_name);
+            function.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(result_name.clone()),
+                await_form[1].clone(),
+                block.last().expect("nonempty value block").clone(),
+            ]));
+            function.push(Expr::List(vec![
+                Expr::Symbol("#return".into()),
+                Expr::Symbol(result_name),
+            ]));
+        }
     } else {
-        function.push(Expr::List(vec![
-            Expr::Symbol("#return".into()),
-            expression.clone(),
-        ]));
+        let mut returned_expression = expression.clone();
+        lower_async_terminal_return_markers(&mut returned_expression)?;
+        if enclosing_return_type.is_some() {
+            function.push(returned_expression);
+        } else {
+            function.push(Expr::List(vec![
+                Expr::Symbol("#return".into()),
+                returned_expression,
+            ]));
+        }
     }
     let function = Expr::List(function);
     let waker_expression = crate::parse(waker)?
@@ -1019,7 +1038,7 @@ fn conditional_value_expression_task(
     ]);
     Ok(Some((
         AwaitProtocol {
-            result_type: await_form[1].clone(),
+            result_type: function_result_type.clone(),
             child_type: Expr::Symbol(frame),
             pending: Expr::Symbol(pending),
             ready: Expr::Symbol(ready),
@@ -3237,7 +3256,11 @@ fn lower_async_while(
         let direct_condition_await = form(&items[1], "#await");
         let return_index = items.len().saturating_sub(1);
         let body_exit = if items.len() >= 3 {
-            async_terminal_loop_exit(&items[return_index], return_value)
+            async_terminal_loop_exit_with_return_marker(
+                &items[return_index],
+                return_value,
+                items[2..].iter().any(has_await).then_some(return_type),
+            )
         } else {
             None
         };
@@ -3446,8 +3469,27 @@ fn async_while_has_terminal_return(statement: &Expr) -> bool {
 }
 
 fn async_terminal_loop_exit(expression: &Expr, tail: &Expr) -> Option<(Expr, bool)> {
+    async_terminal_loop_exit_with_return_marker(expression, tail, None)
+}
+
+fn async_terminal_loop_exit_with_return_marker(
+    expression: &Expr,
+    tail: &Expr,
+    return_type: Option<&Expr>,
+) -> Option<(Expr, bool)> {
     if let Some(return_form) = form(expression, "#return") {
-        return (return_form.len() == 2).then(|| (return_form[1].clone(), true));
+        return (return_form.len() == 2).then(|| {
+            let returned = if let Some(return_type) = return_type {
+                Expr::List(vec![
+                    Expr::Symbol("#async-terminal-return".into()),
+                    return_type.clone(),
+                    return_form[1].clone(),
+                ])
+            } else {
+                return_form[1].clone()
+            };
+            (returned, true)
+        });
     }
     if let Some(break_form) = form(expression, "#break") {
         return (break_form.len() == 1).then(|| (tail.clone(), false));
@@ -3456,7 +3498,8 @@ fn async_terminal_loop_exit(expression: &Expr, tail: &Expr) -> Option<(Expr, boo
         if block.len() < 2 {
             return None;
         }
-        let (returned, contains_return) = async_terminal_loop_exit(block.last()?, tail)?;
+        let (returned, contains_return) =
+            async_terminal_loop_exit_with_return_marker(block.last()?, tail, return_type)?;
         return Some((
             Expr::List(
                 block[..block.len() - 1]
@@ -3472,8 +3515,10 @@ fn async_terminal_loop_exit(expression: &Expr, tail: &Expr) -> Option<(Expr, boo
         if conditional.len() != 4 {
             return None;
         }
-        let (then_value, then_returns) = async_terminal_loop_exit(&conditional[2], tail)?;
-        let (else_value, else_returns) = async_terminal_loop_exit(&conditional[3], tail)?;
+        let (then_value, then_returns) =
+            async_terminal_loop_exit_with_return_marker(&conditional[2], tail, return_type)?;
+        let (else_value, else_returns) =
+            async_terminal_loop_exit_with_return_marker(&conditional[3], tail, return_type)?;
         return Some((
             Expr::List(vec![
                 conditional[0].clone(),
@@ -3497,7 +3542,8 @@ fn async_terminal_loop_exit(expression: &Expr, tail: &Expr) -> Option<(Expr, boo
             4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
             _ => return None,
         };
-        let (returned, contains_return) = async_terminal_loop_exit(&case[body_index], tail)?;
+        let (returned, contains_return) =
+            async_terminal_loop_exit_with_return_marker(&case[body_index], tail, return_type)?;
         any_return |= contains_return;
         lowered.push(Expr::List(
             case[..body_index]
@@ -6761,7 +6807,7 @@ fn contains_continue_control(expression: &Expr) -> bool {
 fn contains_return(expression: &Expr) -> bool {
     match expression {
         Expr::List(items) => {
-            matches!(items.first(), Some(Expr::Symbol(head)) if head == "#return")
+            matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#return" | "#async-terminal-return"))
                 || items.iter().skip(1).any(contains_return)
         }
         Expr::Block(statements) | Expr::Loop(statements) => {
@@ -6777,6 +6823,63 @@ fn contains_return(expression: &Expr) -> bool {
         | Expr::Unquote(expression)
         | Expr::UnquoteSplicing(expression) => contains_return(expression),
         _ => false,
+    }
+}
+
+fn lower_async_terminal_return_markers(expression: &mut Expr) -> Result<(), String> {
+    if let Some(items) = form(expression, "#async-terminal-return") {
+        if items.len() != 3 {
+            return Err("@async-fn malformed terminal return marker".into());
+        }
+        *expression = Expr::List(vec![Expr::Symbol("#return".into()), items[2].clone()]);
+        return Ok(());
+    }
+    match expression {
+        Expr::List(items) => {
+            for item in items.iter_mut().skip(1) {
+                lower_async_terminal_return_markers(item)?;
+            }
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            for statement in statements {
+                match statement {
+                    crate::Statement::Expr(value)
+                    | crate::Statement::Return(Some(value))
+                    | crate::Statement::BreakValue(value)
+                    | crate::Statement::BreakToValue { value, .. } => {
+                        lower_async_terminal_return_markers(value)?
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => lower_async_terminal_return_markers(expression)?,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn async_terminal_return_type(expression: &Expr) -> Option<Expr> {
+    if let Some(items) = form(expression, "#async-terminal-return") {
+        return (items.len() == 3).then(|| items[1].clone());
+    }
+    match expression {
+        Expr::List(items) => items.iter().skip(1).find_map(async_terminal_return_type),
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            statements.iter().find_map(|statement| match statement {
+                crate::Statement::Expr(value)
+                | crate::Statement::Return(Some(value))
+                | crate::Statement::BreakValue(value)
+                | crate::Statement::BreakToValue { value, .. } => async_terminal_return_type(value),
+                _ => None,
+            })
+        }
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => async_terminal_return_type(expression),
+        _ => None,
     }
 }
 
@@ -8286,18 +8389,40 @@ fn generated_source_with_capture_selection(
             "@async-fn #await must be the entire initializer of a top-level #let or #let-mut"
                 .to_owned()
         })?;
-        if await_form.len() != 6 {
-            return Err(
-                "#await requires (#await ChildTask Pending Ready poll task-expression)".into(),
-            );
-        }
+        let protocol_start = match await_form.len() {
+            6 => 1,
+            7 => {
+                let await_result = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+                let binding_result = parse_type(Some(&normalize_keywords(
+                    crate::parse(&local.ty)?
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| "@async-fn binding type is empty".to_owned())?
+                        .expr,
+                )))?;
+                if await_result != binding_result {
+                    return Err(format!(
+                        "@async-fn #await result type does not match binding '{}'",
+                        local.name
+                    ));
+                }
+                2
+            }
+            _ => {
+                return Err(
+                    "#await requires (#await ChildTask Pending Ready poll task-expression) or (#await ResultType ChildTask Pending Ready poll task-expression)".into(),
+                );
+            }
+        };
         if known.contains_key(&local.name) {
             return Err(format!("@async-fn duplicate binding '{}'", local.name));
         }
-        let child = expression_source(&await_form[1])?;
-        parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
-        let value = expression_source(&await_form[5])?;
-        if has_await(&await_form[5]) {
+        let child = expression_source(&await_form[protocol_start])?;
+        parse_type(Some(&normalize_keywords(
+            await_form[protocol_start].clone(),
+        )))?;
+        let value = expression_source(&await_form[protocol_start + 4])?;
+        if has_await(&await_form[protocol_start + 4]) {
             return Err("@async-fn nested #await is not supported".into());
         }
         stages.push(Stage {
@@ -8307,9 +8432,9 @@ fn generated_source_with_capture_selection(
             captures: Vec::new(),
             binding: local,
             child,
-            pending: symbol(&await_form[2], "child Pending variant")?.to_owned(),
-            ready: symbol(&await_form[3], "child Ready variant")?.to_owned(),
-            poll: symbol(&await_form[4], "child poll function")?.to_owned(),
+            pending: symbol(&await_form[protocol_start + 1], "child Pending variant")?.to_owned(),
+            ready: symbol(&await_form[protocol_start + 2], "child Ready variant")?.to_owned(),
+            poll: symbol(&await_form[protocol_start + 3], "child poll function")?.to_owned(),
             value,
         });
         let local = &stages.last().unwrap().binding;
@@ -8746,6 +8871,9 @@ fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
             };
             match head.as_str() {
                 "#literal" => {}
+                "#async-terminal-return" if items.len() == 3 => {
+                    collect_value_names(&items[2], names);
+                }
                 "#await" => {
                     let task_index = if items.len() == 7 { 6 } else { 5 };
                     if let Some(value) = items.get(task_index) {

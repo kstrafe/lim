@@ -2298,6 +2298,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   its prior state when recording an early return, and preserve it across
   Pending, Ready, `#continue`, and loop completion. Verify native early-return
   and continuation paths with a linear payload that is explicitly consumed.
+- [x] **ASYNC-01b126: Return linear payloads after a body suspension.** Update
+  the conditional branch continuation so a `#while` body can await a child and
+  then return a non-Copy value without typing the generated child poll result
+  as the awaited child's result type. Verify both early-return and loop-tail
+  payloads are transferred linearly and explicitly consumed by the caller.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

@@ -2713,6 +2713,37 @@ fn async_while_body_can_return_after_body_await() {
         (#return (#u64.+.wrap true-result false-result)))";
     let generated = build_and_run(source, 18);
     assert!(generated.contains("choice"), "{generated}");
+
+    let linear_source = source
+        .replace(
+            "(#enum ConditionTask",
+            "(#struct Payload ((value u64)))\n      (#linear Payload)\n      (#enum ConditionTask",
+        )
+        .replace(
+            "(#fn work ((decision bool)) u64",
+            "(#fn work ((decision bool)) Payload",
+        )
+        .replace(
+            "(#return body-value)",
+            "(#return (#struct-literal Payload ((value body-value))))",
+        )
+        .replace(
+            "(#return 5u64)",
+            "(#return (#struct-literal Payload ((value 5u64))))",
+        )
+        .replace(
+            "(#return (#u64.+.wrap true-result false-result))",
+            "(#let true-value u64 (#get true-result value))\n\
+             (#let false-value u64 (#get false-result value))\n\
+             (#forget true-result)\n\
+             (#forget false-result)\n\
+             (#return (#u64.+.wrap true-value false-value))",
+        );
+    let generated = build_and_run(&linear_source, 18);
+    assert!(
+        generated.contains("expression-ready Payload"),
+        "{generated}"
+    );
 }
 
 #[test]
@@ -2812,7 +2843,10 @@ fn async_suspending_while_body_can_return_after_multiple_awaits() {
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
     let generated = build_and_run(source, 32);
-    assert!(generated.contains("branch-frame-await-1"), "{generated}");
+    assert!(
+        generated.contains("expression-frame-await-1"),
+        "{generated}"
+    );
 }
 
 #[test]
