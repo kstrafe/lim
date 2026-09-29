@@ -2313,6 +2313,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   suspension. Keep its ownership in the pending frame, consume replaced values
   explicitly, and transfer the final value back exactly once on Ready or
   cancellation; verify native Pending/resume and destruction paths.
+- [x] **ASYNC-01b129: Preserve body transfers between awaited `#for` phases.**
+  When both the loop condition and step suspend, lower a body containing
+  terminal `#break` or `#continue` even if the body itself does not await.
+  Continue must run the awaited step; break must skip it. Verify both paths
+  natively across Pending/resume and confirm the post-loop value. Also lower a
+  terminal body return without polling the step.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

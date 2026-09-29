@@ -6335,7 +6335,11 @@ fn lower_async_for(
 
     if awaited_condition {
         if awaited_step {
-            let combined_body_step = loop_body.iter().any(has_await);
+            let combined_body_step = loop_body.iter().any(|expression| {
+                has_await(expression)
+                    || contains_loop_control(expression)
+                    || contains_return(expression)
+            });
             if combined_body_step {
                 let return_signal = loop_body.iter().any(contains_return);
                 if return_signal {

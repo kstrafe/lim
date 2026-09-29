@@ -5073,6 +5073,83 @@ fn async_for_let_else_initializer_can_suspend_in_condition() {
 }
 
 #[test]
+fn async_for_condition_and_step_await_preserve_body_continue_and_break() {
+    let source = "(#enum ConditionTask ((ConditionWaiting u64) (ConditionResuming u64)))
+      (#linear ConditionTask)
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case (ConditionWaiting iteration)
+            (ConditionPending (ConditionResuming iteration)))
+          (#case (ConditionResuming iteration) (ConditionReady true)))))
+      (#enum StepTask ((StepWaiting u64) (StepResuming u64)))
+      (#linear StepTask)
+      (#enum StepPoll ((StepPending StepTask) (StepReady u64)))
+      (#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case (StepWaiting iteration)
+            (StepPending (StepResuming iteration)))
+          (#case (StepResuming iteration)
+            (StepReady (#u64.+.wrap iteration 1u64))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#for ()
+            (#await ConditionTask ConditionPending ConditionReady
+              condition-poll (ConditionWaiting iteration))
+            (#set iteration
+              (#await u64 StepTask StepPending StepReady step-poll
+                (StepWaiting iteration)))
+            (#if (#u64.== iteration 0u64) (#continue) (#break)))
+          (#return iteration))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending-1) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending-1 : waker (#borrow waker))))
+        (#let-else (Pending pending-2) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task pending-2 : waker (#borrow waker))))
+        (#let-else (Pending pending-3) Poll third (#unreachable))
+        (#let fourth Poll (#call poll (: task pending-3 : waker (#borrow waker))))
+        (#let result u64
+          (#match fourth
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 1);
+    assert!(generated.contains("step-choice-skip"), "{generated}");
+    assert!(generated.contains("step-choice-run"), "{generated}");
+
+    let (prefix, _) = source
+        .split_once("(#fn main () u64")
+        .expect("async main function");
+    let return_prefix = prefix.replace(
+        "(#if (#u64.== iteration 0u64) (#continue) (#break))",
+        "(#return 42u64)",
+    );
+    let return_source = format!(
+        "{return_prefix}
+        (#fn main () u64
+          (#let waker u64 0u64)
+          (#let first Poll
+            (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+          (#let-else (Pending pending) Poll first (#unreachable))
+          (#let second Poll
+            (#call poll (: task pending : waker (#borrow waker))))
+          (#let result u64
+            (#match second
+              (#case (Ready value) value)
+              (#case (Pending unexpected)
+                (#block (#forget unexpected) 0u64))))
+          (#forget waker)
+          (#return result))"
+    );
+    let returned = build_and_run(&return_source, 42);
+    assert!(returned.contains("iteration-function"), "{returned}");
+}
+
+#[test]
 fn async_for_step_can_suspend_after_the_loop_body() {
     let source = "(#enum StepTask ((Waiting u64) (Resuming u64)))
       (#linear StepTask)
