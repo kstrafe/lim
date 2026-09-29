@@ -151,6 +151,31 @@ fn async_function_early_returns_from_synchronous_loops_produce_ready() {
 }
 
 #[test]
+fn async_function_early_return_from_synchronous_loop_produces_ready() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task (#case (Waiting value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#loop (#return 41u64))
+          (#let value u64
+            (#await Child ChildPending ChildReady child-poll (Waiting 42u64)))
+          (#return value))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let result Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let value u64
+          (#match result
+            (#case (Ready ready) ready)
+            (#case (Pending pending) (#block (#forget pending) 0u64))))
+        (#forget waker)
+        (#return value))";
+    build_and_run(source, 41);
+}
+
+#[test]
 fn async_lowering_errors_highlight_the_later_nested_await() {
     let source = "(#enum Step ((Waiting u64)))
       (#linear Step)

@@ -236,12 +236,11 @@ fn rewrite_async_synchronous_loop_returns(
     expression: &mut Expr,
     ready: &str,
 ) -> Result<(), String> {
-    let loop_body_start = ["#while", "#while-let", "#for", "#for-range", "#loop"]
+    let loop_body_start = ["#while", "#for", "#for-range", "#loop"]
         .into_iter()
         .find_map(|keyword| form(expression, keyword).map(|items| (keyword, items)))
         .map(|(keyword, _)| match keyword {
             "#while" => 2,
-            "#while-let" => 3,
             "#for" | "#for-range" => 4,
             "#loop" => 1,
             _ => unreachable!(),
@@ -293,7 +292,7 @@ fn rewrite_async_loop_body_statement(statement: &mut Expr, ready: &str) -> Resul
         }
         return Ok(());
     }
-    if ["#while", "#while-let", "#for", "#for-range", "#loop"]
+    if ["#while", "#for", "#for-range", "#loop"]
         .iter()
         .any(|keyword| form(statement, keyword).is_some())
     {
