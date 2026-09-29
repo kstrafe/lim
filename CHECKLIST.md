@@ -2424,6 +2424,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Exercise `#continue` and `#break` in opposite branches following an awaited
   body statement across two range iterations. The native run proves that the
   continue branch increments once and the break branch skips the step.
+- [x] **ASYNC-01b154: Return from a while body after a composed condition
+  await.** Normalize a condition that selects between an awaited boolean and
+  an immediate value through the generated child-task adapter before lowering
+  a terminal body return. Preserve the unselected branch and return the
+  function's fallback value when the condition is false; verify Pending/Ready
+  resumption and branch selection natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

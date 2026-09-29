@@ -3430,6 +3430,42 @@ fn async_while_body_can_return_after_awaited_condition() {
 }
 
 #[test]
+fn async_while_body_returns_after_a_composed_awaited_condition() {
+    let source = "(#enum Child ((Waiting bool) (Resuming bool)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady bool)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting decision) (ChildPending (Resuming decision)))
+          (#case (Resuming decision) (ChildReady decision)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work ((decision bool)) u64
+          (#let-mut finished bool false)
+          (#while (#if decision
+                    (#await bool Child ChildPending ChildReady child-poll (Waiting true))
+                    false)
+            (#if finished
+              (#return 7u64)
+              (#block (#set finished true) (#continue))))
+          (#return 0u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let true-task Frame (#call work (: decision true)))
+        (#let true-first Poll (#call poll (: task true-task : waker (#borrow waker))))
+        (#let-else (PollPending true-pending) Poll true-first (#unreachable))
+        (#let true-second Poll (#call poll (: task true-pending : waker (#borrow waker))))
+        (#let-else (PollPending true-pending-again) Poll true-second (#unreachable))
+        (#let true-third Poll (#call poll (: task true-pending-again : waker (#borrow waker))))
+        (#let-else (PollReady true-result) Poll true-third (#unreachable))
+        (#let false-task Frame (#call work (: decision false)))
+        (#let false-first Poll (#call poll (: task false-task : waker (#borrow waker))))
+        (#let-else (PollReady false-result) Poll false-first (#unreachable))
+        (#forget waker)
+        (#return (#u64.+.wrap true-result false-result)))";
+    build_and_run(source, 7);
+}
+
+#[test]
 fn async_while_body_can_return_after_body_await() {
     let source = "(#enum ConditionTask ((ConditionWaiting bool) (ConditionResuming bool)))
       (#linear ConditionTask)

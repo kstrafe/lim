@@ -3720,7 +3720,25 @@ fn lower_async_while(
     waker: &str,
 ) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if let Some(items) = form(statement, "#while") {
-        let direct_condition_await = form(&items[1], "#await");
+        let condition = if let Some(await_form) = form(&items[1], "#await") {
+            (Some(await_form.to_vec()), String::new())
+        } else if let Some((protocol, task, helper)) =
+            conditional_value_expression_task(&items[1], known, source, next_name, waker)?
+        {
+            (
+                Some(vec![
+                    Expr::Symbol("#await".into()),
+                    protocol.child_type,
+                    protocol.pending,
+                    protocol.ready,
+                    protocol.poll,
+                    task,
+                ]),
+                helper,
+            )
+        } else {
+            (None, String::new())
+        };
         let return_index = items.len().saturating_sub(1);
         let body_exit = if items.len() >= 3 {
             async_terminal_loop_exit_with_return_marker(
@@ -3732,14 +3750,14 @@ fn lower_async_while(
         } else {
             None
         };
-        if let (Some(await_form), Some((body_return, true))) = (direct_condition_await, body_exit) {
+        if let (Some(await_form), Some((body_return, true))) = (condition.0, body_exit) {
             if !following.is_empty()
                 || has_await(return_value)
                 || await_form.len() != 6
-                || has_await(&await_form[5])
+                || has_await(await_form.last().expect("await has a task"))
             {
                 return Err(
-                    "@async-fn awaited #while body cannot return in this shape yet; early return requires a terminal direct condition #await and a non-suspending function tail"
+                    "@async-fn awaited #while body cannot return in this shape yet; early return requires a terminal condition await and a non-suspending function tail"
                         .into(),
                 );
             }
@@ -3748,7 +3766,7 @@ fn lower_async_while(
                 Expr::Symbol("#let".into()),
                 Expr::Symbol(condition_name.clone()),
                 Expr::Symbol("bool".into()),
-                items[1].clone(),
+                Expr::List(await_form),
             ]);
             let mut replacement = vec![condition_binding];
             let returned_body = if return_index == 2 {
@@ -3774,7 +3792,7 @@ fn lower_async_while(
                 ]),
             ]));
             *return_value = Expr::Symbol(result_name);
-            return Ok(Some((replacement, String::new(), Vec::new())));
+            return Ok(Some((replacement, condition.1, Vec::new())));
         }
     }
     lower_async_while_with_transfers(
@@ -3809,7 +3827,23 @@ fn lower_async_while_with_return_continue(
     if !following.is_empty() || items.len() < 3 {
         return Ok(None);
     }
-    let Some(condition_await) = form(&items[1], "#await") else {
+    let (condition_await, condition_helper) = if let Some(await_form) = form(&items[1], "#await") {
+        (await_form.to_vec(), String::new())
+    } else if let Some((protocol, task, helper)) =
+        conditional_value_expression_task(&items[1], known, source, next_name, waker)?
+    {
+        (
+            vec![
+                Expr::Symbol("#await".into()),
+                protocol.child_type,
+                protocol.pending,
+                protocol.ready,
+                protocol.poll,
+                task,
+            ],
+            helper,
+        )
+    } else {
         return Ok(None);
     };
     if condition_await.len() != 6
@@ -3851,6 +3885,7 @@ fn lower_async_while_with_return_continue(
     let Expr::List(loop_items) = &mut rewritten_loop else {
         unreachable!("while form is a list")
     };
+    loop_items[1] = Expr::List(condition_await);
     *loop_items.last_mut().expect("while has terminal body") = body;
 
     let mut loop_known = known.clone();
@@ -3915,7 +3950,7 @@ fn lower_async_while_with_return_continue(
     };
     Ok(Some((
         replacement,
-        [status_declarations, loop_helper]
+        [status_declarations, condition_helper, loop_helper]
             .into_iter()
             .filter(|declaration| !declaration.is_empty())
             .collect::<Vec<_>>()
@@ -3928,7 +3963,7 @@ fn async_while_has_terminal_return(statement: &Expr) -> bool {
     let Some(items) = form(statement, "#while") else {
         return false;
     };
-    if items.len() < 3 || form(&items[1], "#await").is_none() {
+    if items.len() < 3 || !has_await(&items[1]) {
         return false;
     }
     items.last().is_some_and(|last| {
