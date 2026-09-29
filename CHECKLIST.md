@@ -2168,6 +2168,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   bindings, lowering the block as one selected async child while preserving
   its local setup and final diverging return. Keep the matching path lazy and
   verify the mismatch child resumes through both awaits natively.
+- [x] **ASYNC-01b99: Select conditional awaits in value-block bindings.**
+  Promote a direct `#if` await initializer to the block's ordinary
+  await continuation while retaining earlier local setup as captures. Preserve
+  branch laziness and evaluate setup once across Pending/resume; verify a
+  block-local selector and offset on the native path.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

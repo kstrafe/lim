@@ -1594,6 +1594,70 @@ fn extract_nested_awaits(
                 waker,
             );
         }
+        let mut block_known = known.clone();
+        for index in 1..block.len() {
+            let statement = &block[index];
+            if has_await(statement) {
+                let Some(binding) = form(statement, "#let").or_else(|| form(statement, "#let-mut"))
+                else {
+                    break;
+                };
+                if binding.len() != 4 {
+                    break;
+                }
+                let conditional = &binding[3];
+                if !matches!(
+                    conditional,
+                    Expr::List(items)
+                        if items.first().is_some_and(|head| matches!(head, Expr::Symbol(name) if matches!(name.as_str(), "#if" | "#match")))
+                ) {
+                    break;
+                }
+                if let Some((protocol, task, helper)) = conditional_await_with_immediate(
+                    conditional,
+                    &block_known,
+                    source,
+                    next_name,
+                    waker,
+                )? {
+                    if has_await(&task) {
+                        break;
+                    }
+                    if !helper.is_empty() {
+                        generated_helpers.push(helper);
+                    }
+                    let await_expression = Expr::List(vec![
+                        Expr::Symbol("#await".into()),
+                        protocol.result_type,
+                        protocol.child_type,
+                        protocol.pending,
+                        protocol.ready,
+                        protocol.poll,
+                        task,
+                    ]);
+                    let Expr::List(items) = expression else {
+                        unreachable!()
+                    };
+                    let Expr::List(binding) = &mut items[index] else {
+                        unreachable!()
+                    };
+                    binding[3] = await_expression;
+                    return extract_nested_awaits(
+                        expression,
+                        generated,
+                        generated_helpers,
+                        known,
+                        source,
+                        next_name,
+                        waker,
+                    );
+                }
+                break;
+            }
+            if let Ok(local) = binding(statement, "block setup") {
+                block_known.insert(local.name.clone(), local);
+            }
+        }
     }
     if let Some(BlockAwait {
         mut prefix,
