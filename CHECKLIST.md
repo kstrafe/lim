@@ -2492,6 +2492,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   in `#panic`; do not classify the panic as a function return. Verify the
   generated child poll path exists and the successful pattern path completes
   without polling it.
+- [x] **ASYNC-01b169: Select an awaited `#let-else` panic branch.** Preserve
+  conditional selection when one mismatch-only branch awaits and both branches
+  diverge by panic. The successful pattern path must still avoid constructing
+  or polling that child; verify generated lowering and native execution.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

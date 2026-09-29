@@ -4730,9 +4730,29 @@ fn async_terminal_panics(expression: &Expr) -> bool {
     if form(expression, "#panic").is_some() {
         return true;
     }
-    form(expression, "#block")
-        .and_then(|block| block.last())
-        .is_some_and(async_terminal_panics)
+    if let Some(block) = form(expression, "#block") {
+        return block.last().is_some_and(async_terminal_panics);
+    }
+    if let Some(conditional) = form(expression, "#if") {
+        return conditional.len() == 4
+            && async_terminal_panics(&conditional[2])
+            && async_terminal_panics(&conditional[3]);
+    }
+    if let Some(match_form) = form(expression, "#match") {
+        return match_form.len() >= 3
+            && match_form[2..].iter().all(|arm| {
+                let Some(case) = form(arm, "#case") else {
+                    return false;
+                };
+                let body = match case.len() {
+                    3 => &case[2],
+                    4 if form(&case[2], "#when").is_some() => &case[3],
+                    _ => return false,
+                };
+                async_terminal_panics(body)
+            });
+    }
+    false
 }
 
 fn async_terminal_loop_exit_with_return_marker(
