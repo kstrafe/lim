@@ -2195,6 +2195,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   and lower the loop body through its ordinary async state machine. Include
   enum and alias layout in the generated-source cache identity; verify native
   Pending/resume through both initializer and body suspensions.
+- [x] **ASYNC-01b104: Suspend in a `#for` step after an awaited `#let-else` initializer.**
+  Route the typed initializer pattern bindings through the existing awaited
+  step lowering, evaluate the step only after the body and resume it in source
+  order, and verify native Pending/resume through both initializer and step.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

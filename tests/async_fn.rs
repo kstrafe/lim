@@ -4127,6 +4127,53 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
 }
 
 #[test]
+fn async_for_let_else_initializer_composes_with_an_awaited_step() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#type MaybeAlias Maybe)
+      (#enum InitTask (InitWaiting InitResuming))
+      (#linear InitTask)
+      (#enum InitPoll ((InitPending InitTask) (InitReady Maybe)))
+      (#fn init-poll ((task InitTask) (waker (#ref u64))) InitPoll
+        (#return (#match task
+          (#case InitWaiting (InitPending InitResuming))
+          (#case InitResuming (InitReady (Some 9u64))))))
+      (#enum StepTask (StepWaiting StepResuming))
+      (#linear StepTask)
+      (#enum StepPoll ((StepPending StepTask) (StepReady bool)))
+      (#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case StepWaiting (StepPending StepResuming))
+          (#case StepResuming (StepReady true)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut done bool false)
+          (#for (#let-else (Some index) MaybeAlias
+                  (#await InitTask InitPending InitReady init-poll InitWaiting)
+                  (#unreachable))
+                (#bool.== done false)
+                (#set done
+                  (#await bool StepTask StepPending StepReady step-poll StepWaiting))
+            (#assert (#u64.== index 9u64)))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (:)))
+        (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let-else (Pending after-init) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task after-init : waker (#borrow waker))))
+        (#let-else (Pending after-step) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task after-step : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("StepPending"), "{generated}");
+}
+
+#[test]
 fn async_for_let_else_initializer_returns_ready_on_mismatch() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum InitTask ((Waiting Maybe) (Resuming Maybe)))

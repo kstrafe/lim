@@ -5323,12 +5323,12 @@ fn lower_async_for(
             next_name,
             waker,
         )?;
-        if awaited_condition || awaited_step {
+        if awaited_condition {
             return Err(
-                "@async-fn awaited #let-else #for initialization cannot yet be combined with suspension in its condition or step".into(),
+                "@async-fn awaited #let-else #for initialization cannot yet be combined with suspension in its condition".into(),
             );
         }
-        if items[4..].iter().any(has_await) {
+        if awaited_step || items[4..].iter().any(has_await) {
             let let_else = form(&initializer_statement, "#let-else").ok_or_else(|| {
                 "@async-fn lost awaited #let-else initializer during lowering".to_owned()
             })?;
