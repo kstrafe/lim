@@ -1034,6 +1034,44 @@ fn async_enum_payloads_are_evaluated_in_source_order_before_awaits() {
 }
 
 #[test]
+fn async_nested_block_bindings_survive_suspension_inside_an_initializer() {
+    let source = "(#enum Child (Waiting Resume))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case Waiting (ChildPending Resume))
+          (#case Resume (ChildReady 42u64)))))
+      (#fn mark ((counter (#ref-mut u64))) u64
+        (#deref-set counter 1u64)
+        (#return 3u64))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((counter (#ref-mut u64))) u64
+          (#let result u64
+            (#block
+              (#let before u64 (#call mark (: counter counter)))
+              (#let total u64
+                (#u64.+.wrap before
+                  (#await u64 Child ChildPending ChildReady child-poll Waiting)))
+              total))
+          (#return result))))
+      (#fn main () u64
+        (#let-mut counter u64 0u64)
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (: counter (#borrow-mut counter))))
+        (#let outcome Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll outcome (#unreachable))
+        (#let resumed Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match resumed
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return (#u64.+.wrap counter result)))";
+    build_and_run(source, 46);
+}
+
+#[test]
 fn async_struct_fields_are_evaluated_in_source_order_before_suspension() {
     let source = "(#struct Pair ((first u64) (second u64)))
       (#enum Child (Waiting))
@@ -1189,7 +1227,7 @@ fn async_function_suspends_in_a_value_block_with_conditional_await() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 26);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    assert!(generated.contains("choice"), "{generated}");
 }
 
 #[test]

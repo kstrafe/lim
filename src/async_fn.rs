@@ -2113,6 +2113,20 @@ fn extract_nested_awaits(
             }
         }
     }
+    if form(expression, "#block").is_some()
+        && has_await(expression)
+        && extract_nested_block_awaits(
+            expression,
+            generated,
+            generated_helpers,
+            known,
+            source,
+            next_name,
+            waker,
+        )?
+    {
+        return Ok(());
+    }
     if has_await(expression)
         && (form(expression, "#loop").is_some() || form(expression, "#while").is_some())
     {
@@ -2841,6 +2855,117 @@ fn nested_await_name(source: &str, next_name: &mut usize) -> String {
             return name;
         }
     }
+}
+
+fn extract_nested_block_awaits(
+    expression: &mut Expr,
+    generated: &mut Vec<Expr>,
+    generated_helpers: &mut Vec<String>,
+    known: &HashMap<String, Binding>,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<bool, String> {
+    let Some(block) = form(expression, "#block") else {
+        return Ok(false);
+    };
+    let Some(await_statement) = block.iter().position(has_await).filter(|index| *index > 0) else {
+        return Ok(false);
+    };
+    if await_statement < block.len() - 1
+        && !form(&block[await_statement], "#let")
+            .or_else(|| form(&block[await_statement], "#let-mut"))
+            .is_some_and(|binding| binding.len() == 4 && has_await(&binding[3]))
+    {
+        return Ok(false);
+    }
+    if block_await_continuation(expression).is_some() {
+        return Ok(false);
+    }
+
+    let mut renamed = Vec::<(String, String)>::new();
+    let mut block_known = known.clone();
+    for original_statement in &block[1..await_statement] {
+        if has_await(original_statement)
+            || contains_return(original_statement)
+            || contains_loop_control(original_statement)
+        {
+            return Ok(false);
+        }
+        let mut statement = original_statement.clone();
+        for (original, replacement) in &renamed {
+            replace_await_local(&mut statement, original, replacement);
+        }
+        if let Some(local) = binding(&statement, "nested block prefix").ok() {
+            let replacement = nested_await_name(source, next_name);
+            let Expr::List(items) = &mut statement else {
+                unreachable!()
+            };
+            items[1] = Expr::Symbol(replacement.clone());
+            block_known.insert(
+                replacement.clone(),
+                Binding {
+                    name: replacement.clone(),
+                    ..local
+                },
+            );
+            renamed.push((local.name, replacement));
+        }
+        generated.push(statement);
+    }
+
+    let mut continuation = block[await_statement..].to_vec();
+    for statement in &mut continuation {
+        for (original, replacement) in &renamed {
+            replace_await_local(statement, original, replacement);
+        }
+    }
+    if await_statement == block.len() - 1 {
+        let Some(tail) = continuation.first_mut() else {
+            return Ok(false);
+        };
+        extract_nested_awaits(
+            tail,
+            generated,
+            generated_helpers,
+            &block_known,
+            source,
+            next_name,
+            waker,
+        )?;
+        *expression = tail.clone();
+    } else {
+        let statement = continuation
+            .first_mut()
+            .expect("await statement index is inside block");
+        let Expr::List(items) = statement else {
+            return Ok(false);
+        };
+        extract_nested_awaits(
+            &mut items[3],
+            generated,
+            generated_helpers,
+            &block_known,
+            source,
+            next_name,
+            waker,
+        )?;
+        *expression = Expr::List(
+            std::iter::once(Expr::Symbol("#block".into()))
+                .chain(continuation)
+                .collect(),
+        );
+    }
+    extract_nested_awaits(
+        expression,
+        generated,
+        generated_helpers,
+        &block_known,
+        source,
+        next_name,
+        waker,
+    )?;
+    Ok(true)
 }
 
 fn collect_terminal_awaits<'a>(expression: &'a Expr, output: &mut Vec<&'a [Expr]>) {
