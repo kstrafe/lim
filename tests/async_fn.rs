@@ -2969,6 +2969,53 @@ fn async_for_step_can_suspend_after_the_loop_body() {
 }
 
 #[test]
+fn async_for_step_can_suspend_after_a_suspending_body() {
+    let source = "(#enum BodyTask ((Waiting u64) (Resuming u64)))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case (Waiting value) (BodyPending (Resuming value)))
+          (#case (Resuming value) (BodyReady value)))))
+      (#enum StepTask (Start Resume))
+      (#linear StepTask)
+      (#enum StepPoll ((StepPending StepTask) (StepReady u64)))
+      (#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case Start (StepPending Resume))
+          (#case Resume (StepReady 1u64)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#for (#set iteration 0u64)
+                (#u64.< iteration 1u64)
+            (#set iteration
+                  (#await StepTask StepPending StepReady step-poll Start))
+            (#let body-value u64
+              (#await BodyTask BodyPending BodyReady body-poll (Waiting 42u64)))
+            (#assert (#u64.== body-value 42u64)))
+          (#return (#if (#u64.== iteration 1u64) 42u64 0u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending body-pending) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task body-pending : waker (#borrow waker))))
+        (#let-else (Pending step-pending) Poll second (#unreachable))
+        (#let third Poll
+          (#call poll (: task step-pending : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("sequence-task"), "{generated}");
+}
+
+#[test]
 fn async_for_step_can_suspend_inside_assignment_expression() {
     let source = "(#enum StepTask (Waiting Resuming))
       (#linear StepTask)

@@ -2056,6 +2056,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   the condition is false, and preserve the explicit step and terminal `#break`
   behavior. Verify native Pending/resume across condition and body tasks,
   including that a false condition never polls the body.
+- [x] **ASYNC-01b80: Compose awaited `#for` steps with body suspension.**
+  Sequence the body's selected await before an awaited step assignment, retain
+  each pending child independently, and commit the step result only after its
+  child is Ready. Verify native Pending/resume across both stages and that the
+  next condition observes the completed step assignment.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

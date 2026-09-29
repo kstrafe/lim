@@ -3079,9 +3079,6 @@ fn lower_async_for(
     if awaited_step && awaited_condition {
         return Err("@async-fn #for cannot suspend in both its condition and step yet".into());
     }
-    if awaited_step && loop_body.iter().any(has_await) {
-        return Err("@async-fn #for cannot suspend in both its body and step yet".into());
-    }
     if form(initializer, "#let-else").is_some() {
         return Err("@async-fn #for await does not support #let-else initializers".into());
     }
@@ -3162,12 +3159,19 @@ fn lower_async_for(
             })?;
             let result_name = fresh_async_name(source, next_name);
             let value = if let Some(await_form) = form(&set[2], "#await") {
-                if await_form.len() != 6 {
+                let await_form = if await_form.len() == 7 {
+                    parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+                    std::iter::once(Expr::Symbol("#await".into()))
+                        .chain(await_form[2..].iter().cloned())
+                        .collect()
+                } else if await_form.len() == 6 {
+                    await_form.to_vec()
+                } else {
                     return Err(
                         "@async-fn awaited #for step assignment requires (#await Child Pending Ready poll task)".into(),
                     );
-                }
-                Expr::List(await_form.to_vec())
+                };
+                Expr::List(await_form)
             } else {
                 let mut value = set[2].clone();
                 extract_nested_awaits(
