@@ -2066,7 +2066,7 @@ fn async_while_body_child(
     source: &str,
     next_name: &mut usize,
     waker: &str,
-) -> Result<(Binding, Vec<Expr>, String), String> {
+) -> Result<(Binding, Vec<Expr>, String, Vec<Binding>), String> {
     fn has_outer_loop_control(expression: &Expr) -> bool {
         match expression {
             Expr::List(items) => {
@@ -2264,14 +2264,23 @@ fn async_while_body_child(
     for expression in body {
         collect_assignments(expression, &mut mutated);
     }
-    if let Some(capture) = captures
+    let mut mutable_outputs = Vec::new();
+    for capture in captures
         .iter()
-        .find(|capture| capture.mutable && mutated.contains(&capture.name))
+        .filter(|capture| capture.mutable && mutated.contains(&capture.name))
     {
-        return Err(format!(
-            "@async-fn composed awaited while body cannot mutate captured local '{}' through a copied child-task input",
-            capture.name
-        ));
+        let parsed = crate::parse(&capture.ty)?;
+        let ty = parsed
+            .first()
+            .ok_or_else(|| "@async-fn mutable body capture type is empty".to_owned())?;
+        let ty = parse_type(Some(&normalize_keywords(ty.expr.clone())))?;
+        if !async_task_capture_is_copy(&ty) {
+            return Err(format!(
+                "@async-fn composed awaited while body cannot return mutated non-Copy capture '{}' yet",
+                capture.name
+            ));
+        }
+        mutable_outputs.push(capture.clone());
     }
 
     let base = fresh_async_name(source, next_name);
@@ -2296,6 +2305,21 @@ fn async_while_body_child(
         );
     }
     let body_status_type = Expr::Symbol("bool".into());
+    let body_result_type = if mutable_outputs.is_empty() {
+        body_status_type.clone()
+    } else {
+        let mut fields = vec![Expr::Symbol("#tuple".into()), body_status_type.clone()];
+        for capture in &mutable_outputs {
+            fields.push(
+                crate::parse(&capture.ty)?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| "@async-fn mutable body capture type is empty".to_owned())?
+                    .expr,
+            );
+        }
+        Expr::List(fields)
+    };
     let mut parameters = Vec::with_capacity(captures.len());
     let mut arguments = Vec::with_capacity(captures.len() * 3);
     for capture in &captures {
@@ -2305,19 +2329,42 @@ fn async_while_body_child(
             .next()
             .ok_or_else(|| "@async-fn body capture type is empty".to_owned())?
             .expr;
-        parameters.push(Expr::List(vec![name.clone(), ty]));
+        parameters.push(Expr::List(
+            if capture.mutable && mutated.contains(&capture.name) {
+                vec![Expr::Symbol("#mut".into()), name.clone(), ty]
+            } else {
+                vec![name.clone(), ty]
+            },
+        ));
         arguments.extend([Expr::Symbol(":".into()), name.clone(), name]);
     }
     let mut function = vec![
         Expr::Symbol("#fn".into()),
         Expr::Symbol(function_name.clone()),
         Expr::List(parameters),
-        body_status_type.clone(),
+        body_result_type.clone(),
     ];
     function.extend(child_body);
+    let body_result = if mutable_outputs.is_empty() {
+        terminal_status.unwrap_or_else(|| Expr::Symbol("false".into()))
+    } else {
+        Expr::List(
+            std::iter::once(Expr::Symbol("#tuple".into()))
+                .chain(std::iter::once(body_result_type.clone()))
+                .chain(std::iter::once(
+                    terminal_status.unwrap_or_else(|| Expr::Symbol("false".into())),
+                ))
+                .chain(
+                    mutable_outputs
+                        .iter()
+                        .map(|capture| Expr::Symbol(capture.name.clone())),
+                )
+                .collect(),
+        )
+    };
     function.push(Expr::List(vec![
         Expr::Symbol("#return".into()),
-        terminal_status.unwrap_or_else(|| Expr::Symbol("false".into())),
+        body_result,
     ]));
     let function = Expr::List(function);
     let waker = crate::parse(waker)?
@@ -2346,7 +2393,7 @@ fn async_while_body_child(
     ]);
     let await_form = vec![
         Expr::Symbol("#await".into()),
-        body_status_type.clone(),
+        body_result_type.clone(),
         Expr::Symbol(frame),
         Expr::Symbol(pending),
         Expr::Symbol(ready),
@@ -2355,16 +2402,16 @@ fn async_while_body_child(
     ];
     let binding = Binding {
         name: format!("{base}-body-result"),
-        ty: expression_source(&body_status_type)?,
+        ty: expression_source(&body_result_type)?,
         mutable: false,
     };
     let form = vec![
         Expr::Symbol("#let".into()),
         Expr::Symbol(binding.name.clone()),
-        body_status_type,
+        body_result_type,
         Expr::List(await_form.clone()),
     ];
-    Ok((binding, form, helper))
+    Ok((binding, form, helper, mutable_outputs))
 }
 
 /// Lower a while loop with one await binding per iteration into a concrete
@@ -2874,14 +2921,21 @@ fn lower_async_while_with_transfers(
         let body = &items[2..];
         if body.iter().any(has_await) {
             let use_body_child = body.len() > 1 && body[1..].iter().any(has_await);
-            let (body_binding, body_form, body_await, body_helper, body_continuation) =
+            let (body_binding, body_form, body_await, body_helper, body_continuation, body_outputs) =
                 if use_body_child {
-                    let (binding, generated_form, helper) =
+                    let (binding, generated_form, helper, outputs) =
                         async_while_body_child(body, known, known_order, source, next_name, waker)?;
                     let await_form = form(&generated_form[3], "#await")
                         .expect("generated loop body binding contains an await")
                         .to_vec();
-                    (binding, generated_form, await_form, helper, Vec::new())
+                    (
+                        binding,
+                        generated_form,
+                        await_form,
+                        helper,
+                        Vec::new(),
+                        outputs,
+                    )
                 } else {
                     let body_binding = binding(&body[0], "awaited while body")?;
                     let body_form = form(&body[0], "#let")
@@ -2926,6 +2980,7 @@ fn lower_async_while_with_transfers(
                         body_await,
                         body_helper,
                         body[1..].to_vec(),
+                        Vec::new(),
                     )
                 };
             if body_await.len() != 7 || has_await(&body_await[6]) || has_await(&await_form[5]) {
@@ -3204,32 +3259,67 @@ fn lower_async_while_with_transfers(
             let stopped_name = fresh_async_name(source, next_name);
             let body_stopped_name = fresh_async_name(source, next_name);
             let payload_name = fresh_async_name(source, next_name);
-            let body_binding_head = if body_binding.mutable {
-                "#let-mut"
-            } else {
-                "#let"
-            };
             let mut body_success = vec![Expr::Symbol("#block".into())];
-            let body_result_name = body_binding.name.clone();
-            body_success.push(Expr::List(vec![
-                Expr::Symbol(body_binding_head.into()),
-                Expr::Symbol(body_result_name.clone()),
-                body_data_type.clone(),
-                Expr::Symbol(payload_name.clone()),
-            ]));
-            body_success.push(Expr::List(vec![
-                Expr::Symbol("#let-mut".into()),
-                Expr::Symbol(body_stopped_name.clone()),
-                Expr::Symbol("bool".into()),
-                Expr::Symbol("false".into()),
-            ]));
-            body_success.extend(body_continuation);
-            if use_body_child {
+            if body_outputs.is_empty() {
                 body_success.push(Expr::List(vec![
-                    Expr::Symbol("#set".into()),
-                    Expr::Symbol(body_stopped_name.clone()),
-                    Expr::Symbol(body_result_name),
+                    Expr::Symbol("#let".into()),
+                    Expr::Symbol(body_binding.name.clone()),
+                    body_data_type.clone(),
+                    Expr::Symbol(payload_name.clone()),
                 ]));
+            } else {
+                if !transfers.is_empty() {
+                    return Err(
+                        "@async-fn cannot combine mutable body outputs with reference transfers yet"
+                            .into(),
+                    );
+                }
+                let status_name = fresh_async_name(source, next_name);
+                let output_names = body_outputs
+                    .iter()
+                    .map(|_| fresh_async_name(source, next_name))
+                    .collect::<Vec<_>>();
+                let pattern = Expr::List(
+                    std::iter::once(Expr::Symbol("#tuple".into()))
+                        .chain(std::iter::once(Expr::Symbol(status_name.clone())))
+                        .chain(output_names.iter().cloned().map(Expr::Symbol))
+                        .collect(),
+                );
+                body_success.push(Expr::List(vec![
+                    Expr::Symbol("#let".into()),
+                    pattern,
+                    body_data_type.clone(),
+                    Expr::Symbol(payload_name.clone()),
+                ]));
+                body_success.push(Expr::List(vec![
+                    Expr::Symbol("#let-mut".into()),
+                    Expr::Symbol(body_stopped_name.clone()),
+                    Expr::Symbol("bool".into()),
+                    Expr::Symbol(status_name),
+                ]));
+                for (capture, value) in body_outputs.iter().zip(output_names) {
+                    body_success.push(Expr::List(vec![
+                        Expr::Symbol("#set".into()),
+                        Expr::Symbol(capture.name.clone()),
+                        Expr::Symbol(value),
+                    ]));
+                }
+            }
+            if body_outputs.is_empty() {
+                body_success.push(Expr::List(vec![
+                    Expr::Symbol("#let-mut".into()),
+                    Expr::Symbol(body_stopped_name.clone()),
+                    Expr::Symbol("bool".into()),
+                    Expr::Symbol("false".into()),
+                ]));
+                body_success.extend(body_continuation);
+                if use_body_child {
+                    body_success.push(Expr::List(vec![
+                        Expr::Symbol("#set".into()),
+                        Expr::Symbol(body_stopped_name.clone()),
+                        Expr::Symbol(body_binding.name),
+                    ]));
+                }
             }
             if body_success.len() > 3
                 && contains_loop_control(body_success.last().expect("body has a stop local"))

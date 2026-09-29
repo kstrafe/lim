@@ -2136,6 +2136,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Carry a shared reference capture through condition and body Pending states,
   reject owner mutation while the nested child is suspended, and prove the
   borrow is released after Ready by mutating the owner in the caller.
+- [x] **ASYNC-01b93: Round-trip mutable Copy captures through body frames.**
+  Pass mutated outer locals as explicit mutable child parameters and return
+  their updated values alongside loop-control status. Restore those values in
+  the parent loop before the next condition or following continuation; verify
+  changes after multiple suspensions and terminal control-flow joins.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

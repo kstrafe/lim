@@ -3379,7 +3379,7 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
                 (#call counter-clear (: counter counter))
                 (ConditionReady true)))))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-        (#fn work ((counter (#ref Counter)) (captures Captures) (view (#ref u64))) u64
+        (#fn work ((counter (#ref Counter)) (captures Captures) (view (#ref u64)) (#mut total u64)) u64
           (#while (#await ConditionTask ConditionPending ConditionReady condition-poll
                     (ConditionWaiting counter))
             (#let-mut subtotal u64 0u64)
@@ -3393,10 +3393,11 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
             (#let second u64
               (#await ChildTask ChildPending ChildReady child-poll
                 (Waiting (#u64.+.wrap (#get captures right) (#deref view)))))
-            (#set subtotal (#u64.+.wrap first second)))
+            (#set subtotal (#u64.+.wrap first second))
+            (#set total (#u64.+.wrap total subtotal)))
           (#return (#u64.+.wrap
-            (#u64.+.wrap (#get captures left) (#get captures right))
-            (#deref view))))))
+            (#u64.+.wrap total (#get captures left))
+            (#u64.+.wrap (#get captures right) (#deref view)))))))
       (#fn main () u64
         (#let counter Counter (#call counter-create (:)))
         (#let captures Captures
@@ -3405,7 +3406,7 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
         (#let waker u64 0u64)
         (#let first Poll
           (#call poll (: task (#call work
-            (: counter (#borrow counter) : captures captures : view (#borrow view-owner)))
+            (: counter (#borrow counter) : captures captures : view (#borrow view-owner) : total 0u64))
             : waker (#borrow waker))))
         (#let-else (Pending pending) Poll first (#unreachable))
         (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
@@ -3419,7 +3420,7 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
         (#set view-owner 0u64)
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 43);
+    let generated = build_and_run(source, 87);
     assert!(generated.contains("body-function"), "{generated}");
     assert!(generated.contains("body-poll-resume"), "{generated}");
 
@@ -3445,40 +3446,40 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
     );
 
     let continue_source = source.replace(
-        "(#set subtotal (#u64.+.wrap first second)))",
-        "(#set subtotal (#u64.+.wrap first second))\n            (#continue))",
+        "(#set total (#u64.+.wrap total subtotal)))",
+        "(#set total (#u64.+.wrap total subtotal))\n            (#continue))",
     );
-    build_and_run(&continue_source, 43);
+    build_and_run(&continue_source, 87);
 
     let break_source = source.replace(
-        "(#set subtotal (#u64.+.wrap first second)))",
-        "(#set subtotal (#u64.+.wrap first second))\n            (#break))",
+        "(#set total (#u64.+.wrap total subtotal)))",
+        "(#set total (#u64.+.wrap total subtotal))\n            (#break))",
     );
-    build_and_run(&break_source, 43);
+    build_and_run(&break_source, 87);
 
     let branch_continue_source = source.replace(
-        "(#set subtotal (#u64.+.wrap first second)))",
-        "(#set subtotal (#u64.+.wrap first second))\n            (#if (#u64.== first 21u64) (#continue) (#break)))",
+        "(#set total (#u64.+.wrap total subtotal)))",
+        "(#set total (#u64.+.wrap total subtotal))\n            (#if (#u64.== first 21u64) (#continue) (#break)))",
     );
-    build_and_run(&branch_continue_source, 43);
+    build_and_run(&branch_continue_source, 87);
 
     let branch_break_source = source.replace(
-        "(#set subtotal (#u64.+.wrap first second)))",
-        "(#set subtotal (#u64.+.wrap first second))\n            (#if (#u64.== first 21u64) (#break) (#continue)))",
+        "(#set total (#u64.+.wrap total subtotal)))",
+        "(#set total (#u64.+.wrap total subtotal))\n            (#if (#u64.== first 21u64) (#break) (#continue)))",
     );
-    build_and_run(&branch_break_source, 43);
+    build_and_run(&branch_break_source, 87);
 
     let match_continue_source = source.replace(
-        "(#set subtotal (#u64.+.wrap first second)))",
-        "(#set subtotal (#u64.+.wrap first second))\n            (#match first (#case 21u64 (#continue)) (#case _ (#break))))",
+        "(#set total (#u64.+.wrap total subtotal)))",
+        "(#set total (#u64.+.wrap total subtotal))\n            (#match first (#case 21u64 (#continue)) (#case _ (#break))))",
     );
-    build_and_run(&match_continue_source, 43);
+    build_and_run(&match_continue_source, 87);
 
     let conditional_await_source = source.replace(
         "(#await ChildTask ChildPending ChildReady child-poll\n                (Waiting (#get captures right)))",
         "(#if true\n                (#await u64 ChildTask ChildPending ChildReady child-poll\n                  (Waiting (#get captures right)))\n                0u64)",
     );
-    build_and_run(&conditional_await_source, 43);
+    build_and_run(&conditional_await_source, 87);
 }
 
 #[test]
