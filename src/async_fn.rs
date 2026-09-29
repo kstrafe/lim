@@ -121,6 +121,17 @@ fn form<'a>(expr: &'a Expr, head: &str) -> Option<&'a [Expr]> {
     }
 }
 
+fn match_pattern_has_bindings(pattern: &Expr) -> bool {
+    let Expr::List(items) = pattern else {
+        return false;
+    };
+    items.iter().skip(1).any(|item| match item {
+        Expr::Symbol(name) => name != "_",
+        Expr::List(_) => match_pattern_has_bindings(item),
+        _ => false,
+    })
+}
+
 fn has_await(expr: &Expr) -> bool {
     match expr {
         Expr::List(items) => form(expr, "#await").is_some() || items.iter().any(has_await),
@@ -1050,6 +1061,93 @@ fn conditional_await_with_immediate(
         selected,
         helper,
     )))
+}
+
+/// Lower the common diverging `#let-else` form where the mismatch arm awaits
+/// and returns, the success pattern binds no values, and the function then
+/// reaches its final return. The match becomes a branch-selected child task;
+/// the child is constructed and polled only on the mismatch path.
+fn lower_awaited_let_else_return(
+    statement: &Expr,
+    following: &[Expr],
+    return_value: &Expr,
+    return_type: &Expr,
+    known: &HashMap<String, Binding>,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(Vec<Expr>, String, String)>, String> {
+    let Some(let_else) = form(statement, "#let-else") else {
+        return Ok(None);
+    };
+    if let_else.len() != 5 || !has_await(&let_else[4]) {
+        return Ok(None);
+    }
+    let Some(branch_return) = form(&let_else[4], "#return") else {
+        return Ok(None);
+    };
+    if branch_return.len() != 2 {
+        return Err("@async-fn #let-else return requires exactly one value".into());
+    }
+    let Some(await_form) = form(&branch_return[1], "#await") else {
+        return Ok(None);
+    };
+    if await_form.len() != 7 {
+        return Ok(None);
+    }
+    if match_pattern_has_bindings(&let_else[1]) {
+        return Ok(None);
+    }
+    if !following.is_empty() || has_await(return_value) {
+        return Ok(None);
+    }
+
+    let match_expression = Expr::List(vec![
+        Expr::Symbol("#match".into()),
+        let_else[3].clone(),
+        Expr::List(vec![
+            Expr::Symbol("#case".into()),
+            let_else[1].clone(),
+            return_value.clone(),
+        ]),
+        Expr::List(vec![
+            Expr::Symbol("#case".into()),
+            Expr::Symbol("_".into()),
+            branch_return[1].clone(),
+        ]),
+    ]);
+    let Some((protocol, mut task, helper)) =
+        conditional_await_with_immediate(&match_expression, known, source, next_name, waker)?
+    else {
+        return Ok(None);
+    };
+    let mut generated = Vec::new();
+    let mut generated_helpers = Vec::new();
+    extract_nested_awaits(
+        &mut task,
+        &mut generated,
+        &mut generated_helpers,
+        known,
+        source,
+        next_name,
+        waker,
+    )?;
+    let result_name = nested_await_name(source, next_name);
+    generated.push(Expr::List(vec![
+        Expr::Symbol("#let".into()),
+        Expr::Symbol(result_name.clone()),
+        return_type.clone(),
+        Expr::List(vec![
+            Expr::Symbol("#await".into()),
+            protocol.child_type,
+            protocol.pending,
+            protocol.ready,
+            protocol.poll,
+            task,
+        ]),
+    ]));
+    generated_helpers.push(helper);
+    Ok(Some((generated, generated_helpers.join("\n"), result_name)))
 }
 
 fn extract_nested_awaits(
@@ -5467,6 +5565,25 @@ fn generated_source_with_capture_selection(
     for source_index in 0..statements.len() {
         let mut statement = statements[source_index].clone();
         let following = statements[source_index + 1..].to_vec();
+        if let Some((replacement, helper, result_name)) = lower_awaited_let_else_return(
+            &statement,
+            &following,
+            &return_value,
+            &function[3],
+            &lowering_known,
+            &source,
+            &mut next_nested_await,
+            &waker_source,
+        )
+        .map_err(|error| format!("async statement {source_index}: {error}"))?
+        {
+            if !helper.is_empty() {
+                generated_helpers.push(helper);
+            }
+            lowered_statements.extend(replacement);
+            return_value = Expr::Symbol(result_name);
+            continue;
+        }
         if let Some((replacement, helper, renames)) = lower_async_loop(
             &statement,
             &lowering_known,

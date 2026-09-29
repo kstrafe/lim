@@ -1265,6 +1265,45 @@ fn async_function_rejects_await_in_let_else_diverging_body() {
 }
 
 #[test]
+fn async_function_only_polls_awaited_let_else_mismatch_arm() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting remaining)
+            (#if (#u64.== remaining 0u64)
+              (ChildReady 7u64)
+              (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((input Maybe)) u64
+          (#let-else (Some _) Maybe input
+            (#return (#await u64 Child ChildPending ChildReady child-poll (Waiting 1u64))))
+          (#return 0u64))))
+      (#fn poll-work ((input Maybe) (waker (#ref u64))) u64
+        (#let task Frame (#call work (: input input)))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#return (#match first
+          (#case (Ready value) value)
+          (#case (Pending running-task)
+            (#block
+              (#let second Poll (#call poll (: task running-task : waker waker)))
+              (#match second
+                (#case (Ready value) value)
+                (#case (Pending pending) (#block (#forget pending) 0u64))))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let mismatch u64
+          (#call poll-work (: input None : waker (#borrow waker))))
+        (#let matched u64
+          (#call poll-work (: input (Some 42u64) : waker (#borrow waker))))
+        (#forget waker)
+        (#return (#u64.+.wrap mismatch matched)))";
+    build_and_run(source, 7);
+}
+
+#[test]
 fn async_function_requires_types_for_nested_awaits() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
