@@ -1953,6 +1953,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   evaluate each bound once, and do not begin iterations until both complete.
   Verify multiple Pending/resume stages and the resulting range boundaries;
   body suspension remains independent.
+- [x] **ASYNC-01b62: Compose awaited `#for-range` bounds with body suspension.**
+  Carry extracted bound values and types into the range-body state machine.
+  Finish each bound exactly once before polling per-iteration body tasks, and
+  verify Pending/resume across both phases plus correct range iteration.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

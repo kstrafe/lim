@@ -2062,6 +2062,46 @@ fn async_for_range_awaits_bounds_in_source_order_before_iterating() {
 }
 
 #[test]
+fn async_for_range_composes_awaited_bounds_with_awaited_body() {
+    let source = "(#enum Child ((BoundWaiting u64) (BoundResuming u64) (Body u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (BoundWaiting value) (ChildPending (BoundResuming value)))
+          (#case (BoundResuming value) (ChildReady value))
+          (#case (Body value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#for-range (iteration u64)
+            (#await u64 Child ChildPending ChildReady child-poll (BoundWaiting 0u64))
+            (#await u64 Child ChildPending ChildReady child-poll (BoundWaiting 2u64))
+            (#let result u64
+              (#await Child ChildPending ChildReady child-poll (Body iteration))))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending first-pending) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Pending second-pending) Poll second (#unreachable))
+        (#let third Poll
+          (#call poll (: task second-pending : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("BoundWaiting"), "{generated}");
+    assert!(generated.contains("Body"), "{generated}");
+}
+
+#[test]
 fn async_function_resumes_child_await_inside_for_with_existing_counter() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

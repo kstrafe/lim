@@ -1742,9 +1742,6 @@ fn lower_async_for_range(
     }
     let bounds_suspend = has_await(&items[2]) || has_await(&items[3]);
     if bounds_suspend {
-        if items[4..].iter().any(has_await) {
-            return Err("@async-fn #for-range bounds and body cannot both suspend yet".into());
-        }
         let mut start = items[2].clone();
         let mut end = items[3].clone();
         let mut generated = Vec::new();
@@ -1776,8 +1773,37 @@ fn lower_async_for_range(
         };
         range_items[2] = start;
         range_items[3] = end;
-        generated.push(range);
-        return Ok(Some((generated, generated_helpers.join("\n"), Vec::new())));
+        let mut range_known = known.clone();
+        let mut range_order = known_order.to_vec();
+        for declaration in &generated {
+            if form(declaration, "#let").is_some() || form(declaration, "#let-mut").is_some() {
+                let local = binding(declaration, "for-range bound await")?;
+                range_order.push(local.name.clone());
+                range_known.insert(local.name.clone(), local);
+            }
+        }
+        let (range_body, range_helper, renames) = if let Some((replacement, helper, renames)) =
+            lower_async_for_range(
+                &range,
+                &range_known,
+                &range_order,
+                following,
+                return_value,
+                source,
+                next_name,
+                waker,
+            )? {
+            (replacement, helper, renames)
+        } else {
+            (vec![range], String::new(), Vec::new())
+        };
+        generated.extend(range_body);
+        let helper = [generated_helpers.join("\n"), range_helper]
+            .into_iter()
+            .filter(|helper| !helper.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Ok(Some((generated, helper, renames)));
     }
     let Expr::List(range_binding) = &items[1] else {
         return Err("@async-fn #for-range binding must have the form (name Type)".into());
