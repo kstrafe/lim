@@ -3652,6 +3652,14 @@ fn async_while_body_can_return_after_awaited_condition() {
         generated.contains("(#if lim.async.work.choice-0"),
         "{generated}"
     );
+
+    let explicitly_typed = source.replace("#while (#await Child", "#while (#await bool Child");
+    assert_ne!(explicitly_typed, source);
+    build_and_run(&explicitly_typed, 7);
+
+    let wrong_result_type = source.replace("#while (#await Child", "#while (#await u64 Child");
+    let error = lim::parse_program(&wrong_result_type).unwrap_err();
+    assert!(error.contains("result type must be bool"), "{error}");
 }
 
 #[test]

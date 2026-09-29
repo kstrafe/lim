@@ -3864,11 +3864,29 @@ fn lower_async_while(
         } else {
             None
         };
-        if let (Some(await_form), Some((body_return, true))) = (condition.0, body_exit) {
+        if let (Some(mut await_form), Some((body_return, true))) = (condition.0, body_exit) {
+            match await_form.len() {
+                6 => {}
+                7 => {
+                    let result_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+                    if result_type != Type::Bool {
+                        return Err(
+                            "@async-fn awaited #while condition #await result type must be bool"
+                                .into(),
+                        );
+                    }
+                    await_form.remove(1);
+                }
+                _ => {
+                    return Err(
+                        "@async-fn awaited #while condition requires (#await [bool] Child Pending Ready poll task)"
+                            .into(),
+                    );
+                }
+            }
             if following
                 .iter()
                 .any(|statement| contains_return(statement) || contains_loop_control(statement))
-                || await_form.len() != 6
                 || has_await(await_form.last().expect("await has a task"))
             {
                 return Err(
@@ -4665,7 +4683,9 @@ fn lower_async_while_with_transfers(
     let mut condition = items[1].clone();
     normalize_short_circuit_await(&mut condition);
     if has_await(&condition) {
-        let (await_form, condition_helper) = if let Some(await_form) = form(&condition, "#await") {
+        let (mut await_form, condition_helper) = if let Some(await_form) =
+            form(&condition, "#await")
+        {
             (await_form.to_vec(), String::new())
         } else if let Some((protocol, task, helper)) =
             conditional_await_with_immediate(&condition, known, source, next_name, waker)?
@@ -4700,11 +4720,23 @@ fn lower_async_while_with_transfers(
                 "@async-fn awaited #while condition requires a direct #await or conditional #if with a direct #await branch".into(),
             );
         };
-        if await_form.len() != 6 {
-            return Err(
-                "@async-fn awaited #while condition requires (#await Child Pending Ready poll task)"
-                    .into(),
-            );
+        match await_form.len() {
+            6 => {}
+            7 => {
+                let result_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+                if result_type != Type::Bool {
+                    return Err(
+                        "@async-fn awaited #while condition #await result type must be bool".into(),
+                    );
+                }
+                await_form.remove(1);
+            }
+            _ => {
+                return Err(
+                    "@async-fn awaited #while condition requires (#await [bool] Child Pending Ready poll task)"
+                        .into(),
+                );
+            }
         }
         let body = &items[2..];
         if body.iter().any(has_await) {

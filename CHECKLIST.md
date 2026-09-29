@@ -2478,6 +2478,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   they appear as statements; infer Copy types for local and computed scalar
   break values, but reject linear results before they enter an adapter state.
   Verify native Pending/resume for Copy results and targeted linear rejection.
+- [x] **ASYNC-01b166: Accept explicit boolean types on awaited `#while` conditions.**
+  Normalize `#await bool ...` to the same condition protocol as a context-typed
+  await, preserve the awaited return/loop behavior, and reject an explicitly
+  non-boolean result. Verify Pending/resume natively and the type diagnostic.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
