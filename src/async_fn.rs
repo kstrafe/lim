@@ -1072,7 +1072,21 @@ fn lower_awaited_let_else_return(
     if let_else.len() != 5 || !has_await(&let_else[4]) {
         return Ok(None);
     }
-    let Some(branch_return) = form(&let_else[4], "#return") else {
+    let (branch_return, branch_prefix) = if let Some(branch_return) = form(&let_else[4], "#return")
+    {
+        (branch_return, None)
+    } else if let Some(block) = form(&let_else[4], "#block") {
+        let Some(branch_return) = block.last().and_then(|last| form(last, "#return")) else {
+            return Ok(None);
+        };
+        let prefix = &block[1..block.len() - 1];
+        if prefix.iter().any(|statement| {
+            has_await(statement) || contains_return(statement) || contains_loop_control(statement)
+        }) {
+            return Ok(None);
+        }
+        (branch_return, Some(prefix))
+    } else {
         return Ok(None);
     };
     if branch_return.len() != 2 {
@@ -1103,6 +1117,22 @@ fn lower_awaited_let_else_return(
         )
     };
 
+    let failure_value = if let Some(prefix) = branch_prefix {
+        let result_name = nested_await_name(source, next_name);
+        let mut block = vec![Expr::Symbol("#block".into())];
+        block.extend(prefix.iter().cloned());
+        block.push(Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol(result_name.clone()),
+            await_form[1].clone(),
+            branch_return[1].clone(),
+        ]));
+        block.push(Expr::Symbol(result_name));
+        Expr::List(block)
+    } else {
+        branch_return[1].clone()
+    };
+
     let match_expression = Expr::List(vec![
         Expr::Symbol("#match".into()),
         let_else[3].clone(),
@@ -1114,7 +1144,7 @@ fn lower_awaited_let_else_return(
         Expr::List(vec![
             Expr::Symbol("#case".into()),
             Expr::Symbol("_".into()),
-            branch_return[1].clone(),
+            failure_value,
         ]),
     ]);
     let Some((protocol, mut task, helper)) =
