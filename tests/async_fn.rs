@@ -2554,6 +2554,35 @@ fn awaited_while_body_reports_noncopy_task_captures() {
 }
 
 #[test]
+fn async_while_body_return_diagnostic_points_at_the_return() {
+    let source = "(#enum Child (Waiting))
+      (#enum ChildPoll ((Pending Child) (Ready bool)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task (#case Waiting (Pending Waiting)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work () u64
+          (#while (#await Child Pending Ready child-poll Waiting)
+            (#return 7u64))
+          (#return 0u64))))";
+    let scratch = support::Scratch::new("async-while-return-diagnostic");
+    let diagnostic = lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("source.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(diagnostic.message.contains("body cannot return yet"));
+    let span = diagnostic
+        .span
+        .expect("return diagnostic has a source span");
+    let return_start = source.find("#return 7u64").unwrap();
+    assert_eq!(&source[span.start..span.end], "#return");
+    assert_eq!(span.start, return_start);
+}
+
+#[test]
 fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum ChildTask ((Waiting u64)))

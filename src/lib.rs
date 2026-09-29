@@ -2677,6 +2677,15 @@ fn parse_program_in_directory_with_async_captures(
                             async_function_statement_source(&source_expression, statement_index)
                         })
                         .and_then(|statement| {
+                            if error.contains("body cannot return")
+                                || error.contains("does not support body returns")
+                            {
+                                if let Some(span) =
+                                    source_form_head_span(statement, &["#return"])
+                                {
+                                    return Some(span);
+                                }
+                            }
                             let await_index = if error.contains(
                                 "nested #await requires an explicit result type",
                             ) {

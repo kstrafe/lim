@@ -2226,6 +2226,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Ready(false), which skips the loop body, and Ready(true), which enters it and
   breaks; retain the mismatch path that returns before polling the condition.
   Run all three native paths through Pending/resume.
+- [x] **ASYNC-01b111: Point suspended-loop return diagnostics at `#return`.**
+  When lowering currently rejects a return from a suspending loop body,
+  underline the source return rather than the loop's `#await`. Verify the exact
+  token span while preserving the unsupported-control-flow diagnostic.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
