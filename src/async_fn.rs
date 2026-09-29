@@ -1012,7 +1012,23 @@ fn extract_statement_awaits(
         .or_else(|| form(statement, "let"))
         .or_else(|| form(statement, "let-mut"))
     {
-        if form(&items[3], "#await").is_some() {
+        if let Some(await_form) = form(&items[3], "#await") {
+            if await_form.len() == 6 && has_await(&await_form[5]) {
+                let Expr::List(statement_items) = statement else {
+                    unreachable!()
+                };
+                let Expr::List(await_items) = &mut statement_items[3] else {
+                    unreachable!()
+                };
+                extract_nested_awaits(
+                    &mut await_items[5],
+                    generated,
+                    generated_helpers,
+                    source,
+                    next_name,
+                    waker,
+                )?;
+            }
             return Ok(());
         }
         let Expr::List(items) = statement else {

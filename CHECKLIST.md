@@ -1938,6 +1938,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   produce a matching result value. Re-evaluate the branch selector per
   iteration and verify Pending/resume, pattern termination, and that the
   immediate branch never polls the child.
+- [x] **ASYNC-01b59: Await a task produced by an earlier await.** Extract a
+  typed await nested inside a top-level await's task expression into a prior
+  concrete stage. Preserve dependency order, generated task ownership, and
+  Pending/resume for the outer child; verify the generated source contains no
+  nested `#await` expression.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
