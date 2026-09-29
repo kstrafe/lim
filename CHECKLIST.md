@@ -1906,6 +1906,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Pending/resume, and diagnostics for unsupported initializer forms. Verified
   native initialization before both synchronous and suspending loop conditions
   and bodies.
+- [x] **ASYNC-01b53: Extract nested awaits from `#for` initializers.** Permit
+  nested typed awaits in initializer expressions by extracting them in source
+  order into generated stages before the loop. Preserve short-circuit and
+  conditional evaluation; reject await forms lacking explicit result types.
+  Verify native Pending/resume and left-to-right evaluation with multiple
+  initializer awaits; untyped nested awaits receive the explicit-result-type
+  diagnostic.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

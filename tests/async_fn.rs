@@ -2044,6 +2044,28 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
     let generated = build_and_run(source, 42);
     assert!(generated.contains("InitPending"), "{generated}");
 
+    let nested_initializer = source.replace(
+        "(#let-mut iteration u64\n                  (#await InitTask InitPending InitReady init-poll (Waiting 0u64)))",
+        "(#let-mut iteration u64\n                  (#u64.+.wrap 0u64 (#await u64 InitTask InitPending InitReady init-poll (Waiting 0u64))))",
+    );
+    let generated = build_and_run(&nested_initializer, 42);
+    assert!(generated.contains("InitPending"), "{generated}");
+
+    let multiple_nested_initializers = source
+        .replace("(#u64.< iteration 3u64)", "(#u64.< iteration 5u64)")
+        .replace("(#u64.== total 2u64)", "(#u64.== total 4u64)")
+        .replace(
+            "(#let-mut iteration u64\n                  (#await InitTask InitPending InitReady init-poll (Waiting 0u64)))",
+            "(#let-mut iteration u64\n                  (#u64.+.wrap\n                    (#await u64 InitTask InitPending InitReady init-poll (Waiting 0u64))\n                    (#await u64 InitTask InitPending InitReady init-poll (Waiting 0u64))))",
+        )
+        .replace(
+            "(#let result u64\n          (#match second\n            (#case (Ready value) value)\n            (#case (Pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
+            "(#let-else (Pending second-pending) Poll second (#unreachable))\n        (#let third Poll\n          (#call poll (: task second-pending : waker (#borrow waker))))\n        (#let result u64\n          (#match third\n            (#case (Ready value) value)\n            (#case (Pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
+        );
+    assert_ne!(multiple_nested_initializers, source);
+    let generated = build_and_run(&multiple_nested_initializers, 42);
+    assert!(generated.contains("InitPending"), "{generated}");
+
     let initializer_then_body_await = source
         .replace(
             "(#case (Waiting count)\n            (InitPending (Resuming count)))",
@@ -2088,7 +2110,7 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
         Ok(program) => lim::check_types(&program).unwrap_err(),
     };
     assert!(
-        error.contains("direct typed #await"),
+        error.contains("nested #await requires an explicit result type"),
         "nested initializer suspension should be diagnosed explicitly: {error}"
     );
 }

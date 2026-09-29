@@ -1782,6 +1782,9 @@ fn lower_async_for(
     let awaited_condition = has_await(&items[2]);
     let awaited_step = has_await(&items[3]);
     let awaited_initializer = has_await(initializer);
+    let mut initializer_prefix = Vec::new();
+    let mut initializer_helpers = Vec::new();
+    let mut initializer_value = None;
     if awaited_initializer {
         let initializer_form = form(initializer, "#let")
             .or_else(|| form(initializer, "#let-mut"))
@@ -1793,9 +1796,21 @@ fn lower_async_for(
             return Err("@async-fn #for initializer requires (#let name Type (#await ...))".into());
         }
         if form(&initializer_form[3], "#await").is_none() {
-            return Err(
-                "@async-fn #for initializer currently requires one direct typed #await".into(),
-            );
+            let mut value = initializer_form[3].clone();
+            extract_nested_awaits(
+                &mut value,
+                &mut initializer_prefix,
+                &mut initializer_helpers,
+                source,
+                next_name,
+                waker,
+            )?;
+            if !initializer_prefix.iter().any(has_await) {
+                return Err(
+                    "@async-fn #for initializer requires a direct or nested typed #await".into(),
+                );
+            }
+            initializer_value = Some(value);
         }
     }
     if awaited_condition && form(&items[2], "#await").is_none() {
@@ -1855,7 +1870,9 @@ fn lower_async_for(
             ),
             Expr::Symbol(generated_name),
             Expr::Symbol(local.ty),
-            init_form[3].clone(),
+            initializer_value
+                .take()
+                .unwrap_or_else(|| init_form[3].clone()),
         ]);
     }
 
@@ -1871,9 +1888,11 @@ fn lower_async_for(
             step,
         ];
         for_items.extend(loop_body);
+        initializer_prefix.push(initializer_statement);
+        initializer_prefix.push(Expr::List(for_items));
         return Ok(Some((
-            vec![initializer_statement, Expr::List(for_items)],
-            String::new(),
+            initializer_prefix,
+            initializer_helpers.join("\n"),
             Vec::new(),
         )));
     }
@@ -1950,9 +1969,16 @@ fn lower_async_for(
     else {
         return Err("@async-fn failed to lower awaited #for".into());
     };
+    let initializer_prefix_len = initializer_prefix.len();
+    replacement.splice(0..0, initializer_prefix);
     if !matches!(initializer, Expr::List(items) if items.is_empty()) {
-        replacement.insert(0, initializer_statement);
+        replacement.insert(initializer_prefix_len, initializer_statement);
     }
+    let helper = [initializer_helpers.join("\n"), helper]
+        .into_iter()
+        .filter(|helper| !helper.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
     Ok(Some((replacement, helper, renames)))
 }
 
