@@ -3351,7 +3351,8 @@ fn async_while_let_carries_named_copy_aggregate_to_body_task() {
 
 #[test]
 fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
-    let source = "(#struct Counter ((value (#atomic u64))))
+    let source = "(#struct Captures ((left u64) (right u64)))
+      (#struct Counter ((value (#atomic u64))))
       (#linear Counter)
       (#fn counter-create () Counter
         (#return (#struct-literal Counter ((value (#atomic-init u64 1u64))))))
@@ -3378,21 +3379,26 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
                 (#call counter-clear (: counter counter))
                 (ConditionReady true)))))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-        (#fn work ((counter (#ref Counter))) u64
+        (#fn work ((counter (#ref Counter)) (captures Captures)) u64
           (#while (#await ConditionTask ConditionPending ConditionReady condition-poll
                     (ConditionWaiting counter))
             (#let-mut subtotal u64 0u64)
             (#let first u64
-              (#await ChildTask ChildPending ChildReady child-poll (Waiting 20u64)))
+              (#await ChildTask ChildPending ChildReady child-poll
+                (Waiting (#get captures left))))
             (#let second u64
-              (#await ChildTask ChildPending ChildReady child-poll (Waiting 22u64)))
+              (#await ChildTask ChildPending ChildReady child-poll
+                (Waiting (#get captures right))))
             (#set subtotal (#u64.+.wrap first second)))
-          (#return 42u64))))
+          (#return (#u64.+.wrap (#get captures left) (#get captures right))))))
       (#fn main () u64
         (#let counter Counter (#call counter-create (:)))
+        (#let captures Captures
+          (#struct-literal Captures ((left 20u64) (right 22u64))))
         (#let waker u64 0u64)
         (#let first Poll
-          (#call poll (: task (#call work (: counter (#borrow counter))) : waker (#borrow waker))))
+          (#call poll (: task (#call work
+            (: counter (#borrow counter) : captures captures)) : waker (#borrow waker))))
         (#let-else (Pending pending) Poll first (#unreachable))
         (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
         (#let-else (Pending pending-again) Poll second (#unreachable))
@@ -3407,6 +3413,16 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
     let generated = build_and_run(source, 42);
     assert!(generated.contains("body-function"), "{generated}");
     assert!(generated.contains("body-poll-resume"), "{generated}");
+
+    let linear_capture_source = source.replace(
+        "(#struct Captures ((left u64) (right u64)))",
+        "(#struct Captures ((left u64) (right u64))) (#linear Captures)",
+    );
+    let error = lim::parse_program(&linear_capture_source).unwrap_err();
+    assert!(
+        error.contains("non-Copy local 'captures'"),
+        "linear aggregate captures must retain their ownership diagnostic: {error}"
+    );
 
     let continue_source = source.replace(
         "(#set subtotal (#u64.+.wrap first second)))",
@@ -3437,6 +3453,12 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
         "(#set subtotal (#u64.+.wrap first second))\n            (#match first (#case 20u64 (#continue)) (#case _ (#break))))",
     );
     build_and_run(&match_continue_source, 42);
+
+    let conditional_await_source = source.replace(
+        "(#await ChildTask ChildPending ChildReady child-poll\n                (Waiting (#get captures right)))",
+        "(#if true\n                (#await u64 ChildTask ChildPending ChildReady child-poll\n                  (Waiting (#get captures right)))\n                0u64)",
+    );
+    build_and_run(&conditional_await_source, 42);
 }
 
 #[test]

@@ -2126,6 +2126,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   `#continue` into the child frame's explicit stop status. Preserve branch
   effects and treat nontransferring branches as continuation; verify both `#if`
   outcomes, a `#match` arm, and native resumption through multiple Pending states.
+- [x] **ASYNC-01b91: Retain typed captures in nested loop-body tasks.**
+  Pass structurally Copy named aggregates into the nested async body frame in
+  source parameter order, use their fields across multiple awaits and a
+  conditional await, and preserve them for the outer continuation. Reject an
+  explicitly linear version with the offending capture name.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
