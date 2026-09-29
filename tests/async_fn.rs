@@ -2775,6 +2775,46 @@ fn async_awaited_while_body_returns_from_both_if_branches() {
 }
 
 #[test]
+fn async_awaited_while_body_returns_from_match_arms() {
+    let source = "(#enum ConditionTask ((ConditionWaiting bool) (ConditionResuming bool)))
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case (ConditionWaiting decision)
+            (ConditionPending (ConditionResuming decision)))
+          (#case (ConditionResuming decision) (ConditionReady decision)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work ((decision bool) (pick bool)) u64
+          (#while (#await ConditionTask ConditionPending ConditionReady
+                    condition-poll (ConditionWaiting decision))
+            (#match pick
+              (#case true (#return 13u64))
+              (#case false (#return 17u64))))
+          (#return 5u64))))
+      (#fn drive ((decision bool) (pick bool) (waker (#ref u64))) u64
+        (#let task Frame (#call work (: decision decision : pick pick)))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#let-else (PollPending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker waker)))
+        (#return (#match second
+          (#case (PollReady result) result)
+          (#case (PollPending still-pending)
+            (#block (#forget still-pending) 0u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first-result u64
+          (#call drive (: decision true : pick true : waker (#borrow waker))))
+        (#let second-result u64
+          (#call drive (: decision true : pick false : waker (#borrow waker))))
+        (#let false-result u64
+          (#call drive (: decision false : pick true : waker (#borrow waker))))
+        (#forget waker)
+        (#return (#u64.+.wrap
+          (#u64.+.wrap first-result second-result) false-result)))";
+    build_and_run(source, 35);
+}
+
+#[test]
 fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum ChildTask ((Waiting u64)))

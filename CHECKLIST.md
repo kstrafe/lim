@@ -2256,6 +2256,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   the branch condition and return the selected value only after the awaited
   loop condition is Ready(true). Keep the ordinary function tail for
   Ready(false); verify both return branches and the false-condition path.
+- [x] **ASYNC-01b117: Lower terminal match returns in awaited loops.** Preserve
+  each `#match` arm's pattern and optional guard while joining explicit return
+  values from the awaited loop body. Verify every selected return arm and the
+  Ready(false) function-tail path natively after condition suspension.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

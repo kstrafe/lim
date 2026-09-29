@@ -3242,18 +3242,41 @@ fn async_terminal_return_value(expression: &Expr) -> Option<Expr> {
     if let Some(return_form) = form(expression, "#return") {
         return (return_form.len() == 2).then(|| return_form[1].clone());
     }
-    let conditional = form(expression, "#if")?;
-    if conditional.len() != 4 {
+    if let Some(conditional) = form(expression, "#if") {
+        if conditional.len() != 4 {
+            return None;
+        }
+        let then_value = async_terminal_return_value(&conditional[2])?;
+        let else_value = async_terminal_return_value(&conditional[3])?;
+        return Some(Expr::List(vec![
+            conditional[0].clone(),
+            conditional[1].clone(),
+            then_value,
+            else_value,
+        ]));
+    }
+    let match_form = form(expression, "#match")?;
+    if match_form.len() < 3 {
         return None;
     }
-    let then_value = async_terminal_return_value(&conditional[2])?;
-    let else_value = async_terminal_return_value(&conditional[3])?;
-    Some(Expr::List(vec![
-        conditional[0].clone(),
-        conditional[1].clone(),
-        then_value,
-        else_value,
-    ]))
+    let mut lowered = match_form[..2].to_vec();
+    for arm in &match_form[2..] {
+        let case = form(arm, "#case")?;
+        let body_index = match case.len() {
+            3 => 2,
+            4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
+            _ => return None,
+        };
+        let returned = async_terminal_return_value(&case[body_index])?;
+        lowered.push(Expr::List(
+            case[..body_index]
+                .iter()
+                .cloned()
+                .chain(std::iter::once(returned))
+                .collect(),
+        ));
+    }
+    Some(Expr::List(lowered))
 }
 
 fn lower_async_while_with_transfers(
