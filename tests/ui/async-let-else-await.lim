@@ -9,4 +9,6 @@
     (#let-else (Some value) Maybe input
       (#return (#await u64 Child ChildPending ChildReady child-poll (Waiting 7u64))))
     (#let marker u64 0u64)
+    (#let later u64
+      (#await u64 Child ChildPending ChildReady child-poll (Waiting marker)))
     (#return value))))

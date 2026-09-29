@@ -1065,7 +1065,7 @@ fn lower_awaited_let_else_return(
     source: &str,
     next_name: &mut usize,
     waker: &str,
-) -> Result<Option<(Vec<Expr>, String, String)>, String> {
+) -> Result<Option<(Vec<Expr>, String, String, usize)>, String> {
     let Some(let_else) = form(statement, "#let-else") else {
         return Ok(None);
     };
@@ -1084,9 +1084,24 @@ fn lower_awaited_let_else_return(
     if await_form.len() != 7 {
         return Ok(None);
     }
-    if !following.is_empty() || has_await(return_value) {
+    if following
+        .iter()
+        .any(|statement| has_await(statement) || contains_return(statement))
+        || has_await(return_value)
+    {
         return Ok(None);
     }
+
+    let success_value = if following.is_empty() {
+        return_value.clone()
+    } else {
+        Expr::List(
+            std::iter::once(Expr::Symbol("#block".into()))
+                .chain(following.iter().cloned())
+                .chain(std::iter::once(return_value.clone()))
+                .collect(),
+        )
+    };
 
     let match_expression = Expr::List(vec![
         Expr::Symbol("#match".into()),
@@ -1094,7 +1109,7 @@ fn lower_awaited_let_else_return(
         Expr::List(vec![
             Expr::Symbol("#case".into()),
             let_else[1].clone(),
-            return_value.clone(),
+            success_value,
         ]),
         Expr::List(vec![
             Expr::Symbol("#case".into()),
@@ -1133,7 +1148,12 @@ fn lower_awaited_let_else_return(
         ]),
     ]));
     generated_helpers.push(helper);
-    Ok(Some((generated, generated_helpers.join("\n"), result_name)))
+    Ok(Some((
+        generated,
+        generated_helpers.join("\n"),
+        result_name,
+        following.len(),
+    )))
 }
 
 fn extract_nested_awaits(
@@ -5548,21 +5568,29 @@ fn generated_source_with_capture_selection(
     let mut lowered_statements = Vec::new();
     let mut lowering_known = known.clone();
     let mut lowering_known_order = known_order.clone();
+    let mut consumed_async_statements = HashSet::new();
     for source_index in 0..statements.len() {
+        if consumed_async_statements.contains(&source_index) {
+            continue;
+        }
         let mut statement = statements[source_index].clone();
         let following = statements[source_index + 1..].to_vec();
-        if let Some((replacement, helper, result_name)) = lower_awaited_let_else_return(
-            &statement,
-            &following,
-            &return_value,
-            &function[3],
-            &lowering_known,
-            &source,
-            &mut next_nested_await,
-            &waker_source,
-        )
-        .map_err(|error| format!("async statement {source_index}: {error}"))?
+        if let Some((replacement, helper, result_name, consumed_following)) =
+            lower_awaited_let_else_return(
+                &statement,
+                &following,
+                &return_value,
+                &function[3],
+                &lowering_known,
+                &source,
+                &mut next_nested_await,
+                &waker_source,
+            )
+            .map_err(|error| format!("async statement {source_index}: {error}"))?
         {
+            for consumed_index in source_index + 1..=source_index + consumed_following {
+                consumed_async_statements.insert(consumed_index);
+            }
             if !helper.is_empty() {
                 generated_helpers.push(helper);
             }
