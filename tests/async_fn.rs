@@ -1256,6 +1256,7 @@ fn async_function_rejects_await_in_let_else_diverging_body() {
         (#fn work ((input Maybe)) u64
           (#let-else (Some value) Maybe input
             (#return (#await u64 Child ChildPending ChildReady child-poll (Waiting 7u64))))
+          (#let marker u64 0u64)
           (#return value))))";
     let error = lim::parse_program(source).unwrap_err();
     assert!(
@@ -1278,9 +1279,9 @@ fn async_function_only_polls_awaited_let_else_mismatch_arm() {
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work ((input Maybe)) u64
-          (#let-else (Some _) Maybe input
+          (#let-else (Some value) Maybe input
             (#return (#await u64 Child ChildPending ChildReady child-poll (Waiting 1u64))))
-          (#return 0u64))))
+          (#return value))))
       (#fn poll-work ((input Maybe) (waker (#ref u64))) u64
         (#let task Frame (#call work (: input input)))
         (#let first Poll (#call poll (: task task : waker waker)))
@@ -1300,7 +1301,7 @@ fn async_function_only_polls_awaited_let_else_mismatch_arm() {
           (#call poll-work (: input (Some 42u64) : waker (#borrow waker))))
         (#forget waker)
         (#return (#u64.+.wrap mismatch matched)))";
-    build_and_run(source, 7);
+    build_and_run(source, 49);
 }
 
 #[test]

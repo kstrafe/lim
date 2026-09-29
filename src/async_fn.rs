@@ -121,17 +121,6 @@ fn form<'a>(expr: &'a Expr, head: &str) -> Option<&'a [Expr]> {
     }
 }
 
-fn match_pattern_has_bindings(pattern: &Expr) -> bool {
-    let Expr::List(items) = pattern else {
-        return false;
-    };
-    items.iter().skip(1).any(|item| match item {
-        Expr::Symbol(name) => name != "_",
-        Expr::List(_) => match_pattern_has_bindings(item),
-        _ => false,
-    })
-}
-
 fn has_await(expr: &Expr) -> bool {
     match expr {
         Expr::List(items) => form(expr, "#await").is_some() || items.iter().any(has_await),
@@ -1063,10 +1052,10 @@ fn conditional_await_with_immediate(
     )))
 }
 
-/// Lower the common diverging `#let-else` form where the mismatch arm awaits
-/// and returns, the success pattern binds no values, and the function then
-/// reaches its final return. The match becomes a branch-selected child task;
-/// the child is constructed and polled only on the mismatch path.
+/// Lower a diverging `#let-else` whose mismatch arm awaits and returns and is
+/// immediately followed by the function's final return. The final expression
+/// runs inside the success match arm, preserving access to pattern bindings.
+/// The child is constructed and polled only on the mismatch path.
 fn lower_awaited_let_else_return(
     statement: &Expr,
     following: &[Expr],
@@ -1093,9 +1082,6 @@ fn lower_awaited_let_else_return(
         return Ok(None);
     };
     if await_form.len() != 7 {
-        return Ok(None);
-    }
-    if match_pattern_has_bindings(&let_else[1]) {
         return Ok(None);
     }
     if !following.is_empty() || has_await(return_value) {
