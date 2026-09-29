@@ -4201,6 +4201,7 @@ fn async_loop_body_supports_more_than_two_suspensions() {
           (#case Resuming (ChildReady 2u64)))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
+          (#let-mut total u64 0u64)
           (#loop
             (#let first u64
               (#await u64 ChildTask ChildPending ChildReady child-poll Waiting))
@@ -4208,9 +4209,11 @@ fn async_loop_body_supports_more_than_two_suspensions() {
               (#await u64 ChildTask ChildPending ChildReady child-poll Waiting))
             (#let third u64
               (#await u64 ChildTask ChildPending ChildReady child-poll Waiting))
-            (#assert (#u64.==
-              (#u64.+.wrap first (#u64.+.wrap second third)) 6u64))
+            (#set total
+              (#u64.+.wrap total
+                (#u64.+.wrap first (#u64.+.wrap second third))))
             (#break))
+          (#assert (#u64.== total 6u64))
           (#return 42u64))))
       (#fn main () u64
         (#let waker u64 0u64)
