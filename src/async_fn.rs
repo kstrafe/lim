@@ -10,7 +10,7 @@ use crate::{expression_source, normalize_keywords, parse_type, Expr, Type};
 
 thread_local! {
     static NAMED_COPY_TYPES: RefCell<Vec<HashSet<String>>> = const { RefCell::new(Vec::new()) };
-    static FUNCTION_PARAMETER_TYPES: RefCell<Vec<HashMap<String, HashMap<String, String>>>> = const { RefCell::new(Vec::new()) };
+    static ASYNC_TYPE_ENVIRONMENTS: RefCell<Vec<AsyncTypeEnvironment>> = const { RefCell::new(Vec::new()) };
 }
 
 struct NamedCopyTypesGuard;
@@ -45,32 +45,45 @@ fn is_named_copy_type(name: &str) -> bool {
     })
 }
 
-struct FunctionParameterTypesGuard;
+struct AsyncTypeEnvironmentGuard;
 
-impl Drop for FunctionParameterTypesGuard {
+impl Drop for AsyncTypeEnvironmentGuard {
     fn drop(&mut self) {
-        FUNCTION_PARAMETER_TYPES.with(|types| {
-            types.borrow_mut().pop();
+        ASYNC_TYPE_ENVIRONMENTS.with(|environments| {
+            environments.borrow_mut().pop();
         });
     }
 }
 
-fn with_function_parameter_types<T>(
-    functions: &HashMap<String, HashMap<String, String>>,
+fn with_async_type_environment<T>(
+    environment: &AsyncTypeEnvironment,
     action: impl FnOnce() -> T,
 ) -> T {
-    FUNCTION_PARAMETER_TYPES.with(|stack| stack.borrow_mut().push(functions.clone()));
-    let _guard = FunctionParameterTypesGuard;
+    ASYNC_TYPE_ENVIRONMENTS.with(|stack| stack.borrow_mut().push(environment.clone()));
+    let _guard = AsyncTypeEnvironmentGuard;
     action()
 }
 
 fn function_parameter_type(function: &str, parameter: &str) -> Option<String> {
-    FUNCTION_PARAMETER_TYPES.with(|stack| {
+    ASYNC_TYPE_ENVIRONMENTS.with(|stack| {
         stack
             .borrow()
             .last()?
+            .functions
             .get(function)?
             .get(parameter)
+            .cloned()
+    })
+}
+
+fn struct_field_type(structure: &str, field: &str) -> Option<String> {
+    ASYNC_TYPE_ENVIRONMENTS.with(|stack| {
+        stack
+            .borrow()
+            .last()?
+            .struct_fields
+            .get(structure)?
+            .get(field)
             .cloned()
     })
 }
@@ -98,6 +111,7 @@ pub(crate) struct AsyncTypeEnvironment {
     pub enums: HashMap<String, HashMap<String, Vec<String>>>,
     pub aliases: HashMap<String, String>,
     pub functions: HashMap<String, HashMap<String, String>>,
+    pub struct_fields: HashMap<String, HashMap<String, String>>,
 }
 
 #[derive(Clone)]
@@ -2520,21 +2534,82 @@ fn extract_nested_awaits(
                     }
                 }
                 "#struct-literal" | "struct-literal" if items.len() == 3 => {
-                    if let Expr::List(fields) = &mut items[2] {
-                        for field in fields {
-                            if let Expr::List(pair) = field {
-                                if let Some(value) = pair.get_mut(1) {
-                                    extract_nested_awaits(
-                                        value,
-                                        generated,
-                                        generated_helpers,
-                                        known,
-                                        source,
-                                        next_name,
-                                        waker,
-                                    )?;
+                    let has_suspending_field = match &items[2] {
+                        Expr::List(fields) => fields.iter().any(|field| {
+                            matches!(field, Expr::List(pair) if pair.get(1).is_some_and(has_await))
+                        }),
+                        _ => false,
+                    };
+                    let structure = match &items[1] {
+                        Expr::Symbol(name) => name.clone(),
+                        _ if has_suspending_field => {
+                            return Err(
+                                "@async-fn cannot sequence awaited fields of a computed struct type"
+                                    .into(),
+                            );
+                        }
+                        _ => String::new(),
+                    };
+                    let Expr::List(fields) = &mut items[2] else {
+                        return Ok(());
+                    };
+                    for field in fields {
+                        let Expr::List(pair) = field else {
+                            continue;
+                        };
+                        if pair.len() != 2 {
+                            continue;
+                        }
+                        let field_name = match &pair[0] {
+                            Expr::Symbol(name) => name.clone(),
+                            _ => continue,
+                        };
+                        let value = &mut pair[1];
+                        extract_nested_awaits(
+                            value,
+                            generated,
+                            generated_helpers,
+                            known,
+                            source,
+                            next_name,
+                            waker,
+                        )?;
+                        let already_sequenced = match value {
+                            Expr::Symbol(name) => generated.iter().any(|statement| {
+                                form(statement, "#let").is_some_and(|binding| {
+                                    binding.len() == 4
+                                        && matches!(&binding[1], Expr::Symbol(bound) if bound == name)
+                                })
+                            }),
+                            _ => false,
+                        };
+                        if has_suspending_field
+                            && !async_argument_is_trivial(value)
+                            && !already_sequenced
+                        {
+                            let value_type = match value {
+                                Expr::Symbol(name) => {
+                                    known.get(name).map(|binding| binding.ty.clone())
                                 }
-                            }
+                                _ => None,
+                            };
+                            let ty = struct_field_type(&structure, &field_name)
+                                .or(value_type)
+                                .ok_or_else(|| {
+                                    format!("@async-fn cannot determine the type of field '{field_name}' in '{structure}' while preserving evaluation order")
+                                })?;
+                            let temporary = nested_await_name(source, next_name);
+                            generated.push(Expr::List(vec![
+                                Expr::Symbol("#let".into()),
+                                Expr::Symbol(temporary.clone()),
+                                crate::parse(&ty)?
+                                    .into_iter()
+                                    .next()
+                                    .ok_or_else(|| format!("@async-fn field '{field_name}' of '{structure}' has an empty type"))?
+                                    .expr,
+                                value.clone(),
+                            ]));
+                            *value = Expr::Symbol(temporary);
                         }
                     }
                 }
@@ -8936,7 +9011,7 @@ fn named_arguments(bindings: &[Binding]) -> String {
 
 pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
     let environment = AsyncTypeEnvironment::default();
-    with_function_parameter_types(&environment.functions, || {
+    with_async_type_environment(&environment, || {
         generated_source_with_capture_selection(invocation, CaptureSelection::Syntax, &environment)
     })
 }
@@ -8947,7 +9022,7 @@ pub(crate) fn generated_source_with_environment(
     copy_types: &HashSet<String>,
     type_environment: &AsyncTypeEnvironment,
 ) -> Result<String, String> {
-    with_function_parameter_types(&type_environment.functions, || {
+    with_async_type_environment(type_environment, || {
         with_named_copy_types(copy_types, || match captures {
             Some(captures) => generated_source_with_capture_selection(
                 invocation,

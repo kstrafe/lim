@@ -2207,6 +2207,15 @@ fn async_type_environment(expressions: &[SpannedExpr]) -> async_fn::AsyncTypeEnv
             Item::TypeAlias { name, target, .. } => {
                 environment.aliases.insert(name, type_source(&target));
             }
+            Item::Struct { name, fields, .. } => {
+                environment.struct_fields.insert(
+                    name,
+                    fields
+                        .into_iter()
+                        .map(|field| (field.name, type_source(&field.ty)))
+                        .collect(),
+                );
+            }
             Item::Function(function) => {
                 environment.functions.insert(
                     function.name,
@@ -2302,7 +2311,23 @@ fn async_type_environment_identity(environment: &async_fn::AsyncTypeEnvironment)
         })
         .collect::<Vec<_>>()
         .join(";");
-    format!("enums:{enums};aliases:{aliases};functions:{functions}")
+    let mut structs = environment.struct_fields.iter().collect::<Vec<_>>();
+    structs.sort_by(|left, right| left.0.cmp(right.0));
+    let structs = structs
+        .into_iter()
+        .map(|(name, fields)| {
+            let mut fields = fields.iter().collect::<Vec<_>>();
+            fields.sort_by(|left, right| left.0.cmp(right.0));
+            let fields = fields
+                .into_iter()
+                .map(|(name, ty)| format!("{name}:{ty}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{name}{{{fields}}}")
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    format!("enums:{enums};aliases:{aliases};functions:{functions};structs:{structs}")
 }
 
 struct AsyncCaptureInvocation {
