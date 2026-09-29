@@ -158,6 +158,29 @@ fn has_await(expr: &Expr) -> bool {
     }
 }
 
+fn await_count(expr: &Expr) -> usize {
+    match expr {
+        Expr::List(items) => {
+            usize::from(form(expr, "#await").is_some())
+                + items.iter().map(await_count).sum::<usize>()
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => statements
+            .iter()
+            .map(|statement| match statement {
+                crate::Statement::Expr(value)
+                | crate::Statement::Return(Some(value))
+                | crate::Statement::BreakValue(value)
+                | crate::Statement::BreakToValue { value, .. } => await_count(value),
+                _ => 0,
+            })
+            .sum(),
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => await_count(expression),
+        _ => 0,
+    }
+}
+
 /// Adapt the diverging return arm of `#let-else` to the async poll helper's
 /// result type. The successful pattern path continues through the function;
 /// only its required diverging arm returns early.
@@ -2291,6 +2314,31 @@ fn async_while_body_child(
     let ready = format!("{base}-body-ready");
     let poll = format!("{base}-body-poll");
     let mut child_body = body.to_vec();
+    for statement in &mut child_body {
+        let Some(let_form) = form(statement, "#let").or_else(|| form(statement, "#let-mut")) else {
+            continue;
+        };
+        let Some(await_form) = let_form.get(3).and_then(|value| form(value, "#await")) else {
+            continue;
+        };
+        if await_form.len() == 7 {
+            let binding_type = parse_type(Some(&normalize_keywords(let_form[2].clone())))?;
+            let await_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+            if binding_type != await_type {
+                return Err(format!(
+                    "@async-fn nested body await result type does not match binding '{}'",
+                    binding(statement, "awaited body local")?.name
+                ));
+            }
+            let Expr::List(let_items) = statement else {
+                unreachable!("direct let form is a list")
+            };
+            let Expr::List(await_items) = &mut let_items[3] else {
+                unreachable!("await initializer is a list")
+            };
+            await_items.remove(1);
+        }
+    }
     let terminal_status = child_body
         .last()
         .map(terminal_status)
@@ -2414,6 +2462,131 @@ fn async_while_body_child(
     Ok((binding, form, helper, mutable_outputs))
 }
 
+/// Lower a multi-suspension `#while-let` body into a nested async child. The
+/// loop retains its scrutinee while that child is pending, so this form
+/// requires the scrutinee to be Copy; the child re-establishes the selected
+/// pattern bindings before executing the source body.
+fn lower_async_while_let_multi_await_body(
+    items: &[Expr],
+    condition_await: &[Expr],
+    condition_helper: &str,
+    known: &HashMap<String, Binding>,
+    known_order: &[String],
+    following: &[Expr],
+    return_value: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
+    let scrutinee_type = parse_type(Some(&normalize_keywords(condition_await[1].clone())))?;
+    if !async_task_capture_is_copy(&scrutinee_type) {
+        return Err(
+            "@async-fn multi-await #while-let body currently requires a Copy scrutinee".into(),
+        );
+    }
+
+    let scrutinee = fresh_async_name(source, next_name);
+    let mut child_known = known.clone();
+    child_known.insert(
+        scrutinee.clone(),
+        Binding {
+            name: scrutinee.clone(),
+            ty: expression_source(&condition_await[1])?,
+            mutable: false,
+        },
+    );
+    let mut child_order = known_order.to_vec();
+    child_order.push(scrutinee.clone());
+
+    let mut child_body = vec![Expr::List(vec![
+        Expr::Symbol("#let-else".into()),
+        items[1].clone(),
+        condition_await[1].clone(),
+        Expr::Symbol(scrutinee),
+        Expr::List(vec![Expr::Symbol("#unreachable".into())]),
+    ])];
+    child_body.extend(items[3..].iter().cloned());
+    let (body_binding, body_form, body_helper, body_outputs) = async_while_body_child(
+        &child_body,
+        &child_known,
+        &child_order,
+        source,
+        next_name,
+        waker,
+    )?;
+
+    let mut lowered_items = items[..3].to_vec();
+    lowered_items.push(Expr::List(body_form));
+    let stopped = if body_outputs.is_empty() {
+        Expr::Symbol(body_binding.name.clone())
+    } else {
+        let stopped_name = fresh_async_name(source, next_name);
+        let mut pattern = vec![
+            Expr::Symbol("#tuple".into()),
+            Expr::Symbol(stopped_name.clone()),
+        ];
+        let mut fields = vec![Expr::Symbol("bool".into())];
+        let mut output_names = Vec::with_capacity(body_outputs.len());
+        for capture in &body_outputs {
+            let output_name = fresh_async_name(source, next_name);
+            output_names.push(output_name.clone());
+            pattern.push(Expr::Symbol(output_name));
+            fields.push(crate::parse(&capture.ty)?[0].expr.clone());
+        }
+        lowered_items.push(Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::List(pattern),
+            Expr::List(
+                std::iter::once(Expr::Symbol("#tuple".into()))
+                    .chain(fields)
+                    .collect(),
+            ),
+            Expr::Symbol(body_binding.name.clone()),
+        ]));
+        for (capture, output_name) in body_outputs.iter().zip(output_names) {
+            lowered_items.push(Expr::List(vec![
+                Expr::Symbol("#set".into()),
+                Expr::Symbol(capture.name.clone()),
+                Expr::Symbol(output_name),
+            ]));
+        }
+        Expr::Symbol(stopped_name)
+    };
+    lowered_items.push(Expr::List(vec![
+        Expr::Symbol("#if".into()),
+        stopped,
+        Expr::List(vec![Expr::Symbol("#break".into())]),
+        Expr::List(vec![Expr::Symbol("#continue".into())]),
+    ]));
+
+    let Some((replacement, loop_helper, renames)) = lower_async_while_let_body_await(
+        &lowered_items,
+        condition_await,
+        condition_helper,
+        Some(
+            child_order
+                .last()
+                .expect("the synthetic scrutinee was appended to child bindings"),
+        ),
+        known,
+        known_order,
+        following,
+        return_value,
+        source,
+        next_name,
+        waker,
+    )?
+    else {
+        return Ok(None);
+    };
+    let helper = [body_helper, loop_helper]
+        .into_iter()
+        .filter(|helper| !helper.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(Some((replacement, helper, renames)))
+}
+
 /// Lower a while loop with one await binding per iteration into a concrete
 /// child task. Its poll helper runs ready iterations in a normal Lim loop and
 /// stores the current captures plus child task only when the child is pending.
@@ -2421,6 +2594,7 @@ fn lower_async_while_let_body_await(
     items: &[Expr],
     condition_await: &[Expr],
     condition_helper: &str,
+    body_task_scrutinee: Option<&str>,
     known: &HashMap<String, Binding>,
     known_order: &[String],
     following: &[Expr],
@@ -2512,11 +2686,16 @@ fn lower_async_while_let_body_await(
     let condition_poll = symbol(&condition_await[5], "while-let poll function")?;
     let condition_task = condition_await[6].clone();
     let pattern = expression_source(&items[1])?;
+    let scrutinee_name = fresh_async_name(source, next_name);
     let body_child = expression_source(&body_await[2])?;
     let body_pending = symbol(&body_await[3], "while-let body Pending variant")?;
     let body_ready = symbol(&body_await[4], "while-let body Ready variant")?;
     let body_poll = symbol(&body_await[5], "while-let body poll function")?;
-    let body_task = expression_source(&body_await[6])?;
+    let mut body_task_expression = body_await[6].clone();
+    if let Some(parameter) = body_task_scrutinee {
+        rename_async_value(&mut body_task_expression, parameter, "scrutinee");
+    }
+    let body_task = expression_source(&body_task_expression)?;
     let body_result_type = body_binding.ty.as_str();
     let capture_types = captures
         .iter()
@@ -2580,7 +2759,6 @@ fn lower_async_while_let_body_await(
     let decision_name = fresh_async_name(source, next_name);
     let stopped_name = fresh_async_name(source, next_name);
     let body_stopped_name = fresh_async_name(source, next_name);
-    let scrutinee_name = fresh_async_name(source, next_name);
     let body_value_name = fresh_async_name(source, next_name);
     let body_binding_head = if body_binding.mutable {
         "#let-mut"
@@ -2775,10 +2953,25 @@ fn lower_async_while_with_transfers(
             }
             parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
             if items[3..].iter().any(has_await) {
+                if items[3..].iter().map(await_count).sum::<usize>() > 1 {
+                    return lower_async_while_let_multi_await_body(
+                        items,
+                        &await_form,
+                        &conditional_helper,
+                        known,
+                        known_order,
+                        following,
+                        return_value,
+                        source,
+                        next_name,
+                        waker,
+                    );
+                }
                 return lower_async_while_let_body_await(
                     items,
                     &await_form,
                     &conditional_helper,
+                    None,
                     known,
                     known_order,
                     following,
@@ -5282,9 +5475,13 @@ fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bo
             return Err("@async-fn awaited #while-let does not support labeled #continue".into());
         }
         *expression = Expr::List(vec![
-            Expr::Symbol("#set".into()),
-            Expr::Symbol(stopped.into()),
-            Expr::Symbol("false".into()),
+            Expr::Symbol("#block".into()),
+            Expr::List(vec![
+                Expr::Symbol("#set".into()),
+                Expr::Symbol(stopped.into()),
+                Expr::Symbol("false".into()),
+            ]),
+            Expr::List(Vec::new()),
         ]);
         return Ok(true);
     }

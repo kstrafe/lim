@@ -2445,6 +2445,63 @@ fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
 }
 
 #[test]
+fn async_while_let_body_can_suspend_multiple_times_after_matching() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum ConditionTask (ConditionWaiting ConditionResuming))
+      (#linear ConditionTask)
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady Maybe)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case ConditionWaiting (ConditionPending ConditionResuming))
+          (#case ConditionResuming (ConditionReady (Some 42u64))))))
+      (#enum BodyTask (BodyWaiting BodyResuming))
+      (#linear BodyTask)
+      (#fn start-body-task () BodyTask (#return BodyWaiting))
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case BodyWaiting (BodyPending BodyResuming))
+          (#case BodyResuming (BodyReady 7u64)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#while-let (Some payload)
+            (#await Maybe ConditionTask ConditionPending ConditionReady
+              condition-poll ConditionWaiting)
+            (#let first u64
+              (#await u64 BodyTask BodyPending BodyReady body-poll
+                (#call start-body-task (:))))
+            (#let second u64
+              (#await u64 BodyTask BodyPending BodyReady body-poll
+                (#call start-body-task (:))))
+            (#assert (#u64.== first second))
+            (#break))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending condition-pending) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task condition-pending : waker (#borrow waker))))
+        (#let-else (Pending body-first-pending) Poll second (#unreachable))
+        (#let third Poll
+          (#call poll (: task body-first-pending : waker (#borrow waker))))
+        (#let-else (Pending body-second-pending) Poll third (#unreachable))
+        (#let fourth Poll
+          (#call poll (: task body-second-pending : waker (#borrow waker))))
+        (#let result u64
+          (#match fourth
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("body-frame"), "{generated}");
+    assert!(generated.contains("body-poll-resume-1"), "{generated}");
+}
+
+#[test]
 fn async_while_let_does_not_poll_the_unselected_scrutinee_branch() {
     let source = "(#enum Maybe (Some None))
       (#enum ChildTask (Waiting Resuming))
