@@ -2120,7 +2120,8 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Carry a body-completion status from the nested async child so terminal
   `#continue` resumes the condition and terminal `#break` exits the loop.
   Preserve transfers inside nested loops and reject labeled or nonterminal
-  outer-loop transfers; verify both cases after multiple Pending transitions.
+  outer-loop transfers; verify both cases after multiple Pending transitions,
+  including a nested loop whose own `#break` must remain local.
 - [x] **ASYNC-01b90: Join conditional loop transfers after body suspension.**
   Lower terminal `#if`, `#match`, and `#block` branches containing `#break` or
   `#continue` into the child frame's explicit stop status. Preserve branch

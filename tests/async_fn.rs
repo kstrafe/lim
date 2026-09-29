@@ -3383,6 +3383,10 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
           (#while (#await ConditionTask ConditionPending ConditionReady condition-poll
                     (ConditionWaiting counter))
             (#let-mut subtotal u64 0u64)
+            (#let-mut inner-iterations u64 0u64)
+            (#while (#u64.== inner-iterations 0u64)
+              (#set inner-iterations 1u64)
+              (#break))
             (#let first u64
               (#await ChildTask ChildPending ChildReady child-poll
                 (Waiting (#get captures left))))
