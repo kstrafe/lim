@@ -3154,11 +3154,48 @@ fn lower_async_while(
     known: &HashMap<String, Binding>,
     known_order: &[String],
     following: &[Expr],
-    return_value: &Expr,
+    return_value: &mut Expr,
     source: &str,
     next_name: &mut usize,
     waker: &str,
 ) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
+    if let Some(items) = form(statement, "#while") {
+        if items.len() == 3 {
+            if let Some(return_form) = form(&items[2], "#return") {
+                let await_form = form(&items[1], "#await");
+                if return_form.len() != 2 {
+                    return Err("@async-fn awaited #while return requires exactly one value".into());
+                }
+                if let Some(await_form) = await_form {
+                    if !following.is_empty()
+                        || has_await(return_value)
+                        || has_await(&return_form[1])
+                        || await_form.len() != 6
+                        || has_await(&await_form[5])
+                    {
+                        return Err(
+                            "@async-fn awaited #while body cannot return in this shape yet; early return requires a terminal direct condition #await and a non-suspending return value"
+                                .into(),
+                        );
+                    }
+                    let condition_name = fresh_async_name(source, next_name);
+                    let condition_binding = Expr::List(vec![
+                        Expr::Symbol("#let".into()),
+                        Expr::Symbol(condition_name.clone()),
+                        Expr::Symbol("bool".into()),
+                        items[1].clone(),
+                    ]);
+                    *return_value = Expr::List(vec![
+                        Expr::Symbol("#if".into()),
+                        Expr::Symbol(condition_name),
+                        return_form[1].clone(),
+                        return_value.clone(),
+                    ]);
+                    return Ok(Some((vec![condition_binding], String::new(), Vec::new())));
+                }
+            }
+        }
+    }
     lower_async_while_with_transfers(
         statement,
         known,
@@ -7306,7 +7343,7 @@ fn generated_source_with_capture_selection(
             &lowering_known,
             &lowering_known_order,
             &following,
-            &return_value,
+            &mut return_value,
             &source,
             &mut next_nested_await,
             &waker_source,

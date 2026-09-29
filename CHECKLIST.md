@@ -2230,6 +2230,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   When lowering currently rejects a return from a suspending loop body,
   underline the source return rather than the loop's `#await`. Verify the exact
   token span while preserving the unsupported-control-flow diagnostic.
+- [x] **ASYNC-01b112: Return directly from a resumed awaited `#while`
+  condition.** For a terminal loop whose sole body statement is `#return`,
+  evaluate the return expression only when the awaited condition is Ready(true);
+  on Ready(false), preserve the function's ordinary final return. Verify both
+  outcomes natively after Pending/resume.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
