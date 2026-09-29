@@ -2177,6 +2177,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Lower a direct conditional await on the right-hand side of `#set` through the
   block's assignment continuation. Preserve the mutable local across Pending,
   assign only when the selected child is Ready, and verify the result natively.
+- [x] **ASYNC-01b101: Await a diverging `#let-else` in a `#for` initializer.**
+  Evaluate the scrutinee once before entering the loop, retain pattern-binding
+  scope for its condition/body/step, and preserve Pending/resume. For now,
+  reject suspension in the remaining loop phases and function returns from the
+  mismatch arm with focused diagnostics; verify the matching path natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

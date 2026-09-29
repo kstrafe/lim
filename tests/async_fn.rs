@@ -3934,6 +3934,41 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
 }
 
 #[test]
+fn async_for_let_else_initializer_suspends_before_entering_the_loop() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum InitTask (Waiting Resuming))
+      (#linear InitTask)
+      (#enum InitPoll ((InitPending InitTask) (InitReady Maybe)))
+      (#fn init-poll ((task InitTask) (waker (#ref u64))) InitPoll
+        (#return (#match task
+          (#case Waiting (InitPending Resuming))
+          (#case Resuming (InitReady (Some 0u64))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#for (#let-else (Some index) Maybe
+                  (#await InitTask InitPending InitReady init-poll Waiting)
+                  (#unreachable))
+                (#u64.< index 1u64)
+                (#u64.+.wrap index 1u64)
+            (#assert (#u64.== index 0u64))
+            (#break))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("InitPending"), "{generated}");
+}
+
+#[test]
 fn async_for_step_can_suspend_after_the_loop_body() {
     let source = "(#enum StepTask ((Waiting u64) (Resuming u64)))
       (#linear StepTask)

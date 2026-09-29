@@ -5226,6 +5226,48 @@ fn lower_async_for(
     let mut initializer_prefix = Vec::new();
     let mut initializer_helpers = Vec::new();
     let mut initializer_value = None;
+    if awaited_initializer && form(initializer, "#let-else").is_some() {
+        if awaited_condition || awaited_step || items[4..].iter().any(has_await) {
+            return Err(
+                "@async-fn awaited #let-else #for initialization cannot yet be combined with suspension in its condition, step, or body".into(),
+            );
+        }
+        if form(initializer, "#let-else")
+            .is_some_and(|let_else| let_else.get(4).is_some_and(contains_return))
+        {
+            return Err(
+                "@async-fn awaited #let-else #for initialization cannot yet return from the function on mismatch".into(),
+            );
+        }
+        let mut initializer_statement = initializer.clone();
+        extract_statement_awaits(
+            &mut initializer_statement,
+            &mut initializer_prefix,
+            &mut initializer_helpers,
+            known,
+            source,
+            next_name,
+            waker,
+        )?;
+        let mut loop_form = vec![
+            Expr::Symbol("#for".into()),
+            Expr::List(Vec::new()),
+            items[2].clone(),
+            items[3].clone(),
+        ];
+        loop_form.extend(items[4..].iter().cloned());
+        initializer_prefix.push(Expr::List(
+            std::iter::once(Expr::Symbol("#block".into()))
+                .chain(std::iter::once(initializer_statement))
+                .chain(std::iter::once(Expr::List(loop_form)))
+                .collect(),
+        ));
+        return Ok(Some((
+            initializer_prefix,
+            initializer_helpers.join("\n"),
+            Vec::new(),
+        )));
+    }
     if awaited_initializer {
         let initializer_form = form(initializer, "#let")
             .or_else(|| form(initializer, "#let-mut"))
@@ -5301,9 +5343,6 @@ fn lower_async_for(
     }
     let mut step = items[3].clone();
     let mut loop_body = items[4..].to_vec();
-    if form(initializer, "#let-else").is_some() {
-        return Err("@async-fn #for await does not support #let-else initializers".into());
-    }
     if let Some(init_form) = form(initializer, "#let").or_else(|| form(initializer, "#let-mut")) {
         let local = binding(initializer, "for initializer")?;
         if known.contains_key(&local.name) {
