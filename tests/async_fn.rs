@@ -6822,33 +6822,29 @@ fn async_function_resumes_child_await_inside_loop_until_terminal_break() {
 #[test]
 fn async_function_does_not_hoist_awaits_out_of_loop_forms() {
     let source = "(#enum Child ((Waiting u64)))
+      (#linear Child)
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
-        (#return (ChildReady 1u64)))
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Waiting value))))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
           (#loop
             (#let result u64
-              (#await Child ChildPending ChildReady child-poll (Waiting 0u64))))
-          (#return 42u64))))";
-    let scratch = support::Scratch::new("async-loop-await");
-    let input = scratch.path().join("loop.lim");
-    let diagnostic = lim::compile_source_to_assembly(
-        source,
-        &input,
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
-    assert!(
-        diagnostic
-            .message
-            .contains("requires a terminal #break or #continue"),
-        "{diagnostic:?}"
-    );
-    let span = diagnostic.span.expect("await source span");
-    assert_eq!(&source[span.start..span.end], "#await");
+              (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let outcome Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let result u64
+          (#match outcome
+            (#case (Pending pending) (#block (#forget pending) 42u64))
+            (#case (Ready value) value)))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("Frame-await-0"), "{generated}");
 }
 
 #[test]

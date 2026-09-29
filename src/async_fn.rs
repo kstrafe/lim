@@ -8317,13 +8317,7 @@ fn lower_async_loop_with_transfers(
     let Some(last) = body.last_mut() else {
         return Err("@async-fn awaited #loop requires a body".into());
     };
-    let has_terminal_control = rewrite_terminal_loop_control(last, &done)?;
-    if !has_terminal_control {
-        return Err(
-            "@async-fn awaited #loop requires a terminal #break or #continue after suspension"
-                .into(),
-        );
-    }
+    rewrite_terminal_loop_control(last, &done)?;
     if body[..body.len() - 1].iter().any(contains_loop_control) {
         return Err("@async-fn awaited #loop control transfers must follow the await".into());
     }
