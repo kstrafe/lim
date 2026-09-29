@@ -373,6 +373,29 @@ fn pinned_async_frame_promotes_a_local_owner_before_self_borrowing_it() {
 }
 
 #[test]
+fn pinned_async_result_reference_keeps_its_frame_borrow_live() {
+    let source = include_str!("../examples/async_fn_local_self_reference.lim")
+        .replace(
+            "(#fn local-self-ref ((seed u64)) u64",
+            "(#fn local-self-ref ((seed u64)) (#pin-ref u64)",
+        )
+        .replace(
+            "(#return (#u64.+.wrap (#deref view) result))",
+            "(#return view)",
+        )
+        .replace(
+            "(#let result u64\n    (#match second",
+            "(#let result (#pin-ref u64)\n    (#match second",
+        )
+        .replace("(#return result))", "(#return (#deref result)))");
+    let error = lim::check_types(&lim::parse_program(&source).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("pinned") || error.contains("destroy"),
+        "the async result reference must keep its pinned frame borrowed: {error}"
+    );
+}
+
+#[test]
 fn async_function_can_complete_without_suspension() {
     let original = example_source();
     let (prefix, _) = original.split_once("(#fn main () u64").unwrap();

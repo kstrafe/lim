@@ -1921,13 +1921,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Require `#unsafe`, support aggregate values in native codegen, preserve
   existing borrow conflicts, and test stack-backed aggregate reads/writes,
   unsafe diagnostics, and writes conflicting with a live projected reference.
-- [ ] **ASYNC-01c2: Form checked references into pinned async frames.** After
+- [x] **ASYNC-01c2: Form checked immutable references into pinned async frames.** After
   the stationary lifecycle is established, allow internal references only
   after their owned referents are initialized and pinned. Track field-sensitive
   loans through every state transition; reject moves, replacement, incompatible
   projections, return, and cancellation that could invalidate a live internal
-  reference. Start with immutable references and add mutable projections only
-  as a separately verified extension.
+  reference. Mutable projections are a separate extension under ASYNC-01c2r.
 - [x] **ASYNC-01c2a: Initialize pinned self-reference fields in place.** Add a
   checked operation that can install a reference into a reference-valued field
   through a mutable pinned struct reference without replacing the containing
@@ -2033,6 +2032,15 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   one of its inline struct fields. Retain the exact nested field reference in a
   pinned async frame across Pending, verify native reads after resume, and
   reject a mutable borrow of the containing enum while the loan is live.
+- [ ] **ASYNC-01c2r: Retain exclusive self-references across async suspension.**
+  Create each `#pin-borrow-mut` only in the frame's initial state, then transfer
+  that exclusive reference through generated state and helper calls without
+  reborrowing or aliasing it on resume. Preserve field-sensitive access so
+  disjoint state transitions remain legal while overlapping owner access,
+  replacement, and movement remain rejected. End the loan on Ready or explicit
+  cancellation. Verify native Pending/resume mutation and cancellation, plus
+  diagnostics for duplicate exclusive borrows and uses that overlap the
+  retained projection.
 - [x] **ASYNC-01d: Connect polling to wake registration.** Integrate local
   wakers with generational tokens and the ready queue, prevent lost wakes
   between registration and Pending, and make stale wakes and duplicate queue
