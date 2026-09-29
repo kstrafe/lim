@@ -4090,6 +4090,10 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
           (#case Resuming (InitReady (Some 9u64))))))
       (#struct Resource ((value u64)))
       (#linear Resource)
+      (#fn Resource-destroy ((resource Resource)) u64
+        (#let result u64 (#get resource value))
+        (#forget resource)
+        (#return result))
       (#enum BodyTask ((BodyWaiting u64) (BodyResuming u64)))
       (#linear BodyTask)
       (#enum BodyPoll ((BodyPending BodyTask) (BodyReady Resource)))
@@ -4120,7 +4124,8 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
               (#await SecondBodyTask SecondBodyPending SecondBodyReady
                 second-body-poll SecondBodyWaiting))
             (#assert (#u64.== second-value 9u64))
-            (#forget value)
+            (#let destroyed u64 (#call Resource-destroy (: resource value)))
+            (#assert (#u64.== destroyed second-value))
             (#set done true))
           (#return 42u64))))
       (#fn main () u64
