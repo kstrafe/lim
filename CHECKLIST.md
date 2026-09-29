@@ -2148,6 +2148,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   return the stop status on mismatch, so linear enum scrutinees need not be
   duplicated or retained in the parent frame. Test Copy and linear scrutinees,
   two body awaits, terminal break, and existing mismatch/pending paths.
+- [x] **ASYNC-01b95: Compose three or more suspensions in ordinary loop bodies.**
+  Lower the whole iteration body into a nested task instead of imposing the
+  previous two-await ceiling. Carry the child’s terminal break/continue status
+  through a loop-condition flag so control transfer stays in the loop frame;
+  verify three Pending/resume stages and final break on a native run.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

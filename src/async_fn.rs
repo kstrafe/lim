@@ -3787,6 +3787,131 @@ fn lower_async_while_with_transfers(
         .enumerate()
         .filter_map(|(index, expression)| has_await(expression).then_some(index))
         .collect::<Vec<_>>();
+    if body.iter().map(await_count).sum::<usize>() > 2 {
+        let (body_binding, mut body_form, body_helper, body_outputs) = async_while_body_child(
+            body,
+            known,
+            known_order,
+            source,
+            next_name,
+            waker,
+            false,
+            None,
+        )?;
+        if !transfers.is_empty() && !body_outputs.is_empty() {
+            return Err(
+                "@async-fn cannot combine multi-await body outputs with reference transfers yet"
+                    .into(),
+            );
+        }
+        let binding_type = parse_type(Some(&normalize_keywords(body_form[2].clone())))?;
+        let Expr::List(await_form) = &mut body_form[3] else {
+            unreachable!("generated body await initializer is a list")
+        };
+        if await_form.len() == 7 {
+            let await_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+            if binding_type != await_type {
+                return Err(
+                    "@async-fn generated loop body task result type does not match its binding"
+                        .into(),
+                );
+            }
+            await_form.remove(1);
+        }
+
+        let loop_done = fresh_async_name(source, next_name);
+        let loop_condition = Expr::List(vec![
+            Expr::Symbol("#bool.&&".into()),
+            Expr::List(vec![
+                Expr::Symbol("#bool.==".into()),
+                Expr::Symbol(loop_done.clone()),
+                Expr::Symbol("false".into()),
+            ]),
+            items[1].clone(),
+        ]);
+        let mut rewritten = vec![Expr::Symbol("#while".into()), loop_condition];
+        rewritten.push(Expr::List(body_form));
+        let stopped = if body_outputs.is_empty() {
+            Expr::Symbol(body_binding.name.clone())
+        } else {
+            let stopped_name = fresh_async_name(source, next_name);
+            let mut pattern = vec![
+                Expr::Symbol("#tuple".into()),
+                Expr::Symbol(stopped_name.clone()),
+            ];
+            let mut fields = vec![Expr::Symbol("bool".into())];
+            let mut output_names = Vec::with_capacity(body_outputs.len());
+            for capture in &body_outputs {
+                let output_name = fresh_async_name(source, next_name);
+                output_names.push(output_name.clone());
+                pattern.push(Expr::Symbol(output_name));
+                fields.push(crate::parse(&capture.ty)?[0].expr.clone());
+            }
+            rewritten.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::List(pattern),
+                Expr::List(
+                    std::iter::once(Expr::Symbol("#tuple".into()))
+                        .chain(fields)
+                        .collect(),
+                ),
+                Expr::Symbol(body_binding.name.clone()),
+            ]));
+            for (capture, output_name) in body_outputs.iter().zip(output_names) {
+                rewritten.push(Expr::List(vec![
+                    Expr::Symbol("#set".into()),
+                    Expr::Symbol(capture.name.clone()),
+                    Expr::Symbol(output_name),
+                ]));
+            }
+            Expr::Symbol(stopped_name)
+        };
+        rewritten.push(Expr::List(vec![
+            Expr::Symbol("#set".into()),
+            Expr::Symbol(loop_done.clone()),
+            stopped,
+        ]));
+        let mut child_known = known.clone();
+        child_known.insert(
+            loop_done.clone(),
+            Binding {
+                name: loop_done.clone(),
+                ty: "bool".into(),
+                mutable: true,
+            },
+        );
+        let mut child_order = known_order.to_vec();
+        child_order.push(loop_done.clone());
+        let Some((mut replacement, loop_helper, renames)) = lower_async_while_with_transfers(
+            &Expr::List(rewritten),
+            &child_known,
+            &child_order,
+            transfers,
+            following,
+            return_value,
+            source,
+            next_name,
+            waker,
+        )?
+        else {
+            return Err("@async-fn failed to lower multi-await loop body".into());
+        };
+        replacement.insert(
+            0,
+            Expr::List(vec![
+                Expr::Symbol("#let-mut".into()),
+                Expr::Symbol(loop_done),
+                Expr::Symbol("bool".into()),
+                Expr::Symbol("false".into()),
+            ]),
+        );
+        let helper = [body_helper, loop_helper]
+            .into_iter()
+            .filter(|helper| !helper.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Ok(Some((replacement, helper, renames)));
+    }
     if await_indices.len() != 1 {
         if await_indices.len() >= 2 {
             let first_index = await_indices[0];
