@@ -1813,15 +1813,31 @@ fn lower_async_for(
             initializer_value = Some(value);
         }
     }
-    if awaited_condition && form(&items[2], "#await").is_none() {
-        return Err(
-            "@async-fn #for condition suspension currently requires one direct #await".into(),
-        );
-    }
     let mut loop_known = known.clone();
     let mut loop_order = known_order.to_vec();
     let mut initializer_statement = initializer.clone();
     let mut condition = items[2].clone();
+    let mut condition_helpers = Vec::new();
+    if awaited_condition && form(&condition, "#await").is_none() {
+        let Some((protocol, task, helper)) =
+            conditional_await_with_immediate(&condition, source, next_name, waker)?
+        else {
+            return Err(
+                "@async-fn #for condition requires a direct #await or conditional #if with a direct #await branch".into(),
+            );
+        };
+        if !helper.is_empty() {
+            condition_helpers.push(helper);
+        }
+        condition = Expr::List(vec![
+            Expr::Symbol("#await".into()),
+            protocol.child_type,
+            protocol.pending,
+            protocol.ready,
+            protocol.poll,
+            task,
+        ]);
+    }
     let mut step = items[3].clone();
     let mut loop_body = items[4..].to_vec();
     if awaited_step && awaited_condition {
@@ -1974,11 +1990,15 @@ fn lower_async_for(
     if !matches!(initializer, Expr::List(items) if items.is_empty()) {
         replacement.insert(initializer_prefix_len, initializer_statement);
     }
-    let helper = [initializer_helpers.join("\n"), helper]
-        .into_iter()
-        .filter(|helper| !helper.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let helper = [
+        initializer_helpers.join("\n"),
+        condition_helpers.join("\n"),
+        helper,
+    ]
+    .into_iter()
+    .filter(|helper| !helper.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n");
     Ok(Some((replacement, helper, renames)))
 }
 

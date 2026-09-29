@@ -1917,6 +1917,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   non-selected `#if` initializer branch containing an await does not poll its
   child; the immediate branch must complete on the first poll. This keeps
   generated initializer lowering from eagerly evaluating a conditional await.
+- [x] **ASYNC-01b55: Suspend conditionally in a `#for` condition.** Compose
+  conditional `#if` branches that either await the same child protocol or
+  immediately produce a boolean into one per-iteration child task. Evaluate the
+  branch selector each iteration, never hoist its await, and preserve loop
+  step ordering. Verify native Pending/resume and that an immediate branch does
+  not poll the child.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
