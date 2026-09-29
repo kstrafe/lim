@@ -2250,6 +2250,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-01e: Remove the fixed async suspension-count limit.** Preserve
   unique generated stage names and frame states for functions with more than
   32 sequential awaits. Verify a 33-stage function builds and runs natively.
+- [x] **ASYNC-01f: Preserve the originating statement for async lowering errors.**
+  Map an error from a later await-bearing statement to that statement's source
+  span instead of underlining the first await in the function. Preserve the
+  exact await token span when the lowering can identify it.
 - [x] **ASYNC-02: Add non-busy waiting and safe asynchronous I/O.** Define a
   bounded ready queue and explicit wake handles (no callbacks), readiness or
   completion registration, and OS-operation ownership. Cancellation must not

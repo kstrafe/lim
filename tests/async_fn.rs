@@ -108,6 +108,46 @@ fn async_generated_code_does_not_allow_shadowing_in_nested_branches() {
 }
 
 #[test]
+fn async_lowering_errors_highlight_the_later_nested_await() {
+    let source = "(#enum Step ((Waiting u64)))
+      (#linear Step)
+      (#enum StepPoll ((StepPending Step) (StepReady u64)))
+      (#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+        (#return (#match task (#case (Waiting value) (StepReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let first u64
+            (#await Step StepPending StepReady step-poll (Waiting 1u64)))
+          (#let second u64
+            (#await Step StepPending StepReady step-poll
+              (Waiting (#await Step StepPending StepReady step-poll (Waiting 2u64)))))
+          (#return second))))";
+    let scratch = support::Scratch::new("async-await-span");
+    let input = scratch.path().join("source.lim");
+    let diagnostic = lim::compile_source_to_assembly(
+        source,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        diagnostic
+            .message
+            .contains("nested #await requires an explicit result type"),
+        "{diagnostic:?}"
+    );
+    let span = diagnostic
+        .span
+        .expect("nested await error has a source span");
+    let await_tokens = source.match_indices("#await").collect::<Vec<_>>();
+    assert_eq!(await_tokens.len(), 3);
+    assert_eq!(span.start, await_tokens[2].0);
+    assert_eq!(&source[span.start..span.end], "#await");
+}
+
+#[test]
 fn async_function_suspends_resumes_and_is_inspectable() {
     let generated = build_and_run(&example_source(), 42);
     assert!(generated.contains("(#enum Work ((Work-start u64) (Work-await-0 u64 u64 Step)))"));

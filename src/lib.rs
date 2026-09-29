@@ -2362,6 +2362,26 @@ fn parse_program_in_directory(
                                 shadow_binding_span(statement.span, &name, &source_files)
                             })
                             .unwrap_or(form_span)
+                    } else if is_async_fn
+                        && async_lowering_statement_index(&error).is_some()
+                    {
+                        let statement_index = async_lowering_statement_index(&error)
+                            .expect("checked async statement marker");
+                        match &normalized_invocation {
+                            Expr::List(invocation) => invocation.get(4),
+                            _ => None,
+                        }
+                        .and_then(|_| {
+                            async_function_statement_source(&source_expression, statement_index)
+                        })
+                        .and_then(|statement| {
+                            let await_index = usize::from(error.contains(
+                                "nested #await requires an explicit result type",
+                            ));
+                            source_form_head_span_nth(statement, &["#await"], await_index)
+                                .or(Some(statement.span))
+                        })
+                        .unwrap_or(form_span)
                     } else if is_async_fn && (error.contains("await") || error.contains("capture")) {
                         source_form_head_span(&source_expression, &["#await"])
                             .unwrap_or(form_span)
@@ -2868,6 +2888,31 @@ fn source_form_head_span(expression: &SpannedExpr, names: &[&str]) -> Option<Spa
         .children
         .iter()
         .find_map(|child| source_form_head_span(child, names))
+}
+
+fn source_form_head_span_nth(
+    expression: &SpannedExpr,
+    names: &[&str],
+    index: usize,
+) -> Option<Span> {
+    fn collect(expression: &SpannedExpr, names: &[&str], spans: &mut Vec<Span>) {
+        if matches!(
+            &expression.expr,
+            Expr::List(items)
+                if matches!(items.first(), Some(Expr::Symbol(name)) if names.contains(&name.as_str()))
+        ) {
+            if let Some(head) = expression.children.first() {
+                spans.push(head.span);
+            }
+        }
+        for child in &expression.children {
+            collect(child, names, spans);
+        }
+    }
+
+    let mut spans = Vec::new();
+    collect(expression, names, &mut spans);
+    spans.get(index).copied()
 }
 
 fn source_form_child_span(
@@ -3438,6 +3483,14 @@ fn async_function_statement_source(
         .children
         .iter()
         .find_map(|child| async_function_statement_source(child, statement_index))
+}
+
+fn async_lowering_statement_index(error: &str) -> Option<usize> {
+    let marker = "async statement ";
+    let start = error.find(marker)? + marker.len();
+    let rest = &error[start..];
+    let end = rest.find(':')?;
+    rest[..end].parse().ok()
 }
 
 fn is_identifier_character(character: char) -> bool {

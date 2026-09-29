@@ -5256,7 +5256,9 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             &source,
             &mut next_nested_await,
             &waker_source,
-        )? {
+        )
+        .map_err(|error| format!("async statement {source_index}: {error}"))?
+        {
             apply_async_output_renames(
                 &mut statements[source_index + 1..],
                 &mut return_value,
@@ -5279,7 +5281,9 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             &source,
             &mut next_nested_await,
             &waker_source,
-        )? {
+        )
+        .map_err(|error| format!("async statement {source_index}: {error}"))?
+        {
             apply_async_output_renames(
                 &mut statements[source_index + 1..],
                 &mut return_value,
@@ -5302,7 +5306,9 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             &source,
             &mut next_nested_await,
             &waker_source,
-        )? {
+        )
+        .map_err(|error| format!("async statement {source_index}: {error}"))?
+        {
             apply_async_output_renames(
                 &mut statements[source_index + 1..],
                 &mut return_value,
@@ -5323,7 +5329,9 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             &source,
             &mut next_nested_await,
             &waker_source,
-        )? {
+        )
+        .map_err(|error| format!("async statement {source_index}: {error}"))?
+        {
             apply_async_output_renames(
                 &mut statements[source_index + 1..],
                 &mut return_value,
@@ -5343,7 +5351,8 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             &source,
             &mut next_nested_await,
             &waker_source,
-        )?;
+        )
+        .map_err(|error| format!("async statement {source_index}: {error}"))?;
         lowered_statements.extend(generated);
         lowered_statements.push(statement.clone());
         if let Ok(local) = binding(&statement, "source local") {
