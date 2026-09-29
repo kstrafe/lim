@@ -3754,7 +3754,6 @@ fn lower_async_while(
             if following
                 .iter()
                 .any(|statement| contains_return(statement) || contains_loop_control(statement))
-                || has_await(return_value)
                 || await_form.len() != 6
                 || has_await(await_form.last().expect("await has a task"))
             {
