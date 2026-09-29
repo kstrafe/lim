@@ -1354,9 +1354,27 @@ fn lower_async_while(
     let binding_form = form(&body[await_index], "#let")
         .or_else(|| form(&body[await_index], "#let-mut"))
         .ok_or_else(|| "@async-fn loop await must be a direct binding".to_owned())?;
-    let await_form = form(&binding_form[3], "#await").ok_or_else(|| {
-        "@async-fn loop binding must be initialized directly by #await".to_owned()
-    })?;
+    let (await_form, branch_helper) = if let Some(await_form) = form(&binding_form[3], "#await") {
+        (await_form.to_vec(), String::new())
+    } else if let Some((protocol, task, helper)) =
+        conditional_await_with_immediate(&binding_form[3], source, next_name, waker)?
+    {
+        (
+            vec![
+                Expr::Symbol("#await".into()),
+                protocol.child_type,
+                protocol.pending,
+                protocol.ready,
+                protocol.poll,
+                task,
+            ],
+            helper,
+        )
+    } else {
+        return Err(
+            "@async-fn loop binding requires a direct #await or conditional #if/#match with a direct #await branch".into(),
+        );
+    };
     if await_form.len() != 6 || has_await(&await_form[5]) {
         return Err("@async-fn loop #await requires one non-suspending child task".into());
     }
@@ -1715,6 +1733,11 @@ fn lower_async_while(
             },
         ));
     }
+    let task_source = [branch_helper, task_source]
+        .into_iter()
+        .filter(|helper| !helper.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
     Ok(Some((replacement, task_source, renamed_outputs)))
 }
 

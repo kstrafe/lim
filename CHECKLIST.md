@@ -1957,6 +1957,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Carry extracted bound values and types into the range-body state machine.
   Finish each bound exactly once before polling per-iteration body tasks, and
   verify Pending/resume across both phases plus correct range iteration.
+- [x] **ASYNC-01b63: Select a conditional await in a loop-body binding.**
+  Allow a `#let`/`#let-mut` in `#while`, `#for`, or `#for-range` bodies to
+  choose between a typed await and an immediate value. Preserve branch
+  selection across Pending/resume and emit one inspectable choice task.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
