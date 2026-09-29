@@ -108,6 +108,42 @@ fn async_generated_code_does_not_allow_shadowing_in_nested_branches() {
 }
 
 #[test]
+fn async_function_early_returns_from_synchronous_loops_produce_ready() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task (#case (Waiting value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((finish-early bool) (range-early bool)) u64
+          (#while finish-early
+            (#return 41u64))
+          (#for-range (iteration u32) 0u32
+            (#if range-early 1u32 0u32)
+            (#return 40u64))
+          (#let value u64
+            (#await Child ChildPending ChildReady child-poll (Waiting 42u64)))
+          (#return value))))
+      (#fn poll-work ((finish-early bool) (range-early bool) (waker (#ref u64))) u64
+        (#let task Frame (#call work (: finish-early finish-early : range-early range-early)))
+        (#let result Poll (#call poll (: task task : waker waker)))
+        (#return (#match result
+          (#case (Ready value) value)
+          (#case (Pending pending) (#block (#forget pending) 0u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let early u64
+          (#call poll-work (: finish-early true : range-early false : waker (#borrow waker))))
+        (#let range u64
+          (#call poll-work (: finish-early false : range-early true : waker (#borrow waker))))
+        (#let resumed u64
+          (#call poll-work (: finish-early false : range-early false : waker (#borrow waker))))
+        (#forget waker)
+        (#return (#u64.+.wrap early (#u64.+.wrap range resumed))))";
+    build_and_run(source, 123);
+}
+
+#[test]
 fn async_lowering_errors_highlight_the_later_nested_await() {
     let source = "(#enum Step ((Waiting u64)))
       (#linear Step)

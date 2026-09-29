@@ -2182,6 +2182,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   scope for its condition/body/step, and preserve Pending/resume. For now,
   reject suspension in the remaining loop phases and function returns from the
   mismatch arm with focused diagnostics; verify the matching path natively.
+- [x] **ASYNC-01b102: Return early from synchronous loops in async functions.**
+  Adapt direct `#return` statements in non-suspending loop bodies to the
+  enclosing poll helper's `Ready` result. Leave loops containing suspension to
+  the loop-task lowering path; verify both an early `#while` return and a
+  `#for-range` return before a later await in one native run.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

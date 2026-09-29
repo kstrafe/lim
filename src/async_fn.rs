@@ -228,6 +228,80 @@ fn rewrite_async_diverging_returns(expression: &mut Expr, ready: &str) -> Result
     Ok(())
 }
 
+/// Rewrite returns in ordinary synchronous loop bodies. A loop which itself
+/// suspends owns a separate generated task result and is handled by loop
+/// lowering instead; a synchronous loop remains in its containing poll helper
+/// and can return that helper's `Ready` value directly.
+fn rewrite_async_synchronous_loop_returns(
+    expression: &mut Expr,
+    ready: &str,
+) -> Result<(), String> {
+    let loop_body_start = ["#while", "#while-let", "#for", "#for-range", "#loop"]
+        .into_iter()
+        .find_map(|keyword| form(expression, keyword).map(|items| (keyword, items)))
+        .map(|(keyword, _)| match keyword {
+            "#while" => 2,
+            "#while-let" => 3,
+            "#for" | "#for-range" => 4,
+            "#loop" => 1,
+            _ => unreachable!(),
+        });
+    let Some(body_start) = loop_body_start else {
+        if let Expr::List(items) = expression {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote" | "#fn" | "fn"))
+            {
+                return Ok(());
+            }
+            for item in items.iter_mut().skip(1) {
+                rewrite_async_synchronous_loop_returns(item, ready)?;
+            }
+        }
+        return Ok(());
+    };
+    if has_await(expression) {
+        return Ok(());
+    }
+    let Expr::List(items) = expression else {
+        unreachable!()
+    };
+    for statement in items.iter_mut().skip(body_start) {
+        rewrite_async_loop_body_statement(statement, ready)?;
+    }
+    Ok(())
+}
+
+fn rewrite_async_loop_body_statement(statement: &mut Expr, ready: &str) -> Result<(), String> {
+    if let Some(return_form) = form(statement, "#return").or_else(|| form(statement, "return")) {
+        if return_form.len() != 2 {
+            return Err("@async-fn early #return requires exactly one value".into());
+        }
+        let Expr::List(items) = statement else {
+            unreachable!()
+        };
+        items[1] = Expr::List(vec![Expr::Symbol(ready.into()), items[1].clone()]);
+        return Ok(());
+    }
+    if form(statement, "#block")
+        .or_else(|| form(statement, "block"))
+        .is_some()
+    {
+        let Expr::List(items) = statement else {
+            unreachable!()
+        };
+        for child in &mut items[1..] {
+            rewrite_async_loop_body_statement(child, ready)?;
+        }
+        return Ok(());
+    }
+    if ["#while", "#while-let", "#for", "#for-range", "#loop"]
+        .iter()
+        .any(|keyword| form(statement, keyword).is_some())
+    {
+        return rewrite_async_synchronous_loop_returns(statement, ready);
+    }
+    Ok(())
+}
+
 /// Preserve short-circuit evaluation when an awaited right-hand operand is
 /// lowered into a condition-specific poll state machine.
 fn normalize_short_circuit_await(expression: &mut Expr) {
@@ -6873,6 +6947,9 @@ fn generated_source_with_capture_selection(
     let source = expression_source(&invocation[4])?;
     let waker_source = expression_source(&invocation[3])?;
     let mut statements = body[..body.len() - 1].to_vec();
+    for statement in &mut statements {
+        rewrite_async_synchronous_loop_returns(statement, &ready)?;
+    }
     let mut next_nested_await = 0;
     let mut generated_helpers = Vec::new();
     let mut lowered_statements = Vec::new();
