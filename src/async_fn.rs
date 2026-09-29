@@ -14,6 +14,14 @@ struct Binding {
     mutable: bool,
 }
 
+#[derive(Clone)]
+struct LoopReferenceTransfer {
+    name: String,
+    ty: String,
+    result_index: usize,
+    resumed_name: String,
+}
+
 fn async_task_capture_is_copy(ty: &Type) -> bool {
     match ty {
         Type::Unit
@@ -48,6 +56,15 @@ fn async_task_capture_is_copy(ty: &Type) -> bool {
         | Type::Generic(_)
         | Type::Named(_) => false,
     }
+}
+
+fn async_task_capture_is_mutable_reference(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Reference { mutable: true, .. }
+            | Type::PinnedReference { mutable: true, .. }
+            | Type::MutableSlice(_)
+    )
 }
 
 #[derive(Clone)]
@@ -1695,6 +1712,30 @@ fn lower_async_while(
     next_name: &mut usize,
     waker: &str,
 ) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
+    lower_async_while_with_transfers(
+        statement,
+        known,
+        known_order,
+        &[],
+        following,
+        return_value,
+        source,
+        next_name,
+        waker,
+    )
+}
+
+fn lower_async_while_with_transfers(
+    statement: &Expr,
+    known: &HashMap<String, Binding>,
+    known_order: &[String],
+    transfers: &[LoopReferenceTransfer],
+    following: &[Expr],
+    return_value: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if !has_await(statement) {
         return Ok(None);
     }
@@ -1820,10 +1861,11 @@ fn lower_async_while(
                 success_body,
                 terminal,
             ]);
-            let Some((replacement, helper, renames)) = lower_async_loop(
+            let Some((replacement, helper, renames)) = lower_async_loop_with_transfers(
                 &loop_form,
                 known,
                 known_order,
+                transfers,
                 following,
                 return_value,
                 source,
@@ -1937,7 +1979,8 @@ fn lower_async_while(
                     .first()
                     .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
                 let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
-                if !async_task_capture_is_copy(&ty) {
+                if !async_task_capture_is_copy(&ty) && !async_task_capture_is_mutable_reference(&ty)
+                {
                     return Err(format!(
                         "@async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
                         capture.name
@@ -1974,12 +2017,31 @@ fn lower_async_while(
                 .iter()
                 .map(|capture| capture.name.as_str())
                 .collect::<Vec<_>>();
+            let mut body_captures = Vec::new();
+            for capture in &captures {
+                let parsed_type = crate::parse(&capture.ty)?;
+                let type_expression = parsed_type
+                    .first()
+                    .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
+                let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
+                if !async_task_capture_is_mutable_reference(&ty) {
+                    body_captures.push(capture.clone());
+                }
+            }
+            let body_capture_types = body_captures
+                .iter()
+                .map(|capture| capture.ty.as_str())
+                .collect::<Vec<_>>();
+            let body_capture_names = body_captures
+                .iter()
+                .map(|capture| capture.name.as_str())
+                .collect::<Vec<_>>();
             let condition_fields = std::iter::once(condition_child.as_str())
                 .chain(capture_types.iter().copied())
                 .collect::<Vec<_>>()
                 .join(" ");
             let body_fields = std::iter::once(body_child.as_str())
-                .chain(capture_types.iter().copied())
+                .chain(body_capture_types.iter().copied())
                 .collect::<Vec<_>>()
                 .join(" ");
             let condition_pattern = std::iter::once("child")
@@ -1987,7 +2049,7 @@ fn lower_async_while(
                 .collect::<Vec<_>>()
                 .join(" ");
             let body_pattern = std::iter::once("child")
-                .chain(capture_names.iter().copied())
+                .chain(body_capture_names.iter().copied())
                 .collect::<Vec<_>>()
                 .join(" ");
             let condition_pending_state = std::iter::once(format!("{wait_condition} pending"))
@@ -1995,10 +2057,138 @@ fn lower_async_while(
                 .collect::<Vec<_>>()
                 .join(" ");
             let body_pending_state = std::iter::once(format!("{wait_body} pending"))
-                .chain(capture_names.iter().map(|name| (*name).to_owned()))
+                .chain(body_capture_names.iter().map(|name| (*name).to_owned()))
                 .collect::<Vec<_>>()
                 .join(" ");
-            let composite_helper = format!(
+            let (body_data_type, body_data_type_source, body_value_bindings, body_data_values) =
+                if transfers.is_empty() {
+                    (
+                        body_form[2].clone(),
+                        body_result_type.clone(),
+                        Vec::new(),
+                        Vec::new(),
+                    )
+                } else {
+                    let body_result_type_expr = normalize_keywords(body_form[2].clone());
+                    let Expr::List(body_type_items) = &body_result_type_expr else {
+                        return Err(
+                            format!(
+                                "@async-fn reference transfer requires a tuple body result, got {body_result_type}"
+                            ),
+                        );
+                    };
+                    if !matches!(body_type_items.first(), Some(Expr::Symbol(head)) if head == "tuple")
+                    {
+                        return Err(
+                            format!(
+                                "@async-fn reference transfer requires a tuple body result, got {body_result_type}"
+                            ),
+                        );
+                    }
+                    let body_fields = &body_type_items[1..];
+                    let mut transferred_indices = HashSet::new();
+                    for transfer in transfers {
+                        if transfer.result_index >= body_fields.len()
+                            || !transferred_indices.insert(transfer.result_index)
+                        {
+                            return Err(
+                                "@async-fn reference transfer has an invalid tuple field".into()
+                            );
+                        }
+                        let field_ty = parse_type(Some(&normalize_keywords(
+                            body_fields[transfer.result_index].clone(),
+                        )))?;
+                        let transfer_type_expr =
+                            normalize_keywords(crate::parse(&transfer.ty)?[0].expr.clone());
+                        let transfer_ty = parse_type(Some(&transfer_type_expr))?;
+                        if field_ty != transfer_ty {
+                            return Err(format!(
+                                "@async-fn reference transfer '{}' does not match its result field",
+                                transfer.name
+                            ));
+                        }
+                    }
+                    let mut body_data_type_items = vec![Expr::Symbol("#tuple".into())];
+                    let mut body_value_bindings = Vec::with_capacity(body_fields.len());
+                    let mut body_data_values = Vec::new();
+                    for (index, field_type) in body_fields.iter().enumerate() {
+                        if let Some(transfer) = transfers
+                            .iter()
+                            .find(|transfer| transfer.result_index == index)
+                        {
+                            body_value_bindings.push(transfer.resumed_name.clone());
+                        } else {
+                            body_data_type_items.push(field_type.clone());
+                            let field_name = fresh_async_name(source, next_name);
+                            body_value_bindings.push(field_name.clone());
+                            body_data_values.push(field_name);
+                        }
+                    }
+                    let body_data_type = Expr::List(body_data_type_items);
+                    let body_data_type_source = expression_source(&body_data_type)?;
+                    (
+                        body_data_type,
+                        body_data_type_source,
+                        body_value_bindings,
+                        body_data_values,
+                    )
+                };
+            let transfer_type_sources = transfers
+                .iter()
+                .map(|transfer| transfer.ty.as_str())
+                .collect::<Vec<_>>();
+            let ready_type_source = if transfers.is_empty() {
+                decision_type.clone()
+            } else {
+                std::iter::once(format!("(#tuple {decision_type}"))
+                    .chain(transfer_type_sources.iter().map(|ty| (*ty).to_owned()))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    + ")"
+            };
+            let stop_result = if transfers.is_empty() {
+                stop_variant.clone()
+            } else {
+                format!(
+                    "(#tuple {ready_type_source} {stop_variant} {})",
+                    transfers
+                        .iter()
+                        .map(|transfer| transfer.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            };
+            let body_ready_conversion = if transfers.is_empty() {
+                format!("({composite_ready} ({continue_variant} value))")
+            } else {
+                let pattern = format!("(#tuple {})", body_value_bindings.join(" "));
+                let value_type = expression_source(&normalize_keywords(body_form[2].clone()))?;
+                let body_data = if body_data_values.is_empty() {
+                    "()".to_owned()
+                } else {
+                    format!(
+                        "(#tuple {body_data_type_source} {})",
+                        body_data_values.join(" ")
+                    )
+                };
+                let transferred_values = transfers
+                    .iter()
+                    .map(|transfer| transfer.resumed_name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!(
+                    "(#block (#let {pattern} {value_type} value) ({composite_ready} (#tuple {ready_type_source} ({continue_variant} {body_data}) {transferred_values})))"
+                )
+            };
+            let composite_decision_definition = if transfers.is_empty() {
+                format!("(#enum {decision_type} ({stop_variant} ({continue_variant} {body_result_type})))")
+            } else {
+                format!(
+                    "(#enum {decision_type} ({stop_variant} ({continue_variant} {body_data_type_source})))"
+                )
+            };
+            let composite_helper = if transfers.is_empty() {
+                format!(
                 "(#enum {decision_type} ({stop_variant} ({continue_variant} {body_result_type})))\n\
                  (#enum {composite_task} (({wait_condition} {condition_fields}) ({wait_body} {body_fields})))\n\
                  (#linear {composite_task})\n\
@@ -2018,7 +2208,30 @@ fn lower_async_while(
                        (#match (#call {body_poll} (: task child : waker waker))\n\
                          (#case ({body_pending} pending) ({composite_pending} ({body_pending_state})))\n\
                          (#case ({body_ready} value) ({composite_ready} ({continue_variant} value))))))))"
-            );
+                )
+            } else {
+                format!(
+                    "{composite_decision_definition}\n\
+                     (#enum {composite_task} (({wait_condition} {condition_fields}) ({wait_body} {body_fields})))\n\
+                     (#linear {composite_task})\n\
+                     (#enum {composite_result} (({composite_pending} {composite_task}) ({composite_ready} {ready_type_source})))\n\
+                     (#fn {composite_poll} ((task {composite_task}) (waker (#ref {waker}))) {composite_result}\n\
+                       (#return (#match task\n\
+                         (#case ({wait_condition} {condition_pattern})\n\
+                           (#match (#call {condition_poll} (: task child : waker waker))\n\
+                             (#case ({condition_pending} pending) ({composite_pending} ({condition_pending_state})))\n\
+                             (#case ({condition_ready} condition)\n\
+                               (#if condition\n\
+                                 (#match (#call {body_poll} (: task {body_task} : waker waker))\n\
+                                   (#case ({body_pending} pending) ({composite_pending} ({body_pending_state})))\n\
+                                   (#case ({body_ready} value) {body_ready_conversion}))\n\
+                                 ({composite_ready} {stop_result})))))\n\
+                         (#case ({wait_body} {body_pattern})\n\
+                           (#match (#call {body_poll} (: task child : waker waker))\n\
+                             (#case ({body_pending} pending) ({composite_pending} ({body_pending_state})))\n\
+                             (#case ({body_ready} value) {body_ready_conversion}))))))"
+                )
+            };
 
             let decision_name = fresh_async_name(source, next_name);
             let stopped_name = fresh_async_name(source, next_name);
@@ -2033,7 +2246,7 @@ fn lower_async_while(
             body_success.push(Expr::List(vec![
                 Expr::Symbol(body_binding_head.into()),
                 Expr::Symbol(body_binding.name),
-                Expr::Symbol(body_binding.ty),
+                body_data_type.clone(),
                 Expr::Symbol(payload_name.clone()),
             ]));
             body_success.push(Expr::List(vec![
@@ -2075,21 +2288,44 @@ fn lower_async_while(
                     .iter()
                     .map(|capture| Expr::Symbol(capture.name.clone())),
             );
-            let loop_form = Expr::List(vec![
-                Expr::Symbol("#loop".into()),
-                Expr::List(vec![
+            let await_expression = Expr::List(vec![
+                Expr::Symbol("#await".into()),
+                Expr::Symbol(composite_task),
+                Expr::Symbol(composite_pending),
+                Expr::Symbol(composite_ready),
+                Expr::Symbol(composite_poll),
+                Expr::List(condition_state),
+            ]);
+            let mut loop_form = vec![Expr::Symbol("#loop".into())];
+            if transfers.is_empty() {
+                loop_form.push(Expr::List(vec![
                     Expr::Symbol("#let".into()),
                     Expr::Symbol(decision_name),
                     Expr::Symbol(decision_type),
-                    Expr::List(vec![
-                        Expr::Symbol("#await".into()),
-                        Expr::Symbol(composite_task),
-                        Expr::Symbol(composite_pending),
-                        Expr::Symbol(composite_ready),
-                        Expr::Symbol(composite_poll),
-                        Expr::List(condition_state),
-                    ]),
-                ]),
+                    await_expression,
+                ]));
+            } else {
+                let result_name = fresh_async_name(source, next_name);
+                loop_form.push(Expr::List(vec![
+                    Expr::Symbol("#let".into()),
+                    Expr::Symbol(result_name.clone()),
+                    Expr::Symbol(ready_type_source.clone()),
+                    await_expression,
+                ]));
+                let mut pattern = vec![Expr::Symbol("#tuple".into()), Expr::Symbol(decision_name)];
+                pattern.extend(
+                    transfers
+                        .iter()
+                        .map(|transfer| Expr::Symbol(transfer.resumed_name.clone())),
+                );
+                loop_form.push(Expr::List(vec![
+                    Expr::Symbol("#let".into()),
+                    Expr::List(pattern),
+                    Expr::Symbol(ready_type_source.clone()),
+                    Expr::Symbol(result_name),
+                ]));
+            }
+            loop_form.extend([
                 Expr::List(vec![
                     Expr::Symbol("#let".into()),
                     Expr::Symbol(stopped_name.clone()),
@@ -2103,10 +2339,11 @@ fn lower_async_while(
                     Expr::List(vec![Expr::Symbol("#continue".into())]),
                 ]),
             ]);
-            let Some((replacement, loop_helper, renames)) = lower_async_loop(
-                &loop_form,
+            let Some((replacement, loop_helper, renames)) = lower_async_loop_with_transfers(
+                &Expr::List(loop_form),
                 known,
                 known_order,
+                transfers,
                 following,
                 return_value,
                 source,
@@ -2179,10 +2416,11 @@ fn lower_async_while(
         let mut loop_form = vec![Expr::Symbol("#loop".into()), await_binding];
         loop_form.push(guarded_body);
         loop_form.push(loop_terminal);
-        let Some((replacement, helper, renames)) = lower_async_loop(
+        let Some((replacement, helper, renames)) = lower_async_loop_with_transfers(
             &Expr::List(loop_form),
             known,
             known_order,
+            transfers,
             following,
             return_value,
             source,
@@ -2385,10 +2623,11 @@ fn lower_async_while(
                 Expr::Symbol(sequence_poll),
                 Expr::List(vec![Expr::Symbol(wait_first), first_await[5].clone()]),
             ]);
-            let Some((replacement, helper, renames)) = lower_async_while(
+            let Some((replacement, helper, renames)) = lower_async_while_with_transfers(
                 &rewritten,
                 known,
                 known_order,
+                transfers,
                 following,
                 return_value,
                 source,
@@ -2502,6 +2741,41 @@ fn lower_async_while(
         .filter(|name| used_names.contains(name.as_str()))
         .filter_map(|name| known.get(name).cloned())
         .collect::<Vec<_>>();
+    let mut transfer_bindings = HashMap::new();
+    for transfer in transfers {
+        let capture = captures
+            .iter()
+            .find(|capture| capture.name == transfer.name)
+            .ok_or_else(|| {
+                format!(
+                    "@async-fn transferred reference '{}' is not a live loop capture",
+                    transfer.name
+                )
+            })?;
+        if capture.ty != transfer.ty || transfer_bindings.contains_key(&transfer.name) {
+            return Err(format!(
+                "@async-fn has an invalid transfer descriptor for '{}'",
+                transfer.name
+            ));
+        }
+        let parsed_type = crate::parse(&capture.ty)?;
+        let type_expression = parsed_type
+            .first()
+            .ok_or_else(|| "@async-fn reference transfer type is empty".to_owned())?;
+        let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
+        if !async_task_capture_is_mutable_reference(&ty) {
+            return Err(format!(
+                "@async-fn transfer '{}' is not a mutable reference",
+                transfer.name
+            ));
+        }
+        transfer_bindings.insert(transfer.name.clone(), transfer);
+    }
+    let wait_captures = captures
+        .iter()
+        .filter(|capture| !transfer_bindings.contains_key(&capture.name))
+        .cloned()
+        .collect::<Vec<_>>();
 
     let mut used_after = HashSet::new();
     for expression in following {
@@ -2551,6 +2825,8 @@ fn lower_async_while(
 
     let capture_types = types(&captures);
     let capture_names = arguments(&captures);
+    let wait_capture_types = types(&wait_captures);
+    let wait_capture_names = arguments(&wait_captures);
     let active_pattern_names = captures
         .iter()
         .enumerate()
@@ -2569,16 +2845,15 @@ fn lower_async_while(
         })
         .collect::<Vec<_>>()
         .join(" ");
-    let capture_arguments = named_arguments(&captures);
     let start_variant = if capture_types.is_empty() {
         task_start.clone()
     } else {
         format!("({task_start} {capture_types})")
     };
-    let wait_fields = if capture_types.is_empty() {
+    let wait_fields = if wait_capture_types.is_empty() {
         child_type.clone()
     } else {
-        format!("{capture_types} {child_type}")
+        format!("{wait_capture_types} {child_type}")
     };
     let wait_variant = format!("({task_wait} {wait_fields})");
     let start_pattern = if capture_names.is_empty() {
@@ -2586,15 +2861,15 @@ fn lower_async_while(
     } else {
         format!("({task_start} {capture_names})")
     };
-    let wait_pattern = if capture_names.is_empty() {
+    let wait_pattern = if wait_capture_names.is_empty() {
         format!("({task_wait} {base}-child)")
     } else {
-        format!("({task_wait} {capture_names} {base}-child)")
+        format!("({task_wait} {wait_capture_names} {base}-child)")
     };
-    let task_wait_with_child = if capture_names.is_empty() {
+    let task_wait_with_child = if wait_capture_names.is_empty() {
         format!("({task_wait} {base}-child-state)")
     } else {
-        format!("({task_wait} {capture_names} {base}-child-state)")
+        format!("({task_wait} {wait_capture_names} {base}-child-state)")
     };
     let run_parameter_names = captures
         .iter()
@@ -2614,7 +2889,7 @@ fn lower_async_while(
         .collect::<Vec<_>>();
     run_parameters.push(format!("(waker (#ref {waker}))"));
     let run_parameters = run_parameters.join(" ");
-    let mut resume_parameters = captures.iter().map(parameter).collect::<Vec<_>>();
+    let mut resume_parameters = wait_captures.iter().map(parameter).collect::<Vec<_>>();
     let result_parameter = if await_binding.mutable {
         format!("(#mut {base}-result {})", await_binding.ty)
     } else {
@@ -2631,6 +2906,21 @@ fn lower_async_while(
         .collect::<Vec<_>>()
         .join(" ");
     let call_run = format!("({call_run})");
+    let call_resumed_run = run_parameter_names
+        .iter()
+        .zip(captures.iter())
+        .map(|(parameter, binding)| {
+            let value = transfer_bindings
+                .get(&binding.name)
+                .map_or(binding.name.as_str(), |transfer| {
+                    transfer.resumed_name.as_str()
+                });
+            format!(": {parameter} {value}")
+        })
+        .chain(std::iter::once(": waker waker".to_owned()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let call_resumed_run = format!("({call_resumed_run})");
     let initial_active_values = run_parameter_names.join(" ");
     let active_variant = if capture_types.is_empty() {
         format!("{base}-active")
@@ -2650,7 +2940,18 @@ fn lower_async_while(
     let active_value_from_captures = if capture_names.is_empty() {
         format!("{base}-active")
     } else {
-        format!("({base}-active {capture_names})")
+        format!(
+            "({base}-active {})",
+            captures
+                .iter()
+                .map(|capture| transfer_bindings
+                    .get(&capture.name)
+                    .map_or(capture.name.as_str(), |transfer| transfer
+                        .resumed_name
+                        .as_str()))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
     };
     let run_state = format!("{base}-run-state");
     let run_state_pending = format!("{base}-run-pending");
@@ -2658,7 +2959,7 @@ fn lower_async_while(
     let run_state_pending_pattern = format!("({run_state_pending} {base}-pending-task)");
     let run_state_ready_pattern = format!("({run_state_ready} {base}-ready-value)");
     let call_resume = {
-        let mut arguments = capture_arguments;
+        let mut arguments = named_arguments(&wait_captures);
         if !arguments.is_empty() {
             arguments.push(' ');
         }
@@ -2725,7 +3026,7 @@ fn lower_async_while(
          (#fn {task_resume} ({resume_parameters}) {task_poll_result}
            ({await_let} {await_name} {await_type} {base}-result)
            {suffix_source}
-           (#return (#call {task_run} {call_run})))
+           (#return (#call {task_run} {call_resumed_run})))
          (#fn {task_poll} ((task {task_type}) (waker (#ref {waker}))) {task_poll_result}
            (#return (#match task
              (#case {start_pattern} (#call {task_run} {call_run}))
@@ -2759,7 +3060,7 @@ fn lower_async_while(
             if output_captures.is_empty() {
                 Expr::List(Vec::new())
             } else {
-                Expr::Symbol(output_type)
+                Expr::Symbol(output_type.clone())
             },
             Expr::List(vec![
                 Expr::Symbol("#await".into()),
@@ -2773,18 +3074,34 @@ fn lower_async_while(
     ];
     let mut replacement = replacement;
     let mut renamed_outputs = Vec::new();
-    for binding in &output_captures {
-        let resumed_name = fresh_async_name(source, next_name);
+    let resumed_names = output_captures
+        .iter()
+        .map(|_| fresh_async_name(source, next_name))
+        .collect::<Vec<_>>();
+    if !output_captures.is_empty() {
+        // Destructure the Ready aggregate in one move. Projecting fields one
+        // at a time would leave the linear aggregate alive while also binding
+        // its contained mutable references.
+        let pattern = Expr::List(
+            std::iter::once(Expr::Symbol(output_type.clone()))
+                .chain(resumed_names.iter().cloned().map(Expr::Symbol))
+                .collect(),
+        );
         replacement.push(Expr::List(vec![
-            Expr::Symbol(if binding.mutable { "#let-mut" } else { "#let" }.into()),
-            Expr::Symbol(resumed_name.clone()),
-            Expr::Symbol(binding.ty.clone()),
-            Expr::List(vec![
-                Expr::Symbol("#get".into()),
-                Expr::Symbol(result_variable.clone()),
-                Expr::Symbol(binding.name.clone()),
-            ]),
+            Expr::Symbol(
+                if output_captures.iter().any(|binding| binding.mutable) {
+                    "#let-mut"
+                } else {
+                    "#let"
+                }
+                .into(),
+            ),
+            pattern,
+            Expr::Symbol(output_type.clone()),
+            Expr::Symbol(result_variable.clone()),
         ]));
+    }
+    for (binding, resumed_name) in output_captures.iter().zip(resumed_names) {
         renamed_outputs.push((
             binding.name.clone(),
             Binding {
@@ -2959,10 +3276,11 @@ fn lower_async_for_range(
     );
     let mut loop_order = known_order.to_vec();
     loop_order.push(index.clone());
-    let Some((mut replacement, helper, renames)) = lower_async_while(
+    let Some((mut replacement, helper, renames)) = lower_async_while_with_transfers(
         &lowered_loop,
         &loop_known,
         &loop_order,
+        &[],
         following,
         return_value,
         source,
@@ -3201,7 +3519,7 @@ fn async_for_body_step_task(
             .first()
             .ok_or_else(|| "@async-fn three-phase #for capture type is empty".to_owned())?;
         let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
-        if !async_task_capture_is_copy(&ty) {
+        if !async_task_capture_is_copy(&ty) && !async_task_capture_is_mutable_reference(&ty) {
             return Err(format!(
                 "@async-fn three-phase #for captures non-Copy local '{}'; carry it in a concrete child-task result",
                 capture.name
@@ -3401,6 +3719,9 @@ fn lower_async_for(
     }
     let mut loop_known = known.clone();
     let mut loop_order = known_order.to_vec();
+    let mut transferred_reference_declarations = Vec::new();
+    let mut transferred_reference_renames = Vec::new();
+    let mut body_reference_transfers = Vec::new();
     let mut initializer_statement = initializer.clone();
     let mut condition = items[2].clone();
     let mut condition_helpers = Vec::new();
@@ -3571,6 +3892,54 @@ fn lower_async_for(
         if awaited_step {
             let combined_body_step = loop_body.iter().any(has_await);
             if combined_body_step {
+                let mut loop_uses = HashSet::new();
+                collect_value_names(&condition, &mut loop_uses);
+                collect_value_names(&step, &mut loop_uses);
+                for expression in &loop_body {
+                    collect_value_names(expression, &mut loop_uses);
+                }
+                for name in loop_order.clone() {
+                    if !loop_uses.contains(&name) {
+                        continue;
+                    }
+                    let Some(capture) = loop_known.get(&name).cloned() else {
+                        continue;
+                    };
+                    if capture.mutable {
+                        continue;
+                    }
+                    let parsed_type = crate::parse(&capture.ty)?;
+                    let type_expression = parsed_type
+                        .first()
+                        .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
+                    let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
+                    if !async_task_capture_is_mutable_reference(&ty) {
+                        continue;
+                    }
+                    let alias = fresh_async_name(source, next_name);
+                    let alias_binding = Binding {
+                        name: alias.clone(),
+                        ty: capture.ty.clone(),
+                        mutable: true,
+                    };
+                    transferred_reference_declarations.push(Expr::List(vec![
+                        Expr::Symbol("#let-mut".into()),
+                        Expr::Symbol(alias.clone()),
+                        Expr::Symbol(capture.ty.clone()),
+                        Expr::Symbol(capture.name.clone()),
+                    ]));
+                    for expression in [&mut condition, &mut step] {
+                        rename_async_value(expression, &capture.name, &alias);
+                    }
+                    for expression in &mut loop_body {
+                        rename_async_value(expression, &capture.name, &alias);
+                    }
+                    loop_known.remove(&capture.name);
+                    loop_known.insert(alias.clone(), alias_binding.clone());
+                    loop_order.retain(|candidate| candidate != &capture.name);
+                    loop_order.push(alias.clone());
+                    transferred_reference_renames.push((capture.name, alias_binding));
+                }
                 let set_target = form(&items[3], "#set")
                     .and_then(|set| set.get(1))
                     .ok_or_else(|| {
@@ -3611,15 +3980,35 @@ fn lower_async_for(
                     await_result,
                 ])];
                 for (index, binding) in updated.into_iter().enumerate() {
-                    loop_body.push(Expr::List(vec![
-                        Expr::Symbol("#set".into()),
-                        Expr::Symbol(binding.name),
-                        Expr::List(vec![
-                            Expr::Symbol("#get".into()),
-                            Expr::Symbol(result_name.clone()),
-                            Expr::UnsignedInteger((index + if has_break { 1 } else { 0 }) as u128),
-                        ]),
-                    ]));
+                    let result_index = index + if has_break { 1 } else { 0 };
+                    let parsed_type = crate::parse(&binding.ty)?;
+                    let type_expression = parsed_type
+                        .first()
+                        .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
+                    let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
+                    if async_task_capture_is_mutable_reference(&ty) {
+                        body_reference_transfers.push(LoopReferenceTransfer {
+                            name: binding.name.clone(),
+                            ty: binding.ty.clone(),
+                            result_index,
+                            resumed_name: fresh_async_name(source, next_name),
+                        });
+                    } else {
+                        let compact_index = result_index
+                            - body_reference_transfers
+                                .iter()
+                                .filter(|transfer| transfer.result_index < result_index)
+                                .count();
+                        loop_body.push(Expr::List(vec![
+                            Expr::Symbol("#set".into()),
+                            Expr::Symbol(binding.name),
+                            Expr::List(vec![
+                                Expr::Symbol("#get".into()),
+                                Expr::Symbol(result_name.clone()),
+                                Expr::UnsignedInteger(compact_index as u128),
+                            ]),
+                        ]));
+                    }
                 }
                 if has_break {
                     loop_body.push(Expr::List(vec![
@@ -3693,12 +4082,25 @@ fn lower_async_for(
     let mut while_items = vec![Expr::Symbol("#while".into()), condition];
     while_items.extend(loop_body);
     let lowered_loop = Expr::List(while_items);
-    let Some((mut replacement, helper, renames)) = lower_async_while(
+    // The loop task owns each transferred mutable reference while it is
+    // Pending, then returns it in its Ready payload. Liveness must be computed
+    // using the alias that is actually carried by the loop, not the original
+    // binding name (which is no longer in the loop's environment).
+    let mut loop_following = following.to_vec();
+    let mut loop_return_value = return_value.clone();
+    for (source_name, alias_binding) in &transferred_reference_renames {
+        for expression in &mut loop_following {
+            rename_async_value(expression, source_name, &alias_binding.name);
+        }
+        rename_async_value(&mut loop_return_value, source_name, &alias_binding.name);
+    }
+    let Some((mut replacement, helper, renames)) = lower_async_while_with_transfers(
         &lowered_loop,
         &loop_known,
         &loop_order,
-        following,
-        return_value,
+        &body_reference_transfers,
+        &loop_following,
+        &loop_return_value,
         source,
         next_name,
         waker,
@@ -3706,10 +4108,15 @@ fn lower_async_for(
     else {
         return Err("@async-fn failed to lower awaited #for".into());
     };
+    let transfer_prefix_len = transferred_reference_declarations.len();
+    replacement.splice(0..0, transferred_reference_declarations);
     let initializer_prefix_len = initializer_prefix.len();
-    replacement.splice(0..0, initializer_prefix);
+    replacement.splice(transfer_prefix_len..transfer_prefix_len, initializer_prefix);
     if !matches!(initializer, Expr::List(items) if items.is_empty()) {
-        replacement.insert(initializer_prefix_len, initializer_statement);
+        replacement.insert(
+            transfer_prefix_len + initializer_prefix_len,
+            initializer_statement,
+        );
     }
     let helper = [
         initializer_helpers.join("\n"),
@@ -3721,6 +4128,19 @@ fn lower_async_for(
     .filter(|helper| !helper.is_empty())
     .collect::<Vec<_>>()
     .join("\n");
+    let mut renames = renames;
+    for (source_name, alias_binding) in transferred_reference_renames {
+        if let Some((_, resumed_binding)) = renames
+            .iter()
+            .find(|(name, _)| name == &alias_binding.name)
+            .cloned()
+        {
+            renames.retain(|(name, _)| name != &alias_binding.name && name != &source_name);
+            renames.push((source_name, resumed_binding));
+        } else {
+            renames.push((source_name, alias_binding));
+        }
+    }
     Ok(Some((replacement, helper, renames)))
 }
 
@@ -4202,6 +4622,30 @@ fn lower_async_loop(
     next_name: &mut usize,
     waker: &str,
 ) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
+    lower_async_loop_with_transfers(
+        statement,
+        known,
+        known_order,
+        &[],
+        following,
+        return_value,
+        source,
+        next_name,
+        waker,
+    )
+}
+
+fn lower_async_loop_with_transfers(
+    statement: &Expr,
+    known: &HashMap<String, Binding>,
+    known_order: &[String],
+    transfers: &[LoopReferenceTransfer],
+    following: &[Expr],
+    return_value: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if !has_await(statement) {
         return Ok(None);
     }
@@ -4245,10 +4689,11 @@ fn lower_async_loop(
     );
     let mut loop_order = known_order.to_vec();
     loop_order.push(done.clone());
-    let Some((mut replacement, helper, renames)) = lower_async_while(
+    let Some((mut replacement, helper, renames)) = lower_async_while_with_transfers(
         &lowered_loop,
         &loop_known,
         &loop_order,
+        transfers,
         following,
         return_value,
         source,
@@ -4963,7 +5408,39 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
                 .or_else(|| form(statement, "let-mut"))
                 .is_some()
             {
-                let mut local = binding(statement, "between #await forms")?;
+                let Some(mut local) = binding(statement, "between #await forms").ok() else {
+                    let items = form(statement, "#let")
+                        .or_else(|| form(statement, "#let-mut"))
+                        .or_else(|| form(statement, "let"))
+                        .or_else(|| form(statement, "let-mut"))
+                        .expect("binding form was checked");
+                    let Some(Expr::List(pattern)) = items.get(1) else {
+                        return Err("@async-fn destructuring pattern must be a list".into());
+                    };
+                    let names = pattern
+                        .iter()
+                        .skip(1)
+                        .filter_map(|item| match item {
+                            Expr::Symbol(name) if name != "_" => Some(name.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    if names.is_empty() {
+                        return Err("@async-fn cannot infer destructured bindings".into());
+                    }
+                    for name in names {
+                        if known.contains_key(&name) {
+                            return Err(format!("@async-fn duplicate binding '{name}'"));
+                        }
+                        let local = lowering_known.get(&name).cloned().ok_or_else(|| {
+                            format!("@async-fn cannot resolve destructured binding '{name}'")
+                        })?;
+                        known.insert(name.clone(), local);
+                        known_order.push(name);
+                    }
+                    prefix.push(expression_source(statement)?);
+                    continue;
+                };
                 if let Some(reference) = self_references
                     .iter()
                     .find(|reference| reference.binding.name == local.name && reference.mutable)
@@ -5562,6 +6039,11 @@ fn collect_local_binding_names(expr: &Expr, names: &mut HashSet<String>) {
             {
                 if let Some(Expr::Symbol(name)) = items.get(1) {
                     names.insert(name.clone());
+                } else if let Some(Expr::List(pattern)) = items.get(1) {
+                    names.extend(pattern.iter().skip(1).filter_map(|item| match item {
+                        Expr::Symbol(name) if name != "_" => Some(name.clone()),
+                        _ => None,
+                    }));
                 }
                 if let Some(value) = items.get(3) {
                     collect_local_binding_names(value, names);

@@ -2615,6 +2615,78 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         error.contains("borrow") || error.contains("access"),
         "the external shared loan must remain live while the composed task is Pending: {error}"
     );
+
+    let mutable_reference_source = shared_reference_source
+        .replace(
+            "(#fn work ((view (#ref u64)))",
+            "(#fn work ((view (#ref-mut u64)))",
+        )
+        .replace(
+            "(#assert (#u64.== (#deref view) 41u64))",
+            "(#deref-set view 42u64)",
+        )
+        .replace(
+            "(#u64.== (#deref view) 41u64)",
+            "(#u64.== (#deref view) 42u64)",
+        )
+        .replace("(#borrow owner)", "(#borrow-mut owner)");
+    let generated = build_and_run(&mutable_reference_source, 42);
+    assert!(generated.contains("iteration-function"), "{generated}");
+
+    let (prefix, _) = mutable_reference_source
+        .split_once("(#fn main () u64")
+        .unwrap();
+    let cancelled_mutable_reference = format!(
+        "{prefix}(#fn main () u64
+          (#let-mut owner u64 41u64)
+          (#let waker u64 0u64)
+          (#let task Frame (#call work (: view (#borrow-mut owner))))
+          (#let first Poll
+            (#call poll (: task task : waker (#borrow waker))))
+          (#let-else (Pending pending) Poll first (#unreachable))
+          (#forget pending)
+          (#set owner 42u64)
+          (#forget waker)
+          (#return (#if (#u64.== owner 42u64) 42u64 0u64)))"
+    );
+    let generated = build_and_run(&cancelled_mutable_reference, 42);
+    assert!(generated.contains("iteration-function"), "{generated}");
+
+    let pinned_reference_source = shared_reference_source
+        .replace("(view (#ref u64))", "(view (#pin-ref-mut u64))")
+        .replace("(#borrow owner)", "(#pin-borrow-mut owner)");
+    let generated = build_and_run(&pinned_reference_source, 42);
+    assert!(generated.contains("iteration-function"), "{generated}");
+    let (prefix, _) = pinned_reference_source
+        .split_once("(#fn main () u64")
+        .unwrap();
+    let cancelled_pinned_reference = format!(
+        "{prefix}(#fn main () u64
+          (#let-mut owner u64 41u64)
+          (#let view (#pin-ref-mut u64) (#pin-borrow-mut owner))
+          (#let waker u64 0u64)
+          (#let task Frame (#call work (: view view)))
+          (#let first Poll
+            (#call poll (: task task : waker (#borrow waker))))
+          (#let-else (Pending pending) Poll first (#unreachable))
+          (#forget pending)
+          (#set owner 42u64)
+          (#forget waker)
+          (#return (#if (#u64.== owner 42u64) 42u64 0u64)))"
+    );
+    let generated = build_and_run(&cancelled_pinned_reference, 42);
+    assert!(generated.contains("iteration-function"), "{generated}");
+
+    let mutation_while_pending = mutable_reference_source.replace(
+        "(#let-else (Pending condition-pending) Poll first (#unreachable))",
+        "(#let-else (Pending condition-pending) Poll first (#unreachable))\n          (#set owner 42u64)",
+    );
+    let error =
+        lim::check_types(&lim::parse_program(&mutation_while_pending).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "the external exclusive loan must remain live while the composed task is Pending: {error}"
+    );
 }
 
 #[test]

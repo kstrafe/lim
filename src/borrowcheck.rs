@@ -1029,6 +1029,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                         .map(|owner| (owner.clone(), owner))
                         .collect();
                 }
+                let mut transferred_loans = existing_reference_value_loans(value, context);
                 if match_transferred_loans {
                     loans = flatten_transferred_loans(loans, context);
                 }
@@ -1038,6 +1039,21 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                     } else {
                         LoanKind::Shared(1)
                     };
+                    // A linear value containing an existing `&mut` moves
+                    // that loan into the new aggregate; it does not create a
+                    // second borrow. The source value cannot be used again
+                    // after this move, which is enforced by linearity.
+                    if contains_mutable_references
+                        && context.loans.active.get(loan) == Some(&LoanKind::Mutable)
+                    {
+                        if let Some(index) = transferred_loans
+                            .iter()
+                            .position(|transferred| transferred == &(owner.clone(), loan.clone()))
+                        {
+                            transferred_loans.swap_remove(index);
+                            continue;
+                        }
+                    }
                     if match_transferred_loans
                         && context.loans.active.get(loan).is_some_and(|active| {
                             matches!((active, kind), (LoanKind::Mutable, LoanKind::Mutable))
@@ -1231,6 +1247,75 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
         check_statements(else_body, context)?;
     }
     Ok(())
+}
+
+fn existing_reference_value_loans(expression: &Expr, context: &Context) -> Vec<(String, String)> {
+    match expression {
+        Expr::Symbol(name) if context.reference_bindings.contains(name) => context
+            .reference_loans
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| {
+                context
+                    .reference_origins
+                    .get(name)
+                    .into_iter()
+                    .flatten()
+                    .map(|owner| (owner.clone(), owner.clone()))
+                    .collect()
+            }),
+        Expr::List(items)
+            if items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut")) =>
+        {
+            Vec::new()
+        }
+        Expr::List(items)
+            if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "#get" || operator == "get") =>
+        {
+            let (Expr::Symbol(base), Some(index)) = (&items[1], static_index_segment(&items[2]))
+            else {
+                return Vec::new();
+            };
+            let Ok(index) = index.parse::<usize>() else {
+                return Vec::new();
+            };
+            context
+                .reference_fields
+                .get(base)
+                .and_then(|fields| fields.get(&vec![index]))
+                .map(|(_, loans)| loans.clone())
+                .unwrap_or_default()
+        }
+        Expr::List(items) => items
+            .iter()
+            .skip(1)
+            .flat_map(|item| existing_reference_value_loans(item, context))
+            .collect(),
+        Expr::Block(statements) | Expr::Loop(statements) => statements
+            .iter()
+            .flat_map(|statement| match statement {
+                Statement::Expr(value)
+                | Statement::Return(Some(value))
+                | Statement::BreakValue(value)
+                | Statement::BreakToValue { value, .. } => {
+                    existing_reference_value_loans(value, context)
+                }
+                _ => Vec::new(),
+            })
+            .collect(),
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => existing_reference_value_loans(expression, context),
+        Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::At => Vec::new(),
+        Expr::Symbol(_) => Vec::new(),
+        Expr::Integer(_)
+        | Expr::UnsignedInteger(_)
+        | Expr::Float(_)
+        | Expr::Char(_)
+        | Expr::String(_) => Vec::new(),
+    }
 }
 
 fn pattern_names(pattern: &Expr, names: &mut Vec<String>) {

@@ -1250,6 +1250,16 @@ fn combine(
         for incoming in &right {
             let mut combined = existing.clone();
             for borrow in incoming {
+                if borrow.mutable
+                    && combined.iter().any(|first| {
+                        first.mutable
+                            && first.place == borrow.place
+                            && first.span == borrow.span
+                            && first.storage == borrow.storage
+                    })
+                {
+                    continue;
+                }
                 if let Some(first) = combined.iter().find(|first| {
                     (first.mutable || borrow.mutable) && first.place.overlaps(&borrow.place)
                 }) {
