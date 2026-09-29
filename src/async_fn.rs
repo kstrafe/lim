@@ -1259,7 +1259,179 @@ fn lower_async_while(
         }
         let body = &items[2..];
         if body.iter().any(has_await) {
-            return Err("@async-fn awaited #while cannot also suspend in its body yet".into());
+            if body.is_empty() || body[1..].iter().any(has_await) {
+                return Err(
+                    "@async-fn an awaited #while condition can be composed with one direct body await binding"
+                        .into(),
+                );
+            }
+            let body_binding = binding(&body[0], "awaited while body")?;
+            let body_form = form(&body[0], "#let")
+                .or_else(|| form(&body[0], "#let-mut"))
+                .ok_or_else(|| {
+                    "@async-fn awaited while body suspension requires a direct binding".to_owned()
+                })?;
+            let body_await = form(&body_form[3], "#await").ok_or_else(|| {
+                "@async-fn awaited while body suspension requires a direct #await binding"
+                    .to_owned()
+            })?;
+            if body_await.len() != 7
+                || body[1..].iter().any(has_await)
+                || has_await(&body_await[6])
+                || has_await(&await_form[5])
+            {
+                return Err(
+                    "@async-fn awaited while condition/body composition requires direct awaits with non-suspending child-task expressions".into(),
+                );
+            }
+            let mut task_names = HashSet::new();
+            collect_value_names(&await_form[5], &mut task_names);
+            collect_value_names(&body_await[6], &mut task_names);
+            if let Some(name) = task_names.iter().find(|name| known.contains_key(*name)) {
+                return Err(format!(
+                    "@async-fn composed awaited while child task uses outer local '{name}'; carry it through an explicit child task"
+                ));
+            }
+
+            let base = fresh_async_name(source, next_name);
+            let composite_task = format!("{base}-condition-body-task");
+            let wait_condition = format!("{base}-wait-condition");
+            let wait_body = format!("{base}-wait-body");
+            let composite_result = format!("{base}-condition-body-poll-result");
+            let composite_pending = format!("{base}-condition-body-pending");
+            let composite_ready = format!("{base}-condition-body-ready");
+            let composite_poll = format!("{base}-condition-body-poll");
+            let decision_type = format!("{base}-condition-body-decision");
+            let stop_variant = format!("{base}-stop");
+            let continue_variant = format!("{base}-continue");
+            let condition_child = expression_source(&await_form[1])?;
+            let condition_pending = symbol(&await_form[2], "while condition Pending variant")?;
+            let condition_ready = symbol(&await_form[3], "while condition Ready variant")?;
+            let condition_poll = symbol(&await_form[4], "while condition poll function")?;
+            let body_child = expression_source(&body_await[2])?;
+            let body_pending = symbol(&body_await[3], "while body Pending variant")?;
+            let body_ready = symbol(&body_await[4], "while body Ready variant")?;
+            let body_poll = symbol(&body_await[5], "while body poll function")?;
+            let body_task = expression_source(&body_await[6])?;
+            let body_result_type = expression_source(&body_form[2])?;
+            let composite_helper = format!(
+                "(#enum {decision_type} ({stop_variant} ({continue_variant} {body_result_type})))\n\
+                 (#enum {composite_task} (({wait_condition} {condition_child}) ({wait_body} {body_child})))\n\
+                 (#linear {composite_task})\n\
+                 (#enum {composite_result} (({composite_pending} {composite_task}) ({composite_ready} {decision_type})))\n\
+                 (#fn {composite_poll} ((task {composite_task}) (waker (#ref {waker}))) {composite_result}\n\
+                   (#return (#match task\n\
+                     (#case ({wait_condition} child)\n\
+                       (#match (#call {condition_poll} (: task child : waker waker))\n\
+                         (#case ({condition_pending} pending) ({composite_pending} ({wait_condition} pending)))\n\
+                         (#case ({condition_ready} condition)\n\
+                           (#if condition\n\
+                             (#match (#call {body_poll} (: task {body_task} : waker waker))\n\
+                               (#case ({body_pending} pending) ({composite_pending} ({wait_body} pending)))\n\
+                               (#case ({body_ready} value) ({composite_ready} ({continue_variant} value))))\n\
+                             ({composite_ready} {stop_variant})))))\n\
+                     (#case ({wait_body} child)\n\
+                       (#match (#call {body_poll} (: task child : waker waker))\n\
+                         (#case ({body_pending} pending) ({composite_pending} ({wait_body} pending)))\n\
+                         (#case ({body_ready} value) ({composite_ready} ({continue_variant} value))))))))"
+            );
+
+            let decision_name = fresh_async_name(source, next_name);
+            let stopped_name = fresh_async_name(source, next_name);
+            let body_stopped_name = fresh_async_name(source, next_name);
+            let payload_name = fresh_async_name(source, next_name);
+            let body_binding_head = if body_binding.mutable {
+                "#let-mut"
+            } else {
+                "#let"
+            };
+            let mut body_success = vec![Expr::Symbol("#block".into())];
+            body_success.push(Expr::List(vec![
+                Expr::Symbol(body_binding_head.into()),
+                Expr::Symbol(body_binding.name),
+                Expr::Symbol(body_binding.ty),
+                Expr::Symbol(payload_name.clone()),
+            ]));
+            body_success.push(Expr::List(vec![
+                Expr::Symbol("#let-mut".into()),
+                Expr::Symbol(body_stopped_name.clone()),
+                Expr::Symbol("bool".into()),
+                Expr::Symbol("false".into()),
+            ]));
+            body_success.extend(body[1..].iter().cloned());
+            if body_success.len() > 3
+                && contains_loop_control(body_success.last().expect("body has a stop local"))
+            {
+                rewrite_while_let_terminal(
+                    body_success.last_mut().expect("body has a stop local"),
+                    &body_stopped_name,
+                )?;
+            }
+            body_success.push(Expr::Symbol(body_stopped_name));
+            let stopped_value = Expr::List(vec![
+                Expr::Symbol("#match".into()),
+                Expr::Symbol(decision_name.clone()),
+                Expr::List(vec![
+                    Expr::Symbol("#case".into()),
+                    Expr::Symbol(stop_variant),
+                    Expr::Symbol("true".into()),
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("#case".into()),
+                    Expr::List(vec![
+                        Expr::Symbol(continue_variant),
+                        Expr::Symbol(payload_name),
+                    ]),
+                    Expr::List(body_success),
+                ]),
+            ]);
+            let loop_form = Expr::List(vec![
+                Expr::Symbol("#loop".into()),
+                Expr::List(vec![
+                    Expr::Symbol("#let".into()),
+                    Expr::Symbol(decision_name),
+                    Expr::Symbol(decision_type),
+                    Expr::List(vec![
+                        Expr::Symbol("#await".into()),
+                        Expr::Symbol(composite_task),
+                        Expr::Symbol(composite_pending),
+                        Expr::Symbol(composite_ready),
+                        Expr::Symbol(composite_poll),
+                        Expr::List(vec![Expr::Symbol(wait_condition), await_form[5].clone()]),
+                    ]),
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("#let".into()),
+                    Expr::Symbol(stopped_name.clone()),
+                    Expr::Symbol("bool".into()),
+                    stopped_value,
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("#if".into()),
+                    Expr::Symbol(stopped_name),
+                    Expr::List(vec![Expr::Symbol("#break".into())]),
+                    Expr::List(vec![Expr::Symbol("#continue".into())]),
+                ]),
+            ]);
+            let Some((replacement, loop_helper, renames)) = lower_async_loop(
+                &loop_form,
+                known,
+                known_order,
+                following,
+                return_value,
+                source,
+                next_name,
+                waker,
+            )?
+            else {
+                return Ok(None);
+            };
+            let helper = [condition_helper, composite_helper, loop_helper]
+                .into_iter()
+                .filter(|helper| !helper.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Ok(Some((replacement, helper, renames)));
         }
         if body
             .iter()

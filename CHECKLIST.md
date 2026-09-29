@@ -1966,6 +1966,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   tasks, where each Ready value may construct the next child. Preserve each
   Pending state and execute the loop suffix only after the final child is
   Ready.
+- [x] **ASYNC-01b65: Compose awaited `#while` conditions with body suspension.**
+  Poll the condition child first; on Ready(false), skip the body task entirely,
+  and on Ready(true), construct and poll one direct body-await binding. Retain
+  either child across Pending, preserve the binding result and terminal
+  `#break`/`#continue`, and verify both suspension stages plus false-condition
+  short-circuiting natively. Outer-local references in the two task
+  constructors remain unsupported and must be carried explicitly in a later
+  async-capture step; ASYNC-01 remains open.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
