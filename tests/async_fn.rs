@@ -4088,20 +4088,24 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
         (#return (#match task
           (#case Waiting (InitPending Resuming))
           (#case Resuming (InitReady (Some 9u64))))))
+      (#struct Resource ((value u64)))
+      (#linear Resource)
       (#enum BodyTask ((BodyWaiting u64) (BodyResuming u64)))
       (#linear BodyTask)
-      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady Resource)))
       (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
         (#return (#match task
           (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
-          (#case (BodyResuming value) (BodyReady value)))))
-      (#enum SecondBodyTask ((SecondBodyWaiting u64) (SecondBodyResuming u64)))
+          (#case (BodyResuming value)
+            (#block (#forget value)
+              (BodyReady (#struct-literal Resource ((value 9u64)))))))))
+      (#enum SecondBodyTask (SecondBodyWaiting SecondBodyResuming))
       (#linear SecondBodyTask)
       (#enum SecondBodyPoll ((SecondBodyPending SecondBodyTask) (SecondBodyReady u64)))
       (#fn second-body-poll ((task SecondBodyTask) (waker (#ref u64))) SecondBodyPoll
         (#return (#match task
-          (#case (SecondBodyWaiting value) (SecondBodyPending (SecondBodyResuming value)))
-          (#case (SecondBodyResuming value) (SecondBodyReady value)))))
+          (#case SecondBodyWaiting (SecondBodyPending SecondBodyResuming))
+          (#case SecondBodyResuming (SecondBodyReady 9u64)))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
           (#let-mut done bool false)
@@ -4110,12 +4114,13 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
                   (#unreachable))
                 (#bool.== done false)
                 ()
-            (#let value u64
+            (#let value Resource
               (#await BodyTask BodyPending BodyReady body-poll (BodyWaiting index)))
             (#let second-value u64
               (#await SecondBodyTask SecondBodyPending SecondBodyReady
-                second-body-poll (SecondBodyWaiting value)))
+                second-body-poll SecondBodyWaiting))
             (#assert (#u64.== second-value 9u64))
+            (#forget value)
             (#set done true))
           (#return 42u64))))
       (#fn main () u64

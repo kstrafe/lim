@@ -4170,12 +4170,7 @@ fn lower_async_while_with_transfers(
             for expression in &body[second_index + 1..] {
                 collect_value_names(expression, &mut suffix_names);
             }
-            if suffix_names.contains(&first_binding.name) {
-                return Err(format!(
-                    "@async-fn first loop await result '{}' cannot be used after the second await",
-                    first_binding.name
-                ));
-            }
+            let preserve_first_result = suffix_names.contains(&first_binding.name);
 
             let base = fresh_async_name(source, next_name);
             let sequence_task = format!("{base}-sequence-task");
@@ -4195,6 +4190,7 @@ fn lower_async_while_with_transfers(
             let second_poll = symbol(&second_await[4], "second loop child poll function")?;
             let mut second_task = second_await[5].clone();
             let first_result = format!("{base}-first-result");
+            let second_resume_first = format!("{base}-resume-first");
             replace_await_local(&mut second_task, &first_binding.name, &first_result);
             let second_task = expression_source(&second_task)?;
             let mut middle = middle.to_vec();
@@ -4207,18 +4203,54 @@ fn lower_async_while_with_transfers(
                 .collect::<Result<Vec<_>, _>>()?
                 .join(" ");
             let second_result_type = second_binding.ty.as_str();
+            let sequence_ready_type = if preserve_first_result {
+                format!("(#tuple {} {second_result_type})", first_binding.ty)
+            } else {
+                second_result_type.to_owned()
+            };
+            let wait_second_fields = if preserve_first_result {
+                format!("{} {second_child_type}", first_binding.ty)
+            } else {
+                second_child_type.clone()
+            };
+            let pending_after_first = if preserve_first_result {
+                format!("({sequence_pending} ({wait_second} {first_result} pending))")
+            } else {
+                format!("({sequence_pending} ({wait_second} pending))")
+            };
+            let ready_after_first = if preserve_first_result {
+                format!("({sequence_ready} (#tuple {first_result} value))")
+            } else {
+                format!("({sequence_ready} value)")
+            };
             let second_poll_from_first = format!(
                 "(#match (#call {second_poll} (: task {second_task} : waker waker))\n\
-                   (#case ({second_pending} pending) ({sequence_pending} ({wait_second} pending)))\n\
-                   (#case ({second_ready} value) ({sequence_ready} value)))"
+                   (#case ({second_pending} pending) {pending_after_first})\n\
+                   (#case ({second_ready} value) {ready_after_first}))"
             );
+            let pending_again = if preserve_first_result {
+                format!("({sequence_pending} ({wait_second} {second_resume_first} pending))")
+            } else {
+                format!("({sequence_pending} ({wait_second} pending))")
+            };
+            let ready_again = if preserve_first_result {
+                format!("({sequence_ready} (#tuple {second_resume_first} value))")
+            } else {
+                format!("({sequence_ready} value)")
+            };
+            let wait_second_pattern = if preserve_first_result {
+                format!("({wait_second} {second_resume_first} child)")
+            } else {
+                format!("({wait_second} child)")
+            };
             let second_poll_again = format!(
                 "(#match (#call {second_poll} (: task child : waker waker))\n\
-                   (#case ({second_pending} pending) ({sequence_pending} ({wait_second} pending)))\n\
-                   (#case ({second_ready} value) ({sequence_ready} value)))"
+                   (#case ({second_pending} pending) {pending_again})\n\
+                   (#case ({second_ready} value) {ready_again}))"
             );
             let uses_first_result = second_task_names.contains(&first_binding.name)
-                || middle_names.contains(&first_binding.name);
+                || middle_names.contains(&first_binding.name)
+                || preserve_first_result;
             let first_ready_continuation = if uses_first_result {
                 format!("(#block {middle_source} {second_poll_from_first})")
             } else {
@@ -4227,16 +4259,16 @@ fn lower_async_while_with_transfers(
                 )
             };
             let sequence_helper = format!(
-                "(#enum {sequence_task} (({wait_first} {first_child_type}) ({wait_second} {second_child_type})))\n\
+                "(#enum {sequence_task} (({wait_first} {first_child_type}) ({wait_second} {wait_second_fields})))\n\
                  (#linear {sequence_task})\n\
-                 (#enum {sequence_result} (({sequence_pending} {sequence_task}) ({sequence_ready} {second_result_type})))\n\
+                 (#enum {sequence_result} (({sequence_pending} {sequence_task}) ({sequence_ready} {sequence_ready_type})))\n\
                  (#fn {sequence_poll} ((task {sequence_task}) (waker (#ref {waker}))) {sequence_result}\n\
                    (#return (#match task\n\
                      (#case ({wait_first} child)\n\
                        (#match (#call {first_poll} (: task child : waker waker))\n\
                          (#case ({first_pending} pending) ({sequence_pending} ({wait_first} pending)))\n\
                          (#case ({first_ready} {first_result}) {first_ready_continuation})))\n\
-                     (#case ({wait_second} child) {second_poll_again}))))"
+                     (#case {wait_second_pattern} {second_poll_again}))))"
             );
 
             let mut rewritten = statement.clone();
@@ -4246,10 +4278,7 @@ fn lower_async_while_with_transfers(
             let first_global_index = first_index + 2;
             let second_global_index = second_index + 2;
             loop_items.drain(first_global_index..second_global_index);
-            let Expr::List(second_binding_form) = &mut loop_items[first_global_index] else {
-                unreachable!()
-            };
-            second_binding_form[3] = Expr::List(vec![
+            let second_await_value = Expr::List(vec![
                 Expr::Symbol("#await".into()),
                 Expr::Symbol(sequence_task),
                 Expr::Symbol(sequence_pending),
@@ -4257,6 +4286,42 @@ fn lower_async_while_with_transfers(
                 Expr::Symbol(sequence_poll),
                 Expr::List(vec![Expr::Symbol(wait_first), first_await[5].clone()]),
             ]);
+            if preserve_first_result {
+                let tuple_name = fresh_async_name(source, next_name);
+                let tuple_type = Expr::List(vec![
+                    Expr::Symbol("#tuple".into()),
+                    crate::parse(&first_binding.ty)?[0].expr.clone(),
+                    crate::parse(&second_binding.ty)?[0].expr.clone(),
+                ]);
+                loop_items[first_global_index] = Expr::List(vec![
+                    Expr::Symbol("#let".into()),
+                    Expr::Symbol(tuple_name.clone()),
+                    tuple_type.clone(),
+                    second_await_value,
+                ]);
+                for (field_index, local) in
+                    [&first_binding, &second_binding].into_iter().enumerate()
+                {
+                    loop_items.insert(
+                        first_global_index + 1 + field_index,
+                        Expr::List(vec![
+                            Expr::Symbol("#let".into()),
+                            Expr::Symbol(local.name.clone()),
+                            crate::parse(&local.ty)?[0].expr.clone(),
+                            Expr::List(vec![
+                                Expr::Symbol("#get".into()),
+                                Expr::Symbol(tuple_name.clone()),
+                                Expr::UnsignedInteger(field_index as u128),
+                            ]),
+                        ]),
+                    );
+                }
+            } else {
+                let Expr::List(second_binding_form) = &mut loop_items[first_global_index] else {
+                    unreachable!()
+                };
+                second_binding_form[3] = second_await_value;
+            }
             let Some((replacement, helper, renames)) = lower_async_while_with_transfers(
                 &rewritten,
                 known,
