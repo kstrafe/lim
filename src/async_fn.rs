@@ -2872,13 +2872,20 @@ fn extract_nested_block_awaits(
     let Some(await_statement) = block.iter().position(has_await).filter(|index| *index > 0) else {
         return Ok(false);
     };
-    if await_statement < block.len() - 1
-        && !form(&block[await_statement], "#let")
-            .or_else(|| form(&block[await_statement], "#let-mut"))
-            .is_some_and(|binding| binding.len() == 4 && has_await(&binding[3]))
+    let target_value_index = if await_statement == block.len() - 1 {
+        None
+    } else if form(&block[await_statement], "#let")
+        .or_else(|| form(&block[await_statement], "#let-mut"))
+        .is_some_and(|binding| binding.len() == 4 && has_await(&binding[3]))
     {
+        Some(3)
+    } else if form(&block[await_statement], "#set")
+        .is_some_and(|assignment| assignment.len() == 3 && has_await(&assignment[2]))
+    {
+        Some(2)
+    } else {
         return Ok(false);
-    }
+    };
     if block_await_continuation(expression).is_some() {
         return Ok(false);
     }
@@ -2942,7 +2949,7 @@ fn extract_nested_block_awaits(
             return Ok(false);
         };
         extract_nested_awaits(
-            &mut items[3],
+            &mut items[target_value_index.expect("non-tail block target has a value")],
             generated,
             generated_helpers,
             &block_known,
