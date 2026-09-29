@@ -5361,7 +5361,26 @@ fn lower_async_while_with_transfers(
         return Err("@async-fn loop-await prefix cannot suspend or transfer control".into());
     }
     let suffix = &body[await_index + 1..];
-    if suffix.iter().any(|expression| {
+    let terminal_loop_transfer = suffix.last().and_then(|expression| {
+        let Expr::List(items) = expression else {
+            return None;
+        };
+        if items.len() != 1 {
+            return None;
+        }
+        match items.first() {
+            Some(Expr::Symbol(name)) if matches!(name.as_str(), "#break" | "#continue") => {
+                Some(name.as_str())
+            }
+            _ => None,
+        }
+    });
+    let suffix_body = if terminal_loop_transfer.is_some() {
+        &suffix[..suffix.len() - 1]
+    } else {
+        suffix
+    };
+    if suffix_body.iter().any(|expression| {
         has_await(expression)
             || matches!(
                 expression,
@@ -5387,7 +5406,7 @@ fn lower_async_while_with_transfers(
         }
     }
     let mut suffix_names = HashSet::new();
-    for expression in suffix {
+    for expression in suffix_body {
         collect_value_names(expression, &mut suffix_names);
     }
     if let Some(name) = prefix_bindings
@@ -5403,7 +5422,7 @@ fn lower_async_while_with_transfers(
     let mut used_names = HashSet::new();
     collect_value_names(&condition, &mut used_names);
     collect_value_names(&await_form[5], &mut used_names);
-    for expression in prefix.iter().chain(suffix) {
+    for expression in prefix.iter().chain(suffix_body) {
         collect_value_names(expression, &mut used_names);
     }
     let captures = known_order
@@ -5648,11 +5667,21 @@ fn lower_async_while_with_transfers(
         .map(expression_source)
         .collect::<Result<Vec<_>, _>>()?
         .join(" ");
-    let suffix_source = suffix
+    let suffix_source = suffix_body
         .iter()
         .map(expression_source)
         .collect::<Result<Vec<_>, _>>()?
         .join(" ");
+    let loop_ready_continuation = if terminal_loop_transfer == Some("#break") {
+        format!("(#block (#set {base}-stopped true) ({run_state_ready} {ready_value}))")
+    } else {
+        active_value_from_captures.clone()
+    };
+    let resumed_loop_return = if terminal_loop_transfer == Some("#break") {
+        format!("(#return ({task_ready} {ready_value}))")
+    } else {
+        format!("(#return (#call {task_run} {call_resumed_run}))")
+    };
     let child_poll_call = format!("(#call {child_poll} (: task {base}-child : waker waker))");
     let await_let = if await_binding.mutable {
         "#let-mut"
@@ -5689,7 +5718,7 @@ fn lower_async_while_with_transfers(
                              (#block
                                ({await_let} {await_name} {await_type} {base}-result)
                                {suffix_source}
-                               {active_value_from_captures}))))
+                               {loop_ready_continuation}))))
                        (#block
                          (#set {base}-stopped true)
                          ({run_state_ready} {ready_value})))))
@@ -5702,7 +5731,7 @@ fn lower_async_while_with_transfers(
          (#fn {task_resume} ({resume_parameters}) {task_poll_result}
            ({await_let} {await_name} {await_type} {base}-result)
            {suffix_source}
-           (#return (#call {task_run} {call_resumed_run})))
+           {resumed_loop_return})
          (#fn {task_poll} ((task {task_type}) (waker (#ref {waker}))) {task_poll_result}
            (#return (#match task
              (#case {start_pattern} (#call {task_run} {call_run}))

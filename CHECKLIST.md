@@ -2348,8 +2348,9 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   nested unit loop into a child async frame when it appears as a call argument,
   preserving its local bindings, loop control, and Pending/resume behavior.
 - [x] **ASYNC-01b136: Suspend nested unit-valued `#while` expressions.** Lift a
-  nested while loop into a child async frame when it appears as a call argument,
-  retaining condition/body execution and terminal loop control across Pending.
+  nested while loop into a child async frame when it appears as a call argument.
+  Preserve a terminal `#break` after an awaited body across both initial and
+  resumed polls, then continue with the expression following the loop.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

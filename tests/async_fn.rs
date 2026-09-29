@@ -1128,8 +1128,8 @@ fn async_unit_loop_expression_can_be_suspended_in_a_call_argument() {
 
 #[test]
 fn async_unit_while_expression_can_be_suspended_in_a_call_argument() {
-    let source = "(#enum ChildTask ((Waiting bool) (Resuming bool)))
-      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))
+    let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
       (#linear ChildTask)
       (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
         (#return (#match task
@@ -1140,9 +1140,10 @@ fn async_unit_while_expression_can_be_suspended_in_a_call_argument() {
         (#fn work () u64
           (#let result u64
             (#call consume-unit (: value
-              (#while
-                (#await bool ChildTask ChildPending ChildReady child-poll (Waiting false))
-                ()))))
+              (#while true
+                (#let awaited u64
+                  (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 41u64)))
+                (#break)))))
           (#return result))))
       (#fn run ((waker (#ref u64))) u64
         (#let task Frame (#call work ()))
