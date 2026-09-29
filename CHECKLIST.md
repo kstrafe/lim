@@ -2354,6 +2354,9 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-01b137: Suspend nested `#for-range` expressions.** Lift a
   range expression with an awaited body into a child frame when it appears as
   a named call argument, preserving its iteration state across Pending/resume.
+- [x] **ASYNC-01b138: Suspend nested `#for` expressions.** Lift a C-style loop
+  with an awaited body into a child frame when used as a named call argument;
+  retain initializer locals and terminal loop control across resumption.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

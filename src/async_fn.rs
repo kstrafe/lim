@@ -970,10 +970,12 @@ fn conditional_value_expression_task(
         .is_some_and(|tail| {
             form(tail, "#loop").is_some()
                 || form(tail, "#while").is_some()
+                || form(tail, "#for").is_some()
                 || form(tail, "#for-range").is_some()
         });
     let standalone_loop = (form(expression, "#loop").is_some()
         || form(expression, "#while").is_some()
+        || form(expression, "#for").is_some()
         || form(expression, "#for-range").is_some()
         || block_ends_in_loop)
         && enclosing_return_type.is_none();
@@ -2161,7 +2163,8 @@ fn extract_nested_awaits(
                 }
                 return Ok(());
             };
-            if contains_await && matches!(head.as_str(), "#loop" | "#while" | "#for-range") {
+            if contains_await && matches!(head.as_str(), "#loop" | "#while" | "#for" | "#for-range")
+            {
                 if let Some((protocol, task, helper)) =
                     conditional_value_expression_task(expression, known, source, next_name, waker)?
                 {
@@ -2992,7 +2995,12 @@ fn normalize_async_loop_await_types(expression: &mut Expr) -> Result<(), String>
 
     match expression {
         Expr::List(items) => {
-            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#for-range") {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#for" | "#for-range"))
+            {
+                let loop_name = match items.first() {
+                    Some(Expr::Symbol(name)) => name.clone(),
+                    _ => unreachable!(),
+                };
                 for statement in items.iter_mut().skip(4) {
                     if let Expr::List(binding) = statement {
                         if matches!(binding.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
@@ -3011,7 +3019,7 @@ fn normalize_async_loop_await_types(expression: &mut Expr) -> Result<(), String>
                                     let binding_type = parse_type(Some(&binding_type_expression))?;
                                     if await_type != binding_type {
                                         return Err(format!(
-                                            "@async-fn #for-range #await result type does not match binding '{binding_name}'"
+                                            "@async-fn {loop_name} #await result type does not match binding '{binding_name}'"
                                         ));
                                     }
                                     await_items.remove(1);
