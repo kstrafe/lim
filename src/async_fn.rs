@@ -3875,7 +3875,12 @@ fn lower_async_while_with_return_continue(
     let return_type_ast = parse_type(Some(&normalize_keywords(return_type.clone())))?;
     let return_type_is_copy = async_task_capture_is_copy(&return_type_ast);
     let terminal = items.len() - 1;
-    if !contains_continue_control(&items[terminal])
+    if !contains_return(&items[terminal])
+        || async_terminal_loop_exit(
+            &items[terminal],
+            &Expr::Symbol("lim.async.tail".into()),
+        )
+        .is_some()
         || items[2..terminal]
             .iter()
             .any(|statement| contains_loop_control(statement) || contains_return(statement))
@@ -7575,28 +7580,6 @@ fn contains_loop_control(expression: &Expr) -> bool {
         Expr::Labeled { expression, .. }
         | Expr::Unquote(expression)
         | Expr::UnquoteSplicing(expression) => contains_loop_control(expression),
-        _ => false,
-    }
-}
-
-fn contains_continue_control(expression: &Expr) -> bool {
-    match expression {
-        Expr::List(items) => {
-            matches!(items.first(), Some(Expr::Symbol(head)) if head == "#continue")
-                || items.iter().skip(1).any(contains_continue_control)
-        }
-        Expr::Block(statements) | Expr::Loop(statements) => {
-            statements.iter().any(|statement| match statement {
-                crate::Statement::Expr(value)
-                | crate::Statement::Return(Some(value))
-                | crate::Statement::BreakValue(value)
-                | crate::Statement::BreakToValue { value, .. } => contains_continue_control(value),
-                _ => false,
-            })
-        }
-        Expr::Labeled { expression, .. }
-        | Expr::Unquote(expression)
-        | Expr::UnquoteSplicing(expression) => contains_continue_control(expression),
         _ => false,
     }
 }

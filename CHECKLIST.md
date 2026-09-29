@@ -2435,6 +2435,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   following the loop in the condition-false branch and consume them from the
   outer lowering pass. Prove that the true branch returns immediately while
   the false branch executes its continuation exactly once in a native test.
+- [x] **ASYNC-01b156: Resume a while after a conditional return falls through.**
+  Lower a terminal body branch that returns while the other branch completes
+  normally and begins another awaited-condition iteration. Do not require an
+  explicit `#continue` for ordinary body fallthrough; test two condition
+  suspensions before the later return and a false-condition exit natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
