@@ -2132,6 +2132,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   source parameter order, use their fields across multiple awaits and a
   conditional await, and preserve them for the outer continuation. Reject an
   explicitly linear version with the offending capture name.
+- [x] **ASYNC-01b92: Track external borrows through nested loop-body frames.**
+  Carry a shared reference capture through condition and body Pending states,
+  reject owner mutation while the nested child is suspended, and prove the
+  borrow is released after Ready by mutating the owner in the caller.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
