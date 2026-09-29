@@ -2884,8 +2884,20 @@ fn extract_nested_block_awaits(
     {
         Some(2)
     } else {
-        return Ok(false);
+        let statement = &block[await_statement];
+        if contains_return(statement)
+            || contains_loop_control(statement)
+            || form(statement, "#await").is_some()
+            || form(statement, "#let-else").is_some()
+        {
+            return Ok(false);
+        }
+        None
     };
+    let whole_statement = await_statement < block.len() - 1 && target_value_index.is_none();
+    if await_statement == block.len() - 1 && contains_return(&block[await_statement]) {
+        return Ok(false);
+    }
     if block_await_continuation(expression).is_some() {
         return Ok(false);
     }
@@ -2941,6 +2953,24 @@ fn extract_nested_block_awaits(
             waker,
         )?;
         *expression = tail.clone();
+    } else if whole_statement {
+        let statement = continuation
+            .first_mut()
+            .expect("await statement index is inside block");
+        extract_nested_awaits(
+            statement,
+            generated,
+            generated_helpers,
+            &block_known,
+            source,
+            next_name,
+            waker,
+        )?;
+        *expression = Expr::List(
+            std::iter::once(Expr::Symbol("#block".into()))
+                .chain(continuation)
+                .collect(),
+        );
     } else {
         let statement = continuation
             .first_mut()
@@ -2948,8 +2978,9 @@ fn extract_nested_block_awaits(
         let Expr::List(items) = statement else {
             return Ok(false);
         };
+        let value_index = target_value_index.expect("binding or assignment target has a value");
         extract_nested_awaits(
-            &mut items[target_value_index.expect("non-tail block target has a value")],
+            &mut items[value_index],
             generated,
             generated_helpers,
             &block_known,

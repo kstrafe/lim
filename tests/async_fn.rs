@@ -1106,6 +1106,37 @@ fn async_nested_block_assignments_resume_after_awaited_rhs_values() {
 }
 
 #[test]
+fn async_nested_block_effect_statements_can_await() {
+    let source = "(#enum Child (Waiting Resume))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady bool)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case Waiting (ChildPending Resume))
+          (#case Resume (ChildReady true)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let result u64
+            (#block
+              (#assert (#await bool Child ChildPending ChildReady child-poll Waiting))
+              42u64))
+          (#return result))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (:)))
+        (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    build_and_run(source, 42);
+}
+
+#[test]
 fn async_struct_fields_are_evaluated_in_source_order_before_suspension() {
     let source = "(#struct Pair ((first u64) (second u64)))
       (#enum Child (Waiting))
