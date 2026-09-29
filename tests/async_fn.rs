@@ -2555,6 +2555,78 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
 }
 
 #[test]
+fn async_for_three_phase_continue_runs_step_and_break_skips_it() {
+    let source = "(#enum ConditionTask ((Waiting u64) (Resuming u64)))
+      (#linear ConditionTask)
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case (Waiting iteration) (ConditionPending (Resuming iteration)))
+          (#case (Resuming iteration)
+            (ConditionReady (#u64.< iteration 2u64))))))
+      (#enum BodyTask ((BodyWaiting u64) (BodyResuming u64)))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady bool)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case (BodyWaiting iteration) (BodyPending (BodyResuming iteration)))
+          (#case (BodyResuming iteration) (BodyReady true)))))
+      (#enum StepTask ((StepWaiting u64) (StepResuming u64)))
+      (#linear StepTask)
+      (#enum StepPoll ((StepPending StepTask) (StepReady u64)))
+      (#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case (StepWaiting iteration)
+            (#block (#assert (#u64.== iteration 0u64))
+              (StepPending (StepResuming iteration))))
+          (#case (StepResuming iteration)
+            (#block (#assert (#u64.== iteration 0u64))
+              (StepReady (#u64.+.wrap iteration 1u64)))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#for (#set iteration 0u64)
+                (#await ConditionTask ConditionPending ConditionReady
+                  condition-poll (Waiting iteration))
+                (#set iteration
+                  (#await u64 StepTask StepPending StepReady step-poll
+                    (StepWaiting iteration)))
+            (#let body-ran bool
+              (#await bool BodyTask BodyPending BodyReady body-poll
+                (BodyWaiting iteration)))
+            (#if (#u64.== iteration 0u64) (#continue) (#break)))
+          (#return iteration))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending first-pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Pending second-pending) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task second-pending : waker (#borrow waker))))
+        (#let-else (Pending third-pending) Poll third (#unreachable))
+        (#let fourth Poll (#call poll (: task third-pending : waker (#borrow waker))))
+        (#let-else (Pending fourth-pending) Poll fourth (#unreachable))
+        (#let fifth Poll (#call poll (: task fourth-pending : waker (#borrow waker))))
+        (#let-else (Pending fifth-pending) Poll fifth (#unreachable))
+        (#let sixth Poll (#call poll (: task fifth-pending : waker (#borrow waker))))
+        (#let result u64
+          (#match sixth
+            (#case (Ready value) value)
+            (#case (Pending sixth-pending)
+              (#block
+                (#let seventh Poll
+                  (#call poll (: task sixth-pending : waker (#borrow waker))))
+                (#match seventh
+                  (#case (Ready value) value)
+                  (#case (Pending unexpected)
+                    (#block (#forget unexpected) 77u64)))))))
+        (#forget waker)
+        (#return (#if (#u64.== result 1u64) 42u64 0u64)))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("iteration-function"), "{generated}");
+}
+
+#[test]
 fn async_for_condition_awaits_only_the_selected_branch_each_iteration() {
     let source = "(#enum ChildTask (Waiting Resuming))
       (#linear ChildTask)

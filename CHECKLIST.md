@@ -2072,6 +2072,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Copy loop-carried values only after the step is Ready, and recheck the
   condition afterward. Verify native Pending/resume across all three phases
   and preserve body-before-step ordering.
+- [x] **ASYNC-01b83: Preserve terminal transfers in three-phase awaited `#for`.**
+  Carry terminal body `#break`/`#continue` through the condition/body/step
+  adapter. A continue must await and apply the step before rechecking the
+  condition; a break must skip the step and exit after the body is Ready.
+  Preserve updated loop-carried values and verify both paths natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
