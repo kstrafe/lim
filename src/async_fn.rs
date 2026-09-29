@@ -5311,13 +5311,6 @@ fn lower_async_for(
                 "@async-fn awaited #let-else #for initialization cannot yet be combined with suspension in its condition, step, or body".into(),
             );
         }
-        if form(initializer, "#let-else")
-            .is_some_and(|let_else| let_else.get(4).is_some_and(contains_return))
-        {
-            return Err(
-                "@async-fn awaited #let-else #for initialization cannot yet return from the function on mismatch".into(),
-            );
-        }
         let mut initializer_statement = initializer.clone();
         extract_statement_awaits(
             &mut initializer_statement,
@@ -5330,17 +5323,12 @@ fn lower_async_for(
         )?;
         let mut loop_form = vec![
             Expr::Symbol("#for".into()),
-            Expr::List(Vec::new()),
+            initializer_statement,
             items[2].clone(),
             items[3].clone(),
         ];
         loop_form.extend(items[4..].iter().cloned());
-        initializer_prefix.push(Expr::List(
-            std::iter::once(Expr::Symbol("#block".into()))
-                .chain(std::iter::once(initializer_statement))
-                .chain(std::iter::once(Expr::List(loop_form)))
-                .collect(),
-        ));
+        initializer_prefix.push(Expr::List(loop_form));
         return Ok(Some((
             initializer_prefix,
             initializer_helpers.join("\n"),

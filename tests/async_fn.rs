@@ -4078,6 +4078,48 @@ fn async_for_let_else_initializer_suspends_before_entering_the_loop() {
 }
 
 #[test]
+fn async_for_let_else_initializer_returns_ready_on_mismatch() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum InitTask ((Waiting Maybe) (Resuming Maybe)))
+      (#linear InitTask)
+      (#enum InitPoll ((InitPending InitTask) (InitReady Maybe)))
+      (#fn init-poll ((task InitTask) (waker (#ref u64))) InitPoll
+        (#return (#match task
+          (#case (Waiting value) (InitPending (Resuming value)))
+          (#case (Resuming value) (InitReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((input Maybe)) u64
+          (#for (#let-else (Some index) Maybe
+                  (#await InitTask InitPending InitReady init-poll (Waiting input))
+                  (#return 7u64))
+                false
+                ()
+            ())
+          (#return 35u64))))
+      (#fn poll-work ((input Maybe) (waker (#ref u64))) u64
+        (#let task Frame (#call work (: input input)))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#return (#match first
+          (#case (Ready value) value)
+          (#case (Pending pending) (#block
+            (#let second Poll (#call poll (: task pending : waker waker)))
+            (#match second
+              (#case (Ready value) value)
+              (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let mismatch u64 (#call poll-work (: input None : waker (#borrow waker))))
+        (#let matched u64 (#call poll-work (: input (Some 7u64) : waker (#borrow waker))))
+        (#forget waker)
+        (#return (#u64.+.wrap mismatch matched)))";
+    let generated = build_and_run(source, 42);
+    assert!(
+        generated.contains("(#return (Ready (#literal u64 7)))"),
+        "{generated}"
+    );
+}
+
+#[test]
 fn async_for_step_can_suspend_after_the_loop_body() {
     let source = "(#enum StepTask ((Waiting u64) (Resuming u64)))
       (#linear StepTask)

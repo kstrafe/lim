@@ -2179,9 +2179,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   assign only when the selected child is Ready, and verify the result natively.
 - [x] **ASYNC-01b101: Await a diverging `#let-else` in a `#for` initializer.**
   Evaluate the scrutinee once before entering the loop, retain pattern-binding
-  scope for its condition/body/step, and preserve Pending/resume. For now,
-  reject suspension in the remaining loop phases and function returns from the
-  mismatch arm with focused diagnostics; verify the matching path natively.
+  scope for its condition/body/step, and preserve Pending/resume. Preserve a
+  function return from the mismatch arm as the poll helper's `Ready` result;
+  reject suspension in the remaining loop phases. Verify both matching and
+  mismatch paths natively after Pending/resume.
 - [x] **ASYNC-01b102: Return early from synchronous loops in async functions.**
   Adapt direct `#return` statements in non-suspending loop bodies to the
   enclosing poll helper's `Ready` result. Leave loops containing suspension to
