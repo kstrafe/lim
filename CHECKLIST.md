@@ -1948,6 +1948,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   polling the outer child. Run initialization exactly once before the loop,
   preserve Pending/resume, and verify an immediate loop condition is evaluated
   only after the outer initializer resolves.
+- [x] **ASYNC-01b61: Await `#for-range` bounds before entering the range.**
+  Extract typed awaits from the start and end expressions in source order,
+  evaluate each bound once, and do not begin iterations until both complete.
+  Verify multiple Pending/resume stages and the resulting range boundaries;
+  body suspension remains independent.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

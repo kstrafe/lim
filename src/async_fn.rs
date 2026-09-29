@@ -1740,6 +1740,45 @@ fn lower_async_for_range(
     if items.len() < 5 {
         return Err("@async-fn #for-range await requires a binding, bounds, and body".into());
     }
+    let bounds_suspend = has_await(&items[2]) || has_await(&items[3]);
+    if bounds_suspend {
+        if items[4..].iter().any(has_await) {
+            return Err("@async-fn #for-range bounds and body cannot both suspend yet".into());
+        }
+        let mut start = items[2].clone();
+        let mut end = items[3].clone();
+        let mut generated = Vec::new();
+        let mut generated_helpers = Vec::new();
+        extract_nested_awaits(
+            &mut start,
+            &mut generated,
+            &mut generated_helpers,
+            source,
+            next_name,
+            waker,
+        )?;
+        extract_nested_awaits(
+            &mut end,
+            &mut generated,
+            &mut generated_helpers,
+            source,
+            next_name,
+            waker,
+        )?;
+        if !generated.iter().any(has_await) {
+            return Err(
+                "@async-fn #for-range bounds require explicitly typed #await expressions".into(),
+            );
+        }
+        let mut range = statement.clone();
+        let Expr::List(range_items) = &mut range else {
+            unreachable!()
+        };
+        range_items[2] = start;
+        range_items[3] = end;
+        generated.push(range);
+        return Ok(Some((generated, generated_helpers.join("\n"), Vec::new())));
+    }
     let Expr::List(range_binding) = &items[1] else {
         return Err("@async-fn #for-range binding must have the form (name Type)".into());
     };
