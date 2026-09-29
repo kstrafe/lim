@@ -2049,6 +2049,42 @@ fn async_for_condition_awaits_only_the_selected_branch_each_iteration() {
 }
 
 #[test]
+fn async_while_condition_awaits_only_the_selected_branch_each_iteration() {
+    let source = "(#enum ChildTask (Waiting Resuming))
+      (#linear ChildTask)
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case Waiting (ChildPending Resuming))
+          (#case Resuming (ChildReady true)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut should-await bool true)
+          (#while
+            (#if should-await
+              (#await bool ChildTask ChildPending ChildReady child-poll Waiting)
+              false)
+            (#set should-await false))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(&source, 42);
+    assert!(generated.contains("choice"), "{generated}");
+}
+
+#[test]
 fn async_for_initializer_awaits_once_before_entering_the_loop() {
     let source = "(#enum InitTask ((Waiting u64) (Resuming u64)))
       (#linear InitTask)

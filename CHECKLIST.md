@@ -1923,6 +1923,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   branch selector each iteration, never hoist its await, and preserve loop
   step ordering. Verify native Pending/resume and that an immediate branch does
   not poll the child.
+- [x] **ASYNC-01b56: Suspend conditionally in a `#while` condition.** Compose
+  an awaited branch and an immediate boolean branch into one per-iteration
+  child task. Re-evaluate the selector after each Ready(true), preserve
+  Pending/resume and body ordering, and verify the immediate branch does not
+  poll its child.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

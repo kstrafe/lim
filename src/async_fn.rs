@@ -1184,9 +1184,25 @@ fn lower_async_while(
     }
     let condition = &items[1];
     if has_await(condition) {
-        let Some(await_form) = form(condition, "#await") else {
+        let (await_form, condition_helper) = if let Some(await_form) = form(condition, "#await") {
+            (await_form.to_vec(), String::new())
+        } else if let Some((protocol, task, helper)) =
+            conditional_await_with_immediate(condition, source, next_name, waker)?
+        {
+            (
+                vec![
+                    Expr::Symbol("#await".into()),
+                    protocol.child_type,
+                    protocol.pending,
+                    protocol.ready,
+                    protocol.poll,
+                    task,
+                ],
+                helper,
+            )
+        } else {
             return Err(
-                "@async-fn awaited #while condition must be one direct #await expression".into(),
+                "@async-fn awaited #while condition requires a direct #await or conditional #if with a direct #await branch".into(),
             );
         };
         if await_form.len() != 6 {
@@ -1233,7 +1249,7 @@ fn lower_async_while(
             Expr::Symbol("#let".into()),
             Expr::Symbol(condition_name.clone()),
             Expr::Symbol("bool".into()),
-            Expr::List(await_form.to_vec()),
+            Expr::List(await_form),
         ]);
         let mut body_block = vec![Expr::Symbol("#block".into())];
         body_block.extend(prefix.iter().cloned());
@@ -1255,7 +1271,7 @@ fn lower_async_while(
         let mut loop_form = vec![Expr::Symbol("#loop".into()), await_binding];
         loop_form.push(guarded_body);
         loop_form.push(loop_terminal);
-        return lower_async_loop(
+        let Some((replacement, helper, renames)) = lower_async_loop(
             &Expr::List(loop_form),
             known,
             known_order,
@@ -1264,7 +1280,16 @@ fn lower_async_while(
             source,
             next_name,
             waker,
-        );
+        )?
+        else {
+            return Ok(None);
+        };
+        let helper = [condition_helper, helper]
+            .into_iter()
+            .filter(|helper| !helper.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Ok(Some((replacement, helper, renames)));
     }
     let body = &items[2..];
     let await_indices = body
