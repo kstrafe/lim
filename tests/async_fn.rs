@@ -3289,6 +3289,67 @@ fn async_while_let_resumes_a_body_await_only_after_the_pattern_matches() {
 }
 
 #[test]
+fn async_while_let_carries_named_copy_aggregate_to_body_task() {
+    let source = "(#struct Captures ((left u64) (right u64)))
+      (#enum Maybe ((Some u64) None))
+      (#enum ConditionTask (ConditionWaiting ConditionResuming))
+      (#linear ConditionTask)
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady Maybe)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case ConditionWaiting (ConditionPending ConditionResuming))
+          (#case ConditionResuming (ConditionReady (Some 1u64))))) )
+      (#enum BodyTask ((BodyWaiting Captures) (BodyResuming Captures)))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case (BodyWaiting captures) (BodyPending (BodyResuming captures)))
+          (#case (BodyResuming captures)
+            (BodyReady (#u64.+.wrap
+              (#get captures left) (#get captures right)))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((captures Captures)) u64
+          (#let-mut total u64 0u64)
+          (#while-let (Some payload)
+            (#await Maybe ConditionTask ConditionPending ConditionReady condition-poll ConditionWaiting)
+            (#let result u64
+              (#await u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting captures)))
+            (#set total (#u64.+.wrap payload result))
+            (#break))
+          (#return total))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let captures Captures
+          (#struct-literal Captures ((left 20u64) (right 22u64))))
+        (#let first Poll
+          (#call poll (: task (#call work (: captures captures)) : waker (#borrow waker))))
+        (#let-else (Pending condition-pending) Poll first (#unreachable))
+        (#let second Poll (#call poll
+          (: task condition-pending : waker (#borrow waker))))
+        (#let-else (Pending body-pending) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task body-pending : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 43);
+    assert!(generated.contains("scrutinee-body-task"), "{generated}");
+
+    let linear_source = source.replace(
+        "(#struct Captures ((left u64) (right u64)))",
+        "(#struct Captures ((left u64) (right u64))) (#linear Captures)",
+    );
+    let error = lim::parse_program(&linear_source).unwrap_err();
+    assert!(
+        error.contains("non-Copy local 'captures'"),
+        "explicitly linear aggregates must not be treated as Copy captures: {error}"
+    );
+}
+
+#[test]
 fn async_while_condition_awaits_only_the_selected_branch_each_iteration() {
     let source = "(#enum ChildTask (Waiting Resuming))
       (#linear ChildTask)

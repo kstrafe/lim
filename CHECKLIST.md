@@ -2106,6 +2106,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Pending, reject owner access while suspended, and release the loan when Ready
   so the caller can access the owner again. Verify the mismatch path remains
   independent and test both rejected and accepted accesses.
+- [x] **ASYNC-01b87: Prove named aggregate captures in composed loop tasks.**
+  Resolve named capture copyability from the project’s structural ownership
+  metadata, carry a non-linear struct through condition/body Pending states,
+  and reject an explicitly linear version with the capture name. Include the
+  resulting capability set in generated-source cache identity.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

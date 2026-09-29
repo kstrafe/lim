@@ -2175,18 +2175,50 @@ fn async_generated_source(
     invocation: &Expr,
     span: Span,
     capture_plans: Option<&AsyncCapturePlans>,
+    copy_types: &HashSet<String>,
 ) -> Result<String, String> {
     let key = (span.source_id, span.start, span.end);
-    match capture_plans {
-        None => async_fn::generated_source(invocation),
-        Some(plans) => match plans.get(&key) {
-            None => async_fn::generated_source(invocation),
-            Some(captures) => {
-                let typed = async_fn::generated_source_with_captures(invocation, captures)?;
-                Ok(typed)
+    let captures = capture_plans.and_then(|plans| plans.get(&key));
+    async_fn::generated_source_with_copy_types(invocation, captures, copy_types)
+}
+
+fn async_copy_type_names_from_items(items: &[Item]) -> HashSet<String> {
+    let program = Program {
+        items: items.to_vec(),
+        source: None,
+        source_files: Vec::new(),
+        statement_spans: HashMap::new(),
+        statement_expressions: HashMap::new(),
+        declaration_spans: HashMap::new(),
+        declaration_expressions: HashMap::new(),
+        declaration_occurrences: HashMap::new(),
+        generated_source_invocations: HashMap::new(),
+    };
+    let linear_types = linearcheck::LinearTypes::from_program(&program);
+    items
+        .iter()
+        .filter_map(|item| match item {
+            Item::TypeAlias { name, .. } | Item::Struct { name, .. } | Item::Enum { name, .. } => {
+                Some(name.clone())
             }
-        },
-    }
+            _ => None,
+        })
+        .filter(|name| !linear_types.is_linear(&Type::Named(name.clone())))
+        .collect()
+}
+
+fn async_copy_type_names(expressions: &[SpannedExpr]) -> HashSet<String> {
+    let items = expressions
+        .iter()
+        .filter_map(|expression| parse_item(&normalize_keywords(expression.expr.clone())).ok())
+        .collect::<Vec<_>>();
+    async_copy_type_names_from_items(&items)
+}
+
+fn async_copy_type_identity(types: &HashSet<String>) -> String {
+    let mut names = types.iter().collect::<Vec<_>>();
+    names.sort();
+    format!("{names:?}")
 }
 
 struct AsyncCaptureInvocation {
@@ -2386,6 +2418,7 @@ fn parse_program_in_directory_with_async_captures(
         config,
     )
     .map_err(|error| attach_generator_source(error, &source_files))?;
+    let async_copy_types = async_copy_type_names(&expressions);
     let mut items = Vec::with_capacity(expressions.len());
     let mut statement_spans = HashMap::new();
     let mut statement_expressions = HashMap::new();
@@ -2487,8 +2520,13 @@ fn parse_program_in_directory_with_async_captures(
                     )
                 ) {
                     let generated_text = if matches!(kind, Some("async-fn" | "async-fn-pinned")) {
-                        async_generated_source(&normalized_invocation, form_span, capture_plans)
-                            .ok()
+                        async_generated_source(
+                            &normalized_invocation,
+                            form_span,
+                            capture_plans,
+                            &async_copy_types,
+                        )
+                        .ok()
                     } else {
                         kind.and_then(|kind| {
                             materialize_builtin_generated_source(kind, forms, &worker_functions)
@@ -2539,8 +2577,13 @@ fn parse_program_in_directory_with_async_captures(
             if matches!(forms.first(), Some(Expr::At)) {
                 let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned")
                 {
-                    async_generated_source(&normalized_invocation, form_span, capture_plans)
-                        .and_then(|source| parse_generated_source_items(&source))
+                    async_generated_source(
+                        &normalized_invocation,
+                        form_span,
+                        capture_plans,
+                        &async_copy_types,
+                    )
+                    .and_then(|source| parse_generated_source_items(&source))
                 } else {
                     parse_generated_items(forms)
                 };
@@ -5262,6 +5305,7 @@ fn write_generated_sources_in_directory(
             }
         })
         .collect::<HashMap<_, _>>();
+    let copy_types = async_copy_type_names(&expanded);
     let generated_cache = cache_directory
         .map(Path::to_path_buf)
         .unwrap_or_else(|| directory.join("cache"));
@@ -5295,18 +5339,16 @@ fn write_generated_sources_in_directory(
             continue;
         }
         let key = format!(
-            "lim-inspectable-generated-source-v4\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\nasync-capture-plan={}\ninvocation={invocation}",
+            "lim-inspectable-generated-source-v4\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\nasync-capture-plan={}\nasync-copy-types={}\ninvocation={invocation}",
             env!("CARGO_PKG_VERSION"),
             env!("LIM_BUILD_FINGERPRINT"),
             dependency_context,
             async_capture_plan_identity(capture_plan),
+            async_copy_type_identity(&copy_types),
         );
         generator::cached_generated_source(&generated_cache, &key, || {
             if matches!(kind, "async-fn" | "async-fn-pinned") {
-                capture_plan.map_or_else(
-                    || async_fn::generated_source(&original),
-                    |captures| async_fn::generated_source_with_captures(&original, captures),
-                )
+                async_fn::generated_source_with_copy_types(&original, capture_plan, &copy_types)
             } else {
                 materialize_builtin_generated_source(&kind, &forms, &worker_functions)
             }

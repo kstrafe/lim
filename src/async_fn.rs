@@ -3,9 +3,39 @@
 //! This deliberately emits ordinary Lim declarations before type and borrow
 //! checking. No suspension point can hide a reference from those passes.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::{expression_source, normalize_keywords, parse_type, Expr, Type};
+
+thread_local! {
+    static NAMED_COPY_TYPES: RefCell<Vec<HashSet<String>>> = const { RefCell::new(Vec::new()) };
+}
+
+struct NamedCopyTypesGuard;
+
+impl Drop for NamedCopyTypesGuard {
+    fn drop(&mut self) {
+        NAMED_COPY_TYPES.with(|types| {
+            types.borrow_mut().pop();
+        });
+    }
+}
+
+fn with_named_copy_types<T>(types: &HashSet<String>, action: impl FnOnce() -> T) -> T {
+    NAMED_COPY_TYPES.with(|stack| stack.borrow_mut().push(types.clone()));
+    let _guard = NamedCopyTypesGuard;
+    action()
+}
+
+fn is_named_copy_type(name: &str) -> bool {
+    NAMED_COPY_TYPES.with(|stack| {
+        stack
+            .borrow()
+            .last()
+            .is_some_and(|types| types.contains(name))
+    })
+}
 
 #[derive(Clone)]
 struct Binding {
@@ -53,8 +83,8 @@ fn async_task_capture_is_copy(ty: &Type) -> bool {
         | Type::PinnedReference { mutable: true, .. }
         | Type::MutableSlice(_)
         | Type::Atomic(_)
-        | Type::Generic(_)
-        | Type::Named(_) => false,
+        | Type::Generic(_) => false,
+        Type::Named(name) => is_named_copy_type(name),
     }
 }
 
@@ -5740,6 +5770,17 @@ pub(crate) fn generated_source_with_captures(
     captures: &HashMap<usize, HashSet<String>>,
 ) -> Result<String, String> {
     generated_source_with_capture_selection(invocation, CaptureSelection::Typed(captures))
+}
+
+pub(crate) fn generated_source_with_copy_types(
+    invocation: &Expr,
+    captures: Option<&HashMap<usize, HashSet<String>>>,
+    copy_types: &HashSet<String>,
+) -> Result<String, String> {
+    with_named_copy_types(copy_types, || match captures {
+        Some(captures) => generated_source_with_captures(invocation, captures),
+        None => generated_source(invocation),
+    })
 }
 
 enum CaptureSelection<'a> {
