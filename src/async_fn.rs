@@ -3032,6 +3032,53 @@ fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bo
         }
         return Ok(transferred);
     }
+    if let Some(items) = form(expression, "#match") {
+        if items.len() < 3 {
+            return Err("@async-fn awaited loop requires a match with at least one arm".into());
+        }
+        let arm_count = items.len();
+        let mut transferred = false;
+        for arm_index in 2..arm_count {
+            let (body_index, guard_has_control, body_has_control) = {
+                let case = form(&expression_list_mut(expression)[arm_index], "#case").ok_or_else(
+                    || "@async-fn awaited loop requires valid terminal match arms".to_owned(),
+                )?;
+                let body_index = match case.len() {
+                    3 => 2,
+                    4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
+                    _ => {
+                        return Err(
+                            "@async-fn awaited loop requires valid terminal match arms".into()
+                        )
+                    }
+                };
+                (
+                    body_index,
+                    case[1..body_index].iter().any(contains_loop_control),
+                    contains_loop_control(&case[body_index]),
+                )
+            };
+            if guard_has_control {
+                return Err("@async-fn awaited loop transfers cannot occur in match guards".into());
+            }
+            if body_has_control {
+                let Expr::List(match_items) = expression else {
+                    unreachable!()
+                };
+                let Expr::List(case_items) = &mut match_items[arm_index] else {
+                    unreachable!()
+                };
+                let mut rewritten = case_items[body_index].clone();
+                transferred |= rewrite_while_let_terminal(&mut rewritten, stopped)?;
+                case_items[body_index] = Expr::List(vec![
+                    Expr::Symbol("#block".into()),
+                    rewritten,
+                    Expr::List(Vec::new()),
+                ]);
+            }
+        }
+        return Ok(transferred);
+    }
     if let Some(items) = form(expression, "#block") {
         if items.len() < 2 {
             return Ok(false);
@@ -3044,8 +3091,7 @@ fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bo
     }
     if contains_loop_control(expression) {
         return Err(
-            "@async-fn awaited #while-let only supports terminal #break/#continue or #if branches"
-                .into(),
+            "@async-fn awaited loop only supports terminal #break/#continue, #if, or #match branches".into(),
         );
     }
     Ok(false)

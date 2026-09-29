@@ -1717,9 +1717,9 @@ fn awaited_while_condition_preserves_terminal_break_and_continue() {
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (Waiting iteration))
             (#set iteration (#u64.+.wrap iteration 1u64))
-            (#if (#u64.== iteration 2u64)
-              (#break)
-              (#continue)))
+            (#match iteration
+              (#case 2u64 (#break))
+              (#case _ (#continue))))
           (#return iteration))))
       (#fn main () u64
         (#let waker u64 0u64)
@@ -2359,7 +2359,9 @@ fn async_while_let_resumes_a_body_await_only_after_the_pattern_matches() {
               (#await u64 BodyTask BodyPending BodyReady body-poll BodyWaiting))
             (#assert (#u64.== payload 42u64))
             (#assert (#u64.== result 7u64))
-            (#break))
+            (#match payload
+              (#case 42u64 (#break))
+              (#case _ (#continue))))
           (#return 42u64))))
       (#fn main () u64
         (#let waker u64 0u64)

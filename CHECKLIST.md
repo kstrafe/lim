@@ -2011,6 +2011,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   and skip it for breaking arms. Reject transfers in guards and preserve
   terminality diagnostics. Verify native resume behavior where different arms
   select continue and break around an awaited condition.
+- [x] **ASYNC-01b72: Preserve match transfers in awaited `#while` and `#while-let`.**
+  Lower terminal match-arm breaks and continues through the loop's stopped
+  state, without changing scrutinee binding or body-await ordering. Reject
+  nonterminal and guarded transfers. Verify a native awaited-condition loop
+  and an awaited-scrutinee body that exits through a match arm.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
