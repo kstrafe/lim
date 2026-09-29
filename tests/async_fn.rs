@@ -2335,6 +2335,82 @@ fn async_for_condition_awaits_only_the_selected_branch_each_iteration() {
 }
 
 #[test]
+fn async_while_let_resumes_a_body_await_only_after_the_pattern_matches() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum ConditionTask (ConditionWaiting ConditionResuming))
+      (#linear ConditionTask)
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady Maybe)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case ConditionWaiting (ConditionPending ConditionResuming))
+          (#case ConditionResuming (ConditionReady (Some 42u64))))) )
+      (#enum BodyTask (BodyWaiting BodyResuming))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case BodyWaiting (BodyPending BodyResuming))
+          (#case BodyResuming (BodyReady 7u64)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#while-let (Some payload)
+            (#await Maybe ConditionTask ConditionPending ConditionReady condition-poll ConditionWaiting)
+            (#let result u64
+              (#await u64 BodyTask BodyPending BodyReady body-poll BodyWaiting))
+            (#assert (#u64.== payload 42u64))
+            (#assert (#u64.== result 7u64))
+            (#break))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending condition-pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task condition-pending : waker (#borrow waker))))
+        (#let-else (Pending body-pending) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task body-pending : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("scrutinee-body-task"), "{generated}");
+
+    let conditional_source = source.replace(
+        "(#await u64 BodyTask BodyPending BodyReady body-poll BodyWaiting)",
+        "(#if true\n                (#await u64 BodyTask BodyPending BodyReady body-poll BodyWaiting)\n                7u64)",
+    );
+    let generated = build_and_run(&conditional_source, 42);
+    assert!(generated.contains("choice"), "{generated}");
+
+    let (prefix, _) = source.split_once("      (#fn main () u64").unwrap();
+    let unmatched_source = format!(
+        "{}{}",
+        prefix
+            .replace("(ConditionReady (Some 42u64))", "(ConditionReady None)")
+            .replace(
+                "(#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll\n        (#return (#match task\n          (#case BodyWaiting (BodyPending BodyResuming))\n          (#case BodyResuming (BodyReady 7u64)))))",
+                "(#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll\n        (#forget task)\n        (#return (BodyPending BodyWaiting)))",
+            ),
+        "      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending condition-pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task condition-pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))"
+    );
+    build_and_run(&unmatched_source, 42);
+}
+
+#[test]
 fn async_while_condition_awaits_only_the_selected_branch_each_iteration() {
     let source = "(#enum ChildTask (Waiting Resuming))
       (#linear ChildTask)

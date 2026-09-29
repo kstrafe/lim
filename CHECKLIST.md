@@ -1988,6 +1988,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   across Pending, and preserve the ordinary body continuation. Verify native
   child resumption and retain the Ready(false) body-skip regression; broader
   body control-flow joins remain open under ASYNC-01.
+- [x] **ASYNC-01b68: Suspend a `#while-let` body after a matching scrutinee.**
+  Poll the scrutinee child first, skip body construction when its pattern does
+  not match, and otherwise retain the scrutinee plus the body child across
+  Pending. Restore pattern bindings and body-await results before the original
+  continuation; verify direct and conditional body awaits, as well as an
+  unmatched value that must not poll the body task.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
