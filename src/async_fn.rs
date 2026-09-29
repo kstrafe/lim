@@ -9085,9 +9085,43 @@ fn generated_source_with_capture_selection(
         known_order.push(local.name.clone());
     }
     if stages.is_empty() {
-        return Err(
-            "@async-fn requires at least one top-level (#let name Type (#await ...))".into(),
-        );
+        if pinned {
+            return Err(
+                "@async-fn-pinned requires at least one top-level (#let name Type (#await ...))"
+                    .into(),
+            );
+        }
+        let start_variant = format!("{frame}-start");
+        let start_helper = format!("{poll}-start");
+        let body_helper = fresh_async_name(&source, &mut next_nested_await);
+        let result_name = fresh_async_name(&source, &mut next_nested_await);
+        let start_parameters = signature(&params);
+        let start_arguments = arguments(&params);
+        let start_types = types(&params);
+        let poll_arguments = named_arguments(&params);
+        let body = function[4..]
+            .iter()
+            .map(expression_source)
+            .collect::<Result<Vec<_>, _>>()?
+            .join(" ");
+        return Ok(format!(
+            "{}\n\
+             (#enum {frame_state} (({start_variant} {start_types})))\n\
+             (#linear {frame_state})\n\
+             (#fn {start} ({start_parameters}) {frame_state}\n\
+               (#return ({start_variant} {start_arguments})))\n\
+             (#enum {poll_result} (({pending} {frame_state}) ({ready} {result})))\n\
+             (#fn {body_helper} ({start_parameters}) {result}\n\
+               {body})\n\
+             (#fn {start_helper} ({start_parameters} (waker (#ref {waker}))) {poll_result}\n\
+               (#let {result_name} {result} (#call {body_helper} ({poll_arguments})))\n\
+               (#return ({ready} {result_name})))\n\
+             (#fn {poll} ((task {frame_state}) (waker (#ref {waker}))) {poll_result}\n\
+               (#return (#match task\n\
+                 (#case ({start_variant} {start_arguments})\n\
+                   (#call {start_helper} ({poll_arguments} : waker waker))))))",
+            generated_helpers.join("\n")
+        ));
     }
     for (stage_index, stage) in stages.iter_mut().enumerate() {
         let mut live = HashSet::new();

@@ -2366,6 +2366,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-01b141: Preserve values from awaited `#loop` breaks.** Carry a
   typed local returned by a terminal `#break` through Pending/resume. Store it
   in an explicit generated state enum and verify both Copy and linear payloads.
+- [x] **ASYNC-01b142: Complete async functions with no suspension.** Accept an
+  `@async-fn` body with no `#await`, defer its ordinary body until the first
+  poll, and return the function value through the normal Ready poll variant.
+  Preserve parameter ownership in the concrete task state; verify natively
+  that task construction has no body side effects and the first poll completes.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

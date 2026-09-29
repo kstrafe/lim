@@ -600,6 +600,39 @@ fn async_function_can_complete_without_suspension() {
 }
 
 #[test]
+fn async_function_without_await_runs_its_body_on_first_poll() {
+    let source = format!(
+        "(#import \"{}/library/cell.lim\")
+         (@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
+         (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+           (#fn work ((cell (#ref CellU64))) u64
+             (#call CellU64-set (: cell cell : value 1u64))
+             (#return (#u64.+.wrap (#call CellU64-get (: cell cell)) 41u64)))))
+         (#fn main () u64
+           (#let cell CellU64 (#call CellU64-create (: value 0u64)))
+           (#let task Frame (#call work (: cell (#borrow cell))))
+           (#let before u64 (#call CellU64-get (: cell (#borrow cell))))
+           (#let waker u64 0u64)
+           (#let outcome Poll (#call poll (: task task : waker (#borrow waker))))
+           (#let result u64
+             (#match outcome
+               (#case (Ready value) value)
+               (#case (Pending pending) (#block (#forget pending) 0u64))))
+           (#let after u64 (#call CellU64-get (: cell (#borrow cell))))
+           (#forget waker)
+           (#forget cell)
+           (#return (#if (#bool.&& (#u64.== before 0u64)
+                                  (#bool.&& (#u64.== result 42u64)
+                                            (#u64.== after 1u64)))
+                         42u64 0u64)))",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let generated = build_and_run(&source, 42);
+    assert!(generated.contains("poll-start"), "{generated}");
+    assert!(generated.contains("(#return (Ready"), "{generated}");
+}
+
+#[test]
 fn async_function_infers_only_live_across_await_values() {
     let source = "(#struct Box ((value u64)))
       (#enum Child ((Waiting u64)))
