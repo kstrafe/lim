@@ -1943,6 +1943,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   concrete stage. Preserve dependency order, generated task ownership, and
   Pending/resume for the outer child; verify the generated source contains no
   nested `#await` expression.
+- [x] **ASYNC-01b60: Sequence nested task construction in a `#for` initializer.**
+  Extract a typed await from the initializer await's task expression before
+  polling the outer child. Run initialization exactly once before the loop,
+  preserve Pending/resume, and verify an immediate loop condition is evaluated
+  only after the outer initializer resolves.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

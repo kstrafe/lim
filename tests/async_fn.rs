@@ -2287,6 +2287,44 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
         error.contains("nested #await requires an explicit result type"),
         "nested initializer suspension should be diagnosed explicitly: {error}"
     );
+
+    let task_initializer = "(#enum OuterTask ((Waiting u64) (Resuming u64)))
+      (#linear OuterTask)
+      (#enum OuterPoll ((OuterPending OuterTask) (OuterReady u64)))
+      (#fn outer-poll ((task OuterTask) (waker (#ref u64))) OuterPoll
+        (#return (#match task
+          (#case (Waiting value) (OuterPending (Resuming value)))
+          (#case (Resuming value) (OuterReady value)))))
+      (#enum InnerTask (MakeOuter))
+      (#enum InnerPoll ((InnerPending InnerTask) (InnerReady OuterTask)))
+      (#fn inner-poll ((task InnerTask) (waker (#ref u64))) InnerPoll
+        (#return (#match task
+          (#case MakeOuter (InnerReady (Waiting 42u64))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#for (#let-mut initial u64
+                  (#await OuterTask OuterPending OuterReady outer-poll
+                    (#await OuterTask InnerTask InnerPending InnerReady inner-poll MakeOuter)))
+                false
+                ()
+            (#assert false))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(task_initializer, 42);
+    assert!(!generated.contains("(#await"), "{generated}");
 }
 
 #[test]

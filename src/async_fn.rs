@@ -1866,7 +1866,23 @@ fn lower_async_for(
         if initializer_form.len() != 4 {
             return Err("@async-fn #for initializer requires (#let name Type (#await ...))".into());
         }
-        if form(&initializer_form[3], "#await").is_none() {
+        if let Some(await_form) = form(&initializer_form[3], "#await") {
+            if await_form.len() == 6 && has_await(&await_form[5]) {
+                let mut value = initializer_form[3].clone();
+                let Expr::List(await_items) = &mut value else {
+                    unreachable!()
+                };
+                extract_nested_awaits(
+                    &mut await_items[5],
+                    &mut initializer_prefix,
+                    &mut initializer_helpers,
+                    source,
+                    next_name,
+                    waker,
+                )?;
+                initializer_value = Some(value);
+            }
+        } else {
             let mut value = initializer_form[3].clone();
             extract_nested_awaits(
                 &mut value,
