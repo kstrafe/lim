@@ -686,6 +686,29 @@ fn conditional_value_expression_task(
     }
     captures.remove("true");
     captures.remove("false");
+
+    // The generated async helper can represent enclosing parameters directly.
+    // Passing them as named, typed arguments keeps the source explicit and
+    // lets the ordinary ownership/borrow checker validate the transfer.
+    let source_forms = crate::parse(source)?;
+    let source_function = source_forms
+        .first()
+        .and_then(|parsed| form(&parsed.expr, "#fn"))
+        .ok_or_else(|| "@async-fn could not read source function parameters".to_owned())?;
+    let source_parameters = parameters(&source_function[2])?;
+    let mut captured_parameters = captures
+        .iter()
+        .filter_map(|name| {
+            source_parameters
+                .iter()
+                .find(|parameter| parameter.name == *name)
+                .cloned()
+        })
+        .collect::<Vec<_>>();
+    captured_parameters.sort_by(|left, right| left.name.cmp(&right.name));
+    for parameter in &captured_parameters {
+        captures.remove(&parameter.name);
+    }
     if let Some(name) = captures.iter().next() {
         return Err(format!(
             "@async-fn conditional branch await captures outer local '{name}'; bind it inside a branch block"
@@ -699,10 +722,24 @@ fn conditional_value_expression_task(
     let pending = format!("{base}-expression-pending");
     let ready = format!("{base}-expression-ready");
     let poll = format!("{base}-expression-poll");
+    let mut helper_parameters = Vec::with_capacity(captured_parameters.len());
+    let mut call_arguments = vec![Expr::Symbol(":".into())];
+    for parameter in &captured_parameters {
+        helper_parameters.push(Expr::List(vec![
+            Expr::Symbol(parameter.name.clone()),
+            crate::parse(&parameter.ty)?
+                .into_iter()
+                .next()
+                .ok_or_else(|| "@async-fn captured parameter type is empty".to_owned())?
+                .expr,
+        ]));
+        call_arguments.push(Expr::Symbol(parameter.name.clone()));
+        call_arguments.push(Expr::Symbol(parameter.name.clone()));
+    }
     let function = Expr::List(vec![
         Expr::Symbol("#fn".into()),
         Expr::Symbol(function_name.clone()),
-        Expr::List(Vec::new()),
+        Expr::List(helper_parameters),
         await_form[1].clone(),
         Expr::List(vec![Expr::Symbol("#return".into()), expression.clone()]),
     ]);
@@ -728,7 +765,7 @@ fn conditional_value_expression_task(
     let task = Expr::List(vec![
         Expr::Symbol("#call".into()),
         Expr::Symbol(function_name),
-        Expr::List(vec![Expr::Symbol(":".into())]),
+        Expr::List(call_arguments),
     ]);
     Ok(Some((
         AwaitProtocol {

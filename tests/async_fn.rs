@@ -1421,9 +1421,10 @@ fn async_conditional_branch_value_expressions_can_suspend() {
 }
 
 #[test]
-fn async_conditional_value_await_rejects_uncaptured_outer_locals() {
+fn async_conditional_value_await_captures_typed_function_parameters() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
@@ -1431,14 +1432,21 @@ fn async_conditional_value_await_rejects_uncaptured_outer_locals() {
         (#fn work ((offset u64)) u64
           (#return (#if true
             (#u64.+.wrap
-              (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
+              (#await u64 Child ChildPending ChildReady child-poll (Waiting 2u64))
               offset)
-            0u64)))))";
-    let error = lim::parse_program(source).unwrap_err();
-    assert!(
-        error.contains("conditional branch await captures outer local 'offset'"),
-        "{error}"
-    );
+            0u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (: offset 40u64)))
+        (#let result Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let value u64
+          (#match result
+            (#case (Ready value) value)
+            (#case (Pending pending) (#block (#forget pending) 0u64))))
+        (#forget waker)
+        (#return value))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("offset u64"), "{generated}");
 }
 
 #[test]
