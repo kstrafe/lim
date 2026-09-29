@@ -708,24 +708,27 @@ fn extract_nested_awaits(
                 replace_await_local(statement, original, renamed);
             }
             let binding = form(statement, "#let").or_else(|| form(statement, "#let-mut"));
-            let Some(binding) = binding else {
+            if let Some(binding) = binding {
+                if binding.len() != 4 {
+                    return Err(
+                        "@async-fn awaited block bindings require a name, type, and value".into(),
+                    );
+                }
+                let original = symbol(&binding[1], "block binding name")?.to_owned();
+                let renamed = nested_await_name(source, next_name);
+                let Expr::List(items) = statement else {
+                    unreachable!()
+                };
+                items[1] = Expr::Symbol(renamed.clone());
+                renamed_prefixes.push((original, renamed));
+            } else if has_await(statement)
+                || contains_loop_control(statement)
+                || contains_return(statement)
+            {
                 return Err(
-                    "@async-fn awaited block prefixes currently require #let or #let-mut bindings"
-                        .into(),
-                );
-            };
-            if binding.len() != 4 {
-                return Err(
-                    "@async-fn awaited block bindings require a name, type, and value".into(),
+                    "@async-fn awaited block prefixes cannot suspend or transfer control".into(),
                 );
             }
-            let original = symbol(&binding[1], "block binding name")?.to_owned();
-            let renamed = nested_await_name(source, next_name);
-            let Expr::List(items) = statement else {
-                unreachable!()
-            };
-            items[1] = Expr::Symbol(renamed.clone());
-            renamed_prefixes.push((original, renamed));
             generated.push(statement.clone());
         }
         if let Expr::List(items) = &mut await_expression {
@@ -2986,6 +2989,28 @@ fn contains_loop_control(expression: &Expr) -> bool {
         Expr::Labeled { expression, .. }
         | Expr::Unquote(expression)
         | Expr::UnquoteSplicing(expression) => contains_loop_control(expression),
+        _ => false,
+    }
+}
+
+fn contains_return(expression: &Expr) -> bool {
+    match expression {
+        Expr::List(items) => {
+            matches!(items.first(), Some(Expr::Symbol(head)) if head == "#return")
+                || items.iter().skip(1).any(contains_return)
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            statements.iter().any(|statement| match statement {
+                crate::Statement::Expr(value)
+                | crate::Statement::Return(Some(value))
+                | crate::Statement::BreakValue(value)
+                | crate::Statement::BreakToValue { value, .. } => contains_return(value),
+                _ => false,
+            })
+        }
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => contains_return(expression),
         _ => false,
     }
 }

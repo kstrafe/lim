@@ -1069,6 +1069,41 @@ fn async_function_preserves_mutability_of_block_await_bindings() {
 }
 
 #[test]
+fn async_function_runs_block_prefix_side_effect_once_before_await() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting remaining)
+            (#if (#u64.== remaining 0u64)
+              (ChildPending (Waiting 1u64))
+              (ChildReady 42u64))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut count u64 0u64)
+          (#let result u64
+            (#block
+              (#set count (#u64.+.wrap count 1u64))
+              (#let value u64
+                (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
+              (#u64.+.wrap value count)))
+          (#return result))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending running-task) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task running-task : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    build_and_run(source, 43);
+}
+
+#[test]
 fn async_function_requires_types_for_nested_awaits() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

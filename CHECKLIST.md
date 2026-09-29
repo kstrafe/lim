@@ -2016,6 +2016,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   state, without changing scrutinee binding or body-await ordering. Reject
   nonterminal and guarded transfers. Verify a native awaited-condition loop
   and an awaited-scrutinee body that exits through a match arm.
+- [x] **ASYNC-01b73: Preserve side effects before awaits in value blocks.**
+  Allow nonbinding, nonsuspending block-prefix expressions before a direct
+  awaited binding. Keep them in source order and execute them exactly once
+  before constructing the child task; preserve binding-renaming and liveness
+  for later continuation code. Reject prefix control transfers and suspension.
+  Verify a mutable prefix side effect remains single-execution across Pending.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
