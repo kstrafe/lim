@@ -1611,12 +1611,13 @@ fn async_conditional_branch_value_expressions_can_suspend() {
       (#enum Choice (Await Immediate))
       (@async-fn (: names (MatchFrame MatchPoll MatchPending MatchReady match-poll) : waker u64 : function
         (#fn work-match ((choice Choice)) u64
-          (#return (#match choice
-            (#case Await
-              (#u64.+.wrap
-                (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
-                1u64))
-            (#case Immediate 0u64))))))
+          (#return (#call add-one (: value
+            (#match choice
+              (#case Await
+                (#u64.+.wrap
+                  (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
+                  1u64))
+              (#case Immediate 0u64))))))))
       (#fn main () u64
         (#let waker u64 0u64)
         (#let if-first Poll
@@ -1653,7 +1654,7 @@ fn async_conditional_branch_value_expressions_can_suspend() {
         (#return (#u64.+.wrap
           (#u64.+.wrap if-value if-immediate-value)
           (#u64.+.wrap match-value match-immediate-value))))";
-    let generated = build_and_run(source, 86);
+    let generated = build_and_run(source, 88);
     assert!(generated.contains("-expression-frame"), "{generated}");
 }
 
