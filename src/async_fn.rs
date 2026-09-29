@@ -1598,14 +1598,20 @@ fn extract_nested_awaits(
         for index in 1..block.len() {
             let statement = &block[index];
             if has_await(statement) {
-                let Some(binding) = form(statement, "#let").or_else(|| form(statement, "#let-mut"))
-                else {
+                let value_index = if form(statement, "#let")
+                    .or_else(|| form(statement, "#let-mut"))
+                    .is_some_and(|binding| binding.len() == 4)
+                {
+                    3
+                } else if form(statement, "#set").is_some_and(|assignment| assignment.len() == 3) {
+                    2
+                } else {
                     break;
                 };
-                if binding.len() != 4 {
-                    break;
-                }
-                let conditional = &binding[3];
+                let Expr::List(statement_items) = statement else {
+                    unreachable!()
+                };
+                let conditional = &statement_items[value_index];
                 if !matches!(
                     conditional,
                     Expr::List(items)
@@ -1641,7 +1647,7 @@ fn extract_nested_awaits(
                     let Expr::List(binding) = &mut items[index] else {
                         unreachable!()
                     };
-                    binding[3] = await_expression;
+                    binding[value_index] = await_expression;
                     return extract_nested_awaits(
                         expression,
                         generated,

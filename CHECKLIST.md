@@ -2173,6 +2173,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   await continuation while retaining earlier local setup as captures. Preserve
   branch laziness and evaluate setup once across Pending/resume; verify a
   block-local selector and offset on the native path.
+- [x] **ASYNC-01b100: Assign a conditional await result inside a value block.**
+  Lower a direct conditional await on the right-hand side of `#set` through the
+  block's assignment continuation. Preserve the mutable local across Pending,
+  assign only when the selected child is Ready, and verify the result natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

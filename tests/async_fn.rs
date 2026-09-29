@@ -1014,6 +1014,40 @@ fn async_function_resumes_inside_a_value_producing_block() {
 }
 
 #[test]
+fn async_function_assigns_conditional_await_result_inside_a_block() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting remaining)
+            (#if (#u64.== remaining 0u64)
+              (ChildPending (Waiting 1u64))
+              (ChildReady 42u64))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((choose bool)) u64
+          (#return (#block
+            (#let-mut result u64 0u64)
+            (#set result
+              (#if choose
+                (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
+                7u64))
+            result)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (: choose true)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    build_and_run(source, 42);
+}
+
+#[test]
 fn async_function_resumes_multiple_awaits_inside_one_block() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady bool)))
