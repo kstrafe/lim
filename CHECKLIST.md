@@ -2457,6 +2457,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Carry synchronous statements following a loop with conditional body returns
   in the loop-tail status branch. A returned status must bypass them; a normal
   false-condition exit must execute them once. Verify both outcomes natively.
+- [x] **ASYNC-01b161: Skip a direct awaited tail after a conditional loop
+  return.** Move the explicit final await into the loop-tail status branch and
+  suppress its former unconditional poll. Verify the returning body path skips
+  the tail while natural loop exit suspends and resumes it.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

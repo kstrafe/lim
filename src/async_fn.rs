@@ -3854,7 +3854,7 @@ fn lower_async_while_with_return_continue(
     source: &str,
     next_name: &mut usize,
     waker: &str,
-) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>, usize)>, String> {
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>, usize, bool)>, String> {
     let Some(items) = form(statement, "#while") else {
         return Ok(None);
     };
@@ -3886,7 +3886,6 @@ fn lower_async_while_with_return_continue(
     };
     if condition_await.len() != 6
         || has_await(&condition_await[5])
-        || has_await(return_value)
         || items[2..].iter().any(has_await)
     {
         return Ok(None);
@@ -3939,13 +3938,27 @@ fn lower_async_while_with_return_continue(
     );
     let mut loop_known_order = known_order.to_vec();
     loop_known_order.push(status_name.clone());
+    let (return_tail, consumes_return_await) =
+        if let Some(await_form) = form(return_value, "#await") {
+            let typed_await = match await_form.len() {
+                6 => std::iter::once(Expr::Symbol("#await".into()))
+                    .chain(std::iter::once(return_type.clone()))
+                    .chain(await_form[1..].iter().cloned())
+                    .collect(),
+                7 => await_form.to_vec(),
+                _ => return Err("@async-fn final #return await has an invalid form".into()),
+            };
+            (Expr::List(typed_await), true)
+        } else {
+            (return_value.clone(), false)
+        };
     let tail_value = if following.is_empty() {
-        return_value.clone()
+        return_tail
     } else {
         Expr::List(
             std::iter::once(Expr::Symbol("#block".into()))
                 .chain(following.iter().cloned())
-                .chain(std::iter::once(return_value.clone()))
+                .chain(std::iter::once(return_tail))
                 .collect(),
         )
     };
@@ -4007,6 +4020,7 @@ fn lower_async_while_with_return_continue(
             .join("\n"),
         renames,
         following.len(),
+        consumes_return_await,
     )))
 }
 
@@ -8862,7 +8876,7 @@ fn generated_source_with_capture_selection(
             return_value = Expr::Symbol(result_name);
             continue;
         }
-        if let Some((replacement, helper, renames, consumed_following)) =
+        if let Some((replacement, helper, renames, consumed_following, consumes_return_await)) =
             lower_async_while_with_return_continue(
                 &statement,
                 &lowering_known,
@@ -8876,6 +8890,9 @@ fn generated_source_with_capture_selection(
             )
             .map_err(|error| format!("async statement {source_index}: {error}"))?
         {
+            if consumes_return_await {
+                return_await = None;
+            }
             for consumed_index in source_index + 1..=source_index + consumed_following {
                 consumed_async_statements.insert(consumed_index);
             }
