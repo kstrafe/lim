@@ -3,7 +3,7 @@
 //! aggregates, conditional results, and reference-returning calls. Loop break
 //! values are transferred from their checked control-flow instructions.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::linearcheck::LinearTypes;
 use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind, PlaceRoot};
@@ -637,26 +637,67 @@ fn origin_alternatives(
     if held.is_empty() {
         return Ok(None);
     }
-    if held.iter().any(|origin| !origin.storage.is_empty()) {
-        return Ok(Some(vec![held
+    if held.iter().all(|origin| origin.storage.is_empty()) {
+        let alternatives = held
             .iter()
-            .map(|origin| DirectBorrow {
-                place: origin.place.clone(),
-                mutable: origin.mutable,
-                span: origin.span,
-                storage: origin.storage.clone(),
+            .map(|origin| {
+                vec![DirectBorrow {
+                    place: origin.place.clone(),
+                    mutable: origin.mutable,
+                    span: origin.span,
+                    storage: Vec::new(),
+                }]
             })
-            .collect()]));
+            .collect();
+        return bounded(alternatives, span).map(Some);
     }
-    let alternatives = held
-        .iter()
-        .map(|origin| {
-            vec![DirectBorrow {
-                place: origin.place.clone(),
-                mutable: origin.mutable,
-                span: origin.span,
-                storage: origin.storage.clone(),
-            }]
+    use crate::typed_place::Segment;
+    let mut variants = BTreeMap::<crate::typed_ir::AggregateId, BTreeSet<usize>>::new();
+    for origin in held {
+        for segment in &origin.storage {
+            if let Segment::Payload(variant, _) = segment {
+                variants
+                    .entry(variant.owner)
+                    .or_default()
+                    .insert(variant.index);
+            }
+        }
+    }
+    let split_variants = variants
+        .into_iter()
+        .filter(|(_, indices)| indices.len() > 1)
+        .collect::<Vec<_>>();
+    let mut assignments = vec![HashMap::<crate::typed_ir::AggregateId, usize>::new()];
+    for (owner, indices) in split_variants {
+        let mut expanded = Vec::new();
+        for assignment in &assignments {
+            for index in &indices {
+                let mut next = assignment.clone();
+                next.insert(owner, *index);
+                expanded.push(next);
+            }
+        }
+        assignments = expanded;
+    }
+    let alternatives = assignments
+        .into_iter()
+        .map(|assignment| {
+            held.iter()
+                .filter(|origin| {
+                    origin.storage.iter().all(|segment| match segment {
+                        Segment::Payload(variant, _) => assignment
+                            .get(&variant.owner)
+                            .is_none_or(|index| *index == variant.index),
+                        _ => true,
+                    })
+                })
+                .map(|origin| DirectBorrow {
+                    place: origin.place.clone(),
+                    mutable: origin.mutable,
+                    span: origin.span,
+                    storage: origin.storage.clone(),
+                })
+                .collect()
         })
         .collect();
     bounded(alternatives, span).map(Some)
@@ -2837,6 +2878,50 @@ mod tests {
         };
         assert!(combine(alternatives.clone(), shared(0), "inspect", None).is_err());
         assert!(combine(alternatives, shared(2), "inspect", None).is_ok());
+
+        let source = "(#enum Choice ((First (#ref-mut u64)) (Second (#ref-mut u64))))
+            (#fn inspect ((choice Choice)) u64
+              (#return (#match choice
+                (#case (First first) (#block (#drop first) 0u64))
+                (#case (Second second) (#block (#drop second) 0u64)))))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["inspect"];
+        let mut variants = body
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.kind {
+                NodeKind::Declaration(crate::typed_ir::DeclarationId::Variant(variant)) => {
+                    Some(*variant)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        variants.sort();
+        variants.dedup();
+        let first = variants[0];
+        let second = variants[1];
+        let variant = |variant, field| LoanOrigin {
+            place: Place::root(PlaceRoot::Local(BindingId(0))),
+            mutable: true,
+            pinned: false,
+            span: None,
+            borrowed_from: None,
+            storage: vec![crate::typed_place::Segment::Payload(variant, field)],
+            parameter_storage: None,
+        };
+        let mutually_exclusive =
+            origin_alternatives(&[variant(first, 0), variant(second, 0)], None)
+                .unwrap()
+                .unwrap();
+        assert_eq!(mutually_exclusive.len(), 2);
+        assert!(mutually_exclusive.iter().all(|path| path.len() == 1));
+
+        let coexisting = origin_alternatives(&[variant(first, 0), variant(first, 1)], None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(coexisting.len(), 1);
+        assert_eq!(coexisting[0].len(), 2);
 
         let source = "(#fn inspect ((first (#ref-mut u64)) (second (#ref u64))) u64
             (#drop first) (#drop second) (#return 0u64))

@@ -2089,6 +2089,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   returned enum payload. Verify a shared capture survives condition/body/step
   suspension, owner mutation is rejected while Pending, and owner access is
   accepted after Ready.
+- [x] **ASYNC-01b84b: Treat enum payload loans as path alternatives.** When a
+  value can hold references in different enum variants, check each variant's
+  loans as a separate execution path while still combining references stored
+  together in one variant. Preserve nested variant choices and verify that
+  exclusive states do not create false mutable-alias errors.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
