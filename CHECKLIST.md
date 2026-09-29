@@ -2461,6 +2461,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   return.** Move the explicit final await into the loop-tail status branch and
   suppress its former unconditional poll. Verify the returning body path skips
   the tail while natural loop exit suspends and resumes it.
+- [x] **ASYNC-01b162: Suspend in a conditional-return loop continuation.**
+  Preserve an awaited post-loop binding in the normal-exit tail state when a
+  conditional body branch may return. Verify the false-condition path resumes
+  the tail task while the returning path completes without polling it.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
