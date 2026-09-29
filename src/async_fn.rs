@@ -2156,7 +2156,7 @@ fn extract_nested_awaits(
                 }
                 return Ok(());
             };
-            if contains_await && head == "#loop" {
+            if contains_await && matches!(head.as_str(), "#loop" | "#while") {
                 if let Some((protocol, task, helper)) =
                     conditional_value_expression_task(expression, known, source, next_name, waker)?
                 {
@@ -2186,7 +2186,7 @@ fn extract_nested_awaits(
                     return Ok(());
                 }
                 return Err(
-                    "@async-fn cannot lower this nested #loop suspension; use a unit-valued loop expression with supported loop control".into(),
+                    "@async-fn cannot lower this nested loop suspension; use a unit-valued loop expression with supported loop control".into(),
                 );
             }
             if head == "#block" && contains_await {
