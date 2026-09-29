@@ -1830,6 +1830,92 @@ fn async_function_suspends_on_a_discarded_copy_await_in_a_block() {
 }
 
 #[test]
+fn async_function_rejects_discarding_a_linear_await_result_in_a_block() {
+    let source = "(#struct Resource ((value u64)))
+      (#linear Resource)
+      (#enum ChildTask (Start Resume))
+      (#linear ChildTask)
+      (#enum ChildPoll ((Pending ChildTask) (Ready Resource)))
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case Start (Pending Resume))
+          (#case Resume (Ready (#struct-literal Resource ((value 1u64))))))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work () u64
+          (#let result u64
+            (#block
+              (#await Resource ChildTask Pending Ready child-poll Start)
+              42u64))
+          (#return result))))";
+    let error = lim::parse_program(source).unwrap_err();
+    assert!(
+        error.contains("cannot discard a non-Copy #await result"),
+        "{error}"
+    );
+
+    let direct_source = source.replace(
+        "          (#let result u64\n            (#block\n              (#await Resource ChildTask Pending Ready child-poll Start)\n              42u64))\n          (#return result)",
+        "          (#await Resource ChildTask Pending Ready child-poll Start)\n          (#return 42u64)",
+    );
+    assert_ne!(direct_source, source);
+    let direct_error = lim::parse_program(&direct_source).unwrap_err();
+    assert!(
+        direct_error.contains("cannot discard a non-Copy #await result"),
+        "{direct_error}"
+    );
+
+    let untyped_source = direct_source.replace(
+        "#await Resource ChildTask Pending",
+        "#await ChildTask Pending",
+    );
+    assert_ne!(untyped_source, direct_source);
+    let untyped_error = lim::parse_program(&untyped_source).unwrap_err();
+    assert!(
+        untyped_error.contains("discarded #await result requires an explicit type"),
+        "{untyped_error}"
+    );
+
+    let terminal_block_source = source.replace(
+        "          (#let result u64\n            (#block\n              (#await Resource ChildTask Pending Ready child-poll Start)\n              42u64))\n          (#return result)",
+        "          (#block\n            (#await Resource ChildTask Pending Ready child-poll Start))\n          (#return 42u64)",
+    );
+    assert_ne!(terminal_block_source, source);
+    let type_error = lim::parse_program(&terminal_block_source).unwrap_err();
+    assert!(
+        type_error.contains("cannot discard a non-Copy #await result"),
+        "{type_error}"
+    );
+
+    let conditional_source = source.replace(
+        "          (#let result u64\n            (#block\n              (#await Resource ChildTask Pending Ready child-poll Start)\n              42u64))\n          (#return result)",
+        "          (#if true\n            (#await Resource ChildTask Pending Ready child-poll Start)\n            (#await Resource ChildTask Pending Ready child-poll Resume))\n          (#return 42u64)",
+    );
+    assert_ne!(conditional_source, source);
+    let conditional_error = match lim::parse_program(&conditional_source) {
+        Err(error) => error,
+        Ok(program) => lim::check_types(&program)
+            .expect_err("discarding an awaited linear if result must be rejected"),
+    };
+    assert!(
+        conditional_error.contains("cannot discard a non-Copy #await result")
+            || conditional_error.contains("linear value")
+            || conditional_error.contains("must be consumed"),
+        "{conditional_error}"
+    );
+
+    let match_source = source.replace(
+        "          (#let result u64\n            (#block\n              (#await Resource ChildTask Pending Ready child-poll Start)\n              42u64))\n          (#return result)",
+        "          (#match true\n            (#case true (#await Resource ChildTask Pending Ready child-poll Start))\n            (#case false (#await Resource ChildTask Pending Ready child-poll Resume)))\n          (#return 42u64)",
+    );
+    assert_ne!(match_source, source);
+    let match_error = lim::parse_program(&match_source).unwrap_err();
+    assert!(
+        match_error.contains("cannot discard a non-Copy #await result"),
+        "{match_error}"
+    );
+}
+
+#[test]
 fn async_function_let_else_returns_ready_before_and_after_suspension() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum Child ((Waiting u64)))

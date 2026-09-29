@@ -2156,6 +2156,20 @@ fn extract_nested_awaits(
             waker,
         );
     }
+    if let Some(block) = form(expression, "#block") {
+        for statement in block.iter().skip(1).take(block.len().saturating_sub(2)) {
+            let Some(await_form) = form(statement, "#await") else {
+                continue;
+            };
+            if await_form.len() != 7 {
+                continue;
+            }
+            let result_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+            if !async_task_capture_is_copy(&result_type) {
+                return Err("@async-fn cannot discard a non-Copy #await result in a #block; bind it to a local and consume it explicitly".into());
+            }
+        }
+    }
     if form(expression, "#block").is_some()
         && has_await(expression)
         && block_await_continuation(expression).is_none()
@@ -2479,6 +2493,38 @@ fn nested_await_name(source: &str, next_name: &mut usize) -> String {
     }
 }
 
+fn collect_terminal_awaits<'a>(expression: &'a Expr, output: &mut Vec<&'a [Expr]>) {
+    if let Some(await_form) = form(expression, "#await") {
+        output.push(await_form);
+        return;
+    }
+    if let Some(block) = form(expression, "#block") {
+        if let Some(tail) = block.last() {
+            collect_terminal_awaits(tail, output);
+        }
+        return;
+    }
+    if let Some(items) = form(expression, "#if") {
+        for branch in items.iter().skip(2).take(2) {
+            collect_terminal_awaits(branch, output);
+        }
+        return;
+    }
+    if let Some(items) = form(expression, "#match") {
+        for arm in items.iter().skip(2) {
+            let Some(case) = form(arm, "#case") else {
+                continue;
+            };
+            let body_index = match case.len() {
+                3 => 2,
+                4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
+                _ => continue,
+            };
+            collect_terminal_awaits(&case[body_index], output);
+        }
+    }
+}
+
 fn extract_statement_awaits(
     statement: &mut Expr,
     generated: &mut Vec<Expr>,
@@ -2490,6 +2536,25 @@ fn extract_statement_awaits(
 ) -> Result<(), String> {
     if !has_await(statement) {
         return Ok(());
+    }
+    let mut discarded_awaits = Vec::new();
+    if form(statement, "#await").is_some()
+        || form(statement, "#block").is_some()
+        || form(statement, "#if").is_some()
+        || form(statement, "#match").is_some()
+    {
+        collect_terminal_awaits(statement, &mut discarded_awaits);
+    }
+    for await_form in discarded_awaits {
+        if await_form.len() == 6 {
+            return Err("@async-fn a discarded #await result requires an explicit type so Copy can be checked".into());
+        }
+        if await_form.len() == 7 {
+            let result_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+            if !async_task_capture_is_copy(&result_type) {
+                return Err("@async-fn cannot discard a non-Copy #await result; bind it to a local and consume it explicitly".into());
+            }
+        }
     }
     if let Some(items) = form(statement, "#let")
         .or_else(|| form(statement, "#let-mut"))
