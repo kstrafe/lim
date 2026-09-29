@@ -2412,6 +2412,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   failure tail, including nested value expressions such as `#assert`. Preserve
   the success binding path and verify the generated failure-state helpers in a
   native build.
+- [x] **ASYNC-01b151: Suspend in non-binding `#while-let` body statements.**
+  Route a body await that is not a direct first binding through a generated
+  nested body task, keeping the matched scrutinee and loop continuation intact.
+  Verify an awaited assertion across Pending/resume in a native run.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

@@ -4295,7 +4295,31 @@ fn lower_async_while_with_transfers(
             }
             parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
             if items[3..].iter().any(has_await) {
-                if items[3..].iter().map(await_count).sum::<usize>() > 1 {
+                let body_binding_value = items[3..].first().and_then(|statement| {
+                    let binding =
+                        form(statement, "#let").or_else(|| form(statement, "#let-mut"))?;
+                    (binding.len() == 4).then_some(&binding[3])
+                });
+                let body_has_direct_await_binding = if let Some(value) = body_binding_value {
+                    if form(value, "#await").is_some() {
+                        true
+                    } else {
+                        let mut probe_name = *next_name;
+                        conditional_await_with_immediate(
+                            value,
+                            known,
+                            source,
+                            &mut probe_name,
+                            waker,
+                        )?
+                        .is_some()
+                    }
+                } else {
+                    false
+                };
+                if items[3..].iter().map(await_count).sum::<usize>() > 1
+                    || !body_has_direct_await_binding
+                {
                     return lower_async_while_let_multi_await_body(
                         items,
                         &await_form,

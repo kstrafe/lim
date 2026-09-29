@@ -4136,6 +4136,45 @@ fn async_while_let_body_can_suspend_multiple_times_after_matching() {
 }
 
 #[test]
+fn async_while_let_suspends_in_a_nested_body_statement() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum ConditionTask (ConditionWaiting))
+      (#linear ConditionTask)
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady Maybe)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#forget task)
+        (#return (ConditionReady (Some 42u64))))
+      (#enum BodyTask (BodyWaiting BodyResuming))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady bool)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case BodyWaiting (BodyPending BodyResuming))
+          (#case BodyResuming (BodyReady true)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#while-let (Some payload)
+            (#await Maybe ConditionTask ConditionPending ConditionReady
+              condition-poll ConditionWaiting)
+            (#assert (#await bool BodyTask BodyPending BodyReady body-poll BodyWaiting))
+            (#break))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending-frame) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending-frame : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("body-frame"), "{generated}");
+}
+
+#[test]
 fn async_while_let_does_not_poll_the_unselected_scrutinee_branch() {
     let source = "(#enum Maybe (Some None))
       (#enum ChildTask (Waiting Resuming))
