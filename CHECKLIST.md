@@ -2293,6 +2293,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   explicit output on Ready or condition-stop paths without duplicating the
   parent capture. Verify a native early return, explicit payload consumption,
   and that the ordinary post-loop continuation is skipped.
+- [x] **ASYNC-01b125: Join linear returns with continuation in awaited
+  `#while` loops.** Keep the loop return-status enum linear, explicitly consume
+  its prior state when recording an early return, and preserve it across
+  Pending, Ready, `#continue`, and loop completion. Verify native early-return
+  and continuation paths with a linear payload that is explicitly consumed.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

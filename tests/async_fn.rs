@@ -2975,6 +2975,37 @@ fn async_awaited_while_return_branch_and_continue_branch_resume_correctly() {
         (#forget waker)
         (#return (#u64.+.wrap returned continued)))";
     build_and_run(source, 18);
+
+    let linear_source = source
+        .replace(
+            "(#enum ConditionTask",
+            "(#struct Payload ((value u64)))\n      (#linear Payload)\n      (#enum ConditionTask",
+        )
+        .replace(
+            "(#fn work ((should-return bool)) u64",
+            "(#fn work ((should-return bool)) Payload",
+        )
+        .replace(
+            "(#return 13u64)",
+            "(#return (#struct-literal Payload ((value 13u64))))",
+        )
+        .replace(
+            "(#return 5u64)",
+            "(#return (#struct-literal Payload ((value 5u64))))",
+        )
+        .replace(
+            "(#return (#u64.+.wrap returned continued))",
+            "(#let returned-value u64 (#get returned value))\n\
+             (#let continued-value u64 (#get continued value))\n\
+             (#forget returned)\n\
+             (#forget continued)\n\
+             (#return (#u64.+.wrap returned-value continued-value))",
+        );
+    let generated = build_and_run(&linear_source, 18);
+    assert!(
+        generated.contains("#linear lim.async.work.choice"),
+        "{generated}"
+    );
 }
 
 #[test]

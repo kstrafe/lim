@@ -3328,9 +3328,7 @@ fn lower_async_while_with_return_continue(
         return Ok(None);
     }
     let return_type_ast = parse_type(Some(&normalize_keywords(return_type.clone())))?;
-    if !async_task_capture_is_copy(&return_type_ast) {
-        return Ok(None);
-    }
+    let return_type_is_copy = async_task_capture_is_copy(&return_type_ast);
     let terminal = items.len() - 1;
     if !contains_continue_control(&items[terminal])
         || items[2..terminal]
@@ -3345,10 +3343,14 @@ fn lower_async_while_with_return_continue(
     let tail_variant = format!("{status_type}-tail");
     let returned_variant = format!("{status_type}-returned");
     let result_name = fresh_async_name(source, next_name);
-    let Some((body, true)) = items
-        .last()
-        .and_then(|terminal| rewrite_async_loop_returns(terminal, &status_name, &returned_variant))
-    else {
+    let Some((body, true)) = items.last().and_then(|terminal| {
+        rewrite_async_loop_returns(
+            terminal,
+            &status_name,
+            &returned_variant,
+            !return_type_is_copy,
+        )
+    }) else {
         return Ok(None);
     };
 
@@ -3414,6 +3416,11 @@ fn lower_async_while_with_return_continue(
     let status_declarations = format!(
         "(#enum {status_type} (({tail_variant}) ({returned_variant} {return_type_source})))"
     );
+    let status_declarations = if return_type_is_copy {
+        status_declarations
+    } else {
+        format!("{status_declarations}\n(#linear {status_type})")
+    };
     Ok(Some((
         replacement,
         [status_declarations, loop_helper]
@@ -3507,32 +3514,38 @@ fn rewrite_async_loop_returns(
     expression: &Expr,
     status: &str,
     returned_variant: &str,
+    linear_status: bool,
 ) -> Option<(Expr, bool)> {
     if let Some(return_form) = form(expression, "#return") {
         if return_form.len() != 2 || has_await(&return_form[1]) {
             return None;
         }
-        return Some((
+        let mut statements = vec![Expr::Symbol("#block".into())];
+        if linear_status {
+            statements.push(Expr::List(vec![
+                Expr::Symbol("#forget".into()),
+                Expr::Symbol(status.into()),
+            ]));
+        }
+        statements.extend([
             Expr::List(vec![
-                Expr::Symbol("#block".into()),
+                Expr::Symbol("#set".into()),
+                Expr::Symbol(status.into()),
                 Expr::List(vec![
-                    Expr::Symbol("#set".into()),
-                    Expr::Symbol(status.into()),
-                    Expr::List(vec![
-                        Expr::Symbol(returned_variant.into()),
-                        return_form[1].clone(),
-                    ]),
+                    Expr::Symbol(returned_variant.into()),
+                    return_form[1].clone(),
                 ]),
-                Expr::List(vec![Expr::Symbol("#break".into())]),
             ]),
-            true,
-        ));
+            Expr::List(vec![Expr::Symbol("#break".into())]),
+        ]);
+        return Some((Expr::List(statements), true));
     }
     if let Some(block) = form(expression, "#block") {
         if block.len() < 2 || block[1..block.len() - 1].iter().any(contains_return) {
             return None;
         }
-        let (last, found) = rewrite_async_loop_returns(block.last()?, status, returned_variant)?;
+        let (last, found) =
+            rewrite_async_loop_returns(block.last()?, status, returned_variant, linear_status)?;
         let mut lowered = block.to_vec();
         *lowered.last_mut()? = last;
         return Some((Expr::List(lowered), found));
@@ -3545,8 +3558,12 @@ fn rewrite_async_loop_returns(
         let mut found = false;
         for index in [2, 3] {
             if contains_return(&conditional[index]) {
-                let (branch, branch_found) =
-                    rewrite_async_loop_returns(&conditional[index], status, returned_variant)?;
+                let (branch, branch_found) = rewrite_async_loop_returns(
+                    &conditional[index],
+                    status,
+                    returned_variant,
+                    linear_status,
+                )?;
                 lowered[index] = branch;
                 found |= branch_found;
             }
@@ -3570,8 +3587,12 @@ fn rewrite_async_loop_returns(
                 return None;
             }
             if contains_return(&case[body_index]) {
-                let (body, body_found) =
-                    rewrite_async_loop_returns(&case[body_index], status, returned_variant)?;
+                let (body, body_found) = rewrite_async_loop_returns(
+                    &case[body_index],
+                    status,
+                    returned_variant,
+                    linear_status,
+                )?;
                 let mut lowered_case = case.to_vec();
                 lowered_case[body_index] = body;
                 lowered[arm_index] = Expr::List(lowered_case);
