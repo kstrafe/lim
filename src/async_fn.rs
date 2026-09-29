@@ -4282,9 +4282,24 @@ fn lower_async_while_with_transfers(
                     ],
                     helper,
                 )
+            } else if let Some((protocol, task, helper)) =
+                conditional_value_expression_task(&items[2], known, source, next_name, waker)?
+            {
+                (
+                    vec![
+                        Expr::Symbol("#await".into()),
+                        protocol.result_type,
+                        protocol.child_type,
+                        protocol.pending,
+                        protocol.ready,
+                        protocol.poll,
+                        task,
+                    ],
+                    helper,
+                )
             } else {
                 return Err(
-                        "@async-fn #while-let requires a direct #await or conditional #if with a direct #await branch".into(),
+                        "@async-fn #while-let requires an awaited scrutinee with an explicit result type".into(),
                     );
             };
             if await_form.len() != 7 {

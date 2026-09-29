@@ -2392,6 +2392,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   value-expression task protocol. Keep boolean short-circuit selection intact
   across Pending/resume, and verify the generated choice helper plus native
   execution through multiple polls.
+- [x] **ASYNC-01b147: Await composed `#while-let` scrutinees.** Lower nested
+  awaited value expressions in the scrutinee through a generated task frame,
+  then match the completed result using the loop's existing pattern protocol.
+  Verify two sequential awaits, repeated Pending/resume, and body execution in
+  a native run.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
