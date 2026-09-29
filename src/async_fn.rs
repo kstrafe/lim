@@ -8312,6 +8312,19 @@ fn lower_async_loop_with_transfers(
     if items.len() < 2 {
         return Err("@async-fn awaited #loop requires a body".into());
     }
+    // A value-bearing loop is an expression, not the unit-valued loop handled
+    // by this statement-level state machine. Let the general expression
+    // adapter lower Copy results; reject a discarded linear result here,
+    // before it can be hidden in the generated adapter's output state.
+    if let Some((_, result_type)) = async_loop_terminal_break_binding(statement) {
+        let result_type = parse_type(Some(&normalize_keywords(result_type)))?;
+        if !async_task_capture_is_copy(&result_type) {
+            return Err(
+                "@async-fn cannot discard a non-Copy result from an awaited #loop; bind it and consume it explicitly".into(),
+            );
+        }
+        return Ok(None);
+    }
     let done = fresh_async_name(source, next_name);
     let mut body = items[1..].to_vec();
     let Some(last) = body.last_mut() else {

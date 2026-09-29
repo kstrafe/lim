@@ -2473,6 +2473,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Treat body completion without an explicit transfer as the next iteration,
   preserving the source loop rather than requiring a synthetic terminal
   `#break` or `#continue`. Verify a Pending poll and native task disposal.
+- [x] **ASYNC-01b165: Lower discarded Copy-valued awaited loops as expressions.**
+  Route value-bearing `#loop` forms through the expression state machine when
+  they appear as statements; permit discarded Copy results but reject linear
+  results explicitly before they enter an adapter state. Verify native
+  Pending/resume for Copy results and a targeted rejection for linear results.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

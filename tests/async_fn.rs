@@ -722,7 +722,7 @@ fn async_function_requires_unused_linear_values_to_be_consumed_before_await() {
     let error = lim::check_types(&program).unwrap_err();
     assert!(
         error.contains("token") && (error.contains("linear") || error.contains("consum")),
-        "{error}"
+        "{error:?}"
     );
 }
 
@@ -1280,6 +1280,66 @@ fn async_value_loop_break_moves_linear_payload_across_pending() {
         (#forget waker)
         (#return result))";
     build_and_run(source, 41);
+}
+
+#[test]
+fn async_value_loop_statement_can_discard_a_copy_break_result() {
+    let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#loop
+            (#let value u64
+              (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 41u64)))
+            (#break value))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (:)))
+        (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending pending-again)
+              (#block (#forget pending-again) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("loop-result-state"), "{generated}");
+}
+
+#[test]
+fn async_value_loop_statement_cannot_discard_a_linear_break_result() {
+    let source = "(#struct Token ((value u64)))
+      (#linear Token)
+      (#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady Token)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value)
+            (ChildReady (#struct-literal Token ((value value))))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#loop
+            (#let value Token
+              (#await Token ChildTask ChildPending ChildReady child-poll (Waiting 41u64)))
+            (#break value))
+          (#return 42u64))))
+      (#fn main () u64 (#return 0u64))";
+    let error = lim::parse_program(source).unwrap_err();
+    assert!(
+        error.contains("cannot discard a non-Copy result from an awaited #loop"),
+        "{error}"
+    );
 }
 
 #[test]
