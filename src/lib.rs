@@ -2689,6 +2689,7 @@ fn parse_program_in_directory_with_async_captures(
                                 0
                             };
                             source_form_head_span_nth(statement, &["#await"], await_index)
+                                .or_else(|| source_form_head_span_nth(statement, &["#await"], 0))
                                 .or(Some(statement.span))
                         })
                         .unwrap_or(form_span)

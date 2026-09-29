@@ -1923,11 +1923,6 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   branch selector each iteration, never hoist its await, and preserve loop
   step ordering. Verify native Pending/resume and that an immediate branch does
   not poll the child.
-- [x] **ASYNC-01b56: Suspend in a `#for` condition after an awaited
-  `#let-else` initializer.** Preserve initializer mismatch as an immediate
-  return, and enter the loop condition only after a successful initializer
-  pattern. Retain the condition child across Pending/resume; verify both paths
-  natively and inspect the generated condition poll state.
 - [x] **ASYNC-01b56: Suspend conditionally in a `#while` condition.** Compose
   an awaited branch and an immediate boolean branch into one per-iteration
   child task. Re-evaluate the selector after each Ready(true), preserve
@@ -2216,6 +2211,16 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Extend `@task-cancel` to represent zero-payload states, then cancel while the
   second child is pending and verify the carried linear result is explicitly
   destroyed and the pending child task consumed exactly once.
+- [x] **ASYNC-01b108: Suspend in a `#for` condition after an awaited
+  `#let-else` initializer.** Preserve initializer mismatch as an immediate
+  return, and enter the loop condition only after a successful initializer
+  pattern. Retain the condition child across Pending/resume; verify both paths
+  natively and inspect the generated condition poll state.
+- [x] **ASYNC-01b109: Point nested-await diagnostics at the await expression.**
+  When an untyped nested await is the only await in a `#let-else` statement,
+  underline that await instead of falling back to the enclosing statement.
+  Preserve selection of later awaits when the statement also awaits its
+  scrutinee; verify the UI diagnostic highlights the offending source line.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
