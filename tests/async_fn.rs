@@ -942,6 +942,39 @@ fn async_function_extracts_typed_awaits_from_value_expressions() {
 }
 
 #[test]
+fn async_call_arguments_are_evaluated_in_source_order_before_suspension() {
+    let source = "(#enum Child (Waiting))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case Waiting (ChildPending Waiting)))))
+      (#fn mark ((counter (#ref-mut u64))) u64
+        (#deref-set counter 1u64)
+        (#return 3u64))
+      (#fn sum ((first u64) (second u64)) u64
+        (#return (#u64.+.wrap first second)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((counter (#ref-mut u64))) u64
+          (#let result u64
+            (#call sum (:
+              first (#call mark (: counter counter))
+              : second (#await u64 Child ChildPending ChildReady child-poll Waiting))))
+          (#return result))))
+      (#fn main () u64
+        (#let-mut counter u64 0u64)
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (: counter (#borrow-mut counter))))
+        (#let outcome Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll outcome (#unreachable))
+        (#forget pending)
+        (#forget waker)
+        (#return counter))";
+    let generated = build_and_run(source, 1);
+    assert!(generated.contains("(#call mark"), "{generated}");
+}
+
+#[test]
 fn async_function_extracts_typed_await_from_another_await_task() {
     let source = "(#enum ChildTask ((Waiting u64)))
       (#linear ChildTask)

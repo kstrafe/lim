@@ -10,6 +10,7 @@ use crate::{expression_source, normalize_keywords, parse_type, Expr, Type};
 
 thread_local! {
     static NAMED_COPY_TYPES: RefCell<Vec<HashSet<String>>> = const { RefCell::new(Vec::new()) };
+    static FUNCTION_PARAMETER_TYPES: RefCell<Vec<HashMap<String, HashMap<String, String>>>> = const { RefCell::new(Vec::new()) };
 }
 
 struct NamedCopyTypesGuard;
@@ -44,6 +45,47 @@ fn is_named_copy_type(name: &str) -> bool {
     })
 }
 
+struct FunctionParameterTypesGuard;
+
+impl Drop for FunctionParameterTypesGuard {
+    fn drop(&mut self) {
+        FUNCTION_PARAMETER_TYPES.with(|types| {
+            types.borrow_mut().pop();
+        });
+    }
+}
+
+fn with_function_parameter_types<T>(
+    functions: &HashMap<String, HashMap<String, String>>,
+    action: impl FnOnce() -> T,
+) -> T {
+    FUNCTION_PARAMETER_TYPES.with(|stack| stack.borrow_mut().push(functions.clone()));
+    let _guard = FunctionParameterTypesGuard;
+    action()
+}
+
+fn function_parameter_type(function: &str, parameter: &str) -> Option<String> {
+    FUNCTION_PARAMETER_TYPES.with(|stack| {
+        stack
+            .borrow()
+            .last()?
+            .get(function)?
+            .get(parameter)
+            .cloned()
+    })
+}
+
+fn async_argument_is_trivial(expression: &Expr) -> bool {
+    matches!(
+        expression,
+        Expr::Integer(_)
+            | Expr::UnsignedInteger(_)
+            | Expr::Float(_)
+            | Expr::Char(_)
+            | Expr::String(_)
+    )
+}
+
 #[derive(Clone)]
 struct Binding {
     name: String,
@@ -55,6 +97,7 @@ struct Binding {
 pub(crate) struct AsyncTypeEnvironment {
     pub enums: HashMap<String, HashMap<String, Vec<String>>>,
     pub aliases: HashMap<String, String>,
+    pub functions: HashMap<String, HashMap<String, String>>,
 }
 
 #[derive(Clone)]
@@ -2397,21 +2440,82 @@ fn extract_nested_awaits(
             match head.as_str() {
                 "#quote" | "quote" | "#quasiquote" | "quasiquote" => return Ok(()),
                 "#call" | "call" if items.len() == 3 => {
-                    if let Expr::List(arguments) = &mut items[2] {
-                        for argument in arguments {
-                            if let Expr::List(pair) = argument {
-                                if let Some(value) = pair.get_mut(1) {
-                                    extract_nested_awaits(
-                                        value,
-                                        generated,
-                                        generated_helpers,
-                                        known,
-                                        source,
-                                        next_name,
-                                        waker,
-                                    )?;
+                    let has_suspending_argument = match &items[2] {
+                        Expr::List(arguments) => arguments.iter().any(|argument| {
+                            matches!(argument, Expr::List(pair) if pair.get(1).is_some_and(has_await))
+                        }),
+                        _ => false,
+                    };
+                    let callee = match &items[1] {
+                        Expr::Symbol(name) => name.clone(),
+                        _ if has_suspending_argument => {
+                            return Err(
+                                "@async-fn cannot sequence awaited arguments to a computed callee"
+                                    .into(),
+                            );
+                        }
+                        _ => String::new(),
+                    };
+                    let Expr::List(arguments) = &mut items[2] else {
+                        return Ok(());
+                    };
+                    for argument in arguments {
+                        let Expr::List(pair) = argument else {
+                            continue;
+                        };
+                        if pair.len() != 2 {
+                            continue;
+                        }
+                        let parameter = match &pair[0] {
+                            Expr::Symbol(name) => name.clone(),
+                            _ => continue,
+                        };
+                        let value = &mut pair[1];
+                        extract_nested_awaits(
+                            value,
+                            generated,
+                            generated_helpers,
+                            known,
+                            source,
+                            next_name,
+                            waker,
+                        )?;
+                        let already_sequenced = match value {
+                            Expr::Symbol(name) => generated.iter().any(|statement| {
+                                form(statement, "#let").is_some_and(|binding| {
+                                    binding.len() == 4
+                                        && matches!(&binding[1], Expr::Symbol(bound) if bound == name)
+                                })
+                            }),
+                            _ => false,
+                        };
+                        if has_suspending_argument
+                            && !async_argument_is_trivial(value)
+                            && !already_sequenced
+                        {
+                            let value_type = match value {
+                                Expr::Symbol(name) => {
+                                    known.get(name).map(|binding| binding.ty.clone())
                                 }
-                            }
+                                _ => None,
+                            };
+                            let ty = function_parameter_type(&callee, &parameter)
+                                .or(value_type)
+                                .ok_or_else(|| {
+                                    format!("@async-fn cannot determine the type of argument '{parameter}' to '{callee}' while preserving evaluation order")
+                                })?;
+                            let temporary = nested_await_name(source, next_name);
+                            generated.push(Expr::List(vec![
+                                Expr::Symbol("#let".into()),
+                                Expr::Symbol(temporary.clone()),
+                                crate::parse(&ty)?
+                                    .into_iter()
+                                    .next()
+                                    .ok_or_else(|| format!("@async-fn parameter '{parameter}' of '{callee}' has an empty type"))?
+                                    .expr,
+                                value.clone(),
+                            ]));
+                            *value = Expr::Symbol(temporary);
                         }
                     }
                 }
@@ -8831,11 +8935,10 @@ fn named_arguments(bindings: &[Binding]) -> String {
 }
 
 pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
-    generated_source_with_capture_selection(
-        invocation,
-        CaptureSelection::Syntax,
-        &AsyncTypeEnvironment::default(),
-    )
+    let environment = AsyncTypeEnvironment::default();
+    with_function_parameter_types(&environment.functions, || {
+        generated_source_with_capture_selection(invocation, CaptureSelection::Syntax, &environment)
+    })
 }
 
 pub(crate) fn generated_source_with_environment(
@@ -8844,17 +8947,19 @@ pub(crate) fn generated_source_with_environment(
     copy_types: &HashSet<String>,
     type_environment: &AsyncTypeEnvironment,
 ) -> Result<String, String> {
-    with_named_copy_types(copy_types, || match captures {
-        Some(captures) => generated_source_with_capture_selection(
-            invocation,
-            CaptureSelection::Typed(captures),
-            type_environment,
-        ),
-        None => generated_source_with_capture_selection(
-            invocation,
-            CaptureSelection::Syntax,
-            type_environment,
-        ),
+    with_function_parameter_types(&type_environment.functions, || {
+        with_named_copy_types(copy_types, || match captures {
+            Some(captures) => generated_source_with_capture_selection(
+                invocation,
+                CaptureSelection::Typed(captures),
+                type_environment,
+            ),
+            None => generated_source_with_capture_selection(
+                invocation,
+                CaptureSelection::Syntax,
+                type_environment,
+            ),
+        })
     })
 }
 

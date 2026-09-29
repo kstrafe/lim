@@ -2207,6 +2207,16 @@ fn async_type_environment(expressions: &[SpannedExpr]) -> async_fn::AsyncTypeEnv
             Item::TypeAlias { name, target, .. } => {
                 environment.aliases.insert(name, type_source(&target));
             }
+            Item::Function(function) => {
+                environment.functions.insert(
+                    function.name,
+                    function
+                        .parameters
+                        .into_iter()
+                        .map(|parameter| (parameter.name, type_source(&parameter.ty)))
+                        .collect(),
+                );
+            }
             _ => {}
         }
     }
@@ -2276,7 +2286,23 @@ fn async_type_environment_identity(environment: &async_fn::AsyncTypeEnvironment)
         .map(|(name, target)| format!("{name}={target}"))
         .collect::<Vec<_>>()
         .join(";");
-    format!("enums:{enums};aliases:{aliases}")
+    let mut functions = environment.functions.iter().collect::<Vec<_>>();
+    functions.sort_by(|left, right| left.0.cmp(right.0));
+    let functions = functions
+        .into_iter()
+        .map(|(name, parameters)| {
+            let mut parameters = parameters.iter().collect::<Vec<_>>();
+            parameters.sort_by(|left, right| left.0.cmp(right.0));
+            let parameters = parameters
+                .into_iter()
+                .map(|(name, ty)| format!("{name}:{ty}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{name}({parameters})")
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    format!("enums:{enums};aliases:{aliases};functions:{functions}")
 }
 
 struct AsyncCaptureInvocation {
