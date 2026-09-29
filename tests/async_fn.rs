@@ -3419,6 +3419,24 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
         "(#set subtotal (#u64.+.wrap first second))\n            (#break))",
     );
     build_and_run(&break_source, 42);
+
+    let branch_continue_source = source.replace(
+        "(#set subtotal (#u64.+.wrap first second)))",
+        "(#set subtotal (#u64.+.wrap first second))\n            (#if (#u64.== first 20u64) (#continue) (#break)))",
+    );
+    build_and_run(&branch_continue_source, 42);
+
+    let branch_break_source = source.replace(
+        "(#set subtotal (#u64.+.wrap first second)))",
+        "(#set subtotal (#u64.+.wrap first second))\n            (#if (#u64.== first 20u64) (#break) (#continue)))",
+    );
+    build_and_run(&branch_break_source, 42);
+
+    let match_continue_source = source.replace(
+        "(#set subtotal (#u64.+.wrap first second)))",
+        "(#set subtotal (#u64.+.wrap first second))\n            (#match first (#case 20u64 (#continue)) (#case _ (#break))))",
+    );
+    build_and_run(&match_continue_source, 42);
 }
 
 #[test]

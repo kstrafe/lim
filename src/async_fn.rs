@@ -2100,6 +2100,103 @@ fn async_while_body_child(
             _ => false,
         }
     }
+    fn terminal_status(expression: &Expr) -> Result<Option<Expr>, String> {
+        fn status_branch(expression: &Expr) -> Result<Expr, String> {
+            if let Some(status) = terminal_status(expression)? {
+                Ok(status)
+            } else if has_outer_loop_control(expression) {
+                Err("@async-fn composed awaited while transfers must be terminal".into())
+            } else {
+                Ok(Expr::List(vec![
+                    Expr::Symbol("#block".into()),
+                    expression.clone(),
+                    Expr::Symbol("false".into()),
+                ]))
+            }
+        }
+
+        if let Some(control) = form(expression, "#break").or_else(|| form(expression, "#continue"))
+        {
+            if control.len() != 1 {
+                return Err(
+                    "@async-fn composed awaited while body does not support labeled transfers"
+                        .into(),
+                );
+            }
+            return Ok(Some(Expr::Symbol(
+                if form(expression, "#break").is_some() {
+                    "true"
+                } else {
+                    "false"
+                }
+                .into(),
+            )));
+        }
+        if let Some(items) = form(expression, "#block") {
+            let Some(last) = items.last() else {
+                return Ok(None);
+            };
+            let Some(status) = terminal_status(last)? else {
+                return Ok(None);
+            };
+            if items[..items.len() - 1].iter().any(has_outer_loop_control) {
+                return Err("@async-fn composed awaited while transfers must be terminal".into());
+            }
+            let mut block = items.to_vec();
+            *block.last_mut().expect("block has a terminal expression") = status;
+            return Ok(Some(Expr::List(block)));
+        }
+        if let Some(items) = form(expression, "#if") {
+            if items.len() == 4
+                && (has_outer_loop_control(&items[2]) || has_outer_loop_control(&items[3]))
+            {
+                if has_outer_loop_control(&items[1]) {
+                    return Err(
+                        "@async-fn composed awaited while condition cannot transfer loop control"
+                            .into(),
+                    );
+                }
+                return Ok(Some(Expr::List(vec![
+                    items[0].clone(),
+                    items[1].clone(),
+                    status_branch(&items[2])?,
+                    status_branch(&items[3])?,
+                ])));
+            }
+        }
+        if let Some(items) = form(expression, "#match") {
+            if items.len() >= 3 && items[2..].iter().any(has_outer_loop_control) {
+                if has_outer_loop_control(&items[1]) {
+                    return Err(
+                        "@async-fn composed awaited while match value cannot transfer loop control"
+                            .into(),
+                    );
+                }
+                let mut rewritten = items.to_vec();
+                for arm in &mut rewritten[2..] {
+                    let Some(case) = form(arm, "#case") else {
+                        return Err(
+                            "@async-fn composed awaited while match transfers require #case arms"
+                                .into(),
+                        );
+                    };
+                    let body_index = match case.len() {
+                        3 => 2,
+                        4 if form(&case[2], "#when").is_some() => 3,
+                        _ => return Err(
+                            "@async-fn composed awaited while match transfer has an invalid arm"
+                                .into(),
+                        ),
+                    };
+                    let mut case = case.to_vec();
+                    case[body_index] = status_branch(&case[body_index])?;
+                    *arm = Expr::List(case);
+                }
+                return Ok(Some(Expr::List(rewritten)));
+            }
+        }
+        Ok(None)
+    }
     if body.iter().any(contains_return) {
         return Err(
             "@async-fn composed awaited while body cannot return from its child task yet".into(),
@@ -2185,18 +2282,13 @@ fn async_while_body_child(
     let ready = format!("{base}-body-ready");
     let poll = format!("{base}-body-poll");
     let mut child_body = body.to_vec();
-    let mut stop_after_body = false;
-    if let Some(last) = child_body.last() {
-        if let Some(control) = form(last, "#break").or_else(|| form(last, "#continue")) {
-            if control.len() != 1 {
-                return Err(
-                    "@async-fn composed awaited while body does not support labeled transfers"
-                        .into(),
-                );
-            }
-            stop_after_body = form(last, "#break").is_some();
-            child_body.pop();
-        }
+    let terminal_status = child_body
+        .last()
+        .map(terminal_status)
+        .transpose()?
+        .flatten();
+    if terminal_status.is_some() {
+        child_body.pop();
     }
     if child_body.iter().any(has_outer_loop_control) {
         return Err(
@@ -2225,7 +2317,7 @@ fn async_while_body_child(
     function.extend(child_body);
     function.push(Expr::List(vec![
         Expr::Symbol("#return".into()),
-        Expr::Symbol(stop_after_body.to_string()),
+        terminal_status.unwrap_or_else(|| Expr::Symbol("false".into())),
     ]));
     let function = Expr::List(function);
     let waker = crate::parse(waker)?

@@ -2121,6 +2121,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   `#continue` resumes the condition and terminal `#break` exits the loop.
   Preserve transfers inside nested loops and reject labeled or nonterminal
   outer-loop transfers; verify both cases after multiple Pending transitions.
+- [x] **ASYNC-01b90: Join conditional loop transfers after body suspension.**
+  Lower terminal `#if`, `#match`, and `#block` branches containing `#break` or
+  `#continue` into the child frame's explicit stop status. Preserve branch
+  effects and treat nontransferring branches as continuation; verify both `#if`
+  outcomes, a `#match` arm, and native resumption through multiple Pending states.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
