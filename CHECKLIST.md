@@ -2319,6 +2319,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Continue must run the awaited step; break must skip it. Verify both paths
   natively across Pending/resume and confirm the post-loop value. Also lower a
   terminal body return without polling the step.
+- [x] **ASYNC-01b130: Return through a multi-await `#while` body task.** When
+  a suspended while body is lowered into a nested async child, preserve each
+  explicit return as a typed child outcome alongside the ordinary loop status.
+  Propagate the return payload through Pending/resume and return from the
+  enclosing async function without executing its tail. Verify runtime behavior
+  for both a returning body and a false condition. Mutable-capture transfer
+  combined with this return shape remains a separate extension.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
