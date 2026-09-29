@@ -443,6 +443,105 @@ fn conditional_await(expression: &Expr) -> Result<Option<(AwaitProtocol, Expr)>,
     Ok(None)
 }
 
+fn conditional_block_continuation(
+    expression: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(AwaitProtocol, Expr, String)>, String> {
+    let Some(block) = block_await_continuation(expression) else {
+        return Ok(None);
+    };
+    if !block.prefix.is_empty()
+        || block.binding.is_none()
+        || block.assignment.is_some()
+        || has_await(&block.continuation)
+        || contains_loop_control(&block.continuation)
+        || contains_return(&block.continuation)
+    {
+        return Ok(None);
+    }
+    let binding = block.binding.as_deref().expect("validated binding");
+    let mut continuation_names = HashSet::new();
+    collect_value_names(&block.continuation, &mut continuation_names);
+    continuation_names.remove(binding);
+    continuation_names.remove("true");
+    continuation_names.remove("false");
+    if let Some(name) = continuation_names.iter().next() {
+        return Err(format!(
+            "@async-fn conditional await continuation captures outer local '{name}'; bind it inside the branch before suspension"
+        ));
+    }
+    let await_form = form(&block.await_expression, "#await")
+        .ok_or_else(|| "@async-fn conditional block requires a direct #await".to_owned())?;
+    if await_form.len() != 7 {
+        return Err(
+            "nested #await requires an explicit result type: (#await Type Child Pending Ready poll task)"
+                .into(),
+        );
+    }
+    let protocol = AwaitProtocol {
+        result_type: await_form[1].clone(),
+        child_type: await_form[2].clone(),
+        pending: await_form[3].clone(),
+        ready: await_form[4].clone(),
+        poll: await_form[5].clone(),
+    };
+    let base = fresh_async_name(source, next_name);
+    let task_type = format!("{base}-branch-task");
+    let waiting = format!("{base}-waiting");
+    let poll_result = format!("{base}-branch-poll-result");
+    let pending = format!("{base}-branch-pending");
+    let ready = format!("{base}-branch-ready");
+    let poll = format!("{base}-branch-poll");
+    let child = format!("{base}-child");
+    let pending_child = format!("{base}-pending-child");
+    let child_value = format!("{base}-child-value");
+    let continuation_value = format!("{base}-continuation-value");
+    let await_binding = format!("{base}-await-value");
+    let binding_head = if block.mutable_binding {
+        "#let-mut"
+    } else {
+        "#let"
+    };
+    let mut continuation = block.continuation;
+    replace_await_local(&mut continuation, binding, &await_binding);
+    let child_type = expression_source(&protocol.child_type)?;
+    let result_type = expression_source(&protocol.result_type)?;
+    let child_pending = expression_source(&protocol.pending)?;
+    let child_ready = expression_source(&protocol.ready)?;
+    let child_poll = expression_source(&protocol.poll)?;
+    let continuation = expression_source(&continuation)?;
+    let task = Expr::List(vec![Expr::Symbol(waiting.clone()), await_form[6].clone()]);
+    let helper = format!(
+        "(#enum {task_type} (({waiting} {child_type})))\n\
+         (#linear {task_type})\n\
+         (#enum {poll_result} (({pending} {task_type}) ({ready} {result_type})))\n\
+         (#fn {poll} ((task {task_type}) (waker (#ref {waker}))) {poll_result}\n\
+           (#return (#match task\n\
+             (#case ({waiting} {child})\n\
+               (#match (#call {child_poll} (: task {child} : waker waker))\n\
+                 (#case ({child_pending} {pending_child})\n\
+                   ({pending} ({waiting} {pending_child})))\n\
+                 (#case ({child_ready} {child_value})\n\
+                   (#block\n\
+                     ({binding_head} {await_binding} {result_type} {child_value})\n\
+                     (#let {continuation_value} {result_type} {continuation})\n\
+                     ({ready} {continuation_value}))))))))",
+    );
+    Ok(Some((
+        AwaitProtocol {
+            result_type: protocol.result_type,
+            child_type: Expr::Symbol(task_type),
+            pending: Expr::Symbol(pending),
+            ready: Expr::Symbol(ready),
+            poll: Expr::Symbol(poll),
+        },
+        task,
+        helper,
+    )))
+}
+
 fn fresh_async_name(source: &str, next_name: &mut usize) -> String {
     let namespace = source
         .split_once("(#fn ")
@@ -466,6 +565,7 @@ fn conditional_await_with_immediate(
     waker: &str,
 ) -> Result<Option<(AwaitProtocol, Expr, String)>, String> {
     let mut branches = Vec::<(Option<AwaitProtocol>, Expr)>::new();
+    let mut branch_helpers = Vec::new();
     let condition_or_scrutinee;
     let is_if;
     if let Some(items) = form(expression, "#if") {
@@ -478,6 +578,11 @@ fn conditional_await_with_immediate(
             let lowered = conditional_await(branch)?;
             if let Some((protocol, task)) = lowered {
                 branches.push((Some(protocol), task));
+            } else if let Some((protocol, task, helper)) =
+                conditional_block_continuation(branch, source, next_name, waker)?
+            {
+                branches.push((Some(protocol), task));
+                branch_helpers.push(helper);
             } else if !has_await(branch) {
                 branches.push((None, branch.clone()));
             } else {
@@ -510,6 +615,16 @@ fn conditional_await_with_immediate(
                 }
                 task_arm.push(task);
                 branches.push((Some(protocol), Expr::List(task_arm)));
+            } else if let Some((protocol, task, helper)) =
+                conditional_block_continuation(&case[body_index], source, next_name, waker)?
+            {
+                let mut task_arm = vec![Expr::Symbol("#case".into()), case[1].clone()];
+                if body_index == 3 {
+                    task_arm.push(case[2].clone());
+                }
+                task_arm.push(task);
+                branches.push((Some(protocol), Expr::List(task_arm)));
+                branch_helpers.push(helper);
             } else if !has_await(&case[body_index]) {
                 branches.push((None, arm.clone()));
             } else {
@@ -573,7 +688,7 @@ fn conditional_await_with_immediate(
     poll_arms.push(format!(
         "(#case ({choice_done} value) ({choice_ready} value))"
     ));
-    let helper = format!(
+    let choice_helper = format!(
         "(#enum {choice_task} ({}))\n\
          (#linear {choice_task})\n\
          (#enum {choice_poll_result} (({choice_pending} {choice_task}) ({choice_ready} {result_type})))\n\
@@ -582,6 +697,8 @@ fn conditional_await_with_immediate(
         choice_variants.join(" "),
         poll_arms.join(" "),
     );
+    branch_helpers.push(choice_helper);
+    let helper = branch_helpers.join("\n");
     let wrap = |index: usize, value: Expr| -> Expr {
         let constructor = branch_waits[index].as_ref().unwrap_or(&choice_done);
         Expr::List(vec![Expr::Symbol(constructor.clone()), value])
@@ -4610,6 +4727,7 @@ fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
                 return;
             };
             match head.as_str() {
+                "#literal" => {}
                 "#await" => {
                     if let Some(value) = items.get(5) {
                         collect_value_names(value, names);

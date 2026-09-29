@@ -1210,7 +1210,7 @@ fn async_conditional_await_joins_with_an_immediate_value() {
               (#block
                 (#let-mut awaited-value u64
                   (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
-                awaited-value)
+                (#u64.+.wrap awaited-value 1u64))
               41u64))
           (#return result))))
       (#enum Choice (Await Immediate))
@@ -1222,7 +1222,7 @@ fn async_conditional_await_joins_with_an_immediate_value() {
                 (#block
                   (#let-mut awaited-value u64
                     (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
-                  awaited-value))
+                  (#u64.+.wrap awaited-value 1u64)))
               (#case Immediate 41u64)))
           (#return result))))
       (#fn main () u64
@@ -1261,7 +1261,7 @@ fn async_conditional_await_joins_with_an_immediate_value() {
         (#return (#u64.+.wrap
           (#u64.+.wrap awaited-value immediate-value)
           (#u64.+.wrap match-awaited-value match-immediate-value))))";
-    let generated = build_and_run(source, 84);
+    let generated = build_and_run(source, 86);
     assert!(generated.contains(".choice-"), "{generated}");
     assert!(generated.contains("-poll-result"), "{generated}");
 }

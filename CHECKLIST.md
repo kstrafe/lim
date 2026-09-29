@@ -2027,6 +2027,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   binding as the same result expression as an immutable binding, retaining
   branch selection and task-construction order. Verify both `#if` and `#match`
   arm selection, including that an unselected arm is never polled.
+- [x] **ASYNC-01b75: Resume branch-local continuations after conditional awaits.**
+  Accept an `#if` or `#match` arm block with one direct typed await binding and
+  a nonsuspending continuation that uses only that binding. Generate an
+  inspectable concrete adapter task that polls the selected child, preserves
+  Pending, and evaluates the continuation exactly once on Ready. Keep immediate
+  and unselected branches unchanged; diagnose unsupported outer captures.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
