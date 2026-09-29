@@ -2100,12 +2100,6 @@ fn async_while_body_child(
             _ => false,
         }
     }
-    if body.iter().any(has_outer_loop_control) {
-        return Err(
-            "@async-fn composed awaited while body cannot transfer loop control from its child task yet"
-                .into(),
-        );
-    }
     if body.iter().any(contains_return) {
         return Err(
             "@async-fn composed awaited while body cannot return from its child task yet".into(),
@@ -2190,7 +2184,26 @@ fn async_while_body_child(
     let pending = format!("{base}-body-pending");
     let ready = format!("{base}-body-ready");
     let poll = format!("{base}-body-poll");
-    let unit_type = Expr::List(Vec::new());
+    let mut child_body = body.to_vec();
+    let mut stop_after_body = false;
+    if let Some(last) = child_body.last() {
+        if let Some(control) = form(last, "#break").or_else(|| form(last, "#continue")) {
+            if control.len() != 1 {
+                return Err(
+                    "@async-fn composed awaited while body does not support labeled transfers"
+                        .into(),
+                );
+            }
+            stop_after_body = form(last, "#break").is_some();
+            child_body.pop();
+        }
+    }
+    if child_body.iter().any(has_outer_loop_control) {
+        return Err(
+            "@async-fn composed awaited while body transfers must be terminal statements".into(),
+        );
+    }
+    let body_status_type = Expr::Symbol("bool".into());
     let mut parameters = Vec::with_capacity(captures.len());
     let mut arguments = Vec::with_capacity(captures.len() * 3);
     for capture in &captures {
@@ -2207,12 +2220,12 @@ fn async_while_body_child(
         Expr::Symbol("#fn".into()),
         Expr::Symbol(function_name.clone()),
         Expr::List(parameters),
-        unit_type.clone(),
+        body_status_type.clone(),
     ];
-    function.extend(body.iter().cloned());
+    function.extend(child_body);
     function.push(Expr::List(vec![
         Expr::Symbol("#return".into()),
-        unit_type.clone(),
+        Expr::Symbol(stop_after_body.to_string()),
     ]));
     let function = Expr::List(function);
     let waker = crate::parse(waker)?
@@ -2241,7 +2254,7 @@ fn async_while_body_child(
     ]);
     let await_form = vec![
         Expr::Symbol("#await".into()),
-        unit_type.clone(),
+        body_status_type.clone(),
         Expr::Symbol(frame),
         Expr::Symbol(pending),
         Expr::Symbol(ready),
@@ -2250,13 +2263,13 @@ fn async_while_body_child(
     ];
     let binding = Binding {
         name: format!("{base}-body-result"),
-        ty: expression_source(&unit_type)?,
+        ty: expression_source(&body_status_type)?,
         mutable: false,
     };
     let form = vec![
         Expr::Symbol("#let".into()),
         Expr::Symbol(binding.name.clone()),
-        unit_type,
+        body_status_type,
         Expr::List(await_form.clone()),
     ];
     Ok((binding, form, helper))
@@ -3105,9 +3118,10 @@ fn lower_async_while_with_transfers(
                 "#let"
             };
             let mut body_success = vec![Expr::Symbol("#block".into())];
+            let body_result_name = body_binding.name.clone();
             body_success.push(Expr::List(vec![
                 Expr::Symbol(body_binding_head.into()),
-                Expr::Symbol(body_binding.name),
+                Expr::Symbol(body_result_name.clone()),
                 body_data_type.clone(),
                 Expr::Symbol(payload_name.clone()),
             ]));
@@ -3118,6 +3132,13 @@ fn lower_async_while_with_transfers(
                 Expr::Symbol("false".into()),
             ]));
             body_success.extend(body_continuation);
+            if use_body_child {
+                body_success.push(Expr::List(vec![
+                    Expr::Symbol("#set".into()),
+                    Expr::Symbol(body_stopped_name.clone()),
+                    Expr::Symbol(body_result_name),
+                ]));
+            }
             if body_success.len() > 3
                 && contains_loop_control(body_success.last().expect("body has a stop local"))
             {

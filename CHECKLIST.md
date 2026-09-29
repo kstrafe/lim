@@ -2116,6 +2116,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   locals survive each Pending state and awaits resume in source order. Construct
   the child only after the awaited condition is true; verify two native
   Pending/resume transitions followed by a false condition that skips the body.
+- [x] **ASYNC-01b89: Relay terminal loop transfers from multi-await bodies.**
+  Carry a body-completion status from the nested async child so terminal
+  `#continue` resumes the condition and terminal `#break` exits the loop.
+  Preserve transfers inside nested loops and reject labeled or nonterminal
+  outer-loop transfers; verify both cases after multiple Pending transitions.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

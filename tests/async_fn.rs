@@ -3407,6 +3407,18 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
     let generated = build_and_run(source, 42);
     assert!(generated.contains("body-function"), "{generated}");
     assert!(generated.contains("body-poll-resume"), "{generated}");
+
+    let continue_source = source.replace(
+        "(#set subtotal (#u64.+.wrap first second)))",
+        "(#set subtotal (#u64.+.wrap first second))\n            (#continue))",
+    );
+    build_and_run(&continue_source, 42);
+
+    let break_source = source.replace(
+        "(#set subtotal (#u64.+.wrap first second)))",
+        "(#set subtotal (#u64.+.wrap first second))\n            (#break))",
+    );
+    build_and_run(&break_source, 42);
 }
 
 #[test]
