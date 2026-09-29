@@ -28,6 +28,13 @@ fn with_named_copy_types<T>(types: &HashSet<String>, action: impl FnOnce() -> T)
     action()
 }
 
+fn with_additional_named_copy_types<T>(additions: &[String], action: impl FnOnce() -> T) -> T {
+    let mut types =
+        NAMED_COPY_TYPES.with(|stack| stack.borrow().last().cloned().unwrap_or_default());
+    types.extend(additions.iter().cloned());
+    with_named_copy_types(&types, action)
+}
+
 fn is_named_copy_type(name: &str) -> bool {
     NAMED_COPY_TYPES.with(|stack| {
         stack
@@ -3574,6 +3581,74 @@ fn rewrite_async_loop_returns(
     None
 }
 
+/// Replace returns in terminal `#for` body control-flow with a marker that is
+/// resolved inside the generated iteration task, where it can also stop the
+/// separately scheduled awaited step.
+fn rewrite_async_for_body_returns(
+    expression: &Expr,
+    status: &str,
+    returned_variant: &str,
+) -> Option<Expr> {
+    if let Some(return_form) = form(expression, "#return") {
+        if return_form.len() != 2 || has_await(&return_form[1]) {
+            return None;
+        }
+        return Some(Expr::List(vec![
+            Expr::Symbol("#async-for-return".into()),
+            Expr::Symbol(status.into()),
+            Expr::Symbol(returned_variant.into()),
+            return_form[1].clone(),
+        ]));
+    }
+    if let Some(block) = form(expression, "#block") {
+        if block.len() < 2 || block[1..block.len() - 1].iter().any(contains_return) {
+            return None;
+        }
+        let mut lowered = block.to_vec();
+        *lowered.last_mut()? =
+            rewrite_async_for_body_returns(block.last()?, status, returned_variant)?;
+        return Some(Expr::List(lowered));
+    }
+    if let Some(conditional) = form(expression, "#if") {
+        if conditional.len() != 4 || contains_return(&conditional[1]) {
+            return None;
+        }
+        let mut lowered = conditional.to_vec();
+        for index in [2, 3] {
+            if contains_return(&conditional[index]) {
+                lowered[index] =
+                    rewrite_async_for_body_returns(&conditional[index], status, returned_variant)?;
+            }
+        }
+        return Some(Expr::List(lowered));
+    }
+    if let Some(match_form) = form(expression, "#match") {
+        if match_form.len() < 3 || contains_return(&match_form[1]) {
+            return None;
+        }
+        let mut lowered = match_form.to_vec();
+        for arm_index in 2..match_form.len() {
+            let case = form(&match_form[arm_index], "#case")?;
+            let body_index = match case.len() {
+                3 => 2,
+                4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
+                _ => return None,
+            };
+            if case[1..body_index].iter().any(contains_return) {
+                return None;
+            }
+            if contains_return(&case[body_index]) {
+                let mut lowered_case = case.to_vec();
+                lowered_case[body_index] =
+                    rewrite_async_for_body_returns(&case[body_index], status, returned_variant)?;
+                lowered[arm_index] = Expr::List(lowered_case);
+            }
+        }
+        return Some(Expr::List(lowered));
+    }
+    None
+}
+
 fn lower_async_while_with_transfers(
     statement: &Expr,
     known: &HashMap<String, Binding>,
@@ -5430,6 +5505,8 @@ fn lower_async_for_range(
 /// with the loop and must not leak into the generated async function.
 fn async_for_body_step_task(
     body: &[Expr],
+    return_signal: bool,
+    generated_copy_types: &[String],
     step: &Expr,
     post_step: &[Expr],
     target: &Binding,
@@ -5439,17 +5516,20 @@ fn async_for_body_step_task(
     next_name: &mut usize,
     waker: &str,
 ) -> Result<(AwaitProtocol, Expr, String, Vec<Binding>, bool), String> {
-    if body.iter().any(contains_return) {
-        return Err("@async-fn three-phase #for does not support body returns yet".into());
-    }
-
-    let transfer_name = body
-        .iter()
-        .any(contains_loop_control)
+    let transfer_name = (return_signal || body.iter().any(contains_loop_control))
         .then(|| fresh_async_name(source, next_name));
     let mut iteration_body = body.to_vec();
-    let mut has_break = false;
+    let mut has_break = return_signal;
     if let Some(transfer_name) = &transfer_name {
+        if return_signal {
+            let mut found_return = false;
+            for expression in &mut iteration_body {
+                found_return |= rewrite_async_for_return_marker(expression, transfer_name)?;
+            }
+            if !found_return {
+                return Err("@async-fn lost a three-phase #for return during lowering".into());
+            }
+        }
         for expression in &mut iteration_body {
             has_break |= rewrite_async_for_body_transfer(expression, transfer_name)?;
         }
@@ -5650,7 +5730,10 @@ fn async_for_body_step_task(
             .first()
             .ok_or_else(|| "@async-fn three-phase #for capture type is empty".to_owned())?;
         let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
-        if !async_task_capture_is_copy(&ty) && !async_task_capture_is_mutable_reference(&ty) {
+        if !with_additional_named_copy_types(generated_copy_types, || {
+            async_task_capture_is_copy(&ty)
+        }) && !async_task_capture_is_mutable_reference(&ty)
+        {
             return Err(format!(
                 "@async-fn three-phase #for captures non-Copy local '{}'; carry it in a concrete child-task result",
                 capture.name
@@ -5753,8 +5836,10 @@ fn async_for_body_step_task(
         waker_expression,
         function,
     ]);
+    let iteration_helper =
+        with_additional_named_copy_types(generated_copy_types, || generated_source(&invocation))?;
     let helper = std::iter::once(step_choice_helper.unwrap_or_default())
-        .chain(std::iter::once(generated_source(&invocation)?))
+        .chain(std::iter::once(iteration_helper))
         .filter(|helper| !helper.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
@@ -5783,7 +5868,8 @@ fn lower_async_for(
     known: &HashMap<String, Binding>,
     known_order: &[String],
     following: &[Expr],
-    return_value: &Expr,
+    return_value: &mut Expr,
+    return_type: &Expr,
     source: &str,
     next_name: &mut usize,
     waker: &str,
@@ -5876,6 +5962,7 @@ fn lower_async_for(
                 &loop_order,
                 following,
                 return_value,
+                return_type,
                 source,
                 next_name,
                 waker,
@@ -5963,6 +6050,9 @@ fn lower_async_for(
     let mut body_reference_transfers = Vec::new();
     let mut initializer_statement = initializer.clone();
     let mut condition_helpers = Vec::new();
+    let mut return_status_initialization = None;
+    let mut return_status_completion = None;
+    let mut return_status_copy_types = Vec::new();
     if awaited_condition && form(&condition, "#await").is_none() {
         let Some((protocol, task, helper)) =
             conditional_await_with_immediate(&condition, &loop_known, source, next_name, waker)?
@@ -6128,6 +6218,69 @@ fn lower_async_for(
         if awaited_step {
             let combined_body_step = loop_body.iter().any(has_await);
             if combined_body_step {
+                let return_signal = loop_body.iter().any(contains_return);
+                if return_signal {
+                    if !following.is_empty() {
+                        return Err(
+                        "@async-fn three-phase #for returns currently require the loop to be the final statement"
+                            .into(),
+                    );
+                    }
+                    if loop_body[..loop_body.len().saturating_sub(1)]
+                        .iter()
+                        .any(contains_return)
+                    {
+                        return Err(
+                            "@async-fn three-phase #for returns must be terminal body control flow"
+                                .into(),
+                        );
+                    }
+                    let return_type_ast =
+                        parse_type(Some(&normalize_keywords(return_type.clone())))?;
+                    if !async_task_capture_is_copy(&return_type_ast) {
+                        return Err(
+                        "@async-fn three-phase #for body returns currently require a Copy return type"
+                            .into(),
+                    );
+                    }
+                    let status_type = fresh_async_name(source, next_name);
+                    return_status_copy_types.push(status_type.clone());
+                    let status_name = fresh_async_name(source, next_name);
+                    let tail_variant = format!("{status_type}-tail");
+                    let returned_variant = format!("{status_type}-returned");
+                    let return_type_source = expression_source(return_type)?;
+                    let terminal = loop_body
+                        .last_mut()
+                        .expect("a for form contains its body after validation");
+                    *terminal = rewrite_async_for_body_returns(
+                    terminal,
+                    &status_name,
+                    &returned_variant,
+                )
+                .ok_or_else(|| {
+                    "@async-fn three-phase #for requires returns in terminal #block, #if, or #match branches"
+                        .to_owned()
+                })?;
+                    loop_known.insert(
+                        status_name.clone(),
+                        Binding {
+                            name: status_name.clone(),
+                            ty: status_type.clone(),
+                            mutable: true,
+                        },
+                    );
+                    loop_order.push(status_name.clone());
+                    step_helpers.push(format!(
+                    "(#enum {status_type} (({tail_variant}) ({returned_variant} {return_type_source})))"
+                ));
+                    return_status_initialization = Some(Expr::List(vec![
+                        Expr::Symbol("#let-mut".into()),
+                        Expr::Symbol(status_name.clone()),
+                        Expr::Symbol(status_type),
+                        Expr::List(vec![Expr::Symbol(tail_variant.clone())]),
+                    ]));
+                    return_status_completion = Some((status_name, returned_variant, tail_variant));
+                }
                 let mut loop_uses = HashSet::new();
                 collect_value_names(&condition, &mut loop_uses);
                 collect_value_names(&step, &mut loop_uses);
@@ -6187,6 +6340,8 @@ fn lower_async_for(
                 })?;
                 let (protocol, task, helper, updated, has_break) = async_for_body_step_task(
                     &loop_body,
+                    return_signal,
+                    &return_status_copy_types,
                     &step,
                     &post_step,
                     target_binding,
@@ -6318,6 +6473,27 @@ fn lower_async_for(
     let mut while_items = vec![Expr::Symbol("#while".into()), condition];
     while_items.extend(loop_body);
     let lowered_loop = Expr::List(while_items);
+    if let Some((status_name, returned_variant, tail_variant)) = return_status_completion.take() {
+        let old_return_value = return_value.clone();
+        let result_name = fresh_async_name(source, next_name);
+        *return_value = Expr::List(vec![
+            Expr::Symbol("#match".into()),
+            Expr::Symbol(status_name),
+            Expr::List(vec![
+                Expr::Symbol("#case".into()),
+                Expr::List(vec![
+                    Expr::Symbol(returned_variant),
+                    Expr::Symbol(result_name.clone()),
+                ]),
+                Expr::Symbol(result_name),
+            ]),
+            Expr::List(vec![
+                Expr::Symbol("#case".into()),
+                Expr::Symbol(tail_variant),
+                old_return_value,
+            ]),
+        ]);
+    }
     // The loop task owns each transferred mutable reference while it is
     // Pending, then returns it in its Ready payload. Liveness must be computed
     // using the alias that is actually carried by the loop, not the original
@@ -6330,17 +6506,20 @@ fn lower_async_for(
         }
         rename_async_value(&mut loop_return_value, source_name, &alias_binding.name);
     }
-    let Some((mut replacement, helper, renames)) = lower_async_while_with_transfers(
-        &lowered_loop,
-        &loop_known,
-        &loop_order,
-        &body_reference_transfers,
-        &loop_following,
-        &loop_return_value,
-        source,
-        next_name,
-        waker,
-    )?
+    let Some((mut replacement, helper, renames)) =
+        with_additional_named_copy_types(&return_status_copy_types, || {
+            lower_async_while_with_transfers(
+                &lowered_loop,
+                &loop_known,
+                &loop_order,
+                &body_reference_transfers,
+                &loop_following,
+                &loop_return_value,
+                source,
+                next_name,
+                waker,
+            )
+        })?
     else {
         return Err("@async-fn failed to lower awaited #for".into());
     };
@@ -6353,6 +6532,9 @@ fn lower_async_for(
             transfer_prefix_len + initializer_prefix_len,
             initializer_statement,
         );
+    }
+    if let Some(initialization) = return_status_initialization {
+        replacement.insert(0, initialization);
     }
     let helper = [
         initializer_helpers.join("\n"),
@@ -6745,6 +6927,37 @@ fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bo
 /// Turn terminal body transfers in a synthesized awaited for-iteration into
 /// state. The awaited step is scheduled after the body, so continue is simply
 /// the end of the body while break sets a flag that suppresses the step.
+fn rewrite_async_for_return_marker(expression: &mut Expr, stopped: &str) -> Result<bool, String> {
+    if let Some(items) = form(expression, "#async-for-return") {
+        if items.len() != 4 {
+            return Err("@async-fn malformed internal for-return transfer".into());
+        }
+        *expression = Expr::List(vec![
+            Expr::Symbol("#block".into()),
+            Expr::List(vec![
+                Expr::Symbol("#set".into()),
+                items[1].clone(),
+                Expr::List(vec![items[2].clone(), items[3].clone()]),
+            ]),
+            Expr::List(vec![
+                Expr::Symbol("#set".into()),
+                Expr::Symbol(stopped.into()),
+                Expr::Symbol("true".into()),
+            ]),
+            Expr::List(Vec::new()),
+        ]);
+        return Ok(true);
+    }
+    let Expr::List(items) = expression else {
+        return Ok(false);
+    };
+    let mut found = false;
+    for item in items.iter_mut().skip(1) {
+        found |= rewrite_async_for_return_marker(item, stopped)?;
+    }
+    Ok(found)
+}
+
 fn rewrite_async_for_body_transfer(expression: &mut Expr, stopped: &str) -> Result<bool, String> {
     if let Some(items) = form(expression, "#break") {
         if items.len() != 1 {
@@ -7751,7 +7964,8 @@ fn generated_source_with_capture_selection(
             &lowering_known,
             &lowering_known_order,
             &following,
-            &return_value,
+            &mut return_value,
+            &function[3],
             &source,
             &mut next_nested_await,
             &waker_source,

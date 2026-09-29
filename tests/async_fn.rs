@@ -3705,7 +3705,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
 }
 
 #[test]
-fn async_for_three_phase_continue_runs_step_and_break_skips_it() {
+fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
     let source = "(#enum ConditionTask ((Waiting u64) (Resuming u64)))
       (#linear ConditionTask)
       (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
@@ -3774,6 +3774,55 @@ fn async_for_three_phase_continue_runs_step_and_break_skips_it() {
         (#return (#if (#u64.== result 1u64) 42u64 0u64)))";
     let generated = build_and_run(source, 42);
     assert!(generated.contains("iteration-function"), "{generated}");
+
+    let return_source = source
+        .replace(
+            "(#if (#u64.== iteration 0u64) (#continue) (#break))",
+            "(#if true (#return 42u64) ())",
+        )
+        .replace("(#assert (#u64.== iteration 0u64))", "(#assert false)");
+    let (prefix, _) = return_source.split_once("(#fn main () u64").unwrap();
+    let mut poll_chain = "(#block (#forget pending-8) 0u64)".to_owned();
+    for index in (0..8).rev() {
+        let task = if index == 0 {
+            "(#call work (:))".to_owned()
+        } else {
+            format!("pending-{index}")
+        };
+        poll_chain = format!(
+            "(#match (#call poll (: task {task} : waker (#borrow waker)))
+              (#case (Pending pending-{next}) {poll_chain})
+              (#case (Ready ready-{index}) ready-{index}))",
+            next = index + 1,
+        );
+    }
+    let return_source = format!(
+        "{prefix}(#fn main () u64
+          (#let waker u64 0u64)
+          (#let result u64 {poll_chain})
+          (#forget waker)
+          (#return result))"
+    );
+    let generated = build_and_run(&return_source, 42);
+    assert!(generated.contains("iteration-function"), "{generated}");
+
+    let post_loop_statement = source
+        .replace(
+            "(#if (#u64.== iteration 0u64) (#continue) (#break))",
+            "(#return 42u64)",
+        )
+        .replace(
+            "(#return iteration))))",
+            "(#assert false) (#return iteration))))",
+        );
+    let error = match lim::parse_program(&post_loop_statement) {
+        Ok(program) => lim::check_types(&program).unwrap_err(),
+        Err(error) => error,
+    };
+    assert!(
+        error.contains("loop to be the final statement"),
+        "post-loop work must not silently run after a return transfer: {error}"
+    );
 }
 
 #[test]
