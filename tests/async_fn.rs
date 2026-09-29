@@ -3953,6 +3953,42 @@ fn async_while_let_sequences_awaits_in_its_scrutinee_expression() {
 }
 
 #[test]
+fn async_for_condition_sequences_awaits_in_a_value_expression() {
+    let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady true)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#for (#let-mut index u64 0u64)
+            (#bool.&&
+              (#u64.< index 1u64)
+              (#bool.&&
+                (#await bool ChildTask ChildPending ChildReady child-poll (Waiting index))
+                (#await bool ChildTask ChildPending ChildReady child-poll (Waiting index))))
+            (#set index (#u64.+.wrap index 1u64))
+            (#break))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending first-frame) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task first-frame : waker (#borrow waker))))
+        (#let-else (Pending second-frame) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task second-frame : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("expression-frame"), "{generated}");
+}
+
+#[test]
 fn async_while_let_body_can_suspend_multiple_times_after_matching() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum ConditionTask (ConditionWaiting ConditionResuming))

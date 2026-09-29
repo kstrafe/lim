@@ -6847,11 +6847,32 @@ fn lower_async_for(
     let mut return_status_owned_captures = Vec::new();
     let mut consumed_following = 0;
     if awaited_condition && form(&condition, "#await").is_none() {
-        let Some((protocol, task, helper)) =
-            conditional_await_with_immediate(&condition, &loop_known, source, next_name, waker)?
-        else {
+        let mut condition_known = loop_known.clone();
+        if form(initializer, "#let").is_some() || form(initializer, "#let-mut").is_some() {
+            let local = binding(initializer, "for initializer")?;
+            condition_known.insert(local.name.clone(), local);
+        }
+        let condition_task = if let Some((protocol, task, helper)) =
+            conditional_await_with_immediate(
+                &condition,
+                &condition_known,
+                source,
+                next_name,
+                waker,
+            )? {
+            Some((protocol, task, helper))
+        } else {
+            conditional_value_expression_task(
+                &condition,
+                &condition_known,
+                source,
+                next_name,
+                waker,
+            )?
+        };
+        let Some((protocol, task, helper)) = condition_task else {
             return Err(
-                "@async-fn #for condition requires a direct #await or conditional #if with a direct #await branch".into(),
+                "@async-fn #for condition requires an explicitly typed awaited expression".into(),
             );
         };
         if !helper.is_empty() {

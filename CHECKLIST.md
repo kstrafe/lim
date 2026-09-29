@@ -2397,6 +2397,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   then match the completed result using the loop's existing pattern protocol.
   Verify two sequential awaits, repeated Pending/resume, and body execution in
   a native run.
+- [x] **ASYNC-01b148: Await composed C-style `#for` conditions.** Lower
+  multi-await condition expressions through a generated task frame, making the
+  initializer binding available to capture analysis before the loop variable
+  is renamed. Verify sequential Pending/resume and loop entry natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
