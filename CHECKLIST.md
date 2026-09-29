@@ -2045,6 +2045,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   the final branch continuation. Keep branch selection lazy and never poll an
   unselected branch. Verify two child Pending/resume stages inside both `#if`
   and `#match` branches.
+- [x] **ASYNC-01b78: Suspend inside branch value expressions.**
+  Lower nested typed awaits in an `#if`/`#match` arm's ordinary value
+  expression into a concrete branch task, preserving left-to-right evaluation
+  and selection. Initially require the expression result to match the awaited
+  value type and reject uncaptured outer locals explicitly. Verify native
+  Pending/resume for `#if` and `#match`, plus an unselected immediate arm.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

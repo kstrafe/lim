@@ -584,6 +584,118 @@ fn conditional_block_continuation(
     )))
 }
 
+fn first_async_await(expression: &Expr) -> Option<&[Expr]> {
+    if let Some(await_form) = form(expression, "#await") {
+        return Some(await_form);
+    }
+    match expression {
+        Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote"))
+            {
+                return None;
+            }
+            items.iter().find_map(first_async_await)
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            statements.iter().find_map(|statement| match statement {
+                crate::Statement::Expr(value)
+                | crate::Statement::Return(Some(value))
+                | crate::Statement::BreakValue(value)
+                | crate::Statement::BreakToValue { value, .. } => first_async_await(value),
+                _ => None,
+            })
+        }
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => first_async_await(expression),
+        _ => None,
+    }
+}
+
+fn conditional_value_expression_task(
+    expression: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(AwaitProtocol, Expr, String)>, String> {
+    if !has_await(expression) {
+        return Ok(None);
+    }
+    let await_form = first_async_await(expression)
+        .ok_or_else(|| "@async-fn could not locate conditional branch #await".to_owned())?;
+    if await_form.len() != 7 {
+        return Err(
+            "nested #await requires an explicit result type: (#await Type Child Pending Ready poll task)"
+                .into(),
+        );
+    }
+    parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+    let mut captures = HashSet::new();
+    collect_value_names(expression, &mut captures);
+    let mut locals = HashSet::new();
+    collect_local_binding_names(expression, &mut locals);
+    for local in locals {
+        captures.remove(&local);
+    }
+    captures.remove("true");
+    captures.remove("false");
+    if let Some(name) = captures.iter().next() {
+        return Err(format!(
+            "@async-fn conditional branch await captures outer local '{name}'; bind it inside a branch block"
+        ));
+    }
+
+    let base = fresh_async_name(source, next_name);
+    let function_name = format!("{base}-expression-function");
+    let frame = format!("{base}-expression-frame");
+    let poll_result = format!("{base}-expression-poll-result");
+    let pending = format!("{base}-expression-pending");
+    let ready = format!("{base}-expression-ready");
+    let poll = format!("{base}-expression-poll");
+    let function = Expr::List(vec![
+        Expr::Symbol("#fn".into()),
+        Expr::Symbol(function_name.clone()),
+        Expr::List(Vec::new()),
+        await_form[1].clone(),
+        Expr::List(vec![Expr::Symbol("#return".into()), expression.clone()]),
+    ]);
+    let waker_expression = crate::parse(waker)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "@async-fn waker type is empty".to_owned())?
+        .expr;
+    let invocation = Expr::List(vec![
+        Expr::At,
+        Expr::Symbol("async-fn".into()),
+        Expr::List(vec![
+            Expr::Symbol(frame.clone()),
+            Expr::Symbol(poll_result.clone()),
+            Expr::Symbol(pending.clone()),
+            Expr::Symbol(ready.clone()),
+            Expr::Symbol(poll.clone()),
+        ]),
+        waker_expression,
+        function,
+    ]);
+    let helper = generated_source(&invocation)?;
+    let task = Expr::List(vec![
+        Expr::Symbol("#call".into()),
+        Expr::Symbol(function_name),
+        Expr::List(vec![Expr::Symbol(":".into())]),
+    ]);
+    Ok(Some((
+        AwaitProtocol {
+            result_type: await_form[1].clone(),
+            child_type: Expr::Symbol(frame),
+            pending: Expr::Symbol(pending),
+            ready: Expr::Symbol(ready),
+            poll: Expr::Symbol(poll),
+        },
+        task,
+        helper,
+    )))
+}
+
 fn fresh_async_name(source: &str, next_name: &mut usize) -> String {
     let namespace = source
         .split_once("(#fn ")
@@ -625,6 +737,11 @@ fn conditional_await_with_immediate(
             {
                 branches.push((Some(protocol), task));
                 branch_helpers.push(helper);
+            } else if let Some((protocol, task, helper)) =
+                conditional_value_expression_task(branch, source, next_name, waker)?
+            {
+                branches.push((Some(protocol), task));
+                branch_helpers.push(helper);
             } else if !has_await(branch) {
                 branches.push((None, branch.clone()));
             } else {
@@ -659,6 +776,16 @@ fn conditional_await_with_immediate(
                 branches.push((Some(protocol), Expr::List(task_arm)));
             } else if let Some((protocol, task, helper)) =
                 conditional_block_continuation(&case[body_index], source, next_name, waker)?
+            {
+                let mut task_arm = vec![Expr::Symbol("#case".into()), case[1].clone()];
+                if body_index == 3 {
+                    task_arm.push(case[2].clone());
+                }
+                task_arm.push(task);
+                branches.push((Some(protocol), Expr::List(task_arm)));
+                branch_helpers.push(helper);
+            } else if let Some((protocol, task, helper)) =
+                conditional_value_expression_task(&case[body_index], source, next_name, waker)?
             {
                 let mut task_arm = vec![Expr::Symbol("#case".into()), case[1].clone()];
                 if body_index == 3 {

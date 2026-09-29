@@ -1282,6 +1282,94 @@ fn async_conditional_await_joins_with_an_immediate_value() {
 }
 
 #[test]
+fn async_conditional_branch_value_expressions_can_suspend() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting remaining)
+            (#if (#u64.== remaining 0u64)
+              (ChildPending (Waiting 1u64))
+              (ChildReady 41u64))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((choose bool)) u64
+          (#return (#if choose
+            (#u64.+.wrap
+              (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
+              1u64)
+            0u64)))))
+      (#enum Choice (Await Immediate))
+      (@async-fn (: names (MatchFrame MatchPoll MatchPending MatchReady match-poll) : waker u64 : function
+        (#fn work-match ((choice Choice)) u64
+          (#return (#match choice
+            (#case Await
+              (#u64.+.wrap
+                (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
+                1u64))
+            (#case Immediate 0u64))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let if-first Poll
+          (#call poll (: task (#call work (: choose true)) : waker (#borrow waker))))
+        (#let if-value u64
+          (#match if-first
+            (#case (Pending if-child)
+              (#match (#call poll (: task if-child : waker (#borrow waker)))
+                (#case (Ready value) value)
+                (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (Ready value) value)))
+        (#let if-immediate Poll
+          (#call poll (: task (#call work (: choose false)) : waker (#borrow waker))))
+        (#let if-immediate-value u64
+          (#match if-immediate
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#let match-first MatchPoll
+          (#call match-poll (: task (#call work-match (: choice Await)) : waker (#borrow waker))))
+        (#let match-value u64
+          (#match match-first
+            (#case (MatchPending match-child)
+              (#match (#call match-poll (: task match-child : waker (#borrow waker)))
+                (#case (MatchReady value) value)
+                (#case (MatchPending unexpected) (#block (#forget unexpected) 0u64))))
+            (#case (MatchReady value) value)))
+        (#let match-immediate MatchPoll
+          (#call match-poll (: task (#call work-match (: choice Immediate)) : waker (#borrow waker))))
+        (#let match-immediate-value u64
+          (#match match-immediate
+            (#case (MatchReady value) value)
+            (#case (MatchPending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return (#u64.+.wrap
+          (#u64.+.wrap if-value if-immediate-value)
+          (#u64.+.wrap match-value match-immediate-value))))";
+    let generated = build_and_run(source, 84);
+    assert!(generated.contains("-expression-frame"), "{generated}");
+}
+
+#[test]
+fn async_conditional_value_await_rejects_uncaptured_outer_locals() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((offset u64)) u64
+          (#return (#if true
+            (#u64.+.wrap
+              (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
+              offset)
+            0u64)))))";
+    let error = lim::parse_program(source).unwrap_err();
+    assert!(
+        error.contains("conditional branch await captures outer local 'offset'"),
+        "{error}"
+    );
+}
+
+#[test]
 fn async_conditional_choice_captures_and_releases_a_borrow_on_cancel() {
     let source = "(#enum Child ((Waiting u64)))
       (#linear Child)
