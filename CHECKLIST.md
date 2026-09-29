@@ -2376,6 +2376,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   frame shell, in-place poll signature, Ready transition, and explicit cancel
   operation. Verify native first-poll completion, deferred body execution, and
   frame consumption after Ready.
+- [x] **ASYNC-01b144: Suspend in ordinary awaited-while body statements.**
+  Route body awaits nested in calls, assignments, or other non-direct-binding
+  statements through a generated async body task instead of requiring the
+  statement itself to be a `#let` await. Preserve mutable loop captures and
+  ordering; verify the call argument remains pending without side effects and
+  the loop completes after resume.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

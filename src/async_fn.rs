@@ -4455,7 +4455,29 @@ fn lower_async_while_with_transfers(
         }
         let body = &items[2..];
         if body.iter().any(has_await) {
-            let use_body_child = body.len() > 1 && body[1..].iter().any(has_await);
+            let direct_body_await = body.first().is_some_and(|statement| {
+                let Some(binding) = form(statement, "#let").or_else(|| form(statement, "#let-mut"))
+                else {
+                    return false;
+                };
+                let Some(value) = binding.get(3) else {
+                    return false;
+                };
+                if let Some(await_form) = form(value, "#await") {
+                    let task_index = await_form.len().saturating_sub(1);
+                    matches!(await_form.len(), 6 | 7)
+                        && await_form
+                            .get(task_index)
+                            .is_some_and(|task| !has_await(task))
+                } else {
+                    conditional_await_with_immediate(value, known, source, next_name, waker)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|(_, task, _)| !has_await(&task))
+                }
+            });
+            let use_body_child =
+                (body.len() > 1 && body[1..].iter().any(has_await)) || !direct_body_await;
             let (
                 body_binding,
                 body_form,
@@ -5149,7 +5171,16 @@ fn lower_async_while_with_transfers(
         .enumerate()
         .filter_map(|(index, expression)| has_await(expression).then_some(index))
         .collect::<Vec<_>>();
-    if body.iter().map(await_count).sum::<usize>() > 2 {
+    let body_awaits_are_direct_bindings = body.iter().filter(|expr| has_await(expr)).all(|expr| {
+        let Some(binding) = form(expr, "#let").or_else(|| form(expr, "#let-mut")) else {
+            return false;
+        };
+        let Some(await_form) = binding.get(3).and_then(|value| form(value, "#await")) else {
+            return false;
+        };
+        await_form.len() == 6 && !has_await(&await_form[5])
+    });
+    if body.iter().map(await_count).sum::<usize>() > 2 || !body_awaits_are_direct_bindings {
         let (body_binding, mut body_form, body_helper, body_outputs, _) = async_while_body_child(
             body,
             known,
