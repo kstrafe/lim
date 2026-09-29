@@ -2061,6 +2061,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   each pending child independently, and commit the step result only after its
   child is Ready. Verify native Pending/resume across both stages and that the
   next condition observes the completed step assignment.
+- [x] **ASYNC-01b81: Compose awaited `#for` conditions with awaited steps.**
+  Resolve the condition before running the ordinary body, then poll the step
+  task and apply its assignment only when Ready. Re-evaluate the condition
+  after the update; explicitly diagnose the still-unsupported three-phase
+  condition/body/step case. Verify native Pending/resume and final loop state.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

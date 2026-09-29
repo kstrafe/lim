@@ -3076,8 +3076,8 @@ fn lower_async_for(
     }
     let mut step = items[3].clone();
     let mut loop_body = items[4..].to_vec();
-    if awaited_step && awaited_condition {
-        return Err("@async-fn #for cannot suspend in both its condition and step yet".into());
+    if awaited_step && awaited_condition && loop_body.iter().any(has_await) {
+        return Err("@async-fn #for cannot suspend in its condition, body, and step yet".into());
     }
     if form(initializer, "#let-else").is_some() {
         return Err("@async-fn #for await does not support #let-else initializers".into());
@@ -3189,6 +3189,19 @@ fn lower_async_for(
                 }
                 value
             };
+            let value = if awaited_condition {
+                let await_items = form(&value, "#await").ok_or_else(|| {
+                    "@async-fn awaited #for step requires a direct #await".to_owned()
+                })?;
+                Expr::List(
+                    std::iter::once(Expr::Symbol("#await".into()))
+                        .chain(std::iter::once(Expr::Symbol(target_binding.ty.clone())))
+                        .chain(await_items[1..].iter().cloned())
+                        .collect(),
+                )
+            } else {
+                value
+            };
             step = Expr::List(vec![
                 Expr::Symbol("#let".into()),
                 Expr::Symbol(result_name.clone()),
@@ -3208,17 +3221,52 @@ fn lower_async_for(
     }
 
     if awaited_condition {
-        let terminal_index = loop_body.len().saturating_sub(1);
-        if loop_body[..terminal_index]
-            .iter()
-            .any(contains_loop_control)
-        {
-            return Err("@async-fn #for loop transfers must be terminal statements".into());
-        }
-        if loop_body.last().is_some_and(contains_loop_control) {
-            rewrite_for_terminal_control(loop_body.last_mut().unwrap(), &step)?;
-        } else {
+        if awaited_step {
+            if loop_body
+                .iter()
+                .any(|expression| contains_loop_control(expression) || contains_return(expression))
+            {
+                return Err(
+                    "@async-fn #for with awaited condition and step does not support body transfers yet".into(),
+                );
+            }
+            let await_form = form(&step, "#let")
+                .and_then(|binding| binding.get(3))
+                .and_then(|value| form(value, "#await"))
+                .ok_or_else(|| "@async-fn awaited #for step requires a direct #await".to_owned())?;
+            let mut task = await_form
+                .last()
+                .expect("typed awaited #for step includes a task expression")
+                .clone();
+            if !loop_body.is_empty() {
+                let mut task_block = vec![Expr::Symbol("#block".into())];
+                task_block.append(&mut loop_body);
+                task_block.push(task);
+                task = Expr::List(task_block);
+            }
+            let Expr::List(step_binding) = &mut step else {
+                unreachable!()
+            };
+            let Expr::List(await_items) = &mut step_binding[3] else {
+                unreachable!()
+            };
+            let task_index = await_items.len() - 1;
+            await_items[task_index] = task;
             loop_body.push(step.clone());
+            loop_body.extend(post_step.clone());
+        } else {
+            let terminal_index = loop_body.len().saturating_sub(1);
+            if loop_body[..terminal_index]
+                .iter()
+                .any(contains_loop_control)
+            {
+                return Err("@async-fn #for loop transfers must be terminal statements".into());
+            }
+            if loop_body.last().is_some_and(contains_loop_control) {
+                rewrite_for_terminal_control(loop_body.last_mut().unwrap(), &step)?;
+            } else {
+                loop_body.push(step.clone());
+            }
         }
     } else {
         loop_body.extend(step_prefix);

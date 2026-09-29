@@ -2461,6 +2461,67 @@ fn async_for_condition_can_await_and_step_only_after_ready_true() {
 }
 
 #[test]
+fn async_for_condition_can_suspend_with_an_awaited_step() {
+    let source = "(#enum ConditionTask ((Waiting u64) (Resuming u64)))
+      (#linear ConditionTask)
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case (Waiting iteration) (ConditionPending (Resuming iteration)))
+          (#case (Resuming iteration)
+            (ConditionReady (#u64.< iteration 1u64))))))
+      (#enum StepTask ((StepWaiting u64 bool) (StepResuming u64 bool)))
+      (#linear StepTask)
+      (#enum StepPoll ((StepPending StepTask) (StepReady u64)))
+      (#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case (StepWaiting iteration body-ran)
+            (#block (#assert body-ran)
+              (StepPending (StepResuming iteration body-ran))))
+          (#case (StepResuming iteration body-ran)
+            (#block (#assert body-ran)
+              (StepReady (#u64.+.wrap iteration 1u64)))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#for (#set iteration 0u64)
+                (#await ConditionTask ConditionPending ConditionReady
+                  condition-poll (Waiting iteration))
+                (#set iteration
+                  (#await u64 StepTask StepPending StepReady step-poll
+                    (StepWaiting iteration body-ran)))
+            (#let body-ran bool true))
+          (#return (#if (#u64.== iteration 1u64) 42u64 0u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending condition-pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task condition-pending : waker (#borrow waker))))
+        (#let-else (Pending step-pending) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task step-pending : waker (#borrow waker))))
+        (#let-else (Pending resumed-condition) Poll third (#unreachable))
+        (#let fourth Poll (#call poll (: task resumed-condition : waker (#borrow waker))))
+        (#let result u64
+          (#match fourth
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("condition-body-task"), "{generated}");
+
+    let unsupported = source.replace(
+        "(#let body-ran bool true)",
+        "(#let body-ran bool\n              (#await bool StepTask StepPending StepReady step-poll\n                (StepWaiting iteration true)))",
+    );
+    let error = lim::parse_program(&unsupported).unwrap_err();
+    assert!(
+        error.contains("cannot suspend in its condition, body, and step"),
+        "{error}"
+    );
+}
+
+#[test]
 fn async_for_condition_awaits_only_the_selected_branch_each_iteration() {
     let source = "(#enum ChildTask (Waiting Resuming))
       (#linear ChildTask)
