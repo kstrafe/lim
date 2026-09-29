@@ -1344,6 +1344,155 @@ fn lower_async_while(
         .filter_map(|(index, expression)| has_await(expression).then_some(index))
         .collect::<Vec<_>>();
     if await_indices.len() != 1 {
+        if await_indices.len() >= 2 && await_indices[1] == await_indices[0] + 1 {
+            let first_index = await_indices[0];
+            let first_binding = binding(&body[first_index], "first loop await")?;
+            let second_binding = binding(&body[first_index + 1], "second loop await")?;
+            let first_form = form(&body[first_index], "#let")
+                .or_else(|| form(&body[first_index], "#let-mut"))
+                .ok_or_else(|| "@async-fn first loop await must be a direct binding".to_owned())?;
+            let second_form = form(&body[first_index + 1], "#let")
+                .or_else(|| form(&body[first_index + 1], "#let-mut"))
+                .ok_or_else(|| "@async-fn second loop await must be a direct binding".to_owned())?;
+            let first_await = form(&first_form[3], "#await").ok_or_else(|| {
+                "@async-fn first loop binding must be initialized directly by #await".to_owned()
+            })?;
+            let second_await = form(&second_form[3], "#await").ok_or_else(|| {
+                "@async-fn second loop binding must be initialized directly by #await".to_owned()
+            })?;
+            if first_await.len() != 6
+                || second_await.len() != 6
+                || has_await(&first_await[5])
+                || has_await(&second_await[5])
+            {
+                return Err(
+                    "@async-fn adjacent loop awaits require direct bindings and non-suspending task expressions".into(),
+                );
+            }
+            let mut second_task_names = HashSet::new();
+            collect_value_names(&second_await[5], &mut second_task_names);
+            if let Some(name) = second_task_names
+                .iter()
+                .find(|name| **name != first_binding.name && known.contains_key(*name))
+            {
+                return Err(format!(
+                    "@async-fn second loop task uses outer local '{name}'; carry it in the first child result"
+                ));
+            }
+            let prefix_bindings = body[..first_index]
+                .iter()
+                .filter(|expression| {
+                    form(expression, "#let").is_some() || form(expression, "#let-mut").is_some()
+                })
+                .map(|expression| binding(expression, "loop-await prefix"))
+                .collect::<Result<Vec<_>, _>>()?;
+            if let Some(binding) = prefix_bindings
+                .iter()
+                .find(|binding| second_task_names.contains(&binding.name))
+            {
+                return Err(format!(
+                    "@async-fn second loop task uses per-iteration local '{}'; carry it in the first child result",
+                    binding.name
+                ));
+            }
+            let mut suffix_names = HashSet::new();
+            for expression in &body[first_index + 2..] {
+                collect_value_names(expression, &mut suffix_names);
+            }
+            if suffix_names.contains(&first_binding.name) {
+                return Err(format!(
+                    "@async-fn first loop await result '{}' cannot be used after the second await",
+                    first_binding.name
+                ));
+            }
+
+            let base = fresh_async_name(source, next_name);
+            let sequence_task = format!("{base}-sequence-task");
+            let wait_first = format!("{base}-wait-first");
+            let wait_second = format!("{base}-wait-second");
+            let sequence_poll = format!("{base}-sequence-poll");
+            let sequence_result = format!("{base}-sequence-result");
+            let sequence_pending = format!("{base}-sequence-pending");
+            let sequence_ready = format!("{base}-sequence-ready");
+            let first_child_type = expression_source(&first_await[1])?;
+            let second_child_type = expression_source(&second_await[1])?;
+            let first_pending = symbol(&first_await[2], "first loop child Pending variant")?;
+            let first_ready = symbol(&first_await[3], "first loop child Ready variant")?;
+            let first_poll = symbol(&first_await[4], "first loop child poll function")?;
+            let second_pending = symbol(&second_await[2], "second loop child Pending variant")?;
+            let second_ready = symbol(&second_await[3], "second loop child Ready variant")?;
+            let second_poll = symbol(&second_await[4], "second loop child poll function")?;
+            let mut second_task = second_await[5].clone();
+            let first_result = format!("{base}-first-result");
+            replace_await_local(&mut second_task, &first_binding.name, &first_result);
+            let second_task = expression_source(&second_task)?;
+            let second_result_type = second_binding.ty.as_str();
+            let second_poll_from_first = format!(
+                "(#match (#call {second_poll} (: task {second_task} : waker waker))\n\
+                   (#case ({second_pending} pending) ({sequence_pending} ({wait_second} pending)))\n\
+                   (#case ({second_ready} value) ({sequence_ready} value)))"
+            );
+            let second_poll_again = format!(
+                "(#match (#call {second_poll} (: task child : waker waker))\n\
+                   (#case ({second_pending} pending) ({sequence_pending} ({wait_second} pending)))\n\
+                   (#case ({second_ready} value) ({sequence_ready} value)))"
+            );
+            let uses_first_result = second_task_names.contains(&first_binding.name);
+            let first_ready_continuation = if uses_first_result {
+                second_poll_from_first
+            } else {
+                format!("(#block (#forget {first_result}) {second_poll_from_first})")
+            };
+            let sequence_helper = format!(
+                "(#enum {sequence_task} (({wait_first} {first_child_type}) ({wait_second} {second_child_type})))\n\
+                 (#linear {sequence_task})\n\
+                 (#enum {sequence_result} (({sequence_pending} {sequence_task}) ({sequence_ready} {second_result_type})))\n\
+                 (#fn {sequence_poll} ((task {sequence_task}) (waker (#ref {waker}))) {sequence_result}\n\
+                   (#return (#match task\n\
+                     (#case ({wait_first} child)\n\
+                       (#match (#call {first_poll} (: task child : waker waker))\n\
+                         (#case ({first_pending} pending) ({sequence_pending} ({wait_first} pending)))\n\
+                         (#case ({first_ready} {first_result}) {first_ready_continuation})))\n\
+                     (#case ({wait_second} child) {second_poll_again}))))"
+            );
+
+            let mut rewritten = statement.clone();
+            let Expr::List(loop_items) = &mut rewritten else {
+                unreachable!()
+            };
+            let first_global_index = first_index + 2;
+            loop_items.remove(first_global_index);
+            let Expr::List(second_binding_form) = &mut loop_items[first_global_index] else {
+                unreachable!()
+            };
+            second_binding_form[3] = Expr::List(vec![
+                Expr::Symbol("#await".into()),
+                Expr::Symbol(sequence_task),
+                Expr::Symbol(sequence_pending),
+                Expr::Symbol(sequence_ready),
+                Expr::Symbol(sequence_poll),
+                Expr::List(vec![Expr::Symbol(wait_first), first_await[5].clone()]),
+            ]);
+            let Some((replacement, helper, renames)) = lower_async_while(
+                &rewritten,
+                known,
+                known_order,
+                following,
+                return_value,
+                source,
+                next_name,
+                waker,
+            )?
+            else {
+                return Ok(None);
+            };
+            let helper = [sequence_helper, helper]
+                .into_iter()
+                .filter(|helper| !helper.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Ok(Some((replacement, helper, renames)));
+        }
         return Err(
             "@async-fn loop lowering currently requires exactly one await binding per iteration"
                 .into(),

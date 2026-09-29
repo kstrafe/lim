@@ -2284,6 +2284,116 @@ fn async_while_body_binding_awaits_only_the_selected_branch() {
 }
 
 #[test]
+fn async_loop_sequences_two_awaits_in_one_iteration() {
+    let source = "(#enum SecondTask (SecondWaiting SecondResuming))
+      (#linear SecondTask)
+      (#enum SecondPoll ((SecondPending SecondTask) (SecondReady u64)))
+      (#fn second-poll ((task SecondTask) (waker (#ref u64))) SecondPoll
+        (#return (#match task
+          (#case SecondWaiting (SecondPending SecondResuming))
+          (#case SecondResuming (SecondReady 42u64)))))
+      (#enum FirstTask (FirstWaiting FirstResuming))
+      (#linear FirstTask)
+      (#enum FirstPoll ((FirstPending FirstTask) (FirstReady SecondTask)))
+      (#fn first-poll ((task FirstTask) (waker (#ref u64))) FirstPoll
+        (#return (#match task
+          (#case FirstWaiting (FirstPending FirstResuming))
+          (#case FirstResuming (FirstReady SecondWaiting)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut keep-going bool true)
+          (#while keep-going
+            (#let next-task SecondTask
+              (#await FirstTask FirstPending FirstReady first-poll FirstWaiting))
+            (#let result u64
+              (#await SecondTask SecondPending SecondReady second-poll next-task))
+            (#set keep-going false)
+            (#assert (#u64.== result 42u64)))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending first-pending) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Pending second-pending) Poll second (#unreachable))
+        (#let third Poll
+          (#call poll (: task second-pending : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("sequence-task"), "{generated}");
+    assert!(generated.contains("wait-first"), "{generated}");
+    assert!(generated.contains("wait-second"), "{generated}");
+}
+
+#[test]
+fn async_loop_sequences_three_adjacent_awaits_in_one_iteration() {
+    let source = "(#enum ThirdTask (ThirdWaiting ThirdResuming))
+      (#linear ThirdTask)
+      (#enum ThirdPoll ((ThirdPending ThirdTask) (ThirdReady u64)))
+      (#fn third-poll ((task ThirdTask) (waker (#ref u64))) ThirdPoll
+        (#return (#match task
+          (#case ThirdWaiting (ThirdPending ThirdResuming))
+          (#case ThirdResuming (ThirdReady 42u64)))))
+      (#enum SecondTask (SecondWaiting SecondResuming))
+      (#linear SecondTask)
+      (#enum SecondPoll ((SecondPending SecondTask) (SecondReady ThirdTask)))
+      (#fn second-poll ((task SecondTask) (waker (#ref u64))) SecondPoll
+        (#return (#match task
+          (#case SecondWaiting (SecondPending SecondResuming))
+          (#case SecondResuming (SecondReady ThirdWaiting)))))
+      (#enum FirstTask (FirstWaiting FirstResuming))
+      (#linear FirstTask)
+      (#enum FirstPoll ((FirstPending FirstTask) (FirstReady SecondTask)))
+      (#fn first-poll ((task FirstTask) (waker (#ref u64))) FirstPoll
+        (#return (#match task
+          (#case FirstWaiting (FirstPending FirstResuming))
+          (#case FirstResuming (FirstReady SecondWaiting)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut keep-going bool true)
+          (#while keep-going
+            (#let second-task SecondTask
+              (#await FirstTask FirstPending FirstReady first-poll FirstWaiting))
+            (#let third-task ThirdTask
+              (#await SecondTask SecondPending SecondReady second-poll second-task))
+            (#let result u64
+              (#await ThirdTask ThirdPending ThirdReady third-poll third-task))
+            (#set keep-going false)
+            (#assert (#u64.== result 42u64)))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending first-pending) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task first-pending : waker (#borrow waker))))
+        (#let-else (Pending second-pending) Poll second (#unreachable))
+        (#let third Poll
+          (#call poll (: task second-pending : waker (#borrow waker))))
+        (#let-else (Pending third-pending) Poll third (#unreachable))
+        (#let fourth Poll
+          (#call poll (: task third-pending : waker (#borrow waker))))
+        (#let result u64
+          (#match fourth
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("sequence-task"), "{generated}");
+}
+
+#[test]
 fn async_for_initializer_awaits_once_before_entering_the_loop() {
     let source = "(#enum InitTask ((Waiting u64) (Resuming u64)))
       (#linear InitTask)

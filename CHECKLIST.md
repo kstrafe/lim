@@ -1961,6 +1961,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Allow a `#let`/`#let-mut` in `#while`, `#for`, or `#for-range` bodies to
   choose between a typed await and an immediate value. Preserve branch
   selection across Pending/resume and emit one inspectable choice task.
+- [x] **ASYNC-01b64: Sequence adjacent awaits within one loop iteration.**
+  Compose consecutive typed await bindings into nested concrete sequence
+  tasks, where each Ready value may construct the next child. Preserve each
+  Pending state and execute the loop suffix only after the final child is
+  Ready.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
