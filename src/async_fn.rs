@@ -1471,11 +1471,18 @@ fn lower_awaited_let_else_return(
     if let_else.len() != 5 || !has_await(&let_else[4]) {
         return Ok(None);
     }
-    let (branch_return, branch_prefix) = if let Some(branch_return) = form(&let_else[4], "#return")
-    {
-        (branch_return, None)
+    let (branch_value, branch_prefix) = if let Some(branch_return) = form(&let_else[4], "#return") {
+        if branch_return.len() != 2 {
+            return Err("@async-fn #let-else return requires exactly one value".into());
+        }
+        (branch_return[1].clone(), None)
     } else if let Some(block) = form(&let_else[4], "#block") {
-        let Some(branch_return) = block.last().and_then(|last| form(last, "#return")) else {
+        let Some(last) = block.last() else {
+            return Ok(None);
+        };
+        let Some((branch_value, true)) =
+            async_terminal_loop_exit(last, &Expr::Symbol("lim.async.unreachable-tail".into()))
+        else {
             return Ok(None);
         };
         let prefix = &block[1..block.len() - 1];
@@ -1499,28 +1506,31 @@ fn lower_awaited_let_else_return(
         }) {
             return Ok(None);
         }
-        (branch_return, Some(prefix))
+        (branch_value, Some(prefix))
     } else {
-        return Ok(None);
+        let Some((branch_value, true)) = async_terminal_loop_exit(
+            &let_else[4],
+            &Expr::Symbol("lim.async.unreachable-tail".into()),
+        ) else {
+            return Ok(None);
+        };
+        (branch_value, None)
     };
-    if branch_return.len() != 2 {
-        return Err("@async-fn #let-else return requires exactly one value".into());
-    }
     let failure_value = if let Some(prefix) = branch_prefix {
-        if form(&branch_return[1], "#await").is_some() {
+        if form(&branch_value, "#await").is_some() {
             let mut block = vec![Expr::Symbol("#block".into())];
             block.extend(prefix.iter().cloned());
             let result_name = nested_await_name(source, next_name);
             block.push(Expr::List(vec![
                 Expr::Symbol("#let".into()),
                 Expr::Symbol(result_name.clone()),
-                first_async_await(&branch_return[1])
+                first_async_await(&branch_value)
                     .and_then(|await_form| await_form.get(1))
                     .cloned()
                     .ok_or_else(|| {
                         "@async-fn #let-else awaited return has no result type".to_owned()
                     })?,
-                branch_return[1].clone(),
+                branch_value.clone(),
             ]));
             block.push(Expr::Symbol(result_name));
             Expr::List(block)
@@ -1528,12 +1538,12 @@ fn lower_awaited_let_else_return(
             Expr::List(
                 std::iter::once(Expr::Symbol("#block".into()))
                     .chain(prefix.iter().cloned())
-                    .chain(std::iter::once(branch_return[1].clone()))
+                    .chain(std::iter::once(branch_value.clone()))
                     .collect(),
             )
         }
     } else {
-        branch_return[1].clone()
+        branch_value
     };
     let Some(await_form) = first_async_await(&failure_value) else {
         return Ok(None);

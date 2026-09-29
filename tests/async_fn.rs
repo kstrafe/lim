@@ -1391,6 +1391,47 @@ fn async_function_awaits_inside_let_else_return_expression() {
 }
 
 #[test]
+fn async_let_else_accepts_conditional_awaited_return_arms() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work ((input Maybe) (choose bool)) u64
+          (#let-else (Some payload) Maybe input
+            (#if choose
+              (#return (#await u64 ChildTask ChildPending ChildReady
+                child-poll (Waiting 13u64)))
+              (#return 17u64)))
+          (#return payload))))
+      (#fn drive ((input Maybe) (choose bool) (waker (#ref u64))) u64
+        (#let task Frame (#call work (: input input : choose choose)))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#return (#match first
+          (#case (PollReady first-value) first-value)
+          (#case (PollPending pending)
+            (#match (#call poll (: task pending : waker waker))
+              (#case (PollReady second-value) second-value)
+              (#case (PollPending unexpected)
+                (#block (#forget unexpected) 0u64)))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let awaited u64
+          (#call drive (: input None : choose true : waker (#borrow waker))))
+        (#let immediate u64
+          (#call drive (: input None : choose false : waker (#borrow waker))))
+        (#let matched u64
+          (#call drive (: input (Some 9u64) : choose true : waker (#borrow waker))))
+        (#forget waker)
+        (#return (#u64.+.wrap (#u64.+.wrap awaited immediate) matched)))";
+    build_and_run(source, 39);
+}
+
+#[test]
 fn async_function_requires_explicit_type_for_nested_let_else_await() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum Child ((Waiting u64)))

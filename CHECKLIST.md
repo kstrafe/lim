@@ -2269,6 +2269,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   early function result and lower `#break` to the ordinary function-tail path.
   Ensure branch-local setup remains scoped; verify both transfers and the
   awaited-condition false path natively.
+- [x] **ASYNC-01b120: Lower conditional awaited returns in `#let-else`.**
+  Preserve the mismatch-only branch selection when one diverging return arm
+  awaits and another returns immediately. Do not poll the child on the
+  immediate arm or successful pattern path; verify all three paths natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
