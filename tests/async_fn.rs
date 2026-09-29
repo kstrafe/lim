@@ -950,6 +950,36 @@ fn async_function_suspends_inside_mutable_assignment_rhs() {
 }
 
 #[test]
+fn async_loop_expression_can_be_suspended_as_a_nested_value() {
+    let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work () u64
+          (#let ignored ()
+            (#loop
+              (#let result u64
+                (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 41u64)))
+              (#break)))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (:)))
+        (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let-else (PollPending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let-else (PollReady result) Poll second (#unreachable))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("expression-frame"), "{generated}");
+}
+
+#[test]
 fn async_function_suspends_inside_projected_assignment_rhs() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
@@ -1467,6 +1497,49 @@ fn async_let_else_accepts_conditional_awaited_return_arms() {
         (#forget waker)
         (#return (#u64.+.wrap (#u64.+.wrap awaited immediate) matched)))";
     build_and_run(source, 39);
+}
+
+#[test]
+fn async_let_else_diverging_branch_can_return_after_multiple_awaits() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work ((input Maybe)) u64
+          (#let-else (Some matched) Maybe input
+            (#block
+              (#let first u64
+                (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 20u64)))
+              (#let second u64
+                (#await u64 ChildTask ChildPending ChildReady child-poll
+                  (Waiting (#u64.+.wrap first 7u64))))
+              (#return (#u64.+.wrap first second))))
+          (#return matched))))
+      (#fn run ((input Maybe) (waker (#ref u64))) u64
+        (#let task Frame (#call work (: input input)))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#return (#match first
+          (#case (PollReady result) result)
+          (#case (PollPending after-first)
+            (#match (#call poll (: task after-first : waker waker))
+              (#case (PollReady result) result)
+              (#case (PollPending after-second)
+                (#match (#call poll (: task after-second : waker waker))
+                  (#case (PollReady result) result)
+                  (#case (PollPending unexpected)
+                    (#block (#forget unexpected) 0u64)))))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let missing u64 (#call run (: input None : waker (#borrow waker))))
+        (#let present u64 (#call run (: input (Some 9u64) : waker (#borrow waker))))
+        (#forget waker)
+        (#return (#u64.+.wrap missing present)))";
+    build_and_run(source, 56);
 }
 
 #[test]

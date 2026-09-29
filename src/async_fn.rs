@@ -965,14 +965,28 @@ fn conditional_value_expression_task(
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
     }
     let enclosing_return_type = async_terminal_return_type(expression);
-    let function_result_type = enclosing_return_type.as_ref().unwrap_or(&await_form[1]);
+    let standalone_loop = form(expression, "#loop").is_some() && enclosing_return_type.is_none();
+    let unit_result_type = Expr::List(Vec::new());
+    let function_result_type = if standalone_loop {
+        &unit_result_type
+    } else {
+        enclosing_return_type.as_ref().unwrap_or(&await_form[1])
+    };
     let mut function = vec![
         Expr::Symbol("#fn".into()),
         Expr::Symbol(function_name.clone()),
         Expr::List(helper_parameters),
         function_result_type.clone(),
     ];
-    if let Some(block) = form(expression, "#block") {
+    if standalone_loop {
+        let mut loop_expression = expression.clone();
+        normalize_async_loop_await_types(&mut loop_expression)?;
+        function.push(loop_expression);
+        function.push(Expr::List(vec![
+            Expr::Symbol("#return".into()),
+            Expr::List(Vec::new()),
+        ]));
+    } else if let Some(block) = form(expression, "#block") {
         if block.len() < 2 {
             return Ok(None);
         }
@@ -1835,6 +1849,45 @@ fn extract_nested_awaits(
             if let Ok(local) = binding(statement, "block setup") {
                 block_known.insert(local.name.clone(), local);
             }
+        }
+    }
+    if has_await(expression) && form(expression, "#loop").is_some() {
+        if let Some((protocol, mut task, helper)) =
+            conditional_value_expression_task(expression, known, source, next_name, waker)?
+        {
+            generated_helpers.push(helper);
+            extract_nested_awaits(
+                &mut task,
+                generated,
+                generated_helpers,
+                known,
+                source,
+                next_name,
+                waker,
+            )?;
+            let task_name = nested_await_name(source, next_name);
+            generated.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(task_name.clone()),
+                protocol.child_type.clone(),
+                task,
+            ]));
+            let result_name = nested_await_name(source, next_name);
+            generated.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(result_name.clone()),
+                protocol.result_type,
+                Expr::List(vec![
+                    Expr::Symbol("#await".into()),
+                    protocol.child_type,
+                    protocol.pending,
+                    protocol.ready,
+                    protocol.poll,
+                    Expr::Symbol(task_name),
+                ]),
+            ]));
+            *expression = Expr::Symbol(result_name);
+            return Ok(());
         }
     }
     if let Some(BlockAwait {
@@ -2860,6 +2913,86 @@ fn rewrite_async_child_returns(expression: &mut Expr, return_variant: &str) -> R
         | Expr::UnquoteSplicing(expression) => {
             rewrite_async_child_returns(expression, return_variant)?;
         }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn normalize_async_loop_await_types(expression: &mut Expr) -> Result<(), String> {
+    fn find_nested_loops(expression: &mut Expr) -> Result<(), String> {
+        match expression {
+            Expr::List(items) => {
+                if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#loop") {
+                    return normalize_async_loop_await_types(expression);
+                }
+                for item in items.iter_mut().skip(1) {
+                    find_nested_loops(item)?;
+                }
+            }
+            Expr::Block(statements) | Expr::Loop(statements) => {
+                for statement in statements {
+                    if let crate::Statement::Expr(value) = statement {
+                        find_nested_loops(value)?;
+                    }
+                }
+            }
+            Expr::Labeled { expression, .. }
+            | Expr::Unquote(expression)
+            | Expr::UnquoteSplicing(expression) => find_nested_loops(expression)?,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    match expression {
+        Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#loop") {
+                for statement in items.iter_mut().skip(1) {
+                    if let Expr::List(binding) = statement {
+                        if matches!(binding.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
+                            && binding.len() == 4
+                        {
+                            let binding_type =
+                                parse_type(Some(&normalize_keywords(binding[2].clone())))?;
+                            if let Expr::List(await_items) = &mut binding[3] {
+                                if matches!(await_items.first(), Some(Expr::Symbol(head)) if head == "#await")
+                                    && await_items.len() == 7
+                                {
+                                    let await_type = parse_type(Some(&normalize_keywords(
+                                        await_items[1].clone(),
+                                    )))?;
+                                    if binding_type != await_type {
+                                        return Err(
+                                            "@async-fn nested loop await result type does not match its binding"
+                                                .into(),
+                                        );
+                                    }
+                                    await_items.remove(1);
+                                }
+                            }
+                        } else {
+                            find_nested_loops(statement)?;
+                        }
+                    } else {
+                        find_nested_loops(statement)?;
+                    }
+                }
+            } else {
+                for item in items.iter_mut().skip(1) {
+                    find_nested_loops(item)?;
+                }
+            }
+        }
+        Expr::Block(statements) => {
+            for statement in statements {
+                if let crate::Statement::Expr(value) = statement {
+                    find_nested_loops(value)?;
+                }
+            }
+        }
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => find_nested_loops(expression)?,
         _ => {}
     }
     Ok(())

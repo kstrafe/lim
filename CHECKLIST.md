@@ -2326,6 +2326,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   enclosing async function without executing its tail. Verify runtime behavior
   for both a returning body and a false condition. Mutable-capture transfer
   combined with this return shape remains a separate extension.
+- [x] **ASYNC-01b131: Suspend a unit-valued `#loop` used as a nested value.**
+  Lift the loop into an inspectable nested async child instead of rejecting it
+  during expression extraction. For direct loop-body await bindings, verify
+  that the annotated result type matches the binding before adapting the loop
+  protocol. Test Pending/resume and loop completion through the outer frame.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
