@@ -128,6 +128,36 @@ fn has_await(expr: &Expr) -> bool {
     }
 }
 
+/// Preserve short-circuit evaluation when an awaited right-hand operand is
+/// lowered into a condition-specific poll state machine.
+fn normalize_short_circuit_await(expression: &mut Expr) {
+    let Expr::List(items) = expression else {
+        return;
+    };
+    if items.len() != 3
+        || !matches!(items.first(), Some(Expr::Symbol(operator))
+            if matches!(operator.as_str(), "#bool.&&" | "bool.&&" | "#bool.||" | "bool.||"))
+        || !has_await(&items[2])
+    {
+        return;
+    }
+    let is_and = matches!(&items[0], Expr::Symbol(operator) if operator.ends_with("&&"));
+    *expression = Expr::List(vec![
+        Expr::Symbol("#if".into()),
+        items[1].clone(),
+        if is_and {
+            items[2].clone()
+        } else {
+            Expr::Symbol("true".into())
+        },
+        if is_and {
+            Expr::Symbol("false".into())
+        } else {
+            items[2].clone()
+        },
+    ]);
+}
+
 /// Treat a block that only binds an await result and yields that binding as
 /// the corresponding explicitly typed await expression. This keeps the block
 /// result's declared type available when a conditional chooses between that
@@ -961,31 +991,18 @@ fn extract_nested_awaits(
             );
         }
     }
-    if let Expr::List(items) = expression {
-        if items.len() == 3
-            && matches!(items.first(), Some(Expr::Symbol(operator))
-                if matches!(operator.as_str(), "#bool.&&" | "bool.&&" | "#bool.||" | "bool.||"))
-            && has_await(&items[2])
-        {
-            let operator = match &items[0] {
-                Expr::Symbol(operator) => operator.as_str(),
-                _ => unreachable!(),
-            };
-            let is_and = operator.ends_with("&&");
-            *expression = Expr::List(vec![
-                Expr::Symbol("#if".into()),
-                items[1].clone(),
-                if is_and {
-                    items[2].clone()
-                } else {
-                    Expr::Symbol("true".into())
-                },
-                if is_and {
-                    Expr::Symbol("false".into())
-                } else {
-                    items[2].clone()
-                },
-            ]);
+    if matches!(expression, Expr::List(_)) {
+        let was_short_circuit_await = match expression {
+            Expr::List(items) => {
+                items.len() == 3
+                    && matches!(items.first(), Some(Expr::Symbol(operator))
+                        if matches!(operator.as_str(), "#bool.&&" | "bool.&&" | "#bool.||" | "bool.||"))
+                    && has_await(&items[2])
+            }
+            _ => false,
+        };
+        normalize_short_circuit_await(expression);
+        if was_short_circuit_await {
             return extract_nested_awaits(
                 expression,
                 generated,
@@ -1890,12 +1907,13 @@ fn lower_async_while_with_transfers(
     if items.len() < 3 {
         return Err("@async-fn awaited #while requires a condition and body".into());
     }
-    let condition = &items[1];
-    if has_await(condition) {
-        let (await_form, condition_helper) = if let Some(await_form) = form(condition, "#await") {
+    let mut condition = items[1].clone();
+    normalize_short_circuit_await(&mut condition);
+    if has_await(&condition) {
+        let (await_form, condition_helper) = if let Some(await_form) = form(&condition, "#await") {
             (await_form.to_vec(), String::new())
         } else if let Some((protocol, task, helper)) =
-            conditional_await_with_immediate(condition, source, next_name, waker)?
+            conditional_await_with_immediate(&condition, source, next_name, waker)?
         {
             (
                 vec![
@@ -2731,7 +2749,7 @@ fn lower_async_while_with_transfers(
     }
 
     let mut used_names = HashSet::new();
-    collect_value_names(condition, &mut used_names);
+    collect_value_names(&condition, &mut used_names);
     collect_value_names(&await_form[5], &mut used_names);
     for expression in prefix.iter().chain(suffix) {
         collect_value_names(expression, &mut used_names);
@@ -2966,7 +2984,7 @@ fn lower_async_while_with_transfers(
         arguments.push_str(&format!(": {base}-result {base}-result : waker waker"));
         format!("({arguments})")
     };
-    let loop_condition = expression_source(condition)?;
+    let loop_condition = expression_source(&condition)?;
     let prefix_source = prefix
         .iter()
         .map(expression_source)
@@ -3667,7 +3685,9 @@ fn lower_async_for(
         return Err("@async-fn #for await requires init, condition, step, and body".into());
     }
     let initializer = &items[1];
-    let awaited_condition = has_await(&items[2]);
+    let mut condition = items[2].clone();
+    normalize_short_circuit_await(&mut condition);
+    let awaited_condition = has_await(&condition);
     let awaited_step = has_await(&items[3]);
     let awaited_initializer = has_await(initializer);
     let mut initializer_prefix = Vec::new();
@@ -3723,7 +3743,6 @@ fn lower_async_for(
     let mut transferred_reference_renames = Vec::new();
     let mut body_reference_transfers = Vec::new();
     let mut initializer_statement = initializer.clone();
-    let mut condition = items[2].clone();
     let mut condition_helpers = Vec::new();
     if awaited_condition && form(&condition, "#await").is_none() {
         let Some((protocol, task, helper)) =

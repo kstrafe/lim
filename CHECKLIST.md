@@ -2254,6 +2254,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Map an error from a later await-bearing statement to that statement's source
   span instead of underlining the first await in the function. Preserve the
   exact await token span when the lowering can identify it.
+- [x] **ASYNC-01g: Preserve short-circuiting in awaited loop conditions.**
+  Lower awaited right operands of `#bool.&&` and `#bool.||` as branch-selected
+  child tasks in `#while` and `#for` conditions. Do not poll the child when
+  short-circuiting selects the immediate boolean result; test native behavior.
 - [x] **ASYNC-02: Add non-busy waiting and safe asynchronous I/O.** Define a
   bounded ready queue and explicit wake handles (no callbacks), readiness or
   completion registration, and OS-operation ownership. Cancellation must not

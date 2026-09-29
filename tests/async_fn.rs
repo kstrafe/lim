@@ -2846,10 +2846,9 @@ fn async_for_condition_awaits_only_the_selected_branch_each_iteration() {
         (#fn work () u64
           (#let-mut should-await bool true)
           (#for ()
-                (#if should-await
+                (#bool.&& should-await
                   (#await bool ChildTask ChildPending ChildReady child-poll
-                    Waiting)
-                  false)
+                    Waiting))
                 (#set should-await false)
             (#assert true))
           (#return 42u64))))
@@ -2872,6 +2871,41 @@ fn async_for_condition_awaits_only_the_selected_branch_each_iteration() {
         generated.contains("choice"),
         "conditional await should use a concrete choice task: {generated}"
     );
+}
+
+#[test]
+fn async_loop_short_circuit_conditions_do_not_poll_unselected_awaits() {
+    let source = "(#enum ChildTask (Waiting))
+      (#linear ChildTask)
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))
+      (#linear ChildPoll)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#forget task)
+        (#assert false)
+        (#return (ChildReady true)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#while
+            (#bool.&& false
+              (#await bool ChildTask ChildPending ChildReady child-poll Waiting))
+            (#assert false))
+          (#for ()
+                (#bool.|| true
+                  (#await bool ChildTask ChildPending ChildReady child-poll Waiting))
+                ()
+            (#break))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let result Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let value u64
+          (#match result
+            (#case (Ready ready) ready)
+            (#case (Pending pending) (#block (#forget pending) 0u64))))
+        (#forget waker)
+        (#return value))";
+    build_and_run(source, 42);
 }
 
 #[test]
@@ -2965,9 +2999,8 @@ fn async_while_condition_awaits_only_the_selected_branch_each_iteration() {
         (#fn work () u64
           (#let-mut should-await bool true)
           (#while
-            (#if should-await
-              (#await bool ChildTask ChildPending ChildReady child-poll Waiting)
-              false)
+            (#bool.&& should-await
+              (#await bool ChildTask ChildPending ChildReady child-poll Waiting))
             (#set should-await false))
           (#return 42u64))))
       (#fn main () u64

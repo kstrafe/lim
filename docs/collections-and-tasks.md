@@ -345,10 +345,14 @@ assigning the result to the mutable local, whose value is retained in the frame.
 An `#if`, `#match`, or `#block` that contains no nested `#await` may
 run between stages. Awaited branches and loop bodies have explicit supported
 shapes rather than general CFG lowering: `#while` can suspend once in its body
-per iteration, or use one direct boolean `#await` as its condition. An awaited
-condition is polled before each body decision, and Ready(false) skips the body;
-it cannot be combined with another body suspension or body loop transfer yet.
-Suspending `#for` conditions and compound awaited conditions remain unsupported.
+per iteration, or use a direct boolean `#await` as its condition. `#for`
+conditions can also suspend, including alongside supported awaited initializer,
+body, and step phases. For both loop forms, a short-circuit
+`#bool.&&`/`#bool.||` condition may put an await on its right-hand side; the
+child is polled only when that branch is selected. An awaited condition is
+polled before each body decision, and Ready(false) skips the body. These loop
+forms still have shape-specific transfer restrictions; they are not yet
+lowered from a general typed CFG.
 Sequential suspension points have no fixed language-level count limit.
 For movable `@async-fn`, references into pre-suspension stack locals cannot be
 retained in the frame; the ordinary borrow checker rejects them. Pinned
