@@ -1089,6 +1089,87 @@ fn async_suspension_inside_nested_value_block_preserves_block_scope() {
 }
 
 #[test]
+fn async_value_loop_expression_can_be_suspended_in_a_call_argument() {
+    let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady value)))))
+      (#fn identity ((value u64)) u64 (#return value))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work () u64
+          (#let result u64
+            (#call identity (: value
+              (#loop
+                (#let awaited u64
+                  (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 41u64)))
+                (#break awaited)))))
+          (#return result))))
+      (#fn run ((waker (#ref u64))) u64
+        (#let task Frame (#call work ()))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#return (#match first
+          (#case (PollReady result) result)
+          (#case (PollPending pending)
+            (#match (#call poll (: task pending : waker waker))
+              (#case (PollReady result) result)
+              (#case (PollPending unexpected)
+                (#block (#forget unexpected) 0u64)))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let result u64 (#call run (: waker (#borrow waker))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 41);
+    assert!(generated.contains("loop-result-state"), "{generated}");
+}
+
+#[test]
+fn async_value_loop_break_moves_linear_payload_across_pending() {
+    let source = "(#struct Token ((value u64)))
+      (#linear Token)
+      (#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady Token)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value)
+            (ChildReady (#struct-literal Token ((value value))))))))
+      (#fn consume-token ((token Token)) u64
+        (#let value u64 (#get token value))
+        (#forget token)
+        (#return value))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work () u64
+          (#let result u64
+            (#call consume-token (: token
+              (#loop
+                (#let token Token
+                  (#await Token ChildTask ChildPending ChildReady child-poll (Waiting 41u64)))
+                (#break token)))))
+          (#return result))))
+      (#fn run ((waker (#ref u64))) u64
+        (#let task Frame (#call work ()))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#return (#match first
+          (#case (PollReady result) result)
+          (#case (PollPending pending)
+            (#match (#call poll (: task pending : waker waker))
+              (#case (PollReady result) result)
+              (#case (PollPending unexpected)
+                (#block (#forget unexpected) 0u64)))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let result u64 (#call run (: waker (#borrow waker))))
+        (#forget waker)
+        (#return result))";
+    build_and_run(source, 41);
+}
+
+#[test]
 fn async_unit_loop_expression_can_be_suspended_in_a_call_argument() {
     let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
       (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))

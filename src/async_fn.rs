@@ -896,6 +896,73 @@ fn first_async_await(expression: &Expr) -> Option<&[Expr]> {
     }
 }
 
+fn async_loop_terminal_break_binding(expression: &Expr) -> Option<(String, Expr)> {
+    fn declared_type(expression: &Expr, name: &str) -> Option<Expr> {
+        let Expr::List(items) = expression else {
+            return None;
+        };
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
+            && items.len() == 4
+            && matches!(items.get(1), Some(Expr::Symbol(binding)) if binding == name)
+        {
+            return items.get(2).cloned();
+        }
+        items
+            .iter()
+            .skip(1)
+            .find_map(|item| declared_type(item, name))
+    }
+
+    let loop_items = form(expression, "#loop")?;
+    let terminal = form(loop_items.last()?, "#break")?;
+    if terminal.len() != 2 {
+        return None;
+    }
+    let Expr::Symbol(name) = &terminal[1] else {
+        return None;
+    };
+    let ty = loop_items[1..loop_items.len() - 1]
+        .iter()
+        .find_map(|body| declared_type(body, name))?;
+    Some((name.clone(), ty))
+}
+
+fn rewrite_async_loop_terminal_break_value(
+    expression: &mut Expr,
+    break_binding: &str,
+    result_name: &str,
+    result_variant: &str,
+) -> bool {
+    let Some(items) = form(expression, "#loop") else {
+        return false;
+    };
+    let Some(terminal) = items.last().and_then(|item| form(item, "#break")) else {
+        return false;
+    };
+    if terminal.len() != 2 || terminal[1] != Expr::Symbol(break_binding.into()) {
+        return false;
+    }
+    let value = terminal[1].clone();
+    let last_index = items.len() - 1;
+    let Expr::List(loop_items) = expression else {
+        unreachable!()
+    };
+    loop_items[last_index] = Expr::List(vec![
+        Expr::Symbol("#block".into()),
+        Expr::List(vec![
+            Expr::Symbol("#forget".into()),
+            Expr::Symbol(result_name.into()),
+        ]),
+        Expr::List(vec![
+            Expr::Symbol("#set".into()),
+            Expr::Symbol(result_name.into()),
+            Expr::List(vec![Expr::Symbol(result_variant.into()), value]),
+        ]),
+        Expr::List(vec![Expr::Symbol("#break".into())]),
+    ]);
+    true
+}
+
 fn conditional_value_expression_task(
     expression: &Expr,
     known: &HashMap<String, Binding>,
@@ -965,6 +1032,11 @@ fn conditional_value_expression_task(
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
     }
     let enclosing_return_type = async_terminal_return_type(expression);
+    let value_loop = if enclosing_return_type.is_none() {
+        async_loop_terminal_break_binding(expression)
+    } else {
+        None
+    };
     let block_ends_in_loop = form(expression, "#block")
         .and_then(|block| block.last())
         .is_some_and(|tail| {
@@ -982,7 +1054,9 @@ fn conditional_value_expression_task(
         || block_ends_in_loop)
         && enclosing_return_type.is_none();
     let unit_result_type = Expr::List(Vec::new());
-    let function_result_type = if standalone_loop {
+    let function_result_type = if let Some((_, result_type)) = &value_loop {
+        result_type
+    } else if standalone_loop {
         &unit_result_type
     } else {
         enclosing_return_type.as_ref().unwrap_or(&await_form[1])
@@ -993,7 +1067,68 @@ fn conditional_value_expression_task(
         Expr::List(helper_parameters),
         function_result_type.clone(),
     ];
-    if standalone_loop {
+    let mut loop_result_declaration = None;
+    if let Some((break_value, result_type)) = &value_loop {
+        let state_type = format!("{base}-loop-result-state");
+        let empty_variant = format!("{base}-loop-result-empty");
+        let filled_variant = format!("{base}-loop-result-filled");
+        let state_name = format!("{base}-loop-result");
+        let result_name = format!("{base}-loop-result-value");
+        loop_result_declaration = Some(Expr::List(vec![
+            Expr::Symbol("#enum".into()),
+            Expr::Symbol(state_type.clone()),
+            Expr::List(vec![
+                Expr::List(vec![Expr::Symbol(empty_variant.clone())]),
+                Expr::List(vec![
+                    Expr::Symbol(filled_variant.clone()),
+                    result_type.clone(),
+                ]),
+            ]),
+        ]));
+        function.push(Expr::List(vec![
+            Expr::Symbol("#let-mut".into()),
+            Expr::Symbol(state_name.clone()),
+            Expr::Symbol(state_type),
+            Expr::Symbol(empty_variant.clone()),
+        ]));
+        let mut loop_expression = expression.clone();
+        if !rewrite_async_loop_terminal_break_value(
+            &mut loop_expression,
+            break_value,
+            &state_name,
+            &filled_variant,
+        ) {
+            return Ok(None);
+        }
+        normalize_async_loop_await_types(&mut loop_expression)?;
+        function.push(loop_expression);
+        function.push(Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol(result_name.clone()),
+            result_type.clone(),
+            Expr::List(vec![
+                Expr::Symbol("#match".into()),
+                Expr::Symbol(state_name),
+                Expr::List(vec![
+                    Expr::Symbol("#case".into()),
+                    Expr::Symbol(empty_variant),
+                    Expr::List(vec![Expr::Symbol("#unreachable".into())]),
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("#case".into()),
+                    Expr::List(vec![
+                        Expr::Symbol(filled_variant),
+                        Expr::Symbol(result_name.clone()),
+                    ]),
+                    Expr::Symbol(result_name.clone()),
+                ]),
+            ]),
+        ]));
+        function.push(Expr::List(vec![
+            Expr::Symbol("#return".into()),
+            Expr::Symbol(result_name),
+        ]));
+    } else if standalone_loop {
         let mut loop_expression = expression.clone();
         normalize_async_loop_await_types(&mut loop_expression)?;
         if let Some(block) = form(&loop_expression, "#block") {
@@ -1063,7 +1198,12 @@ fn conditional_value_expression_task(
         waker_expression,
         function,
     ]);
-    let helper = generated_source(&invocation)?;
+    let mut helper = String::new();
+    if let Some(declaration) = loop_result_declaration {
+        helper.push_str(&expression_source(&declaration)?);
+        helper.push('\n');
+    }
+    helper.push_str(&generated_source(&invocation)?);
     let task = Expr::List(vec![
         Expr::Symbol("#call".into()),
         Expr::Symbol(function_name),

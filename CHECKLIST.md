@@ -2363,6 +2363,9 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-01b140: Suspend unreachable `#let-else` failure paths.** Permit
   explicit awaits before a terminal `#unreachable` in the diverging arm while
   preserving success-path selection and the enclosing function return type.
+- [x] **ASYNC-01b141: Preserve values from awaited `#loop` breaks.** Carry a
+  typed local returned by a terminal `#break` through Pending/resume. Store it
+  in an explicit generated state enum and verify both Copy and linear payloads.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
