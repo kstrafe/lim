@@ -3809,6 +3809,48 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
     );
     let generated = build_and_run(&return_source, 42);
     assert!(generated.contains("iteration-function"), "{generated}");
+
+    let linear_prefix = prefix
+        .replace(
+            "(#enum ConditionTask",
+            "(#struct Payload ((value u64)))\n      (#linear Payload)\n      (#enum ConditionTask",
+        )
+        .replace("(#fn work () u64", "(#fn work () Payload")
+        .replace(
+            "(#return 42u64)",
+            "(#return (#struct-literal Payload ((value 42u64))))",
+        )
+        .replace(
+            "(#return iteration))))",
+            "(#return (#struct-literal Payload ((value iteration)))))))",
+        );
+    let mut linear_poll_chain = "(#block (#forget pending-8) 0u64)".to_owned();
+    for index in (0..8).rev() {
+        let task = if index == 0 {
+            "(#call work (:))".to_owned()
+        } else {
+            format!("pending-{index}")
+        };
+        linear_poll_chain = format!(
+            "(#match (#call poll (: task {task} : waker (#borrow waker)))
+              (#case (Pending pending-{next}) {linear_poll_chain})
+              (#case (Ready ready-{index})
+                (#block
+                  (#let result u64 (#get ready-{index} value))
+                  (#forget ready-{index})
+                  result)))",
+            next = index + 1,
+        );
+    }
+    let linear_return_source = format!(
+        "{linear_prefix}(#fn main () u64
+          (#let waker u64 0u64)
+          (#let result u64 {linear_poll_chain})
+          (#forget waker)
+          (#return result))"
+    );
+    let generated = build_and_run(&linear_return_source, 42);
+    assert!(generated.contains("#linear lim.async.work"), "{generated}");
 }
 
 #[test]

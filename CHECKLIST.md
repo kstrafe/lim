@@ -2287,6 +2287,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   their value, while `#continue` branches re-evaluate the condition and false
   completion uses the function tail. Verify each route through native
   Pending/resume.
+- [x] **ASYNC-01b124: Return linear values from awaited `#for` bodies.** Keep
+  the return-status enum linear when its payload is non-Copy. Transfer its
+  ownership into the child iteration frame while Pending, and return it as an
+  explicit output on Ready or condition-stop paths without duplicating the
+  parent capture. Verify a native early return, explicit payload consumption,
+  and that the ordinary post-loop continuation is skipped.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

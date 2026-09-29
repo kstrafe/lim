@@ -63,6 +63,7 @@ struct LoopReferenceTransfer {
     ty: String,
     result_index: usize,
     resumed_name: String,
+    owned: bool,
 }
 
 fn async_task_capture_is_copy(ty: &Type) -> bool {
@@ -3290,6 +3291,7 @@ fn lower_async_while(
         known,
         known_order,
         &[],
+        &[],
         following,
         return_value,
         source,
@@ -3588,6 +3590,7 @@ fn rewrite_async_for_body_returns(
     expression: &Expr,
     status: &str,
     returned_variant: &str,
+    linear_status: bool,
 ) -> Option<Expr> {
     if let Some(return_form) = form(expression, "#return") {
         if return_form.len() != 2 || has_await(&return_form[1]) {
@@ -3598,6 +3601,7 @@ fn rewrite_async_for_body_returns(
             Expr::Symbol(status.into()),
             Expr::Symbol(returned_variant.into()),
             return_form[1].clone(),
+            Expr::Symbol(if linear_status { "true" } else { "false" }.into()),
         ]));
     }
     if let Some(block) = form(expression, "#block") {
@@ -3606,7 +3610,7 @@ fn rewrite_async_for_body_returns(
         }
         let mut lowered = block.to_vec();
         *lowered.last_mut()? =
-            rewrite_async_for_body_returns(block.last()?, status, returned_variant)?;
+            rewrite_async_for_body_returns(block.last()?, status, returned_variant, linear_status)?;
         return Some(Expr::List(lowered));
     }
     if let Some(conditional) = form(expression, "#if") {
@@ -3616,8 +3620,12 @@ fn rewrite_async_for_body_returns(
         let mut lowered = conditional.to_vec();
         for index in [2, 3] {
             if contains_return(&conditional[index]) {
-                lowered[index] =
-                    rewrite_async_for_body_returns(&conditional[index], status, returned_variant)?;
+                lowered[index] = rewrite_async_for_body_returns(
+                    &conditional[index],
+                    status,
+                    returned_variant,
+                    linear_status,
+                )?;
             }
         }
         return Some(Expr::List(lowered));
@@ -3639,8 +3647,12 @@ fn rewrite_async_for_body_returns(
             }
             if contains_return(&case[body_index]) {
                 let mut lowered_case = case.to_vec();
-                lowered_case[body_index] =
-                    rewrite_async_for_body_returns(&case[body_index], status, returned_variant)?;
+                lowered_case[body_index] = rewrite_async_for_body_returns(
+                    &case[body_index],
+                    status,
+                    returned_variant,
+                    linear_status,
+                )?;
                 lowered[arm_index] = Expr::List(lowered_case);
             }
         }
@@ -3654,6 +3666,7 @@ fn lower_async_while_with_transfers(
     known: &HashMap<String, Binding>,
     known_order: &[String],
     transfers: &[LoopReferenceTransfer],
+    owned_captures: &[String],
     following: &[Expr],
     return_value: &Expr,
     source: &str,
@@ -3950,7 +3963,9 @@ fn lower_async_while_with_transfers(
                     .first()
                     .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
                 let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
-                if !async_task_capture_is_copy(&ty) && !async_task_capture_is_mutable_reference(&ty)
+                if !async_task_capture_is_copy(&ty)
+                    && !async_task_capture_is_mutable_reference(&ty)
+                    && !owned_captures.contains(&capture.name)
                 {
                     return Err(format!(
                         "@async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
@@ -3995,7 +4010,9 @@ fn lower_async_while_with_transfers(
                     .first()
                     .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
                 let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
-                if !async_task_capture_is_mutable_reference(&ty) {
+                if !async_task_capture_is_mutable_reference(&ty)
+                    && !owned_captures.contains(&capture.name)
+                {
                     body_captures.push(capture.clone());
                 }
             }
@@ -4557,6 +4574,7 @@ fn lower_async_while_with_transfers(
             &child_known,
             &child_order,
             transfers,
+            &[],
             following,
             return_value,
             source,
@@ -4832,6 +4850,7 @@ fn lower_async_while_with_transfers(
                 known,
                 known_order,
                 transfers,
+                &[],
                 following,
                 return_value,
                 source,
@@ -4967,9 +4986,15 @@ fn lower_async_while_with_transfers(
             .first()
             .ok_or_else(|| "@async-fn reference transfer type is empty".to_owned())?;
         let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
-        if !async_task_capture_is_mutable_reference(&ty) {
+        if !transfer.owned && !async_task_capture_is_mutable_reference(&ty) {
             return Err(format!(
                 "@async-fn transfer '{}' is not a mutable reference",
+                transfer.name
+            ));
+        }
+        if transfer.owned && async_task_capture_is_copy(&ty) {
+            return Err(format!(
+                "@async-fn owned transfer '{}' must have a linear type",
                 transfer.name
             ));
         }
@@ -5487,6 +5512,7 @@ fn lower_async_for_range(
         &loop_known,
         &loop_order,
         &[],
+        &[],
         following,
         return_value,
         source,
@@ -5507,6 +5533,7 @@ fn async_for_body_step_task(
     body: &[Expr],
     return_signal: bool,
     generated_copy_types: &[String],
+    owned_captures: &[String],
     step: &Expr,
     post_step: &[Expr],
     target: &Binding,
@@ -5733,6 +5760,7 @@ fn async_for_body_step_task(
         if !with_additional_named_copy_types(generated_copy_types, || {
             async_task_capture_is_copy(&ty)
         }) && !async_task_capture_is_mutable_reference(&ty)
+            && !owned_captures.contains(&capture.name)
         {
             return Err(format!(
                 "@async-fn three-phase #for captures non-Copy local '{}'; carry it in a concrete child-task result",
@@ -6054,6 +6082,7 @@ fn lower_async_for(
     let mut return_status_initialization = None;
     let mut return_status_completion = None;
     let mut return_status_copy_types = Vec::new();
+    let mut return_status_owned_captures = Vec::new();
     let mut consumed_following = 0;
     if awaited_condition && form(&condition, "#await").is_none() {
         let Some((protocol, task, helper)) =
@@ -6235,15 +6264,14 @@ fn lower_async_for(
                     }
                     let return_type_ast =
                         parse_type(Some(&normalize_keywords(return_type.clone())))?;
-                    if !async_task_capture_is_copy(&return_type_ast) {
-                        return Err(
-                        "@async-fn three-phase #for body returns currently require a Copy return type"
-                            .into(),
-                    );
-                    }
+                    let return_type_is_copy = async_task_capture_is_copy(&return_type_ast);
                     let status_type = fresh_async_name(source, next_name);
-                    return_status_copy_types.push(status_type.clone());
                     let status_name = fresh_async_name(source, next_name);
+                    if return_type_is_copy {
+                        return_status_copy_types.push(status_type.clone());
+                    } else {
+                        return_status_owned_captures.push(status_name.clone());
+                    }
                     let tail_variant = format!("{status_type}-tail");
                     let returned_variant = format!("{status_type}-returned");
                     let return_type_source = expression_source(return_type)?;
@@ -6254,6 +6282,7 @@ fn lower_async_for(
                     terminal,
                     &status_name,
                     &returned_variant,
+                    !return_type_is_copy,
                 )
                 .ok_or_else(|| {
                     "@async-fn three-phase #for requires returns in terminal #block, #if, or #match branches"
@@ -6269,8 +6298,11 @@ fn lower_async_for(
                     );
                     loop_order.push(status_name.clone());
                     step_helpers.push(format!(
-                    "(#enum {status_type} (({tail_variant}) ({returned_variant} {return_type_source})))"
-                ));
+                        "(#enum {status_type} (({tail_variant}) ({returned_variant} {return_type_source})))"
+                    ));
+                    if !return_type_is_copy {
+                        step_helpers.push(format!("(#linear {status_type})"));
+                    }
                     return_status_initialization = Some(Expr::List(vec![
                         Expr::Symbol("#let-mut".into()),
                         Expr::Symbol(status_name.clone()),
@@ -6340,6 +6372,7 @@ fn lower_async_for(
                     &loop_body,
                     return_signal,
                     &return_status_copy_types,
+                    &return_status_owned_captures,
                     &step,
                     &post_step,
                     target_binding,
@@ -6381,6 +6414,15 @@ fn lower_async_for(
                             ty: binding.ty.clone(),
                             result_index,
                             resumed_name: fresh_async_name(source, next_name),
+                            owned: false,
+                        });
+                    } else if return_status_owned_captures.contains(&binding.name) {
+                        body_reference_transfers.push(LoopReferenceTransfer {
+                            name: binding.name.clone(),
+                            ty: binding.ty.clone(),
+                            result_index,
+                            resumed_name: fresh_async_name(source, next_name),
+                            owned: true,
                         });
                     } else {
                         let compact_index = result_index
@@ -6526,6 +6568,7 @@ fn lower_async_for(
                 &loop_known,
                 &loop_order,
                 &body_reference_transfers,
+                &return_status_owned_captures,
                 lowered_loop_following,
                 &loop_return_value,
                 source,
@@ -6942,11 +6985,17 @@ fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bo
 /// the end of the body while break sets a flag that suppresses the step.
 fn rewrite_async_for_return_marker(expression: &mut Expr, stopped: &str) -> Result<bool, String> {
     if let Some(items) = form(expression, "#async-for-return") {
-        if items.len() != 4 {
+        if items.len() != 5 {
             return Err("@async-fn malformed internal for-return transfer".into());
         }
-        *expression = Expr::List(vec![
-            Expr::Symbol("#block".into()),
+        let mut replacement = vec![Expr::Symbol("#block".into())];
+        if matches!(items[4], Expr::Symbol(ref value) if value == "true") {
+            replacement.push(Expr::List(vec![
+                Expr::Symbol("#forget".into()),
+                items[1].clone(),
+            ]));
+        }
+        replacement.extend([
             Expr::List(vec![
                 Expr::Symbol("#set".into()),
                 items[1].clone(),
@@ -6959,6 +7008,7 @@ fn rewrite_async_for_return_marker(expression: &mut Expr, stopped: &str) -> Resu
             ]),
             Expr::List(Vec::new()),
         ]);
+        *expression = Expr::List(replacement);
         return Ok(true);
     }
     let Expr::List(items) = expression else {
@@ -7257,6 +7307,7 @@ fn lower_async_loop_with_transfers(
         &loop_known,
         &loop_order,
         transfers,
+        &[],
         following,
         return_value,
         source,
