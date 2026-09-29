@@ -2569,15 +2569,21 @@ fn extract_statement_awaits(
         .or_else(|| form(statement, "let-mut"))
     {
         if let Some(await_form) = form(&items[3], "#await") {
-            if await_form.len() == 6 && has_await(&await_form[5]) {
+            let task_index = match await_form.len() {
+                6 => Some(5),
+                7 => Some(6),
+                _ => None,
+            };
+            if task_index.is_some_and(|index| has_await(&await_form[index])) {
                 let Expr::List(statement_items) = statement else {
                     unreachable!()
                 };
                 let Expr::List(await_items) = &mut statement_items[3] else {
                     unreachable!()
                 };
+                let task_index = task_index.expect("await task index was checked");
                 extract_nested_awaits(
-                    &mut await_items[5],
+                    &mut await_items[task_index],
                     generated,
                     generated_helpers,
                     known,
@@ -9183,12 +9189,24 @@ fn generated_source_with_capture_selection(
         rewrite_async_let_else_returns(statement, &ready)?;
     }
     if let Some(await_expression) = &return_await {
-        statements.push(Expr::List(vec![
+        let mut return_statement = Expr::List(vec![
             Expr::Symbol("#let".into()),
             Expr::Symbol("lim.async.return-value".into()),
             function[3].clone(),
             Expr::List(await_expression.clone()),
-        ]));
+        ]);
+        let mut generated = Vec::new();
+        extract_statement_awaits(
+            &mut return_statement,
+            &mut generated,
+            &mut generated_helpers,
+            &lowering_known,
+            &source,
+            &mut next_nested_await,
+            &waker_source,
+        )?;
+        statements.extend(generated);
+        statements.push(return_statement);
     } else {
         let mut generated = Vec::new();
         extract_nested_awaits(

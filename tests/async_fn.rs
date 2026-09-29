@@ -942,6 +942,51 @@ fn async_function_extracts_typed_awaits_from_value_expressions() {
 }
 
 #[test]
+fn async_function_extracts_typed_await_from_another_await_task() {
+    let source = "(#enum ChildTask ((Waiting u64)))
+      (#linear ChildTask)
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let result u64
+            (#await u64 ChildTask ChildPending ChildReady child-poll
+              (Waiting
+                (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 42u64)))))
+          (#return result))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let outcome Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let result u64
+          (#match outcome
+            (#case (Ready value) value)
+            (#case (Pending task) (#block (#forget task) (#unreachable)))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("nested-await-0"), "{generated}");
+
+    let inferred_source = source.replacen(
+        "#await u64 ChildTask ChildPending ChildReady child-poll\n              (Waiting",
+        "#await ChildTask ChildPending ChildReady child-poll\n              (Waiting",
+        1,
+    );
+    assert_ne!(inferred_source, source);
+    let generated = build_and_run(&inferred_source, 42);
+    assert!(generated.contains("nested-await-0"), "{generated}");
+
+    let return_source = source
+        .replace("(#let result u64\n            ", "(#return ")
+        .replace("          (#return result)", "");
+    assert_ne!(return_source, source);
+    let generated = build_and_run(&return_source, 42);
+    assert!(generated.contains("nested-await-0"), "{generated}");
+}
+
+#[test]
 fn async_function_suspends_in_a_value_block_with_conditional_await() {
     let source = "(#enum StepTask ((Waiting u64) (Resuming u64)))
       (#enum StepPoll ((StepPending StepTask) (StepReady u64)))

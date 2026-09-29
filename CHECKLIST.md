@@ -2465,6 +2465,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Preserve an awaited post-loop binding in the normal-exit tail state when a
   conditional body branch may return. Verify the false-condition path resumes
   the tail task while the returning path completes without polling it.
+- [x] **ASYNC-01b163: Extract awaits from another await's task expression.**
+  Lower nested task-construction awaits left-to-right for both explicitly typed
+  and inferred outer awaits, including a direct awaited return. Verify generated
+  stages and execute the resulting task natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
