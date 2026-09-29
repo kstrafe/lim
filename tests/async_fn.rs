@@ -2684,6 +2684,59 @@ fn async_suspending_while_body_can_return_after_setup() {
 }
 
 #[test]
+fn async_suspending_while_body_can_return_after_multiple_awaits() {
+    let source = "(#enum ConditionTask ((ConditionWaiting bool) (ConditionResuming bool)))
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case (ConditionWaiting decision)
+            (ConditionPending (ConditionResuming decision)))
+          (#case (ConditionResuming decision) (ConditionReady decision)))))
+      (#enum BodyTask ((BodyWaiting u64) (BodyResuming u64)))
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
+          (#case (BodyResuming value) (BodyReady value)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work ((decision bool)) u64
+          (#while (#await ConditionTask ConditionPending ConditionReady
+                    condition-poll (ConditionWaiting decision))
+            (#let setup u64 13u64)
+            (#let first u64
+              (#await u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting setup)))
+            (#let second u64
+              (#await u64 BodyTask BodyPending BodyReady body-poll
+                (BodyWaiting (#u64.+.wrap first 1u64))))
+            (#return (#u64.+.wrap first second)))
+          (#return 5u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let true-task Frame (#call work (: decision true)))
+        (#let true-first Poll (#call poll (: task true-task : waker (#borrow waker))))
+        (#let-else (PollPending true-after-condition) Poll true-first (#unreachable))
+        (#let true-second Poll
+          (#call poll (: task true-after-condition : waker (#borrow waker))))
+        (#let-else (PollPending true-after-first) Poll true-second (#unreachable))
+        (#let true-third Poll
+          (#call poll (: task true-after-first : waker (#borrow waker))))
+        (#let-else (PollPending true-after-second) Poll true-third (#unreachable))
+        (#let true-fourth Poll
+          (#call poll (: task true-after-second : waker (#borrow waker))))
+        (#let-else (PollReady true-result) Poll true-fourth (#unreachable))
+        (#let false-task Frame (#call work (: decision false)))
+        (#let false-first Poll (#call poll (: task false-task : waker (#borrow waker))))
+        (#let-else (PollPending false-after-condition) Poll false-first (#unreachable))
+        (#let false-second Poll
+          (#call poll (: task false-after-condition : waker (#borrow waker))))
+        (#let-else (PollReady false-result) Poll false-second (#unreachable))
+        (#forget waker)
+        (#return (#u64.+.wrap true-result false-result)))";
+    let generated = build_and_run(source, 32);
+    assert!(generated.contains("branch-frame-await-1"), "{generated}");
+}
+
+#[test]
 fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum ChildTask ((Waiting u64)))

@@ -2246,6 +2246,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   its scope and values inside the Ready(true) branch while lowering the awaited
   return as a child continuation. Verify the setup value reaches the child,
   both condition outcomes, and Pending/resume through native execution.
+- [x] **ASYNC-01b115: Return a loop-body value after sequential awaits.**
+  Preserve locals from earlier awaited bindings while a later child is pending
+  inside a terminal awaited `#while` body. Ensure the body continues in source
+  order and only runs after Ready(true); verify both condition outcomes and
+  Pending/resume at each child natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
