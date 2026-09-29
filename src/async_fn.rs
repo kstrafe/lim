@@ -4442,6 +4442,20 @@ fn lower_async_while_with_transfers(
                 ],
                 helper,
             )
+        } else if let Some((protocol, task, helper)) =
+            conditional_value_expression_task(&condition, known, source, next_name, waker)?
+        {
+            (
+                vec![
+                    Expr::Symbol("#await".into()),
+                    protocol.child_type,
+                    protocol.pending,
+                    protocol.ready,
+                    protocol.poll,
+                    task,
+                ],
+                helper,
+            )
         } else {
             return Err(
                 "@async-fn awaited #while condition requires a direct #await or conditional #if with a direct #await branch".into(),

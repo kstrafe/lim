@@ -3096,6 +3096,41 @@ fn async_function_resumes_a_child_await_in_a_while_condition() {
 }
 
 #[test]
+fn async_while_condition_sequences_short_circuit_awaits() {
+    let source = "(#enum BoolTask ((Waiting bool) (Resuming bool)))
+      (#linear BoolTask)
+      (#enum BoolPoll ((BoolPending BoolTask) (BoolReady bool)))
+      (#fn bool-poll ((task BoolTask) (waker (#ref u64))) BoolPoll
+        (#return (#match task
+          (#case (Waiting value) (BoolPending (Resuming value)))
+          (#case (Resuming value) (BoolReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iterations u64 0u64)
+          (#while (#bool.&&
+            (#await bool BoolTask BoolPending BoolReady bool-poll (Waiting true))
+            (#await bool BoolTask BoolPending BoolReady bool-poll (Waiting true)))
+            (#set iterations (#u64.+.wrap iterations 1u64))
+            (#break))
+          (#return iterations))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending after-first) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task after-first : waker (#borrow waker))))
+        (#let-else (Pending after-second) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task after-second : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 1);
+    assert!(generated.contains("choice-"), "{generated}");
+}
+
+#[test]
 fn awaited_while_condition_preserves_terminal_break_and_continue() {
     let source = "(#enum ConditionTask ((Waiting u64)))
       (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))

@@ -2387,6 +2387,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   when its body delegates a non-direct await statement to a generated body
   task. Test Pending/resume natively and ensure the call side effect occurs
   only after the awaited value is Ready.
+- [x] **ASYNC-01b146: Sequence short-circuit awaits in while conditions.**
+  Lower composed conditions containing multiple awaits through the existing
+  value-expression task protocol. Keep boolean short-circuit selection intact
+  across Pending/resume, and verify the generated choice helper plus native
+  execution through multiple polls.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
