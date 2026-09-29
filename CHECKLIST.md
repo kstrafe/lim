@@ -2022,6 +2022,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   before constructing the child task; preserve binding-renaming and liveness
   for later continuation code. Reject prefix control transfers and suspension.
   Verify a mutable prefix side effect remains single-execution across Pending.
+- [x] **ASYNC-01b74: Normalize mutable await-result blocks in conditional arms.**
+  Treat a `#block` that binds a direct await with `#let-mut` and yields that
+  binding as the same result expression as an immutable binding, retaining
+  branch selection and task-construction order. Verify both `#if` and `#match`
+  arm selection, including that an unselected arm is never polled.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

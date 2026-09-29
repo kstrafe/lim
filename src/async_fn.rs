@@ -124,7 +124,8 @@ fn block_await_result(expression: &Expr) -> Option<Expr> {
     if block[1..await_binding_index].iter().any(has_await) {
         return None;
     }
-    let binding = form(&block[await_binding_index], "#let")?;
+    let binding = form(&block[await_binding_index], "#let")
+        .or_else(|| form(&block[await_binding_index], "#let-mut"))?;
     if binding.len() != 4 {
         return None;
     }

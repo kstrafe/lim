@@ -1207,7 +1207,10 @@ fn async_conditional_await_joins_with_an_immediate_value() {
         (#fn work ((choose bool)) u64
           (#let result u64
             (#if choose
-              (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
+              (#block
+                (#let-mut awaited-value u64
+                  (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
+                awaited-value)
               41u64))
           (#return result))))
       (#enum Choice (Await Immediate))
@@ -1216,7 +1219,10 @@ fn async_conditional_await_joins_with_an_immediate_value() {
           (#let result u64
             (#match choice
               (#case Await
-                (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
+                (#block
+                  (#let-mut awaited-value u64
+                    (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
+                  awaited-value))
               (#case Immediate 41u64)))
           (#return result))))
       (#fn main () u64
