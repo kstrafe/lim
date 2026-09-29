@@ -5135,6 +5135,25 @@ fn named_arguments(bindings: &[Binding]) -> String {
 }
 
 pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
+    generated_source_with_capture_selection(invocation, CaptureSelection::Syntax)
+}
+
+pub(crate) fn generated_source_with_captures(
+    invocation: &Expr,
+    captures: &HashMap<usize, HashSet<String>>,
+) -> Result<String, String> {
+    generated_source_with_capture_selection(invocation, CaptureSelection::Typed(captures))
+}
+
+enum CaptureSelection<'a> {
+    Syntax,
+    Typed(&'a HashMap<usize, HashSet<String>>),
+}
+
+fn generated_source_with_capture_selection(
+    invocation: &Expr,
+    capture_selection: CaptureSelection<'_>,
+) -> Result<String, String> {
     let invocation = list(invocation, "invocation")?;
     let pinned =
         matches!(&invocation.get(1), Some(Expr::Symbol(name)) if name == "async-fn-pinned");
@@ -5557,7 +5576,7 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
             "@async-fn requires at least one top-level (#let name Type (#await ...))".into(),
         );
     }
-    for stage in &mut stages {
+    for (stage_index, stage) in stages.iter_mut().enumerate() {
         let mut live = HashSet::new();
         for statement in &statements[stage.source_index + 1..] {
             collect_value_names(statement, &mut live);
@@ -5568,7 +5587,19 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         stage.captures = stage
             .available
             .iter()
-            .filter(|name| live.contains(name.as_str()))
+            .filter(|name| match &capture_selection {
+                CaptureSelection::Syntax => live.contains(name.as_str()),
+                CaptureSelection::Typed(captures) => {
+                    captures
+                        .get(&stage_index)
+                        .is_some_and(|live| live.contains(name.as_str()))
+                        // A mutated binding still needs a local slot even if
+                        // its incoming value is dead before the first read,
+                        // but only when source liveness says it crosses here.
+                        || (live.contains(name.as_str())
+                            && known.get(*name).is_some_and(|binding| binding.mutable))
+                }
+            })
             .filter_map(|name| known.get(name).cloned())
             .collect();
     }

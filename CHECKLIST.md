@@ -2258,6 +2258,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Lower awaited right operands of `#bool.&&` and `#bool.||` as branch-selected
   child tasks in `#while` and `#for` conditions. Do not poll the child when
   short-circuiting selects the immediate boolean result; test native behavior.
+- [x] **ASYNC-01h: Derive sequential async frame captures from typed CFG liveness.**
+  Build a typed, ownership-independent probe of generated resume helpers, use
+  stable binding IDs to select values live after each suspension, then regenerate
+  the final frame. Keep mutable slots needed for post-resume writes and leave
+  nested helper/loop lowering to the full CFG migration.
 - [x] **ASYNC-02: Add non-busy waiting and safe asynchronous I/O.** Define a
   bounded ready queue and explicit wake handles (no callbacks), readiness or
   completion registration, and OS-operation ownership. Cancellation must not

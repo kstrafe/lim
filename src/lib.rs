@@ -2169,12 +2169,209 @@ mod link_location_tests {
     }
 }
 
+type AsyncCapturePlans = HashMap<(u32, usize, usize), HashMap<usize, HashSet<String>>>;
+
+fn async_generated_source(
+    invocation: &Expr,
+    span: Span,
+    capture_plans: Option<&AsyncCapturePlans>,
+) -> Result<String, String> {
+    let key = (span.source_id, span.start, span.end);
+    match capture_plans {
+        None => async_fn::generated_source(invocation),
+        Some(plans) => match plans.get(&key) {
+            None => async_fn::generated_source(invocation),
+            Some(captures) => {
+                let typed = async_fn::generated_source_with_captures(invocation, captures)?;
+                Ok(typed)
+            }
+        },
+    }
+}
+
+struct AsyncCaptureInvocation {
+    key: (u32, usize, usize),
+    poll_name: String,
+    pinned: bool,
+}
+
+fn async_capture_invocations(program: &Program) -> Vec<AsyncCaptureInvocation> {
+    let mut invocations = Vec::new();
+    for span in program.generated_source_invocations.values() {
+        let Some(file) = program.source_files.get(span.source_id as usize) else {
+            continue;
+        };
+        let Some(text) = file.source.get(span.start..span.end) else {
+            continue;
+        };
+        let Ok(mut parsed) = parse(text) else {
+            continue;
+        };
+        if parsed.len() != 1 {
+            continue;
+        }
+        let expression = parsed.remove(0).expr;
+        let Ok(normalized) = normalize_builtin_generator_invocation(&expression) else {
+            continue;
+        };
+        let Expr::List(items) = &normalized else {
+            continue;
+        };
+        let Some(Expr::Symbol(kind)) = items.get(1) else {
+            continue;
+        };
+        let pinned = kind == "async-fn-pinned";
+        if kind != "async-fn" && !pinned {
+            continue;
+        }
+        let Some(Expr::List(names)) = items.get(2) else {
+            continue;
+        };
+        let Some(Expr::Symbol(poll_name)) = names.get(4) else {
+            continue;
+        };
+        invocations.push(AsyncCaptureInvocation {
+            key: (span.source_id, span.start, span.end),
+            poll_name: poll_name.clone(),
+            pinned,
+        });
+    }
+    invocations
+}
+
+fn async_capture_plans(
+    program: &Program,
+    live_parameters: &HashMap<String, HashSet<usize>>,
+    invocations: &[AsyncCaptureInvocation],
+) -> AsyncCapturePlans {
+    let mut plans = HashMap::new();
+    for invocation in invocations {
+        let mut stages = HashMap::new();
+        let prefix = format!(
+            "{}{}-resume-",
+            invocation.poll_name,
+            if invocation.pinned { "-move" } else { "" }
+        );
+        for item in &program.items {
+            let Item::Function(function) = item else {
+                continue;
+            };
+            let Some(stage_index) = function
+                .name
+                .strip_prefix(&prefix)
+                .and_then(|suffix| suffix.parse::<usize>().ok())
+            else {
+                continue;
+            };
+            let capture_count = function.parameters.len().saturating_sub(2);
+            let live = live_parameters.get(&function.name);
+            let captures = function
+                .parameters
+                .iter()
+                .enumerate()
+                .take(capture_count)
+                .filter(|(parameter_index, _)| {
+                    live.is_some_and(|live| live.contains(parameter_index))
+                })
+                .map(|(_, parameter)| parameter.name.clone())
+                .collect();
+            stages.insert(stage_index, captures);
+        }
+        plans.insert(invocation.key, stages);
+    }
+    plans
+}
+
+fn async_capture_plan_identity(plan: Option<&HashMap<usize, HashSet<String>>>) -> String {
+    let Some(plan) = plan else {
+        return "syntax-fallback".into();
+    };
+    let mut stages = plan.iter().collect::<Vec<_>>();
+    stages.sort_by_key(|(stage, _)| **stage);
+    stages
+        .into_iter()
+        .map(|(stage, names)| {
+            let mut names = names.iter().collect::<Vec<_>>();
+            names.sort();
+            format!("{stage}:{names:?}")
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
 fn parse_program_in_directory(
     source: &str,
     base: &Path,
     source_path: Option<&Path>,
     config: &CompileConfig,
     cache_directory: Option<&Path>,
+) -> Result<Program, SourceError> {
+    parse_program_in_directory_with_capture_plans(
+        source,
+        base,
+        source_path,
+        config,
+        cache_directory,
+    )
+    .map(|(program, _)| program)
+}
+
+fn parse_program_in_directory_with_capture_plans(
+    source: &str,
+    base: &Path,
+    source_path: Option<&Path>,
+    config: &CompileConfig,
+    cache_directory: Option<&Path>,
+) -> Result<(Program, AsyncCapturePlans), SourceError> {
+    let probe = parse_program_in_directory_with_async_captures(
+        source,
+        base,
+        source_path,
+        config,
+        cache_directory,
+        None,
+    )?;
+    let invocations = async_capture_invocations(&probe);
+    if invocations.is_empty() {
+        return Ok((probe, AsyncCapturePlans::new()));
+    }
+    let live_parameters = match typecheck::typed_live_parameters(&probe) {
+        Ok(live_parameters) => live_parameters,
+        Err(_) => {
+            let no_typed_capture_plan = AsyncCapturePlans::new();
+            let fallback = parse_program_in_directory_with_async_captures(
+                source,
+                base,
+                source_path,
+                config,
+                cache_directory,
+                Some(&no_typed_capture_plan),
+            )?;
+            return Ok((fallback, no_typed_capture_plan));
+        }
+    };
+    let capture_plans = async_capture_plans(&probe, &live_parameters, &invocations);
+    if capture_plans.is_empty() {
+        return Ok((probe, capture_plans));
+    }
+    let program = parse_program_in_directory_with_async_captures(
+        source,
+        base,
+        source_path,
+        config,
+        cache_directory,
+        Some(&capture_plans),
+    )?;
+    Ok((program, capture_plans))
+}
+
+fn parse_program_in_directory_with_async_captures(
+    source: &str,
+    base: &Path,
+    source_path: Option<&Path>,
+    config: &CompileConfig,
+    cache_directory: Option<&Path>,
+    capture_plans: Option<&AsyncCapturePlans>,
 ) -> Result<Program, SourceError> {
     let (loaded, mut source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&loaded, config);
@@ -2290,7 +2487,8 @@ fn parse_program_in_directory(
                     )
                 ) {
                     let generated_text = if matches!(kind, Some("async-fn" | "async-fn-pinned")) {
-                        async_fn::generated_source(&normalized_invocation).ok()
+                        async_generated_source(&normalized_invocation, form_span, capture_plans)
+                            .ok()
                     } else {
                         kind.and_then(|kind| {
                             materialize_builtin_generated_source(kind, forms, &worker_functions)
@@ -2341,7 +2539,7 @@ fn parse_program_in_directory(
             if matches!(forms.first(), Some(Expr::At)) {
                 let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned")
                 {
-                    async_fn::generated_source(&normalized_invocation)
+                    async_generated_source(&normalized_invocation, form_span, capture_plans)
                         .and_then(|source| parse_generated_source_items(&source))
                 } else {
                     parse_generated_items(forms)
@@ -5033,6 +5231,25 @@ fn write_generated_sources_in_directory(
     .map_err(|error| attach_generator_source(error, &source_files))?;
     let expanded = expand_cfg_forms(expanded, config)
         .map_err(|error| attach_generator_source(error, &source_files))?;
+    let has_async_invocation = expanded.iter().any(|expression| {
+        let Expr::List(items) = &expression.expr else {
+            return false;
+        };
+        matches!(items.first(), Some(Expr::At))
+            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "async-fn" | "async-fn-pinned"))
+    });
+    let async_plans = if has_async_invocation {
+        parse_program_in_directory_with_capture_plans(
+            source,
+            base,
+            source_path,
+            config,
+            cache_directory,
+        )?
+        .1
+    } else {
+        AsyncCapturePlans::new()
+    };
     let worker_functions = expanded
         .iter()
         .filter_map(|expression| {
@@ -5049,6 +5266,12 @@ fn write_generated_sources_in_directory(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| directory.join("cache"));
     for expression in expanded {
+        let capture_key = (
+            expression.span.source_id,
+            expression.span.start,
+            expression.span.end,
+        );
+        let capture_plan = async_plans.get(&capture_key);
         let invocation = expression_source(&expression.expr)?;
         let original = normalize_builtin_generator_invocation(&expression.expr)?;
         let Expr::List(forms) = normalize_keywords(original.clone()) else {
@@ -5072,14 +5295,18 @@ fn write_generated_sources_in_directory(
             continue;
         }
         let key = format!(
-            "lim-inspectable-generated-source-v3\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ninvocation={invocation}",
+            "lim-inspectable-generated-source-v4\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\nasync-capture-plan={}\ninvocation={invocation}",
             env!("CARGO_PKG_VERSION"),
             env!("LIM_BUILD_FINGERPRINT"),
             dependency_context,
+            async_capture_plan_identity(capture_plan),
         );
         generator::cached_generated_source(&generated_cache, &key, || {
             if matches!(kind, "async-fn" | "async-fn-pinned") {
-                async_fn::generated_source(&original)
+                capture_plan.map_or_else(
+                    || async_fn::generated_source(&original),
+                    |captures| async_fn::generated_source_with_captures(&original, captures),
+                )
             } else {
                 materialize_builtin_generated_source(&kind, &forms, &worker_functions)
             }

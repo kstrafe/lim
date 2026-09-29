@@ -205,6 +205,22 @@ mod checked_program_tests {
     use super::*;
 
     #[test]
+    fn staged_typed_liveness_is_available_before_linear_enforcement() {
+        let program = crate::parse_program(
+            "(#struct Token ((value u64)))
+             (#linear Token)
+             (#fn resume ((live u64) (unused Token)) u64 (#return live))",
+        )
+        .unwrap();
+
+        let liveness = typed_live_parameters(&program).unwrap();
+        assert_eq!(liveness["resume"], HashSet::from([0]));
+
+        let error = CheckedProgram::validate(&program).err().unwrap();
+        assert!(error.contains("linear value 'unused' must be consumed"));
+    }
+
+    #[test]
     fn generic_programmatic_declarations_are_rejected_at_the_checked_boundary() {
         let mut function_program =
             crate::parse_program("(#fn identity ((value u64)) u64 (#return value))").unwrap();
@@ -613,6 +629,34 @@ pub(crate) fn check_types_with_span(
 }
 
 fn resolve_program(program: &Program) -> Result<Declarations, AnalysisError> {
+    resolve_program_for_analysis(program, true)
+}
+
+/// Build checked typed bodies and CFG liveness before ownership enforcement.
+/// This is for compiler staging analyses (such as async frame capture
+/// discovery); it is not a successful program-validation boundary.
+pub(crate) fn typed_live_parameters(
+    program: &Program,
+) -> Result<HashMap<String, HashSet<usize>>, AnalysisError> {
+    let declarations = resolve_program_for_analysis(program, false)?;
+    let mut live_parameters = HashMap::new();
+    for (name, body) in &declarations.bodies {
+        let flow = &declarations.flows[name];
+        let live = declarations.liveness[name].before(flow.entry);
+        let parameters = live
+            .into_iter()
+            .filter(|binding| binding.0 < body.parameter_count)
+            .map(|binding| binding.0)
+            .collect();
+        live_parameters.insert(name.clone(), parameters);
+    }
+    Ok(live_parameters)
+}
+
+fn resolve_program_for_analysis(
+    program: &Program,
+    enforce_ownership: bool,
+) -> Result<Declarations, AnalysisError> {
     let mut diagnostic_span = None;
     let mut diagnostic_code = crate::DiagnosticCode::Type;
     let mut diagnostic_labels = Vec::new();
@@ -621,6 +665,7 @@ fn resolve_program(program: &Program) -> Result<Declarations, AnalysisError> {
         &mut diagnostic_code,
         &mut diagnostic_span,
         &mut diagnostic_labels,
+        enforce_ownership,
     )
     .map_err(|message| (message, diagnostic_code, diagnostic_span, diagnostic_labels))
 }
@@ -649,6 +694,7 @@ fn check_types_inner(
     diagnostic_code: &mut crate::DiagnosticCode,
     diagnostic_span: &mut Option<crate::Span>,
     diagnostic_labels: &mut Vec<(crate::Span, String)>,
+    enforce_ownership: bool,
 ) -> Result<Declarations, String> {
     #[cfg(test)]
     SEMANTIC_PASSES.with(|passes| passes.set(passes.get() + 1));
@@ -1331,6 +1377,9 @@ fn check_types_inner(
         &checked_statement_spans,
         &statement_ids,
     )?;
+    if !enforce_ownership {
+        return Ok(declarations);
+    }
     *diagnostic_code = crate::DiagnosticCode::Type;
     check_opaque_access(
         program,
