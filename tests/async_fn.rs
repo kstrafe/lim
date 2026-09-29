@@ -1403,10 +1403,12 @@ fn async_let_else_accepts_conditional_awaited_return_arms() {
       (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
         (#fn work ((input Maybe) (choose bool)) u64
           (#let-else (Some payload) Maybe input
-            (#if choose
-              (#return (#await u64 ChildTask ChildPending ChildReady
-                child-poll (Waiting 13u64)))
-              (#return 17u64)))
+            (#block
+              (#let base u64 13u64)
+              (#if choose
+                (#return (#await u64 ChildTask ChildPending ChildReady
+                  child-poll (Waiting base)))
+                (#return (#u64.+.wrap base 4u64)))))
           (#return payload))))
       (#fn drive ((input Maybe) (choose bool) (waker (#ref u64))) u64
         (#let task Frame (#call work (: input input : choose choose)))

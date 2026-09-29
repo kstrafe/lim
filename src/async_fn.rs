@@ -956,13 +956,35 @@ fn conditional_value_expression_task(
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
     }
-    let function = Expr::List(vec![
+    let mut function = vec![
         Expr::Symbol("#fn".into()),
         Expr::Symbol(function_name.clone()),
         Expr::List(helper_parameters),
         await_form[1].clone(),
-        Expr::List(vec![Expr::Symbol("#return".into()), expression.clone()]),
-    ]);
+    ];
+    if let Some(block) = form(expression, "#block") {
+        if block.len() < 2 {
+            return Ok(None);
+        }
+        function.extend(block[1..block.len() - 1].iter().cloned());
+        let result_name = fresh_async_name(source, next_name);
+        function.push(Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol(result_name.clone()),
+            await_form[1].clone(),
+            block.last().expect("nonempty value block").clone(),
+        ]));
+        function.push(Expr::List(vec![
+            Expr::Symbol("#return".into()),
+            Expr::Symbol(result_name),
+        ]));
+    } else {
+        function.push(Expr::List(vec![
+            Expr::Symbol("#return".into()),
+            expression.clone(),
+        ]));
+    }
+    let function = Expr::List(function);
     let waker_expression = crate::parse(waker)?
         .into_iter()
         .next()
