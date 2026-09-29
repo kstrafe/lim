@@ -134,6 +134,34 @@ struct Stage {
     value: String,
 }
 
+fn inline_stage_task_temporary(prefix: &mut Vec<String>, task: &str) -> Result<String, String> {
+    let Some(last) = prefix.last() else {
+        return Ok(task.to_owned());
+    };
+    let parsed = crate::parse(last)?;
+    let Some(statement) = parsed.first().map(|expression| &expression.expr) else {
+        return Ok(task.to_owned());
+    };
+    let Some(binding) = form(statement, "#let").or_else(|| form(statement, "#let-mut")) else {
+        return Ok(task.to_owned());
+    };
+    if binding.len() != 4 || symbol(&binding[1], "async task temporary")? != task {
+        return Ok(task.to_owned());
+    }
+    for preceding in &prefix[..prefix.len() - 1] {
+        for expression in crate::parse(preceding)? {
+            let mut names = HashSet::new();
+            collect_value_names(&expression.expr, &mut names);
+            if names.contains(task) {
+                return Ok(task.to_owned());
+            }
+        }
+    }
+    let inlined = expression_source(&binding[3])?;
+    prefix.pop();
+    Ok(inlined)
+}
+
 fn list<'a>(expr: &'a Expr, context: &str) -> Result<&'a [Expr], String> {
     match expr {
         Expr::List(items) => Ok(items),
@@ -5388,12 +5416,7 @@ fn lower_async_for(
             next_name,
             waker,
         )?;
-        if awaited_condition {
-            return Err(
-                "@async-fn awaited #let-else #for initialization cannot yet be combined with suspension in its condition".into(),
-            );
-        }
-        if awaited_step || items[4..].iter().any(has_await) {
+        if awaited_condition || awaited_step || items[4..].iter().any(has_await) {
             let let_else = form(&initializer_statement, "#let-else").ok_or_else(|| {
                 "@async-fn lost awaited #let-else initializer during lowering".to_owned()
             })?;
@@ -7715,12 +7738,14 @@ fn generated_source_with_capture_selection(
             stage.child
         ));
         let continuation = if let Some(next) = stages.get(index + 1) {
+            let mut next_prefix = next.prefix.clone();
+            let next_task = inline_stage_task_temporary(&mut next_prefix, &next.value)?;
             format!(
-                "{} (#return (#call {poll}-child-{} ({} : lim.async.task {} : waker waker)))",
-                next.prefix.join(" "),
+                "(#return (#block {} (#call {poll}-child-{} ({} : lim.async.task {} : waker waker))))",
+                next_prefix.join(" "),
                 index + 1,
                 named_arguments(&next.captures),
-                next.value
+                next_task
             )
         } else {
             format!("{} (#return ({ready} {returned}))", prefix.join(" "))

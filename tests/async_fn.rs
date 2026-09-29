@@ -4282,50 +4282,56 @@ fn async_for_let_else_initializer_returns_ready_on_mismatch() {
 }
 
 #[test]
-fn async_for_let_else_initializer_diagnostic_highlights_unsupported_phase_await() {
+fn async_for_let_else_initializer_can_suspend_in_condition() {
     let source = "(#enum Maybe ((Some u64) None))
-      (#enum InitTask (Waiting))
+      (#enum InitTask ((Waiting Maybe) (Resuming Maybe)))
+      (#linear InitTask)
       (#enum InitPoll ((InitPending InitTask) (InitReady Maybe)))
       (#fn init-poll ((task InitTask) (waker (#ref u64))) InitPoll
         (#return (#match task
-          (#case Waiting (InitReady None)))))
-      (#enum ConditionTask (ConditionWaiting))
+          (#case (Waiting value) (InitPending (Resuming value)))
+          (#case (Resuming value) (InitReady value)))))
+      (#enum ConditionTask (ConditionWaiting ConditionResuming))
+      (#linear ConditionTask)
       (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
       (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
         (#return (#match task
-          (#case ConditionWaiting (ConditionReady false)))))
+          (#case ConditionWaiting (ConditionPending ConditionResuming))
+          (#case ConditionResuming (ConditionReady false)))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-        (#fn work () u64
+        (#fn work ((input Maybe)) u64
           (#for (#let-else (Some index) Maybe
-                  (#await InitTask InitPending InitReady init-poll Waiting)
+                  (#await InitTask InitPending InitReady init-poll (Waiting input))
                   (#return 7u64))
                 (#await ConditionTask ConditionPending ConditionReady
                   condition-poll ConditionWaiting)
                 ()
             ())
           (#return 42u64))))";
-    let scratch = support::Scratch::new("async-for-let-else-await-span");
-    let diagnostic = lim::compile_source_to_assembly(
-        source,
-        &scratch.path().join("source.lim"),
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
-    assert!(
-        diagnostic
-            .message
-            .contains("cannot yet be combined with suspension"),
-        "{diagnostic:?}"
+    let source = format!(
+        "{source}
+        (#fn main () u64
+          (#let waker u64 0u64)
+          (#let mismatch-task Frame (#call work (: input None)))
+          (#let mismatch-first Poll (#call poll (: task mismatch-task : waker (#borrow waker))))
+          (#let-else (Pending mismatch-after-init) Poll mismatch-first (#unreachable))
+          (#let mismatch-second Poll
+            (#call poll (: task mismatch-after-init : waker (#borrow waker))))
+          (#let-else (Ready mismatch) Poll mismatch-second (#unreachable))
+          (#let matched-task Frame (#call work (: input (Some 7u64))))
+          (#let matched-first Poll (#call poll (: task matched-task : waker (#borrow waker))))
+          (#let-else (Pending matched-after-init) Poll matched-first (#unreachable))
+          (#let matched-second Poll
+            (#call poll (: task matched-after-init : waker (#borrow waker))))
+          (#let-else (Pending matched-after-condition-start) Poll matched-second (#unreachable))
+          (#let matched-third Poll
+            (#call poll (: task matched-after-condition-start : waker (#borrow waker))))
+          (#let-else (Ready matched) Poll matched-third (#unreachable))
+          (#forget waker)
+          (#return (#u64.+.wrap mismatch matched)))"
     );
-    let span = diagnostic
-        .span
-        .expect("unsupported await diagnostic has source span");
-    let await_tokens = source.match_indices("#await").collect::<Vec<_>>();
-    assert_eq!(await_tokens.len(), 2);
-    assert_eq!(span.start, await_tokens[1].0);
-    assert_eq!(&source[span.start..span.end], "#await");
+    let generated = build_and_run(&source, 49);
+    assert!(generated.contains("ConditionPending"), "{generated}");
 }
 
 #[test]

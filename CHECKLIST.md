@@ -1923,6 +1923,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   branch selector each iteration, never hoist its await, and preserve loop
   step ordering. Verify native Pending/resume and that an immediate branch does
   not poll the child.
+- [x] **ASYNC-01b56: Suspend in a `#for` condition after an awaited
+  `#let-else` initializer.** Preserve initializer mismatch as an immediate
+  return, and enter the loop condition only after a successful initializer
+  pattern. Retain the condition child across Pending/resume; verify both paths
+  natively and inspect the generated condition poll state.
 - [x] **ASYNC-01b56: Suspend conditionally in a `#while` condition.** Compose
   an awaited branch and an immediate boolean branch into one per-iteration
   child task. Re-evaluate the selector after each Ready(true), preserve
