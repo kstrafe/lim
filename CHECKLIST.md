@@ -2006,6 +2006,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   while preserving `#continue` and ordinary arm completion as another
   iteration. Reject nonterminal or labeled transfers. Verify a native
   Pending/resume loop whose match selects both continuation and termination.
+- [x] **ASYNC-01b71: Preserve match transfers in awaited `#for` bodies.**
+  Apply the explicit step exactly once after ordinary or continuing match arms,
+  and skip it for breaking arms. Reject transfers in guards and preserve
+  terminality diagnostics. Verify native resume behavior where different arms
+  select continue and break around an awaited condition.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

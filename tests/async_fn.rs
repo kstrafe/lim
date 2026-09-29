@@ -2845,14 +2845,17 @@ fn awaited_for_condition_runs_step_after_continue_but_not_break() {
           (#case (Waiting value)
             (#if (#u64.== value 0u64)
               (ChildPending (Waiting 1u64))
-              (ChildReady (#u64.< value 2u64)))))))
+              (ChildReady (#u64.< value 3u64)))))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
           (#let-mut iteration u64 0u64)
           (#for (#set iteration 0u64)
                 (#await ChildTask ChildPending ChildReady child-poll (Waiting iteration))
                 (#set iteration (#u64.+.wrap iteration 1u64))
-            (#if (#u64.< iteration 1u64) (#continue) (#break)))
+            (#match iteration
+              (#case 0u64 (#continue))
+              (#case 1u64 ())
+              (#case _ (#break))))
           (#return iteration))))
       (#fn main () u64
         (#let waker u64 0u64)
@@ -2863,7 +2866,7 @@ fn awaited_for_condition_runs_step_after_continue_but_not_break() {
           (#case (Ready result) result)
           (#case (Pending pending-again) (#block (#forget pending-again) 0u64))))
         (#forget waker)
-        (#return (#if (#u64.== value 1u64) 42u64 0u64)))";
+        (#return (#if (#u64.== value 2u64) 42u64 0u64)))";
     build_and_run(source, 42);
 }
 
