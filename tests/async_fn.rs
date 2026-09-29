@@ -1280,8 +1280,15 @@ fn async_function_only_polls_awaited_let_else_mismatch_arm() {
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work ((input Maybe)) u64
           (#let-else (Some value) Maybe input
-            (#return (#u64.+.wrap 1u64
-              (#await u64 Child ChildPending ChildReady child-poll (Waiting 1u64)))))
+            (#block
+              (#let retry-count u64 1u64)
+              (#let first u64
+                (#await u64 Child ChildPending ChildReady child-poll
+                  (Waiting retry-count)))
+              (#let second u64
+                (#await u64 Child ChildPending ChildReady child-poll
+                  (Waiting 0u64)))
+              (#return (#u64.+.wrap first second))))
           (#let adjusted u64 (#u64.+.wrap value 1u64))
           (#return adjusted))))
       (#fn poll-work ((input Maybe) (waker (#ref u64))) u64
@@ -1303,7 +1310,7 @@ fn async_function_only_polls_awaited_let_else_mismatch_arm() {
           (#call poll-work (: input (Some 42u64) : waker (#borrow waker))))
         (#forget waker)
         (#return (#u64.+.wrap mismatch matched)))";
-    build_and_run(source, 51);
+    build_and_run(source, 57);
 }
 
 #[test]

@@ -1382,16 +1382,14 @@ fn lower_awaited_let_else_return(
             .iter()
             .filter(|statement| has_await(statement))
             .collect::<Vec<_>>();
-        if awaited_bindings.len() > 1
-            || awaited_bindings.iter().any(|statement| {
-                let Some(binding) = form(statement, "#let").or_else(|| form(statement, "#let-mut"))
-                else {
-                    return true;
-                };
-                binding.len() != 4
-                    || !form(&binding[3], "#await").is_some_and(|await_form| await_form.len() == 7)
-            })
-        {
+        if awaited_bindings.iter().any(|statement| {
+            let Some(binding) = form(statement, "#let").or_else(|| form(statement, "#let-mut"))
+            else {
+                return true;
+            };
+            binding.len() != 4
+                || !form(&binding[3], "#await").is_some_and(|await_form| await_form.len() == 7)
+        }) {
             return Ok(None);
         }
         (branch_return, Some(prefix))
