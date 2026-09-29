@@ -1781,8 +1781,22 @@ fn lower_async_for(
     let initializer = &items[1];
     let awaited_condition = has_await(&items[2]);
     let awaited_step = has_await(&items[3]);
-    if has_await(initializer) {
-        return Err("@async-fn #for await cannot suspend in its initializer".into());
+    let awaited_initializer = has_await(initializer);
+    if awaited_initializer {
+        let initializer_form = form(initializer, "#let")
+            .or_else(|| form(initializer, "#let-mut"))
+            .ok_or_else(|| {
+                "@async-fn #for initializer suspension requires a #let or #let-mut binding"
+                    .to_owned()
+            })?;
+        if initializer_form.len() != 4 {
+            return Err("@async-fn #for initializer requires (#let name Type (#await ...))".into());
+        }
+        if form(&initializer_form[3], "#await").is_none() {
+            return Err(
+                "@async-fn #for initializer currently requires one direct typed #await".into(),
+            );
+        }
     }
     if awaited_condition && form(&items[2], "#await").is_none() {
         return Err(
@@ -1843,6 +1857,25 @@ fn lower_async_for(
             Expr::Symbol(local.ty),
             init_form[3].clone(),
         ]);
+    }
+
+    if awaited_initializer
+        && !awaited_condition
+        && !awaited_step
+        && !loop_body.iter().any(has_await)
+    {
+        let mut for_items = vec![
+            Expr::Symbol("#for".into()),
+            Expr::List(Vec::new()),
+            condition,
+            step,
+        ];
+        for_items.extend(loop_body);
+        return Ok(Some((
+            vec![initializer_statement, Expr::List(for_items)],
+            String::new(),
+            Vec::new(),
+        )));
     }
 
     let mut post_step = Vec::new();
@@ -2758,7 +2791,9 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
                 &mut lowering_known_order,
                 &renames,
             );
-            generated_helpers.push(helper);
+            if !helper.is_empty() {
+                generated_helpers.push(helper);
+            }
             lowered_statements.extend(replacement);
             continue;
         }
@@ -2779,7 +2814,9 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
                 &mut lowering_known_order,
                 &renames,
             );
-            generated_helpers.push(helper);
+            if !helper.is_empty() {
+                generated_helpers.push(helper);
+            }
             lowered_statements.extend(replacement);
             continue;
         }

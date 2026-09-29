@@ -2008,6 +2008,92 @@ fn async_for_condition_can_await_and_step_only_after_ready_true() {
 }
 
 #[test]
+fn async_for_initializer_awaits_once_before_entering_the_loop() {
+    let source = "(#enum InitTask ((Waiting u64) (Resuming u64)))
+      (#linear InitTask)
+      (#enum InitPoll ((InitPending InitTask) (InitReady u64)))
+      (#fn init-poll ((task InitTask) (waker (#ref u64))) InitPoll
+        (#return (#match task
+          (#case (Waiting count)
+            (InitPending (Resuming count)))
+          (#case (Resuming count)
+            (InitReady (#u64.+.wrap count 2u64))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut total u64 0u64)
+          (#for (#let-mut iteration u64
+                  (#await InitTask InitPending InitReady init-poll (Waiting 0u64)))
+                (#u64.< iteration 3u64)
+                (#set iteration (#u64.+.wrap iteration 1u64))
+            (#set total (#u64.+.wrap total iteration)))
+          (#return (#if (#u64.== total 2u64) 42u64 0u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("InitPending"), "{generated}");
+
+    let initializer_then_body_await = source
+        .replace(
+            "(#case (Waiting count)\n            (InitPending (Resuming count)))",
+            "(#case (Waiting count)\n            (#if (#u64.== count 0u64)\n              (InitPending (Resuming count))\n              (InitReady count)))",
+        )
+        .replace(
+            "(#set total (#u64.+.wrap total iteration))",
+            "(#let body-value u64\n              (#await InitTask InitPending InitReady init-poll (Waiting iteration)))\n            (#set total (#u64.+.wrap total body-value))",
+        );
+    let generated = build_and_run(&initializer_then_body_await, 42);
+    assert!(generated.contains("InitPending"), "{generated}");
+
+    let initializer_then_condition_await = source
+        .replace(
+            "      (@async-fn",
+            "      (#enum ConditionTask ((ConditionStart u64) (ConditionResume u64)))\n      (#linear ConditionTask)\n      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))\n      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll\n        (#return (#match task\n          (#case (ConditionStart iteration) (ConditionPending (ConditionResume iteration)))\n          (#case (ConditionResume iteration)\n            (ConditionReady (#u64.< iteration 3u64))))))\n      (@async-fn",
+        )
+        .replace(
+            "                (#u64.< iteration 3u64)\n                (#set iteration",
+            "                (#await ConditionTask ConditionPending ConditionReady condition-poll (ConditionStart iteration))\n                (#set iteration",
+        )
+        .replace("          (#let-mut total u64 0u64)\n", "")
+        .replace("            (#set total (#u64.+.wrap total iteration))", "            (#assert true)")
+        .replace(
+            "(#return (#if (#u64.== total 2u64) 42u64 0u64))",
+            "(#return 42u64)",
+        )
+        .replace(
+            "(#let second Poll\n          (#call poll (: task pending : waker (#borrow waker))))\n        (#let result u64\n          (#match second",
+            "(#let second Poll\n          (#call poll (: task pending : waker (#borrow waker))))\n        (#let-else (Pending condition-pending) Poll second (#unreachable))\n        (#let third Poll\n          (#call poll (: task condition-pending : waker (#borrow waker))))\n        (#let-else (Pending resumed-condition-pending) Poll third (#unreachable))\n        (#let fourth Poll\n          (#call poll (: task resumed-condition-pending : waker (#borrow waker))))\n        (#let result u64\n          (#match fourth",
+        );
+    assert_ne!(initializer_then_condition_await, source);
+    let generated = build_and_run(&initializer_then_condition_await, 42);
+    assert!(generated.contains("ConditionPending"), "{generated}");
+
+    let unsupported = source.replace(
+        "(#let-mut iteration u64\n                  (#await InitTask InitPending InitReady init-poll (Waiting 0u64)))",
+        "(#let-mut iteration u64\n                  (#u64.+.wrap 1u64 (#await InitTask InitPending InitReady init-poll (Waiting 0u64))))",
+    );
+    let error = match lim::parse_program(&unsupported) {
+        Err(error) => error,
+        Ok(program) => lim::check_types(&program).unwrap_err(),
+    };
+    assert!(
+        error.contains("direct typed #await"),
+        "nested initializer suspension should be diagnosed explicitly: {error}"
+    );
+}
+
+#[test]
 fn async_for_step_can_suspend_after_the_loop_body() {
     let source = "(#enum StepTask ((Waiting u64) (Resuming u64)))
       (#linear StepTask)

@@ -1899,6 +1899,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   binding environment; reject unknown targets and non-direct await values.
   Verify the step sees body-updated state and transfers the awaited value across
   Pending/resume before the next condition check.
+- [x] **ASYNC-01b52: Suspend in a `#for` initializer.** Lower a direct explicitly
+  typed await in a `#let` or `#let-mut` initializer before evaluating the loop
+  condition, exactly once. Preserve initializer binding scope and liveness when
+  the loop body or condition also suspends; test native initialization order,
+  Pending/resume, and diagnostics for unsupported initializer forms. Verified
+  native initialization before both synchronous and suspending loop conditions
+  and bodies.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
