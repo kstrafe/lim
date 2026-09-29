@@ -2101,6 +2101,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   mismatch arm's awaited return independent, and preserve Pending/resume for
   either child. Verify a captured value and pattern payload through native
   execution, alongside a mismatch child that also suspends.
+- [x] **ASYNC-01b86: Track loans through awaited `#let-else` success children.**
+  Retain an exclusive external reference in the selected success child across
+  Pending, reject owner access while suspended, and release the loan when Ready
+  so the caller can access the owner again. Verify the mismatch path remains
+  independent and test both rejected and accepted accesses.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

@@ -1361,6 +1361,55 @@ fn async_function_resumes_suspension_after_awaited_let_else_success() {
 }
 
 #[test]
+fn async_function_releases_let_else_success_borrow_after_ready() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum Child ((Waiting u64) (WriteAfterResume (#ref-mut u64) u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildReady value))
+          (#case (WriteAfterResume owner remaining)
+            (#if (#u64.== remaining 0u64)
+              (#block (#deref-set owner 42u64) (ChildReady 42u64))
+              (ChildPending
+                (WriteAfterResume owner (#u64.-.wrap remaining 1u64))))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((input Maybe) (owner (#ref-mut u64))) u64
+          (#let-else (Some value) Maybe input
+            (#return (#await u64 Child ChildPending ChildReady child-poll
+              (Waiting 7u64))))
+          (#let result u64
+            (#await Child ChildPending ChildReady child-poll
+              (WriteAfterResume owner 1u64)))
+          (#return result))))
+      (#fn main () u64
+        (#let-mut owner u64 1u64)
+        (#let waker u64 0u64)
+        (#let task Frame (#call work
+          (: input (Some 10u64) : owner (#borrow-mut owner))))
+        (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        MUTATE_WHILE_PENDING
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64 (#match second
+          (#case (Ready value) value)
+          (#case (Pending unfinished) (#block (#forget unfinished) 0u64))))
+        (#set owner 3u64)
+        (#forget waker)
+        (#return (#u64.+.wrap result owner)))";
+    let accepted = source.replace("MUTATE_WHILE_PENDING", "");
+    build_and_run(&accepted, 45);
+
+    let rejected = source.replace("MUTATE_WHILE_PENDING", "(#set owner 4u64)");
+    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access") || error.contains("loan"),
+        "the success child must retain its exclusive borrow while Pending: {error}"
+    );
+}
+
+#[test]
 fn async_function_requires_types_for_nested_awaits() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
