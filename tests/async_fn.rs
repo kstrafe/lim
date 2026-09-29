@@ -3551,6 +3551,48 @@ fn async_while_early_return_can_skip_a_nested_awaited_tail() {
 }
 
 #[test]
+fn async_while_early_return_can_skip_a_direct_awaited_tail() {
+    let source = "(#enum ConditionTask ((Waiting bool) (Resuming bool)))
+      (#linear ConditionTask)
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#enum TailTask ((TailWaiting u64) (TailResuming u64)))
+      (#linear TailTask)
+      (#enum TailPoll ((TailPending TailTask) (TailReady u64)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case (Waiting decision) (ConditionPending (Resuming decision)))
+          (#case (Resuming decision) (ConditionReady decision)))))
+      (#fn tail-poll ((task TailTask) (waker (#ref u64))) TailPoll
+        (#return (#match task
+          (#case (TailWaiting value) (TailPending (TailResuming value)))
+          (#case (TailResuming value) (TailReady value)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work ((decision bool)) u64
+          (#while (#await ConditionTask ConditionPending ConditionReady
+                    condition-poll (Waiting decision))
+            (#return 7u64))
+          (#return (#await u64 TailTask TailPending TailReady tail-poll
+            (TailWaiting 3u64))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let true-task Frame (#call work (: decision true)))
+        (#let true-first Poll (#call poll (: task true-task : waker (#borrow waker))))
+        (#let-else (PollPending true-pending) Poll true-first (#unreachable))
+        (#let true-second Poll (#call poll (: task true-pending : waker (#borrow waker))))
+        (#let-else (PollReady true-result) Poll true-second (#unreachable))
+        (#let false-task Frame (#call work (: decision false)))
+        (#let false-first Poll (#call poll (: task false-task : waker (#borrow waker))))
+        (#let-else (PollPending false-pending) Poll false-first (#unreachable))
+        (#let false-second Poll (#call poll (: task false-pending : waker (#borrow waker))))
+        (#let-else (PollPending false-tail-pending) Poll false-second (#unreachable))
+        (#let false-third Poll (#call poll (: task false-tail-pending : waker (#borrow waker))))
+        (#let-else (PollReady false-result) Poll false-third (#unreachable))
+        (#forget waker)
+        (#return (#u64.+.wrap true-result false-result)))";
+    build_and_run(source, 10);
+}
+
+#[test]
 fn async_while_body_can_return_after_body_await() {
     let source = "(#enum ConditionTask ((ConditionWaiting bool) (ConditionResuming bool)))
       (#linear ConditionTask)

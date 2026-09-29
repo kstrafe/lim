@@ -2449,6 +2449,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Allow a while body to return before a nested await in the function's explicit
   final value. Lower that await only on the condition-false path; verify the
   true path skips it and the false path polls it to Ready natively.
+- [x] **ASYNC-01b159: Consume a direct awaited return tail conditionally.**
+  Normalize an explicit final `#await` into the false branch of an awaited
+  while that can return early, and suppress the former unconditional tail poll.
+  Verify the early-return path bypasses the tail and the false path resumes it.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
