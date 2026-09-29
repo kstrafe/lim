@@ -2371,6 +2371,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   poll, and return the function value through the normal Ready poll variant.
   Preserve parameter ownership in the concrete task state; verify natively
   that task construction has no body side effects and the first poll completes.
+- [x] **ASYNC-01b143: Preserve pinned-frame APIs without suspension.** Accept
+  an `@async-fn-pinned` body with no `#await` while retaining its immovable
+  frame shell, in-place poll signature, Ready transition, and explicit cancel
+  operation. Verify native first-poll completion, deferred body execution, and
+  frame consumption after Ready.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

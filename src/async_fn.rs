@@ -9086,10 +9086,78 @@ fn generated_source_with_capture_selection(
     }
     if stages.is_empty() {
         if pinned {
-            return Err(
-                "@async-fn-pinned requires at least one top-level (#let name Type (#await ...))"
-                    .into(),
-            );
+            let start_variant = format!("{frame}-start");
+            let done_variant = format!("{frame}-done");
+            let start_helper = format!("{poll}-start");
+            let body_helper = fresh_async_name(&source, &mut next_nested_await);
+            let result_name = fresh_async_name(&source, &mut next_nested_await);
+            let start_parameters = signature(&params);
+            let start_arguments = arguments(&params);
+            let start_types = types(&params);
+            let poll_arguments = named_arguments(&params);
+            let body = function[4..]
+                .iter()
+                .map(expression_source)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(" ");
+            if source.contains(public_poll_result)
+                || source.contains(&format!("({public_pending} "))
+                || source.contains(&format!("({public_ready} "))
+                || source.contains(&frame_state)
+            {
+                return Err(format!(
+                    "{generator_name} generated poll declarations collide with their input"
+                ));
+            }
+            return Ok(format!(
+                "(#enum {frame_state} (({start_variant} {start_types}) ({done_variant})))\n\
+                 (#linear {frame_state})\n\
+                 (#struct {frame} ((state {frame_state})))\n\
+                 (#linear {frame})\n\
+                 (#fn {start} ({start_parameters}) {frame}\n\
+                   (#return (#struct-literal {frame} ((state ({start_variant} {start_arguments}))))))\n\
+                 (#enum {poll_result} (({pending} {frame_state}) ({ready} {result})))\n\
+                 (#fn {body_helper} ({start_parameters}) {result}\n\
+                   {body})\n\
+                 (#fn {start_helper} ({start_parameters} (waker (#ref {waker}))) {poll_result}\n\
+                   (#let {result_name} {result} (#call {body_helper} ({poll_arguments})))\n\
+                   (#return ({ready} {result_name})))\n\
+                 (#fn {poll} ((task {frame_state}) (waker (#ref {waker}))) {poll_result}\n\
+                   (#return (#match task\n\
+                     (#case ({start_variant} {start_arguments})\n\
+                       (#call {start_helper} ({poll_arguments} : waker waker)))\n\
+                     (#case {done_variant} (#unreachable)))))\n\
+                 (#enum {public_poll_result} (({public_pending} (#pin-ref-mut {frame})) ({public_ready} {result})))\n\
+                 (#fn {public_poll} ((task (#pin-ref-mut {frame})) (waker (#ref {waker}))) {public_poll_result}\n\
+                   (#let lim.async.pin-state (#pin-ref-mut {frame_state})\n\
+                     (#pin-borrow-mut (#get task state)))\n\
+                   (#let state {frame_state} (#unsafe (#pin-read lim.async.pin-state)))\n\
+                   (#drop lim.async.pin-state)\n\
+                   (#let outcome {poll_result}\n\
+                     (#call {poll} (: task state : waker waker)))\n\
+                   (#return (#match outcome\n\
+                     (#case ({pending} next-state)\n\
+                       (#block\n\
+                         (#let lim.async.pending-state (#pin-ref-mut {frame_state})\n\
+                           (#pin-borrow-mut (#get task state)))\n\
+                         (#unsafe (#pin-write lim.async.pending-state next-state))\n\
+                         (#drop lim.async.pending-state)\n\
+                         ({public_pending} task)))\n\
+                     (#case ({ready} value)\n\
+                       (#block\n\
+                         (#let lim.async.ready-state (#pin-ref-mut {frame_state})\n\
+                           (#pin-borrow-mut (#get task state)))\n\
+                         (#unsafe (#pin-write lim.async.ready-state ({done_variant})))\n\
+                         (#drop lim.async.ready-state)\n\
+                         ({public_ready} value))))))\n\
+                 (#fn {cancel} ((task (#pin-ref-mut {frame}))) {frame_state}\n\
+                   (#let lim.async.cancel-state (#pin-ref-mut {frame_state})\n\
+                     (#pin-borrow-mut (#get task state)))\n\
+                   (#let state {frame_state} (#unsafe (#pin-read lim.async.cancel-state)))\n\
+                   (#unsafe (#pin-write lim.async.cancel-state ({done_variant})))\n\
+                   (#drop lim.async.cancel-state)\n\
+                   (#return state))"
+            ));
         }
         let start_variant = format!("{frame}-start");
         let start_helper = format!("{poll}-start");
