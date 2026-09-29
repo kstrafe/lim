@@ -1012,6 +1012,45 @@ fn async_while_expression_can_be_suspended_as_a_nested_value() {
 }
 
 #[test]
+fn async_loop_expression_can_be_suspended_in_a_selected_branch() {
+    let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work ((choose bool)) u64
+          (#let ignored ()
+            (#if choose
+              (#loop
+                (#let value u64
+                  (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 41u64)))
+                (#break))
+              ()))
+          (#return 42u64))))
+      (#fn run ((choose bool) (waker (#ref u64))) u64
+        (#let task Frame (#call work (: choose choose)))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#return (#match first
+          (#case (PollReady result) result)
+          (#case (PollPending pending)
+            (#match (#call poll (: task pending : waker waker))
+              (#case (PollReady result) result)
+              (#case (PollPending unexpected)
+                (#block (#forget unexpected) 0u64)))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let awaited u64 (#call run (: choose true : waker (#borrow waker))))
+        (#let immediate u64 (#call run (: choose false : waker (#borrow waker))))
+        (#forget waker)
+        (#return (#u64.+.wrap awaited immediate)))";
+    let generated = build_and_run(source, 84);
+    assert!(generated.contains("expression-frame"), "{generated}");
+}
+
+#[test]
 fn async_function_suspends_inside_projected_assignment_rhs() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

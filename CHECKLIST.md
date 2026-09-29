@@ -2336,6 +2336,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   keeping its local mutable loop state inside that child. Validate direct
   awaited binding types before adapting them to loop lowering, then test
   Pending/resume and the false-condition continuation natively.
+- [x] **ASYNC-01b133: Preserve branch selection for nested loop tasks.** When
+  an awaited unit-valued loop appears in one `#if` branch, build its child task
+  as that branch's selected continuation; keep an immediate branch from
+  polling the loop task. Verify both paths through the generated outer frame.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
