@@ -2247,6 +2247,9 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   between registration and Pending, and make stale wakes and duplicate queue
   entries harmless. Reject forged authority until module privacy or opaque
   compiler-owned handles are available.
+- [x] **ASYNC-01e: Remove the fixed async suspension-count limit.** Preserve
+  unique generated stage names and frame states for functions with more than
+  32 sequential awaits. Verify a 33-stage function builds and runs natively.
 - [x] **ASYNC-02: Add non-busy waiting and safe asynchronous I/O.** Define a
   bounded ready queue and explicit wake handles (no callbacks), readiness or
   completion registration, and OS-operation ownership. Cancellation must not

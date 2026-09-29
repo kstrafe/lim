@@ -349,7 +349,7 @@ per iteration, or use one direct boolean `#await` as its condition. An awaited
 condition is polled before each body decision, and Ready(false) skips the body;
 it cannot be combined with another body suspension or body loop transfer yet.
 Suspending `#for` conditions and compound awaited conditions remain unsupported.
-At most 32 awaits are accepted.
+Sequential suspension points have no fixed language-level count limit.
 For movable `@async-fn`, references into pre-suspension stack locals cannot be
 retained in the frame; the ordinary borrow checker rejects them. Pinned
 `@async-fn-pinned` only supports the parameter-backed internal-reference shape

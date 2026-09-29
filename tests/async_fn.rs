@@ -622,6 +622,38 @@ fn async_function_supports_multiple_awaits() {
 }
 
 #[test]
+fn async_function_has_no_fixed_suspension_count_limit() {
+    let mut body = String::new();
+    for index in 0..33 {
+        body.push_str(&format!(
+            "(#let result-{index} u64 (#await Step StepPending StepReady step-poll (Waiting {index}u64)))\n"
+        ));
+    }
+    body.push_str("(#return result-32)");
+    let source = format!(
+        "(#enum Step ((Waiting u64)))
+         (#linear Step)
+         (#enum StepPoll ((StepPending Step) (StepReady u64)))
+         (#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+           (#return (#match task (#case (Waiting value) (StepReady value)))))
+         (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+           (#fn work () u64 {body})))
+         (#fn main () u64
+           (#let waker u64 0u64)
+           (#let outcome Poll
+             (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+           (#let result u64
+             (#match outcome
+               (#case (Ready value) value)
+               (#case (Pending task) (#block (#forget task) 0u64))))
+           (#forget waker)
+           (#return result))"
+    );
+    let generated = build_and_run(&source, 32);
+    assert!(generated.contains("Frame-await-32"), "{generated}");
+}
+
+#[test]
 fn async_function_awaits_a_task_produced_by_an_earlier_await() {
     let source = "(#enum OuterTask ((Waiting u64) (Resuming u64)))
       (#linear OuterTask)

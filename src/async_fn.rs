@@ -5523,9 +5523,6 @@ pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
         let local = &stages.last().unwrap().binding;
         known.insert(local.name.clone(), local.clone());
         known_order.push(local.name.clone());
-        if stages.len() > 32 {
-            return Err("@async-fn supports at most 32 suspension points".into());
-        }
     }
     if stages.is_empty() {
         return Err(
