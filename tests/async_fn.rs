@@ -2935,6 +2935,49 @@ fn async_awaited_while_return_branch_and_break_branch_diverge_correctly() {
 }
 
 #[test]
+fn async_awaited_while_return_branch_and_continue_branch_resume_correctly() {
+    let source = "(#enum ConditionTask ((Waiting u64) (Resuming u64)))
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case (Waiting iteration) (ConditionPending (Resuming iteration)))
+          (#case (Resuming iteration)
+            (ConditionReady (#u64.== iteration 0u64))))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work ((should-return bool)) u64
+          (#let-mut iteration u64 0u64)
+          (#while (#await ConditionTask ConditionPending ConditionReady
+                    condition-poll (Waiting iteration))
+            (#if should-return
+              (#return 13u64)
+              (#block
+                (#set iteration 1u64)
+                (#continue))))
+          (#return 5u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let return-task Frame (#call work (: should-return true)))
+        (#let first Poll (#call poll (: task return-task : waker (#borrow waker))))
+        (#let-else (PollPending after-return-first) Poll first (#unreachable))
+        (#let return-ready Poll
+          (#call poll (: task after-return-first : waker (#borrow waker))))
+        (#let-else (PollReady returned) Poll return-ready (#unreachable))
+        (#let continue-task Frame (#call work (: should-return false)))
+        (#let continue-first Poll
+          (#call poll (: task continue-task : waker (#borrow waker))))
+        (#let-else (PollPending after-continue-first) Poll continue-first (#unreachable))
+        (#let continue-second Poll
+          (#call poll (: task after-continue-first : waker (#borrow waker))))
+        (#let-else (PollPending after-continue-second) Poll continue-second (#unreachable))
+        (#let continue-ready Poll
+          (#call poll (: task after-continue-second : waker (#borrow waker))))
+        (#let-else (PollReady continued) Poll continue-ready (#unreachable))
+        (#forget waker)
+        (#return (#u64.+.wrap returned continued)))";
+    build_and_run(source, 18);
+}
+
+#[test]
 fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum ChildTask ((Waiting u64)))

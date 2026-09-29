@@ -3291,6 +3291,131 @@ fn lower_async_while(
     )
 }
 
+fn lower_async_while_with_return_continue(
+    statement: &Expr,
+    known: &HashMap<String, Binding>,
+    known_order: &[String],
+    following: &[Expr],
+    return_value: &mut Expr,
+    return_type: &Expr,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
+    let Some(items) = form(statement, "#while") else {
+        return Ok(None);
+    };
+    if !following.is_empty() || items.len() < 3 {
+        return Ok(None);
+    }
+    let Some(condition_await) = form(&items[1], "#await") else {
+        return Ok(None);
+    };
+    if condition_await.len() != 6
+        || has_await(&condition_await[5])
+        || has_await(return_value)
+        || items[2..].iter().any(has_await)
+    {
+        return Ok(None);
+    }
+    let return_type_ast = parse_type(Some(&normalize_keywords(return_type.clone())))?;
+    if !async_task_capture_is_copy(&return_type_ast) {
+        return Ok(None);
+    }
+    let terminal = items.len() - 1;
+    if !contains_continue_control(&items[terminal])
+        || items[2..terminal]
+            .iter()
+            .any(|statement| contains_loop_control(statement) || contains_return(statement))
+    {
+        return Ok(None);
+    }
+
+    let status_type = fresh_async_name(source, next_name);
+    let status_name = fresh_async_name(source, next_name);
+    let tail_variant = format!("{status_type}-tail");
+    let returned_variant = format!("{status_type}-returned");
+    let result_name = fresh_async_name(source, next_name);
+    let Some((body, true)) = items
+        .last()
+        .and_then(|terminal| rewrite_async_loop_returns(terminal, &status_name, &returned_variant))
+    else {
+        return Ok(None);
+    };
+
+    let return_type_source = expression_source(return_type)?;
+    let mut rewritten_loop = statement.clone();
+    let Expr::List(loop_items) = &mut rewritten_loop else {
+        unreachable!("while form is a list")
+    };
+    *loop_items.last_mut().expect("while has terminal body") = body;
+
+    let mut loop_known = known.clone();
+    loop_known.insert(
+        status_name.clone(),
+        Binding {
+            name: status_name.clone(),
+            ty: status_type.clone(),
+            mutable: true,
+        },
+    );
+    let mut loop_known_order = known_order.to_vec();
+    loop_known_order.push(status_name.clone());
+    let mut loop_return = Expr::List(vec![
+        Expr::Symbol("#match".into()),
+        Expr::Symbol(status_name.clone()),
+        Expr::List(vec![
+            Expr::Symbol("#case".into()),
+            Expr::Symbol(tail_variant.clone()),
+            return_value.clone(),
+        ]),
+        Expr::List(vec![
+            Expr::Symbol("#case".into()),
+            Expr::List(vec![
+                Expr::Symbol(returned_variant.clone()),
+                Expr::Symbol(result_name.clone()),
+            ]),
+            Expr::Symbol(result_name),
+        ]),
+    ]);
+    let Some((mut replacement, loop_helper, renames)) = lower_async_while(
+        &rewritten_loop,
+        &loop_known,
+        &loop_known_order,
+        following,
+        &mut loop_return,
+        return_type,
+        source,
+        next_name,
+        waker,
+    )?
+    else {
+        return Ok(None);
+    };
+    *return_value = loop_return;
+    replacement.insert(
+        0,
+        Expr::List(vec![
+            Expr::Symbol("#let-mut".into()),
+            Expr::Symbol(status_name),
+            Expr::Symbol(status_type.clone()),
+            Expr::List(vec![Expr::Symbol(tail_variant.clone())]),
+        ]),
+    );
+    let status_declarations = format!(
+        "(#enum {status_type} (({tail_variant}) ({returned_variant} {return_type_source})))"
+    );
+    Ok(Some((
+        replacement,
+        [status_declarations, loop_helper]
+            .into_iter()
+            .filter(|declaration| !declaration.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        renames,
+    )))
+}
+
 fn async_while_has_terminal_return(statement: &Expr) -> bool {
     let Some(items) = form(statement, "#while") else {
         return false;
@@ -3367,6 +3492,86 @@ fn async_terminal_loop_exit(expression: &Expr, tail: &Expr) -> Option<(Expr, boo
         ));
     }
     Some((Expr::List(lowered), any_return))
+}
+
+fn rewrite_async_loop_returns(
+    expression: &Expr,
+    status: &str,
+    returned_variant: &str,
+) -> Option<(Expr, bool)> {
+    if let Some(return_form) = form(expression, "#return") {
+        if return_form.len() != 2 || has_await(&return_form[1]) {
+            return None;
+        }
+        return Some((
+            Expr::List(vec![
+                Expr::Symbol("#block".into()),
+                Expr::List(vec![
+                    Expr::Symbol("#set".into()),
+                    Expr::Symbol(status.into()),
+                    Expr::List(vec![
+                        Expr::Symbol(returned_variant.into()),
+                        return_form[1].clone(),
+                    ]),
+                ]),
+                Expr::List(vec![Expr::Symbol("#break".into())]),
+            ]),
+            true,
+        ));
+    }
+    if let Some(block) = form(expression, "#block") {
+        if block.len() < 2 || block[1..block.len() - 1].iter().any(contains_return) {
+            return None;
+        }
+        let (last, found) = rewrite_async_loop_returns(block.last()?, status, returned_variant)?;
+        let mut lowered = block.to_vec();
+        *lowered.last_mut()? = last;
+        return Some((Expr::List(lowered), found));
+    }
+    if let Some(conditional) = form(expression, "#if") {
+        if conditional.len() != 4 || contains_return(&conditional[1]) {
+            return None;
+        }
+        let mut lowered = conditional.to_vec();
+        let mut found = false;
+        for index in [2, 3] {
+            if contains_return(&conditional[index]) {
+                let (branch, branch_found) =
+                    rewrite_async_loop_returns(&conditional[index], status, returned_variant)?;
+                lowered[index] = branch;
+                found |= branch_found;
+            }
+        }
+        return found.then_some((Expr::List(lowered), found));
+    }
+    if let Some(match_form) = form(expression, "#match") {
+        if match_form.len() < 3 || contains_return(&match_form[1]) {
+            return None;
+        }
+        let mut lowered = match_form.to_vec();
+        let mut found = false;
+        for arm_index in 2..match_form.len() {
+            let case = form(&match_form[arm_index], "#case")?;
+            let body_index = match case.len() {
+                3 => 2,
+                4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
+                _ => return None,
+            };
+            if case[1..body_index].iter().any(contains_return) {
+                return None;
+            }
+            if contains_return(&case[body_index]) {
+                let (body, body_found) =
+                    rewrite_async_loop_returns(&case[body_index], status, returned_variant)?;
+                let mut lowered_case = case.to_vec();
+                lowered_case[body_index] = body;
+                lowered[arm_index] = Expr::List(lowered_case);
+                found |= body_found;
+            }
+        }
+        return found.then_some((Expr::List(lowered), found));
+    }
+    None
 }
 
 fn lower_async_while_with_transfers(
@@ -6272,6 +6477,28 @@ fn contains_loop_control(expression: &Expr) -> bool {
     }
 }
 
+fn contains_continue_control(expression: &Expr) -> bool {
+    match expression {
+        Expr::List(items) => {
+            matches!(items.first(), Some(Expr::Symbol(head)) if head == "#continue")
+                || items.iter().skip(1).any(contains_continue_control)
+        }
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            statements.iter().any(|statement| match statement {
+                crate::Statement::Expr(value)
+                | crate::Statement::Return(Some(value))
+                | crate::Statement::BreakValue(value)
+                | crate::Statement::BreakToValue { value, .. } => contains_continue_control(value),
+                _ => false,
+            })
+        }
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => contains_continue_control(expression),
+        _ => false,
+    }
+}
+
 fn contains_return(expression: &Expr) -> bool {
     match expression {
         Expr::List(items) => {
@@ -7422,6 +7649,30 @@ fn generated_source_with_capture_selection(
             }
             lowered_statements.extend(replacement);
             return_value = Expr::Symbol(result_name);
+            continue;
+        }
+        if let Some((replacement, helper, renames)) = lower_async_while_with_return_continue(
+            &statement,
+            &lowering_known,
+            &lowering_known_order,
+            &following,
+            &mut return_value,
+            &function[3],
+            &source,
+            &mut next_nested_await,
+            &waker_source,
+        )
+        .map_err(|error| format!("async statement {source_index}: {error}"))?
+        {
+            apply_async_output_renames(
+                &mut statements[source_index + 1..],
+                &mut return_value,
+                &mut lowering_known,
+                &mut lowering_known_order,
+                &renames,
+            );
+            generated_helpers.push(helper);
+            lowered_statements.extend(replacement);
             continue;
         }
         if async_while_has_terminal_return(&statement) {

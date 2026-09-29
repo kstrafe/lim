@@ -2282,6 +2282,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   statements in its generated continuation rather than rejecting suspension
   nested in `#block`. Verify the local reaches the child task across
   Pending/resume.
+- [x] **ASYNC-01b123: Join early return with loop continuation.** Carry a
+  Copy return state through an awaited `#while`: returning branches exit with
+  their value, while `#continue` branches re-evaluate the condition and false
+  completion uses the function tail. Verify each route through native
+  Pending/resume.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
