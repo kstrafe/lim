@@ -2158,6 +2158,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   concrete choice-task protocol, then resume the enclosing call with that
   value. Preserve branch selection and argument evaluation order; verify a
   native Pending/resume through a nested call and an unselected immediate arm.
+- [x] **ASYNC-01b97: Lower awaits through a value-producing singleton block.**
+  Treat a one-expression `#block` containing an await as a transparent value
+  wrapper and reuse ordinary nested-await lowering. Keep larger blocks subject
+  to the block continuation rules; verify conditional Pending/resume through
+  the block, an enclosing call, and the unselected immediate branch.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

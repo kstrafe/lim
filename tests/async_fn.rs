@@ -1603,11 +1603,12 @@ fn async_conditional_branch_value_expressions_can_suspend() {
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work ((choose bool)) u64
           (#return (#call add-one (: value
-            (#if choose
-              (#u64.+.wrap
-                (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
-                1u64)
-              0u64)))))))
+            (#block
+              (#if choose
+                (#u64.+.wrap
+                  (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
+                  1u64)
+                0u64))))))))
       (#enum Choice (Await Immediate))
       (@async-fn (: names (MatchFrame MatchPoll MatchPending MatchReady match-poll) : waker u64 : function
         (#fn work-match ((choice Choice)) u64

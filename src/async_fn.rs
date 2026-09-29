@@ -1583,6 +1583,20 @@ fn extract_nested_awaits(
             );
         }
     }
+    if let Some(block) = form(expression, "#block") {
+        if block.len() == 2 && has_await(&block[1]) {
+            *expression = block[1].clone();
+            return extract_nested_awaits(
+                expression,
+                generated,
+                generated_helpers,
+                known,
+                source,
+                next_name,
+                waker,
+            );
+        }
+    }
     if let Some(BlockAwait {
         mut prefix,
         binding,
