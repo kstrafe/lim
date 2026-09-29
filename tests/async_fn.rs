@@ -1213,7 +1213,9 @@ fn async_conditional_await_joins_with_an_immediate_value() {
                   (#struct-literal Increment ((value 1u64))))
                 (#let-mut awaited-value u64
                   (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
-                (#u64.+.wrap awaited-value (#get increment value)))
+                (#let second-value u64
+                  (#await u64 Child ChildPending ChildReady child-poll (Waiting awaited-value)))
+                (#u64.+.wrap second-value (#get increment value)))
               41u64))
           (#return result))))
       (#enum Choice (Await Immediate))
@@ -1227,7 +1229,9 @@ fn async_conditional_await_joins_with_an_immediate_value() {
                     (#struct-literal Increment ((value 1u64))))
                   (#let-mut awaited-value u64
                     (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
-                  (#u64.+.wrap awaited-value (#get increment value))))
+                  (#let second-value u64
+                    (#await u64 Child ChildPending ChildReady child-poll (Waiting awaited-value)))
+                  (#u64.+.wrap second-value (#get increment value))))
               (#case Immediate 41u64)))
           (#return result))))
       (#fn main () u64
@@ -1240,7 +1244,10 @@ fn async_conditional_await_joins_with_an_immediate_value() {
             (#case (Pending awaited-child)
               (#match (#call poll (: task awaited-child : waker (#borrow waker)))
                 (#case (Ready awaited-ready) awaited-ready)
-                (#case (Pending awaited-again) (#block (#forget awaited-again) (#unreachable)))))))
+                (#case (Pending awaited-again)
+                  (#match (#call poll (: task awaited-again : waker (#borrow waker)))
+                    (#case (Ready awaited-third-ready) awaited-third-ready)
+                    (#case (Pending awaited-third) (#block (#forget awaited-third) (#unreachable)))))))))
         (#let immediate Poll
           (#call poll (: task (#call work (: choose false)) : waker (#borrow waker))))
         (#let immediate-value u64
@@ -1255,7 +1262,10 @@ fn async_conditional_await_joins_with_an_immediate_value() {
             (#case (MatchPending match-child)
               (#match (#call match-poll (: task match-child : waker (#borrow waker)))
                 (#case (MatchReady match-ready) match-ready)
-                (#case (MatchPending match-again) (#block (#forget match-again) (#unreachable)))))))
+                (#case (MatchPending match-again)
+                  (#match (#call match-poll (: task match-again : waker (#borrow waker)))
+                    (#case (MatchReady match-third-ready) match-third-ready)
+                    (#case (MatchPending match-third) (#block (#forget match-third) (#unreachable)))))))))
         (#let match-immediate MatchPoll
           (#call match-poll (: task (#call work-match (: choice Immediate)) : waker (#borrow waker))))
         (#let match-immediate-value u64

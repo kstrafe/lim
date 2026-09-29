@@ -2039,6 +2039,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   them across Pending. Keep prefix evaluation inside selected-branch task
   construction; allow linear captures when ownership transfers into the task.
   Verify a branch-local value remains usable after multiple polls.
+- [x] **ASYNC-01b77: Support multiple awaits in one selected branch block.**
+  Lower branch-local await bindings through the regular concrete async state
+  machine, preserving prefix-local ownership, ordered task construction, and
+  the final branch continuation. Keep branch selection lazy and never poll an
+  unselected branch. Verify two child Pending/resume stages inside both `#if`
+  and `#match` branches.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
