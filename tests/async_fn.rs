@@ -1255,10 +1255,8 @@ fn async_function_rejects_await_in_let_else_diverging_body() {
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work ((input Maybe)) u64
           (#let-else (Some value) Maybe input
-            (#return (#await u64 Child ChildPending ChildReady child-poll (Waiting 7u64))))
-          (#let marker u64 0u64)
-          (#let later u64
-            (#await u64 Child ChildPending ChildReady child-poll (Waiting marker)))
+            (#return (#u64.+.wrap 1u64
+              (#await Child ChildPending ChildReady child-poll (Waiting 7u64)))))
           (#return value))))";
     let error = lim::parse_program(source).unwrap_err();
     assert!(
@@ -1291,6 +1289,55 @@ fn async_function_only_polls_awaited_let_else_mismatch_arm() {
               (#return fallback)))
           (#let adjusted u64 (#u64.+.wrap value 1u64))
           (#return adjusted))))
+      (#fn poll-work ((input Maybe) (waker (#ref u64))) u64
+        (#let task Frame (#call work (: input input)))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#return (#match first
+          (#case (Ready value) value)
+          (#case (Pending running-task)
+            (#block
+              (#let second Poll (#call poll (: task running-task : waker waker)))
+              (#match second
+                (#case (Ready value) value)
+                (#case (Pending pending) (#block (#forget pending) 0u64))))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let mismatch u64
+          (#call poll-work (: input None : waker (#borrow waker))))
+        (#let matched u64
+          (#call poll-work (: input (Some 42u64) : waker (#borrow waker))))
+        (#forget waker)
+        (#return (#u64.+.wrap mismatch matched)))";
+    build_and_run(source, 50);
+}
+
+#[test]
+fn async_function_resumes_suspension_after_awaited_let_else_success() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum Child ((Waiting u64) (SuccessWaiting u64 u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting remaining)
+            (#if (#u64.== remaining 0u64)
+              (ChildReady 7u64)
+              (ChildPending (Waiting (#u64.-.wrap remaining 1u64)))))
+          (#case (SuccessWaiting remaining value)
+            (#if (#u64.== remaining 0u64)
+              (ChildReady value)
+              (ChildPending
+                (SuccessWaiting (#u64.-.wrap remaining 1u64) value)))))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((input Maybe)) u64
+          (#let base u64 1u64)
+          (#let-else (Some value) Maybe input
+          (#return (#await u64 Child ChildPending ChildReady child-poll
+              (Waiting 1u64))))
+          (#let result u64
+            (#await Child ChildPending ChildReady child-poll
+              (SuccessWaiting 1u64 (#u64.+.wrap value base))))
+          (#return result))))
       (#fn poll-work ((input Maybe) (waker (#ref u64))) u64
         (#let task Frame (#call work (: input input)))
         (#let first Poll (#call poll (: task task : waker waker)))

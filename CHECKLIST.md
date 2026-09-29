@@ -2095,6 +2095,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   loans as a separate execution path while still combining references stored
   together in one variant. Preserve nested variant choices and verify that
   exclusive states do not create false mutable-alias errors.
+- [x] **ASYNC-01b85: Suspend on the success path after awaited `#let-else`.**
+  Lower the matching continuation as a concrete async child while retaining
+  pattern bindings and outer captures. Select it only after a match, keep the
+  mismatch arm's awaited return independent, and preserve Pending/resume for
+  either child. Verify a captured value and pattern payload through native
+  execution, alongside a mismatch child that also suspends.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

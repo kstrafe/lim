@@ -672,8 +672,8 @@ fn compilation_errors_render_the_offending_source_line() {
             name: "async-let-else-await",
             diagnostic_code: "E4000",
             offending_line:
-                "      (#return (#await u64 Child ChildPending ChildReady child-poll (Waiting 7u64))))",
-            line_number: 10,
+                "        (#await Child ChildPending ChildReady child-poll (Waiting 7u64)))))",
+            line_number: 11,
         },
         Case {
             name: "duplicate-enum-match-pattern",

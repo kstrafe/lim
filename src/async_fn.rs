@@ -611,7 +611,7 @@ fn conditional_block_continuation(
     let ready = format!("{base}-branch-ready");
     let poll = format!("{base}-branch-poll");
     let mut parameters = Vec::new();
-    let mut call_arguments = vec![Expr::Symbol(":".into())];
+    let mut call_arguments = Vec::new();
     for binding in &captured_bindings {
         let name = Expr::Symbol(binding.name.clone());
         let ty = crate::parse(&binding.ty)?
@@ -620,6 +620,7 @@ fn conditional_block_continuation(
             .ok_or_else(|| "@async-fn captured binding type is empty".to_owned())?
             .expr;
         parameters.push(Expr::List(vec![name.clone(), ty]));
+        call_arguments.push(Expr::Symbol(":".into()));
         call_arguments.push(name.clone());
         call_arguments.push(name);
     }
@@ -630,6 +631,7 @@ fn conditional_block_continuation(
         } else {
             vec![name.clone(), ty.clone()]
         }));
+        call_arguments.push(Expr::Symbol(":".into()));
         call_arguments.push(name.clone());
         call_arguments.push(name);
     }
@@ -780,7 +782,7 @@ fn conditional_value_expression_task(
     let ready = format!("{base}-expression-ready");
     let poll = format!("{base}-expression-poll");
     let mut helper_parameters = Vec::with_capacity(captured_parameters.len());
-    let mut call_arguments = vec![Expr::Symbol(":".into())];
+    let mut call_arguments = Vec::new();
     for parameter in &captured_parameters {
         helper_parameters.push(Expr::List(vec![
             Expr::Symbol(parameter.name.clone()),
@@ -790,6 +792,7 @@ fn conditional_value_expression_task(
                 .ok_or_else(|| "@async-fn captured parameter type is empty".to_owned())?
                 .expr,
         ]));
+        call_arguments.push(Expr::Symbol(":".into()));
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
         call_arguments.push(Expr::Symbol(parameter.name.clone()));
     }
@@ -1056,6 +1059,242 @@ fn conditional_await_with_immediate(
 /// immediately followed by the function's final return. The final expression
 /// runs inside the success match arm, preserving access to pattern bindings.
 /// The child is constructed and polled only on the mismatch path.
+fn lower_awaited_let_else_success_continuation(
+    let_else: &[Expr],
+    following: &[Expr],
+    return_value: &Expr,
+    return_type: &Expr,
+    failure_value: &Expr,
+    known: &HashMap<String, Binding>,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<Option<(Vec<Expr>, String, String, usize)>, String> {
+    let Some(failure_await) = first_async_await(failure_value) else {
+        return Ok(None);
+    };
+    if failure_await.len() != 7 {
+        return Ok(None);
+    }
+
+    let mut used_names = HashSet::new();
+    for statement in following {
+        collect_value_names(statement, &mut used_names);
+    }
+    collect_value_names(return_value, &mut used_names);
+    let mut local_names = HashSet::new();
+    for statement in following {
+        collect_local_binding_names(statement, &mut local_names);
+    }
+    local_names.extend(pattern_symbols(&let_else[1]));
+    for name in local_names {
+        used_names.remove(&name);
+    }
+    used_names.remove("true");
+    used_names.remove("false");
+
+    let mut captures = used_names
+        .iter()
+        .filter_map(|name| known.get(name).cloned())
+        .collect::<Vec<_>>();
+    captures.sort_by(|left, right| left.name.cmp(&right.name));
+    for capture in &captures {
+        used_names.remove(&capture.name);
+    }
+    if let Some(name) = used_names.iter().next() {
+        return Err(format!(
+            "@async-fn awaited #let-else success continuation captures unknown local '{name}'"
+        ));
+    }
+
+    let base = fresh_async_name(source, next_name);
+    let input_name = format!("{base}-input");
+    let function_name = format!("{base}-success-function");
+    let frame = format!("{base}-success-frame");
+    let poll_result = format!("{base}-success-poll-result");
+    let pending = format!("{base}-success-pending");
+    let ready = format!("{base}-success-ready");
+    let poll = format!("{base}-success-poll");
+    let temp_name = nested_await_name(source, next_name);
+    let mut parameters = Vec::new();
+    let mut arguments = Vec::new();
+    for capture in &captures {
+        let name = Expr::Symbol(capture.name.clone());
+        let ty = crate::parse(&capture.ty)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| "@async-fn captured binding type is empty".to_owned())?
+            .expr;
+        parameters.push(Expr::List(if capture.mutable {
+            vec![Expr::Symbol("#mut".into()), name.clone(), ty]
+        } else {
+            vec![name.clone(), ty]
+        }));
+        arguments.push(Expr::Symbol(":".into()));
+        arguments.push(name.clone());
+        arguments.push(name);
+    }
+    let input_symbol = Expr::Symbol(input_name.clone());
+    parameters.push(Expr::List(vec![input_symbol.clone(), let_else[2].clone()]));
+    arguments.push(Expr::Symbol(":".into()));
+    arguments.push(Expr::Symbol(input_name));
+    arguments.push(Expr::Symbol(temp_name.clone()));
+
+    let function = Expr::List(
+        std::iter::once(Expr::Symbol("#fn".into()))
+            .chain([
+                Expr::Symbol(function_name.clone()),
+                Expr::List(parameters),
+                return_type.clone(),
+                Expr::List(vec![
+                    Expr::Symbol("#let-else".into()),
+                    let_else[1].clone(),
+                    let_else[2].clone(),
+                    input_symbol,
+                    Expr::List(vec![
+                        Expr::Symbol("#return".into()),
+                        Expr::List(vec![Expr::Symbol("#unreachable".into())]),
+                    ]),
+                ]),
+            ])
+            .chain(following.iter().cloned())
+            .chain(std::iter::once(Expr::List(vec![
+                Expr::Symbol("#return".into()),
+                return_value.clone(),
+            ])))
+            .collect(),
+    );
+    let waker_expression = crate::parse(waker)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "@async-fn waker type is empty".to_owned())?
+        .expr;
+    let invocation = Expr::List(vec![
+        Expr::At,
+        Expr::Symbol("async-fn".into()),
+        Expr::List(vec![
+            Expr::Symbol(frame.clone()),
+            Expr::Symbol(poll_result.clone()),
+            Expr::Symbol(pending.clone()),
+            Expr::Symbol(ready.clone()),
+            Expr::Symbol(poll.clone()),
+        ]),
+        waker_expression,
+        function,
+    ]);
+    let success_helper = generated_source(&invocation)?;
+
+    let task_known = {
+        let mut task_known = known.clone();
+        task_known.insert(
+            temp_name.clone(),
+            Binding {
+                name: temp_name.clone(),
+                ty: expression_source(&let_else[2])?,
+                mutable: false,
+            },
+        );
+        task_known
+    };
+    let mut call = vec![Expr::Symbol("#call".into()), Expr::Symbol(function_name)];
+    call.push(Expr::List(arguments));
+    let success_await = Expr::List(vec![
+        Expr::Symbol("#await".into()),
+        return_type.clone(),
+        Expr::Symbol(frame),
+        Expr::Symbol(pending),
+        Expr::Symbol(ready),
+        Expr::Symbol(poll),
+        Expr::List(call),
+    ]);
+    let match_expression = Expr::List(vec![
+        Expr::Symbol("#match".into()),
+        Expr::Symbol(temp_name.clone()),
+        Expr::List(vec![
+            Expr::Symbol("#case".into()),
+            let_else[1].clone(),
+            success_await,
+        ]),
+        Expr::List(vec![
+            Expr::Symbol("#case".into()),
+            Expr::Symbol("_".into()),
+            failure_value.clone(),
+        ]),
+    ]);
+    let conditional = if let Some((protocol, task)) = conditional_await(&match_expression)? {
+        Some((protocol, task, String::new()))
+    } else {
+        conditional_await_with_immediate(&match_expression, &task_known, source, next_name, waker)?
+    };
+    let Some((protocol, mut task, choice_helper)) = conditional else {
+        return Ok(None);
+    };
+    let mut generated = vec![Expr::List(vec![
+        Expr::Symbol("#let".into()),
+        Expr::Symbol(temp_name),
+        let_else[2].clone(),
+        let_else[3].clone(),
+    ])];
+    let mut generated_helpers = Vec::new();
+    extract_nested_awaits(
+        &mut task,
+        &mut generated,
+        &mut generated_helpers,
+        &task_known,
+        source,
+        next_name,
+        waker,
+    )?;
+    let task_name = nested_await_name(source, next_name);
+    generated.push(Expr::List(vec![
+        Expr::Symbol("#let".into()),
+        Expr::Symbol(task_name.clone()),
+        protocol.child_type.clone(),
+        task,
+    ]));
+    let result_name = nested_await_name(source, next_name);
+    generated.push(Expr::List(vec![
+        Expr::Symbol("#let".into()),
+        Expr::Symbol(result_name.clone()),
+        return_type.clone(),
+        Expr::List(vec![
+            Expr::Symbol("#await".into()),
+            protocol.child_type,
+            protocol.pending,
+            protocol.ready,
+            protocol.poll,
+            Expr::Symbol(task_name),
+        ]),
+    ]));
+    generated_helpers.push(success_helper);
+    generated_helpers.push(choice_helper);
+    Ok(Some((
+        generated,
+        generated_helpers.join("\n"),
+        result_name,
+        following.len(),
+    )))
+}
+
+fn pattern_symbols(pattern: &Expr) -> HashSet<String> {
+    fn visit(pattern: &Expr, names: &mut HashSet<String>) {
+        match pattern {
+            Expr::Symbol(name) if name != "_" => {
+                names.insert(name.clone());
+            }
+            Expr::List(items) => {
+                for item in items.iter().skip(1) {
+                    visit(item, names);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut names = HashSet::new();
+    visit(pattern, &mut names);
+    names
+}
+
 fn lower_awaited_let_else_return(
     statement: &Expr,
     following: &[Expr],
@@ -1144,11 +1383,23 @@ fn lower_awaited_let_else_return(
     if await_form.len() != 7 {
         return Ok(None);
     }
-    if following
-        .iter()
-        .any(|statement| has_await(statement) || contains_return(statement))
-        || has_await(return_value)
-    {
+    if following.iter().any(has_await) || has_await(return_value) {
+        if following.iter().any(contains_return) {
+            return Ok(None);
+        }
+        return lower_awaited_let_else_success_continuation(
+            let_else,
+            following,
+            return_value,
+            return_type,
+            &failure_value,
+            known,
+            source,
+            next_name,
+            waker,
+        );
+    }
+    if following.iter().any(contains_return) {
         return Ok(None);
     }
 
