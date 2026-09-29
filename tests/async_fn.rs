@@ -4291,46 +4291,58 @@ fn async_for_let_else_initializer_can_suspend_in_condition() {
         (#return (#match task
           (#case (Waiting value) (InitPending (Resuming value)))
           (#case (Resuming value) (InitReady value)))))
-      (#enum ConditionTask (ConditionWaiting ConditionResuming))
+      (#enum ConditionTask ((ConditionWaiting bool) (ConditionResuming bool)))
       (#linear ConditionTask)
       (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
       (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
         (#return (#match task
-          (#case ConditionWaiting (ConditionPending ConditionResuming))
-          (#case ConditionResuming (ConditionReady false)))))
+          (#case (ConditionWaiting value) (ConditionPending (ConditionResuming value)))
+          (#case (ConditionResuming value) (ConditionReady value)))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-        (#fn work ((input Maybe)) u64
+        (#fn work ((input Maybe) (condition bool)) u64
+          (#let-mut body-ran bool false)
           (#for (#let-else (Some index) Maybe
                   (#await InitTask InitPending InitReady init-poll (Waiting input))
                   (#return 7u64))
                 (#await ConditionTask ConditionPending ConditionReady
-                  condition-poll ConditionWaiting)
+                  condition-poll (ConditionWaiting condition))
                 ()
-            ())
-          (#return 42u64))))";
+            (#set body-ran true)
+            (#break))
+          (#return (#if body-ran 43u64 42u64)))))";
     let source = format!(
         "{source}
         (#fn main () u64
           (#let waker u64 0u64)
-          (#let mismatch-task Frame (#call work (: input None)))
+          (#let mismatch-task Frame (#call work (: input None : condition false)))
           (#let mismatch-first Poll (#call poll (: task mismatch-task : waker (#borrow waker))))
           (#let-else (Pending mismatch-after-init) Poll mismatch-first (#unreachable))
           (#let mismatch-second Poll
             (#call poll (: task mismatch-after-init : waker (#borrow waker))))
           (#let-else (Ready mismatch) Poll mismatch-second (#unreachable))
-          (#let matched-task Frame (#call work (: input (Some 7u64))))
-          (#let matched-first Poll (#call poll (: task matched-task : waker (#borrow waker))))
-          (#let-else (Pending matched-after-init) Poll matched-first (#unreachable))
-          (#let matched-second Poll
-            (#call poll (: task matched-after-init : waker (#borrow waker))))
-          (#let-else (Pending matched-after-condition-start) Poll matched-second (#unreachable))
-          (#let matched-third Poll
-            (#call poll (: task matched-after-condition-start : waker (#borrow waker))))
-          (#let-else (Ready matched) Poll matched-third (#unreachable))
+          (#let false-task Frame (#call work (: input (Some 7u64) : condition false)))
+          (#let false-first Poll (#call poll (: task false-task : waker (#borrow waker))))
+          (#let-else (Pending false-after-init) Poll false-first (#unreachable))
+          (#let false-second Poll
+            (#call poll (: task false-after-init : waker (#borrow waker))))
+          (#let-else (Pending false-after-condition-start) Poll false-second (#unreachable))
+          (#let false-third Poll
+            (#call poll (: task false-after-condition-start : waker (#borrow waker))))
+          (#let-else (Ready matched-false) Poll false-third (#unreachable))
+          (#let true-task Frame (#call work (: input (Some 7u64) : condition true)))
+          (#let true-first Poll (#call poll (: task true-task : waker (#borrow waker))))
+          (#let-else (Pending true-after-init) Poll true-first (#unreachable))
+          (#let true-second Poll
+            (#call poll (: task true-after-init : waker (#borrow waker))))
+          (#let-else (Pending true-after-condition-start) Poll true-second (#unreachable))
+          (#let true-third Poll
+            (#call poll (: task true-after-condition-start : waker (#borrow waker))))
+          (#let-else (Ready matched-true) Poll true-third (#unreachable))
           (#forget waker)
-          (#return (#u64.+.wrap mismatch matched)))"
+          (#return (#u64.+.wrap mismatch
+            (#u64.+.wrap matched-false matched-true))))"
     );
-    let generated = build_and_run(&source, 49);
+    let generated = build_and_run(&source, 92);
     assert!(generated.contains("ConditionPending"), "{generated}");
 }
 

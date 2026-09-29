@@ -2221,6 +2221,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   underline that await instead of falling back to the enclosing statement.
   Preserve selection of later awaits when the statement also awaits its
   scrutinee; verify the UI diagnostic highlights the offending source line.
+- [x] **ASYNC-01b110: Verify both resumed outcomes after an awaited
+  `#let-else` initializer.** Exercise a matched initializer followed by
+  Ready(false), which skips the loop body, and Ready(true), which enters it and
+  breaks; retain the mismatch path that returns before polling the condition.
+  Run all three native paths through Pending/resume.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
