@@ -1928,6 +1928,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   child task. Re-evaluate the selector after each Ready(true), preserve
   Pending/resume and body ordering, and verify the immediate branch does not
   poll its child.
+- [x] **ASYNC-01b57: Suspend inside a `#for` step assignment expression.**
+  Extract a typed nested await from the assignment's right-hand side, retain
+  the per-iteration task across Pending, and assign the computed value only
+  after Ready. Verify native ordering, Pending/resume, and that the next
+  condition observes the completed assignment.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

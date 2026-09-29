@@ -1939,6 +1939,8 @@ fn lower_async_for(
     }
 
     let mut post_step = Vec::new();
+    let mut step_prefix = Vec::new();
+    let mut step_helpers = Vec::new();
     if awaited_step {
         if let Some(set) = form(&step, "#set") {
             if set.len() != 3 {
@@ -1950,20 +1952,36 @@ fn lower_async_for(
             let target_binding = loop_known.get(&target).ok_or_else(|| {
                 format!("@async-fn awaited #for step assigns unknown local '{target}'")
             })?;
-            let await_form = form(&set[2], "#await").ok_or_else(|| {
-                "@async-fn awaited #for step assignment currently requires a direct #await value".to_owned()
-            })?;
-            if await_form.len() != 6 {
-                return Err(
-                    "@async-fn awaited #for step assignment requires (#await Child Pending Ready poll task)".into(),
-                );
-            }
             let result_name = fresh_async_name(source, next_name);
+            let value = if let Some(await_form) = form(&set[2], "#await") {
+                if await_form.len() != 6 {
+                    return Err(
+                        "@async-fn awaited #for step assignment requires (#await Child Pending Ready poll task)".into(),
+                    );
+                }
+                Expr::List(await_form.to_vec())
+            } else {
+                let mut value = set[2].clone();
+                extract_nested_awaits(
+                    &mut value,
+                    &mut step_prefix,
+                    &mut step_helpers,
+                    source,
+                    next_name,
+                    waker,
+                )?;
+                if !step_prefix.iter().any(has_await) {
+                    return Err(
+                        "@async-fn awaited #for step assignment requires a direct or nested typed #await".into(),
+                    );
+                }
+                value
+            };
             step = Expr::List(vec![
                 Expr::Symbol("#let".into()),
                 Expr::Symbol(result_name.clone()),
                 Expr::Symbol(target_binding.ty.clone()),
-                Expr::List(await_form.to_vec()),
+                value,
             ]);
             post_step.push(Expr::List(vec![
                 Expr::Symbol("#set".into()),
@@ -1991,6 +2009,7 @@ fn lower_async_for(
             loop_body.push(step.clone());
         }
     } else {
+        loop_body.extend(step_prefix);
         loop_body.push(step.clone());
         loop_body.extend(post_step);
     }
@@ -2018,6 +2037,7 @@ fn lower_async_for(
     let helper = [
         initializer_helpers.join("\n"),
         condition_helpers.join("\n"),
+        step_helpers.join("\n"),
         helper,
     ]
     .into_iter()

@@ -2251,6 +2251,43 @@ fn async_for_step_can_suspend_after_the_loop_body() {
 }
 
 #[test]
+fn async_for_step_can_suspend_inside_assignment_expression() {
+    let source = "(#enum StepTask (Waiting Resuming))
+      (#linear StepTask)
+      (#enum StepPoll ((StepPending StepTask) (StepReady u64)))
+      (#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case Waiting (StepPending Resuming))
+          (#case Resuming (StepReady 1u64)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut iteration u64 0u64)
+          (#for ()
+                (#u64.< iteration 1u64)
+                (#set iteration
+                  (#u64.+.wrap iteration
+                    (#await u64 StepTask StepPending StepReady step-poll Waiting)))
+            (#assert true))
+          (#return (#if (#u64.== iteration 1u64) 42u64 0u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll
+          (#call poll (: task pending : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("StepPending"), "{generated}");
+}
+
+#[test]
 fn awaited_for_condition_runs_step_after_continue_but_not_break() {
     let source = "(#enum ChildTask ((Waiting u64)))
       (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))
