@@ -2616,9 +2616,17 @@ fn parse_program_in_directory_with_async_captures(
                             async_function_statement_source(&source_expression, statement_index)
                         })
                         .and_then(|statement| {
-                            let await_index = usize::from(error.contains(
+                            let await_index = if error.contains(
                                 "nested #await requires an explicit result type",
-                            ));
+                            ) {
+                                1
+                            } else if error.contains(
+                                "awaited #let-else #for initialization cannot yet be combined with suspension",
+                            ) {
+                                1
+                            } else {
+                                0
+                            };
                             source_form_head_span_nth(statement, &["#await"], await_index)
                                 .or(Some(statement.span))
                         })

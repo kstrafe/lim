@@ -2181,8 +2181,9 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Evaluate the scrutinee once before entering the loop, retain pattern-binding
   scope for its condition/body/step, and preserve Pending/resume. Preserve a
   function return from the mismatch arm as the poll helper's `Ready` result;
-  reject suspension in the remaining loop phases. Verify both matching and
-  mismatch paths natively after Pending/resume.
+  reject suspension in the remaining loop phases and underline the first
+  unsupported phase's `#await`. Verify both matching and mismatch paths
+  natively after Pending/resume.
 - [x] **ASYNC-01b102: Return early from synchronous loops in async functions.**
   Adapt direct `#return` statements in non-suspending loop bodies to the
   enclosing poll helper's `Ready` result. Leave loops containing suspension to

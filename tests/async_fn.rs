@@ -4120,6 +4120,53 @@ fn async_for_let_else_initializer_returns_ready_on_mismatch() {
 }
 
 #[test]
+fn async_for_let_else_initializer_diagnostic_highlights_unsupported_phase_await() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum InitTask (Waiting))
+      (#enum InitPoll ((InitPending InitTask) (InitReady Maybe)))
+      (#fn init-poll ((task InitTask) (waker (#ref u64))) InitPoll
+        (#return (#match task
+          (#case Waiting (InitReady None)))))
+      (#enum ConditionTask (Waiting))
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case Waiting (ConditionReady false)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#for (#let-else (Some index) Maybe
+                  (#await InitTask InitPending InitReady init-poll Waiting)
+                  (#return 7u64))
+                (#await bool ConditionTask ConditionPending ConditionReady
+                  condition-poll Waiting)
+                ()
+            ())
+          (#return 42u64))))";
+    let scratch = support::Scratch::new("async-for-let-else-await-span");
+    let diagnostic = lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("source.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        diagnostic
+            .message
+            .contains("cannot yet be combined with suspension"),
+        "{diagnostic:?}"
+    );
+    let span = diagnostic
+        .span
+        .expect("unsupported await diagnostic has source span");
+    let await_tokens = source.match_indices("#await").collect::<Vec<_>>();
+    assert_eq!(await_tokens.len(), 2);
+    assert_eq!(span.start, await_tokens[1].0);
+    assert_eq!(&source[span.start..span.end], "#await");
+}
+
+#[test]
 fn async_for_step_can_suspend_after_the_loop_body() {
     let source = "(#enum StepTask ((Waiting u64) (Resuming u64)))
       (#linear StepTask)
