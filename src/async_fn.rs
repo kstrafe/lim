@@ -380,6 +380,64 @@ fn rewrite_async_synchronous_loop_returns(
     Ok(())
 }
 
+fn rewrite_async_non_loop_returns(expression: &mut Expr, ready: &str) -> Result<(), String> {
+    if let Some(return_form) = form(expression, "#return").or_else(|| form(expression, "return")) {
+        if return_form.len() != 2 {
+            return Err("@async-fn early #return requires exactly one value".into());
+        }
+        let Expr::List(items) = expression else {
+            unreachable!()
+        };
+        items[1] = Expr::List(vec![Expr::Symbol(ready.into()), items[1].clone()]);
+        return Ok(());
+    }
+    if form(expression, "#let-else").is_some()
+        || ["#while", "#while-let", "#for", "#for-range", "#loop"]
+            .iter()
+            .any(|keyword| form(expression, keyword).is_some())
+    {
+        return Ok(());
+    }
+    match expression {
+        Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote" | "#fn" | "fn"))
+            {
+                return Ok(());
+            }
+            for item in items.iter_mut().skip(1) {
+                rewrite_async_non_loop_returns(item, ready)?;
+            }
+        }
+        Expr::Block(statements) => {
+            for statement in statements {
+                match statement {
+                    crate::Statement::Expr(value)
+                    | crate::Statement::Return(Some(value))
+                    | crate::Statement::BreakValue(value)
+                    | crate::Statement::BreakToValue { value, .. } => {
+                        rewrite_async_non_loop_returns(value, ready)?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Expr::Labeled { expression, .. }
+        | Expr::Unquote(expression)
+        | Expr::UnquoteSplicing(expression) => {
+            rewrite_async_non_loop_returns(expression, ready)?;
+        }
+        Expr::Loop(_) | Expr::Quote(_) | Expr::QuasiQuote(_) => {}
+        Expr::Integer(_)
+        | Expr::UnsignedInteger(_)
+        | Expr::Float(_)
+        | Expr::Char(_)
+        | Expr::String(_)
+        | Expr::Symbol(_)
+        | Expr::At => {}
+    }
+    Ok(())
+}
+
 fn rewrite_async_loop_body_statement(statement: &mut Expr, ready: &str) -> Result<(), String> {
     if let Some(return_form) = form(statement, "#return").or_else(|| form(statement, "return")) {
         if return_form.len() != 2 {
@@ -9483,6 +9541,7 @@ fn generated_source_with_capture_selection(
     let mut statements = body[..body.len() - 1].to_vec();
     for statement in &mut statements {
         rewrite_async_synchronous_loop_returns(statement, &ready)?;
+        rewrite_async_non_loop_returns(statement, &ready)?;
     }
     let mut next_nested_await = 0;
     let mut generated_helpers = Vec::new();

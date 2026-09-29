@@ -103,6 +103,7 @@ use crate::typed_ir::{Declarations, Signature};
 #[derive(Default)]
 struct FunctionTable {
     signatures: HashMap<String, Signature>,
+    return_type_context: std::cell::RefCell<Option<Type>>,
     expression_ids: HashMap<usize, crate::typed_ir::ExpressionId>,
     statement_ids: HashMap<usize, crate::typed_ir::StatementId>,
     expression_types: std::cell::RefCell<HashMap<crate::typed_ir::ExpressionId, Type>>,
@@ -3351,21 +3352,38 @@ fn check_function(
             mutable.insert(parameter.name.clone());
         }
     }
-    let mut last_type = Type::Unit;
-    for (index, statement) in function.body.iter().enumerate() {
-        let result = (|| {
-            if index + 1 == function.body.len() {
-                if let Statement::Expr(value) = statement {
-                    expression(
-                        value,
-                        &variables,
-                        functions,
-                        structs,
-                        enums,
-                        &mutable,
-                        aliases,
-                        Some(&return_type),
-                    )
+    let previous_return_type = functions
+        .return_type_context
+        .replace(Some(return_type.clone()));
+    let body_result: Result<Type, FunctionTypeError> = (|| {
+        let mut last_type = Type::Unit;
+        for (index, statement) in function.body.iter().enumerate() {
+            let result = (|| {
+                if index + 1 == function.body.len() {
+                    if let Statement::Expr(value) = statement {
+                        expression(
+                            value,
+                            &variables,
+                            functions,
+                            structs,
+                            enums,
+                            &mutable,
+                            aliases,
+                            Some(&return_type),
+                        )
+                    } else {
+                        statement_type(
+                            statement,
+                            &mut variables,
+                            &mut mutable,
+                            functions,
+                            structs,
+                            enums,
+                            &return_type,
+                            aliases,
+                            false,
+                        )
+                    }
                 } else {
                     statement_type(
                         statement,
@@ -3379,50 +3397,41 @@ fn check_function(
                         false,
                     )
                 }
-            } else {
-                statement_type(
-                    statement,
-                    &mut variables,
-                    &mut mutable,
-                    functions,
-                    structs,
-                    enums,
-                    &return_type,
-                    aliases,
-                    false,
-                )
-            }
-        })();
-        last_type = result.map_err(|error: SemanticError| {
-            let code = error.code;
-            let statement_span = statement_spans
-                .get(&(function.name.clone(), index))
-                .copied();
-            let source_expression = statement_expressions.get(&(function.name.clone(), index));
-            let precise_span = source_expression
-                .and_then(|expression| {
-                    let source = source_files
-                        .get(expression.span.source_id as usize)
-                        .map(|file| file.source.as_str())?;
-                    let origin = semantic_statement_source(
-                        statement,
-                        expression,
-                        error.origin,
-                        false,
-                        functions,
-                        structs,
-                    );
-                    semantic_error_span(origin.unwrap_or(expression), &error, source)
-                })
-                .or_else(|| source_expression.map(crate::source_value_span))
-                .or(statement_span);
-            FunctionTypeError {
-                message: error.message,
-                span: precise_span,
-                code,
-            }
-        })?;
-    }
+            })();
+            last_type = result.map_err(|error: SemanticError| {
+                let code = error.code;
+                let statement_span = statement_spans
+                    .get(&(function.name.clone(), index))
+                    .copied();
+                let source_expression = statement_expressions.get(&(function.name.clone(), index));
+                let precise_span = source_expression
+                    .and_then(|expression| {
+                        let source = source_files
+                            .get(expression.span.source_id as usize)
+                            .map(|file| file.source.as_str())?;
+                        let origin = semantic_statement_source(
+                            statement,
+                            expression,
+                            error.origin,
+                            false,
+                            functions,
+                            structs,
+                        );
+                        semantic_error_span(origin.unwrap_or(expression), &error, source)
+                    })
+                    .or_else(|| source_expression.map(crate::source_value_span))
+                    .or(statement_span);
+                FunctionTypeError {
+                    message: error.message,
+                    span: precise_span,
+                    code,
+                }
+            })?;
+        }
+        Ok(last_type)
+    })();
+    functions.return_type_context.replace(previous_return_type);
+    let last_type = body_result?;
     require_type(
         &last_type,
         &return_type,
@@ -5198,7 +5207,7 @@ fn statement_type(
                 None => Type::Unit,
             };
             require_type(&actual, return_type, "return statement")?;
-            Ok(return_type.clone())
+            Ok(Type::Never)
         }
         Statement::Expr(value) => expression(
             value, variables, functions, structs, enums, mutable, aliases, None,
@@ -5467,7 +5476,12 @@ fn expression_inner(
         Expr::Block(statements) => {
             let mut block_variables = variables.clone();
             let mut block_mutable = mutable.clone();
-            let block_return = expected.cloned().unwrap_or(Type::Unit);
+            let block_return = functions
+                .return_type_context
+                .borrow()
+                .clone()
+                .or_else(|| expected.cloned())
+                .unwrap_or(Type::Unit);
             let mut result = Type::Unit;
             for (index, statement) in statements.iter().enumerate() {
                 result = if index + 1 == statements.len() {
@@ -5515,6 +5529,12 @@ fn expression_inner(
             let mut loop_variables = variables.clone();
             let mut loop_mutable = mutable.clone();
             loop_mutable.insert(LOOP_VALUE_CONTEXT.to_owned());
+            let loop_return = functions
+                .return_type_context
+                .borrow()
+                .clone()
+                .or_else(|| expected.cloned())
+                .unwrap_or(Type::Unit);
             let mut result_type = None;
             for statement in statements {
                 let has_value_break = statement_has_value_break(statement);
@@ -5539,7 +5559,7 @@ fn expression_inner(
                         functions,
                         structs,
                         enums,
-                        &expected.cloned().unwrap_or(Type::Unit),
+                        &loop_return,
                         aliases,
                         true,
                     )?
