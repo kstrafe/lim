@@ -4777,7 +4777,13 @@ fn statement_type(
                     "cannot assign to immutable variable '{name}'"
                 ));
             }
-            if contains_reference_type(&ty, structs, enums, &mut HashSet::new()) {
+            let transfers_existing_reference_owner = matches!(value, Expr::List(items)
+                if items.len() >= 3
+                    && matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#match" | "match"))
+                    && matches!(items.get(1), Some(Expr::Symbol(scrutinee)) if scrutinee == name));
+            if contains_reference_type(&ty, structs, enums, &mut HashSet::new())
+                && !transfers_existing_reference_owner
+            {
                 return Err(semantic_format!(
                     "cannot replace '{name}' because its type retains references"
                 ));

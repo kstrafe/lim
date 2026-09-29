@@ -1140,9 +1140,11 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             context.scope_bindings.extend(names);
         }
         Statement::Assign { name, value } => {
-            if matches!(statement, Statement::Assign { .. })
-                && context.reference_origins.contains_key(name)
-            {
+            let transfers_existing_reference_owner = matches!(value, Expr::List(items)
+                if items.len() >= 3
+                    && matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#match" | "match"))
+                    && matches!(items.get(1), Some(Expr::Symbol(scrutinee)) if scrutinee == name));
+            if context.reference_origins.contains_key(name) && !transfers_existing_reference_owner {
                 return Err(failure!(
                     "cannot replace '{name}' while it retains references"
                 ));
@@ -1441,7 +1443,18 @@ fn bind_pattern_reference_fields(
         if origins.is_empty() {
             origins.clone_from(inherited_origins);
         }
-        let mut loans = borrow_place_loans(value, context);
+        let mut loans = match value {
+            // `bind_pattern_references` snapshots provenance and then retires
+            // the moved scrutinee before recursing into its payloads. Once
+            // retired, a symbol-only fallback from `borrow_place_loans` would
+            // incorrectly make the consumed local itself the loan owner.
+            Expr::Symbol(name)
+                if !context.reference_loans.contains_key(name) && !inherited_loans.is_empty() =>
+            {
+                inherited_loans.to_vec()
+            }
+            _ => borrow_place_loans(value, context),
+        };
         if let Some((field_origins, field_loans)) = inherited_fields.get(path) {
             origins.clone_from(field_origins);
             loans.clone_from(field_loans);
@@ -1877,29 +1890,36 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                                 context,
                             )?;
                         }
-                        let transfers_mutable_reference = context
+                        let transfers_reference_ownership = context
                             .program_items
                             .iter()
                             .find_map(|declaration| match declaration {
                                 Item::Function(function) if function.name == *operator => {
                                     function.parameters.get(index).map(|parameter| {
-                                        type_contains_mutable_reference(
+                                        contains_mutable_reference(
+                                            &parameter.ty,
+                                            &context.reference_types,
+                                            &context.mutable_reference_types,
+                                        ) || (contains_reference_type(
+                                            &parameter.ty,
+                                            &context.reference_types,
+                                        ) && type_is_explicitly_linear(
                                             &parameter.ty,
                                             &context.program_items,
-                                            &mut HashSet::new(),
-                                        )
+                                        ))
                                     })
                                 }
                                 _ => None,
                             })
                             .unwrap_or(false);
-                        // A by-value mutable-reference aggregate is moved into
-                        // the callee. Retire its caller-side loan at the call;
-                        // if the result carries it onward, the enclosing let
-                        // reconstructs that loan from the result's provenance.
+                        // A by-value mutable-reference aggregate, or any
+                        // explicitly linear aggregate containing references,
+                        // is moved into the callee. Retire its caller-side
+                        // loan at the call; if the result carries it onward,
+                        // the enclosing let reconstructs it from provenance.
                         // Typed borrow checking independently validates this
                         // transfer and the returned lifetime.
-                        if transfers_mutable_reference {
+                        if transfers_reference_ownership {
                             release_dropped_value(item, context);
                         }
                         Ok::<(), Error>(())
@@ -2455,6 +2475,19 @@ fn contains_mutable_reference(
         crate::Type::Named(name) => {
             reference_types.contains(name) && mutable_reference_types.contains(name)
         }
+        _ => false,
+    }
+}
+
+fn type_is_explicitly_linear(ty: &crate::Type, declarations: &[Item]) -> bool {
+    match ty {
+        crate::Type::Named(name) => declarations.iter().any(|declaration| {
+            matches!(declaration, Item::LinearAnnotation { type_name } if type_name == name)
+        }),
+        crate::Type::Tuple(fields) => fields
+            .iter()
+            .any(|field| type_is_explicitly_linear(field, declarations)),
+        crate::Type::Array(element, _) => type_is_explicitly_linear(element, declarations),
         _ => false,
     }
 }

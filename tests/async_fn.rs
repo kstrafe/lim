@@ -2552,6 +2552,69 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     );
     let generated = build_and_run(&three_phase_source, 42);
     assert!(generated.contains("iteration-function"), "{generated}");
+
+    let shared_reference_source = three_phase_source
+        .replace(
+            "(#fn work () u64",
+            "(#fn work ((view (#ref u64))) u64",
+        )
+        .replace(
+            "(#set total (#u64.+.wrap total 1u64))",
+            "(#assert (#u64.== (#deref view) 41u64))\n            (#set total (#u64.+.wrap total 1u64))",
+        )
+        .replace(
+            "(#return (#if (#u64.== iteration 1u64)\n            (#if (#u64.== total 1u64) 42u64 0u64)\n            0u64))",
+            "(#return (#if (#u64.== (#deref view) 41u64)\n            (#if (#u64.== iteration 1u64)\n              (#if (#u64.== total 1u64) 42u64 0u64)\n              0u64)\n            0u64))",
+        );
+    let (prefix, _) = shared_reference_source
+        .split_once("(#fn main () u64")
+        .unwrap();
+    let shared_reference_source = format!(
+        "{prefix}(#fn main () u64
+          (#let-mut owner u64 41u64)
+          (#let waker u64 0u64)
+          (#let task Frame (#call work (: view (#borrow owner))))
+          (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+          (#let-else (Pending condition-pending) Poll first (#unreachable))
+          (#let second Poll (#call poll (: task condition-pending : waker (#borrow waker))))
+          (#let-else (Pending body-pending) Poll second (#unreachable))
+          (#let third Poll (#call poll (: task body-pending : waker (#borrow waker))))
+          (#let-else (Pending step-pending) Poll third (#unreachable))
+          (#let fourth Poll (#call poll (: task step-pending : waker (#borrow waker))))
+          (#let-else (Pending resumed-condition) Poll fourth (#unreachable))
+          (#let fifth Poll (#call poll (: task resumed-condition : waker (#borrow waker))))
+          (#let result u64
+            (#match fifth
+              (#case (Ready value) value)
+              (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+          (#set owner 43u64)
+          (#forget waker)
+          (#return (#if (#u64.== result 42u64)
+            (#if (#u64.== owner 43u64) 42u64 0u64) 0u64)))"
+    );
+    let generated = build_and_run(&shared_reference_source, 42);
+    assert!(generated.contains("iteration-function"), "{generated}");
+
+    let mutation_before_poll = shared_reference_source.replace(
+        "(#let task Frame (#call work (: view (#borrow owner))))",
+        "(#let task Frame (#call work (: view (#borrow owner))))\n          (#set owner 42u64)",
+    );
+    let error = lim::check_types(&lim::parse_program(&mutation_before_poll).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "{error}"
+    );
+
+    let mutation_while_pending = shared_reference_source.replace(
+        "(#let-else (Pending condition-pending) Poll first (#unreachable))",
+        "(#let-else (Pending condition-pending) Poll first (#unreachable))\n          (#set owner 42u64)",
+    );
+    let error =
+        lim::check_types(&lim::parse_program(&mutation_while_pending).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "the external shared loan must remain live while the composed task is Pending: {error}"
+    );
 }
 
 #[test]

@@ -2077,6 +2077,18 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   adapter. A continue must await and apply the step before rechecking the
   condition; a break must skip the step and exit after the body is Ready.
   Preserve updated loop-carried values and verify both paths natively.
+- [ ] **ASYNC-01b84: Transfer external borrows through three-phase awaited `#for`.**
+  Move each shared, mutable, or pinned reference through exactly one live task
+  state; do not duplicate it in nested condition/body/step frames. Preserve the
+  borrower's provenance through every Pending result, and release or return the
+  loan on Ready/cancellation. Shared-reference Pending/Ready behavior is
+  covered by ASYNC-01b84a; exclusive/pinned transfer and cancellation remain.
+- [x] **ASYNC-01b84a: Retain shared captures through three-phase awaited `#for`.**
+  Transfer borrow provenance when a by-value explicitly linear aggregate
+  contains references, and use the pre-move provenance when destructuring its
+  returned enum payload. Verify a shared capture survives condition/body/step
+  suspension, owner mutation is rejected while Pending, and owner access is
+  accepted after Ready.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
