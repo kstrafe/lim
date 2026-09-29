@@ -1913,6 +1913,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Verify native Pending/resume and left-to-right evaluation with multiple
   initializer awaits; untyped nested awaits receive the explicit-result-type
   diagnostic.
+- [x] **ASYNC-01b54: Preserve conditional initializer evaluation.** Verify a
+  non-selected `#if` initializer branch containing an await does not poll its
+  child; the immediate branch must complete on the first poll. This keeps
+  generated initializer lowering from eagerly evaluating a conditional await.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

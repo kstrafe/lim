@@ -2044,6 +2044,19 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
     let generated = build_and_run(source, 42);
     assert!(generated.contains("InitPending"), "{generated}");
 
+    let conditional_initializer = source
+        .replace(
+            "(#let-mut iteration u64\n                  (#await InitTask InitPending InitReady init-poll (Waiting 0u64)))",
+            "(#let-mut iteration u64\n                  (#if false\n                    (#await u64 InitTask InitPending InitReady init-poll (Waiting 0u64))\n                    2u64))",
+        )
+        .replace(
+            "(#let-else (Pending pending) Poll first (#unreachable))\n        (#let second Poll\n          (#call poll (: task pending : waker (#borrow waker))))\n        (#let result u64\n          (#match second\n            (#case (Ready value) value)\n            (#case (Pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
+            "(#let result u64\n          (#match first\n            (#case (Ready value) value)\n            (#case (Pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
+    );
+    assert_ne!(conditional_initializer, source);
+    let generated = build_and_run(&conditional_initializer, 42);
+    assert!(generated.contains("(#fn poll"), "{generated}");
+
     let nested_initializer = source.replace(
         "(#let-mut iteration u64\n                  (#await InitTask InitPending InitReady init-poll (Waiting 0u64)))",
         "(#let-mut iteration u64\n                  (#u64.+.wrap 0u64 (#await u64 InitTask InitPending InitReady init-poll (Waiting 0u64))))",
