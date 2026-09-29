@@ -3044,6 +3044,51 @@ fn async_while_body_suspends_inside_a_call_argument() {
 }
 
 #[test]
+fn async_for_body_suspends_inside_a_call_argument() {
+    let source = format!(
+        "(#import \"{}/library/cell.lim\")
+         (@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
+         (#enum ChildTask ((Waiting u64)))
+         (#linear ChildTask)
+         (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+         (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+           (#return (#match task
+             (#case (Waiting remaining)
+               (#if (#u64.== remaining 0u64)
+                 (ChildPending (Waiting 1u64))
+                 (ChildReady 42u64))))))
+         (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+           (#fn work ((cell (#ref CellU64))) u64
+             (#for (#let-mut iteration u64 0u64)
+                   (#u64.< iteration 1u64)
+                   (#set iteration (#u64.+.wrap iteration 1u64))
+               (#call CellU64-set (: cell cell : value
+                 (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 0u64)))))
+             (#return (#call CellU64-get (: cell cell))))))
+         (#fn main () u64
+           (#let cell CellU64 (#call CellU64-create (: value 0u64)))
+           (#let waker u64 0u64)
+           (#let task Frame (#call work (: cell (#borrow cell))))
+           (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+           (#let-else (Pending pending) Poll first (#unreachable))
+           (#let before u64 (#call CellU64-get (: cell (#borrow cell))))
+           (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+           (#let result u64
+             (#match second
+               (#case (Ready value) value)
+               (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+           (#forget waker)
+           (#forget cell)
+           (#return (#if (#bool.&& (#u64.== before 0u64)
+                                  (#u64.== result 42u64))
+                         42u64 0u64)))",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let generated = build_and_run(&source, 42);
+    assert!(generated.contains("-body-frame"), "{generated}");
+}
+
+#[test]
 fn async_function_resumes_a_child_await_in_a_while_condition() {
     let source = include_str!("../examples/async_fn_while_condition.lim");
     let generated = build_and_run(source, 42);

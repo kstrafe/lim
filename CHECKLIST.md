@@ -2382,6 +2382,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   statement itself to be a `#let` await. Preserve mutable loop captures and
   ordering; verify the call argument remains pending without side effects and
   the loop completes after resume.
+- [x] **ASYNC-01b145: Preserve nested body awaits through C-style `#for`.**
+  Verify that the `#for` lowering retains initializer/condition/step ordering
+  when its body delegates a non-direct await statement to a generated body
+  task. Test Pending/resume natively and ensure the call side effect occurs
+  only after the awaited value is Ready.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
