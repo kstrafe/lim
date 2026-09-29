@@ -3164,14 +3164,11 @@ fn lower_async_while(
         let direct_condition_await = form(&items[1], "#await");
         let return_index = items.len().saturating_sub(1);
         let body_return = if items.len() >= 3 {
-            form(&items[return_index], "#return")
+            async_terminal_return_value(&items[return_index])
         } else {
             None
         };
-        if let (Some(await_form), Some(return_form)) = (direct_condition_await, body_return) {
-            if return_form.len() != 2 {
-                return Err("@async-fn awaited #while return requires exactly one value".into());
-            }
+        if let (Some(await_form), Some(body_return)) = (direct_condition_await, body_return) {
             if !following.is_empty()
                 || has_await(return_value)
                 || await_form.len() != 6
@@ -3191,12 +3188,12 @@ fn lower_async_while(
             ]);
             let mut replacement = vec![condition_binding];
             let returned_body = if return_index == 2 {
-                return_form[1].clone()
+                body_return
             } else {
                 Expr::List(
                     std::iter::once(Expr::Symbol("#block".into()))
                         .chain(items[2..return_index].iter().cloned())
-                        .chain(std::iter::once(return_form[1].clone()))
+                        .chain(std::iter::once(body_return))
                         .collect(),
                 )
             };
@@ -3236,11 +3233,27 @@ fn async_while_has_terminal_return(statement: &Expr) -> bool {
     if items.len() < 3 || form(&items[1], "#await").is_none() {
         return false;
     }
-    match items.len() {
-        _ => items
-            .last()
-            .is_some_and(|last| form(last, "#return").is_some()),
+    items
+        .last()
+        .is_some_and(|last| async_terminal_return_value(last).is_some())
+}
+
+fn async_terminal_return_value(expression: &Expr) -> Option<Expr> {
+    if let Some(return_form) = form(expression, "#return") {
+        return (return_form.len() == 2).then(|| return_form[1].clone());
     }
+    let conditional = form(expression, "#if")?;
+    if conditional.len() != 4 {
+        return None;
+    }
+    let then_value = async_terminal_return_value(&conditional[2])?;
+    let else_value = async_terminal_return_value(&conditional[3])?;
+    Some(Expr::List(vec![
+        conditional[0].clone(),
+        conditional[1].clone(),
+        then_value,
+        else_value,
+    ]))
 }
 
 fn lower_async_while_with_transfers(
