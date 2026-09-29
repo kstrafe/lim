@@ -2453,6 +2453,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Normalize an explicit final `#await` into the false branch of an awaited
   while that can return early, and suppress the former unconditional tail poll.
   Verify the early-return path bypasses the tail and the false path resumes it.
+- [x] **ASYNC-01b160: Run post-loop statements only after normal loop exit.**
+  Carry synchronous statements following a loop with conditional body returns
+  in the loop-tail status branch. A returned status must bypass them; a normal
+  false-condition exit must execute them once. Verify both outcomes natively.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

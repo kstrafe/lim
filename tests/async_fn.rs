@@ -3489,7 +3489,8 @@ fn async_while_conditional_return_can_fall_through_to_another_iteration() {
             (#if first
               (#block (#set first false) ())
               (#return 7u64)))
-          (#return 0u64))))
+          (#let fallback u64 3u64)
+          (#return fallback))))
       (#fn main () u64
         (#let waker u64 0u64)
         (#let true-task Frame (#call work (: decision true)))
@@ -3504,7 +3505,7 @@ fn async_while_conditional_return_can_fall_through_to_another_iteration() {
         (#let-else (PollReady false-result) Poll false-first (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
-    build_and_run(source, 7);
+    build_and_run(source, 10);
 }
 
 #[test]

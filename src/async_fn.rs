@@ -3854,11 +3854,15 @@ fn lower_async_while_with_return_continue(
     source: &str,
     next_name: &mut usize,
     waker: &str,
-) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>, usize)>, String> {
     let Some(items) = form(statement, "#while") else {
         return Ok(None);
     };
-    if !following.is_empty() || items.len() < 3 {
+    if items.len() < 3
+        || following
+            .iter()
+            .any(|statement| contains_return(statement) || contains_loop_control(statement))
+    {
         return Ok(None);
     }
     let (condition_await, condition_helper) = if let Some(await_form) = form(&items[1], "#await") {
@@ -3935,13 +3939,23 @@ fn lower_async_while_with_return_continue(
     );
     let mut loop_known_order = known_order.to_vec();
     loop_known_order.push(status_name.clone());
+    let tail_value = if following.is_empty() {
+        return_value.clone()
+    } else {
+        Expr::List(
+            std::iter::once(Expr::Symbol("#block".into()))
+                .chain(following.iter().cloned())
+                .chain(std::iter::once(return_value.clone()))
+                .collect(),
+        )
+    };
     let mut loop_return = Expr::List(vec![
         Expr::Symbol("#match".into()),
         Expr::Symbol(status_name.clone()),
         Expr::List(vec![
             Expr::Symbol("#case".into()),
             Expr::Symbol(tail_variant.clone()),
-            return_value.clone(),
+            tail_value,
         ]),
         Expr::List(vec![
             Expr::Symbol("#case".into()),
@@ -3992,6 +4006,7 @@ fn lower_async_while_with_return_continue(
             .collect::<Vec<_>>()
             .join("\n"),
         renames,
+        following.len(),
     )))
 }
 
@@ -8847,19 +8862,23 @@ fn generated_source_with_capture_selection(
             return_value = Expr::Symbol(result_name);
             continue;
         }
-        if let Some((replacement, helper, renames)) = lower_async_while_with_return_continue(
-            &statement,
-            &lowering_known,
-            &lowering_known_order,
-            &following,
-            &mut return_value,
-            &function[3],
-            &source,
-            &mut next_nested_await,
-            &waker_source,
-        )
-        .map_err(|error| format!("async statement {source_index}: {error}"))?
+        if let Some((replacement, helper, renames, consumed_following)) =
+            lower_async_while_with_return_continue(
+                &statement,
+                &lowering_known,
+                &lowering_known_order,
+                &following,
+                &mut return_value,
+                &function[3],
+                &source,
+                &mut next_nested_await,
+                &waker_source,
+            )
+            .map_err(|error| format!("async statement {source_index}: {error}"))?
         {
+            for consumed_index in source_index + 1..=source_index + consumed_following {
+                consumed_async_statements.insert(consumed_index);
+            }
             apply_async_output_renames(
                 &mut statements[source_index + 1..],
                 &mut return_value,
