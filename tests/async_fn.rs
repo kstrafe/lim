@@ -2440,7 +2440,7 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 2);
+    let generated = build_and_run(&source, 2);
     assert!(generated.contains("-wait"), "{generated}");
 }
 
@@ -2744,6 +2744,108 @@ fn async_while_body_can_return_after_body_await() {
         generated.contains("expression-ready Payload"),
         "{generated}"
     );
+}
+
+#[test]
+fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
+    let source = "(#import \"{}/library/tasks.lim\")
+      (#struct Payload ((value u64)))
+      (#linear Payload)
+      (#enum ConditionTask ((ConditionWaiting bool) (ConditionResuming bool)))
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task
+          (#case (ConditionWaiting decision)
+            (ConditionPending (ConditionResuming decision)))
+          (#case (ConditionResuming decision) (ConditionReady decision)))))
+      (#enum BodyTask ((BodyWaiting u64) (BodyResuming u64)))
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
+          (#case (BodyResuming value) (BodyReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((#mut decision bool)) Payload
+          (#let-mut payload Payload
+            (#struct-literal Payload ((value 1u64))))
+          (#while (#await ConditionTask ConditionPending ConditionReady
+                    condition-poll (ConditionWaiting decision))
+            (#let first u64
+              (#await u64 BodyTask BodyPending BodyReady body-poll
+                (BodyWaiting 1u64)))
+            (#let second u64
+            (#await u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting first)))
+            (#let replacement Payload
+              (#struct-literal Payload ((value (#u64.+.wrap second 1u64)))))
+            (#forget payload)
+            (#set payload replacement)
+            (#set decision false))
+          (#return payload))))
+      (#fn cancel-body-start ((task (#tuple bool Payload))) ()
+        (#let (#tuple decision payload) (#tuple bool Payload) task)
+        (#forget payload) (#return ()))
+      (#fn cancel-body-await-0 ((task (#tuple bool Payload BodyTask))) ()
+        (#let (#tuple decision payload child) (#tuple bool Payload BodyTask) task)
+        (#forget payload) (#forget child) (#return ()))
+      (#fn cancel-body-await-1 ((task (#tuple bool Payload BodyTask))) ()
+        (#let (#tuple decision payload child) (#tuple bool Payload BodyTask) task)
+        (#forget payload) (#forget child) (#return ()))
+      (@task-cancel cancel-body lim.async.work.choice-0-body-frame
+        ((lim.async.work.choice-0-body-frame-start cancel-body-start ((decision bool) (payload Payload)))
+         (lim.async.work.choice-0-body-frame-await-0 cancel-body-await-0 ((decision bool) (payload Payload) (child BodyTask)))
+         (lim.async.work.choice-0-body-frame-await-1 cancel-body-await-1 ((decision bool) (payload Payload) (child BodyTask)))))
+      (#fn cancel-condition-wait ((task (#tuple ConditionTask bool Payload))) ()
+        (#let (#tuple child decision payload) (#tuple ConditionTask bool Payload) task)
+        (#forget child) (#forget payload) (#return ()))
+      (#fn cancel-body-wait ((task (#tuple lim.async.work.choice-0-body-frame))) ()
+        (#let (#tuple child) (#tuple lim.async.work.choice-0-body-frame) task)
+        (#call cancel-body (: task child)) (#return ()))
+      (@task-cancel cancel-condition-body lim.async.work.choice-2-condition-body-task
+        ((lim.async.work.choice-2-wait-condition cancel-condition-wait ((child ConditionTask) (decision bool) (payload Payload)))
+         (lim.async.work.choice-2-wait-body cancel-body-wait ((child lim.async.work.choice-0-body-frame)))))
+      (#fn cancel-run-start ((task (#tuple bool Payload bool))) ()
+        (#let (#tuple decision payload stopped) (#tuple bool Payload bool) task)
+        (#forget payload) (#return ()))
+      (#fn cancel-run-wait ((task (#tuple bool bool lim.async.work.choice-2-condition-body-task))) ()
+        (#let (#tuple decision stopped child) (#tuple bool bool lim.async.work.choice-2-condition-body-task) task)
+        (#call cancel-condition-body (: task child)) (#return ()))
+      (@task-cancel cancel-run lim.async.work.choice-13-task
+        ((lim.async.work.choice-13-start cancel-run-start ((decision bool) (payload Payload) (stopped bool)))
+         (lim.async.work.choice-13-wait cancel-run-wait ((decision bool) (stopped bool) (child lim.async.work.choice-2-condition-body-task)))))
+      (#fn cancel-frame-start ((task (#tuple bool))) ()
+        (#let (#tuple decision) (#tuple bool) task) (#return ()))
+      (#fn cancel-frame-await ((task (#tuple lim.async.work.choice-13-task))) ()
+        (#let (#tuple child) (#tuple lim.async.work.choice-13-task) task)
+        (#call cancel-run (: task child)) (#return ()))
+      (@task-cancel cancel-frame Frame
+        ((Frame-start cancel-frame-start ((decision bool)))
+         (Frame-await-0 cancel-frame-await ((child lim.async.work.choice-13-task)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (: decision true)) : waker (#borrow waker))))
+        (#let-else (Pending condition-pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task condition-pending : waker (#borrow waker))))
+        (#let-else (Pending first-body-pending) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task first-body-pending : waker (#borrow waker))))
+        (#let-else (Pending second-body-pending) Poll third (#unreachable))
+        (#let fourth Poll (#call poll (: task second-body-pending : waker (#borrow waker))))
+        (#let-else (Pending final-condition-pending) Poll fourth (#unreachable))
+        (#let fifth Poll (#call poll (: task final-condition-pending : waker (#borrow waker))))
+        (#let-else (Ready payload) Poll fifth (#unreachable))
+        (#let result u64 (#get payload value))
+        (#forget payload)
+        (#let cancel-first Poll
+          (#call poll (: task (#call work (: decision true)) : waker (#borrow waker))))
+        (#let-else (Pending cancel-pending-first) Poll cancel-first (#unreachable))
+        (#let cancel-second Poll
+          (#call poll (: task cancel-pending-first : waker (#borrow waker))))
+        (#let-else (Pending cancel-pending-second) Poll cancel-second (#unreachable))
+        (#call cancel-frame (: task cancel-pending-second))
+        (#forget waker)
+        (#return result))"
+        .replace("{}", env!("CARGO_MANIFEST_DIR"));
+    let generated = build_and_run(&source, 2);
+    assert!(generated.contains("Payload"), "{generated}");
 }
 
 #[test]

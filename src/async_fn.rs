@@ -2527,23 +2527,6 @@ fn async_while_body_child(
         .filter(|name| names.contains(name.as_str()))
         .filter_map(|name| known.get(name).cloned())
         .collect::<Vec<_>>();
-    for capture in &captures {
-        let parsed = crate::parse(&capture.ty)?;
-        let ty = parsed
-            .first()
-            .ok_or_else(|| "@async-fn body capture type is empty".to_owned())?;
-        let ty = parse_type(Some(&normalize_keywords(ty.expr.clone())))?;
-        if !async_task_capture_is_copy(&ty)
-            && !async_task_capture_is_mutable_reference(&ty)
-            && owned_capture != Some(capture.name.as_str())
-        {
-            return Err(format!(
-                "@async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
-                capture.name
-            ));
-        }
-    }
-
     let mut mutated = HashSet::new();
     fn collect_assignments(expression: &Expr, names: &mut HashSet<String>) {
         if let Some(name) = mutable_assignment_target(expression) {
@@ -2577,22 +2560,28 @@ fn async_while_body_child(
     for expression in body {
         collect_assignments(expression, &mut mutated);
     }
+    for capture in &captures {
+        let parsed = crate::parse(&capture.ty)?;
+        let ty = parsed
+            .first()
+            .ok_or_else(|| "@async-fn body capture type is empty".to_owned())?;
+        let ty = parse_type(Some(&normalize_keywords(ty.expr.clone())))?;
+        if !async_task_capture_is_copy(&ty)
+            && !async_task_capture_is_mutable_reference(&ty)
+            && owned_capture != Some(capture.name.as_str())
+            && !(capture.mutable && mutated.contains(&capture.name))
+        {
+            return Err(format!(
+                "@async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
+                capture.name
+            ));
+        }
+    }
     let mut mutable_outputs = Vec::new();
     for capture in captures
         .iter()
         .filter(|capture| capture.mutable && mutated.contains(&capture.name))
     {
-        let parsed = crate::parse(&capture.ty)?;
-        let ty = parsed
-            .first()
-            .ok_or_else(|| "@async-fn mutable body capture type is empty".to_owned())?;
-        let ty = parse_type(Some(&normalize_keywords(ty.expr.clone())))?;
-        if !async_task_capture_is_copy(&ty) {
-            return Err(format!(
-                "@async-fn composed awaited while body cannot return mutated non-Copy capture '{}' yet",
-                capture.name
-            ));
-        }
         mutable_outputs.push(capture.clone());
     }
 
@@ -4012,6 +4001,30 @@ fn lower_async_while_with_transfers(
                         Vec::new(),
                     )
                 };
+            let mut transfers = transfers.to_vec();
+            for (output_index, output) in body_outputs.iter().enumerate() {
+                if transfers
+                    .iter()
+                    .any(|transfer| transfer.name == output.name)
+                {
+                    continue;
+                }
+                let parsed_type = crate::parse(&output.ty)?;
+                let type_expression = parsed_type
+                    .first()
+                    .ok_or_else(|| "@async-fn mutable body output type is empty".to_owned())?;
+                let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
+                if !async_task_capture_is_copy(&ty) && !async_task_capture_is_mutable_reference(&ty)
+                {
+                    transfers.push(LoopReferenceTransfer {
+                        name: output.name.clone(),
+                        ty: output.ty.clone(),
+                        result_index: output_index + 1,
+                        resumed_name: fresh_async_name(source, next_name),
+                        owned: true,
+                    });
+                }
+            }
             if body_await.len() != 7 || has_await(&body_await[6]) || has_await(&await_form[5]) {
                 return Err(
                     "@async-fn awaited while condition/body composition requires direct awaits with non-suspending child-task expressions".into(),
@@ -4033,6 +4046,9 @@ fn lower_async_while_with_transfers(
                 if !async_task_capture_is_copy(&ty)
                     && !async_task_capture_is_mutable_reference(&ty)
                     && !owned_captures.contains(&capture.name)
+                    && !body_outputs
+                        .iter()
+                        .any(|output| output.name == capture.name)
                 {
                     return Err(format!(
                         "@async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
@@ -4079,6 +4095,9 @@ fn lower_async_while_with_transfers(
                 let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
                 if !async_task_capture_is_mutable_reference(&ty)
                     && !owned_captures.contains(&capture.name)
+                    && !body_outputs
+                        .iter()
+                        .any(|output| output.name == capture.name)
                 {
                     body_captures.push(capture.clone());
                 }
@@ -4142,7 +4161,7 @@ fn lower_async_while_with_transfers(
                     }
                     let body_fields = &body_type_items[1..];
                     let mut transferred_indices = HashSet::new();
-                    for transfer in transfers {
+                    for transfer in &transfers {
                         if transfer.result_index >= body_fields.len()
                             || !transferred_indices.insert(transfer.result_index)
                         {
@@ -4292,6 +4311,14 @@ fn lower_async_while_with_transfers(
             let stopped_name = fresh_async_name(source, next_name);
             let body_stopped_name = fresh_async_name(source, next_name);
             let payload_name = fresh_async_name(source, next_name);
+            let body_local_outputs = body_outputs
+                .iter()
+                .filter(|output| {
+                    !transfers
+                        .iter()
+                        .any(|transfer| transfer.owned && transfer.name == output.name)
+                })
+                .collect::<Vec<_>>();
             let mut body_success = vec![Expr::Symbol("#block".into())];
             if body_outputs.is_empty() {
                 body_success.push(Expr::List(vec![
@@ -4304,6 +4331,11 @@ fn lower_async_while_with_transfers(
                 let status_name = fresh_async_name(source, next_name);
                 let output_names = body_outputs
                     .iter()
+                    .filter(|output| {
+                        !transfers
+                            .iter()
+                            .any(|transfer| transfer.owned && transfer.name == output.name)
+                    })
                     .map(|_| fresh_async_name(source, next_name))
                     .collect::<Vec<_>>();
                 let pattern = Expr::List(
@@ -4324,7 +4356,7 @@ fn lower_async_while_with_transfers(
                     Expr::Symbol("bool".into()),
                     Expr::Symbol(status_name),
                 ]));
-                for (capture, value) in body_outputs.iter().zip(output_names) {
+                for (capture, value) in body_local_outputs.iter().zip(output_names) {
                     body_success.push(Expr::List(vec![
                         Expr::Symbol("#set".into()),
                         Expr::Symbol(capture.name.clone()),
@@ -4435,7 +4467,7 @@ fn lower_async_while_with_transfers(
                 &Expr::List(loop_form),
                 known,
                 known_order,
-                transfers,
+                &transfers,
                 following,
                 return_value,
                 source,

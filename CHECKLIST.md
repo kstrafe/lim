@@ -2308,6 +2308,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   borrowed reference outputs, including bodies with multiple suspensions.
   Preserve the loans through Pending/resume and release them on Ready or
   cancellation; verify native mutation, reference use, and cancellation.
+- [x] **ASYNC-01b128: Transfer mutated linear captures through awaited loops.**
+  Permit a loop-body helper to return a mutated non-Copy capture after
+  suspension. Keep its ownership in the pending frame, consume replaced values
+  explicitly, and transfer the final value back exactly once on Ready or
+  cancellation; verify native Pending/resume and destruction paths.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
