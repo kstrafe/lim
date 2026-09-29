@@ -1928,6 +1928,18 @@ fn awaited_while_condition_and_body_resume_in_source_order() {
     );
     let generated = build_and_run(&conditional_source, 42);
     assert!(generated.contains("choice"), "{generated}");
+
+    let for_source = source
+        .replace(
+            "#while (#await ConditionTask",
+            "#for () (#await ConditionTask",
+        )
+        .replace(
+            "condition-poll ConditionWaiting)\n            (#let value",
+            "condition-poll ConditionWaiting) ()\n            (#let value",
+        );
+    let generated = build_and_run(&for_source, 42);
+    assert!(generated.contains("condition-body-task"), "{generated}");
 }
 
 #[test]
@@ -1959,6 +1971,17 @@ fn awaited_false_while_condition_does_not_poll_the_body_task() {
         (#forget waker)
         (#return value))";
     build_and_run(source, 42);
+
+    let for_source = source
+        .replace(
+            "#while (#await ConditionTask",
+            "#for () (#await ConditionTask",
+        )
+        .replace(
+            "condition-poll ConditionStart)\n            (#let value",
+            "condition-poll ConditionStart) ()\n            (#let value",
+        );
+    build_and_run(&for_source, 42);
 }
 
 #[test]

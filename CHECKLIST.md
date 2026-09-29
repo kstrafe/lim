@@ -2051,6 +2051,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   and selection. Initially require the expression result to match the awaited
   value type and reject uncaptured outer locals explicitly. Verify native
   Pending/resume for `#if` and `#match`, plus an unselected immediate arm.
+- [x] **ASYNC-01b79: Compose awaited `#for` conditions with body suspension.**
+  Poll the condition task before constructing the body task, skip the body when
+  the condition is false, and preserve the explicit step and terminal `#break`
+  behavior. Verify native Pending/resume across condition and body tasks,
+  including that a false condition never polls the body.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

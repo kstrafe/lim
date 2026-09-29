@@ -3082,9 +3082,6 @@ fn lower_async_for(
     if awaited_step && loop_body.iter().any(has_await) {
         return Err("@async-fn #for cannot suspend in both its body and step yet".into());
     }
-    if awaited_condition && loop_body.iter().any(has_await) {
-        return Err("@async-fn #for condition and body cannot both suspend yet".into());
-    }
     if form(initializer, "#let-else").is_some() {
         return Err("@async-fn #for await does not support #let-else initializers".into());
     }
