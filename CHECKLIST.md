@@ -2189,6 +2189,12 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   enclosing poll helper's `Ready` result. Leave loops containing suspension to
   the loop-task lowering path; verify early `#while`, `#for-range`, `#for`, and
   `#loop` returns before a later await in native runs.
+- [x] **ASYNC-01b103: Suspend in a `#for` body after an awaited `#let-else` initializer.**
+  Resolve enum pattern payload types from the compilation's declared type
+  environment, preserve the diverging mismatch arm and pattern-binding scope,
+  and lower the loop body through its ordinary async state machine. Include
+  enum and alias layout in the generated-source cache identity; verify native
+  Pending/resume through both initializer and body suspensions.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

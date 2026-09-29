@@ -44,6 +44,12 @@ struct Binding {
     mutable: bool,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct AsyncTypeEnvironment {
+    pub enums: HashMap<String, HashMap<String, Vec<String>>>,
+    pub aliases: HashMap<String, String>,
+}
+
 #[derive(Clone)]
 struct LoopReferenceTransfer {
     name: String,
@@ -5286,6 +5292,7 @@ fn lower_async_for(
     source: &str,
     next_name: &mut usize,
     waker: &str,
+    type_environment: &AsyncTypeEnvironment,
 ) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if !has_await(statement) {
         return Ok(None);
@@ -5306,11 +5313,6 @@ fn lower_async_for(
     let mut initializer_helpers = Vec::new();
     let mut initializer_value = None;
     if awaited_initializer && form(initializer, "#let-else").is_some() {
-        if awaited_condition || awaited_step || items[4..].iter().any(has_await) {
-            return Err(
-                "@async-fn awaited #let-else #for initialization cannot yet be combined with suspension in its condition, step, or body".into(),
-            );
-        }
         let mut initializer_statement = initializer.clone();
         extract_statement_awaits(
             &mut initializer_statement,
@@ -5321,6 +5323,89 @@ fn lower_async_for(
             next_name,
             waker,
         )?;
+        if awaited_condition || awaited_step {
+            return Err(
+                "@async-fn awaited #let-else #for initialization cannot yet be combined with suspension in its condition or step".into(),
+            );
+        }
+        if items[4..].iter().any(has_await) {
+            let let_else = form(&initializer_statement, "#let-else").ok_or_else(|| {
+                "@async-fn lost awaited #let-else initializer during lowering".to_owned()
+            })?;
+            let mut pattern_bindings = Vec::new();
+            collect_enum_pattern_bindings(
+                &let_else[1],
+                symbol(&let_else[2], "#let-else type")?,
+                type_environment,
+                &mut pattern_bindings,
+            )?;
+            let mut loop_known = known.clone();
+            let mut loop_order = known_order.to_vec();
+            let mut condition = condition;
+            let mut step = items[3].clone();
+            let mut body = items[4..].to_vec();
+            let mut seen = HashSet::new();
+            for (name, ty) in pattern_bindings {
+                if !seen.insert(name.clone()) || known.contains_key(&name) {
+                    return Err(format!(
+                        "@async-fn #for initializer pattern binding '{name}' shadows an existing name"
+                    ));
+                }
+                let generated_name = fresh_async_name(source, next_name);
+                rename_pattern_binding(
+                    &mut expression_list_mut(&mut initializer_statement)[1],
+                    &name,
+                    &generated_name,
+                );
+                rename_async_value(&mut condition, &name, &generated_name);
+                rename_async_value(&mut step, &name, &generated_name);
+                for expression in &mut body {
+                    rename_async_value(expression, &name, &generated_name);
+                }
+                loop_known.insert(
+                    generated_name.clone(),
+                    Binding {
+                        name: generated_name.clone(),
+                        ty,
+                        mutable: false,
+                    },
+                );
+                loop_order.push(generated_name);
+            }
+            let mut loop_items = vec![
+                Expr::Symbol("#for".into()),
+                Expr::List(Vec::new()),
+                condition,
+                step,
+            ];
+            loop_items.extend(body);
+            let loop_form = Expr::List(loop_items);
+            let Some((replacement, loop_helpers, renames)) = lower_async_for(
+                &loop_form,
+                &loop_known,
+                &loop_order,
+                following,
+                return_value,
+                source,
+                next_name,
+                waker,
+                type_environment,
+            )?
+            else {
+                return Err(
+                    "@async-fn failed to lower awaited #for after #let-else initializer".into(),
+                );
+            };
+            let mut output = initializer_prefix;
+            output.push(initializer_statement);
+            output.extend(replacement);
+            let helpers = [initializer_helpers.join("\n"), loop_helpers]
+                .into_iter()
+                .filter(|helper| !helper.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Ok(Some((output, helpers, renames)));
+        }
         let mut loop_form = vec![
             Expr::Symbol("#for".into()),
             initializer_statement,
@@ -5803,6 +5888,81 @@ fn lower_async_for(
         }
     }
     Ok(Some((replacement, helper, renames)))
+}
+
+fn resolve_async_enum_name<'a>(
+    type_name: &'a str,
+    environment: &'a AsyncTypeEnvironment,
+) -> Option<&'a str> {
+    let mut current = type_name;
+    for _ in 0..=environment.aliases.len() {
+        if environment.enums.contains_key(current) {
+            return Some(current);
+        }
+        current = environment.aliases.get(current)?;
+    }
+    None
+}
+
+fn collect_enum_pattern_bindings(
+    pattern: &Expr,
+    type_name: &str,
+    environment: &AsyncTypeEnvironment,
+    bindings: &mut Vec<(String, String)>,
+) -> Result<(), String> {
+    match pattern {
+        Expr::Symbol(name) if name == "_" || matches!(name.as_str(), "true" | "false") => {}
+        Expr::Symbol(name) => {
+            let is_unit_variant = resolve_async_enum_name(type_name, environment)
+                .and_then(|enum_name| environment.enums.get(enum_name))
+                .is_some_and(|variants| variants.contains_key(name));
+            if !is_unit_variant {
+                bindings.push((name.clone(), type_name.to_owned()));
+            }
+        }
+        Expr::List(items) if !items.is_empty() => {
+            let Expr::Symbol(variant_name) = &items[0] else {
+                return Err("@async-fn #for initializer requires named enum patterns".into());
+            };
+            let enum_name = resolve_async_enum_name(type_name, environment).ok_or_else(|| {
+                format!("@async-fn cannot resolve enum payload types for '{type_name}'")
+            })?;
+            let fields = environment
+                .enums
+                .get(enum_name)
+                .and_then(|variants| variants.get(variant_name))
+                .ok_or_else(|| {
+                    format!(
+                        "@async-fn cannot resolve pattern variant '{variant_name}' for '{type_name}'"
+                    )
+                })?;
+            if fields.len() != items.len() - 1 {
+                return Err(format!(
+                    "@async-fn enum pattern '{variant_name}' has {} fields, but the declaration has {}",
+                    items.len() - 1,
+                    fields.len()
+                ));
+            }
+            for (field_pattern, field_type) in items[1..].iter().zip(fields) {
+                collect_enum_pattern_bindings(field_pattern, field_type, environment, bindings)?;
+            }
+        }
+        Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Char(_) | Expr::String(_) => {}
+        _ => return Err("@async-fn #for initializer has an unsupported pattern".into()),
+    }
+    Ok(())
+}
+
+fn rename_pattern_binding(pattern: &mut Expr, from: &str, to: &str) {
+    match pattern {
+        Expr::Symbol(name) if name == from => *name = to.to_owned(),
+        Expr::List(items) => {
+            for item in items.iter_mut().skip(1) {
+                rename_pattern_binding(item, from, to);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn contains_loop_control(expression: &Expr) -> bool {
@@ -6781,24 +6941,30 @@ fn named_arguments(bindings: &[Binding]) -> String {
 }
 
 pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
-    generated_source_with_capture_selection(invocation, CaptureSelection::Syntax)
+    generated_source_with_capture_selection(
+        invocation,
+        CaptureSelection::Syntax,
+        &AsyncTypeEnvironment::default(),
+    )
 }
 
-pub(crate) fn generated_source_with_captures(
-    invocation: &Expr,
-    captures: &HashMap<usize, HashSet<String>>,
-) -> Result<String, String> {
-    generated_source_with_capture_selection(invocation, CaptureSelection::Typed(captures))
-}
-
-pub(crate) fn generated_source_with_copy_types(
+pub(crate) fn generated_source_with_environment(
     invocation: &Expr,
     captures: Option<&HashMap<usize, HashSet<String>>>,
     copy_types: &HashSet<String>,
+    type_environment: &AsyncTypeEnvironment,
 ) -> Result<String, String> {
     with_named_copy_types(copy_types, || match captures {
-        Some(captures) => generated_source_with_captures(invocation, captures),
-        None => generated_source(invocation),
+        Some(captures) => generated_source_with_capture_selection(
+            invocation,
+            CaptureSelection::Typed(captures),
+            type_environment,
+        ),
+        None => generated_source_with_capture_selection(
+            invocation,
+            CaptureSelection::Syntax,
+            type_environment,
+        ),
     })
 }
 
@@ -6810,6 +6976,7 @@ enum CaptureSelection<'a> {
 fn generated_source_with_capture_selection(
     invocation: &Expr,
     capture_selection: CaptureSelection<'_>,
+    type_environment: &AsyncTypeEnvironment,
 ) -> Result<String, String> {
     let invocation = list(invocation, "invocation")?;
     let pinned =
@@ -7006,6 +7173,7 @@ fn generated_source_with_capture_selection(
             &source,
             &mut next_nested_await,
             &waker_source,
+            type_environment,
         )
         .map_err(|error| format!("async statement {source_index}: {error}"))?
         {

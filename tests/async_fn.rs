@@ -4078,6 +4078,55 @@ fn async_for_let_else_initializer_suspends_before_entering_the_loop() {
 }
 
 #[test]
+fn async_for_let_else_initializer_composes_with_a_suspending_body() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#type MaybeAlias Maybe)
+      (#enum InitTask (Waiting Resuming))
+      (#linear InitTask)
+      (#enum InitPoll ((InitPending InitTask) (InitReady Maybe)))
+      (#fn init-poll ((task InitTask) (waker (#ref u64))) InitPoll
+        (#return (#match task
+          (#case Waiting (InitPending Resuming))
+          (#case Resuming (InitReady (Some 9u64))))))
+      (#enum BodyTask (BodyWaiting BodyResuming))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case BodyWaiting (BodyPending BodyResuming))
+          (#case BodyResuming (BodyReady 9u64)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut done bool false)
+          (#for (#let-else (Some index) MaybeAlias
+                  (#await InitTask InitPending InitReady init-poll Waiting)
+                  (#unreachable))
+                (#bool.== done false)
+                ()
+            (#let value u64
+              (#await BodyTask BodyPending BodyReady body-poll BodyWaiting))
+            (#assert (#u64.== value index))
+            (#set done true))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (:)))
+        (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let-else (Pending after-init) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task after-init : waker (#borrow waker))))
+        (#let-else (Pending after-body) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task after-body : waker (#borrow waker))))
+        (#let result u64
+          (#match third
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("BodyPending"), "{generated}");
+}
+
+#[test]
 fn async_for_let_else_initializer_returns_ready_on_mismatch() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum InitTask ((Waiting Maybe) (Resuming Maybe)))
@@ -4127,18 +4176,18 @@ fn async_for_let_else_initializer_diagnostic_highlights_unsupported_phase_await(
       (#fn init-poll ((task InitTask) (waker (#ref u64))) InitPoll
         (#return (#match task
           (#case Waiting (InitReady None)))))
-      (#enum ConditionTask (Waiting))
+      (#enum ConditionTask (ConditionWaiting))
       (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
       (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
         (#return (#match task
-          (#case Waiting (ConditionReady false)))))
+          (#case ConditionWaiting (ConditionReady false)))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
           (#for (#let-else (Some index) Maybe
                   (#await InitTask InitPending InitReady init-poll Waiting)
                   (#return 7u64))
-                (#await bool ConditionTask ConditionPending ConditionReady
-                  condition-poll Waiting)
+                (#await ConditionTask ConditionPending ConditionReady
+                  condition-poll ConditionWaiting)
                 ()
             ())
           (#return 42u64))))";
