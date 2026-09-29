@@ -3713,6 +3713,64 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     let generated = build_and_run(&mutable_reference_source, 42);
     assert!(generated.contains("iteration-function"), "{generated}");
 
+    let multi_await_source = mutable_reference_source.replace(
+        "(#let body-ran bool\n              (#await bool BodyTask BodyPending BodyReady body-poll\n                (BodyWaiting iteration)))\n            (#deref-set view 42u64)\n            (#set total (#u64.+.wrap total 1u64))",
+        "(#let body-ran bool\n              (#await bool BodyTask BodyPending BodyReady body-poll\n                (BodyWaiting iteration)))\n            (#let second-body-ran bool\n              (#await bool BodyTask BodyPending BodyReady body-poll\n                (BodyWaiting iteration)))\n            (#let third-body-ran bool\n              (#await bool BodyTask BodyPending BodyReady body-poll\n                (BodyWaiting iteration)))\n            (#deref-set view 42u64)\n            (#set total (#u64.+.wrap total 1u64))",
+    );
+    let (prefix, _) = multi_await_source.split_once("(#fn main () u64").unwrap();
+    let mut poll_chain = "(#block (#forget pending-7) 0u64)".to_owned();
+    for index in (0..7).rev() {
+        let task = if index == 0 {
+            "(#call work (: view (#borrow-mut owner)))".to_owned()
+        } else {
+            format!("pending-{index}")
+        };
+        let next = index + 1;
+        poll_chain = format!(
+            "(#match (#call poll (: task {task} : waker (#borrow waker)))\n\
+               (#case (Pending pending-{next}) {poll_chain})\n\
+               (#case (Ready ready-{index}) ready-{index}))"
+        );
+    }
+    let multi_await_source = format!(
+        "{prefix}(#fn main () u64\n\
+          (#let-mut owner u64 41u64)\n\
+          (#let waker u64 0u64)\n\
+          (#let result u64 {poll_chain})\n\
+          (#set owner 43u64)\n\
+          (#forget waker)\n\
+          (#return (#if (#u64.== owner 43u64) result 0u64)))"
+    );
+    let generated = build_and_run(&multi_await_source, 42);
+    assert!(generated.contains("iteration-function"), "{generated}");
+    let (prefix, _) = multi_await_source.split_once("(#fn main () u64").unwrap();
+    let cancel_source = format!(
+        "{prefix}(#fn main () u64
+          (#let-mut owner u64 41u64)
+          (#let waker u64 0u64)
+          (#let task Frame (#call work (: view (#borrow-mut owner))))
+          (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+          (#let-else (Pending condition-pending) Poll first (#unreachable))
+          (#let second Poll
+            (#call poll (: task condition-pending : waker (#borrow waker))))
+          (#let-else (Pending pending) Poll second (#unreachable))
+          (#forget pending)
+          (#set owner 43u64)
+          (#forget waker)
+          (#return owner))"
+    );
+    build_and_run(&cancel_source, 43);
+    let mutation_while_pending = cancel_source.replace(
+        "          (#forget pending)",
+        "          (#set owner 42u64)\n          (#forget pending)",
+    );
+    let error =
+        lim::check_types(&lim::parse_program(&mutation_while_pending).unwrap()).unwrap_err();
+    assert!(
+        error.contains("borrow") || error.contains("access"),
+        "the multi-await body must retain the transferred exclusive loan while Pending: {error}"
+    );
+
     let (prefix, _) = mutable_reference_source
         .split_once("(#fn main () u64")
         .unwrap();

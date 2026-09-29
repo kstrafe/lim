@@ -2303,6 +2303,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   then return a non-Copy value without typing the generated child poll result
   as the awaited child's result type. Verify both early-return and loop-tail
   payloads are transferred linearly and explicitly consumed by the caller.
+- [x] **ASYNC-01b127: Preserve reference transfers with mutable loop outputs.**
+  Allow an awaited loop-body task to return both mutated outer captures and
+  borrowed reference outputs, including bodies with multiple suspensions.
+  Preserve the loans through Pending/resume and release them on Ready or
+  cancellation; verify native mutation, reference use, and cancellation.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

@@ -4301,12 +4301,6 @@ fn lower_async_while_with_transfers(
                     Expr::Symbol(payload_name.clone()),
                 ]));
             } else {
-                if !transfers.is_empty() {
-                    return Err(
-                        "@async-fn cannot combine mutable body outputs with reference transfers yet"
-                            .into(),
-                    );
-                }
                 let status_name = fresh_async_name(source, next_name);
                 let output_names = body_outputs
                     .iter()
@@ -4552,12 +4546,6 @@ fn lower_async_while_with_transfers(
             false,
             None,
         )?;
-        if !transfers.is_empty() && !body_outputs.is_empty() {
-            return Err(
-                "@async-fn cannot combine multi-await body outputs with reference transfers yet"
-                    .into(),
-            );
-        }
         let binding_type = parse_type(Some(&normalize_keywords(body_form[2].clone())))?;
         let Expr::List(await_form) = &mut body_form[3] else {
             unreachable!("generated body await initializer is a list")
