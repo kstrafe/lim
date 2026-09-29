@@ -6795,7 +6795,7 @@ impl FunctionContext {
                     return self.if_expression_as_aggregate(items, ty);
                 }
                 if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
-                    return self.match_expression(items, None, Some(ty));
+                    return self.match_expression(items, None, Some(ty), None);
                 }
             }
             if let Expr::Block(statements) = value {
@@ -7968,6 +7968,9 @@ impl FunctionContext {
                 self.store_indirect_value_words(&items[3], ty, offset)?;
                 self.output.push_str(&format!("{done_label}:\n"));
                 return Ok(());
+            }
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                return self.match_expression(items, None, Some(ty), Some((ty, offset)));
             }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "deref")
                 && items.len() == 2
@@ -10479,7 +10482,7 @@ impl FunctionContext {
             "size-of" => self.layout_size_expression("size-of", items),
             "align-of" => self.layout_size_expression("align-of", items),
             "offset-of" => self.layout_size_expression("offset-of", items),
-            "match" => self.match_expression(items, None, None),
+            "match" => self.match_expression(items, None, None, None),
             "index" => self.index_expression(items),
             "get" => self.field_expression(items),
             "get-payload" => self.enum_payload_expression(items),
@@ -10932,6 +10935,7 @@ impl FunctionContext {
         items: &[Expr],
         float_type: Option<&Type>,
         result_type: Option<&Type>,
+        indirect_result: Option<(&Type, usize)>,
     ) -> Result<(), String> {
         if items.len() < 3 {
             return Err("match requires a value and an arm".into());
@@ -10943,7 +10947,7 @@ impl FunctionContext {
             {
                 let mut unwrapped = items.to_vec();
                 unwrapped[1] = clone[1].clone();
-                return self.match_expression(&unwrapped, float_type, result_type);
+                return self.match_expression(&unwrapped, float_type, result_type, indirect_result);
             }
         }
         if let Some(Type::Tuple(fields)) = self.expression_type(scrutinee) {
@@ -11402,7 +11406,9 @@ impl FunctionContext {
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {next}\n"));
             }
-            if let Some(ty) = float_type {
+            if let Some((ty, offset)) = indirect_result {
+                self.store_indirect_value_words(body, ty, offset)?;
+            } else if let Some(ty) = float_type {
                 self.expression_as_float(body, ty)?;
             } else if let Some(ty) = result_type {
                 self.expression_as_expected(body, ty)?;
@@ -14488,7 +14494,7 @@ impl FunctionContext {
                 return self.if_expression_as_float(items, ty);
             }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
-                return self.match_expression(items, Some(ty), None);
+                return self.match_expression(items, Some(ty), None, None);
             }
         }
         match expression {

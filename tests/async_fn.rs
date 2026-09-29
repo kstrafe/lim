@@ -2470,6 +2470,13 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#case (Waiting iteration) (ConditionPending (Resuming iteration)))
           (#case (Resuming iteration)
             (ConditionReady (#u64.< iteration 1u64))))))
+      (#enum BodyTask ((BodyWaiting u64) (BodyResuming u64)))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady bool)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case (BodyWaiting iteration) (BodyPending (BodyResuming iteration)))
+          (#case (BodyResuming iteration) (BodyReady true)))))
       (#enum StepTask ((StepWaiting u64 bool) (StepResuming u64 bool)))
       (#linear StepTask)
       (#enum StepPoll ((StepPending StepTask) (StepReady u64)))
@@ -2510,15 +2517,41 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
     let generated = build_and_run(source, 42);
     assert!(generated.contains("condition-body-task"), "{generated}");
 
-    let unsupported = source.replace(
-        "(#let body-ran bool true)",
-        "(#let body-ran bool\n              (#await bool StepTask StepPending StepReady step-poll\n                (StepWaiting iteration true)))",
+    let three_phase_source = source
+        .replace(
+            "(#let-mut iteration u64 0u64)",
+            "(#let-mut iteration u64 0u64)\n          (#let-mut total u64 0u64)",
+        )
+        .replace(
+            "(#let body-ran bool true)",
+            "(#let body-ran bool\n              (#await bool BodyTask BodyPending BodyReady body-poll\n                (BodyWaiting iteration)))\n            (#set total (#u64.+.wrap total 1u64))",
+        )
+        .replace(
+            "(#return (#if (#u64.== iteration 1u64) 42u64 0u64))",
+            "(#return (#if (#u64.== iteration 1u64)\n            (#if (#u64.== total 1u64) 42u64 0u64)\n            0u64))",
+        );
+    let (prefix, _) = three_phase_source.split_once("(#fn main () u64").unwrap();
+    let three_phase_source = format!(
+        "{prefix}(#fn main () u64
+          (#let waker u64 0u64)
+          (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+          (#let-else (Pending condition-pending) Poll first (#unreachable))
+          (#let second Poll (#call poll (: task condition-pending : waker (#borrow waker))))
+          (#let-else (Pending body-pending) Poll second (#unreachable))
+          (#let third Poll (#call poll (: task body-pending : waker (#borrow waker))))
+          (#let-else (Pending step-pending) Poll third (#unreachable))
+          (#let fourth Poll (#call poll (: task step-pending : waker (#borrow waker))))
+          (#let-else (Pending resumed-condition) Poll fourth (#unreachable))
+          (#let fifth Poll (#call poll (: task resumed-condition : waker (#borrow waker))))
+          (#let result u64
+            (#match fifth
+              (#case (Ready value) value)
+              (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+          (#forget waker)
+          (#return result))"
     );
-    let error = lim::parse_program(&unsupported).unwrap_err();
-    assert!(
-        error.contains("cannot suspend in its condition, body, and step"),
-        "{error}"
-    );
+    let generated = build_and_run(&three_phase_source, 42);
+    assert!(generated.contains("iteration-function"), "{generated}");
 }
 
 #[test]

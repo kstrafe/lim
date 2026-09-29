@@ -2979,6 +2979,191 @@ fn lower_async_for_range(
 /// Lower a `#for` loop that uses an existing counter. Initializer-local
 /// declarations are intentionally rejected because their source scope ends
 /// with the loop and must not leak into the generated async function.
+fn async_for_body_step_task(
+    body: &[Expr],
+    step: &Expr,
+    post_step: &[Expr],
+    target: &Binding,
+    known: &HashMap<String, Binding>,
+    known_order: &[String],
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<(AwaitProtocol, Expr, String, Vec<Binding>), String> {
+    if body
+        .iter()
+        .any(|expression| contains_loop_control(expression) || contains_return(expression))
+    {
+        return Err(
+            "@async-fn three-phase #for does not support body transfers or returns yet".into(),
+        );
+    }
+
+    let mut function_body = body.to_vec();
+    function_body.push(step.clone());
+    function_body.extend(post_step.iter().cloned());
+    for expression in &mut function_body {
+        let Some(binding) = form(expression, "#let").or_else(|| form(expression, "#let-mut"))
+        else {
+            continue;
+        };
+        if binding.len() != 4 {
+            continue;
+        }
+        let Some(await_form) = form(&binding[3], "#await") else {
+            continue;
+        };
+        if await_form.len() == 7 {
+            let normalized = Expr::List(
+                std::iter::once(Expr::Symbol("#await".into()))
+                    .chain(await_form[2..].iter().cloned())
+                    .collect(),
+            );
+            let Expr::List(binding) = expression else {
+                unreachable!()
+            };
+            binding[3] = normalized;
+        }
+    }
+    let mut value_names = HashSet::new();
+    for expression in &function_body {
+        collect_value_names(expression, &mut value_names);
+    }
+    let mut local_names = HashSet::new();
+    for expression in &function_body {
+        collect_local_binding_names(expression, &mut local_names);
+    }
+    for local in local_names {
+        value_names.remove(&local);
+    }
+    let captures = known_order
+        .iter()
+        .filter(|name| value_names.contains(*name))
+        .filter_map(|name| known.get(name).cloned())
+        .collect::<Vec<_>>();
+    if !captures.iter().any(|capture| capture.name == target.name) {
+        return Err("@async-fn three-phase #for lost its step target binding".into());
+    }
+    for capture in &captures {
+        let parsed_type = crate::parse(&capture.ty)?;
+        let type_expression = parsed_type
+            .first()
+            .ok_or_else(|| "@async-fn three-phase #for capture type is empty".to_owned())?;
+        let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
+        if !async_task_capture_is_copy(&ty) {
+            return Err(format!(
+                "@async-fn three-phase #for captures non-Copy local '{}'; carry it in a concrete child-task result",
+                capture.name
+            ));
+        }
+    }
+    let updated = captures
+        .iter()
+        .filter(|capture| capture.mutable)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !updated.iter().any(|capture| capture.name == target.name) {
+        return Err("@async-fn three-phase #for step target is not mutable".into());
+    }
+    let mut tuple_types = vec![Expr::Symbol("#tuple".into())];
+    for capture in &updated {
+        let parsed_type = crate::parse(&capture.ty)?;
+        let ty = parsed_type
+            .first()
+            .ok_or_else(|| "@async-fn three-phase #for capture type is empty".to_owned())?
+            .expr
+            .clone();
+        tuple_types.push(ty.clone());
+    }
+    let result_type = Expr::List(tuple_types);
+    let result_value = Expr::List(
+        std::iter::once(Expr::Symbol("#tuple".into()))
+            .chain(std::iter::once(result_type.clone()))
+            .chain(
+                updated
+                    .iter()
+                    .map(|capture| Expr::Symbol(capture.name.clone())),
+            )
+            .collect(),
+    );
+    function_body.push(Expr::List(vec![
+        Expr::Symbol("#return".into()),
+        result_value,
+    ]));
+
+    let base = fresh_async_name(source, next_name);
+    let function_name = format!("{base}-iteration-function");
+    let frame = format!("{base}-iteration-frame");
+    let poll_result = format!("{base}-iteration-poll-result");
+    let pending = format!("{base}-iteration-pending");
+    let ready = format!("{base}-iteration-ready");
+    let poll = format!("{base}-iteration-poll");
+    let mut parameters = Vec::new();
+    let mut call_arguments = Vec::new();
+    for capture in &captures {
+        let parsed_type = crate::parse(&capture.ty)?;
+        let ty = parsed_type
+            .first()
+            .ok_or_else(|| "@async-fn three-phase #for capture type is empty".to_owned())?
+            .expr
+            .clone();
+        let name = Expr::Symbol(capture.name.clone());
+        parameters.push(Expr::List(if capture.mutable {
+            vec![Expr::Symbol("#mut".into()), name.clone(), ty]
+        } else {
+            vec![name.clone(), ty]
+        }));
+        call_arguments.push(Expr::List(vec![name.clone(), name]));
+    }
+    let function = Expr::List(
+        vec![
+            Expr::Symbol("#fn".into()),
+            Expr::Symbol(function_name.clone()),
+            Expr::List(parameters),
+            result_type.clone(),
+        ]
+        .into_iter()
+        .chain(function_body)
+        .collect(),
+    );
+    let waker_expression = crate::parse(waker)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "@async-fn waker type is empty".to_owned())?
+        .expr;
+    let invocation = Expr::List(vec![
+        Expr::At,
+        Expr::Symbol("async-fn".into()),
+        Expr::List(vec![
+            Expr::Symbol(frame.clone()),
+            Expr::Symbol(poll_result.clone()),
+            Expr::Symbol(pending.clone()),
+            Expr::Symbol(ready.clone()),
+            Expr::Symbol(poll.clone()),
+        ]),
+        waker_expression,
+        function,
+    ]);
+    let helper = generated_source(&invocation)?;
+    let task = Expr::List(vec![
+        Expr::Symbol("#call".into()),
+        Expr::Symbol(function_name),
+        Expr::List(call_arguments),
+    ]);
+    Ok((
+        AwaitProtocol {
+            result_type,
+            child_type: Expr::Symbol(frame),
+            pending: Expr::Symbol(pending),
+            ready: Expr::Symbol(ready),
+            poll: Expr::Symbol(poll),
+        },
+        task,
+        helper,
+        updated,
+    ))
+}
+
 fn lower_async_for(
     statement: &Expr,
     known: &HashMap<String, Binding>,
@@ -3076,9 +3261,6 @@ fn lower_async_for(
     }
     let mut step = items[3].clone();
     let mut loop_body = items[4..].to_vec();
-    if awaited_step && awaited_condition && loop_body.iter().any(has_await) {
-        return Err("@async-fn #for cannot suspend in its condition, body, and step yet".into());
-    }
     if form(initializer, "#let-else").is_some() {
         return Err("@async-fn #for await does not support #let-else initializers".into());
     }
@@ -3222,6 +3404,59 @@ fn lower_async_for(
 
     if awaited_condition {
         if awaited_step {
+            let combined_body_step = loop_body.iter().any(has_await);
+            if combined_body_step {
+                let set_target = form(&items[3], "#set")
+                    .and_then(|set| set.get(1))
+                    .ok_or_else(|| {
+                        "@async-fn three-phase #for requires an awaited step assignment".to_owned()
+                    })?;
+                let target = symbol(set_target, "three-phase #for step target")?;
+                let target_binding = loop_known.get(target).ok_or_else(|| {
+                    format!("@async-fn three-phase #for assigns unknown local '{target}'")
+                })?;
+                let (protocol, task, helper, updated) = async_for_body_step_task(
+                    &loop_body,
+                    &step,
+                    &post_step,
+                    target_binding,
+                    &loop_known,
+                    &loop_order,
+                    source,
+                    next_name,
+                    waker,
+                )?;
+                if !helper.is_empty() {
+                    step_helpers.push(helper);
+                }
+                let result_name = fresh_async_name(source, next_name);
+                let await_result = Expr::List(vec![
+                    Expr::Symbol("#await".into()),
+                    protocol.result_type.clone(),
+                    protocol.child_type,
+                    protocol.pending,
+                    protocol.ready,
+                    protocol.poll,
+                    task,
+                ]);
+                loop_body = vec![Expr::List(vec![
+                    Expr::Symbol("#let".into()),
+                    Expr::Symbol(result_name.clone()),
+                    protocol.result_type,
+                    await_result,
+                ])];
+                for (index, binding) in updated.into_iter().enumerate() {
+                    loop_body.push(Expr::List(vec![
+                        Expr::Symbol("#set".into()),
+                        Expr::Symbol(binding.name),
+                        Expr::List(vec![
+                            Expr::Symbol("#get".into()),
+                            Expr::Symbol(result_name.clone()),
+                            Expr::UnsignedInteger(index as u128),
+                        ]),
+                    ]));
+                }
+            }
             if loop_body
                 .iter()
                 .any(|expression| contains_loop_control(expression) || contains_return(expression))
@@ -3230,30 +3465,34 @@ fn lower_async_for(
                     "@async-fn #for with awaited condition and step does not support body transfers yet".into(),
                 );
             }
-            let await_form = form(&step, "#let")
-                .and_then(|binding| binding.get(3))
-                .and_then(|value| form(value, "#await"))
-                .ok_or_else(|| "@async-fn awaited #for step requires a direct #await".to_owned())?;
-            let mut task = await_form
-                .last()
-                .expect("typed awaited #for step includes a task expression")
-                .clone();
-            if !loop_body.is_empty() {
-                let mut task_block = vec![Expr::Symbol("#block".into())];
-                task_block.append(&mut loop_body);
-                task_block.push(task);
-                task = Expr::List(task_block);
+            if !combined_body_step {
+                let await_form = form(&step, "#let")
+                    .and_then(|binding| binding.get(3))
+                    .and_then(|value| form(value, "#await"))
+                    .ok_or_else(|| {
+                        "@async-fn awaited #for step requires a direct #await".to_owned()
+                    })?;
+                let mut task = await_form
+                    .last()
+                    .expect("typed awaited #for step includes a task expression")
+                    .clone();
+                if !loop_body.is_empty() {
+                    let mut task_block = vec![Expr::Symbol("#block".into())];
+                    task_block.append(&mut loop_body);
+                    task_block.push(task);
+                    task = Expr::List(task_block);
+                }
+                let Expr::List(step_binding) = &mut step else {
+                    unreachable!()
+                };
+                let Expr::List(await_items) = &mut step_binding[3] else {
+                    unreachable!()
+                };
+                let task_index = await_items.len() - 1;
+                await_items[task_index] = task;
+                loop_body.push(step.clone());
+                loop_body.extend(post_step.clone());
             }
-            let Expr::List(step_binding) = &mut step else {
-                unreachable!()
-            };
-            let Expr::List(await_items) = &mut step_binding[3] else {
-                unreachable!()
-            };
-            let task_index = await_items.len() - 1;
-            await_items[task_index] = task;
-            loop_body.push(step.clone());
-            loop_body.extend(post_step.clone());
         } else {
             let terminal_index = loop_body.len().saturating_sub(1);
             if loop_body[..terminal_index]

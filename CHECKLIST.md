@@ -2064,8 +2064,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-01b81: Compose awaited `#for` conditions with awaited steps.**
   Resolve the condition before running the ordinary body, then poll the step
   task and apply its assignment only when Ready. Re-evaluate the condition
-  after the update; explicitly diagnose the still-unsupported three-phase
-  condition/body/step case. Verify native Pending/resume and final loop state.
+  after the update. This covers loops with a non-suspending body; the
+  condition/body/step combination is tracked separately below.
+- [x] **ASYNC-01b82: Compose awaited `#for` condition, body, and step.**
+  Run the condition first, then lower the entire selected iteration body and
+  awaited step into one concrete child task. Return updated mutable,
+  Copy loop-carried values only after the step is Ready, and recheck the
+  condition afterward. Verify native Pending/resume across all three phases
+  and preserve body-before-step ordering.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
