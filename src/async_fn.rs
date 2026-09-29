@@ -1916,15 +1916,16 @@ fn lower_async_while(
         .filter_map(|(index, expression)| has_await(expression).then_some(index))
         .collect::<Vec<_>>();
     if await_indices.len() != 1 {
-        if await_indices.len() >= 2 && await_indices[1] == await_indices[0] + 1 {
+        if await_indices.len() >= 2 {
             let first_index = await_indices[0];
+            let second_index = await_indices[1];
             let first_binding = binding(&body[first_index], "first loop await")?;
-            let second_binding = binding(&body[first_index + 1], "second loop await")?;
+            let second_binding = binding(&body[second_index], "second loop await")?;
             let first_form = form(&body[first_index], "#let")
                 .or_else(|| form(&body[first_index], "#let-mut"))
                 .ok_or_else(|| "@async-fn first loop await must be a direct binding".to_owned())?;
-            let second_form = form(&body[first_index + 1], "#let")
-                .or_else(|| form(&body[first_index + 1], "#let-mut"))
+            let second_form = form(&body[second_index], "#let")
+                .or_else(|| form(&body[second_index], "#let-mut"))
                 .ok_or_else(|| "@async-fn second loop await must be a direct binding".to_owned())?;
             let first_await = form(&first_form[3], "#await").ok_or_else(|| {
                 "@async-fn first loop binding must be initialized directly by #await".to_owned()
@@ -1938,8 +1939,23 @@ fn lower_async_while(
                 || has_await(&second_await[5])
             {
                 return Err(
-                    "@async-fn adjacent loop awaits require direct bindings and non-suspending task expressions".into(),
+                    "@async-fn sequenced loop awaits require direct bindings and non-suspending task expressions".into(),
                 );
+            }
+            let middle = &body[first_index + 1..second_index];
+            for expression in middle {
+                if has_await(expression)
+                    || contains_loop_control(expression)
+                    || is_control_flow_statement(expression)
+                    || form(expression, "#let").is_some()
+                    || form(expression, "#let-mut").is_some()
+                    || form(expression, "#set").is_some()
+                    || form(expression, "#return").is_some()
+                {
+                    return Err(
+                        "@async-fn statements between loop awaits must be nonbinding, noncontrol, and nonsuspending expressions".into(),
+                    );
+                }
             }
             let mut second_task_names = HashSet::new();
             collect_value_names(&second_await[5], &mut second_task_names);
@@ -1949,6 +1965,18 @@ fn lower_async_while(
             {
                 return Err(format!(
                     "@async-fn second loop task uses outer local '{name}'; carry it in the first child result"
+                ));
+            }
+            let mut middle_names = HashSet::new();
+            for expression in middle {
+                collect_value_names(expression, &mut middle_names);
+            }
+            if let Some(name) = middle_names
+                .iter()
+                .find(|name| **name != first_binding.name && known.contains_key(*name))
+            {
+                return Err(format!(
+                    "@async-fn statement between loop awaits uses outer local '{name}'; carry it in the first child result"
                 ));
             }
             let prefix_bindings = body[..first_index]
@@ -1967,8 +1995,17 @@ fn lower_async_while(
                     binding.name
                 ));
             }
+            if let Some(binding) = prefix_bindings
+                .iter()
+                .find(|binding| middle_names.contains(&binding.name))
+            {
+                return Err(format!(
+                    "@async-fn statement between loop awaits uses per-iteration local '{}'; carry it in the first child result",
+                    binding.name
+                ));
+            }
             let mut suffix_names = HashSet::new();
-            for expression in &body[first_index + 2..] {
+            for expression in &body[second_index + 1..] {
                 collect_value_names(expression, &mut suffix_names);
             }
             if suffix_names.contains(&first_binding.name) {
@@ -1998,6 +2035,15 @@ fn lower_async_while(
             let first_result = format!("{base}-first-result");
             replace_await_local(&mut second_task, &first_binding.name, &first_result);
             let second_task = expression_source(&second_task)?;
+            let mut middle = middle.to_vec();
+            for expression in &mut middle {
+                replace_await_local(expression, &first_binding.name, &first_result);
+            }
+            let middle_source = middle
+                .iter()
+                .map(expression_source)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(" ");
             let second_result_type = second_binding.ty.as_str();
             let second_poll_from_first = format!(
                 "(#match (#call {second_poll} (: task {second_task} : waker waker))\n\
@@ -2009,11 +2055,14 @@ fn lower_async_while(
                    (#case ({second_pending} pending) ({sequence_pending} ({wait_second} pending)))\n\
                    (#case ({second_ready} value) ({sequence_ready} value)))"
             );
-            let uses_first_result = second_task_names.contains(&first_binding.name);
+            let uses_first_result = second_task_names.contains(&first_binding.name)
+                || middle_names.contains(&first_binding.name);
             let first_ready_continuation = if uses_first_result {
-                second_poll_from_first
+                format!("(#block {middle_source} {second_poll_from_first})")
             } else {
-                format!("(#block (#forget {first_result}) {second_poll_from_first})")
+                format!(
+                    "(#block (#forget {first_result}) {middle_source} {second_poll_from_first})"
+                )
             };
             let sequence_helper = format!(
                 "(#enum {sequence_task} (({wait_first} {first_child_type}) ({wait_second} {second_child_type})))\n\
@@ -2033,7 +2082,8 @@ fn lower_async_while(
                 unreachable!()
             };
             let first_global_index = first_index + 2;
-            loop_items.remove(first_global_index);
+            let second_global_index = second_index + 2;
+            loop_items.drain(first_global_index..second_global_index);
             let Expr::List(second_binding_form) = &mut loop_items[first_global_index] else {
                 unreachable!()
             };

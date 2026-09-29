@@ -2486,28 +2486,29 @@ fn async_while_body_binding_awaits_only_the_selected_branch() {
 
 #[test]
 fn async_loop_sequences_two_awaits_in_one_iteration() {
-    let source = "(#enum SecondTask (SecondWaiting SecondResuming))
+    let source = "(#enum SecondTask ((SecondWaiting u64) (SecondResuming u64)))
       (#linear SecondTask)
       (#enum SecondPoll ((SecondPending SecondTask) (SecondReady u64)))
       (#fn second-poll ((task SecondTask) (waker (#ref u64))) SecondPoll
         (#return (#match task
-          (#case SecondWaiting (SecondPending SecondResuming))
-          (#case SecondResuming (SecondReady 42u64)))))
+          (#case (SecondWaiting value) (SecondPending (SecondResuming value)))
+          (#case (SecondResuming value) (SecondReady (#u64.+.wrap value 2u64))))))
       (#enum FirstTask (FirstWaiting FirstResuming))
       (#linear FirstTask)
-      (#enum FirstPoll ((FirstPending FirstTask) (FirstReady SecondTask)))
+      (#enum FirstPoll ((FirstPending FirstTask) (FirstReady u64)))
       (#fn first-poll ((task FirstTask) (waker (#ref u64))) FirstPoll
         (#return (#match task
           (#case FirstWaiting (FirstPending FirstResuming))
-          (#case FirstResuming (FirstReady SecondWaiting)))))
+          (#case FirstResuming (FirstReady 40u64)))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
           (#let-mut keep-going bool true)
           (#while keep-going
-            (#let next-task SecondTask
+            (#let next-value u64
               (#await FirstTask FirstPending FirstReady first-poll FirstWaiting))
+            (#assert (#u64.== next-value 40u64))
             (#let result u64
-              (#await SecondTask SecondPending SecondReady second-poll next-task))
+              (#await SecondTask SecondPending SecondReady second-poll (SecondWaiting next-value)))
             (#set keep-going false)
             (#assert (#u64.== result 42u64)))
           (#return 42u64))))

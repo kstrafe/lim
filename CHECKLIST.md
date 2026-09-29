@@ -1994,6 +1994,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Pending. Restore pattern bindings and body-await results before the original
   continuation; verify direct and conditional body awaits, as well as an
   unmatched value that must not poll the body task.
+- [x] **ASYNC-01b69: Preserve expressions between loop-body awaits.**
+  Compose the first two direct loop-body awaits even when separated by
+  nonbinding, noncontrol, nonsuspending expressions. Run those expressions
+  exactly once after the first child becomes Ready and before constructing the
+  second child; allow them to use the first result, and reject inaccessible
+  outer or per-iteration locals explicitly. Verify that the first result feeds
+  both an intervening check and the second task.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
