@@ -88,6 +88,17 @@ fn struct_field_type(structure: &str, field: &str) -> Option<String> {
     })
 }
 
+fn enum_constructor_field_types(variant: &str) -> Option<Vec<String>> {
+    ASYNC_TYPE_ENVIRONMENTS.with(|stack| {
+        stack
+            .borrow()
+            .last()?
+            .enums
+            .values()
+            .find_map(|variants| variants.get(variant).cloned())
+    })
+}
+
 fn async_argument_is_trivial(expression: &Expr) -> bool {
     matches!(
         expression,
@@ -2734,7 +2745,11 @@ fn extract_nested_awaits(
                     }
                 }
                 _ => {
-                    for item in items.iter_mut().skip(1) {
+                    let constructor_name = head.clone();
+                    let constructor_fields = enum_constructor_field_types(&constructor_name);
+                    let has_suspending_payload =
+                        constructor_fields.is_some() && items.iter().skip(1).any(has_await);
+                    for (payload_index, item) in items.iter_mut().enumerate().skip(1) {
                         extract_nested_awaits(
                             item,
                             generated,
@@ -2744,6 +2759,39 @@ fn extract_nested_awaits(
                             next_name,
                             waker,
                         )?;
+                        let already_sequenced = match item {
+                            Expr::Symbol(name) => generated.iter().any(|statement| {
+                                form(statement, "#let").is_some_and(|binding| {
+                                    binding.len() == 4
+                                        && matches!(&binding[1], Expr::Symbol(bound) if bound == name)
+                                })
+                            }),
+                            _ => false,
+                        };
+                        if !has_suspending_payload
+                            || async_argument_is_trivial(item)
+                            || already_sequenced
+                        {
+                            continue;
+                        }
+                        let payload_type = constructor_fields
+                            .as_ref()
+                            .and_then(|fields| fields.get(payload_index - 1))
+                            .ok_or_else(|| {
+                                format!("@async-fn cannot determine payload {} type for enum variant '{constructor_name}' while preserving evaluation order", payload_index - 1)
+                            })?;
+                        let temporary = nested_await_name(source, next_name);
+                        generated.push(Expr::List(vec![
+                            Expr::Symbol("#let".into()),
+                            Expr::Symbol(temporary.clone()),
+                            crate::parse(payload_type)?
+                                .into_iter()
+                                .next()
+                                .ok_or_else(|| format!("@async-fn payload {} of enum variant '{constructor_name}' has an empty type", payload_index - 1))?
+                                .expr,
+                            item.clone(),
+                        ]));
+                        *item = Expr::Symbol(temporary);
                     }
                 }
             }
