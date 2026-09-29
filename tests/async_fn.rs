@@ -3780,7 +3780,11 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
             "(#if (#u64.== iteration 0u64) (#continue) (#break))",
             "(#if true (#return 42u64) ())",
         )
-        .replace("(#assert (#u64.== iteration 0u64))", "(#assert false)");
+        .replace("(#assert (#u64.== iteration 0u64))", "(#assert false)")
+        .replace(
+            "(#return iteration))))",
+            "(#assert false) (#return iteration))))",
+        );
     let (prefix, _) = return_source.split_once("(#fn main () u64").unwrap();
     let mut poll_chain = "(#block (#forget pending-8) 0u64)".to_owned();
     for index in (0..8).rev() {
@@ -3805,24 +3809,6 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
     );
     let generated = build_and_run(&return_source, 42);
     assert!(generated.contains("iteration-function"), "{generated}");
-
-    let post_loop_statement = source
-        .replace(
-            "(#if (#u64.== iteration 0u64) (#continue) (#break))",
-            "(#return 42u64)",
-        )
-        .replace(
-            "(#return iteration))))",
-            "(#assert false) (#return iteration))))",
-        );
-    let error = match lim::parse_program(&post_loop_statement) {
-        Ok(program) => lim::check_types(&program).unwrap_err(),
-        Err(error) => error,
-    };
-    assert!(
-        error.contains("loop to be the final statement"),
-        "post-loop work must not silently run after a return transfer: {error}"
-    );
 }
 
 #[test]

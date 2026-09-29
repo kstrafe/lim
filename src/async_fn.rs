@@ -5874,7 +5874,7 @@ fn lower_async_for(
     next_name: &mut usize,
     waker: &str,
     type_environment: &AsyncTypeEnvironment,
-) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>, usize)>, String> {
     if !has_await(statement) {
         return Ok(None);
     }
@@ -5956,7 +5956,7 @@ fn lower_async_for(
             ];
             loop_items.extend(body);
             let loop_form = Expr::List(loop_items);
-            let Some((replacement, loop_helpers, renames)) = lower_async_for(
+            let Some((replacement, loop_helpers, renames, consumed_following)) = lower_async_for(
                 &loop_form,
                 &loop_known,
                 &loop_order,
@@ -5981,7 +5981,7 @@ fn lower_async_for(
                 .filter(|helper| !helper.is_empty())
                 .collect::<Vec<_>>()
                 .join("\n");
-            return Ok(Some((output, helpers, renames)));
+            return Ok(Some((output, helpers, renames, consumed_following)));
         }
         let mut loop_form = vec![
             Expr::Symbol("#for".into()),
@@ -5995,6 +5995,7 @@ fn lower_async_for(
             initializer_prefix,
             initializer_helpers.join("\n"),
             Vec::new(),
+            0,
         )));
     }
     if awaited_initializer {
@@ -6053,6 +6054,7 @@ fn lower_async_for(
     let mut return_status_initialization = None;
     let mut return_status_completion = None;
     let mut return_status_copy_types = Vec::new();
+    let mut consumed_following = 0;
     if awaited_condition && form(&condition, "#await").is_none() {
         let Some((protocol, task, helper)) =
             conditional_await_with_immediate(&condition, &loop_known, source, next_name, waker)?
@@ -6133,6 +6135,7 @@ fn lower_async_for(
             initializer_prefix,
             initializer_helpers.join("\n"),
             Vec::new(),
+            0,
         )));
     }
 
@@ -6220,12 +6223,7 @@ fn lower_async_for(
             if combined_body_step {
                 let return_signal = loop_body.iter().any(contains_return);
                 if return_signal {
-                    if !following.is_empty() {
-                        return Err(
-                        "@async-fn three-phase #for returns currently require the loop to be the final statement"
-                            .into(),
-                    );
-                    }
+                    consumed_following = following.len();
                     if loop_body[..loop_body.len().saturating_sub(1)]
                         .iter()
                         .any(contains_return)
@@ -6476,6 +6474,16 @@ fn lower_async_for(
     if let Some((status_name, returned_variant, tail_variant)) = return_status_completion.take() {
         let old_return_value = return_value.clone();
         let result_name = fresh_async_name(source, next_name);
+        let normal_completion = if following.is_empty() {
+            old_return_value
+        } else {
+            Expr::List(
+                std::iter::once(Expr::Symbol("#block".into()))
+                    .chain(following.iter().cloned())
+                    .chain(std::iter::once(old_return_value))
+                    .collect(),
+            )
+        };
         *return_value = Expr::List(vec![
             Expr::Symbol("#match".into()),
             Expr::Symbol(status_name),
@@ -6490,7 +6498,7 @@ fn lower_async_for(
             Expr::List(vec![
                 Expr::Symbol("#case".into()),
                 Expr::Symbol(tail_variant),
-                old_return_value,
+                normal_completion,
             ]),
         ]);
     }
@@ -6506,6 +6514,11 @@ fn lower_async_for(
         }
         rename_async_value(&mut loop_return_value, source_name, &alias_binding.name);
     }
+    let lowered_loop_following = if consumed_following == 0 {
+        loop_following.as_slice()
+    } else {
+        &[]
+    };
     let Some((mut replacement, helper, renames)) =
         with_additional_named_copy_types(&return_status_copy_types, || {
             lower_async_while_with_transfers(
@@ -6513,7 +6526,7 @@ fn lower_async_for(
                 &loop_known,
                 &loop_order,
                 &body_reference_transfers,
-                &loop_following,
+                lowered_loop_following,
                 &loop_return_value,
                 source,
                 next_name,
@@ -6559,7 +6572,7 @@ fn lower_async_for(
             renames.push((source_name, alias_binding));
         }
     }
-    Ok(Some((replacement, helper, renames)))
+    Ok(Some((replacement, helper, renames, consumed_following)))
 }
 
 fn resolve_async_enum_name<'a>(
@@ -7959,7 +7972,7 @@ fn generated_source_with_capture_selection(
             lowered_statements.extend(replacement);
             continue;
         }
-        if let Some((replacement, helper, renames)) = lower_async_for(
+        if let Some((replacement, helper, renames, consumed_following)) = lower_async_for(
             &statement,
             &lowering_known,
             &lowering_known_order,
@@ -7973,6 +7986,9 @@ fn generated_source_with_capture_selection(
         )
         .map_err(|error| format!("async statement {source_index}: {error}"))?
         {
+            for consumed_index in source_index + 1..=source_index + consumed_following {
+                consumed_async_statements.insert(consumed_index);
+            }
             apply_async_output_renames(
                 &mut statements[source_index + 1..],
                 &mut return_value,
