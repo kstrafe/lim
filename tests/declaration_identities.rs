@@ -145,6 +145,8 @@ fn local_bindings_may_not_shadow_visible_names() {
         "(#fn main ((value u64)) u64 (#let (#tuple value) (#tuple u64) (#tuple 2u64)) (#return value))",
         "(#enum Maybe ((Some u64) None)) (#fn main ((value u64) (maybe Maybe)) u64 (#return (#if-let (Some value) maybe value value)))",
         "(#enum Maybe ((Some u64) None)) (#fn main ((value u64) (maybe Maybe)) u64 (#let-else (Some value) Maybe maybe (#return 0u64)) (#return value))",
+        "(#fn main ((counter u64)) u64 (#for (#let counter u64 0u64) true () (#break)) (#return counter))",
+        "(#fn main ((offset u64)) u64 (#for-range (offset u64) 0u64 2u64 ()) (#return offset))",
     ] {
         let error = lim::parse_program(source).unwrap_err();
         assert!(
