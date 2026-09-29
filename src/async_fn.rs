@@ -3155,31 +3155,20 @@ fn lower_async_while(
     known_order: &[String],
     following: &[Expr],
     return_value: &mut Expr,
+    return_type: &Expr,
     source: &str,
     next_name: &mut usize,
     waker: &str,
 ) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if let Some(items) = form(statement, "#while") {
         let direct_condition_await = form(&items[1], "#await");
-        let body_return = match items.len() {
-            3 => form(&items[2], "#return")
-                .map(|return_form| (return_form, None::<(&[Expr], Binding)>)),
-            4 => {
-                let return_form = form(&items[3], "#return");
-                let body_binding = form(&items[2], "#let").or_else(|| form(&items[2], "#let-mut"));
-                match (return_form, body_binding) {
-                    (Some(return_form), Some(body_binding)) => {
-                        let local = binding(&items[2], "awaited while return")?;
-                        Some((return_form, Some((body_binding, local))))
-                    }
-                    _ => None,
-                }
-            }
-            _ => None,
+        let return_index = items.len().saturating_sub(1);
+        let body_return = if items.len() >= 3 {
+            form(&items[return_index], "#return")
+        } else {
+            None
         };
-        if let (Some(await_form), Some((return_form, body_binding))) =
-            (direct_condition_await, body_return)
-        {
+        if let (Some(await_form), Some(return_form)) = (direct_condition_await, body_return) {
             if return_form.len() != 2 {
                 return Err("@async-fn awaited #while return requires exactly one value".into());
             }
@@ -3201,60 +3190,29 @@ fn lower_async_while(
                 items[1].clone(),
             ]);
             let mut replacement = vec![condition_binding];
-            let return_expression = if let Some((body_binding_form, body_binding)) = body_binding {
-                if return_form.len() != 2
-                    || !matches!(&return_form[1], Expr::Symbol(name) if name == &body_binding.name)
-                    || has_await(&return_form[1])
-                {
-                    return Err(
-                        "@async-fn awaited #while body cannot return in this shape yet; awaited body binding must be returned directly"
-                            .into(),
-                    );
-                }
-                let mut body_await = form(&body_binding_form[3], "#await")
-                    .ok_or_else(|| {
-                        "@async-fn awaited #while return binding must initialize with #await"
-                            .to_owned()
-                    })?
-                    .to_vec();
-                if body_await.len() == 6 {
-                    body_await.insert(1, crate::parse(&body_binding.ty)?[0].expr.clone());
-                }
-                if body_await.len() != 7 || has_await(&body_await[6]) {
-                    return Err(
-                        "@async-fn awaited #while return binding requires one direct typed #await"
-                            .into(),
-                    );
-                }
-                let result_name = fresh_async_name(source, next_name);
-                replacement.push(Expr::List(vec![
-                    Expr::Symbol("#let".into()),
-                    Expr::Symbol(result_name.clone()),
-                    crate::parse(&body_binding.ty)?[0].expr.clone(),
-                    Expr::List(vec![
-                        Expr::Symbol("#if".into()),
-                        Expr::Symbol(condition_name),
-                        Expr::List(body_await),
-                        return_value.clone(),
-                    ]),
-                ]));
-                Expr::Symbol(result_name)
+            let returned_body = if return_index == 2 {
+                return_form[1].clone()
             } else {
-                if has_await(&return_form[1]) {
-                    return Err(
-                        "@async-fn awaited #while early return requires a non-suspending return value"
-                            .into(),
-                    );
-                }
-                *return_value = Expr::List(vec![
+                Expr::List(
+                    std::iter::once(Expr::Symbol("#block".into()))
+                        .chain(items[2..return_index].iter().cloned())
+                        .chain(std::iter::once(return_form[1].clone()))
+                        .collect(),
+                )
+            };
+            let result_name = fresh_async_name(source, next_name);
+            replacement.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(result_name.clone()),
+                return_type.clone(),
+                Expr::List(vec![
                     Expr::Symbol("#if".into()),
                     Expr::Symbol(condition_name),
-                    return_form[1].clone(),
+                    returned_body,
                     return_value.clone(),
-                ]);
-                return Ok(Some((replacement, String::new(), Vec::new())));
-            };
-            *return_value = return_expression;
+                ]),
+            ]));
+            *return_value = Expr::Symbol(result_name);
             return Ok(Some((replacement, String::new(), Vec::new())));
         }
     }
@@ -3279,12 +3237,9 @@ fn async_while_has_terminal_return(statement: &Expr) -> bool {
         return false;
     }
     match items.len() {
-        3 => form(&items[2], "#return").is_some(),
-        4 => {
-            (form(&items[2], "#let").is_some() || form(&items[2], "#let-mut").is_some())
-                && form(&items[3], "#return").is_some()
-        }
-        _ => false,
+        _ => items
+            .last()
+            .is_some_and(|last| form(last, "#return").is_some()),
     }
 }
 
@@ -7350,6 +7305,7 @@ fn generated_source_with_capture_selection(
                 &lowering_known_order,
                 &following,
                 &mut return_value,
+                &function[3],
                 &source,
                 &mut next_nested_await,
                 &waker_source,
@@ -7468,6 +7424,7 @@ fn generated_source_with_capture_selection(
             &lowering_known_order,
             &following,
             &mut return_value,
+            &function[3],
             &source,
             &mut next_nested_await,
             &waker_source,

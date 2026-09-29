@@ -2637,41 +2637,50 @@ fn async_while_body_can_return_after_body_await() {
 }
 
 #[test]
-fn async_suspending_while_body_return_diagnostic_points_at_return() {
-    let source = "(#enum ConditionTask (ConditionWaiting))
+fn async_suspending_while_body_can_return_after_setup() {
+    let source = "(#enum ConditionTask ((ConditionWaiting bool) (ConditionResuming bool)))
       (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
       (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
         (#return (#match task
-          (#case ConditionWaiting (ConditionReady true)))))
-      (#enum BodyTask (BodyWaiting))
+          (#case (ConditionWaiting decision)
+            (ConditionPending (ConditionResuming decision)))
+          (#case (ConditionResuming decision) (ConditionReady decision)))))
+      (#enum BodyTask ((BodyWaiting u64) (BodyResuming u64)))
       (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
       (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
-        (#return (#match task (#case BodyWaiting (BodyReady 1u64)))))
+        (#return (#match task
+          (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
+          (#case (BodyResuming value) (BodyReady value)))))
       (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
-        (#fn work () u64
+        (#fn work ((decision bool)) u64
           (#while (#await ConditionTask ConditionPending ConditionReady
-                    condition-poll ConditionWaiting)
-            (#let setup u64 0u64)
+                    condition-poll (ConditionWaiting decision))
+            (#let setup u64 13u64)
             (#let value u64
-              (#await u64 BodyTask BodyPending BodyReady body-poll BodyWaiting))
+              (#await u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting setup)))
             (#return value))
-          (#return 0u64))))";
-    let scratch = support::Scratch::new("async-suspending-while-return-diagnostic");
-    let diagnostic = lim::compile_source_to_assembly(
-        source,
-        &scratch.path().join("source.lim"),
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
-    assert!(diagnostic.message.contains("body cannot return"));
-    let span = diagnostic
-        .span
-        .expect("unsupported loop return has a source span");
-    let return_start = source.find("#return value").unwrap();
-    assert_eq!(&source[span.start..span.end], "#return");
-    assert_eq!(span.start, return_start);
+          (#return 5u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let true-task Frame (#call work (: decision true)))
+        (#let true-first Poll (#call poll (: task true-task : waker (#borrow waker))))
+        (#let-else (PollPending true-after-condition) Poll true-first (#unreachable))
+        (#let true-second Poll
+          (#call poll (: task true-after-condition : waker (#borrow waker))))
+        (#let-else (PollPending true-after-body) Poll true-second (#unreachable))
+        (#let true-third Poll
+          (#call poll (: task true-after-body : waker (#borrow waker))))
+        (#let-else (PollReady true-result) Poll true-third (#unreachable))
+        (#let false-task Frame (#call work (: decision false)))
+        (#let false-first Poll (#call poll (: task false-task : waker (#borrow waker))))
+        (#let-else (PollPending false-after-condition) Poll false-first (#unreachable))
+        (#let false-second Poll
+          (#call poll (: task false-after-condition : waker (#borrow waker))))
+        (#let-else (PollReady false-result) Poll false-second (#unreachable))
+        (#forget waker)
+        (#return (#u64.+.wrap true-result false-result)))";
+    let generated = build_and_run(source, 18);
+    assert!(generated.contains("choice"), "{generated}");
 }
 
 #[test]

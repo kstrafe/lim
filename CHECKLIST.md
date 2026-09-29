@@ -2241,6 +2241,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   the condition resumes Ready(true). On Ready(false), return the function's
   ordinary final value without constructing or polling the body task. Verify
   both branches natively, including Pending/resume for each child.
+- [x] **ASYNC-01b114: Preserve non-suspending setup before an awaited
+  loop-body return.** When that terminal body has a local setup prefix, keep
+  its scope and values inside the Ready(true) branch while lowering the awaited
+  return as a child continuation. Verify the setup value reaches the child,
+  both condition outcomes, and Pending/resume through native execution.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
