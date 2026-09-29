@@ -1757,6 +1757,38 @@ fn async_function_awaits_inside_let_else_return_expression() {
 }
 
 #[test]
+fn async_let_else_can_await_before_an_unreachable_failure() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))
+      (#linear ChildTask)
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((input Maybe)) u64
+          (#let-else (Some payload) Maybe input
+            (#block
+              (#let ignored u64
+                (#await u64 ChildTask ChildPending ChildReady child-poll (Waiting 0u64)))
+              (#unreachable)))
+          (#return payload))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (: input (Some 42u64))))
+        (#let outcome Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let value u64
+          (#match outcome
+            (#case (Ready ready) ready)
+            (#case (Pending pending) (#block (#forget pending) 0u64))))
+        (#forget waker)
+        (#return value))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("poll-child"), "{generated}");
+}
+
+#[test]
 fn async_let_else_accepts_conditional_awaited_return_arms() {
     let source = "(#enum Maybe ((Some u64) None))
       (#enum ChildTask ((Waiting u64) (Resuming u64)))

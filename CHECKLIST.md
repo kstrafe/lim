@@ -2360,6 +2360,9 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
 - [x] **ASYNC-01b139: Suspend nested `#while-let` expressions.** Lift a
   pattern-conditioned loop with an awaited scrutinee into a child frame when
   used as a named call argument; preserve pattern selection and loop exit.
+- [x] **ASYNC-01b140: Suspend unreachable `#let-else` failure paths.** Permit
+  explicit awaits before a terminal `#unreachable` in the diverging arm while
+  preserving success-path selection and the enclosing function return type.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

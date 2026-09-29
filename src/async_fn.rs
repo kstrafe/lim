@@ -1562,9 +1562,12 @@ fn lower_awaited_let_else_return(
         let Some(last) = block.last() else {
             return Ok(None);
         };
-        let Some((branch_value, true)) =
-            async_terminal_loop_exit(last, &Expr::Symbol("lim.async.unreachable-tail".into()))
-        else {
+        let Some((branch_value, true)) = async_terminal_loop_exit_with_return_marker(
+            last,
+            &Expr::Symbol("lim.async.unreachable-tail".into()),
+            None,
+            Some(return_type),
+        ) else {
             return Ok(None);
         };
         let prefix = &block[1..block.len() - 1];
@@ -1590,9 +1593,11 @@ fn lower_awaited_let_else_return(
         }
         (branch_value, Some(prefix))
     } else {
-        let Some((branch_value, true)) = async_terminal_loop_exit(
+        let Some((branch_value, true)) = async_terminal_loop_exit_with_return_marker(
             &let_else[4],
             &Expr::Symbol("lim.async.unreachable-tail".into()),
+            None,
+            Some(return_type),
         ) else {
             return Ok(None);
         };
@@ -3596,6 +3601,7 @@ fn lower_async_while(
                 &items[return_index],
                 return_value,
                 items[2..].iter().any(has_await).then_some(return_type),
+                None,
             )
         } else {
             None
@@ -3806,13 +3812,14 @@ fn async_while_has_terminal_return(statement: &Expr) -> bool {
 }
 
 fn async_terminal_loop_exit(expression: &Expr, tail: &Expr) -> Option<(Expr, bool)> {
-    async_terminal_loop_exit_with_return_marker(expression, tail, None)
+    async_terminal_loop_exit_with_return_marker(expression, tail, None, None)
 }
 
 fn async_terminal_loop_exit_with_return_marker(
     expression: &Expr,
     tail: &Expr,
     return_type: Option<&Expr>,
+    unreachable_return_type: Option<&Expr>,
 ) -> Option<(Expr, bool)> {
     if let Some(return_form) = form(expression, "#return") {
         return (return_form.len() == 2).then(|| {
@@ -3828,6 +3835,18 @@ fn async_terminal_loop_exit_with_return_marker(
             (returned, true)
         });
     }
+    if form(expression, "#unreachable").is_some() {
+        if let Some(return_type) = unreachable_return_type {
+            return Some((
+                Expr::List(vec![
+                    Expr::Symbol("#async-terminal-return".into()),
+                    return_type.clone(),
+                    expression.clone(),
+                ]),
+                true,
+            ));
+        }
+    }
     if let Some(break_form) = form(expression, "#break") {
         return (break_form.len() == 1).then(|| (tail.clone(), false));
     }
@@ -3835,8 +3854,12 @@ fn async_terminal_loop_exit_with_return_marker(
         if block.len() < 2 {
             return None;
         }
-        let (returned, contains_return) =
-            async_terminal_loop_exit_with_return_marker(block.last()?, tail, return_type)?;
+        let (returned, contains_return) = async_terminal_loop_exit_with_return_marker(
+            block.last()?,
+            tail,
+            return_type,
+            unreachable_return_type,
+        )?;
         return Some((
             Expr::List(
                 block[..block.len() - 1]
@@ -3852,10 +3875,18 @@ fn async_terminal_loop_exit_with_return_marker(
         if conditional.len() != 4 {
             return None;
         }
-        let (then_value, then_returns) =
-            async_terminal_loop_exit_with_return_marker(&conditional[2], tail, return_type)?;
-        let (else_value, else_returns) =
-            async_terminal_loop_exit_with_return_marker(&conditional[3], tail, return_type)?;
+        let (then_value, then_returns) = async_terminal_loop_exit_with_return_marker(
+            &conditional[2],
+            tail,
+            return_type,
+            unreachable_return_type,
+        )?;
+        let (else_value, else_returns) = async_terminal_loop_exit_with_return_marker(
+            &conditional[3],
+            tail,
+            return_type,
+            unreachable_return_type,
+        )?;
         return Some((
             Expr::List(vec![
                 conditional[0].clone(),
@@ -3879,8 +3910,12 @@ fn async_terminal_loop_exit_with_return_marker(
             4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
             _ => return None,
         };
-        let (returned, contains_return) =
-            async_terminal_loop_exit_with_return_marker(&case[body_index], tail, return_type)?;
+        let (returned, contains_return) = async_terminal_loop_exit_with_return_marker(
+            &case[body_index],
+            tail,
+            return_type,
+            unreachable_return_type,
+        )?;
         any_return |= contains_return;
         lowered.push(Expr::List(
             case[..body_index]
