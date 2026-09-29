@@ -2157,8 +2157,36 @@ fn extract_nested_awaits(
                 return Ok(());
             };
             if contains_await && head == "#loop" {
+                if let Some((protocol, task, helper)) =
+                    conditional_value_expression_task(expression, known, source, next_name, waker)?
+                {
+                    generated_helpers.push(helper);
+                    let task_name = nested_await_name(source, next_name);
+                    generated.push(Expr::List(vec![
+                        Expr::Symbol("#let".into()),
+                        Expr::Symbol(task_name.clone()),
+                        protocol.child_type.clone(),
+                        task,
+                    ]));
+                    let result_name = nested_await_name(source, next_name);
+                    generated.push(Expr::List(vec![
+                        Expr::Symbol("#let".into()),
+                        Expr::Symbol(result_name.clone()),
+                        protocol.result_type,
+                        Expr::List(vec![
+                            Expr::Symbol("#await".into()),
+                            protocol.child_type,
+                            protocol.pending,
+                            protocol.ready,
+                            protocol.poll,
+                            Expr::Symbol(task_name),
+                        ]),
+                    ]));
+                    *expression = Expr::Symbol(result_name);
+                    return Ok(());
+                }
                 return Err(
-                    "@async-fn cannot lower #await inside #loop yet; supported #while, #for-range, and existing-counter #for forms preserve loop-carried suspension state".into(),
+                    "@async-fn cannot lower this nested #loop suspension; use a unit-valued loop expression with supported loop control".into(),
                 );
             }
             if head == "#block" && contains_await {

@@ -2344,6 +2344,9 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   block with a locally bound awaited result as a named argument to an ordinary
   function. Check Pending/resume execution returns the computed value without
   leaking the block-local binding into the surrounding function.
+- [x] **ASYNC-01b135: Suspend nested unit-valued `#loop` expressions.** Lift a
+  nested unit loop into a child async frame when it appears as a call argument,
+  preserving its local bindings, loop control, and Pending/resume behavior.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
