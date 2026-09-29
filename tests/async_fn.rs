@@ -2787,9 +2787,11 @@ fn async_awaited_while_body_returns_from_match_arms() {
         (#fn work ((decision bool) (pick bool)) u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (ConditionWaiting decision))
-            (#match pick
-              (#case true (#return 13u64))
-              (#case false (#return 17u64))))
+            (#block
+              (#let offset u64 1u64)
+              (#match pick
+                (#case true (#return (#u64.+.wrap 12u64 offset)))
+                (#case false (#return (#u64.+.wrap 16u64 offset))))))
           (#return 5u64))))
       (#fn drive ((decision bool) (pick bool) (waker (#ref u64))) u64
         (#let task Frame (#call work (: decision decision : pick pick)))

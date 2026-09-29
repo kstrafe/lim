@@ -3242,6 +3242,19 @@ fn async_terminal_return_value(expression: &Expr) -> Option<Expr> {
     if let Some(return_form) = form(expression, "#return") {
         return (return_form.len() == 2).then(|| return_form[1].clone());
     }
+    if let Some(block) = form(expression, "#block") {
+        if block.len() < 2 {
+            return None;
+        }
+        let returned = async_terminal_return_value(block.last()?)?;
+        return Some(Expr::List(
+            block[..block.len() - 1]
+                .iter()
+                .cloned()
+                .chain(std::iter::once(returned))
+                .collect(),
+        ));
+    }
     if let Some(conditional) = form(expression, "#if") {
         if conditional.len() != 4 {
             return None;

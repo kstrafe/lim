@@ -2260,6 +2260,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   each `#match` arm's pattern and optional guard while joining explicit return
   values from the awaited loop body. Verify every selected return arm and the
   Ready(false) function-tail path natively after condition suspension.
+- [x] **ASYNC-01b118: Preserve terminal return blocks in awaited loops.** Keep
+  block-local setup in scope when a terminal `#block` ends in conditional
+  `#return` branches inside an awaited loop body. Verify its local values and
+  each return arm natively after Pending/resume.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
