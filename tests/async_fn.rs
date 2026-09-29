@@ -4088,13 +4088,20 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
         (#return (#match task
           (#case Waiting (InitPending Resuming))
           (#case Resuming (InitReady (Some 9u64))))))
-      (#enum BodyTask (BodyWaiting BodyResuming))
+      (#enum BodyTask ((BodyWaiting u64) (BodyResuming u64)))
       (#linear BodyTask)
       (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
       (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
         (#return (#match task
-          (#case BodyWaiting (BodyPending BodyResuming))
-          (#case BodyResuming (BodyReady 9u64)))))
+          (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
+          (#case (BodyResuming value) (BodyReady value)))))
+      (#enum SecondBodyTask ((SecondBodyWaiting u64) (SecondBodyResuming u64)))
+      (#linear SecondBodyTask)
+      (#enum SecondBodyPoll ((SecondBodyPending SecondBodyTask) (SecondBodyReady u64)))
+      (#fn second-body-poll ((task SecondBodyTask) (waker (#ref u64))) SecondBodyPoll
+        (#return (#match task
+          (#case (SecondBodyWaiting value) (SecondBodyPending (SecondBodyResuming value)))
+          (#case (SecondBodyResuming value) (SecondBodyReady value)))))
       (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
         (#fn work () u64
           (#let-mut done bool false)
@@ -4104,8 +4111,11 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
                 (#bool.== done false)
                 ()
             (#let value u64
-              (#await BodyTask BodyPending BodyReady body-poll BodyWaiting))
-            (#assert (#u64.== value index))
+              (#await BodyTask BodyPending BodyReady body-poll (BodyWaiting index)))
+            (#let second-value u64
+              (#await SecondBodyTask SecondBodyPending SecondBodyReady
+                second-body-poll (SecondBodyWaiting value)))
+            (#assert (#u64.== second-value 9u64))
             (#set done true))
           (#return 42u64))))
       (#fn main () u64
@@ -4116,8 +4126,10 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
         (#let second Poll (#call poll (: task after-init : waker (#borrow waker))))
         (#let-else (Pending after-body) Poll second (#unreachable))
         (#let third Poll (#call poll (: task after-body : waker (#borrow waker))))
+        (#let-else (Pending after-second-body) Poll third (#unreachable))
+        (#let fourth Poll (#call poll (: task after-second-body : waker (#borrow waker))))
         (#let result u64
-          (#match third
+          (#match fourth
             (#case (Ready value) value)
             (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)

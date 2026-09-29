@@ -2199,6 +2199,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Route the typed initializer pattern bindings through the existing awaited
   step lowering, evaluate the step only after the body and resume it in source
   order, and verify native Pending/resume through both initializer and step.
+- [x] **ASYNC-01b105: Sequence multiple awaited body tasks after an awaited `#let-else` initializer.**
+  Retain the pattern binding into the first child task, pass its ready result
+  into the second child task, and verify native execution through Pending at
+  the initializer and both body awaits.
+- [ ] **ASYNC-01b106: Keep an earlier loop-await result live across a later suspension.**
+  Extend the loop sequence task state to retain a prior ready result when the
+  loop continuation uses it after a later await; preserve explicit ownership
+  for Copy and linear values and test Pending, Ready, and cancellation paths.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
