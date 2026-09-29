@@ -1450,6 +1450,36 @@ fn async_conditional_value_await_captures_typed_function_parameters() {
 }
 
 #[test]
+fn async_conditional_value_await_captures_typed_local_bindings() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#linear Child)
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let offset u64 40u64)
+          (#return (#if true
+            (#u64.+.wrap
+              (#await u64 Child ChildPending ChildReady child-poll (Waiting 2u64))
+              offset)
+            0u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (:)))
+        (#let result Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let value u64
+          (#match result
+            (#case (Ready value) value)
+            (#case (Pending pending) (#block (#forget pending) 0u64))))
+        (#forget waker)
+        (#return value))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("offset u64"), "{generated}");
+}
+
+#[test]
 fn async_conditional_choice_captures_and_releases_a_borrow_on_cancel() {
     let source = "(#enum Child ((Waiting u64)))
       (#linear Child)

@@ -661,6 +661,7 @@ fn first_async_await(expression: &Expr) -> Option<&[Expr]> {
 
 fn conditional_value_expression_task(
     expression: &Expr,
+    known: &HashMap<String, Binding>,
     source: &str,
     next_name: &mut usize,
     waker: &str,
@@ -687,23 +688,12 @@ fn conditional_value_expression_task(
     captures.remove("true");
     captures.remove("false");
 
-    // The generated async helper can represent enclosing parameters directly.
+    // The generated async helper can represent enclosing bindings directly.
     // Passing them as named, typed arguments keeps the source explicit and
     // lets the ordinary ownership/borrow checker validate the transfer.
-    let source_forms = crate::parse(source)?;
-    let source_function = source_forms
-        .first()
-        .and_then(|parsed| form(&parsed.expr, "#fn"))
-        .ok_or_else(|| "@async-fn could not read source function parameters".to_owned())?;
-    let source_parameters = parameters(&source_function[2])?;
     let mut captured_parameters = captures
         .iter()
-        .filter_map(|name| {
-            source_parameters
-                .iter()
-                .find(|parameter| parameter.name == *name)
-                .cloned()
-        })
+        .filter_map(|name| known.get(name).cloned())
         .collect::<Vec<_>>();
     captured_parameters.sort_by(|left, right| left.name.cmp(&right.name));
     for parameter in &captured_parameters {
@@ -798,6 +788,7 @@ fn fresh_async_name(source: &str, next_name: &mut usize) -> String {
 /// protocol or immediately produce its result into one concrete child task.
 fn conditional_await_with_immediate(
     expression: &Expr,
+    known: &HashMap<String, Binding>,
     source: &str,
     next_name: &mut usize,
     waker: &str,
@@ -822,7 +813,7 @@ fn conditional_await_with_immediate(
                 branches.push((Some(protocol), task));
                 branch_helpers.push(helper);
             } else if let Some((protocol, task, helper)) =
-                conditional_value_expression_task(branch, source, next_name, waker)?
+                conditional_value_expression_task(branch, known, source, next_name, waker)?
             {
                 branches.push((Some(protocol), task));
                 branch_helpers.push(helper);
@@ -868,9 +859,13 @@ fn conditional_await_with_immediate(
                 task_arm.push(task);
                 branches.push((Some(protocol), Expr::List(task_arm)));
                 branch_helpers.push(helper);
-            } else if let Some((protocol, task, helper)) =
-                conditional_value_expression_task(&case[body_index], source, next_name, waker)?
-            {
+            } else if let Some((protocol, task, helper)) = conditional_value_expression_task(
+                &case[body_index],
+                known,
+                source,
+                next_name,
+                waker,
+            )? {
                 let mut task_arm = vec![Expr::Symbol("#case".into()), case[1].clone()];
                 if body_index == 3 {
                     task_arm.push(case[2].clone());
@@ -994,6 +989,7 @@ fn extract_nested_awaits(
     expression: &mut Expr,
     generated: &mut Vec<Expr>,
     generated_helpers: &mut Vec<String>,
+    known: &HashMap<String, Binding>,
     source: &str,
     next_name: &mut usize,
     waker: &str,
@@ -1022,6 +1018,7 @@ fn extract_nested_awaits(
                 expression,
                 generated,
                 generated_helpers,
+                known,
                 source,
                 next_name,
                 waker,
@@ -1044,6 +1041,7 @@ fn extract_nested_awaits(
                 expression,
                 generated,
                 generated_helpers,
+                known,
                 source,
                 next_name,
                 waker,
@@ -1139,6 +1137,7 @@ fn extract_nested_awaits(
             expression,
             generated,
             generated_helpers,
+            known,
             source,
             next_name,
             waker,
@@ -1185,6 +1184,7 @@ fn extract_nested_awaits(
                     &mut items[1],
                     generated,
                     generated_helpers,
+                    known,
                     source,
                     next_name,
                     waker,
@@ -1199,6 +1199,7 @@ fn extract_nested_awaits(
                     &mut items[1],
                     generated,
                     generated_helpers,
+                    known,
                     source,
                     next_name,
                     waker,
@@ -1210,7 +1211,7 @@ fn extract_nested_awaits(
         let conditional = if let Some((protocol, task)) = conditional_await(expression)? {
             Some((protocol, task, None))
         } else {
-            conditional_await_with_immediate(expression, source, next_name, waker)?
+            conditional_await_with_immediate(expression, known, source, next_name, waker)?
                 .map(|(protocol, task, helper)| (protocol, task, Some(helper)))
         };
         if let Some((protocol, mut task, helper)) = conditional {
@@ -1221,6 +1222,7 @@ fn extract_nested_awaits(
                 &mut task,
                 generated,
                 generated_helpers,
+                known,
                 source,
                 next_name,
                 waker,
@@ -1259,6 +1261,7 @@ fn extract_nested_awaits(
                         item,
                         generated,
                         generated_helpers,
+                        known,
                         source,
                         next_name,
                         waker,
@@ -1287,6 +1290,7 @@ fn extract_nested_awaits(
                                         value,
                                         generated,
                                         generated_helpers,
+                                        known,
                                         source,
                                         next_name,
                                         waker,
@@ -1305,6 +1309,7 @@ fn extract_nested_awaits(
                                         value,
                                         generated,
                                         generated_helpers,
+                                        known,
                                         source,
                                         next_name,
                                         waker,
@@ -1328,6 +1333,7 @@ fn extract_nested_awaits(
                             item,
                             generated,
                             generated_helpers,
+                            known,
                             source,
                             next_name,
                             waker,
@@ -1340,6 +1346,7 @@ fn extract_nested_awaits(
                             item,
                             generated,
                             generated_helpers,
+                            known,
                             source,
                             next_name,
                             waker,
@@ -1356,6 +1363,7 @@ fn extract_nested_awaits(
                 expression,
                 generated,
                 generated_helpers,
+                known,
                 source,
                 next_name,
                 waker,
@@ -1366,6 +1374,7 @@ fn extract_nested_awaits(
                 value,
                 generated,
                 generated_helpers,
+                known,
                 source,
                 next_name,
                 waker,
@@ -1397,6 +1406,7 @@ fn extract_statement_awaits(
     statement: &mut Expr,
     generated: &mut Vec<Expr>,
     generated_helpers: &mut Vec<String>,
+    known: &HashMap<String, Binding>,
     source: &str,
     next_name: &mut usize,
     waker: &str,
@@ -1421,6 +1431,7 @@ fn extract_statement_awaits(
                     &mut await_items[5],
                     generated,
                     generated_helpers,
+                    known,
                     source,
                     next_name,
                     waker,
@@ -1435,6 +1446,7 @@ fn extract_statement_awaits(
             &mut items[3],
             generated,
             generated_helpers,
+            known,
             source,
             next_name,
             waker,
@@ -1453,6 +1465,7 @@ fn extract_statement_awaits(
             &mut items[1],
             generated,
             generated_helpers,
+            known,
             source,
             next_name,
             waker,
@@ -1462,6 +1475,7 @@ fn extract_statement_awaits(
             statement,
             generated,
             generated_helpers,
+            known,
             source,
             next_name,
             waker,
@@ -1503,7 +1517,7 @@ fn lower_async_while_let_body_await(
     let (body_await, body_helper) = if let Some(await_form) = form(&body_form[3], "#await") {
         (await_form.to_vec(), String::new())
     } else if let Some((protocol, task, helper)) =
-        conditional_await_with_immediate(&body_form[3], source, next_name, waker)?
+        conditional_await_with_immediate(&body_form[3], known, source, next_name, waker)?
     {
         (
             vec![
@@ -1805,7 +1819,7 @@ fn lower_async_while_with_transfers(
             {
                 (await_form.to_vec(), String::new())
             } else if let Some((protocol, task, helper)) =
-                conditional_await_with_immediate(&items[2], source, next_name, waker)?
+                conditional_await_with_immediate(&items[2], known, source, next_name, waker)?
             {
                 (
                     vec![
@@ -1950,7 +1964,7 @@ fn lower_async_while_with_transfers(
         let (await_form, condition_helper) = if let Some(await_form) = form(&condition, "#await") {
             (await_form.to_vec(), String::new())
         } else if let Some((protocol, task, helper)) =
-            conditional_await_with_immediate(&condition, source, next_name, waker)?
+            conditional_await_with_immediate(&condition, known, source, next_name, waker)?
         {
             (
                 vec![
@@ -1992,7 +2006,7 @@ fn lower_async_while_with_transfers(
             {
                 (await_form.to_vec(), String::new())
             } else if let Some((protocol, task, helper)) =
-                conditional_await_with_immediate(&body_form[3], source, next_name, waker)?
+                conditional_await_with_immediate(&body_form[3], known, source, next_name, waker)?
             {
                 (
                     vec![
@@ -2712,7 +2726,7 @@ fn lower_async_while_with_transfers(
     let (await_form, branch_helper) = if let Some(await_form) = form(&binding_form[3], "#await") {
         (await_form.to_vec(), String::new())
     } else if let Some((protocol, task, helper)) =
-        conditional_await_with_immediate(&binding_form[3], source, next_name, waker)?
+        conditional_await_with_immediate(&binding_form[3], known, source, next_name, waker)?
     {
         (
             vec![
@@ -3206,6 +3220,7 @@ fn lower_async_for_range(
             &mut start,
             &mut generated,
             &mut generated_helpers,
+            known,
             source,
             next_name,
             waker,
@@ -3214,6 +3229,7 @@ fn lower_async_for_range(
             &mut end,
             &mut generated,
             &mut generated_helpers,
+            known,
             source,
             next_name,
             waker,
@@ -3750,6 +3766,7 @@ fn lower_async_for(
                     &mut await_items[5],
                     &mut initializer_prefix,
                     &mut initializer_helpers,
+                    known,
                     source,
                     next_name,
                     waker,
@@ -3762,6 +3779,7 @@ fn lower_async_for(
                 &mut value,
                 &mut initializer_prefix,
                 &mut initializer_helpers,
+                known,
                 source,
                 next_name,
                 waker,
@@ -3783,7 +3801,7 @@ fn lower_async_for(
     let mut condition_helpers = Vec::new();
     if awaited_condition && form(&condition, "#await").is_none() {
         let Some((protocol, task, helper)) =
-            conditional_await_with_immediate(&condition, source, next_name, waker)?
+            conditional_await_with_immediate(&condition, &loop_known, source, next_name, waker)?
         else {
             return Err(
                 "@async-fn #for condition requires a direct #await or conditional #if with a direct #await branch".into(),
@@ -3902,6 +3920,7 @@ fn lower_async_for(
                     &mut value,
                     &mut step_prefix,
                     &mut step_helpers,
+                    &loop_known,
                     source,
                     next_name,
                     waker,
@@ -5423,6 +5442,7 @@ fn generated_source_with_capture_selection(
             &mut statement,
             &mut generated,
             &mut generated_helpers,
+            &lowering_known,
             &source,
             &mut next_nested_await,
             &waker_source,
@@ -5449,6 +5469,7 @@ fn generated_source_with_capture_selection(
             &mut return_value,
             &mut generated,
             &mut generated_helpers,
+            &lowering_known,
             &source,
             &mut next_nested_await,
             &waker_source,
