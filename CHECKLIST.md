@@ -2416,6 +2416,10 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Route a body await that is not a direct first binding through a generated
   nested body task, keeping the matched scrutinee and loop continuation intact.
   Verify an awaited assertion across Pending/resume in a native run.
+- [x] **ASYNC-01b152: Preserve range-loop transfers around awaited bodies.**
+  Lower non-binding body awaits in `#for-range`; execute the generated step
+  exactly once on `#continue` and skip it on `#break`. Verify both terminal
+  transfers after a Pending/resume body task in native runs.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

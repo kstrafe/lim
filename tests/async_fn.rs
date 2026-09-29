@@ -4421,6 +4421,38 @@ fn async_function_resumes_child_await_inside_a_for_range_loop() {
 }
 
 #[test]
+fn async_for_range_suspends_in_a_non_binding_body_statement() {
+    let source = "(#enum BodyTask (Waiting Resuming))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady bool)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case Waiting (BodyPending Resuming))
+          (#case Resuming (BodyReady true)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#for-range (iteration u64) 0u64 1u64
+            (#assert (#await bool BodyTask BodyPending BodyReady body-poll Waiting))
+            (#break))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (Pending pending-frame) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending-frame : waker (#borrow waker))))
+        (#let result u64
+          (#match second
+            (#case (Ready value) value)
+            (#case (Pending unexpected) (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("body-frame"), "{generated}");
+    let continue_source = source.replace("            (#break))", "            (#continue))");
+    build_and_run(&continue_source, 42);
+}
+
+#[test]
 fn async_for_range_awaits_bounds_in_source_order_before_iterating() {
     let source = "(#enum Child ((Waiting u64) (Resuming u64)))
       (#linear Child)

@@ -6262,9 +6262,21 @@ fn lower_async_for_range(
             Expr::Integer(1),
         ]),
     ]);
+    let mut body = items[4..].to_vec();
+    let step_is_lowered_at_transfer = if let Some(terminal) = body.last_mut() {
+        if contains_loop_control(terminal) {
+            rewrite_for_terminal_control(terminal, &increment)?
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     let mut while_items = vec![Expr::Symbol("#while".into()), condition, iteration_binding];
-    while_items.extend(items[4..].iter().cloned());
-    while_items.push(increment);
+    while_items.extend(body);
+    if !step_is_lowered_at_transfer {
+        while_items.push(increment);
+    }
     let lowered_loop = Expr::List(while_items);
 
     let mut loop_known = known.clone();
