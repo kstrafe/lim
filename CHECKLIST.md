@@ -2277,6 +2277,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   returns.** Keep mismatch-block locals available to both an awaited return
   arm and an immediate return arm, without exposing those locals on the
   successful pattern path. Verify the awaited, immediate, and matched cases.
+- [x] **ASYNC-01b122: Suspend in a value-producing `#block` branch.** Lower a
+  block whose terminal conditional contains an await by preserving setup
+  statements in its generated continuation rather than rejecting suspension
+  nested in `#block`. Verify the local reaches the child task across
+  Pending/resume.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

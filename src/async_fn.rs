@@ -1905,6 +1905,39 @@ fn extract_nested_awaits(
             waker,
         );
     }
+    if form(expression, "#block").is_some()
+        && has_await(expression)
+        && block_await_continuation(expression).is_none()
+    {
+        if let Some((protocol, task, helper)) =
+            conditional_value_expression_task(expression, known, source, next_name, waker)?
+        {
+            generated_helpers.push(helper);
+            let task_name = nested_await_name(source, next_name);
+            generated.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(task_name.clone()),
+                protocol.child_type.clone(),
+                task,
+            ]));
+            let result_name = nested_await_name(source, next_name);
+            generated.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(result_name.clone()),
+                protocol.result_type,
+                Expr::List(vec![
+                    Expr::Symbol("#await".into()),
+                    protocol.child_type,
+                    protocol.pending,
+                    protocol.ready,
+                    protocol.poll,
+                    Expr::Symbol(task_name),
+                ]),
+            ]));
+            *expression = Expr::Symbol(result_name);
+            return Ok(());
+        }
+    }
     if let Some(await_form) = form(expression, "#await") {
         if await_form.len() != 7 {
             return Err(

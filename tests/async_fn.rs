@@ -874,6 +874,42 @@ fn async_function_extracts_typed_awaits_from_value_expressions() {
 }
 
 #[test]
+fn async_function_suspends_in_a_value_block_with_conditional_await() {
+    let source = "(#enum StepTask ((Waiting u64) (Resuming u64)))
+      (#enum StepPoll ((StepPending StepTask) (StepReady u64)))
+      (#linear StepTask)
+      (#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case (Waiting value) (StepPending (Resuming value)))
+          (#case (Resuming value) (StepReady value)))))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work ((choose bool)) u64
+          (#let value u64
+            (#block
+              (#let base u64 13u64)
+              (#if choose
+                (#await u64 StepTask StepPending StepReady step-poll (Waiting base))
+                0u64)))
+          (#return (#u64.+.wrap value 13u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let task Frame (#call work (: choose true)))
+        (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+        (#let result u64
+          (#match first
+            (#case (PollReady first-value) first-value)
+            (#case (PollPending pending)
+              (#match (#call poll (: task pending : waker (#borrow waker)))
+                (#case (PollReady second-value) second-value)
+                (#case (PollPending unexpected)
+                  (#block (#forget unexpected) 0u64))))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 26);
+    assert!(generated.contains("expression-frame"), "{generated}");
+}
+
+#[test]
 fn async_function_suspends_inside_mutable_assignment_rhs() {
     let source = "(#struct Waker ((count u64)))
       (#enum Child ((Waiting u64)))
