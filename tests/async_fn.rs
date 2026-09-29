@@ -1740,6 +1740,51 @@ fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
 }
 
 #[test]
+fn async_while_let_does_not_poll_the_unselected_scrutinee_branch() {
+    let source = "(#enum Maybe (Some None))
+      (#enum ChildTask (Waiting Resuming))
+      (#linear ChildTask)
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady Maybe)))
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#forget task)
+        (#assert false)
+        (#return (ChildReady None)))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#while-let Some
+            (#if false
+              (#await Maybe ChildTask ChildPending ChildReady child-poll Waiting)
+              None)
+            (#assert false))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let outcome Poll
+          (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#let result u64
+          (#match outcome
+            (#case (Ready value) 42u64)
+            (#case (Pending unexpected)
+              (#block (#forget unexpected) 0u64))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("choice"), "{generated}");
+
+    let pending_source = source
+        .replace(
+            "        (#forget task)\n        (#assert false)\n        (#return (ChildReady None))",
+            "        (#return (#match task\n          (#case Waiting (ChildPending Resuming))\n          (#case Resuming (ChildReady None))))",
+        )
+        .replace("(#if false", "(#if true")
+        .replace(
+            "        (#let outcome Poll\n          (#call poll (: task (#call work (:)) : waker (#borrow waker))))",
+            "        (#let first Poll\n          (#call poll (: task (#call work (:)) : waker (#borrow waker))))\n        (#let-else (Pending pending) Poll first (#unreachable))\n        (#let outcome Poll\n          (#call poll (: task pending : waker (#borrow waker))))",
+        );
+    build_and_run(&pending_source, 42);
+}
+
+#[test]
 fn async_await_preserves_boolean_short_circuiting() {
     let source = format!(
         "(#import \"{}/library/cell.lim\")

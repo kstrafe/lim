@@ -1080,9 +1080,30 @@ fn lower_async_while(
             );
         }
         if has_await(&items[2]) {
-            let await_form = form(&items[2], "#await").ok_or_else(|| {
-                "@async-fn #while-let currently requires its awaited value to be one direct, explicitly typed #await".to_owned()
-            })?;
+            let (await_form, conditional_helper) = if let Some(await_form) =
+                form(&items[2], "#await")
+            {
+                (await_form.to_vec(), String::new())
+            } else if let Some((protocol, task, helper)) =
+                conditional_await_with_immediate(&items[2], source, next_name, waker)?
+            {
+                (
+                    vec![
+                        Expr::Symbol("#await".into()),
+                        protocol.result_type,
+                        protocol.child_type,
+                        protocol.pending,
+                        protocol.ready,
+                        protocol.poll,
+                        task,
+                    ],
+                    helper,
+                )
+            } else {
+                return Err(
+                        "@async-fn #while-let requires a direct #await or conditional #if with a direct #await branch".into(),
+                    );
+            };
             if await_form.len() != 7 {
                 return Err(
                     "@async-fn #while-let requires an explicitly typed #await value".into(),
@@ -1163,7 +1184,7 @@ fn lower_async_while(
                 success_body,
                 terminal,
             ]);
-            return lower_async_loop(
+            let Some((replacement, helper, renames)) = lower_async_loop(
                 &loop_form,
                 known,
                 known_order,
@@ -1172,7 +1193,16 @@ fn lower_async_while(
                 source,
                 next_name,
                 waker,
-            );
+            )?
+            else {
+                return Ok(None);
+            };
+            let helper = [conditional_helper, helper]
+                .into_iter()
+                .filter(|helper| !helper.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Ok(Some((replacement, helper, renames)));
         }
         return Err("@async-fn #while-let with suspension requires an awaited scrutinee".into());
     }

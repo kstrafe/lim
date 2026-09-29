@@ -1933,6 +1933,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   the per-iteration task across Pending, and assign the computed value only
   after Ready. Verify native ordering, Pending/resume, and that the next
   condition observes the completed assignment.
+- [x] **ASYNC-01b58: Suspend conditionally in a `#while-let` scrutinee.**
+  Compose branches that await the same typed result protocol or immediately
+  produce a matching result value. Re-evaluate the branch selector per
+  iteration and verify Pending/resume, pattern termination, and that the
+  immediate branch never polls the child.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
