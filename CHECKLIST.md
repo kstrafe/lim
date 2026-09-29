@@ -2001,6 +2001,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   second child; allow them to use the first result, and reject inaccessible
   outer or per-iteration locals explicitly. Verify that the first result feeds
   both an intervening check and the second task.
+- [x] **ASYNC-01b70: Preserve match-based terminal transfers in awaited `#loop`.**
+  Rewrite `#break` in terminal match arms to the loop's carried done state,
+  while preserving `#continue` and ordinary arm completion as another
+  iteration. Reject nonterminal or labeled transfers. Verify a native
+  Pending/resume loop whose match selects both continuation and termination.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

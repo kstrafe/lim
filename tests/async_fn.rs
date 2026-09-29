@@ -2938,6 +2938,7 @@ fn async_function_rejects_for_initializer_shadowing() {
 #[test]
 fn async_function_resumes_child_await_inside_loop_until_terminal_break() {
     let source = "(#enum ChildPoll ((ChildPending u64) (ChildReady u64)))
+      (#enum Decision (Stop Continue))
       (#fn child-poll ((task u64) (waker (#ref u64))) ChildPoll
         (#return (#if (#u64.== task 0u64)
           (ChildPending 1u64)
@@ -2950,7 +2951,11 @@ fn async_function_resumes_child_await_inside_loop_until_terminal_break() {
               (#await u64 ChildPending ChildReady child-poll iteration))
             (#set iteration result)
             (#set iteration (#u64.+.wrap iteration 1u64))
-            (#if (#u64.== iteration 2u64) (#break) (#continue)))
+            (#let decision Decision
+              (#if (#u64.== iteration 2u64) (Stop) (Continue)))
+            (#match decision
+              (#case Stop (#break))
+              (#case Continue (#continue))))
           (#return 42u64))))
       (#fn main () u64
         (#let waker u64 0u64)
