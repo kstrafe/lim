@@ -2430,6 +2430,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   a terminal body return. Preserve the unselected branch and return the
   function's fallback value when the condition is false; verify Pending/Ready
   resumption and branch selection natively.
+- [x] **ASYNC-01b155: Keep post-loop continuation off an early-return path.**
+  When an awaited while body returns, place the ordinary synchronous statements
+  following the loop in the condition-false branch and consume them from the
+  outer lowering pass. Prove that the true branch returns immediately while
+  the false branch executes its continuation exactly once in a native test.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

@@ -3718,7 +3718,7 @@ fn lower_async_while(
     source: &str,
     next_name: &mut usize,
     waker: &str,
-) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
+) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>, usize)>, String> {
     if let Some(items) = form(statement, "#while") {
         let condition = if let Some(await_form) = form(&items[1], "#await") {
             (Some(await_form.to_vec()), String::new())
@@ -3751,13 +3751,16 @@ fn lower_async_while(
             None
         };
         if let (Some(await_form), Some((body_return, true))) = (condition.0, body_exit) {
-            if !following.is_empty()
-                || has_await(return_value)
+            if following.iter().any(|statement| {
+                has_await(statement)
+                    || contains_return(statement)
+                    || contains_loop_control(statement)
+            }) || has_await(return_value)
                 || await_form.len() != 6
                 || has_await(await_form.last().expect("await has a task"))
             {
                 return Err(
-                    "@async-fn awaited #while body cannot return in this shape yet; early return requires a terminal condition await and a non-suspending function tail"
+                    "@async-fn awaited #while body cannot return in this shape yet; early return requires a terminal condition await and a non-suspending continuation"
                         .into(),
                 );
             }
@@ -3780,6 +3783,16 @@ fn lower_async_while(
                 )
             };
             let result_name = fresh_async_name(source, next_name);
+            let false_branch = if following.is_empty() {
+                return_value.clone()
+            } else {
+                Expr::List(
+                    std::iter::once(Expr::Symbol("#block".into()))
+                        .chain(following.iter().cloned())
+                        .chain(std::iter::once(return_value.clone()))
+                        .collect(),
+                )
+            };
             replacement.push(Expr::List(vec![
                 Expr::Symbol("#let".into()),
                 Expr::Symbol(result_name.clone()),
@@ -3788,14 +3801,19 @@ fn lower_async_while(
                     Expr::Symbol("#if".into()),
                     Expr::Symbol(condition_name),
                     returned_body,
-                    return_value.clone(),
+                    false_branch,
                 ]),
             ]));
             *return_value = Expr::Symbol(result_name);
-            return Ok(Some((replacement, condition.1, Vec::new())));
+            return Ok(Some((
+                replacement,
+                condition.1,
+                Vec::new(),
+                following.len(),
+            )));
         }
     }
-    lower_async_while_with_transfers(
+    Ok(lower_async_while_with_transfers(
         statement,
         known,
         known_order,
@@ -3807,7 +3825,8 @@ fn lower_async_while(
         source,
         next_name,
         waker,
-    )
+    )?
+    .map(|(replacement, helper, renames)| (replacement, helper, renames, 0)))
 }
 
 fn lower_async_while_with_return_continue(
@@ -3916,7 +3935,7 @@ fn lower_async_while_with_return_continue(
             Expr::Symbol(result_name),
         ]),
     ]);
-    let Some((mut replacement, loop_helper, renames)) = lower_async_while(
+    let Some((mut replacement, loop_helper, renames, _)) = lower_async_while(
         &rewritten_loop,
         &loop_known,
         &loop_known_order,
@@ -8858,7 +8877,7 @@ fn generated_source_with_capture_selection(
             continue;
         }
         if async_while_has_terminal_return(&statement) {
-            if let Some((replacement, helper, renames)) = lower_async_while(
+            if let Some((replacement, helper, renames, consumed_following)) = lower_async_while(
                 &statement,
                 &lowering_known,
                 &lowering_known_order,
@@ -8871,6 +8890,9 @@ fn generated_source_with_capture_selection(
             )
             .map_err(|error| format!("async statement {source_index}: {error}"))?
             {
+                for consumed_index in source_index + 1..=source_index + consumed_following {
+                    consumed_async_statements.insert(consumed_index);
+                }
                 apply_async_output_renames(
                     &mut statements[source_index + 1..],
                     &mut return_value,
@@ -8981,7 +9003,7 @@ fn generated_source_with_capture_selection(
             lowered_statements.extend(replacement);
             continue;
         }
-        if let Some((replacement, helper, renames)) = lower_async_while(
+        if let Some((replacement, helper, renames, consumed_following)) = lower_async_while(
             &statement,
             &lowering_known,
             &lowering_known_order,
@@ -8994,6 +9016,9 @@ fn generated_source_with_capture_selection(
         )
         .map_err(|error| format!("async statement {source_index}: {error}"))?
         {
+            for consumed_index in source_index + 1..=source_index + consumed_following {
+                consumed_async_statements.insert(consumed_index);
+            }
             apply_async_output_renames(
                 &mut statements[source_index + 1..],
                 &mut return_value,
