@@ -970,11 +970,13 @@ fn conditional_value_expression_task(
         .is_some_and(|tail| {
             form(tail, "#loop").is_some()
                 || form(tail, "#while").is_some()
+                || form(tail, "#while-let").is_some()
                 || form(tail, "#for").is_some()
                 || form(tail, "#for-range").is_some()
         });
     let standalone_loop = (form(expression, "#loop").is_some()
         || form(expression, "#while").is_some()
+        || form(expression, "#while-let").is_some()
         || form(expression, "#for").is_some()
         || form(expression, "#for-range").is_some()
         || block_ends_in_loop)
@@ -2163,7 +2165,11 @@ fn extract_nested_awaits(
                 }
                 return Ok(());
             };
-            if contains_await && matches!(head.as_str(), "#loop" | "#while" | "#for" | "#for-range")
+            if contains_await
+                && matches!(
+                    head.as_str(),
+                    "#loop" | "#while" | "#while-let" | "#for" | "#for-range"
+                )
             {
                 if let Some((protocol, task, helper)) =
                     conditional_value_expression_task(expression, known, source, next_name, waker)?
@@ -9433,6 +9439,15 @@ fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
 fn collect_local_binding_names(expr: &Expr, names: &mut HashSet<String>) {
     match expr {
         Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#while-let") {
+                if let Some(pattern) = items.get(1) {
+                    names.extend(pattern_symbols(pattern));
+                }
+                for value in items.iter().skip(2) {
+                    collect_local_binding_names(value, names);
+                }
+                return;
+            }
             if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#for-range") {
                 if let Some(Expr::List(binding)) = items.get(1) {
                     if let Some(Expr::Symbol(name)) = binding.first() {

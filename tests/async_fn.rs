@@ -1243,6 +1243,43 @@ fn async_for_expression_can_be_suspended_in_a_call_argument() {
 }
 
 #[test]
+fn async_while_let_expression_can_be_suspended_in_a_call_argument() {
+    let source = "(#enum Maybe ((Some u64) None))
+      (#enum ChildTask ((Waiting u64) (Resuming u64)))
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady Maybe)))
+      (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+        (#return (#match task
+          (#case (Waiting value) (ChildPending (Resuming value)))
+          (#case (Resuming value) (ChildReady None)))))
+      (#fn consume-unit ((value ())) u64 (#return 46u64))
+      (@async-fn (: names (Frame Poll PollPending PollReady poll) : waker u64 : function
+        (#fn work () u64
+          (#let result u64
+            (#call consume-unit (: value
+              (#while-let (Some payload)
+                (#await Maybe ChildTask ChildPending ChildReady child-poll (Waiting 0u64))
+                ()))) )
+          (#return result))))
+      (#fn run ((waker (#ref u64))) u64
+        (#let task Frame (#call work ()))
+        (#let first Poll (#call poll (: task task : waker waker)))
+        (#return (#match first
+          (#case (PollReady result) result)
+          (#case (PollPending pending)
+            (#match (#call poll (: task pending : waker waker))
+              (#case (PollReady result) result)
+              (#case (PollPending unexpected)
+                (#block (#forget unexpected) 0u64)))))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let result u64 (#call run (: waker (#borrow waker))))
+        (#forget waker)
+        (#return result))";
+    let generated = build_and_run(source, 46);
+    assert!(generated.contains("expression-frame"), "{generated}");
+}
+
+#[test]
 fn async_function_suspends_inside_projected_assignment_rhs() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
