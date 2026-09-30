@@ -12951,6 +12951,16 @@ impl FunctionContext<'_> {
                 .get(index)
                 .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?
                 .clone();
+            if matches!(field_type, Type::Unit) {
+                // Unit fields occupy no slot or value register. Still evaluate
+                // a computed receiver so its effects are not discarded.
+                if self.is_indirect_return_call(&items[1])? {
+                    self.call_to_aggregate_temp(&items[1])?;
+                } else {
+                    self.expression_as_expected(&items[1], &Type::Tuple(fields))?;
+                }
+                return Ok(());
+            }
             if let Expr::List(call_items) = &items[1] {
                 if let Some(Expr::Symbol(_)) = call_items.first() {
                     if self.is_indirect_return_call(&items[1])? {

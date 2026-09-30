@@ -4280,3 +4280,10 @@ commit, documentation, and focused regression coverage.
   native binaries. Async compilation measured 32.10 ms before and 28.37 ms
   after (40 alternating warm samples, 11.6% reduction); other sampled
   workloads showed no meaningful change.
+
+- [x] **NATIVE-UNIT-TUPLE: Read zero-sized tuple fields without a slot.**
+  Project unit fields without requesting a value register or storage slot.
+  Evaluate computed receivers, including indirect aggregate-return calls,
+  so effects are preserved. Test leading/trailing local unit fields, global
+  unit fields, and trapping small/large computed receivers natively. This
+  unblocks unit-valued captures in generated async loop state.
