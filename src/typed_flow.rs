@@ -2690,6 +2690,7 @@ fn apply_parameter_loan_summary(
     origin.storage = storage;
     origin.mutable = summary.mutable;
     origin.pinned = summary.pinned;
+    origin.lifetime_only |= summary.lifetime_only;
     Some(origin)
 }
 

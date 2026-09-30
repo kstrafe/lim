@@ -868,6 +868,7 @@ impl Declarations {
                         parameter: binding.0,
                         mutable: origin.mutable,
                         pinned: origin.pinned,
+                        lifetime_only: origin.lifetime_only,
                         input_storage: origin.parameter_storage.unwrap_or_default(),
                         storage: origin.storage,
                     };

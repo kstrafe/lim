@@ -22,11 +22,11 @@ not a prerequisite imposed on every generator.
 ### Staging borrowed-storage ownership facts
 
 Typed consumption analysis has a referent-resolved staging mode exercised by
-tests. Locally tracked raw-pointer borrow origins carry a lifetime-only
+tests. Raw-pointer borrow origins carry a lifetime-only
 marker: their anchor is not a physical pointee identity. Such origins cannot
-prove referent consumption or restoration in staging. Carrying this
-distinction through function summaries remains required before production
-referent ownership enforcement. The staging mode is exercised by
+prove referent consumption or restoration in staging. Return summaries
+retain this marker, and call transfer combines it with the incoming origin's
+marker so forwarding functions cannot erase it. The staging mode is exercised by
 direct tests, not yet used as a production validation boundary. It follows
 stored reference origins to stable loan roots so losing an alias does not
 erase a move from its referent. Original parameter storage-slot metadata

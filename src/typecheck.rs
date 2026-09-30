@@ -9077,6 +9077,38 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn raw_pointer_anchor_marker_survives_return_summary_chains() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn raw ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) (#ref-mut Resource)
+            (#return (#unsafe (#ptr-borrow-mut anchor pointer))))
+          (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource) (#return value))
+          (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) ()
+            (#let target (#ref-mut Resource) (#call raw (: anchor anchor : pointer pointer)))
+            (#deref-set (#call identity (: value target))
+              (#struct-literal Resource ((number 2u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let moves = flow.referent_consumptions(body, &types);
+        let write = crate::typed_flow::FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| match node.action {
+                    crate::typed_flow::FlowAction::Evaluate(value) => {
+                        matches!(&body.nodes[value.0].kind,
+                crate::typed_body::NodeKind::Form { head, .. } if head == "deref-set")
+                    }
+                    _ => false,
+                })
+                .unwrap(),
+        );
+        assert!(moves.unresolved_nodes().contains(&write));
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
