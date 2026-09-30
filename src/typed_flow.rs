@@ -354,6 +354,27 @@ impl FlowLoanOrigins {
         binding: BindingId,
         segments: &[Segment],
     ) -> Vec<Place> {
+        self.projected_referents_with_slots(node, binding, segments, false)
+    }
+
+    fn projected_referents_with_slots(
+        &self,
+        node: FlowNodeId,
+        binding: BindingId,
+        segments: &[Segment],
+        parameter_slots: bool,
+    ) -> Vec<Place> {
+        let origin_place = |origin: &LoanOrigin| {
+            let mut place = origin.place.clone();
+            if parameter_slots && matches!(place.root, PlaceRoot::Parameter(_)) {
+                if let Some(slot) = &origin.parameter_storage {
+                    let mut segments = slot.clone();
+                    segments.append(&mut place.segments);
+                    place.segments = segments;
+                }
+            }
+            place
+        };
         let through_deref = segments
             .iter()
             .any(|segment| matches!(segment, Segment::Dereference));
@@ -380,7 +401,7 @@ impl FlowLoanOrigins {
                 {
                     continue;
                 }
-                let mut place = origin.place.clone();
+                let mut place = origin_place(origin);
                 for segment in &origin.storage[prefix.len()..] {
                     if matches!(segment, Segment::SliceHalf(_)) {
                         place.segments.push(segment.clone());
@@ -406,7 +427,7 @@ impl FlowLoanOrigins {
             {
                 continue;
             }
-            let mut place = origin.place.clone();
+            let mut place = origin_place(origin);
             place
                 .segments
                 .extend_from_slice(&segments[origin.storage.len()..]);
@@ -900,6 +921,50 @@ impl FlowGraph {
     /// indexing), so only a checked direct bind/assignment/pattern/return/
     /// break value is classified as an implicit move for now.
     pub fn consumptions(&self, body: &Body, types: &LinearTypes) -> FlowConsumptions {
+        self.consumptions_with_origins(body, types, None)
+    }
+
+    /// Staging analysis for borrowed-storage ownership. Resolve reference
+    /// projections to loan roots and retain those facts across alias cleanup.
+    /// Ambiguous writes cannot definitely restore any one possible referent.
+    #[cfg(test)]
+    pub fn referent_consumptions(&self, body: &Body, types: &LinearTypes) -> FlowConsumptions {
+        let origins = self.loan_origins(body);
+        self.consumptions_with_origins(body, types, Some(&origins))
+    }
+
+    fn consumptions_with_origins(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        origins: Option<&FlowLoanOrigins>,
+    ) -> FlowConsumptions {
+        let resolve = |id: FlowNodeId, place: &Place| {
+            let Some(origins) = origins else {
+                return vec![place.clone()];
+            };
+            let PlaceRoot::Local(binding) = place.root else {
+                return vec![place.clone()];
+            };
+            let referents =
+                origins.projected_referents_with_slots(id, binding, &place.segments, true);
+            if !referents.is_empty() {
+                referents
+            } else {
+                let mut resolved = place.clone();
+                // Inline borrows preserve the owned place, but an outer
+                // dereference adds a marker. It is not a pointer stored in
+                // this binding if its type has no reference indirection.
+                if !matches!(
+                    body.bindings[binding.0].ty,
+                    Type::Reference { .. } | Type::PinnedReference { .. }
+                ) && place.segments == [Segment::Dereference]
+                {
+                    resolved.segments.clear();
+                }
+                vec![resolved]
+            }
+        };
         let mut transfer_roots = self
             .nodes
             .iter()
@@ -1033,6 +1098,33 @@ impl FlowGraph {
         let mut before = vec![None; self.nodes.len()];
         let mut after = vec![None; self.nodes.len()];
         let mut consumed_at = vec![HashSet::new(); self.nodes.len()];
+        let mut definite_consumed_at = origins.map(|_| vec![HashSet::new(); self.nodes.len()]);
+        let write_targets = origins.map(|_| {
+            self.nodes
+                .iter()
+                .enumerate()
+                .map(|(index, node)| match &node.action {
+                    FlowAction::Assign { place, .. } => vec![place.clone()],
+                    FlowAction::Write { place, value }
+                        if origins.is_some()
+                            && matches!(&body.nodes[value.0].kind,
+                        NodeKind::Form { head, .. } if head == "deref-set") =>
+                    {
+                        resolve(FlowNodeId(index), place)
+                    }
+                    _ => Vec::new(),
+                })
+                .collect::<Vec<_>>()
+        });
+        let targets_for = |id: FlowNodeId| -> &[Place] {
+            if let Some(targets) = &write_targets {
+                &targets[id.0]
+            } else if let FlowAction::Assign { place, .. } = &self.nodes[id.0].action {
+                std::slice::from_ref(place)
+            } else {
+                &[]
+            }
+        };
         let mut queued = vec![false; self.nodes.len()];
         let mut pending = VecDeque::from([self.entry]);
         before[self.entry.0] = Some(HashMap::<Place, Vec<Option<Span>>>::new());
@@ -1054,9 +1146,22 @@ impl FlowGraph {
                         .is_some_and(|ty| types.is_linear(ty)) =>
                 {
                     consumed_at[id.0].insert(place.clone());
-                    let spans = state.entry(place.clone()).or_default();
-                    if !spans.contains(&node.span) {
-                        spans.push(node.span);
+                    if let Some(definite) = &mut definite_consumed_at {
+                        let referents = resolve(id, place);
+                        if referents.len() == 1 {
+                            definite[id.0].insert(referents[0].clone());
+                        }
+                        for referent in referents {
+                            let spans = state.entry(referent).or_default();
+                            if !spans.contains(&node.span) {
+                                spans.push(node.span);
+                            }
+                        }
+                    } else {
+                        let spans = state.entry(place.clone()).or_default();
+                        if !spans.contains(&node.span) {
+                            spans.push(node.span);
+                        }
                     }
                 }
                 FlowAction::Release { place, value }
@@ -1064,9 +1169,22 @@ impl FlowGraph {
                         && release_operand_is_linear(body, *value, types) =>
                 {
                     consumed_at[id.0].insert(place.clone());
-                    let spans = state.entry(place.clone()).or_default();
-                    if !spans.contains(&node.span) {
-                        spans.push(node.span);
+                    if let Some(definite) = &mut definite_consumed_at {
+                        let referents = resolve(id, place);
+                        if referents.len() == 1 {
+                            definite[id.0].insert(referents[0].clone());
+                        }
+                        for referent in referents {
+                            let spans = state.entry(referent).or_default();
+                            if !spans.contains(&node.span) {
+                                spans.push(node.span);
+                            }
+                        }
+                    } else {
+                        let spans = state.entry(place.clone()).or_default();
+                        if !spans.contains(&node.span) {
+                            spans.push(node.span);
+                        }
                     }
                 }
                 FlowAction::Bind { binding, .. } => {
@@ -1079,19 +1197,17 @@ impl FlowGraph {
                         !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
                     });
                 }
-                FlowAction::Assign { place, .. } => {
-                    if !place.segments.contains(&Segment::DynamicIndex) {
-                        state.retain(|moved, _| {
-                            moved.root != place.root || !moved.segments.starts_with(&place.segments)
-                        });
-                    }
-                }
                 FlowAction::ScopeExit(bindings) => {
                     state.retain(|place, _| {
                         !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
                     });
                 }
                 _ => {}
+            }
+            if let [place] = targets_for(id) {
+                if !place.segments.contains(&Segment::DynamicIndex) {
+                    state.retain(|moved, _| !place_covers(place, moved));
+                }
             }
             after[id.0] = Some(state.clone());
             for successor in &node.successors {
@@ -1121,6 +1237,7 @@ impl FlowGraph {
             }
         }
         let mut definitely_before = vec![None; self.nodes.len()];
+        let definite_consumed_at = definite_consumed_at.as_ref().unwrap_or(&consumed_at);
         let mut queued = vec![false; self.nodes.len()];
         let mut pending = VecDeque::from([self.entry]);
         definitely_before[self.entry.0] = Some(HashSet::new());
@@ -1128,7 +1245,7 @@ impl FlowGraph {
         while let Some(id) = pending.pop_front() {
             queued[id.0] = false;
             let mut state = definitely_before[id.0].as_ref().unwrap().clone();
-            state.extend(consumed_at[id.0].iter().cloned());
+            state.extend(definite_consumed_at[id.0].iter().cloned());
             match &self.nodes[id.0].action {
                 FlowAction::Bind { binding, .. } => {
                     state.retain(|place| place.root != PlaceRoot::Local(*binding));
@@ -1140,19 +1257,20 @@ impl FlowGraph {
                         !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
                     });
                 }
-                FlowAction::Assign { place, .. } => {
-                    if !place.segments.contains(&Segment::DynamicIndex) {
-                        state.retain(|moved| {
-                            moved.root != place.root || !moved.segments.starts_with(&place.segments)
-                        });
-                    }
-                }
                 FlowAction::ScopeExit(bindings) => {
                     state.retain(|place| {
                         !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
                     });
                 }
                 _ => {}
+            }
+            // A write through one of several possible aliases can restore
+            // any one target, so no overlapping definite-consumption proof
+            // remains. May facts are killed only for a single known target.
+            for place in targets_for(id) {
+                if !place.segments.contains(&Segment::DynamicIndex) {
+                    state.retain(|moved| !place_covers(place, moved));
+                }
             }
             for successor in &self.nodes[id.0].successors {
                 let changed = match &mut definitely_before[successor.0] {

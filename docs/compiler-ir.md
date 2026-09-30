@@ -19,6 +19,23 @@ Frozen syntax collections do not require it, and manually declared task states
 can already use the existing checker. It is a foundation for richer lowering,
 not a prerequisite imposed on every generator.
 
+### Staging borrowed-storage ownership facts
+
+Typed consumption analysis has a referent-resolved staging mode exercised by
+direct tests, not yet used as a production validation boundary. It follows
+stored reference origins to stable loan roots so losing an alias does not
+erase a move from its referent. Original parameter storage-slot metadata
+distinguishes borrowed targets reached through different fields of one
+aggregate parameter. A known-target write clears the corresponding move
+facts. Multiple possible targets produce may-consumption facts, not definite
+proofs; an ambiguous write does not erase every possible moved referent.
+
+The ordinary production mode keeps its existing identities and does not
+allocate the extra referent tables. Before changing validation to this mode,
+the compiler must enforce access permissions, handle unresolved provenance,
+propagate call effects, check referent initialization at exits, and preserve
+precise diagnostics. Staging facts alone do not establish those properties.
+
 ## Implemented: resolved declarations
 
 `CheckedProgram` now retains the declaration tables produced by validation.

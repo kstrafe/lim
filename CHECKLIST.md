@@ -1578,6 +1578,18 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   at suspension points. Define source syntax, borrowing across suspension, and
   immovable storage before accepting self-referential frames. Preserve exact
   source diagnostics and explicit cleanup for each suspended state.
+- [x] **ASYNC-01-REFERENT-FACTS: Stage ownership facts on stable loan roots.**
+  Add a referent-resolved mode to typed consumption analysis. Retain borrowed
+  storage facts when reference aliases leave scope, distinguish reference
+  slots inside aggregate parameters using original parameter-slot identity,
+  and clear facts on a write to one known referent. Keep ambiguous consumption
+  possible rather than definite; an ambiguous write cannot erase all possible
+  uninitialized targets. Test parameter aliases, owning locals, inline borrows,
+  implicit moves, restoration, slot separation, and exact origin spans.
+  Allocate referent-only tables only in this staging mode, and run the full
+  suite. The test/staging entry point is not production validation: permission
+  checks, unknown targets, call effects, exit obligations, and diagnostic
+  integration remain required before enforcing referent ownership.
 - [x] **ASYNC-01-REFERENCE-WRITE-VALUES: Preserve typed write values and effects.**
   Emit one-word aggregate reference writes with the known target type, not
   scalar expression inference. Evaluate zero-sized aggregate RHS values but

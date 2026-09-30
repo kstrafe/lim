@@ -9055,6 +9055,161 @@ mod typed_ownership_tests {
     use super::*;
 
     #[test]
+    fn referent_consumption_survives_alias_cleanup_and_tracks_restoration() {
+        use crate::typed_body::{BindingId, PlaceRoot};
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        use crate::typed_place::Place;
+        for restore in [false, true] {
+            let restoration = if restore {
+                "(#deref-set reference (#struct-literal Resource ((number 2u64))))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#fn inspect ((reference (#ref-mut Resource))) ()
+                   (#block
+                     (#let alias (#ref-mut Resource) reference)
+                     (#forget (#deref alias)) ())
+                   {restoration}
+                   (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["inspect"];
+            let flow = &declarations.flows["inspect"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let moves = flow.referent_consumptions(body, &types);
+            let returned = FlowNodeId(
+                flow.nodes
+                    .iter()
+                    .position(|node| matches!(node.action, FlowAction::Return(_)))
+                    .unwrap(),
+            );
+            let referent = Place::root(PlaceRoot::Parameter(BindingId(0)));
+            assert_eq!(moves.before(returned, &referent).is_some(), !restore);
+            assert_eq!(
+                moves.definitely_consumed_before(returned, &referent),
+                !restore
+            );
+            if !restore {
+                let span = moves.before(returned, &referent).unwrap()[0].unwrap();
+                assert_eq!(&source[span.start..span.end], "(#forget (#deref alias))");
+            }
+        }
+    }
+
+    #[test]
+    fn ambiguous_reference_moves_are_possible_not_definite() {
+        use crate::typed_body::{BindingId, PlaceRoot};
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        use crate::typed_place::Place;
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn inspect ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (pick bool)) ()
+            (#block
+              (#let alias (#ref-mut Resource) (#if pick left right))
+              (#forget (#deref alias))
+              (#deref-set alias (#struct-literal Resource ((number 2u64)))) ())
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let moves = flow.referent_consumptions(body, &types);
+        let returned = FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Return(_)))
+                .unwrap(),
+        );
+        for parameter in 0..2 {
+            let referent = Place::root(PlaceRoot::Parameter(BindingId(parameter)));
+            assert!(moves.before(returned, &referent).is_some());
+            assert!(!moves.definitely_consumed_before(returned, &referent));
+        }
+    }
+
+    #[test]
+    fn referent_facts_distinguish_parameter_reference_slots() {
+        use crate::typed_body::{BindingId, PlaceRoot};
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        use crate::typed_place::{Place, Segment};
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+          (#fn inspect ((pair Pair)) ()
+            (#block
+              (#let alias (#ref-mut Resource) (#get pair left))
+              (#forget (#deref alias)) ())
+            (#deref-set (#get pair right) (#struct-literal Resource ((number 2u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let moves = flow.referent_consumptions(body, &types);
+        let returned = FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Return(_)))
+                .unwrap(),
+        );
+        let left = declarations
+            .field_id(&Type::Named("Pair".into()), "left")
+            .unwrap();
+        let referent = Place {
+            root: PlaceRoot::Parameter(BindingId(0)),
+            segments: vec![Segment::Field(left)],
+        };
+        assert!(moves.before(returned, &referent).is_some());
+        assert!(moves.definitely_consumed_before(returned, &referent));
+    }
+
+    #[test]
+    fn owned_referent_moves_survive_borrow_alias_scope_exit() {
+        use crate::typed_body::{BindingId, PlaceRoot};
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        use crate::typed_place::Place;
+        for inline in [false, true] {
+            let transfer = if inline {
+                "(#let moved Resource (#deref (#borrow-mut owner)))"
+            } else {
+                "(#let alias (#ref-mut Resource) (#borrow-mut owner))
+                 (#let moved Resource (#deref alias))"
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#fn inspect () ()
+                   (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
+                   (#block {transfer} (#forget moved) ())
+                   (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["inspect"];
+            let flow = &declarations.flows["inspect"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let moves = flow.referent_consumptions(body, &types);
+            let returned = FlowNodeId(
+                flow.nodes
+                    .iter()
+                    .position(|node| matches!(node.action, FlowAction::Return(_)))
+                    .unwrap(),
+            );
+            let owner = BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "owner")
+                    .unwrap(),
+            );
+            let referent = Place::root(PlaceRoot::Local(owner));
+            assert!(moves.before(returned, &referent).is_some());
+            assert!(moves.definitely_consumed_before(returned, &referent));
+        }
+    }
+
+    #[test]
     fn projected_replacements_require_explicit_linear_consumption() {
         let resource = "(#struct-literal Resource ((number 1u64)))";
         for (declaration, ty, constructor, projection, setter) in [
