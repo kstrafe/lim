@@ -9085,7 +9085,6 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    #[ignore = "reference reassignment is currently rejected before staging analysis"]
     fn reference_write_uses_target_snapshot_before_rhs_rebinding() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
@@ -9095,12 +9094,44 @@ mod typed_ownership_tests {
             (#let-mut handle (#ref-mut Resource) left)
             (#forget (#deref left)) (#forget (#deref right))
             (#deref-set handle (#block
-              (#set handle right) (#struct-literal Resource ((number 2u64)))))
+              (#let second (#ref-mut Resource) right)
+              (#struct-literal Resource ((number 2u64)))))
             (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let body = &declarations.bodies["inspect"];
-        let flow = &declarations.flows["inspect"];
+        let mut flow = declarations.flows["inspect"].clone();
+        // Model a rebinding directly in the staging graph: source-level
+        // reference reassignment is deliberately not accepted yet.
+        let handle = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "handle")
+                .unwrap(),
+        );
+        let second = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "second")
+                .unwrap(),
+        );
+        let event = flow
+            .nodes
+            .iter_mut()
+            .find(|node| {
+                matches!(
+                    &node.action,
+                    FlowAction::Bind { binding, .. } if *binding == second
+                )
+            })
+            .unwrap();
+        let FlowAction::Bind { value, .. } = event.action else {
+            unreachable!()
+        };
+        event.action = FlowAction::Assign {
+            place: Place::root(PlaceRoot::Local(handle)),
+            value,
+        };
         let types = crate::linearcheck::LinearTypes::from_program(&program);
         let moves = flow.referent_consumptions(body, &types);
         let returned = FlowNodeId(
