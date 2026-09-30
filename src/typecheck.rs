@@ -8,6 +8,65 @@ use crate::{
 };
 
 const LOOP_VALUE_CONTEXT: &str = "\0lim-loop-value";
+
+/// Branches clone local types only; imported globals remain borrowed.
+#[derive(Clone)]
+struct VariableTypes<'a> {
+    globals: &'a HashMap<String, Type>,
+    locals: HashMap<String, Type>,
+}
+
+impl<'a> VariableTypes<'a> {
+    fn new(globals: &'a HashMap<String, Type>) -> Self {
+        Self {
+            globals,
+            locals: HashMap::new(),
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<&Type> {
+        self.locals.get(name).or_else(|| self.globals.get(name))
+    }
+
+    fn contains_key(&self, name: &str) -> bool {
+        self.locals.contains_key(name) || self.globals.contains_key(name)
+    }
+
+    fn insert(&mut self, name: String, ty: Type) {
+        self.locals.insert(name, ty);
+    }
+
+    fn len(&self) -> usize {
+        self.globals.len()
+            + self
+                .locals
+                .keys()
+                .filter(|name| !self.globals.contains_key(*name))
+                .count()
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn variable_type_branches_share_globals_and_isolate_locals() {
+    let globals = (0..512)
+        .map(|i| (format!("GLOBAL{i}"), Type::U64))
+        .collect::<HashMap<_, _>>();
+    let mut parent = VariableTypes::new(&globals);
+    parent.insert("value".into(), Type::Bool);
+    let mut branch = parent.clone();
+    assert!(std::ptr::eq(parent.globals, branch.globals));
+    assert_eq!(branch.locals.len(), 1);
+    assert_eq!(branch.len(), 513);
+    assert_eq!(branch.get("GLOBAL511"), Some(&Type::U64));
+    branch.insert("only_here".into(), Type::U32);
+    assert!(!parent.contains_key("only_here"));
+    // Preserve map overwrite behavior for internal checker callers.
+    branch.insert("GLOBAL0".into(), Type::U16);
+    assert_eq!(branch.get("GLOBAL0"), Some(&Type::U16));
+    assert_eq!(parent.get("GLOBAL0"), Some(&Type::U64));
+    assert_eq!(branch.len(), 514);
+}
 #[derive(Clone, Debug)]
 enum ErrorSite {
     Value,
@@ -1315,7 +1374,7 @@ fn check_types_inner(
                 let result = (|| {
                     let actual = expression(
                         value,
-                        &globals,
+                        &VariableTypes::new(&globals),
                         &functions,
                         &structs,
                         &enums,
@@ -3316,7 +3375,7 @@ fn check_function(
     source_files: &[crate::SourceFile],
     declaration_expression: Option<&crate::SpannedExpr>,
 ) -> Result<(), FunctionTypeError> {
-    let mut variables = globals.clone();
+    let mut variables = VariableTypes::new(globals);
     let mut mutable = HashSet::new();
     let mut parameter_names = HashSet::new();
     let return_type = resolve_type(&function.return_type, aliases)?;
@@ -4688,7 +4747,7 @@ fn match_range_pattern_span(expression: &crate::SpannedExpr, upper: bool) -> Opt
 
 fn statement_type(
     statement: &Statement,
-    variables: &mut HashMap<String, Type>,
+    variables: &mut VariableTypes<'_>,
     mutable: &mut HashSet<String>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
@@ -5274,7 +5333,7 @@ fn check_destructure_pattern(
 fn check_let_else_pattern(
     pattern: &Expr,
     ty: &Type,
-    variables: &HashMap<String, Type>,
+    variables: &VariableTypes<'_>,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
 ) -> Result<Vec<(String, Type)>, SemanticError> {
@@ -5361,6 +5420,7 @@ fn check_let_else_pattern(
                 check_enum_payload_pattern(binding, field_type, &mut bindings, variables, structs)?;
             }
             return Ok(bindings
+                .locals
                 .into_iter()
                 .filter(|(name, _)| !variables.contains_key(name))
                 .collect());
@@ -5368,6 +5428,7 @@ fn check_let_else_pattern(
     }
     check_aggregate_pattern(pattern, ty, &mut bindings, variables, structs)?;
     Ok(bindings
+        .locals
         .into_iter()
         .filter(|(name, _)| !variables.contains_key(name))
         .collect())
@@ -5375,7 +5436,7 @@ fn check_let_else_pattern(
 
 fn expression(
     expr: &Expr,
-    variables: &HashMap<String, Type>,
+    variables: &VariableTypes<'_>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
@@ -5406,7 +5467,7 @@ fn expression(
 
 fn expression_inner(
     value: &Expr,
-    variables: &HashMap<String, Type>,
+    variables: &VariableTypes<'_>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
@@ -5686,7 +5747,7 @@ fn type_contains_thread_task_value(
 
 fn list_expression(
     items: &[Expr],
-    variables: &HashMap<String, Type>,
+    variables: &VariableTypes<'_>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
@@ -7580,7 +7641,7 @@ fn projection_root(expression: &Expr) -> Option<&Expr> {
 fn check_scalar_match(
     items: &[Expr],
     scrutinee: &Type,
-    variables: &HashMap<String, Type>,
+    variables: &VariableTypes<'_>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
@@ -7940,7 +8001,7 @@ fn match_arm_parts(arm: &Expr) -> Result<(&Expr, Option<&Expr>, &Expr), Semantic
 fn check_tuple_match(
     items: &[Expr],
     scrutinee: &Type,
-    variables: &HashMap<String, Type>,
+    variables: &VariableTypes<'_>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
@@ -8043,8 +8104,8 @@ fn check_tuple_match(
 fn check_aggregate_pattern(
     pattern: &Expr,
     ty: &Type,
-    arm_variables: &mut HashMap<String, Type>,
-    variables: &HashMap<String, Type>,
+    arm_variables: &mut VariableTypes<'_>,
+    variables: &VariableTypes<'_>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), SemanticError> {
     if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
@@ -8139,13 +8200,15 @@ fn check_aggregate_or_pattern(
     structs: &HashMap<String, Vec<Field>>,
 ) -> Result<bool, SemanticError> {
     let mut wildcard = false;
+    let globals = HashMap::new();
+    let empty = VariableTypes::new(&globals);
     for alternative in &pattern[1..] {
         if matches!(alternative, Expr::Symbol(name) if name == "_") {
             wildcard = true;
         }
-        let mut bindings = HashMap::new();
-        check_aggregate_pattern(alternative, ty, &mut bindings, &HashMap::new(), structs)?;
-        if !bindings.is_empty() {
+        let mut bindings = empty.clone();
+        check_aggregate_pattern(alternative, ty, &mut bindings, &empty, structs)?;
+        if !bindings.locals.is_empty() {
             return Err("aggregate or-pattern alternatives cannot bind values".into());
         }
     }
@@ -8155,7 +8218,7 @@ fn check_aggregate_or_pattern(
 fn check_array_match(
     items: &[Expr],
     scrutinee: &Type,
-    variables: &HashMap<String, Type>,
+    variables: &VariableTypes<'_>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
@@ -8259,8 +8322,8 @@ fn check_array_match(
 fn check_enum_payload_pattern(
     pattern: &Expr,
     ty: &Type,
-    arm_variables: &mut HashMap<String, Type>,
-    variables: &HashMap<String, Type>,
+    arm_variables: &mut VariableTypes<'_>,
+    variables: &VariableTypes<'_>,
     structs: &HashMap<String, Vec<Field>>,
 ) -> Result<(), SemanticError> {
     if let Some(value) = typed_integer_pattern_value(pattern, ty)? {
@@ -8321,7 +8384,7 @@ fn check_enum_payload_pattern(
 fn check_struct_match(
     items: &[Expr],
     struct_name: &str,
-    variables: &HashMap<String, Type>,
+    variables: &VariableTypes<'_>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
@@ -8591,7 +8654,7 @@ fn enum_variant_type(name: &str, enums: &HashMap<String, Vec<EnumVariant>>) -> O
 fn check_index(
     index: &Expr,
     length: usize,
-    variables: &HashMap<String, Type>,
+    variables: &VariableTypes<'_>,
     functions: &FunctionTable,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,

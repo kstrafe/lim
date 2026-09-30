@@ -4271,3 +4271,12 @@ commit, documentation, and focused regression coverage.
   Async compilation measured 32.20 ms before and 31.59 ms after this step;
   other sampled workloads showed no reliable gain. See the performance
   baseline for the measurements and limitations.
+
+- [x] **PERF-07: Borrow global types instead of copying them into local scopes.**
+  Separate immutable global types from function-local bindings in the type
+  checker. Clone only locals for branches, loops, and patterns; retain lookup
+  precedence, visible-name counts, pattern-binding extraction, and source
+  diagnostics. Run the full unit/integration suite and compare identical
+  native binaries. Async compilation measured 32.10 ms before and 28.37 ms
+  after (40 alternating warm samples, 11.6% reduction); other sampled
+  workloads showed no meaningful change.

@@ -50,6 +50,31 @@ These measurements are informative, not test thresholds or a general speedup
 claim. Dedicated regressions cover global references through branches, global
 shadowing, local escapes with 512 globals, and deferred function-body checking.
 
+## Borrowed global type maps (2026-09-30)
+
+The type checker now borrows the immutable global type map and keeps a
+separate owned map for function locals. Branch, loop, match, and pattern
+contexts clone only that local map. Global initializer expressions use the
+same lookup view; new pattern bindings are extracted from locals only.
+Lookup precedence, visible-name counts, shadowing rejection, and diagnostic
+locations remain unchanged.
+
+Forty alternating warm release CLI samples, collected after the full test
+suite finished, gave the following medians. Before means the signature-scan
+and shared-global-name optimizations were already present.
+
+| Warm median (ms) | Before | Borrowed global types |
+| --- | ---: | ---: |
+| `async_fn.lim` | 32.10 | 28.37 |
+| `vec_allocator.lim` | 19.61 | 19.85 |
+| `large_reference_projections.lim` | 4.20 | 4.16 |
+
+The async example improves 11.6%; the other examples show no meaningful
+change. Native binaries are byte-identical and runtime outputs/exit values
+match. All unit and integration tests pass, with the existing opt-in tests
+remaining ignored. Dedicated tests verify shared global storage, independent
+branch locals, global initializers, match payloads, and type mismatch rejection.
+
 ## Historical external-tool production sample (2026-09-25)
 
 Five iterations, Nix release profile, Intel i7-13700KF, Linux 7.2.6 x86-64,
