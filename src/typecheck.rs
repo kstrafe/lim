@@ -9150,6 +9150,50 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn return_summaries_compose_nested_and_alternative_projections() {
+        let source = "(#struct Point ((x u64) (y u64)))
+          (#struct Outer ((point Point)))
+          (#fn inner ((parent (#ref-mut Outer))) (#ref-mut Point)
+            (#return (#borrow-mut (#get parent point))))
+          (#fn field ((parent (#ref-mut Point)) (choose bool)) (#ref u64)
+            (#return (#if choose (#borrow (#get parent x)) (#borrow (#get parent y)))))
+          (#fn inspect ((outer (#ref-mut Outer)) (choose bool)) ()
+            (#let parent (#ref-mut Point) (#call inner (: parent outer)))
+            (#let target (#ref u64) (#call field (: parent parent : choose choose)))
+            (#forget target) (#forget parent) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let target = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "target")
+                .unwrap(),
+        );
+        let released = crate::typed_flow::FlowNodeId(flow.nodes.iter().position(|node| matches!(&node.action,
+            crate::typed_flow::FlowAction::Release { place, .. } if place.root == crate::typed_body::PlaceRoot::Local(target))).unwrap());
+        let origins = flow.loan_origins(body);
+        let held = origins.before(released, target);
+        assert_eq!(held.len(), 2);
+        for origin in held {
+            assert_eq!(
+                origin.place.root,
+                crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+            );
+            assert!(matches!(
+                origin.place.segments.as_slice(),
+                [
+                    crate::typed_place::Segment::Field(_),
+                    crate::typed_place::Segment::Field(_)
+                ]
+            ));
+        }
+        assert_eq!(held[0].place.segments[0], held[1].place.segments[0]);
+        assert!(!held[0].place.overlaps(&held[1].place));
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
