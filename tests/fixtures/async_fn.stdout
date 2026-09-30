@@ -1,0 +1,4 @@
+work: started
+poll 1: pending
+work: resumed
+poll 2: ready

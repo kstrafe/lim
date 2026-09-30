@@ -2682,6 +2682,11 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   stable binding IDs to select values live after each suspension, then regenerate
   the final frame. Keep mutable slots needed for post-resume writes and leave
   nested helper/loop lowering to the full CFG migration.
+- [x] **ASYNC-01i: Generate per-state async cancellation dispatch.** Allow
+  `@async-fn` and `@async-fn-pinned` to name an explicit handler for every
+  generated state. Emit an inspectable exhaustive dispatcher that passes each
+  state's exact owned payload to its handler, including child tasks; reject
+  omitted or unknown states. Destruction remains explicit in user handlers.
 - [x] **ASYNC-02: Add non-busy waiting and safe asynchronous I/O.** Define a
   bounded ready queue and explicit wake handles (no callbacks), readiness or
   completion registration, and OS-operation ownership. Cancellation must not

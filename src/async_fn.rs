@@ -9779,6 +9779,107 @@ enum CaptureSelection<'a> {
     Typed(&'a HashMap<usize, HashSet<String>>),
 }
 
+struct AsyncCancelConfig {
+    function: String,
+    handlers: HashMap<String, String>,
+}
+
+struct AsyncCancelState {
+    variant: String,
+    fields: Vec<(String, String)>,
+}
+
+fn parse_async_cancel_config(expression: &Expr) -> Result<AsyncCancelConfig, String> {
+    let config = list(expression, "async cancellation configuration")?;
+    if config.len() != 2 {
+        return Err(
+            "@async-fn :cancel requires (cancel-function ((State-variant handler) ...))".into(),
+        );
+    }
+    let function = symbol(&config[0], "cancellation function name")?.to_owned();
+    let entries = list(&config[1], "async cancellation handlers")?;
+    let mut handlers = HashMap::new();
+    for entry in entries {
+        let entry = list(entry, "async cancellation handler")?;
+        if entry.len() != 2 {
+            return Err("async cancellation handlers must be (State-variant handler)".into());
+        }
+        let variant = symbol(&entry[0], "cancellation state variant")?.to_owned();
+        let handler = symbol(&entry[1], "cancellation handler function")?.to_owned();
+        if handlers.insert(variant.clone(), handler).is_some() {
+            return Err(format!(
+                "async cancellation state '{variant}' is listed more than once"
+            ));
+        }
+    }
+    Ok(AsyncCancelConfig { function, handlers })
+}
+
+fn async_cancel_function(
+    config: &AsyncCancelConfig,
+    state_type: &str,
+    states: &[AsyncCancelState],
+    done_variant: Option<&str>,
+) -> Result<String, String> {
+    let expected = states
+        .iter()
+        .map(|state| state.variant.as_str())
+        .collect::<HashSet<_>>();
+    for variant in config.handlers.keys() {
+        if !expected.contains(variant.as_str()) {
+            return Err(format!(
+                "async cancellation handler refers to unknown state '{variant}'"
+            ));
+        }
+    }
+    for state in states {
+        if !config.handlers.contains_key(&state.variant) {
+            return Err(format!(
+                "async cancellation requires a handler for state '{}'",
+                state.variant
+            ));
+        }
+    }
+
+    let mut cases = Vec::with_capacity(states.len() + done_variant.is_some() as usize);
+    for (state_index, state) in states.iter().enumerate() {
+        let handler = &config.handlers[&state.variant];
+        let bindings = (0..state.fields.len())
+            .map(|field_index| format!("lim.async.cancel.{state_index}.{field_index}"))
+            .collect::<Vec<_>>();
+        let pattern = if bindings.is_empty() {
+            state.variant.clone()
+        } else {
+            format!("({} {})", state.variant, bindings.join(" "))
+        };
+        let argument = match state.fields.as_slice() {
+            [] => "()".to_owned(),
+            [(_, _)] => bindings[0].clone(),
+            fields => format!(
+                "(#tuple (#tuple {}) {})",
+                fields
+                    .iter()
+                    .map(|(_, ty)| ty.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                bindings.join(" ")
+            ),
+        };
+        cases.push(format!(
+            "(#case {pattern} (#call {handler} (: task {argument})))"
+        ));
+    }
+    if let Some(done_variant) = done_variant {
+        cases.push(format!("(#case {done_variant} ())"));
+    }
+    Ok(format!(
+        "(#fn {} ((task {})) ()\n  (#return (#match task {})))",
+        config.function,
+        state_type,
+        cases.join(" ")
+    ))
+}
+
 fn generated_source_with_capture_selection(
     invocation: &Expr,
     capture_selection: CaptureSelection<'_>,
@@ -9792,12 +9893,16 @@ fn generated_source_with_capture_selection(
     } else {
         "@async-fn"
     };
-    if invocation.len() != 5
+    if !(invocation.len() == 5 || invocation.len() == 6)
         || !matches!(invocation[0], Expr::At)
         || !matches!(&invocation[1], Expr::Symbol(name) if name == "async-fn" || name == "async-fn-pinned")
     {
-        return Err(format!("{generator_name} requires (@{} (: names (Frame Poll Pending Ready poll) : waker Waker : function (#fn name ((arg Type) ...) Result ...)))", generator_name.trim_start_matches('@')).into());
+        return Err(format!("{generator_name} requires (@{} (: names (Frame Poll Pending Ready poll) : waker Waker : function (#fn name ((arg Type) ...) Result ...) : cancel (cancel-function ((State-variant handler) ...))))", generator_name.trim_start_matches('@')).into());
     }
+    let cancel_config = invocation
+        .get(5)
+        .map(parse_async_cancel_config)
+        .transpose()?;
     let names = list(&invocation[2], "generated names")?;
     if names.len() != 5 {
         return Err("@async-fn names must be (Frame Poll Pending Ready poll)".into());
@@ -10394,7 +10499,7 @@ fn generated_source_with_capture_selection(
                     "{generator_name} generated poll declarations collide with their input"
                 ));
             }
-            return Ok(format!(
+            let mut generated = format!(
                 "(#enum {frame_state} (({start_variant} {start_types}) ({done_variant})))\n\
                  (#linear {frame_state})\n\
                  (#struct {frame} ((state {frame_state})))\n\
@@ -10442,7 +10547,30 @@ fn generated_source_with_capture_selection(
                    (#unsafe (#pin-write lim.async.cancel-state ({done_variant})))\n\
                    (#drop lim.async.cancel-state)\n\
                    (#return state))"
-            ));
+            );
+            if let Some(config) = &cancel_config {
+                if config.function == cancel {
+                    return Err(format!(
+                        "{generator_name} cancellation function '{}' conflicts with generated pinned-state extraction",
+                        config.function
+                    ));
+                }
+                let cleanup = async_cancel_function(
+                    config,
+                    &frame_state,
+                    &[AsyncCancelState {
+                        variant: start_variant,
+                        fields: params
+                            .iter()
+                            .map(|parameter| (parameter.name.clone(), parameter.ty.clone()))
+                            .collect(),
+                    }],
+                    Some(&done_variant),
+                )?;
+                generated.push('\n');
+                generated.push_str(&cleanup);
+            }
+            return Ok(generated);
         }
         let start_variant = format!("{frame}-start");
         let start_helper = format!("{poll}-start");
@@ -10457,7 +10585,7 @@ fn generated_source_with_capture_selection(
             .map(expression_source)
             .collect::<Result<Vec<_>, _>>()?
             .join(" ");
-        return Ok(format!(
+        let mut generated = format!(
             "{}\n\
              (#enum {frame_state} (({start_variant} {start_types})))\n\
              (#linear {frame_state})\n\
@@ -10474,7 +10602,24 @@ fn generated_source_with_capture_selection(
                  (#case ({start_variant} {start_arguments})\n\
                    (#call {start_helper} ({poll_arguments} : waker waker))))))",
             generated_helpers.join("\n")
-        ));
+        );
+        if let Some(config) = &cancel_config {
+            let cleanup = async_cancel_function(
+                config,
+                &frame_state,
+                &[AsyncCancelState {
+                    variant: start_variant,
+                    fields: params
+                        .iter()
+                        .map(|parameter| (parameter.name.clone(), parameter.ty.clone()))
+                        .collect(),
+                }],
+                None,
+            )?;
+            generated.push('\n');
+            generated.push_str(&cleanup);
+        }
+        return Ok(generated);
     }
     for (stage_index, stage) in stages.iter_mut().enumerate() {
         let mut live = HashSet::new();
@@ -10820,7 +10965,7 @@ fn generated_source_with_capture_selection(
             "{self_reference_borrows} (#let outcome {poll_result} (#call {poll} (: task state : waker waker{self_reference_argument_suffix}))) {self_reference_drops}"
         )
     };
-    let generated = format!(
+    let mut generated = format!(
         "{}\n{}
          (#enum {poll_result} (({pending} {frame_state}) ({ready} {result})))
          {}
@@ -10836,6 +10981,35 @@ fn generated_source_with_capture_selection(
         named_arguments(&first.captures),
         first.value,
     );
+    if let Some(config) = &cancel_config {
+        let mut cancellation_states = vec![AsyncCancelState {
+            variant: start_variant.clone(),
+            fields: start_params
+                .iter()
+                .map(|parameter| (parameter.name.clone(), parameter.ty.clone()))
+                .collect(),
+        }];
+        for (index, stage) in stages.iter().enumerate() {
+            let mut fields = stage
+                .captures
+                .iter()
+                .map(|capture| (capture.name.clone(), capture.ty.clone()))
+                .collect::<Vec<_>>();
+            fields.push(("lim.async.child".into(), stage.child.clone()));
+            cancellation_states.push(AsyncCancelState {
+                variant: format!("{frame}-await-{index}"),
+                fields,
+            });
+        }
+        let cleanup = async_cancel_function(
+            config,
+            &frame_state,
+            &cancellation_states,
+            pinned.then_some(done_variant.as_str()),
+        )?;
+        generated.push('\n');
+        generated.push_str(&cleanup);
+    }
     if !pinned {
         return Ok(generated);
     }

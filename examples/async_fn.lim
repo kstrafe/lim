@@ -1,7 +1,15 @@
 (#import "../library/tasks.lim")
 (#import "../library/local_waker.lim")
 (#import "../library/cell.lim")
+(#import "../library/linux_x86_64.lim")
 (@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
+
+(#fn print-text ((text (#slice char))) ()
+  (#for-range (offset usize) 0usize (#slice-len text)
+    (#let byte u8 (#as (#deref (#slice-idx text offset)) u8))
+    (#assert (#i64.==
+      (#call linux-write-byte (: source (#borrow byte))) 1i64)))
+  (#return ()))
 
 (#struct Executor ((notifications CellU64)))
 (#struct WakeMetadata ((amount u64)))
@@ -38,10 +46,14 @@
           (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
 
 (@async-fn (: names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset u64)) u64
+    (#let started-text (#array char 14) "work: started\n")
+    (#call print-text (: text (#slice-of (#borrow started-text))))
     (#let step Step (Waiting 1u64))
     (#let-mut total u64 0u64)
     (#set total
       (#await u64 Step StepPending StepReady step-poll step))
+    (#let resumed-text (#array char 14) "work: resumed\n")
+    (#call print-text (: text (#slice-of (#borrow resumed-text))))
     (#return (#u64.+.wrap total offset)))))
 
 (#fn cancel-step ((task Step)) ()
@@ -69,6 +81,8 @@
   (#let first WorkPoll
     (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
   (#let-else (WorkPending pending) WorkPoll first (#unreachable))
+  (#let pending-text (#array char 16) "poll 1: pending\n")
+  (#call print-text (: text (#slice-of (#borrow pending-text))))
   (#let second WorkPoll
     (#call work-poll (: task pending : waker (#borrow waker))))
   (#let result u64
@@ -76,6 +90,8 @@
       (#case (WorkReady value) value)
       (#case (WorkPending task)
         (#block (#forget task) (#unreachable)))))
+  (#let ready-text (#array char 14) "poll 2: ready\n")
+  (#call print-text (: text (#slice-of (#borrow ready-text))))
   (#call local-waker-destroy (: waker waker))
   (#let executor-ref (#ref Executor) (#borrow executor))
   (#let notifications u64 (#call CellU64-get (: cell (#borrow (#get executor-ref notifications)))))

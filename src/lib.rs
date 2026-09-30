@@ -5611,7 +5611,7 @@ fn normalize_builtin_generator_invocation(expression: &Expr) -> Result<Expr, Str
             "destroy",
         ],
         "vec-sort" => &["element", "vector", "comparator"],
-        "async-fn" | "async-fn-pinned" => &["names", "waker", "function"],
+        "async-fn" | "async-fn-pinned" => &["names", "waker", "function", "cancel"],
         _ => return Ok(expression.clone()),
     };
     let Some(Expr::List(arguments)) = items.get(2) else {
@@ -5638,7 +5638,11 @@ fn normalize_builtin_generator_invocation(expression: &Expr) -> Result<Expr, Str
         }
     }
     let mut normalized = vec![Expr::At, Expr::Symbol(kind.clone())];
+    let optional_async_cancel = matches!(kind.as_str(), "async-fn" | "async-fn-pinned");
     for key in keys {
+        if optional_async_cancel && *key == "cancel" && !values.contains_key(key) {
+            continue;
+        }
         normalized.push(
             values
                 .remove(key)

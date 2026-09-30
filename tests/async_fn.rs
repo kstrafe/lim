@@ -5,6 +5,10 @@ use std::{fs, process::Command, time::Duration};
 fn example_source() -> String {
     include_str!("../examples/async_fn.lim")
         .replace(
+            "../library/linux_x86_64.lim",
+            &format!("{}/library/linux_x86_64.lim", env!("CARGO_MANIFEST_DIR")),
+        )
+        .replace(
             "../library/tasks.lim",
             &format!("{}/library/tasks.lim", env!("CARGO_MANIFEST_DIR")),
         )
@@ -7580,4 +7584,89 @@ fn generated_async_frames_support_exhaustive_task_cancellation() {
         (#return 42u64))";
     let source = source.replace("{}", env!("CARGO_MANIFEST_DIR"));
     build_and_run(&source, 42);
+}
+
+#[test]
+fn async_fn_generates_state_specific_cancel_dispatch() {
+    let source = include_str!("../examples/async_fn_cancel_dispatch.lim");
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("(#fn cancel-work ((task Work)) ()"));
+    assert!(generated.contains("(#case (Work-start"));
+    assert!(generated.contains("(#case (Work-await-0"));
+    assert!(generated.contains("cancel-await"));
+}
+
+#[test]
+fn async_fn_cancel_mapping_must_cover_each_generated_state() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (ChildReady 1u64)))
+      (#fn cancel-start ((task u64)) () (#forget task) (#return ()))
+      (@async-fn (: names (Frame Poll Pending Ready poll)
+                  : waker u64
+                  : cancel (cancel-frame ((Frame-start cancel-start)))
+                  : function
+        (#fn work ((input u64)) u64
+          (#let result u64
+            (#await u64 Child ChildPending ChildReady child-poll (Waiting input)))
+          (#return result))))";
+    let scratch = support::Scratch::new("async-cancel-missing-state");
+    let error = lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("async cancellation requires a handler for state 'Frame-await-0'"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn pinned_async_fn_dispatches_cleanup_after_state_extraction() {
+    let source = "(#enum Child ((Waiting u64)))
+      (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (ChildPending task)))
+      (#fn child-cancel ((task Child)) () (#forget task) (#return ()))
+      (#enum Token ((TokenValue u64)))
+      (#linear Token)
+      (#fn destroy-token ((task Token)) () (#forget task) (#return ()))
+      (#fn cancel-start ((task Token)) ()
+        (#call destroy-token (: task task))
+        (#return ()))
+      (#fn cancel-await ((task (#tuple Token Child))) ()
+        (#let (#tuple token child) (#tuple Token Child) task)
+        (#call destroy-token (: task token))
+        (#call child-cancel (: task child))
+        (#return ()))
+      (@async-fn-pinned (: names (Frame Poll Pending Ready poll)
+                  : waker u64
+                  : cancel (cancel-frame
+                    ((Frame-start cancel-start) (Frame-await-0 cancel-await)))
+                  : function
+        (#fn work ((token Token)) u64
+          (#let child-result u64
+            (#await u64 Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#call destroy-token (: task token))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let-mut frame Frame (#call work (: token (TokenValue 1u64))))
+        (#let waker u64 0u64)
+        (#let outcome Poll
+          (#call poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (Pending cancel-pin) Poll outcome (#unreachable))
+        (#let state Frame-state (#call poll-cancel (: task cancel-pin)))
+        (#call cancel-frame (: task state))
+        (#forget frame)
+        (#forget waker)
+        (#return 42u64))";
+    build_and_run(source, 42);
 }
