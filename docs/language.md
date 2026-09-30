@@ -1785,6 +1785,15 @@ undergoes normal type, ownership, and borrow checking.
 See `examples/async_for_unit_step.lim` for a runnable Pending/Ready example
 that exits with status 42.
 
+An awaited condition can also be combined with a computed step, such as
+arithmetic around an awaited value. Step operands are evaluated in source
+order and are not reevaluated when a child reports Pending. Changes to
+captured mutable values, including writes through explicitly borrowed places,
+are returned by the generated iteration task. Terminal `#continue` runs the
+step; terminal `#break` and `#return` skip it. See
+`examples/async_for_computed_step.lim` for a runnable example. This does not
+yet imply support for arbitrary nonterminal control transfers in async bodies.
+
 `#for-range` is shorthand with a typed binding, start, and end.  Its bounds
 are explicit and the range is half-open:
 

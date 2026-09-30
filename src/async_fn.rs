@@ -1386,6 +1386,15 @@ fn conditional_value_expression_task(
                 lower_async_terminal_return_markers(&mut statement)?;
                 function.push(statement);
             }
+            if !function
+                .last()
+                .is_some_and(|last| form(last, "#return").is_some())
+            {
+                function.push(Expr::List(vec![
+                    Expr::Symbol("#return".into()),
+                    Expr::List(vec![Expr::Symbol("#unreachable".into())]),
+                ]));
+            }
         } else {
             function.extend(block[1..block.len() - 1].iter().cloned());
             let result_name = fresh_async_name(source, next_name);
@@ -1478,6 +1487,17 @@ fn conditional_await_with_immediate(
     next_name: &mut usize,
     waker: &str,
 ) -> Result<Option<(AwaitProtocol, Expr, String)>, String> {
+    fn immediate_terminal_value(expression: &Expr) -> Expr {
+        if let Some(items) = form(expression, "#async-terminal-return") {
+            if items.len() == 3 {
+                return items[2].clone();
+            }
+        }
+        match expression {
+            Expr::List(items) => Expr::List(items.iter().map(immediate_terminal_value).collect()),
+            _ => expression.clone(),
+        }
+    }
     let mut branches = Vec::<(Option<AwaitProtocol>, Expr)>::new();
     let mut branch_helpers = Vec::new();
     let condition_or_scrutinee;
@@ -1503,7 +1523,7 @@ fn conditional_await_with_immediate(
                 branches.push((Some(protocol), task));
                 branch_helpers.push(helper);
             } else if !has_await(branch) {
-                branches.push((None, branch.clone()));
+                branches.push((None, immediate_terminal_value(branch)));
             } else {
                 return Ok(None);
             }
@@ -1559,7 +1579,7 @@ fn conditional_await_with_immediate(
                 branches.push((Some(protocol), Expr::List(task_arm)));
                 branch_helpers.push(helper);
             } else if !has_await(&case[body_index]) {
-                branches.push((None, arm.clone()));
+                branches.push((None, immediate_terminal_value(arm)));
             } else {
                 return Ok(None);
             }
@@ -3392,6 +3412,8 @@ fn async_while_body_child(
         fn status_branch(expression: &Expr) -> Result<Expr, String> {
             if let Some(status) = terminal_status(expression)? {
                 Ok(status)
+            } else if form(expression, "#return").is_some() {
+                Ok(expression.clone())
             } else if has_outer_loop_control(expression) {
                 Err("@async-fn composed awaited while transfers must be terminal".into())
             } else {
@@ -3505,6 +3527,30 @@ fn async_while_body_child(
     fn collect_assignments(expression: &Expr, names: &mut HashSet<String>) {
         if let Some(name) = mutable_assignment_target(expression) {
             names.insert(name.to_owned());
+        }
+        // A callee may mutate a captured value through an explicit mutable
+        // borrow. Return that value with the child's other mutable outputs;
+        // otherwise its mutation is lost when the iteration task completes.
+        fn place_root(expression: &Expr) -> Option<&str> {
+            match expression {
+                Expr::Symbol(name) => Some(name),
+                Expr::List(items)
+                    if matches!(items.first(), Some(Expr::Symbol(head))
+                    if matches!(head.as_str(), "#get" | "#index" | "#slice-idx" | "#deref" | "#pin-read")) =>
+                {
+                    items.get(1).and_then(place_root)
+                }
+                _ => None,
+            }
+        }
+        if let Expr::List(items) = expression {
+            if matches!(items.first(), Some(Expr::Symbol(head))
+                if matches!(head.as_str(), "#borrow-mut" | "#pin-borrow-mut"))
+            {
+                if let Some(name) = items.get(1).and_then(place_root) {
+                    names.insert(name.to_owned());
+                }
+            }
         }
         match expression {
             Expr::List(items) => {
@@ -3699,6 +3745,120 @@ fn async_while_body_child(
         function_result_type.clone(),
     ];
     function.extend(child_body);
+    // Return the complete state from each terminal branch. Evaluating a
+    // suspending status expression as one tuple field would spawn a value
+    // helper that returns only the status and loses updated captures.
+    fn return_status(
+        status: &Expr,
+        result_type: &Expr,
+        outputs: &[Binding],
+        continue_variant: Option<&str>,
+        function_result_type: &Expr,
+    ) -> Expr {
+        if let Expr::List(items) = status {
+            let mut rewritten = items.clone();
+            match items.first() {
+                Some(Expr::Symbol(head)) if head == "#if" && items.len() == 4 => {
+                    rewritten[2] = return_status(
+                        &items[2],
+                        result_type,
+                        outputs,
+                        continue_variant,
+                        function_result_type,
+                    );
+                    rewritten[3] = return_status(
+                        &items[3],
+                        result_type,
+                        outputs,
+                        continue_variant,
+                        function_result_type,
+                    );
+                    return Expr::List(rewritten);
+                }
+                Some(Expr::Symbol(head)) if head == "#block" && items.len() > 1 => {
+                    let last = rewritten.last_mut().unwrap();
+                    *last = return_status(
+                        last,
+                        result_type,
+                        outputs,
+                        continue_variant,
+                        function_result_type,
+                    );
+                    return Expr::List(rewritten);
+                }
+                Some(Expr::Symbol(head)) if head == "#match" => {
+                    for arm in &mut rewritten[2..] {
+                        if let Expr::List(case) = arm {
+                            if let Some(last) = case.last_mut() {
+                                *last = return_status(
+                                    last,
+                                    result_type,
+                                    outputs,
+                                    continue_variant,
+                                    function_result_type,
+                                );
+                            }
+                        }
+                    }
+                    return Expr::List(rewritten);
+                }
+                Some(Expr::Symbol(head)) if head == "#return" => {
+                    return Expr::List(vec![
+                        Expr::Symbol("#async-terminal-return".into()),
+                        function_result_type.clone(),
+                        items[1].clone(),
+                    ])
+                }
+                _ => {}
+            }
+        }
+        let mut value = if outputs.is_empty() {
+            status.clone()
+        } else {
+            Expr::List(
+                [
+                    Expr::Symbol("#tuple".into()),
+                    result_type.clone(),
+                    status.clone(),
+                ]
+                .into_iter()
+                .chain(
+                    outputs
+                        .iter()
+                        .map(|capture| Expr::Symbol(capture.name.clone())),
+                )
+                .collect(),
+            )
+        };
+        if let Some(variant) = continue_variant {
+            value = Expr::List(vec![Expr::Symbol(variant.into()), value]);
+        }
+        Expr::List(vec![
+            Expr::Symbol("#async-terminal-return".into()),
+            function_result_type.clone(),
+            value,
+        ])
+    }
+    let terminal_return = if terminal_status
+        .as_ref()
+        .is_some_and(|status| has_await(status) || contains_return(status))
+    {
+        let mut status = terminal_status.clone().unwrap();
+        if let Some((_, _, variant, _)) = &body_return {
+            rewrite_async_child_returns(&mut status, variant)?;
+        }
+        Some(return_status(
+            &status,
+            &body_result_type,
+            &mutable_outputs,
+            body_return
+                .as_ref()
+                .map(|(_, variant, _, _)| variant.as_str()),
+            &function_result_type,
+        ))
+    } else {
+        None
+    };
     let body_result = if mutable_outputs.is_empty() {
         terminal_status.unwrap_or_else(|| Expr::Symbol("false".into()))
     } else {
@@ -3721,10 +3881,17 @@ fn async_while_body_child(
     } else {
         body_result
     };
-    function.push(Expr::List(vec![
-        Expr::Symbol("#return".into()),
-        body_result,
-    ]));
+    if let Some(terminal_return) = terminal_return {
+        function.push(Expr::List(vec![
+            Expr::Symbol("#return".into()),
+            terminal_return,
+        ]));
+    } else {
+        function.push(Expr::List(vec![
+            Expr::Symbol("#return".into()),
+            body_result,
+        ]));
+    }
     let function = Expr::List(function);
     let waker = crate::parse(waker)?
         .into_iter()
@@ -3760,7 +3927,7 @@ fn async_while_body_child(
                 ]),
             ]),
         ]);
-        helper = format!("{}\n{}", generated_source(&outcome_definition)?, helper);
+        helper = format!("{}\n{}", expression_source(&outcome_definition)?, helper);
     }
     let task = Expr::List(vec![
         Expr::Symbol("#call".into()),
@@ -3769,7 +3936,7 @@ fn async_while_body_child(
     ]);
     let await_form = vec![
         Expr::Symbol("#await".into()),
-        body_result_type.clone(),
+        function_result_type.clone(),
         Expr::Symbol(frame),
         Expr::Symbol(pending),
         Expr::Symbol(ready),
@@ -5986,8 +6153,11 @@ fn lower_async_while_with_transfers(
                             Expr::Symbol(returned_value.clone()),
                         ]),
                         Expr::List(vec![
-                            Expr::Symbol("#return".into()),
-                            Expr::Symbol(returned_value),
+                            Expr::Symbol("#block".into()),
+                            Expr::List(vec![
+                                Expr::Symbol("#return".into()),
+                                Expr::Symbol(returned_value),
+                            ]),
                         ]),
                     ]),
                 ])
@@ -6748,7 +6918,7 @@ fn lower_async_while_with_transfers(
     let task_wait = format!("{base}-wait");
     let task_poll_result = format!("{base}-poll-result");
     let output_type = format!("{base}-outputs");
-    let (output_type_source, ready_type, ready_value) = if output_captures.is_empty() {
+    let (mut output_type_source, mut ready_type, mut ready_value) = if output_captures.is_empty() {
         (String::new(), "()".to_owned(), "()".to_owned())
     } else {
         let fields = output_captures
@@ -6767,6 +6937,22 @@ fn lower_async_while_with_transfers(
     };
     let task_pending = format!("{base}-pending");
     let task_ready = format!("{base}-ready");
+    let loop_return = if suffix_body.iter().any(contains_return) {
+        let enclosing_type = return_type
+            .ok_or_else(|| "@async-fn loop return requires its enclosing result type".to_owned())?;
+        let outcome = format!("{base}-exit");
+        let completed = format!("{base}-completed");
+        let returned = format!("{base}-returned");
+        output_type_source.push_str(&format!(
+            "\n(#enum {outcome} (({completed} {ready_type}) ({returned} {})))",
+            expression_source(enclosing_type)?
+        ));
+        ready_value = format!("({completed} {ready_value})");
+        ready_type = outcome.clone();
+        Some((outcome, completed, returned, enclosing_type.clone()))
+    } else {
+        None
+    };
     let task_run = format!("{base}-run");
     let task_resume = format!("{base}-resume");
     let task_poll = format!("{base}-poll");
@@ -6926,6 +7112,13 @@ fn lower_async_while_with_transfers(
         .map(expression_source)
         .collect::<Result<Vec<_>, _>>()?
         .join(" ");
+    let mut suffix_body = suffix_body.to_vec();
+    if let Some((_, _, returned, _)) = &loop_return {
+        for expression in &mut suffix_body {
+            rewrite_async_child_returns(expression, returned)?;
+            rewrite_async_non_loop_returns(expression, &task_ready)?;
+        }
+    }
     let suffix_source = suffix_body
         .iter()
         .map(expression_source)
@@ -7021,7 +7214,9 @@ fn lower_async_while_with_transfers(
         Expr::List(vec![
             Expr::Symbol("#let".into()),
             Expr::Symbol(result_variable.clone()),
-            if output_captures.is_empty() {
+            if loop_return.is_some() {
+                Expr::Symbol(ready_type.clone())
+            } else if output_captures.is_empty() {
                 Expr::List(Vec::new())
             } else {
                 Expr::Symbol(output_type.clone())
@@ -7037,6 +7232,50 @@ fn lower_async_while_with_transfers(
         ]),
     ];
     let mut replacement = replacement;
+    let result_variable = if let Some((_, completed, returned, enclosing_type)) = &loop_return {
+        let value = fresh_async_name(source, next_name);
+        let returned_value = fresh_async_name(source, next_name);
+        let output = fresh_async_name(source, next_name);
+        replacement.push(Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol(output.clone()),
+            if output_captures.is_empty() {
+                Expr::List(Vec::new())
+            } else {
+                Expr::Symbol(output_type.clone())
+            },
+            Expr::List(vec![
+                Expr::Symbol("#match".into()),
+                Expr::Symbol(result_variable.clone()),
+                Expr::List(vec![
+                    Expr::Symbol("#case".into()),
+                    Expr::List(vec![
+                        Expr::Symbol(completed.clone()),
+                        Expr::Symbol(value.clone()),
+                    ]),
+                    Expr::Symbol(value),
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("#case".into()),
+                    Expr::List(vec![
+                        Expr::Symbol(returned.clone()),
+                        Expr::Symbol(returned_value.clone()),
+                    ]),
+                    Expr::List(vec![
+                        Expr::Symbol("#block".into()),
+                        Expr::List(vec![
+                            Expr::Symbol("#async-terminal-return".into()),
+                            enclosing_type.clone(),
+                            Expr::Symbol(returned_value),
+                        ]),
+                    ]),
+                ]),
+            ]),
+        ]));
+        output
+    } else {
+        result_variable
+    };
     let mut renamed_outputs = Vec::new();
     let resumed_names = output_captures
         .iter()
@@ -7659,6 +7898,39 @@ fn lower_async_for(
     };
     if items.len() < 5 {
         return Err("@async-fn #for await requires init, condition, step, and body".into());
+    }
+    let direct_step_await = form(&items[3], "#await").is_some()
+        || form(&items[3], "#set")
+            .is_some_and(|set| set.len() == 3 && form(&set[2], "#await").is_some());
+    if has_await(&items[2]) && has_await(&items[3]) && !direct_step_await {
+        // A computed step belongs to the iteration's body, not to a separate
+        // direct-await adapter. Let body lowering sequence its arbitrary
+        // expressions and return every mutated capture to the outer loop.
+        let step = items[3].clone();
+        let mut body = items[4..].to_vec();
+        if body
+            .last()
+            .is_some_and(|last| contains_loop_control(last) || contains_return(last))
+        {
+            rewrite_for_terminal_control(body.last_mut().unwrap(), &step)?;
+        } else {
+            body.push(step);
+        }
+        let mut rewritten = items[..4].to_vec();
+        rewritten[3] = Expr::List(vec![]);
+        rewritten.extend(body);
+        return lower_async_for(
+            &Expr::List(rewritten),
+            known,
+            known_order,
+            following,
+            return_value,
+            return_type,
+            source,
+            next_name,
+            waker,
+            type_environment,
+        );
     }
     // A void await is a valid effect-only step. Route it through the same
     // assignment machinery as value-producing steps, including the skip-step
@@ -8914,6 +9186,30 @@ fn lower_async_terminal_return_markers(expression: &mut Expr) -> Result<(), Stri
     Ok(())
 }
 
+/// Resolve return signals introduced by loop lowering after source returns
+/// have already been adapted. Only marked returns are wrapped here.
+fn resolve_generated_async_returns(expression: &mut Expr, ready: &str) {
+    let Expr::List(items) = expression else {
+        return;
+    };
+    if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#async-terminal-return")
+        && items.len() == 3
+    {
+        *expression = Expr::List(vec![
+            Expr::Symbol("#return".into()),
+            Expr::List(vec![Expr::Symbol(ready.into()), items[2].clone()]),
+        ]);
+        return;
+    }
+    if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "#quasiquote" | "#fn"))
+    {
+        return;
+    }
+    for item in items.iter_mut().skip(1) {
+        resolve_generated_async_returns(item, ready);
+    }
+}
+
 fn async_terminal_return_type(expression: &Expr) -> Option<Expr> {
     if let Some(items) = form(expression, "#async-terminal-return") {
         return (items.len() == 3).then(|| items[1].clone());
@@ -9051,6 +9347,10 @@ fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bo
 /// A continue runs the step first, a break skips it, and ordinary branch exits
 /// run it before the next awaited condition.
 fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bool, String> {
+    if form(expression, "#return").is_some() || form(expression, "#async-terminal-return").is_some()
+    {
+        return Ok(true);
+    }
     if let Some(items) = form(expression, "#break") {
         if items.len() != 1 {
             return Err("@async-fn awaited #for does not support value-bearing #break".into());
@@ -9085,7 +9385,7 @@ fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bo
         let mut has_transfer = false;
         for branch_index in [2, 3] {
             let branch = &mut expression_list_mut(expression)[branch_index];
-            if contains_loop_control(branch) {
+            if contains_loop_control(branch) || contains_return(branch) {
                 has_transfer |= rewrite_for_terminal_control(branch, step)?;
             } else {
                 *branch = Expr::List(vec![
@@ -9120,7 +9420,7 @@ fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bo
                 (
                     body_index,
                     case[1..body_index].iter().any(contains_loop_control),
-                    contains_loop_control(&case[body_index]),
+                    contains_loop_control(&case[body_index]) || contains_return(&case[body_index]),
                 )
             };
             if guard_has_control {
@@ -10437,6 +10737,7 @@ fn generated_source_with_capture_selection(
     statements = lowered_statements;
     for statement in &mut statements {
         rewrite_async_let_else_returns(statement, &ready)?;
+        resolve_generated_async_returns(statement, &ready);
     }
     if let Some(await_expression) = &return_await {
         let mut return_statement = Expr::List(vec![

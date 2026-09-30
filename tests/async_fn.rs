@@ -7356,6 +7356,96 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
 }
 
 #[test]
+fn async_for_computed_step_composes_with_awaited_condition() {
+    let source = include_str!("../examples/async_for_computed_step.lim");
+    build_and_run(source, 42);
+    let transfers = source
+        .replace("(#u64.< index 2u64)", "(#u64.< index 4u64)")
+        .replace(
+            "(#let body-ran bool true))",
+            "(#let body-ran bool true) (#if (#u64.== index 0u64) (#continue) (#break)))",
+        );
+    assert_ne!(transfers, source);
+    build_and_run(&transfers, 42);
+    let returned = transfers.replace("(#break)", "(#return (#u64.+.wrap index 40u64))");
+    assert_ne!(returned, transfers);
+    build_and_run(&returned, 42);
+    for source in [&transfers, &returned] {
+        let matched = source
+            .replace(
+                "(#if (#u64.== index 0u64) (#continue)",
+                "(#match index (#case 0u64 (#continue)) (#case _",
+            )
+            .replace("(#break)))", "(#break))))")
+            .replace(
+                "(#return (#u64.+.wrap index 40u64))))",
+                "(#return (#u64.+.wrap index 40u64)))))",
+            );
+        assert_ne!(matched, *source);
+        build_and_run(&matched, 42);
+    }
+}
+
+#[test]
+fn async_loop_body_restores_values_mutated_through_borrowed_places() {
+    for (ty, initial, place, argument, prefix, suffix) in [
+        ("u64", "0u64", "counter", "(#borrow-mut counter)", "", ""),
+        (
+            "Counter",
+            "(#struct-literal Counter ((value 0u64)))",
+            "(#get counter value)",
+            "(#borrow-mut (#get container value))",
+            "(#let container (#ref-mut Counter) (#borrow-mut counter))",
+            "(#forget container)",
+        ),
+        (
+            "(#array u64 1)",
+            "(#array-of (#array u64 1) 0u64)",
+            "(#index counter 0usize)",
+            "(#slice-mut-idx container 0usize)",
+            "(#let container (#slice-mut u64) (#slice-mut-of (#borrow-mut counter)))",
+            "(#forget container)",
+        ),
+    ] {
+        let source = format!(
+            r#"
+          (#struct Counter ((value u64)))
+          (#enum ChildTask (Start Resume))
+          (#linear ChildTask)
+          (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))
+          (#fn child-poll ((task ChildTask) (waker (#ref u64))) ChildPoll
+            (#return (#match task
+              (#case Start (ChildPending Resume))
+              (#case Resume (ChildReady true)))))
+          (#fn touch ((value (#ref-mut u64))) ()
+            (#deref-set value (#u64.+.wrap (#deref value) 1u64))
+            (#return ()))
+          (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+            (#fn work () u64
+              (#let-mut counter {ty} {initial})
+              (#let-mut keep bool true)
+              (#while keep
+                {prefix}
+                (#call touch (: value {argument}))
+                {suffix}
+                (#set keep (#bool.&&
+                  (#await bool ChildTask ChildPending ChildReady child-poll Start) false)))
+              (#return (#u64.+.wrap {place} 41u64)))))
+          (#fn main () u64
+            (#let waker u64 0u64)
+            (#let first Poll (#call poll (: task (#call work ()) : waker (#borrow waker))))
+            (#let-else (Pending task) Poll first (#unreachable))
+            (#let second Poll (#call poll (: task task : waker (#borrow waker))))
+            (#return (#match second
+              (#case (Ready value) value)
+              (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+        "#
+        );
+        build_and_run(&source, 42);
+    }
+}
+
+#[test]
 fn async_for_void_await_step_respects_continue_break_and_false_condition() {
     let source = r#"
       (#enum ConditionTask ((Check bool)))

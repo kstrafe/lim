@@ -945,8 +945,14 @@ fn check_expr(
             } else if head == "match" && items.len() >= 3 {
                 check_expr(&items[1], bindings, moved, globals, false, types)?;
                 let after_scrutinee = moved.clone();
-                let scrutinee_type =
-                    place_key(&items[1]).and_then(|place| types.place_type(&place));
+                let scrutinee_type = types
+                    .checked_expression_ids
+                    .as_ref()
+                    .and_then(|ids| ids.get(&(std::ptr::from_ref(&items[1]) as usize)))
+                    .and_then(|id| types.checked_expressions.as_ref()?.get(id))
+                    .cloned()
+                    .or_else(|| place_key(&items[1]).and_then(|place| types.place_type(&place)))
+                    .and_then(|ty| types.resolve_aliases(ty));
                 let mut exits = Vec::new();
                 for arm in &items[2..] {
                     let Expr::List(parts) = arm else { continue };
@@ -1766,6 +1772,33 @@ mod tests {
             (#return (#get pair other)))";
         let error = check_types(&parse_program(source).unwrap()).unwrap_err();
         assert!(error.contains("used more than once"), "{error}");
+    }
+
+    #[test]
+    fn computed_match_payload_types_are_retained_on_early_return() {
+        let copy = "(#enum Choice ((Value u64)))
+          (#fn make () Choice (#return (Value 42u64)))
+          (#fn main () u64
+            (#let result u64 (#match (#call make ())
+              (#case (Value payload) (#block (#return payload)))))
+            (#return result))";
+        check_types(&parse_program(copy).unwrap()).unwrap();
+
+        let linear = "(#struct Resource ((value u64))) (#linear Resource)
+          (#enum Choice ((Value Resource)))
+          (#fn make () Choice
+            (#return (Value (#struct-literal Resource ((value 42u64))))))
+          (#fn main () u64
+            (#let result u64 (#match (#call make ())
+              (#case (Value payload) (#block (#return 42u64)))))
+            (#return result))";
+        let error = check_types(&parse_program(linear).unwrap()).unwrap_err();
+        assert!(
+            error.contains("payload") && error.contains("consumed"),
+            "{error}"
+        );
+        let consumed = linear.replace("(#return 42u64)", "(#forget payload) (#return 42u64)");
+        check_types(&parse_program(&consumed).unwrap()).unwrap();
     }
 
     #[test]

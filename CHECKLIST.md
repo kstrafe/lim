@@ -1578,6 +1578,16 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   at suspension points. Define source syntax, borrowing across suspension, and
   immovable storage before accepting self-referential frames. Preserve exact
   source diagnostics and explicit cleanup for each suspended state.
+- [x] **ASYNC-01-COMPUTED-STEP: Compose computed steps with awaited conditions.**
+  Sequence computed `#for` step expressions through iteration body lowering.
+  Return terminal branch status and updated captures together, preserving
+  mutation through explicit mutable borrows. Run the step after terminal
+  continue but not break or return; forward early-return outcomes through
+  enclosing loop tasks. Retain checked computed-match payload types for
+  ownership obligations. Test normal completion, continue/break, early return,
+  borrowed scalar/field/element mutation, and Copy versus linear match payloads.
+  Include and run a native example. Arbitrary async control flow remains open
+  under the parent ASYNC-01 item.
 - [x] **ASYNC-01a: Define pinning as a checked place guarantee.** Add explicit
   pinned types and pinned references without generic traits. Establish stable
   stack and allocator-backed places before creating internal references;
