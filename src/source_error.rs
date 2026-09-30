@@ -8,6 +8,8 @@ pub(crate) struct SourceError {
     pub(crate) span: Option<Span>,
     pub(crate) source_name: Option<String>,
     pub(crate) source_text: Option<String>,
+    related: Vec<(Span, String)>,
+    labels: Vec<crate::DiagnosticLabel>,
 }
 
 impl SourceError {
@@ -18,6 +20,8 @@ impl SourceError {
             span: None,
             source_name: None,
             source_text: None,
+            related: Vec::new(),
+            labels: Vec::new(),
         }
     }
     pub(crate) fn at(mut self, span: Span) -> Self {
@@ -27,6 +31,16 @@ impl SourceError {
         self
     }
     pub(crate) fn attach(mut self, files: &[SourceFile]) -> Self {
+        for (span, message) in self.related.drain(..) {
+            if let Some(file) = files.get(span.source_id as usize) {
+                self.labels.push(crate::DiagnosticLabel {
+                    message,
+                    span,
+                    source_name: Some(file.path.display().to_string()),
+                    source_text: Some(file.source.clone()),
+                });
+            }
+        }
         if self.source_name.is_none() {
             if let Some(file) = self
                 .span
@@ -38,11 +52,16 @@ impl SourceError {
         }
         self
     }
+    pub(crate) fn with_label(mut self, span: Span, message: impl Into<String>) -> Self {
+        self.related.push((span, message.into()));
+        self
+    }
     pub(crate) fn diagnostic(self) -> Diagnostic {
         let mut diagnostic = Diagnostic::new(self.code, self.message);
         diagnostic.span = self.span;
         diagnostic.source_name = self.source_name;
         diagnostic.source_text = self.source_text;
+        diagnostic.labels = self.labels;
         diagnostic
     }
 }

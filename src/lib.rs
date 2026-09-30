@@ -25,6 +25,7 @@ mod output;
 mod reachability;
 mod source_error;
 mod stack_usage;
+mod syntax_bundle;
 mod syntax_collection;
 mod typecheck;
 mod typed_body;
@@ -1607,6 +1608,7 @@ pub struct Program {
     pub(crate) declaration_expressions: HashMap<String, SpannedExpr>,
     pub(crate) declaration_occurrences: HashMap<String, Vec<SpannedExpr>>,
     pub(crate) generated_source_invocations: HashMap<u32, Span>,
+    pub(crate) syntax_bundle_uses: HashMap<Span, Vec<Span>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2023,6 +2025,25 @@ fn analysis_diagnostic(
         }
     }
     let mut origin = structured_span;
+    if let Some(span) = structured_span {
+        for (usage, definitions) in &program.syntax_bundle_uses {
+            if usage.source_id == span.source_id
+                && usage.start <= span.start
+                && span.end <= usage.end
+            {
+                for definition in definitions {
+                    if let Some(file) = program.source_files.get(definition.source_id as usize) {
+                        diagnostic.labels.push(DiagnosticLabel {
+                            message: "syntax bundle defined here".into(),
+                            span: *definition,
+                            source_name: Some(file.path.display().to_string()),
+                            source_text: Some(file.source.clone()),
+                        });
+                    }
+                }
+            }
+        }
+    }
     let mut seen = HashSet::new();
     while let Some(invocation) = origin
         .and_then(|span| program.generated_source_invocations.get(&span.source_id))
@@ -2341,6 +2362,7 @@ fn async_copy_type_names_from_items(items: &[Item]) -> HashSet<String> {
         declaration_expressions: HashMap::new(),
         declaration_occurrences: HashMap::new(),
         generated_source_invocations: HashMap::new(),
+        syntax_bundle_uses: HashMap::new(),
     };
     let linear_types = linearcheck::LinearTypes::from_program(&program);
     items
@@ -2730,6 +2752,7 @@ fn decode_async_capture_plans(forms: &[Expr]) -> Option<AsyncCapturePlans> {
 }
 
 struct PreparedProgramSyntax {
+    bundles: syntax_bundle::Bundles,
     capture_cache_directory: Option<PathBuf>,
     root_source: String,
     expressions: Vec<SpannedExpr>,
@@ -2750,6 +2773,10 @@ fn prepare_program_syntax(
 ) -> Result<PreparedProgramSyntax, SourceError> {
     let (loaded, source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&loaded, config);
+    let mut bundles = syntax_bundle::Bundles::default();
+    let loaded = bundles
+        .expand(loaded, false)
+        .map_err(|error| error.attach(&source_files))?;
     let (expanded, user_generated) = generator::expand_with_generated_cached_with_context(
         loaded,
         cache_directory,
@@ -2758,6 +2785,9 @@ fn prepare_program_syntax(
     .map_err(|error| attach_generator_source(error, &source_files))?;
     let expressions = expand_cfg_forms(expanded, config)
         .map_err(|error| attach_generator_source(error, &source_files))?;
+    let expressions = bundles
+        .expand(expressions, true)
+        .map_err(|error| error.attach(&source_files))?;
     let async_copy_types = async_copy_type_names(&expressions);
     let async_types = async_type_environment(&expressions);
     let needs_workers = expressions.iter().any(is_thread_spawn_invocation);
@@ -2774,6 +2804,7 @@ fn prepare_program_syntax(
         })
         .collect();
     Ok(PreparedProgramSyntax {
+        bundles,
         capture_cache_directory: cache_directory.map(Path::to_path_buf),
         root_source: source.to_owned(),
         expressions,
@@ -3056,11 +3087,25 @@ fn parse_prepared_program_with_async_captures(
             items.push(item);
         }
     }
+    for item in &items {
+        for name in item_declared_names(item) {
+            if let Some(definition) = prepared.bundles.definitions.get(&name) {
+                return Err(SourceError::new(
+                    format!("declaration '{name}' conflicts with a syntax bundle"),
+                    DiagnosticCode::Parse,
+                )
+                .at(*declaration_spans.get(&name).unwrap_or(&definition.span))
+                .with_label(definition.span, "syntax bundle defined here")
+                .attach(&source_files));
+            }
+        }
+    }
     rename_shadowed_locals(
         &mut items,
         &statement_spans,
         &declaration_spans,
         &source_files,
+        &prepared.bundles.definitions,
     )?;
     synthesize_thread_join_results(&mut items, &declaration_spans, &source_files)?;
     let mut items = specialize_generic_types(
@@ -3097,6 +3142,7 @@ fn parse_prepared_program_with_async_captures(
         declaration_expressions,
         declaration_occurrences,
         generated_source_invocations,
+        syntax_bundle_uses: prepared.bundles.uses.clone(),
     })
 }
 
@@ -4025,6 +4071,7 @@ fn rename_shadowed_locals(
     statement_spans: &HashMap<(String, usize), Span>,
     declaration_spans: &HashMap<String, Span>,
     source_files: &[SourceFile],
+    syntax_bundles: &HashMap<String, SpannedExpr>,
 ) -> Result<(), SourceError> {
     let globals = items
         .iter()
@@ -4032,6 +4079,7 @@ fn rename_shadowed_locals(
             Item::Let { name, .. } | Item::Static { name, .. } => Some(name.clone()),
             _ => None,
         })
+        .chain(syntax_bundles.keys().cloned())
         .collect::<HashSet<_>>();
     let variants = items
         .iter()

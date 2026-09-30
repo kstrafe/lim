@@ -763,6 +763,30 @@ nix develop --command cargo run -- --collect-cfgs examples/cfg_platform.lim
 
 ## User-defined generators
 
+### Literal syntax bundles
+
+Use `#syntax` to declare an immutable list of literal syntax, and explicitly
+splice its elements into another list with `#syntax-splice`. Neither form
+evaluates values or infers types. An await protocol can be named once:
+
+```lisp syntax
+(#syntax StepAwait (u64 Step StepPending StepReady step-poll))
+(#await (#syntax-splice StepAwait) step)
+```
+
+The second form expands to `(#await u64 Step StepPending StepReady step-poll
+step)` before async lowering. It is only valid inside an async function.
+Bundles can also supply function parameters or named call arguments. Definitions
+are top-level, may refer forward to other bundles, and may contain nested
+splices. Names must be unique across declarations; cycles, unknown names,
+malformed definitions, and splices outside a surrounding list are errors.
+Imports and cfg selection happen first; external imports prefix bundle names
+and referenced identifiers normally. Quoted syntax and generator templates stay
+literal until emitted. Generated bundle declarations are supported, and ordinary
+type, borrow, and linearity checking still applies to their expanded code.
+
+### Generator declarations
+
 Generators are compile-time syntax functions. Their parameters receive the
 invocation arguments literally; generator values are immutable syntax nodes:
 symbols, literals, or lists. A generator returns a list of top-level forms,
@@ -1626,9 +1650,11 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#struct` | `(#struct Name [#repr-c] ((field Type)...))` | `(#struct Point ((x u64) (y u64)))` (top level) | Declares a concrete struct; optional `#repr-c` selects C layout for layout queries. |
 | `#struct-literal` | `(#struct-literal Type ((field value)...))` | `(#struct-literal Point ((x 1u64) (y 2u64)))` (expression) | Constructs a struct by explicitly naming every field; no defaults are applied. |
 | `#sync` | `(#unsafe-impl #sync Type)` | `(#struct Handle ((raw (#ptr u8)))) (#unsafe-impl #sync Handle)` (top level) | Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally. |
+| `#syntax` | `(#syntax Name (syntax ...))` | `(#syntax StepAwait (u64 Step StepPending StepReady step-poll))` (top level) | Declares an immutable literal syntax bundle with a unique identifier; no values are evaluated and no types are inferred. |
 | `#syntax-collection` | `(#syntax-collection name)` | `(#syntax-collection handlers)` (top level) | Declares a deterministic compile-time syntax collection, frozen before generator expansion. |
 | `#syntax-contribute` | `(#syntax-contribute collection key syntax)` | `(#syntax-contribute handlers Read (Read u64))` (top level) | Adds literal syntax under a key; duplicate keys must contribute identical syntax. |
 | `#syntax-distribute` | `(#syntax-distribute Collection)` | `(@error-enum (#syntax-distribute Errors) Error)` (direct generator argument) | Replaces one explicit generator-call argument with the frozen, key-sorted syntax values of a collection. Unknown collections are errors. |
+| `#syntax-splice` | `(#syntax-splice Name)` | `(#await (#syntax-splice StepAwait) step)` (inside an async function) | Inserts a named bundle's elements into the surrounding list before ordinary checking and async lowering; unknown names and cycles are errors. |
 | `#target` | `(#cfg-is #target literal)` | `(#cfg-if (#cfg-is #target x86_64-unknown-linux-gnu) (#type Word u64))` (top level) | Automatically populated canonical target triple cfg key; overridable with `--cfg target=VALUE`. |
 | `#thread-task` | `(#thread-task TaskType worker [spawn-signature join-signature])` | `(#thread-task ReadTask read-value)` (generated declaration) | Declares a concrete task type and its named worker; generated builtins are compiler-managed. |
 | `#thread-task-join` | `(#thread-task-join FunctionName ((arg Type)...) ReturnType)` | `(#thread-task-join ReadTask-join ((task ReadTask)) ReadTask-join-result)` (generated signature) | Internal generated function signature for joining a task and retrieving its result. |

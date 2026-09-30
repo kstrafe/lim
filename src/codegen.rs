@@ -1014,6 +1014,7 @@ fn monomorphize_program<'a>(
         declaration_expressions: program.declaration_expressions.clone(),
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
+        syntax_bundle_uses: program.syntax_bundle_uses.clone(),
     }))
 }
 
@@ -1190,6 +1191,7 @@ fn prepare_checked_program(
         declaration_expressions: program.declaration_expressions.clone(),
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
+        syntax_bundle_uses: program.syntax_bundle_uses.clone(),
     };
     for item in &mut result.items {
         match item {
