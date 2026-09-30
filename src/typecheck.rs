@@ -9055,6 +9055,115 @@ mod typed_ownership_tests {
     use super::*;
 
     #[test]
+    fn computed_reference_targets_restore_known_referents() {
+        use crate::typed_body::{BindingId, PlaceRoot};
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        use crate::typed_place::Place;
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource) (#return value))
+          (#fn inspect ((reference (#ref-mut Resource))) ()
+            (#forget (#deref reference))
+            (#deref-set (#call identity (: value reference))
+              (#struct-literal Resource ((number 2u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let moves = flow.referent_consumptions(body, &types);
+        let returned = FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Return(_)))
+                .unwrap(),
+        );
+        let referent = Place::root(PlaceRoot::Parameter(BindingId(0)));
+        assert!(moves.unresolved_nodes().is_empty());
+        assert!(moves.before(returned, &referent).is_none());
+        assert!(!moves.definitely_consumed_before(returned, &referent));
+    }
+
+    #[test]
+    #[ignore = "reference reassignment is currently rejected before staging analysis"]
+    fn reference_write_uses_target_snapshot_before_rhs_rebinding() {
+        use crate::typed_body::{BindingId, PlaceRoot};
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        use crate::typed_place::Place;
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn inspect ((left (#ref-mut Resource)) (right (#ref-mut Resource))) ()
+            (#let-mut handle (#ref-mut Resource) left)
+            (#forget (#deref left)) (#forget (#deref right))
+            (#deref-set handle (#block
+              (#set handle right) (#struct-literal Resource ((number 2u64)))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let moves = flow.referent_consumptions(body, &types);
+        let returned = FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Return(_)))
+                .unwrap(),
+        );
+        let left = Place::root(PlaceRoot::Parameter(BindingId(0)));
+        let right = Place::root(PlaceRoot::Parameter(BindingId(1)));
+        assert!(moves.unresolved_nodes().is_empty());
+        assert!(moves.before(returned, &left).is_none());
+        assert!(moves.before(returned, &right).is_some());
+        assert!(moves.definitely_consumed_before(returned, &right));
+    }
+
+    #[test]
+    fn partial_and_dynamic_writes_invalidate_overlapping_consumption_proofs() {
+        use crate::typed_body::PlaceRoot;
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        for source in [
+            "(#struct Resource ((number u64))) (#linear Resource)
+             (#fn inspect () ()
+               (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
+               (#forget owner) (#set-field owner number 2u64) (#return ()))",
+            "(#struct Resource ((number u64))) (#linear Resource)
+             (#fn inspect () ()
+               (#let-mut owner (#array Resource 1)
+                 (#array (#struct-literal Resource ((number 1u64)))))
+               (#forget (#index owner 0u64)) (#let index u64 0u64)
+               (#set-index owner index (#struct-literal Resource ((number 2u64))))
+               (#return ()))",
+        ] {
+            let program = crate::parse_program(source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["inspect"];
+            let flow = &declarations.flows["inspect"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let moves = flow.referent_consumptions(body, &types);
+            let returned = FlowNodeId(
+                flow.nodes
+                    .iter()
+                    .position(|node| matches!(node.action, FlowAction::Return(_)))
+                    .unwrap(),
+            );
+            let place = flow
+                .nodes
+                .iter()
+                .find_map(|node| match &node.action {
+                    FlowAction::Release { place, .. }
+                        if matches!(place.root, PlaceRoot::Local(_)) =>
+                    {
+                        Some(place)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            assert!(moves.before(returned, place).is_some());
+            assert!(!moves.definitely_consumed_before(returned, place));
+        }
+    }
+
+    #[test]
     fn unresolved_computed_writes_are_marked_only_when_reachable() {
         for early_return in [false, true] {
             let before = if early_return { "(#return ())" } else { "" };

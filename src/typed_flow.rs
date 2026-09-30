@@ -1135,31 +1135,40 @@ impl FlowGraph {
         let mut consumed_at = vec![HashSet::new(); self.nodes.len()];
         let mut definite_consumed_at = origins.map(|_| vec![HashSet::new(); self.nodes.len()]);
         let mut unresolved = HashSet::new();
-        let write_targets = origins.map(|_| {
+        let write_targets = origins.map(|origins| {
             self.nodes
                 .iter()
                 .enumerate()
                 .map(|(index, node)| match &node.action {
                     FlowAction::Assign { place, .. } => vec![place.clone()],
-                    FlowAction::Write { place, value }
-                        if origins.is_some()
-                            && matches!(&body.nodes[value.0].kind,
+                    FlowAction::Write { value, .. } | FlowAction::Evaluate(value)
+                        if matches!(&body.nodes[value.0].kind,
                         NodeKind::Form { head, .. } if head == "deref-set") =>
                     {
-                        let (places, unknown) = resolve(FlowNodeId(index), place, *value);
-                        if unknown {
+                        let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                            unreachable!()
+                        };
+                        let loans =
+                            origins.value_before(body, self, FlowNodeId(index), children[1]);
+                        if loans.is_empty() || loans.iter().any(|loan| !loan.storage.is_empty()) {
                             unresolved.insert(FlowNodeId(index));
                             Vec::new()
                         } else {
+                            let mut places = Vec::new();
+                            for loan in loans {
+                                let mut place = loan.place;
+                                if matches!(place.root, PlaceRoot::Parameter(_)) {
+                                    if let Some(mut prefix) = loan.parameter_storage {
+                                        prefix.append(&mut place.segments);
+                                        place.segments = prefix;
+                                    }
+                                }
+                                if !places.contains(&place) {
+                                    places.push(place);
+                                }
+                            }
                             places
                         }
-                    }
-                    FlowAction::Evaluate(value)
-                        if matches!(&body.nodes[value.0].kind,
-                            NodeKind::Form { head, .. } if head == "deref-set") =>
-                    {
-                        unresolved.insert(FlowNodeId(index));
-                        Vec::new()
                     }
                     _ => Vec::new(),
                 })
@@ -1323,7 +1332,9 @@ impl FlowGraph {
             // any one target, so no overlapping definite-consumption proof
             // remains. May facts are killed only for a single known target.
             for place in targets_for(id) {
-                if !place.segments.contains(&Segment::DynamicIndex) {
+                if origins.is_some() {
+                    state.retain(|moved| !place.overlaps(moved));
+                } else if !place.segments.contains(&Segment::DynamicIndex) {
                     state.retain(|moved| !place_covers(place, moved));
                 }
             }
@@ -4146,6 +4157,13 @@ mod tests {
         let mut origins = flow.loan_origins(body);
         for held in origins.before[write].as_mut().unwrap() {
             held.clear();
+        }
+        for (index, node) in flow.nodes.iter().enumerate() {
+            if flow_action_has_value(&node.action, children[1]) {
+                for held in origins.before[index].as_mut().unwrap() {
+                    held.clear();
+                }
+            }
         }
         let types = LinearTypes::from_program(&program);
         let moves = flow.consumptions_with_origins(body, &types, Some(&origins));
