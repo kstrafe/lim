@@ -629,23 +629,14 @@ fn compile_with_links(
         .unwrap_or_else(|| Path::new("."))
         .join(".lim");
     let generator_cache_directory = generated_directory.join("cache");
-    if let Err(diagnostic) = lim::write_generated_sources_diagnostic(
-        &input,
-        input_file,
-        &generated_directory,
-        config,
-        &generator_cache_directory,
-    ) {
-        emit_diagnostic(&diagnostic, &input, input_path);
-        return ExitCode::FAILURE;
-    }
-    let assembly = match lim::compile_source_to_assembly_for_output(
+    let assembly = match lim::compile_source_with_generated_sources(
         &input,
         input_file,
         config,
         &generator_cache_directory,
         target,
         Some(output_path),
+        &generated_directory,
     ) {
         Ok(assembly) => assembly,
         Err(diagnostic) => {

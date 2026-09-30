@@ -2396,16 +2396,16 @@ fn generate_function(
         expression_types,
         locals_by_binding,
         locals,
-        structs: structs.clone(),
-        enums: enums.clone(),
-        repr_c_types: repr_c_types.clone(),
-        globals: globals.clone(),
-        global_types: global_types.clone(),
-        aliases: aliases.clone(),
+        structs,
+        enums,
+        repr_c_types,
+        globals,
+        global_types,
+        aliases,
         local_types,
         return_type,
-        functions: functions.clone(),
-        function_abis_by_id: function_abis_by_id.clone(),
+        functions,
+        function_abis_by_id,
         function_name: function.name.clone(),
         labels: 0,
         stack_depth: 0,
@@ -5193,20 +5193,20 @@ fn normalize_global_integer(value: i128, ty: &Type) -> i128 {
     }
 }
 
-struct FunctionContext {
+struct FunctionContext<'a> {
     expression_types: crate::typed_body::EmissionTypes,
     locals_by_binding: HashMap<crate::typed_body::BindingId, Storage>,
     locals: HashMap<String, Storage>,
-    structs: HashMap<String, Vec<Field>>,
-    enums: HashMap<String, Vec<EnumVariant>>,
-    repr_c_types: HashSet<String>,
-    globals: HashMap<String, GlobalValue>,
-    global_types: HashMap<String, Type>,
-    aliases: HashMap<String, Type>,
+    structs: &'a HashMap<String, Vec<Field>>,
+    enums: &'a HashMap<String, Vec<EnumVariant>>,
+    repr_c_types: &'a HashSet<String>,
+    globals: &'a HashMap<String, GlobalValue>,
+    global_types: &'a HashMap<String, Type>,
+    aliases: &'a HashMap<String, Type>,
     local_types: HashMap<String, Type>,
     return_type: Type,
-    functions: HashMap<String, FunctionAbi>,
-    function_abis_by_id: HashMap<crate::typed_ir::FunctionId, FunctionAbi>,
+    functions: &'a HashMap<String, FunctionAbi>,
+    function_abis_by_id: &'a HashMap<crate::typed_ir::FunctionId, FunctionAbi>,
     function_name: String,
     labels: usize,
     stack_depth: usize,
@@ -5818,7 +5818,7 @@ fn checked_numeric_operands_require_retained_opcode_types() {
     checked_numeric_operand_types(&items, Some(&logical), &emission, &aliases).unwrap();
 }
 
-impl FunctionContext {
+impl FunctionContext<'_> {
     fn local_binding_id(&self, name: &str) -> Option<crate::typed_body::BindingId> {
         let mut matches = self
             .expression_types

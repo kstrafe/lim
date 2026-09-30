@@ -1890,8 +1890,49 @@ pub fn compile_source_to_assembly_for_output(
     target: TargetDescription,
     output: Option<&Path>,
 ) -> Result<String, Diagnostic> {
+    compile_source_with_artifacts(
+        source,
+        source_path,
+        config,
+        cache_directory,
+        target,
+        output,
+        None,
+    )
+}
+
+/// Compile and materialize inspectable generators, sharing async capture analysis.
+pub fn compile_source_with_generated_sources(
+    source: &str,
+    source_path: &Path,
+    config: &CompileConfig,
+    cache_directory: &Path,
+    target: TargetDescription,
+    output: Option<&Path>,
+    generated_directory: &Path,
+) -> Result<String, Diagnostic> {
+    compile_source_with_artifacts(
+        source,
+        source_path,
+        config,
+        cache_directory,
+        target,
+        output,
+        Some(generated_directory),
+    )
+}
+
+fn compile_source_with_artifacts(
+    source: &str,
+    source_path: &Path,
+    config: &CompileConfig,
+    cache_directory: &Path,
+    target: TargetDescription,
+    output: Option<&Path>,
+    generated_directory: Option<&Path>,
+) -> Result<String, Diagnostic> {
     // Import loading lexes and parses the root source, preserving its spans.
-    let program = parse_program_in_directory(
+    let (program, capture_plans) = parse_program_in_directory_with_capture_plans(
         source,
         source_path.parent().unwrap_or(Path::new(".")),
         Some(source_path),
@@ -1899,6 +1940,18 @@ pub fn compile_source_to_assembly_for_output(
         Some(cache_directory),
     )
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    if let Some(directory) = generated_directory {
+        write_generated_sources_with_capture_plans(
+            source,
+            source_path.parent().unwrap_or(Path::new(".")),
+            Some(source_path),
+            directory,
+            config,
+            Some(cache_directory),
+            Some(&capture_plans),
+        )
+        .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    }
     let checked = typecheck::CheckedProgram::validate_with_span(&program).map_err(
         |(message, code, span, labels)| analysis_diagnostic(message, code, span, labels, &program),
     )?;
@@ -2186,7 +2239,22 @@ fn async_generated_source(
 fn async_type_environment(expressions: &[SpannedExpr]) -> async_fn::AsyncTypeEnvironment {
     let mut environment = async_fn::AsyncTypeEnvironment::default();
     for expression in expressions {
-        let Ok(item) = parse_item(&normalize_keywords(expression.expr.clone())) else {
+        // Async lowering needs function signatures, not a second parse of
+        // every imported function body. Ordinary parsing validates the bodies.
+        let signature = match &expression.expr {
+            Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#fn" | "#unsafe-fn")) => {
+                Expr::List(items.iter().take(4).cloned().collect())
+            }
+            other => other.clone(),
+        };
+        let normalized = normalize_keywords(signature);
+        let parsed = match &normalized {
+            Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "fn" | "unsafe-fn")) => {
+                parse_function_parts(items, false, false).map(Item::Function)
+            }
+            _ => parse_item(&normalized),
+        };
+        let Ok(item) = parsed else {
             continue;
         };
         match item {
@@ -2260,6 +2328,11 @@ fn async_copy_type_names_from_items(items: &[Item]) -> HashSet<String> {
 fn async_copy_type_names(expressions: &[SpannedExpr]) -> HashSet<String> {
     let items = expressions
         .iter()
+        .filter(|expression| {
+            matches!(&expression.expr,
+            Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head))
+                if matches!(head.as_str(), "#type" | "#struct" | "#enum" | "#linear")))
+        })
         .filter_map(|expression| parse_item(&normalize_keywords(expression.expr.clone())).ok())
         .collect::<Vec<_>>();
     async_copy_type_names_from_items(&items)
@@ -2538,8 +2611,10 @@ fn parse_program_in_directory_with_async_captures(
     let mut declaration_expressions = HashMap::new();
     let mut declaration_occurrences: HashMap<String, Vec<SpannedExpr>> = HashMap::new();
     let mut generated_source_invocations = HashMap::new();
+    let needs_workers = expressions.iter().any(is_thread_spawn_invocation);
     let worker_functions = expressions
         .iter()
+        .filter(|_| needs_workers)
         .filter_map(|expression| {
             let parsed = parse_item(&normalize_keywords(expression.expr.clone())).ok()?;
             match parsed {
@@ -4635,9 +4710,11 @@ fn requires_explicit_operator_type(name: &str) -> bool {
 
 pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
     match expression {
-        Expr::Symbol(name) => {
-            Expr::Symbol(name.strip_prefix('#').map_or(name.clone(), str::to_owned))
-        }
+        Expr::Symbol(name) => Expr::Symbol(if let Some(keyword) = name.strip_prefix('#') {
+            keyword.to_owned()
+        } else {
+            name
+        }),
         Expr::List(mut items) => {
             // Keep the source distinction between the array type `#array` and
             // its value constructor `#array-of`, while sharing the established
@@ -5396,6 +5473,26 @@ fn write_generated_sources_in_directory(
     config: &CompileConfig,
     cache_directory: Option<&Path>,
 ) -> Result<(), SourceError> {
+    write_generated_sources_with_capture_plans(
+        source,
+        base,
+        source_path,
+        directory,
+        config,
+        cache_directory,
+        None,
+    )
+}
+
+fn write_generated_sources_with_capture_plans(
+    source: &str,
+    base: &Path,
+    source_path: Option<&Path>,
+    directory: &Path,
+    config: &CompileConfig,
+    cache_directory: Option<&Path>,
+    prepared_plans: Option<&AsyncCapturePlans>,
+) -> Result<(), SourceError> {
     let (expressions, source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&expressions, config);
     let (expanded, user_generated) = generator::expand_with_generated_cached_with_context(
@@ -5413,7 +5510,9 @@ fn write_generated_sources_in_directory(
         matches!(items.first(), Some(Expr::At))
             && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "async-fn" | "async-fn-pinned"))
     });
-    let async_plans = if has_async_invocation {
+    let async_plans = if let Some(plans) = prepared_plans {
+        plans.clone()
+    } else if has_async_invocation {
         parse_program_in_directory_with_capture_plans(
             source,
             base,
@@ -5425,8 +5524,10 @@ fn write_generated_sources_in_directory(
     } else {
         AsyncCapturePlans::new()
     };
+    let needs_workers = expanded.iter().any(is_thread_spawn_invocation);
     let worker_functions = expanded
         .iter()
+        .filter(|_| needs_workers)
         .filter_map(|expression| {
             let parsed = parse_item(&normalize_keywords(expression.expr.clone())).ok()?;
             match parsed {
@@ -5443,6 +5544,10 @@ fn write_generated_sources_in_directory(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| directory.join("cache"));
     for expression in expanded {
+        if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
+        {
+            continue;
+        }
         let capture_key = (
             expression.span.source_id,
             expression.span.start,
@@ -5518,7 +5623,43 @@ fn generator_dependency_context(expressions: &[SpannedExpr], config: &CompileCon
         .map(|(key, value)| format!("{key}={value}"))
         .collect::<Vec<_>>();
     values.sort();
-    format!("cfg={values:?}\nloaded-forms={expressions:?}")
+    // Hash syntax once rather than duplicating a multi-megabyte debug dump in
+    // every invocation key. Spans remain part of the dependency identity: cached
+    // diagnostics must not retain locations from a differently laid-out source.
+    let mut identity = Vec::new();
+    for expression in expressions {
+        let syntax = expression_source(&expression.expr).expect("loaded syntax is printable");
+        identity.extend_from_slice(&(syntax.len() as u64).to_le_bytes());
+        identity.extend_from_slice(syntax.as_bytes());
+        append_dependency_spans(expression, &mut identity);
+    }
+    format!(
+        "dependency-v2\ncfg={values:?}\nloaded-hash={:032x}",
+        generator::stable_hash(&identity)
+    )
+}
+
+fn is_thread_spawn_invocation(expression: &SpannedExpr) -> bool {
+    matches!(&expression.expr, Expr::List(items)
+        if matches!(items.first(), Some(Expr::At))
+        && matches!(items.get(1), Some(Expr::Symbol(kind)) if kind == "thread-spawn"))
+}
+
+fn append_dependency_spans(expression: &SpannedExpr, identity: &mut Vec<u8>) {
+    let span = expression.span;
+    for value in [
+        span.start,
+        span.end,
+        span.line,
+        span.column,
+        span.source_id as usize,
+        expression.children.len(),
+    ] {
+        identity.extend_from_slice(&(value as u64).to_le_bytes());
+    }
+    for child in &expression.children {
+        append_dependency_spans(child, identity);
+    }
 }
 
 fn materialize_builtin_generated_source(
@@ -7490,6 +7631,14 @@ fn enum_discriminant(expression: &Expr) -> Option<u64> {
 }
 
 pub(crate) fn parse_function(items: &[Expr], external: bool) -> Result<Function, String> {
+    parse_function_parts(items, external, true)
+}
+
+fn parse_function_parts(
+    items: &[Expr],
+    external: bool,
+    parse_body: bool,
+) -> Result<Function, String> {
     let name_index = if external { 2 } else { 1 };
     if external && !matches!(items.get(1), Some(Expr::Symbol(name)) if name == "abi-c") {
         return Err("extern-fn requires an explicit #abi-c calling convention".into());
@@ -7546,7 +7695,7 @@ pub(crate) fn parse_function(items: &[Expr], external: bool) -> Result<Function,
         if !type_parameters.is_empty() || items.len() != body_index {
             return Err("extern-fn requires a non-generic signature without a body".into());
         }
-    } else {
+    } else if parse_body {
         for expression in &items[body_index..] {
             body.push(replace_generic_statement(
                 &parse_statement(expression)?,
@@ -7554,7 +7703,7 @@ pub(crate) fn parse_function(items: &[Expr], external: bool) -> Result<Function,
             ));
         }
     }
-    if !external && !matches!(body.last(), Some(Statement::Return(Some(_)))) {
+    if parse_body && !external && !matches!(body.last(), Some(Statement::Return(Some(_)))) {
         return Err(
             "functions require an explicit (#return value) as their final statement".into(),
         );
@@ -11636,6 +11785,62 @@ mod tests {
             let error = parse_program(source).unwrap_err();
             assert!(error.contains(message), "{source}: {error}");
         }
+    }
+
+    #[test]
+    fn dependency_digest_is_compact_and_tracks_syntax_spans_and_cfg() {
+        let source = "(#fn main () u64 (#return 42u64))";
+        let expressions = parse(source).unwrap();
+        let config = CompileConfig::default();
+        let key = generator_dependency_context(&expressions, &config);
+        assert!(key.len() < 512);
+        assert_eq!(
+            key,
+            generator_dependency_context(&parse(source).unwrap(), &config)
+        );
+        assert_ne!(
+            key,
+            generator_dependency_context(&parse(&format!("\n{source}")).unwrap(), &config)
+        );
+        assert_ne!(
+            key,
+            generator_dependency_context(&parse(&source.replace("42", "43")).unwrap(), &config)
+        );
+        let mut changed = config.clone();
+        changed.set("feature", "enabled");
+        assert_ne!(key, generator_dependency_context(&expressions, &changed));
+    }
+
+    #[test]
+    fn combined_compilation_materializes_inspectable_source() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-combined-compile-{}", std::process::id()));
+        let cache = directory.join("cache");
+        let path = directory.join("input.lim");
+        let source = "(@optional (: type u64 : name Maybe)) (#fn main () u64 (#return 42u64))";
+        let config = CompileConfig::default();
+        let expected = compile_source_to_assembly(
+            source,
+            &path,
+            &config,
+            &cache,
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+        let actual = compile_source_with_generated_sources(
+            source,
+            &path,
+            &config,
+            &cache,
+            TargetDescription::X86_64_SYSTEM_V,
+            None,
+            &directory,
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+        let (_, generated) = read_cached_generated_source(&directory, "Maybe-construct");
+        assert!(generated.contains("Maybe-construct"));
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

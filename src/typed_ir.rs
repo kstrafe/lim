@@ -313,16 +313,8 @@ fn source_child(source: Option<&crate::SpannedExpr>, index: usize) -> Option<&cr
 fn collect_simple_local_binding_spans(
     function: &crate::Function,
     program: &crate::Program,
-    expression_spans: &HashMap<ExpressionId, Span>,
-    expression_ids: &HashMap<usize, ExpressionId>,
+    expression_spans_by_address: &HashMap<usize, Span>,
 ) -> Vec<Option<Span>> {
-    // Binding-name extraction still walks the legacy AST. Materialize an
-    // address adapter only for this traversal; retained expression spans are
-    // keyed by stable IDs.
-    let expression_spans_by_address = expression_ids
-        .iter()
-        .filter_map(|(address, id)| expression_spans.get(id).map(|span| (*address, *span)))
-        .collect::<HashMap<_, _>>();
     let mut output = Vec::new();
     for (index, statement) in function.body.iter().enumerate() {
         let source = program
@@ -331,7 +323,7 @@ fn collect_simple_local_binding_spans(
         collect_statement_binding_spans(
             statement,
             source,
-            &expression_spans_by_address,
+            expression_spans_by_address,
             &mut output,
         );
     }
@@ -670,6 +662,12 @@ impl Declarations {
         statement_spans: &HashMap<StatementId, Span>,
         statement_ids: &HashMap<usize, StatementId>,
     ) -> Result<(), String> {
+        // This whole-program adapter is identical for every function. Building
+        // it per body made lowering quadratic in the imported program size.
+        let expression_spans_by_address = expression_ids
+            .iter()
+            .filter_map(|(address, id)| expression_spans.get(id).map(|span| (*address, *span)))
+            .collect::<HashMap<_, _>>();
         self.bodies = program
             .items
             .iter()
@@ -696,8 +694,7 @@ impl Declarations {
                     let binding_spans = collect_simple_local_binding_spans(
                         function,
                         program,
-                        expression_spans,
-                        expression_ids,
+                        &expression_spans_by_address,
                     );
                     Some((
                         function.name.clone(),
@@ -835,7 +832,24 @@ impl Declarations {
 
         let mut summaries = HashMap::new();
         for name in order {
-            self.bodies.get_mut(&name).unwrap().call_return_origins = Arc::new(summaries.clone());
+            // Loan transfer only consults direct callees. Copying every summary
+            // accumulated so far for every body was another quadratic pass.
+            let needed = self.bodies[&name]
+                .nodes
+                .iter()
+                .filter_map(|node| match &node.kind {
+                    crate::typed_body::NodeKind::Form {
+                        callee: Some(callee),
+                        ..
+                    } => summaries.get(callee).map(
+                        |summary: &Vec<crate::typed_body::ParameterLoanSummary>| {
+                            (*callee, summary.clone())
+                        },
+                    ),
+                    _ => None,
+                })
+                .collect();
+            self.bodies.get_mut(&name).unwrap().call_return_origins = Arc::new(needed);
             let body = &self.bodies[&name];
             let flow = &self.flows[&name];
             let origins = flow.loan_origins(body);

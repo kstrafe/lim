@@ -321,21 +321,21 @@ struct Context {
         HashMap<String, HashMap<Vec<usize>, (HashSet<String>, Vec<(String, String)>)>>,
     reference_parents: HashMap<String, String>,
     allow_local_reference: bool,
-    reference_types: HashSet<String>,
+    reference_types: Arc<HashSet<String>>,
     reference_variants: Arc<HashSet<String>>,
-    reference_functions: HashSet<String>,
-    function_names: HashSet<String>,
+    reference_functions: Arc<HashSet<String>>,
+    function_names: Arc<HashSet<String>>,
     reference_parameters: Arc<HashMap<String, Vec<bool>>>,
     typed_reference_return_parameters:
         Arc<HashMap<String, Vec<crate::typed_body::ParameterLoanSummary>>>,
-    thread_spawn_functions: HashMap<String, Vec<crate::Type>>,
-    thread_join_functions: HashSet<String>,
+    thread_spawn_functions: Arc<HashMap<String, Vec<crate::Type>>>,
+    thread_join_functions: Arc<HashSet<String>>,
     thread_task_loans: HashMap<String, Vec<(String, LoanKind)>>,
     thread_exclusive_owners: HashMap<String, usize>,
     return_contains_references: bool,
     typed_return_escapes: bool,
     typed_scope_escapes: bool,
-    mutable_reference_types: HashSet<String>,
+    mutable_reference_types: Arc<HashSet<String>>,
     program_items: Arc<Vec<Item>>,
     typed_reborrow_parents: HashMap<usize, String>,
 }
@@ -679,7 +679,39 @@ fn check_program_impl(
         .into_iter()
         .chain(thread_spawn_functions.keys().cloned())
         .chain(thread_join_functions.iter().cloned())
-        .collect();
+        .collect::<HashSet<_>>();
+    // Branch contexts need shared ownership, not a fresh copy of every
+    // imported function body for every function being checked.
+    let program_items = Arc::new(program.items.clone());
+    let reference_types = Arc::new(reference_types);
+    let mutable_reference_types = Arc::new(mutable_reference_types);
+    let reference_functions = Arc::new(reference_functions);
+    let function_names = Arc::new(function_names);
+    let thread_spawn_functions = Arc::new(thread_spawn_functions);
+    let thread_join_functions = Arc::new(thread_join_functions);
+    // Typed bodies share the finalized interprocedural summary table. Adapt
+    // its IDs to legacy names once, not once per checked function.
+    let typed_reference_return_parameters = declarations.map(|declarations| {
+        let summaries = declarations
+            .bodies
+            .values()
+            .next()
+            .map(|body| &body.call_return_origins);
+        Arc::new(
+            program
+                .items
+                .iter()
+                .filter_map(|item| {
+                    let Item::Function(callee) = item else {
+                        return None;
+                    };
+                    let id = declarations.function_id(&callee.name)?;
+                    let origins = summaries?.get(&id)?;
+                    Some((callee.name.clone(), origins.clone()))
+                })
+                .collect::<HashMap<_, _>>(),
+        )
+    });
     for item in &program.items {
         if let Item::Function(function) = item {
             if !function.external {
@@ -703,6 +735,7 @@ fn check_program_impl(
                 check_function(
                     function,
                     program,
+                    &program_items,
                     &globals,
                     &reference_types,
                     &reference_variants,
@@ -727,24 +760,7 @@ fn check_program_impl(
                         )),
                     declarations.is_some(),
                     typed_reborrow_parents,
-                    declarations.and_then(|declarations| {
-                        declarations.bodies.get(&function.name).map(|body| {
-                            program
-                                .items
-                                .iter()
-                                .filter_map(|item| match item {
-                                    Item::Function(callee) => {
-                                        declarations.function_id(&callee.name).and_then(|id| {
-                                            body.call_return_origins.get(&id).map(|origins| {
-                                                (callee.name.clone(), origins.clone())
-                                            })
-                                        })
-                                    }
-                                    _ => None,
-                                })
-                                .collect::<HashMap<_, _>>()
-                        })
-                    }),
+                    typed_reference_return_parameters.clone(),
                 )?;
             }
         }
@@ -798,22 +814,23 @@ fn typed_aggregate_return_is_complete(
 fn check_function(
     function: &Function,
     program: &Program,
+    program_items: &Arc<Vec<Item>>,
     globals: &std::collections::HashSet<String>,
-    reference_types: &HashSet<String>,
+    reference_types: &Arc<HashSet<String>>,
     reference_variants: &Arc<HashSet<String>>,
-    mutable_reference_types: &HashSet<String>,
-    reference_functions: &HashSet<String>,
-    function_names: &HashSet<String>,
+    mutable_reference_types: &Arc<HashSet<String>>,
+    reference_functions: &Arc<HashSet<String>>,
+    function_names: &Arc<HashSet<String>>,
     reference_parameters: &Arc<HashMap<String, Vec<bool>>>,
-    thread_spawn_functions: &HashMap<String, Vec<crate::Type>>,
-    thread_join_functions: &HashSet<String>,
+    thread_spawn_functions: &Arc<HashMap<String, Vec<crate::Type>>>,
+    thread_join_functions: &Arc<HashSet<String>>,
     statement_spans: &HashMap<(String, usize), crate::Span>,
     _statement_expressions: &HashMap<(String, usize), crate::SpannedExpr>,
     typed_return_escapes: bool,
     typed_scope_escapes: bool,
     typed_reborrow_parents: HashMap<usize, String>,
     typed_reference_return_parameters: Option<
-        HashMap<String, Vec<crate::typed_body::ParameterLoanSummary>>,
+        Arc<HashMap<String, Vec<crate::typed_body::ParameterLoanSummary>>>,
     >,
 ) -> Result<(), BorrowDiagnostic> {
     let mut returnable = globals.clone();
@@ -878,9 +895,7 @@ fn check_function(
         reference_functions: reference_functions.clone(),
         function_names: function_names.clone(),
         reference_parameters: reference_parameters.clone(),
-        typed_reference_return_parameters: Arc::new(
-            typed_reference_return_parameters.unwrap_or_default(),
-        ),
+        typed_reference_return_parameters: typed_reference_return_parameters.unwrap_or_default(),
         thread_spawn_functions: thread_spawn_functions.clone(),
         thread_join_functions: thread_join_functions.clone(),
         thread_task_loans: HashMap::new(),
@@ -888,7 +903,7 @@ fn check_function(
         return_contains_references: contains_reference_type(&function.return_type, reference_types),
         typed_return_escapes,
         typed_scope_escapes,
-        program_items: Arc::new(program.items.clone()),
+        program_items: Arc::clone(program_items),
         typed_reborrow_parents,
     };
     for parameter in &function.parameters {
