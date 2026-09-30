@@ -4307,6 +4307,14 @@ commit, documentation, and focused regression coverage.
   cancellation, linear consumption, and exact escaped-local diagnostics.
   Arbitrary async body lowering remains a separate open requirement.
 
+- [x] **PERF-10: Move source trees into diagnostic retention.**
+  Retain each original top-level form by ownership transfer rather than a
+  recursive clone; normalization continues on its separate invocation tree.
+  Preserve exact spans and run the full suite. Eighty alternating samples
+  measured async compilation at 30.21 -> 29.10 ms (3.7%); a sequential repeat
+  measured 28.91 -> 28.58 ms (1.1%). Other workloads showed no reliable gain.
+  All compared native binaries were byte-identical.
+
 - [x] **PERF-09: Borrow async bodies that need no continuation rewrite.**
   Avoid two recursive AST copies on ordinary async bodies; move rewritten
   lists into their owned buffer without a second deep copy. Preserve native

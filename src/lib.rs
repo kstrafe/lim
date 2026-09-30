@@ -2899,7 +2899,6 @@ fn parse_prepared_program_with_async_captures(
             &mut statement_spans,
             &mut statement_expressions,
         );
-        let source_expression = expression.clone();
         let normalized_invocation = normalize_builtin_generator_invocation(&expression.expr)
             .map_err(|error| {
                 attach_span_to_source_error_kind(
@@ -2909,6 +2908,9 @@ fn parse_prepared_program_with_async_captures(
                     "generator error: ",
                 )
             })?;
+        // Keep the original source tree for diagnostics without recursively
+        // copying it. Normalization below works on its own invocation tree.
+        let source_expression = expression;
         let mut expression = normalize_keywords(normalized_invocation.clone());
         normalize_match_cases_expr(&mut expression);
         let mut generated_declarations = HashMap::new();

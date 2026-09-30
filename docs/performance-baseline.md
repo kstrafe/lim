@@ -118,6 +118,29 @@ conditional example varied from 7 to 67 ms. They do not establish a reliable
 speedup. This change eliminates allocations; it does not claim a measurable
 whole-build improvement.
 
+## Move original source trees into diagnostics (2026-09-30)
+
+The frontend now transfers ownership of each original top-level source form
+into diagnostic retention instead of deep-copying it. Normalization still
+uses its separate tree. Exact diagnostic spans and the full suite pass.
+
+Eight blocks of ten warm builds per compiler, with block order alternating
+and two untimed warmups after every compiler switch, gave these results:
+
+| Warm median (ms), 80 samples | Before | Ownership transfer |
+| --- | ---: | ---: |
+| `async_fn.lim` | 30.21 | 29.10 |
+| `vec_allocator.lim` | 21.34 | 21.22 |
+| `large_reference_projections.lim` | 7.07 | 8.78 |
+
+An 80-sample sequential async repeat measured 28.91 -> 28.58 ms, a 1.1%
+reduction versus 3.7% in the alternating run. The vector workload showed
+no meaningful change. A 100-sample projection repeat reversed the apparent
+regression (10.64 -> 9.73 ms); this small workload is too unstable for a
+speedup or regression claim. Sequential repeats had outliers exceeding two
+seconds, so these are modest observational improvements, not timing gates.
+All compared executable bytes were identical.
+
 ## Historical external-tool production sample (2026-09-25)
 
 Five iterations, Nix release profile, Intel i7-13700KF, Linux 7.2.6 x86-64,
