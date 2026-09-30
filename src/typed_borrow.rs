@@ -50,6 +50,7 @@ pub(crate) fn check_live_direct_loans_with_types(
         .nodes
         .iter()
         .any(|node| matches!(node.action, FlowAction::Borrow { .. }))
+        && body.parameter_loan_slots.iter().all(Vec::is_empty)
     {
         return Ok(());
     }
@@ -1597,6 +1598,54 @@ mod tests {
             origins.projected_referents(read.0, parent, &read.1.segments),
             vec![Place::root(PlaceRoot::Local(value))]
         );
+    }
+
+    #[test]
+    fn parameter_loans_are_checked_without_local_borrow_events() {
+        let source = "(#struct Point ((x u64) (y u64)))
+          (#fn field ((parent (#ref-mut Point))) (#ref u64)
+            (#return (#borrow (#get parent x))))
+          (#fn inspect ((parent (#ref-mut Point))) ()
+            (#let child (#ref u64) (#call field (: parent parent)))
+            (#forget child)
+            (#deref-set parent (#struct-literal Point ((x 3u64) (y 4u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["inspect"];
+        let mut flow = FlowGraph::lower(body).unwrap();
+        assert!(!flow
+            .nodes
+            .iter()
+            .any(|node| matches!(node.action, FlowAction::Borrow { .. })));
+        check_live_direct_loans(body, &flow).unwrap();
+        let release = flow
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Release { .. }))
+            .unwrap();
+        let action = flow
+            .nodes
+            .iter()
+            .find(|node| matches!(node.action, FlowAction::Write { .. }))
+            .unwrap()
+            .action
+            .clone();
+        let write = FlowNodeId(flow.nodes.len());
+        for node in &mut flow.nodes {
+            for successor in &mut node.successors {
+                if *successor == FlowNodeId(release) {
+                    *successor = write;
+                }
+            }
+        }
+        flow.nodes.push(FlowNode {
+            action,
+            successors: vec![FlowNodeId(release)],
+            span: None,
+        });
+        let error = check_live_direct_loans(body, &flow).unwrap_err();
+        assert!(error.message.contains("cannot mutate"), "{}", error.message);
     }
 
     #[test]
