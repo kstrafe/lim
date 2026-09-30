@@ -1578,6 +1578,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   at suspension points. Define source syntax, borrowing across suspension, and
   immovable storage before accepting self-referential frames. Preserve exact
   source diagnostics and explicit cleanup for each suspended state.
+- [x] **ASYNC-01-TYPED-EXITS: Stabilize loan snapshots and initialized obligations.**
+  Model branch-result evaluation snapshots as dependencies of typed loan
+  transfers, including results updated by loops. Revisit consumers after
+  snapshots change even when lexical cleanup kills outgoing local loans.
+  Index evaluation events instead of scanning the CFG for each consumer.
+  Restrict scope-exit linear obligations to initialized bindings. Test safe
+  parameter returns, local-reference escape, and early return before a later
+  linear declaration without allowing missing explicit consumption.
 - [x] **ASYNC-01-COMPUTED-STEP: Compose computed steps with awaited conditions.**
   Sequence computed `#for` step expressions through iteration body lowering.
   Return terminal branch status and updated captures together, preserving

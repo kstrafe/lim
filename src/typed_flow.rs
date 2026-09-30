@@ -607,6 +607,84 @@ impl FlowGraph {
     /// Forward may-analysis of direct reference origins held by local
     /// bindings. The transfer uses checked value IDs rather than syntax names.
     pub fn loan_origins(&self, body: &Body) -> FlowLoanOrigins {
+        // Branch results are read at their evaluation events, before lexical
+        // cleanup kills their local bindings. Those snapshots are additional
+        // dataflow dependencies: a changed snapshot must wake its consumers
+        // even when the scope-exit state flowing to them did not change.
+        let mut snapshot_users = vec![Vec::new(); self.nodes.len()];
+        let mut events_by_value = vec![Vec::new(); body.nodes.len()];
+        let mut loop_values = vec![Vec::new(); body.nodes.len()];
+        for (index, event) in self.nodes.iter().enumerate() {
+            let value = match event.action {
+                FlowAction::Evaluate(value)
+                | FlowAction::Read { value, .. }
+                | FlowAction::Borrow { value, .. }
+                | FlowAction::Clone { value, .. }
+                | FlowAction::Release { value, .. }
+                | FlowAction::Break {
+                    value: Some(value), ..
+                } => value,
+                _ => continue,
+            };
+            events_by_value[value.0].push(index);
+            if let FlowAction::Break {
+                value: Some(value),
+                result: Some(result),
+            } = event.action
+            {
+                loop_values[result.0].push(value);
+            }
+        }
+        for (consumer_index, consumer) in self.nodes.iter().enumerate() {
+            let value = match consumer.action {
+                FlowAction::Bind { value, .. }
+                | FlowAction::Assign { value, .. }
+                | FlowAction::Pattern { value, .. }
+                | FlowAction::Write { value, .. } => value,
+                _ => continue,
+            };
+            let mut dependencies = HashSet::new();
+            let mut pending_values = vec![value];
+            while let Some(value) = pending_values.pop() {
+                if !dependencies.insert(value) {
+                    continue;
+                }
+                match &body.nodes[value.0].kind {
+                    NodeKind::Form { children, .. } => {
+                        pending_values.extend(children.iter().copied())
+                    }
+                    NodeKind::If {
+                        then_value,
+                        else_value,
+                        ..
+                    } => {
+                        pending_values.push(*then_value);
+                        pending_values.extend(*else_value);
+                    }
+                    NodeKind::Match { arms, .. } => pending_values.extend(arms.iter().copied()),
+                    NodeKind::MatchArm { values, .. } => {
+                        pending_values.extend(values.last().copied())
+                    }
+                    NodeKind::Block(instructions) => {
+                        if let Some(Control::Evaluate(value)) =
+                            instructions.last().map(|instruction| &instruction.control)
+                        {
+                            pending_values.push(*value);
+                        }
+                    }
+                    NodeKind::Loop(_) => {
+                        pending_values.extend(loop_values[value.0].iter().copied())
+                    }
+                    NodeKind::Labeled(_, value) => pending_values.push(*value),
+                    _ => {}
+                }
+            }
+            for value in dependencies {
+                for event_index in &events_by_value[value.0] {
+                    snapshot_users[*event_index].push(FlowNodeId(consumer_index));
+                }
+            }
+        }
         let mut empty = vec![Vec::new(); body.bindings.len()];
         // A reference parameter is an externally supplied loan root. Its
         // referent is intentionally represented by the parameter's stable
@@ -717,9 +795,17 @@ impl FlowGraph {
                         true
                     }
                 };
-                if changed && !queued[successor.0] {
-                    pending.push_back(*successor);
-                    queued[successor.0] = true;
+                if changed {
+                    if !queued[successor.0] {
+                        pending.push_back(*successor);
+                        queued[successor.0] = true;
+                    }
+                    for consumer in &snapshot_users[successor.0] {
+                        if before[consumer.0].is_some() && !queued[consumer.0] {
+                            pending.push_back(*consumer);
+                            queued[consumer.0] = true;
+                        }
+                    }
                 }
             }
         }
@@ -1185,7 +1271,15 @@ impl FlowGraph {
                     .flatten()
                     .copied()
                     .collect::<HashSet<_>>(),
-                FlowAction::ScopeExit(bindings) => bindings.iter().copied().collect(),
+                FlowAction::ScopeExit(bindings) => bindings
+                    .iter()
+                    .copied()
+                    .filter(|binding| {
+                        active[index]
+                            .as_ref()
+                            .is_some_and(|active| active.contains(binding))
+                    })
+                    .collect(),
                 _ => continue,
             };
             for (binding, name, place) in &obligations {
@@ -5745,6 +5839,60 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn loop_branch_snapshots_retain_returned_parameter_loans() {
+        let source = "(#enum State ((Working (#ref u64)) (Finished (#ref u64))))
+          (#fn finish ((source (#ref u64))) (#ref u64)
+            (#let-mut state State (Working source))
+            (#let-mut stopped bool false)
+            (#while (#bool.== stopped false)
+              (#set state (#match state
+                (#case (Working held) (#block (#set stopped true) (Finished held)))
+                (#case (Finished unused) (#unreachable)))))
+            (#return (#match state
+              (#case (Finished result) result)
+              (#case (Working unused) (#unreachable)))))
+          (#fn main () (#ref u64)
+            (#let owner u64 42u64)
+            (#return (#call finish (: source (#borrow owner)))))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .unwrap();
+        assert!(
+            error.0.contains("reference") && error.0.contains("owner"),
+            "{error:?}"
+        );
+        assert!(error.2.is_some(), "{error:?}");
+        let safe = source
+            .replace(
+                "(#fn main () (#ref u64)\n            (#let owner u64 42u64)",
+                "(#fn main ((owner (#ref u64))) (#ref u64)",
+            )
+            .replace("(: source (#borrow owner))", "(: source owner)");
+        crate::CheckedProgram::validate(&crate::parse_program(&safe).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn early_exit_does_not_require_consuming_uninitialized_later_locals() {
+        let source = "(#struct Token ((value u64))) (#linear Token)
+          (#fn main ((early bool)) u64
+            (#if early (#block (#return 5u64)) ())
+            (#let token Token (#struct-literal Token ((value 42u64))))
+            (#forget token)
+            (#return 42u64))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap();
+        let missing = source.replace("(#forget token)", "()");
+        let error = crate::CheckedProgram::validate(&crate::parse_program(&missing).unwrap())
+            .err()
+            .unwrap();
+        assert!(
+            error.contains("token") && error.contains("consum"),
+            "{error}"
+        );
     }
 
     #[test]
