@@ -1667,7 +1667,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#unsafe-impl` | `(#unsafe-impl property Type)` | `(#unsafe-impl #send NativeHandle)` (top level) | Unsafely overrides a type's structural thread-safety property; this is an author promise. |
 | `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64.> x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
 | `#while` | `(#while condition body...)` | `(#while (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)))` (statement) | Repeats while its boolean condition is true. |
-| `#while-let` | `(#while-let pattern Type value body...)` | `(#while-let (Some x) Maybe next (#set total x))` (statement) | Repeatedly matches a value and runs the body while the pattern succeeds. |
+| `#while-let` | `(#while-let pattern value body...)` | `(#while-let (Some x) next (#set total x))` (statement) | Repeatedly matches a value and runs the body while the pattern succeeds. Inside async functions, the scrutinee may remain synchronous while the body suspends. |
 
 #### Typed operator families (alphabetical)
 
@@ -1751,6 +1751,13 @@ A loop expression has a value only when a reachable break supplies one:
   (#let result u64 (#loop (#break 42u64)))
   (#return result))
 ```
+
+An async `#while-let` may evaluate a synchronous scrutinee and suspend only
+inside its matched body. The scrutinee is evaluated once per iteration; a
+failed pattern does not start the body task. Payload values and references
+needed after suspension are carried by the generated frame and retain normal
+borrow checks. `examples/async_while_let_body.lim` demonstrates two Pending
+iterations followed by Ready(42), without allocating a dynamic task.
 
 The explicit `#for` form is:
 

@@ -4296,3 +4296,14 @@ commit, documentation, and focused regression coverage.
   after continue, and step omission after break or an initially false
   condition. This closes one concrete gap under ASYNC-01; arbitrary-body
   suspension and the full typed ownership/control-flow migration remain open.
+
+- [x] **ASYNC-01-SYNC-SCRUTINEE: Suspend only in a `#while-let` body.**
+  Remove the requirement that a suspending body's scrutinee also await.
+  Carry the scrutinee's declared binding/enum type through an immediate-Ready
+  adapter and reuse the existing pattern, capture, and loan checks. Take the
+  direct body's await result type from its explicit binding when omitted
+  from the await. Verify per-iteration side effects, multiple Pending states,
+  failed-pattern body omission, reference payload survival, and rejection of
+  owner mutation while Pending, with loan release on explicit cancellation.
+  Add a runnable native example; keep ASYNC-01
+  open pending arbitrary control flow and the typed ownership migration.

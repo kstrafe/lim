@@ -5001,6 +5001,129 @@ fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
 }
 
 #[test]
+fn async_while_let_can_suspend_only_in_its_body() {
+    let source = r#"
+      (#enum Value ((Some u64) None))
+      (#fn next-value ((counter (#ref-mut u64))) Value
+        (#let index u64 (#deref counter))
+        (#deref-set counter (#u64.+.wrap index 1u64))
+        (#return (#match index
+          (#case 0u64 (Some 20u64))
+          (#case 1u64 (Some 22u64))
+          (#case _ None))))
+      (#enum BodyTask ((Start u64) (Resume u64)))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case (Start value) (BodyPending (Resume value)))
+          (#case (Resume value) (BodyReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut counter u64 0u64)
+          (#let-mut total u64 0u64)
+          (#while-let (Some amount) (#call next-value (: counter (#borrow-mut counter)))
+            (#let result u64 (#await BodyTask BodyPending BodyReady body-poll (Start amount)))
+            (#set total (#u64.+.wrap total result)))
+          (#assert (#u64.== counter 3u64))
+          (#return total))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work ()) : waker (#borrow waker))))
+        (#let-else (Pending first-task) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task first-task : waker (#borrow waker))))
+        (#let-else (Pending second-task) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task second-task : waker (#borrow waker))))
+        (#return (#match third
+          (#case (Ready value) value)
+          (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    "#;
+    build_and_run(source, 42);
+    build_and_run(include_str!("../examples/async_while_let_body.lim"), 42);
+    let prefix = source.split_once("(#fn main () u64").unwrap().0;
+    let never_matches = format!(
+        r#"{}
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work ()) : waker (#borrow waker))))
+        (#let value u64 (#match first
+          (#case (Ready value) value)
+          (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#assert (#u64.== value 0u64))
+        (#return 42u64))
+    "#,
+        prefix.replace("(#let-mut counter u64 0u64)", "(#let-mut counter u64 2u64)")
+    );
+    build_and_run(&never_matches, 42);
+}
+
+#[test]
+fn async_while_let_synchronous_reference_payload_survives_body_suspension() {
+    let source = r#"
+      (#enum Value ((Some (#ref u64)) None))
+      (#enum BodyTask (Start Resume))
+      (#linear BodyTask)
+      (#enum BodyPoll ((BodyPending BodyTask) (BodyReady ())))
+      (#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+        (#return (#match task
+          (#case Start (BodyPending Resume))
+          (#case Resume (BodyReady ())))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((owner (#ref u64))) u64
+          (#let current Value (Some owner))
+          (#let-mut result u64 0u64)
+          (#while-let (Some reference) current
+            (#let ready () (#await () BodyTask BodyPending BodyReady body-poll Start))
+            (#set result (#deref reference))
+            (#break))
+          (#return result))))
+      (#fn main () u64
+        (#let-mut owner u64 42u64)
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+        (#let-else (Pending task) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task task : waker (#borrow waker))))
+        (#return (#match second
+          (#case (Ready value) value)
+          (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    "#;
+    build_and_run(source, 42);
+    let invalid = source.replace("(#let second Poll", "(#set owner 43u64) (#let second Poll");
+    let scratch = support::Scratch::new("async-sync-while-let-borrow");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("borrow"), "{error:?}");
+    let span = error
+        .span
+        .expect("owner mutation must retain its source span");
+    let write = invalid.find("(#set owner 43u64)").unwrap();
+    assert!(
+        span.start >= write && span.end <= write + "(#set owner 43u64)".len(),
+        "{error:?}"
+    );
+    let cancelled = format!(
+        r#"{}
+      (#fn main () u64
+        (#let-mut owner u64 42u64)
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+        (#let-else (Pending task) Poll first (#unreachable))
+        (#forget task)
+        (#set owner 43u64)
+        (#return owner))
+    "#,
+        source.split_once("(#fn main () u64").unwrap().0
+    );
+    build_and_run(&cancelled, 43);
+}
+
+#[test]
 fn async_while_let_sequences_awaits_in_its_scrutinee_expression() {
     let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
       (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))

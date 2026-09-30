@@ -99,6 +99,38 @@ fn enum_constructor_field_types(variant: &str) -> Option<Vec<String>> {
     })
 }
 
+/// Bridge a synchronous value into a loop's poll protocol without adding a
+/// suspension point. The input is evaluated once, before constructing a task.
+fn immediate_await(
+    value: &Expr,
+    result_type: &str,
+    role: &str,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<(Expr, String), String> {
+    let base = fresh_async_name(source, next_name);
+    let task = format!("{base}-{role}-task");
+    let input = format!("{base}-{role}-input");
+    let result = format!("{base}-{role}-result");
+    let pending = format!("{base}-{role}-pending");
+    let ready = format!("{base}-{role}-ready");
+    let poll = format!("{base}-{role}-poll");
+    let helper = format!(
+        "(#enum {task} (({input} {result_type})))\n(#linear {task})\n\
+         (#enum {result} (({pending} {task}) ({ready} {result_type})))\n\
+         (#fn {poll} ((task {task}) (waker (#ref {waker}))) {result}\n\
+           (#return (#match task (#case ({input} value) ({ready} value)))))"
+    );
+    let awaited = crate::parse(&format!(
+        "(#await {result_type} {task} {pending} {ready} {poll} ({input} {}))",
+        expression_source(value)?,
+    ))?[0]
+        .expr
+        .clone();
+    Ok((awaited, helper))
+}
+
 fn async_argument_is_trivial(expression: &Expr) -> bool {
     matches!(
         expression,
@@ -4095,7 +4127,15 @@ fn lower_async_while_let_body_await(
             "@async-fn awaited #while-let body suspension requires a direct binding".to_owned()
         })?;
     let (body_await, body_helper) = if let Some(await_form) = form(&body_form[3], "#await") {
-        (await_form.to_vec(), String::new())
+        let awaited = if await_form.len() == 6 {
+            std::iter::once(Expr::Symbol("#await".into()))
+                .chain(std::iter::once(body_form[2].clone()))
+                .chain(await_form[1..].iter().cloned())
+                .collect()
+        } else {
+            await_form.to_vec()
+        };
+        (awaited, String::new())
     } else if let Some((protocol, task, helper)) =
         conditional_await_with_immediate(&body_form[3], known, source, next_name, waker)?
     {
@@ -5288,7 +5328,69 @@ fn lower_async_while_with_transfers(
                 .join("\n");
             return Ok(Some((replacement, helper, renames)));
         }
-        return Err("@async-fn #while-let with suspension requires an awaited scrutinee".into());
+        // Body suspension does not require the scrutinee itself to suspend.
+        // Carry its statically declared type through an immediate Ready task
+        // and reuse the pattern/loan handling of the awaited-scrutinee path.
+        let result_type = if let Expr::Symbol(name) = &items[2] {
+            known.get(name).map(|binding| binding.ty.clone())
+        } else {
+            None
+        }
+        .or_else(|| {
+            let variant = match &items[1] {
+                Expr::Symbol(name) => Some(name.as_str()),
+                Expr::List(pattern) => pattern.first().and_then(|head| match head {
+                    Expr::Symbol(name) => Some(name.as_str()),
+                    _ => None,
+                }),
+                _ => None,
+            }?;
+            ASYNC_TYPE_ENVIRONMENTS.with(|stack| {
+                stack
+                    .borrow()
+                    .last()?
+                    .enums
+                    .iter()
+                    .find_map(|(name, variants)| {
+                        variants.contains_key(variant).then(|| name.clone())
+                    })
+            })
+        })
+        .ok_or_else(|| {
+            "@async-fn cannot resolve the declared type of a synchronous #while-let scrutinee"
+                .to_owned()
+        })?;
+        let (awaited, helper) = immediate_await(
+            &items[2],
+            &result_type,
+            "scrutinee",
+            source,
+            next_name,
+            waker,
+        )?;
+        let mut rewritten = items.to_vec();
+        rewritten[2] = awaited;
+        let Some((replacement, loop_helper, renames)) = lower_async_while_with_transfers(
+            &Expr::List(rewritten),
+            known,
+            known_order,
+            transfers,
+            owned_captures,
+            following,
+            return_value,
+            return_type,
+            source,
+            next_name,
+            waker,
+        )?
+        else {
+            return Err("@async-fn failed to lower synchronous while-let scrutinee".into());
+        };
+        return Ok(Some((
+            replacement,
+            format!("{helper}\n{loop_helper}"),
+            renames,
+        )));
     }
     let Some(items) = form(statement, "#while") else {
         return Ok(None);
@@ -7588,25 +7690,10 @@ fn lower_async_for(
             // suspension and lets synchronous conditions use that same path.
             let condition_helper =
                 if !has_await(&items[2]) && items[4..].iter().any(contains_loop_control) {
-                    let base = fresh_async_name(source, next_name);
-                    let task = format!("{base}-condition-task");
-                    let input = format!("{base}-condition-input");
-                    let result = format!("{base}-condition-result");
-                    let pending = format!("{base}-condition-pending");
-                    let ready = format!("{base}-condition-ready");
-                    let poll = format!("{base}-condition-poll");
-                    let condition = expression_source(&items[2])?;
-                    rewritten[2] = crate::parse(&format!(
-                        "(#await bool {task} {pending} {ready} {poll} ({input} {condition}))"
-                    ))?[0]
-                        .expr
-                        .clone();
-                    format!(
-                        "(#enum {task} (({input} bool)))\n(#linear {task})\n\
-                     (#enum {result} (({pending} {task}) ({ready} bool)))\n\
-                     (#fn {poll} ((task {task}) (waker (#ref {waker}))) {result}\n\
-                       (#return (#match task (#case ({input} value) ({ready} value)))))"
-                    )
+                    let (awaited, helper) =
+                        immediate_await(&items[2], "bool", "condition", source, next_name, waker)?;
+                    rewritten[2] = awaited;
+                    helper
                 } else {
                     String::new()
                 };
