@@ -1585,6 +1585,16 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Construct the typed bodies without ownership enforcement so tests prove
   typed rejection directly. Preserve exact offending-operation spans and
   previous-consumption labels. Keep valid pre-consumption operations accepted.
+- [x] **ASYNC-01-TYPED-REPLACEMENT: Prove consumption before replacing locals.**
+  Apply typed definite-consumption obligations at whole-local assignments,
+  not just cleanup and return. Require every structural linear leaf to be
+  consumed before replacing its owner. Preserve valid RHS ownership transfer
+  and replacements after every predecessor consumes the old value. Direct
+  typed tests reject live replacement and one-branch-only consumption, accept
+  complete consumption, and underline the assignment itself. Projection and
+  through-reference replacement semantics still require a separate audit;
+  this closes the whole-local syntax-only validation gap, not the parent
+  ownership migration or arbitrary-body async requirement.
 - [x] **ASYNC-01-TYPED-EXITS: Stabilize loan snapshots and initialized obligations.**
   Model branch-result evaluation snapshots as dependencies of typed loan
   transfers, including results updated by loops. Revisit consumers after

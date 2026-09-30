@@ -9055,6 +9055,107 @@ mod typed_ownership_tests {
     use super::*;
 
     #[test]
+    fn typed_flow_requires_consumption_before_replacing_linear_locals() {
+        for (before, replacement, valid) in [
+            ("", "(#struct-literal Resource ((number 2u64)))", false),
+            (
+                "(#forget value)",
+                "(#struct-literal Resource ((number 2u64)))",
+                true,
+            ),
+            ("", "value", true),
+            (
+                "(#if #true (#block (#forget value) ()) ())",
+                "(#struct-literal Resource ((number 2u64)))",
+                false,
+            ),
+            (
+                "(#if #true (#block (#forget value) ()) (#block (#forget value) ()))",
+                "(#struct-literal Resource ((number 2u64)))",
+                true,
+            ),
+        ] {
+            let assignment = format!("(#set value {replacement})");
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#fn main () u64
+                   (#let-mut value Resource (#struct-literal Resource ((number 1u64))))
+                   {before}
+                   {assignment}
+                   (#forget value)
+                   (#return 0u64))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let results = declarations.flows["main"].check_linear_ownership(
+                &declarations.bodies["main"],
+                &types,
+                &declarations,
+            );
+            let error = results.into_iter().find_map(Result::err);
+            if valid {
+                assert!(error.is_none(), "{source}: {error:?}");
+                crate::check_types(&program).unwrap();
+            } else {
+                let error = error.expect("typed analysis must reject implicit destruction");
+                assert!(
+                    error
+                        .message
+                        .contains("assignment would destroy live linear value"),
+                    "{error:?}"
+                );
+                let span = error.span.unwrap();
+                assert_eq!(&source[span.start..span.end], assignment);
+                assert!(crate::check_types(&program).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn typed_replacement_requires_every_structural_linear_leaf() {
+        for consume_second in [false, true] {
+            let second = if consume_second {
+                "(#forget (#get value second))"
+            } else {
+                ""
+            };
+            let constructor = "(#struct-literal Pair
+              ((first (#struct-literal Resource ((number 1u64))))
+               (second (#struct-literal Resource ((number 2u64))))))";
+            let assignment = format!("(#set value {constructor})");
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#struct Pair ((first Resource) (second Resource)))
+                 (#fn main () u64
+                   (#let-mut value Pair {constructor})
+                   (#forget (#get value first))
+                   {second}
+                   {assignment}
+                   (#forget value)
+                   (#return 0u64))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.flows["main"].check_linear_exit_obligations(
+                &declarations.bodies["main"],
+                &types,
+                &declarations,
+            );
+            if consume_second {
+                result.unwrap();
+                crate::check_types(&program).unwrap();
+            } else {
+                let error = result.unwrap_err();
+                assert!(error.message.contains("assignment would destroy"));
+                let span = error.span.unwrap();
+                assert_eq!(&source[span.start..span.end], assignment);
+            }
+        }
+    }
+
+    #[test]
     fn typed_flow_rejects_cloning_and_borrowing_consumed_places() {
         for (operation, ty, cleanup) in [
             ("(#clone value)", "Resource", "(#forget result)"),

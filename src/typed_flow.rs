@@ -1238,7 +1238,7 @@ impl FlowGraph {
     }
 
     /// Verify every indivisible linear leaf in locals and parameters has a
-    /// definite consumption on every path to lexical cleanup or a typed return.
+    /// definite consumption before replacement, lexical cleanup, or return.
     #[cfg(test)]
     pub fn check_linear_exit_obligations(
         &self,
@@ -1324,6 +1324,12 @@ impl FlowGraph {
                 continue;
             }
             let leaving = match &node.action {
+                FlowAction::Assign { place, .. } if place.segments.is_empty() => {
+                    let PlaceRoot::Local(binding) = place.root else {
+                        continue;
+                    };
+                    HashSet::from([binding])
+                }
                 FlowAction::Return(_) => active[index]
                     .as_ref()
                     .into_iter()
@@ -1370,6 +1376,9 @@ impl FlowGraph {
                             })
                     });
                     let message = match &node.action {
+                        FlowAction::Assign { .. } => format!(
+                            "assignment would destroy live linear value '{name}'; consume it explicitly first"
+                        ),
                         FlowAction::ScopeExit(_) => {
                             format!("linear value '{name}' must be consumed before leaving its scope")
                         }
@@ -1383,7 +1392,11 @@ impl FlowGraph {
                     };
                     return Err(ReleaseConflict {
                         message,
-                        span: binding_span.or(node.span),
+                        span: if matches!(node.action, FlowAction::Assign { .. }) {
+                            node.span
+                        } else {
+                            binding_span.or(node.span)
+                        },
                         labels,
                     });
                 }
