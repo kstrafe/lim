@@ -2290,6 +2290,14 @@ fn async_generated_source(
 fn async_type_environment(expressions: &[SpannedExpr]) -> async_fn::AsyncTypeEnvironment {
     let mut environment = async_fn::AsyncTypeEnvironment::default();
     for expression in expressions {
+        // Only declarations contributing to the environment need normalization.
+        // In particular, do not copy an async invocation's entire function body.
+        if !matches!(&expression.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head))
+                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#enum" | "#type" | "#struct")))
+        {
+            continue;
+        }
         // Async lowering needs function signatures, not a second parse of
         // every imported function body. Ordinary parsing validates the bodies.
         let signature = match &expression.expr {
@@ -2788,8 +2796,17 @@ fn prepare_program_syntax(
     let expressions = bundles
         .expand(expressions, true)
         .map_err(|error| error.attach(&source_files))?;
-    let async_copy_types = async_copy_type_names(&expressions);
-    let async_types = async_type_environment(&expressions);
+    // Generated declarations and cfg selection are already expanded here, so
+    // detect async users after those passes rather than from the root file.
+    let needs_async = expressions.iter().any(is_async_invocation);
+    let (async_copy_types, async_types) = if needs_async {
+        (
+            async_copy_type_names(&expressions),
+            async_type_environment(&expressions),
+        )
+    } else {
+        (HashSet::new(), async_fn::AsyncTypeEnvironment::default())
+    };
     let needs_workers = expressions.iter().any(is_thread_spawn_invocation);
     let worker_functions = expressions
         .iter()
@@ -11882,6 +11899,43 @@ mod tests {
             parse_program("(#fn main () u64 (#return (#if (#char.== #\\a #\\a) 42 0)))").unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).unwrap().contains("mov rax, 97"));
+    }
+
+    #[test]
+    fn async_metadata_is_only_built_for_selected_async_users() {
+        let declarations =
+            "(#struct Value ((number u64))) (#fn ordinary ((value u64)) u64 (#return value))";
+        let prepare = |source: &str| {
+            prepare_program_syntax(
+                source,
+                Path::new("."),
+                None,
+                &CompileConfig::default(),
+                None,
+            )
+            .unwrap()
+        };
+        let ordinary = prepare(declarations);
+        assert!(ordinary.async_copy_types.is_empty());
+        assert_eq!(
+            ordinary.async_types,
+            async_fn::AsyncTypeEnvironment::default()
+        );
+
+        for generator in ["async-fn", "async-fn-pinned"] {
+            let source = format!(
+                "{declarations} (@{generator} (: names (Frame Poll Pending Ready poll) : waker u64 : function (#fn work () u64 (#return 1u64))))"
+            );
+            let asynchronous = prepare(&source);
+            assert_eq!(
+                asynchronous.async_types.functions["ordinary"]["value"],
+                "u64"
+            );
+            assert_eq!(
+                asynchronous.async_types.struct_fields["Value"]["number"],
+                "u64"
+            );
+        }
     }
 
     #[test]

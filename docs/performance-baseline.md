@@ -75,6 +75,31 @@ match. All unit and integration tests pass, with the existing opt-in tests
 remaining ignored. Dedicated tests verify shared global storage, independent
 branch locals, global initializers, match payloads, and type mismatch rejection.
 
+## Demand-driven async metadata (2026-09-30)
+
+After imports, generators, cfg, and syntax bundles expand, the frontend now
+builds async copy/type metadata only if an async invocation remains. Async
+metadata scanning also skips forms other than function, enum, alias, and
+struct declarations before cloning or normalization. Ordinary declaration
+and body validation still runs in the normal frontend.
+
+An isolated run used 80 warm samples per compiler, alternating order, with
+byte-identical binaries for all workloads:
+
+| Warm median (ms) | Before | Demand-driven metadata |
+| --- | ---: | ---: |
+| `vec_allocator.lim` | 20.34 | 19.55 |
+| `async_fn.lim` | 27.87 | 28.18 |
+| `large_reference_projections.lim` | 10.02 | 9.13 |
+
+The vector example improved 3.9% in this run, consistent with a preceding
+40-sample alternating run's 5.1% reduction. No async speedup was measurable.
+The small projection timings varied substantially between runs, so the
+apparent improvement above is not a reliable speedup claim. This removes
+unnecessary frontend work, not a demonstrated improvement on every workload.
+The comparison preserves the same unfinished async-loop working-tree changes
+in both binaries; those changes are not part of this optimization.
+
 ## Historical external-tool production sample (2026-09-25)
 
 Five iterations, Nix release profile, Intel i7-13700KF, Linux 7.2.6 x86-64,

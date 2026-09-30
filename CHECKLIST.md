@@ -4281,6 +4281,15 @@ commit, documentation, and focused regression coverage.
   after (40 alternating warm samples, 11.6% reduction); other sampled
   workloads showed no meaningful change.
 
+- [x] **PERF-08: Build async metadata only for selected async users.**
+  Detect async invocations after imports, generators, cfg, and syntax bundles
+  expand. Skip async copy/type metadata on synchronous projects; scan only
+  relevant declaration forms on async projects. Preserve ordinary validation
+  and both async generator variants. Warm vector compilation measured
+  20.34 ms before and 19.55 ms after (80 alternating samples, 3.9% reduction);
+  async timings showed no meaningful improvement and small-project timings
+  were unstable. Native binaries were byte-identical.
+
 - [x] **NATIVE-UNIT-TUPLE: Read zero-sized tuple fields without a slot.**
   Project unit fields without requesting a value register or storage slot.
   Evaluate computed receivers, including indirect aggregate-return calls,
