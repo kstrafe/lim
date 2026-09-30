@@ -4307,6 +4307,12 @@ commit, documentation, and focused regression coverage.
   cancellation, linear consumption, and exact escaped-local diagnostics.
   Arbitrary async body lowering remains a separate open requirement.
 
+- [x] **PERF-09: Borrow async bodies that need no continuation rewrite.**
+  Avoid two recursive AST copies on ordinary async bodies; move rewritten
+  lists into their owned buffer without a second deep copy. Preserve native
+  binaries and run all tests. Timing samples were noisy and did not establish
+  a reliable end-to-end speedup; this removes unnecessary allocations.
+
 - [x] **PERF-08: Build async metadata only for selected async users.**
   Detect async invocations after imports, generators, cfg, and syntax bundles
   expand. Skip async copy/type metadata on synchronous projects; scan only

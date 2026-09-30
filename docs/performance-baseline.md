@@ -100,6 +100,24 @@ unnecessary frontend work, not a demonstrated improvement on every workload.
 The comparison preserves the same unfinished async-loop working-tree changes
 in both binaries; those changes are not part of this optimization.
 
+## Borrowed async body normalization (2026-09-30)
+
+Function-level continuation lowering now borrows unchanged bodies. Bodies
+that actually require rewriting keep a single owned buffer rather than
+deep-copying the rewritten tree again. The complete test suite passes.
+
+Sixty warm samples per compiler produced byte-identical binaries:
+
+| Warm median (ms) | Before | Borrowed bodies |
+| --- | ---: | ---: |
+| `async_fn.lim` | 28.63 | 29.25 |
+| `async_conditional_return.lim` | 15.11 | 12.37 |
+
+These sequential samples had substantial outliers (up to 121 ms), and the
+conditional example varied from 7 to 67 ms. They do not establish a reliable
+speedup. This change eliminates allocations; it does not claim a measurable
+whole-build improvement.
+
 ## Historical external-tool production sample (2026-09-25)
 
 Five iterations, Nix release profile, Intel i7-13700KF, Linux 7.2.6 x86-64,

@@ -3,6 +3,7 @@
 //! This deliberately emits ordinary Lim declarations before type and borrow
 //! checking. No suspension point can hide a reference from those passes.
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -8903,6 +8904,33 @@ fn contains_loop_control(expression: &Expr) -> bool {
     }
 }
 
+fn exits(expression: &Expr) -> bool {
+    let Expr::List(items) = expression else {
+        return false;
+    };
+    match items.first() {
+        Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break" | "#continue" | "#return") => {
+            true
+        }
+        Some(Expr::Symbol(head))
+            if matches!(
+                head.as_str(),
+                "#let-else"
+                    | "#while"
+                    | "#while-let"
+                    | "#for"
+                    | "#for-range"
+                    | "#loop"
+                    | "#fn"
+                    | "#quote"
+                    | "#quasiquote"
+            ) =>
+        {
+            false
+        }
+        _ => items.iter().skip(1).any(exits),
+    }
+}
 /// Move an iteration's remaining statements into its fall-through branches.
 /// Loop transfers then remain terminal even when written before a suspension.
 fn terminalize_async_iterations(
@@ -8910,35 +8938,6 @@ fn terminalize_async_iterations(
     source: &str,
     next_name: &mut usize,
 ) -> Result<(), String> {
-    fn exits(expression: &Expr) -> bool {
-        let Expr::List(items) = expression else {
-            return false;
-        };
-        match items.first() {
-            Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#break" | "#continue" | "#return") =>
-            {
-                true
-            }
-            Some(Expr::Symbol(head))
-                if matches!(
-                    head.as_str(),
-                    "#let-else"
-                        | "#while"
-                        | "#while-let"
-                        | "#for"
-                        | "#for-range"
-                        | "#loop"
-                        | "#fn"
-                        | "#quote"
-                        | "#quasiquote"
-                ) =>
-            {
-                false
-            }
-            _ => items.iter().skip(1).any(exits),
-        }
-    }
     fn sequence(body: &[Expr], source: &str, next: &mut usize) -> Result<Vec<Expr>, String> {
         let Some(index) = body
             .iter()
@@ -10734,23 +10733,35 @@ fn generated_source_with_capture_selection(
         .collect::<Vec<_>>();
     let source = expression_source(&invocation[4])?;
     let mut next_nested_await = 0;
-    let mut normalized_body = Expr::List(
-        std::iter::once(Expr::Symbol("#async-body".into()))
-            .chain(function[4..].iter().cloned())
-            .collect(),
-    );
-    terminalize_async_iterations(&mut normalized_body, &source, &mut next_nested_await)?;
-    let mut normalized_body = list(&normalized_body, "async body")?[1..].to_vec();
-    if !normalized_body
-        .last()
-        .is_some_and(|last| form(last, "#return").is_some())
+    let normalized_body = if function[4..]
+        .iter()
+        .take(function[4..].len().saturating_sub(1))
+        .any(|statement| has_await(statement) && exits(statement))
     {
-        normalized_body.push(Expr::List(vec![
-            Expr::Symbol("#return".into()),
-            Expr::List(vec![Expr::Symbol("#unreachable".into())]),
-        ]));
-    }
-    let body = normalized_body.as_slice();
+        let mut normalized_body = Expr::List(
+            std::iter::once(Expr::Symbol("#async-body".into()))
+                .chain(function[4..].iter().cloned())
+                .collect(),
+        );
+        terminalize_async_iterations(&mut normalized_body, &source, &mut next_nested_await)?;
+        let Expr::List(mut normalized_body) = normalized_body else {
+            unreachable!("body normalization preserves the list wrapper");
+        };
+        normalized_body.remove(0);
+        if !normalized_body
+            .last()
+            .is_some_and(|last| form(last, "#return").is_some())
+        {
+            normalized_body.push(Expr::List(vec![
+                Expr::Symbol("#return".into()),
+                Expr::List(vec![Expr::Symbol("#unreachable".into())]),
+            ]));
+        }
+        Cow::Owned(normalized_body)
+    } else {
+        Cow::Borrowed(&function[4..])
+    };
+    let body = normalized_body.as_ref();
     let mut self_references = if pinned {
         pinned_self_references(&params, body)?
     } else {
