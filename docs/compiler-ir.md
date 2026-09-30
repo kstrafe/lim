@@ -27,7 +27,11 @@ marker: their anchor is not a physical pointee identity. Such origins cannot
 prove referent consumption or restoration in staging. Return summaries
 retain this marker, and call transfer combines it with the incoming origin's
 marker so forwarding functions cannot erase it. The staging mode is exercised by
-direct tests, not yet used as a production validation boundary. It follows
+direct tests, not yet used as a production validation boundary. Return
+summaries also retain the referent's projection separately from the input and
+output reference-storage slots. Call transfer appends that projection to the
+argument's referent, preserving field identity through forwarding calls.
+It follows
 stored reference origins to stable loan roots so losing an alias does not
 erase a move from its referent. Original parameter storage-slot metadata
 distinguishes borrowed targets reached through different fields of one

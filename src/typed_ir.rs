@@ -869,6 +869,7 @@ impl Declarations {
                         mutable: origin.mutable,
                         pinned: origin.pinned,
                         lifetime_only: origin.lifetime_only,
+                        referent_projection: origin.place.segments,
                         input_storage: origin.parameter_storage.unwrap_or_default(),
                         storage: origin.storage,
                     };

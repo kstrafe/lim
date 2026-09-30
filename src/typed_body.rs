@@ -1043,6 +1043,7 @@ pub(crate) struct ParameterLoanSummary {
     pub mutable: bool,
     pub pinned: bool,
     pub lifetime_only: bool,
+    pub referent_projection: Vec<crate::typed_place::Segment>,
     pub input_storage: Vec<crate::typed_place::Segment>,
     pub storage: Vec<crate::typed_place::Segment>,
 }

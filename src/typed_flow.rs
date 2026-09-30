@@ -2691,6 +2691,10 @@ fn apply_parameter_loan_summary(
     origin.mutable = summary.mutable;
     origin.pinned = summary.pinned;
     origin.lifetime_only |= summary.lifetime_only;
+    origin
+        .place
+        .segments
+        .extend(summary.referent_projection.iter().cloned());
     Some(origin)
 }
 
