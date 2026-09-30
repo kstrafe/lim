@@ -1600,6 +1600,66 @@ mod tests {
     }
 
     #[test]
+    fn reference_returning_call_writes_conflict_with_live_child_borrows() {
+        let source = "(#struct Point ((x u64) (y u64)))
+            (#fn identity ((value (#ref-mut Point))) (#ref-mut Point)
+              (#return value))
+            (#fn main () u64
+              (#let-mut point Point (#struct-literal Point ((x 1u64) (y 2u64))))
+              (#let parent (#ref-mut Point) (#borrow-mut point))
+              (#let child (#ref u64) (#borrow (#get parent x)))
+              (#forget child)
+              (#deref-set (#call identity (: value parent))
+                (#struct-literal Point ((x 3u64) (y 4u64))))
+              (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut flow = FlowGraph::lower(body).unwrap();
+        check_live_direct_loans(body, &flow).unwrap();
+        let release = flow
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Release { .. }))
+            .unwrap();
+        let action = flow
+            .nodes
+            .iter()
+            .find_map(|node| match node.action {
+                FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind,
+                NodeKind::Form { head, .. } if head == "deref-set") =>
+                {
+                    Some(node.action.clone())
+                }
+                _ => None,
+            })
+            .expect("computed target must lower as Evaluate");
+        let write = FlowNodeId(flow.nodes.len());
+        let predecessor = flow
+            .nodes
+            .iter_mut()
+            .find(|node| node.successors.contains(&FlowNodeId(release)))
+            .unwrap();
+        for successor in &mut predecessor.successors {
+            if *successor == FlowNodeId(release) {
+                *successor = write;
+            }
+        }
+        flow.nodes.push(FlowNode {
+            action,
+            successors: vec![FlowNodeId(release)],
+            span: None,
+        });
+        let error = check_live_direct_loans(body, &flow).unwrap_err();
+        assert!(
+            error.message.contains("cannot mutate 'point'"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
     fn dereference_writes_conflict_with_live_child_borrows() {
         let source = "(#struct Point ((x u64) (y u64)))
             (#fn main () u64

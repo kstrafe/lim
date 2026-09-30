@@ -138,8 +138,13 @@ actions point to their initializer. These stable origins are available to
 future move and loan transfer without looking back into source syntax.
 Direct borrow expressions also have dedicated flow actions retaining the
 resolved access place, mutability, and exact borrow node. Expressions whose
-referent place is not yet resolved continue as ordinary evaluation nodes;
-alias-aware referent provenance remains part of the pending loan transfer.
+referent place is not yet resolved continue as ordinary evaluation nodes.
+For computed `#deref-set` targets, live-loan conflict checking resolves known
+origins from the target's evaluation snapshot and checks the resulting places
+as writes. Reference-returning calls participate through their checked return
+origins. Tests cover an accepted write after child-loan release and rejection
+when its computed write event precedes that release. Missing-origin behavior
+and referent ownership/reinitialization obligations remain unfinished.
 Explicit `#clone` of a resolved place similarly retains a dedicated action
 with the checked place and source node; unresolved computed clone operands
 continue as evaluation nodes. This action does not yet replace the lexical
