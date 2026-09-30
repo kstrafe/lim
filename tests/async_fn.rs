@@ -2,6 +2,145 @@ mod support;
 
 use std::{fs, process::Command, time::Duration};
 
+#[test]
+fn async_while_let_returns_after_multiple_body_awaits() {
+    let source = include_str!("../examples/async_while_let_return.lim");
+    build_and_run(source, 42);
+    let immediate = source.replace("(StepPending (Resume value))", "(StepReady value)");
+    build_and_run(&immediate, 42);
+
+    // The pattern mismatch must not execute either child await.
+    let guarded = source.replace(
+        "(#case (Start value) (StepPending (Resume value)))",
+        "(#case (Start value) (#block (#assert (#u64.== value 37u64)) (StepPending (Resume value))))",
+    );
+    build_and_run(&guarded, 42);
+
+    let one_await = source.replace(
+        "(#let second u64 (#await u64 Step StepPending StepReady step-poll (Start first)))\n      (#return second)",
+        "(#return first)",
+    ).replace(
+        "(#let-else (Pending after-second) Poll third (#unreachable))\n        (#let fourth Poll (#call poll (: task after-second : waker waker)))\n        (#match fourth",
+        "(#match third",
+    );
+    assert_ne!(one_await, source);
+    build_and_run(&one_await, 42);
+
+    let synchronous_body = source.replace(
+        "(#let first u64 (#await u64 Step StepPending StepReady step-poll (Start value)))\n      (#let second u64 (#await u64 Step StepPending StepReady step-poll (Start first)))\n      (#return second)",
+        "(#return value)",
+    );
+    assert_ne!(synchronous_body, source);
+    build_and_run(&synchronous_body, 42);
+
+    let linear =
+        format!(
+        "(#struct Resource ((value u64))) (#linear Resource)\n{}",
+        source.replace(
+            "(#let first u64",
+            "(#let token Resource (#struct-literal Resource ((value value)))) (#let first u64",
+        ).replace("(#return second)", "(#forget token) (#return second)"),
+    );
+    build_and_run(&linear, 42);
+    let missing_consumption = linear.replace("(#forget token)", "()");
+    let scratch = support::Scratch::new("async-while-let-return-linear");
+    let error = lim::compile_source_to_assembly(
+        &missing_consumption,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("unused linear locals must survive suspension analysis");
+    assert!(
+        error.message.contains("token") && error.message.contains("consum"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn async_while_let_returned_references_keep_their_source_loan() {
+    let source = include_str!("../examples/async_while_let_return.lim")
+        .replace(
+            "(#fn work ((choice Choice)) u64",
+            "(#fn work ((choice Choice) (counter (#ref u64))) (#ref u64)",
+        )
+        .replace("(#return second)", "(#return counter)")
+        .replace("(#return 5u64)", "(#return counter)")
+        .replace(
+            "(#fn run ((choice Choice) (waker (#ref u64))) u64",
+            "(#fn run ((choice Choice) (counter (#ref u64)) (waker (#ref u64))) (#ref u64)",
+        )
+        .replace(
+            "(#call work (: choice choice))",
+            "(#call work (: choice choice : counter counter))",
+        )
+        .replace(
+            "(#let waker u64 0u64)",
+            "(#let waker u64 0u64) (#let storage u64 37u64)",
+        )
+        .replace("(#let chosen u64", "(#let chosen (#ref u64)")
+        .replace("(#let empty u64", "(#let empty (#ref u64)")
+        .replace(
+            ": choice (Chosen 37u64) : waker",
+            ": choice (Chosen 37u64) : counter (#borrow storage) : waker",
+        )
+        .replace(
+            ": choice Empty : waker",
+            ": choice Empty : counter (#borrow storage) : waker",
+        )
+        .replace(
+            "(#u64.+.wrap chosen empty)",
+            "(#u64.+.wrap (#deref chosen) (#deref empty))",
+        );
+    build_and_run(&source, 74);
+    let prefix = source.split_once("(#fn main").unwrap().0;
+    let escaping = format!("{prefix}
+      (#fn main () (#ref u64)
+        (#let waker u64 0u64)
+        (#let storage u64 37u64)
+        (#return (#call run (: choice (Chosen 37u64) : counter (#borrow storage) : waker (#borrow waker)))))");
+    let pending = format!(
+        "{prefix}
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let-mut storage u64 37u64)
+        (#let frame Frame (#call work (: choice (Chosen 37u64) : counter (#borrow storage))))
+        (#let first Poll (#call poll (: task frame : waker (#borrow waker))))
+        (#let-else (Pending task) Poll first (#unreachable))
+        (#set storage 42u64)
+        (#forget task)
+        (#return storage))"
+    );
+    let scratch = support::Scratch::new("async-while-let-return-loans");
+    for (source, expected, offending_line) in [
+        (&escaping, "reference", "(#return (#call run"),
+        (&pending, "borrow", "(#set storage 42u64)"),
+    ] {
+        let error = lim::compile_source_to_assembly(
+            source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .err()
+        .expect("returned and pending references must retain their source loan");
+        assert!(error.message.contains(expected), "{error:?}");
+        let span = error
+            .span
+            .expect("borrow failures must underline their source");
+        let line = source.lines().nth(span.line - 1).unwrap();
+        assert!(line.contains(offending_line), "{error:?}: {line}");
+    }
+    let cancelled = pending.replace(
+        "(#set storage 42u64)\n        (#forget task)",
+        "(#forget task)\n        (#set storage 42u64)",
+    );
+    build_and_run(&cancelled, 42);
+}
+
 fn example_source() -> String {
     include_str!("../examples/async_fn.lim")
         .replace(

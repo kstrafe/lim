@@ -1586,6 +1586,15 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Restrict scope-exit linear obligations to initialized bindings. Test safe
   parameter returns, local-reference escape, and early return before a later
   linear declaration without allowing missing explicit consumption.
+- [x] **ASYNC-01-WHILE-LET-RETURN: Propagate returns through suspending pattern loops.**
+  Carry the enclosing return type into multi-await `#while-let` body helpers,
+  distinguish continuation from function-return outcomes, and forward returns
+  through the outer loop task. Wrap synthetic pattern-mismatch exits in the
+  continuation variant; keep internal named-call ASTs canonical when renaming
+  a captured scrutinee alongside other arguments. Cover zero/one/two body
+  awaits, immediate readiness, skipped mismatch bodies, explicit linear
+  consumption, retained reference origins, pending loans, and cancellation.
+  Include a native example. The parent arbitrary-body migration remains open.
 - [x] **ASYNC-01-COMPUTED-STEP: Compose computed steps with awaited conditions.**
   Sequence computed `#for` step expressions through iteration body lowering.
   Return terminal branch status and updated captures together, preserving

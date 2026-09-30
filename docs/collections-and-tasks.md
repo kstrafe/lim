@@ -507,3 +507,10 @@ runs the common tail. See `examples/async_conditional_return.lim`.
 Pending tasks retain captured loans until consumed or explicitly cancelled;
 linear inputs must be consumed on every return path. Branch-local bindings
 do not become visible in the common tail.
+
+`#while-let` may return from the enclosing async function after suspending
+in its body. A matched pattern runs the body; a mismatch skips its awaits
+and continues after the loop. Body helpers carry distinct continuation and
+return outcomes, preserving reference origins and linear cleanup checks.
+See `examples/async_while_let_return.lim` for two body awaits followed by
+an explicit return. The example also exercises the nonmatching path.
