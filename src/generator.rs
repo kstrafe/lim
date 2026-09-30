@@ -989,7 +989,7 @@ fn collect_template_function_calls(expression: &Expr, depth: usize, calls: &mut 
     }
 }
 
-fn cache_path(directory: &Path, key: &str) -> PathBuf {
+pub(crate) fn cache_path(directory: &Path, key: &str) -> PathBuf {
     // Stable FNV-1a 128-bit naming; the complete key is stored and compared
     // inside each file, so a digest collision can never produce a false hit.
     directory.join(format!(
@@ -1181,7 +1181,7 @@ pub(crate) fn stable_hash(bytes: &[u8]) -> u128 {
     hash
 }
 
-fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<Expr>> {
+pub(crate) fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<Expr>> {
     cleanup_abandoned_staging(directory);
     let bytes = read_bounded_cache_file(&cache_path(directory, key))?;
     if bytes.get(..8)? != b"LIMGEN2\0" {
@@ -1235,7 +1235,7 @@ fn read_cache_length(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
     usize::try_from(length).ok()
 }
 
-fn write_cached_expansion(directory: &Path, key: &str, expressions: &[Expr]) {
+pub(crate) fn write_cached_expansion(directory: &Path, key: &str, expressions: &[Expr]) {
     let source = expressions
         .iter()
         .map(crate::expression_source)

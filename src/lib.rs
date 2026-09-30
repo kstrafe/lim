@@ -2543,6 +2543,31 @@ fn parse_program_in_directory_with_capture_plans(
 fn parse_prepared_program_with_capture_plans(
     prepared: &PreparedProgramSyntax,
 ) -> Result<(Program, AsyncCapturePlans), SourceError> {
+    let capture_cache_key = format!(
+        "lim-async-captures-v1\nimplementation={}\n{}",
+        env!("LIM_BUILD_FINGERPRINT"),
+        prepared.dependency_context
+    );
+    if let Some(directory) = prepared
+        .capture_cache_directory
+        .as_deref()
+        .filter(|_| prepared.expressions.iter().any(is_async_invocation))
+    {
+        if let Some(plans) = generator::read_cached_expansion(directory, &capture_cache_key)
+            .and_then(|forms| decode_async_capture_plans(&forms))
+        {
+            if let Ok(program) = parse_prepared_program_with_async_captures(prepared, Some(&plans))
+            {
+                crate::cache_report::record(
+                    "async-captures",
+                    &generator::cache_path(directory, &capture_cache_key),
+                    &capture_cache_key,
+                    "hit",
+                );
+                return Ok((program, plans));
+            }
+        }
+    }
     let probe = parse_prepared_program_with_async_captures(prepared, None)?;
     let invocations = async_capture_invocations(&probe);
     if invocations.is_empty() {
@@ -2564,10 +2589,117 @@ fn parse_prepared_program_with_capture_plans(
         return Ok((probe, capture_plans));
     }
     let program = parse_prepared_program_with_async_captures(prepared, Some(&capture_plans))?;
+    if let Some(directory) = prepared.capture_cache_directory.as_deref() {
+        crate::cache_report::record(
+            "async-captures",
+            &generator::cache_path(directory, &capture_cache_key),
+            &capture_cache_key,
+            "missing-or-invalid",
+        );
+        generator::write_cached_expansion(
+            directory,
+            &capture_cache_key,
+            &encode_async_capture_plans(&capture_plans),
+        );
+    }
     Ok((program, capture_plans))
 }
 
+fn encode_async_capture_plans(plans: &AsyncCapturePlans) -> Vec<Expr> {
+    let mut entries = plans.iter().collect::<Vec<_>>();
+    entries.sort_by_key(|(key, _)| **key);
+    entries
+        .into_iter()
+        .map(|((source_id, start, end), stages)| {
+            let mut stages = stages.iter().collect::<Vec<_>>();
+            stages.sort_by_key(|(stage, _)| **stage);
+            Expr::List(vec![
+                Expr::List(vec![
+                    Expr::Integer(i128::from(*source_id)),
+                    Expr::Integer(*start as i128),
+                    Expr::Integer(*end as i128),
+                ]),
+                Expr::List(
+                    stages
+                        .into_iter()
+                        .map(|(stage, captures)| {
+                            let mut captures = captures
+                                .iter()
+                                .cloned()
+                                .map(Expr::Symbol)
+                                .collect::<Vec<_>>();
+                            captures.sort_by(|left, right| match (left, right) {
+                                (Expr::Symbol(left), Expr::Symbol(right)) => left.cmp(right),
+                                _ => unreachable!(),
+                            });
+                            Expr::List(vec![Expr::Integer(*stage as i128), Expr::List(captures)])
+                        })
+                        .collect(),
+                ),
+            ])
+        })
+        .collect()
+}
+
+fn decode_async_capture_plans(forms: &[Expr]) -> Option<AsyncCapturePlans> {
+    fn index(expression: &Expr) -> Option<usize> {
+        let Expr::Integer(value) = expression else {
+            return None;
+        };
+        usize::try_from(*value).ok()
+    }
+    let mut plans = AsyncCapturePlans::new();
+    if forms.is_empty() {
+        return None;
+    }
+    for form in forms {
+        let Expr::List(entry) = form else {
+            return None;
+        };
+        let [Expr::List(key), Expr::List(stages)] = entry.as_slice() else {
+            return None;
+        };
+        let [source_id, start, end] = key.as_slice() else {
+            return None;
+        };
+        let key = (
+            u32::try_from(index(source_id)?).ok()?,
+            index(start)?,
+            index(end)?,
+        );
+        if key.1 > key.2 {
+            return None;
+        }
+        let mut decoded_stages = HashMap::new();
+        for stage in stages {
+            let Expr::List(stage) = stage else {
+                return None;
+            };
+            let [stage, Expr::List(names)] = stage.as_slice() else {
+                return None;
+            };
+            let mut captures = HashSet::new();
+            for name in names {
+                let Expr::Symbol(name) = name else {
+                    return None;
+                };
+                if !captures.insert(name.clone()) {
+                    return None;
+                }
+            }
+            if decoded_stages.insert(index(stage)?, captures).is_some() {
+                return None;
+            }
+        }
+        if plans.insert(key, decoded_stages).is_some() {
+            return None;
+        }
+    }
+    Some(plans)
+}
+
 struct PreparedProgramSyntax {
+    capture_cache_directory: Option<PathBuf>,
     root_source: String,
     expressions: Vec<SpannedExpr>,
     source_files: Vec<SourceFile>,
@@ -2611,6 +2743,7 @@ fn prepare_program_syntax(
         })
         .collect();
     Ok(PreparedProgramSyntax {
+        capture_cache_directory: cache_directory.map(Path::to_path_buf),
         root_source: source.to_owned(),
         expressions,
         source_files,
@@ -5613,6 +5746,12 @@ fn is_thread_spawn_invocation(expression: &SpannedExpr) -> bool {
     matches!(&expression.expr, Expr::List(items)
         if matches!(items.first(), Some(Expr::At))
         && matches!(items.get(1), Some(Expr::Symbol(kind)) if kind == "thread-spawn"))
+}
+
+fn is_async_invocation(expression: &SpannedExpr) -> bool {
+    matches!(&expression.expr, Expr::List(items)
+        if matches!(items.first(), Some(Expr::At))
+        && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "async-fn" | "async-fn-pinned")))
 }
 
 fn append_dependency_spans(expression: &SpannedExpr, identity: &mut Vec<u8>) {
@@ -11782,24 +11921,112 @@ mod tests {
     }
 
     #[test]
+    fn async_capture_cache_encoding_is_deterministic_and_rejects_malformed_plans() {
+        let forms = parse("((0 1 2) ((1 ()) (0 (y x))))")
+            .unwrap()
+            .into_iter()
+            .map(|form| form.expr)
+            .collect::<Vec<_>>();
+        let plans = decode_async_capture_plans(&forms).unwrap();
+        let encoded = encode_async_capture_plans(&plans);
+        assert_eq!(decode_async_capture_plans(&encoded), Some(plans));
+        assert_eq!(
+            expression_source(&encoded[0]).unwrap(),
+            "((0 1 2) ((0 (x y)) (1 ())))"
+        );
+        for source in [
+            "((0 1 2) ((0 (x x))))",
+            "((0 1 2) ((0 ()) (0 ())))",
+            "((0 2 1) ())",
+            "((-1 1 2) ())",
+            "((0 1 2) ((-1 ())))",
+            "((0 1 2) ((0 (42))))",
+            "((0 1 2) ()) ((0 1 2) ())",
+            "malformed",
+            "",
+        ] {
+            let forms = parse(source)
+                .unwrap()
+                .into_iter()
+                .map(|form| form.expr)
+                .collect::<Vec<_>>();
+            assert!(decode_async_capture_plans(&forms).is_none(), "{source}");
+        }
+    }
+
+    #[test]
     fn async_compilation_expands_generators_once_across_all_frontend_stages() {
-        let directory = std::env::temp_dir().join(format!("lim-shared-frontend-{}", std::process::id()));
+        let directory =
+            std::env::temp_dir().join(format!("lim-shared-frontend-{}", std::process::id()));
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_fn.lim");
         let source = fs::read_to_string(&path).unwrap();
         let cache = directory.join("cache");
         let config = CompileConfig::default();
-        let compile = || compile_source_with_generated_sources(
-            &source, &path, &config, &cache, TargetDescription::X86_64_SYSTEM_V,
-            None, &directory,
-        ).unwrap();
+        let compile = || {
+            compile_source_with_generated_sources(
+                &source,
+                &path,
+                &config,
+                &cache,
+                TargetDescription::X86_64_SYSTEM_V,
+                None,
+                &directory,
+            )
+            .unwrap()
+        };
+        typecheck::SEMANTIC_PASSES.with(|passes| passes.set(0));
         let (cold, cold_report) = with_cache_report(compile);
+        typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 2));
+        typecheck::SEMANTIC_PASSES.with(|passes| passes.set(0));
         let (warm, warm_report) = with_cache_report(compile);
+        typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 1));
         assert_eq!(cold, warm);
         // The example invokes three user generators. Probe parsing, final
         // parsing and artifact writing must share those three expansions.
         assert_eq!(cold_report.matches("\"kind\":\"syntax\"").count(), 3);
         assert_eq!(warm_report.matches("\"kind\":\"syntax\"").count(), 3);
         assert!(!warm_report.contains("\"missing-entry\""));
+        assert!(warm_report.contains("\"kind\":\"async-captures\""));
+        let prepared = prepare_program_syntax(
+            &source,
+            path.parent().unwrap(),
+            Some(&path),
+            &config,
+            Some(&cache),
+        )
+        .unwrap();
+        let key = format!(
+            "lim-async-captures-v1\nimplementation={}\n{}",
+            env!("LIM_BUILD_FINGERPRINT"),
+            prepared.dependency_context
+        );
+        let capture_path = generator::cache_path(&cache, &key);
+        fs::write(&capture_path, b"damaged cache").unwrap();
+        typecheck::SEMANTIC_PASSES.with(|passes| passes.set(0));
+        assert_eq!(compile(), cold);
+        typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 2));
+        // Even a checksummed but structurally invalid entry must be ignored.
+        generator::write_cached_expansion(&cache, &key, &[Expr::Symbol("invalid".into())]);
+        typecheck::SEMANTIC_PASSES.with(|passes| passes.set(0));
+        assert_eq!(compile(), cold);
+        typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 2));
+        let changed_config = {
+            let mut config = config.clone();
+            config.set("feature", "changed");
+            config
+        };
+        typecheck::SEMANTIC_PASSES.with(|passes| passes.set(0));
+        compile_source_with_generated_sources(
+            &source,
+            &path,
+            &changed_config,
+            &cache,
+            TargetDescription::X86_64_SYSTEM_V,
+            None,
+            &directory,
+        )
+        .unwrap();
+        typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 2));
         fs::remove_dir_all(directory).unwrap();
     }
 
