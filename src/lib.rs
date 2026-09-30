@@ -4181,7 +4181,6 @@ fn rename_function_locals(
         .map(|parameter| (parameter.name.clone(), parameter.name.clone()))
         .collect::<HashMap<_, _>>();
     let mut used = bindings.values().cloned().collect::<HashSet<_>>();
-    used.extend(globals.iter().cloned());
     for parameter in &function.parameters {
         if globals.contains(&parameter.name) {
             used.insert(format!("\0lim-shadow:-1:{}", parameter.name));
@@ -4257,7 +4256,7 @@ fn fresh_binding(
     loop {
         let candidate = format!("__lim_shadow_{}_{}", *next_id, name);
         *next_id += 1;
-        if used.insert(candidate.clone()) {
+        if !globals.contains(&candidate) && used.insert(candidate.clone()) {
             return candidate;
         }
     }

@@ -308,6 +308,8 @@ struct Loans {
 #[derive(Clone)]
 struct Context {
     loans: Loans,
+    // Imported globals never change; function and branch contexts share them.
+    globals: Arc<HashSet<String>>,
     returnable: HashSet<String>,
     scope_bindings: HashSet<String>,
     mutable: HashSet<String>,
@@ -423,6 +425,14 @@ fn has_child_loan(loans: &Loans, owner: &str) -> bool {
 }
 
 impl Context {
+    fn is_returnable(&self, owner: &str) -> bool {
+        self.globals.contains(owner) || self.returnable.contains(owner)
+    }
+
+    fn is_in_scope(&self, owner: &str) -> bool {
+        self.globals.contains(owner) || self.scope_bindings.contains(owner)
+    }
+
     fn write(&self, owner: &str) -> Result<(), Error> {
         self.write_place(owner, None)
     }
@@ -542,6 +552,7 @@ fn check_program_impl(
             _ => None,
         })
         .collect::<HashSet<_>>();
+    let globals = Arc::new(globals);
     let reference_types = program
         .items
         .iter()
@@ -815,7 +826,7 @@ fn check_function(
     function: &Function,
     program: &Program,
     program_items: &Arc<Vec<Item>>,
-    globals: &std::collections::HashSet<String>,
+    globals: &Arc<HashSet<String>>,
     reference_types: &Arc<HashSet<String>>,
     reference_variants: &Arc<HashSet<String>>,
     mutable_reference_types: &Arc<HashSet<String>>,
@@ -833,7 +844,7 @@ fn check_function(
         Arc<HashMap<String, Vec<crate::typed_body::ParameterLoanSummary>>>,
     >,
 ) -> Result<(), BorrowDiagnostic> {
-    let mut returnable = globals.clone();
+    let mut returnable = HashSet::new();
     let mut mutable = std::collections::HashSet::new();
     let mut mutable_references = HashSet::new();
     let mut reference_bindings = HashSet::new();
@@ -868,16 +879,12 @@ fn check_function(
     }
     let mut context = Context {
         loans: Loans::default(),
+        globals: Arc::clone(globals),
         returnable,
-        scope_bindings: globals
+        scope_bindings: function
+            .parameters
             .iter()
-            .cloned()
-            .chain(
-                function
-                    .parameters
-                    .iter()
-                    .map(|parameter| parameter.name.clone()),
-            )
+            .map(|parameter| parameter.name.clone())
             .collect(),
         mutable,
         mutable_references,
@@ -1232,7 +1239,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             check_expression(value, context)?;
             if !context.typed_return_escapes {
                 for owner in reference_origins(value, context, context.return_contains_references) {
-                    if !context.returnable.contains(&owner) {
+                    if !context.is_returnable(&owner) {
                         return Err(failure!(
                             "cannot return a value retaining a reference to local '{owner}'"
                         ));
@@ -1880,9 +1887,8 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                                 return Err(failure!("{operator} place has no tracked owner"));
                             }
                             if !context.allow_local_reference {
-                                if let Some(owner) = origins
-                                    .iter()
-                                    .find(|owner| !context.returnable.contains(*owner))
+                                if let Some(owner) =
+                                    origins.iter().find(|owner| !context.is_returnable(owner))
                                 {
                                     return Err(failure!(
                                         "cannot return a reference to local variable '{owner}'"
@@ -2908,7 +2914,7 @@ fn borrow_place_loans(place: &Expr, context: &Context) -> Vec<(String, String)> 
 fn ensure_origins_in_scope(origins: &HashSet<String>, context: &Context) -> Result<(), Error> {
     if let Some(owner) = origins
         .iter()
-        .filter(|owner| !context.scope_bindings.contains(*owner))
+        .filter(|owner| !context.is_in_scope(owner))
         .min()
     {
         return Err(failure!(
