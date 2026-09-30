@@ -2949,6 +2949,12 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             let Some(place) = Place::from_expression(body, id) else {
                 return Vec::new();
             };
+            let lifetime_only = match place.root {
+                PlaceRoot::Local(binding) => {
+                    state[binding.0].iter().any(|origin| origin.lifetime_only)
+                }
+                _ => false,
+            };
             let borrowed_from = match &place.root {
                 PlaceRoot::Local(binding)
                     if matches!(
@@ -2973,9 +2979,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     span: node.span,
                     storage: Vec::new(),
                     parameter_storage: None,
-                    lifetime_only: borrowed_from.is_some_and(|binding| {
-                        state[binding.0].iter().any(|origin| origin.lifetime_only)
-                    }),
+                    lifetime_only,
                 })
                 .collect()
         }
