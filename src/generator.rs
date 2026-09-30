@@ -1006,6 +1006,8 @@ pub(crate) fn cached_generated_source(
     key: &str,
     generate: impl FnOnce() -> Result<String, String>,
 ) -> Result<String, String> {
+    let formatted_key = format!("lim-generated-source-format-v1\n{key}");
+    let key = formatted_key.as_str();
     let digest = stable_hash(key.as_bytes());
     let path = directory.join(format!("generated-{digest:032x}.lim"));
     let key_path = directory.join(format!("generated-{digest:032x}.key"));
@@ -1042,7 +1044,7 @@ pub(crate) fn cached_generated_source(
             "missing-entry"
         },
     );
-    let source = generate()?;
+    let source = format_generated_source(&generate()?)?;
     fs::create_dir_all(directory)
         .map_err(|error| format!("cannot create generated-source cache: {error}"))?;
     publish_cache_file(&path, source.as_bytes(), "generated source")?;
@@ -1055,6 +1057,58 @@ pub(crate) fn cached_generated_source(
         "generated-source cache digest",
     )?;
     Ok(source)
+}
+
+/// Keep declarations at column zero and indent their bodies structurally.
+/// Templates supply syntax; their incidental whitespace is never published.
+fn format_generated_source(source: &str) -> Result<String, String> {
+    fn render(expression: &Expr, indent: usize) -> Result<String, String> {
+        let flat = crate::expression_source(expression)?;
+        let Expr::List(items) = expression else {
+            return Ok(flat);
+        };
+        let head = match items.first() {
+            Some(Expr::Symbol(head)) => head.as_str(),
+            _ => "",
+        };
+        let prefix = match head {
+            "#fn" | "#unsafe-fn" => 4,
+            "#case" | "#call" | "#match" | "#if" => 2,
+            "#enum" | "#struct" | "#struct-literal" => 2,
+            "#let" | "#let-mut" => 3,
+            "#thread-task" => 3,
+            _ => 1,
+        };
+        if items.len() <= prefix
+            || (!matches!(head, "#fn" | "#unsafe-fn") && indent + flat.len() <= 100)
+        {
+            return Ok(flat);
+        }
+        let mut output = String::from("(");
+        for (index, item) in items[..prefix].iter().enumerate() {
+            if index != 0 {
+                output.push(' ');
+            }
+            output.push_str(&crate::expression_source(item)?);
+        }
+        for item in &items[prefix..] {
+            output.push('\n');
+            output.push_str(&" ".repeat(indent + 2));
+            output.push_str(&render(item, indent + 2)?);
+        }
+        output.push(')');
+        Ok(output)
+    }
+
+    let mut output = String::new();
+    for parsed in crate::parse(source)? {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str(&render(&parsed.expr, 0)?);
+        output.push('\n');
+    }
+    Ok(output)
 }
 
 fn generated_source_digest(key: &str, source: &str) -> String {
@@ -1594,6 +1648,36 @@ mod tests {
     }
 
     #[test]
+    fn generated_source_formatting_preserves_syntax_and_cache_hits() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-generated-format-{}", std::process::id()));
+        let raw = "\n         (#fn start ((value u64)) u64\n(#return value))\n               (#fn other () (#array char 3) (#return \"()\\n\"))";
+        let formatted =
+            cached_generated_source(&directory, "formatting", || Ok(raw.into())).unwrap();
+        assert_eq!(
+            formatted,
+            "(#fn start ((value u64)) u64\n  (#return value))\n\n(#fn other () (#array char 3)\n  (#return \"()\\n\"))\n"
+        );
+        let syntax = |source: &str| {
+            crate::parse(source)
+                .unwrap()
+                .into_iter()
+                .map(|parsed| parsed.expr)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(syntax(raw), syntax(&formatted));
+        assert_eq!(format_generated_source(&formatted).unwrap(), formatted);
+        assert_eq!(
+            cached_generated_source(&directory, "formatting", || {
+                panic!("formatted cache hit must not rerun the generator")
+            })
+            .unwrap(),
+            formatted
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn inspectable_generated_source_cache_uses_the_full_key_and_reuses_source() {
         let directory =
             std::env::temp_dir().join(format!("lim-inspectable-cache-{}", std::process::id()));
@@ -1702,9 +1786,9 @@ mod tests {
             assert_eq!(
                 worker.join().unwrap(),
                 if index % 2 == 0 {
-                    "(#type Shared u64)"
+                    "(#type Shared u64)\n"
                 } else {
-                    "(#type Other u64)"
+                    "(#type Other u64)\n"
                 }
             );
         }
@@ -1713,14 +1797,14 @@ mod tests {
                 Err("concurrent cache entry was not published coherently".into())
             })
             .unwrap(),
-            "(#type Shared u64)"
+            "(#type Shared u64)\n"
         );
         assert_eq!(
             cached_generated_source(&directory, "other-key", || {
                 Err("concurrent cache entry was not published coherently".into())
             })
             .unwrap(),
-            "(#type Other u64)"
+            "(#type Other u64)\n"
         );
         assert!(fs::read_dir(&directory)
             .unwrap()

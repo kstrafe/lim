@@ -507,8 +507,9 @@ fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel()
 fn pinned_async_frame_retains_enum_payload_reference_across_pending() {
     let source = include_str!("../examples/async_fn_enum_self_reference.lim");
     let generated = build_and_run(source, 42);
+    let compact = generated.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        generated.contains(
+        compact.contains(
             "(#pin-borrow (#get (#pin-get-payload (#pin-borrow (#get (#get task owner) choice)) Number 0) value))"
         ),
         "the frame should reborrow a struct field nested in the selected enum payload: {generated}"
@@ -533,10 +534,10 @@ fn pinned_async_frame_retains_enum_payload_reference_across_pending() {
 fn pinned_async_frame_promotes_a_local_owner_before_self_borrowing_it() {
     let source = include_str!("../examples/async_fn_local_self_reference.lim");
     let generated = build_and_run(source, 42);
+    let compact = generated.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        generated.contains(
-            "(#fn local-self-ref ((seed u64)) LocalSelfRefFrame\n(#let owner LocalOwner",
-        ),
+        compact
+            .contains("(#fn local-self-ref ((seed u64)) LocalSelfRefFrame (#let owner LocalOwner",),
         "the owner must be initialized before the frame is returned: {generated}"
     );
     assert!(
