@@ -2757,6 +2757,12 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 };
                 let pinned =
                     inherited_pin || matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut");
+                let lifetime_only = match place.root {
+                    PlaceRoot::Local(binding) => {
+                        state[binding.0].iter().any(|origin| origin.lifetime_only)
+                    }
+                    _ => false,
+                };
                 let borrowed_from = match &place.root {
                     PlaceRoot::Local(binding)
                         if matches!(
@@ -2782,9 +2788,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                         span: node.span,
                         storage: Vec::new(),
                         parameter_storage: None,
-                        lifetime_only: borrowed_from.is_some_and(|binding| {
-                            state[binding.0].iter().any(|origin| origin.lifetime_only)
-                        }),
+                        lifetime_only,
                     })
                     .collect()
             })

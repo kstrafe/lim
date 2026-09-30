@@ -9194,6 +9194,34 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn lifetime_only_provenance_survives_aggregate_reborrowing() {
+        let source = "(#struct Resource ((number u64)))
+          (#struct Holder ((value (#ref-mut Resource))))
+          (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) ()
+            (#let raw (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
+            (#let-mut holder Holder (#struct-literal Holder ((value raw))))
+            (#let parent (#ref-mut Holder) (#borrow-mut holder))
+            (#let derived (#ref-mut u64) (#borrow-mut (#get (#get parent value) number)))
+            (#forget derived) (#forget parent) (#forget holder) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let binding = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "derived")
+                .unwrap(),
+        );
+        let release = crate::typed_flow::FlowNodeId(flow.nodes.iter().position(|node| matches!(&node.action,
+            crate::typed_flow::FlowAction::Release { place, .. } if place.root == crate::typed_body::PlaceRoot::Local(binding))).unwrap());
+        let origins = flow.loan_origins(body);
+        let held = origins.before(release, binding);
+        assert!(!held.is_empty());
+        assert!(held.iter().all(|origin| origin.lifetime_only));
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
