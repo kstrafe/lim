@@ -1792,7 +1792,16 @@ captured mutable values, including writes through explicitly borrowed places,
 are returned by the generated iteration task. Terminal `#continue` runs the
 step; terminal `#break` and `#return` skip it. See
 `examples/async_for_computed_step.lim` for a runnable example. This does not
-yet imply support for arbitrary nonterminal control transfers in async bodies.
+yet imply support for arbitrary control transfers in async bodies.
+
+Conditional early `#continue`, `#break`, and `#return` can precede later awaits
+inside an iteration. The compiler keeps the remaining statements only on
+fall-through paths, so skipped work is not evaluated or polled. Scoped branch
+locals and match payloads remain unavailable after the branch; shadowing and
+explicit consumption checks still apply. An early `#continue` in `#for` runs
+the step before reevaluating the condition. `examples/async_early_continue.lim`
+shows a first iteration skipping its body await and a later iteration resuming
+that await before returning.
 
 `#for-range` is shorthand with a typed binding, start, and end.  Its bounds
 are explicit and the range is half-open:

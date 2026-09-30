@@ -3030,6 +3030,13 @@ fn parse_prepared_program_with_async_captures(
                             async_function_statement_source(&source_expression, statement_index)
                         })
                         .and_then(|statement| {
+                            if let Some(name) = error.split_once("unknown value '")
+                                .and_then(|(_, rest)| rest.split_once("' outside").map(|(name, _)| name))
+                            {
+                                if let Some(span) = source_value_symbol_span(statement, name) {
+                                    return Some(span);
+                                }
+                            }
                             if error.contains("body cannot return")
                                 || error.contains("does not support body returns")
                             {
@@ -3520,6 +3527,61 @@ fn normalize_function_calls(
         }
     }
     Ok(())
+}
+
+/// Find a value use, excluding declarations, types, field names, and argument
+/// labels. Async branch-scope diagnostics must underline the escaped use,
+/// not its earlier declaration or an unrelated same-spelled field.
+fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span> {
+    if matches!(&expression.expr, Expr::Symbol(symbol) if symbol == name) {
+        return Some(expression.span);
+    }
+    let children = &expression.children;
+    let head = match &expression.expr {
+        Expr::List(items) => items.first().and_then(|item| match item {
+            Expr::Symbol(head) => Some(head.as_str()),
+            _ => None,
+        }),
+        _ => None,
+    };
+    let visit = |index: usize| {
+        children
+            .get(index)
+            .and_then(|child| source_value_symbol_span(child, name))
+    };
+    match head {
+        Some("#quote" | "#quasiquote" | "#literal") => None,
+        Some("#let" | "#let-mut") => visit(3),
+        Some("#let-else") => visit(4).or_else(|| visit(3)),
+        Some("#get" | "#get-payload") => visit(1),
+        Some("#await") => children
+            .last()
+            .and_then(|child| source_value_symbol_span(child, name)),
+        Some("#call") => children.get(2).and_then(|arguments| {
+            arguments.children.iter().rev().find_map(|pair| {
+                pair.children
+                    .get(1)
+                    .and_then(|value| source_value_symbol_span(value, name))
+            })
+        }),
+        Some("#struct-literal") => children.get(2).and_then(|fields| {
+            fields.children.iter().rev().find_map(|pair| {
+                pair.children
+                    .get(1)
+                    .and_then(|value| source_value_symbol_span(value, name))
+            })
+        }),
+        Some("#case") => children
+            .iter()
+            .skip(2)
+            .rev()
+            .find_map(|child| source_value_symbol_span(child, name)),
+        _ => children
+            .iter()
+            .skip(usize::from(head.is_some()))
+            .rev()
+            .find_map(|child| source_value_symbol_span(child, name)),
+    }
 }
 
 fn collect_source_symbol_spans(expression: &SpannedExpr, name: &str, spans: &mut Vec<Span>) {
@@ -11899,6 +11961,15 @@ mod tests {
             parse_program("(#fn main () u64 (#return (#if (#char.== #\\a #\\a) 42 0)))").unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).unwrap().contains("mov rax, 97"));
+    }
+
+    #[test]
+    fn async_scope_span_lookup_ignores_same_spelled_non_value_symbols() {
+        let source = "(#block local (#let local u64 1u64) (#get value local) (#call work (: local value)) (#struct-literal Holder ((local value))))";
+        let parsed = parse(source).unwrap();
+        let span = source_value_symbol_span(&parsed[0], "local").unwrap();
+        assert_eq!(span.start, source.find("local").unwrap());
+        assert_eq!(&source[span.start..span.end], "local");
     }
 
     #[test]

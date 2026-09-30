@@ -7356,6 +7356,141 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
 }
 
 #[test]
+fn async_early_continue_skips_the_rest_of_the_iteration() {
+    let source = include_str!("../examples/async_early_continue.lim");
+    build_and_run(source, 42);
+    let matched = source.replace(
+        "(#if (#u64.== index 1u64) (#continue) ())",
+        "(#match index (#case 1u64 (#continue)) (#case _ ()))",
+    );
+    assert_ne!(matched, source);
+    build_and_run(&matched, 42);
+    let guarded = format!("(#enum Index ((Current u64)))\n{}", source.replace(
+        "(#if (#u64.== index 1u64) (#continue) ())",
+        "(#match (Current index) (#case (Current amount) (#when (#u64.== amount 1u64)) (#continue)) (#case _ ()))",
+    ));
+    assert_ne!(guarded, source);
+    build_and_run(&guarded, 42);
+
+    let scoped = source.replace(
+        "(#if (#u64.== index 1u64) (#continue) ())",
+        "(#if (#u64.== index 1u64) (#block (#let local u64 1u64) (#assert (#u64.== local 1u64)) (#continue)) ())",
+    );
+    assert_ne!(scoped, source);
+    build_and_run(&scoped, 42);
+    let reused_local = scoped
+        .replace("(#let value u64", "(#let local u64")
+        .replace("(#u64.+.wrap value index)", "(#u64.+.wrap local index)");
+    build_and_run(&reused_local, 42);
+    let nested = source.replace(
+        "(#set index (#u64.+.wrap index 1u64))",
+        "(#set index (#u64.+.wrap index 1u64)) (#for-range (inner u64) 0u64 1u64 (#break))",
+    );
+    build_and_run(&nested, 42);
+    let short_main = "(#fn main () u64
+      (#let waker u64 0u64)
+      (#let first Poll (#call poll (: task (#call work ()) : waker (#borrow waker))))
+      (#let-else (Pending task) Poll first (#unreachable))
+      (#let second Poll (#call poll (: task task : waker (#borrow waker))))
+      (#return (#match second
+        (#case (Ready value) value)
+        (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+    let work = source.split_once("(#fn main").unwrap().0;
+    let broken = format!(
+        "{}{}",
+        work.replace("(#continue)", "(#break)")
+            .replace("(#return 0u64)", "(#return 42u64)"),
+        short_main
+    );
+    build_and_run(&broken, 42);
+    let returned = format!(
+        "{}{}",
+        work.replace("(#continue)", "(#return 41u64)"),
+        short_main
+    );
+    build_and_run(&returned, 41);
+    let for_loop = source.replace(
+        "(#while (#await bool ConditionTask ConditionPending ConditionReady condition-poll (Check index))\n      (#set index (#u64.+.wrap index 1u64))",
+        "(#for () (#await bool ConditionTask ConditionPending ConditionReady condition-poll (Check index))\n      (#set index (#u64.+.wrap index 1u64))",
+    ).replace("(#u64.== index 1u64)", "(#u64.== index 0u64)");
+    assert_ne!(for_loop, source);
+    build_and_run(&for_loop, 41);
+}
+
+#[test]
+fn terminalized_async_branches_preserve_lexical_scope_and_shadowing_rules() {
+    let source = include_str!("../examples/async_early_continue.lim");
+    let scoped = source.replace(
+        "(#if (#u64.== index 1u64) (#continue) ())",
+        "(#if (#u64.== index 1u64) (#block (#let local u64 1u64) (#continue)) ())",
+    );
+    let scratch = support::Scratch::new("async-terminal-scope");
+    let input = scratch.path().join("scope.lim");
+    let leaked = scoped.replace("(#u64.+.wrap value index)", "(#u64.+.wrap value local)");
+    let error = lim::compile_source_to_assembly(
+        &leaked,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("local") && error.message.contains("unknown"),
+        "{error:?}"
+    );
+    let span = error.span.expect("escaped branch-local use span");
+    assert_eq!(&leaked[span.start..span.end], "local");
+    assert_eq!(
+        span.start,
+        leaked.find("value local").unwrap() + "value ".len()
+    );
+    let shadowed = scoped.replace("(#let local u64 1u64)", "(#let index u64 1u64)");
+    let error = lim::compile_source_to_assembly(
+        &shadowed,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("shadow"), "{error:?}");
+    let span = error.span.expect("original shadowed declaration span");
+    assert_eq!(&shadowed[span.start..span.end], "index");
+    let global_shadow = format!("(#const local u64 9u64)\n{scoped}");
+    let error = lim::compile_source_to_assembly(
+        &global_shadow,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("shadow"), "{error:?}");
+    let resource = format!(
+        "(#struct Resource ((value u64))) (#linear Resource)\n{}",
+        scoped.replace(
+            "(#let local u64 1u64)",
+            "(#let local Resource (#struct-literal Resource ((value 1u64))))",
+        )
+    );
+    let error = lim::compile_source_to_assembly(
+        &resource,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("local") && error.message.contains("consumed"),
+        "{error:?}"
+    );
+    let consumed = resource.replace("(#continue)", "(#forget local) (#continue)");
+    build_and_run(&consumed, 42);
+}
+
+#[test]
 fn async_for_computed_step_composes_with_awaited_condition() {
     let source = include_str!("../examples/async_for_computed_step.lim");
     build_and_run(source, 42);

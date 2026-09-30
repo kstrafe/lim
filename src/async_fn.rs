@@ -501,6 +501,34 @@ fn rewrite_async_non_loop_returns(expression: &mut Expr, ready: &str) -> Result<
     Ok(())
 }
 
+fn mark_suspending_returns(expression: &mut Expr, result_type: &Expr) {
+    fn visit(expression: &mut Expr, result_type: &Expr) {
+        let Expr::List(items) = expression else {
+            return;
+        };
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let-else" | "#while" | "#while-let" | "#for" | "#for-range" | "#loop" | "#fn" | "#quote" | "#quasiquote"))
+        {
+            return;
+        }
+        if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#return")
+            && items.len() == 2
+        {
+            *expression = Expr::List(vec![
+                Expr::Symbol("#async-terminal-return".into()),
+                result_type.clone(),
+                items[1].clone(),
+            ]);
+            return;
+        }
+        for item in items.iter_mut().skip(1) {
+            visit(item, result_type);
+        }
+    }
+    if has_await(expression) {
+        visit(expression, result_type);
+    }
+}
+
 fn rewrite_async_loop_body_statement(statement: &mut Expr, ready: &str) -> Result<(), String> {
     if let Some(return_form) = form(statement, "#return").or_else(|| form(statement, "return")) {
         if return_form.len() != 2 {
@@ -3197,6 +3225,47 @@ fn extract_statement_awaits(
     if !has_await(statement) {
         return Ok(());
     }
+    fn all_branches_return(expression: &Expr) -> bool {
+        if form(expression, "#async-terminal-return").is_some() {
+            return true;
+        }
+        if let Some(block) = form(expression, "#block") {
+            return block.last().is_some_and(all_branches_return);
+        }
+        if let Some(items) = form(expression, "#if") {
+            return items.len() == 4
+                && all_branches_return(&items[2])
+                && all_branches_return(&items[3]);
+        }
+        if let Some(items) = form(expression, "#match") {
+            return items.len() >= 3
+                && items[2..].iter().all(|arm| {
+                    form(arm, "#case")
+                        .and_then(|case| case.last())
+                        .is_some_and(all_branches_return)
+                });
+        }
+        false
+    }
+    if form(statement, "#async-terminal-return").is_none() && all_branches_return(statement) {
+        let result_type =
+            async_terminal_return_type(statement).expect("marked terminal return type");
+        extract_nested_awaits(
+            statement,
+            generated,
+            generated_helpers,
+            known,
+            source,
+            next_name,
+            waker,
+        )?;
+        *statement = Expr::List(vec![
+            Expr::Symbol("#async-terminal-return".into()),
+            result_type,
+            statement.clone(),
+        ]);
+        return Ok(());
+    }
     let mut discarded_awaits = Vec::new();
     if form(statement, "#await").is_some()
         || form(statement, "#block").is_some()
@@ -3446,7 +3515,9 @@ fn async_while_body_child(
             let Some(last) = items.last() else {
                 return Ok(None);
             };
-            let Some(status) = terminal_status(last)? else {
+            let Some(status) = terminal_status(last)?
+                .or_else(|| form(last, "#return").is_some().then(|| last.clone()))
+            else {
                 return Ok(None);
             };
             if items[..items.len() - 1].iter().any(has_outer_loop_control) {
@@ -4645,7 +4716,9 @@ fn lower_async_while(
             (None, String::new())
         };
         let return_index = items.len().saturating_sub(1);
-        let body_exit = if items.len() >= 3 {
+        let body_exit = if items.len() >= 3
+            && !(items[2..].iter().any(has_await) && contains_loop_control(&items[return_index]))
+        {
             async_terminal_loop_exit_with_return_marker(
                 &items[return_index],
                 return_value,
@@ -8830,6 +8903,211 @@ fn contains_loop_control(expression: &Expr) -> bool {
     }
 }
 
+/// Move an iteration's remaining statements into its fall-through branches.
+/// Loop transfers then remain terminal even when written before a suspension.
+fn terminalize_async_iterations(
+    expression: &mut Expr,
+    source: &str,
+    next_name: &mut usize,
+) -> Result<(), String> {
+    fn exits(expression: &Expr) -> bool {
+        let Expr::List(items) = expression else {
+            return false;
+        };
+        match items.first() {
+            Some(Expr::Symbol(head))
+                if matches!(head.as_str(), "#break" | "#continue" | "#return") =>
+            {
+                true
+            }
+            Some(Expr::Symbol(head))
+                if matches!(
+                    head.as_str(),
+                    "#while"
+                        | "#while-let"
+                        | "#for"
+                        | "#for-range"
+                        | "#loop"
+                        | "#fn"
+                        | "#quote"
+                        | "#quasiquote"
+                ) =>
+            {
+                false
+            }
+            _ => items.iter().skip(1).any(exits),
+        }
+    }
+    fn sequence(body: &[Expr], source: &str, next: &mut usize) -> Result<Vec<Expr>, String> {
+        let Some(index) = body
+            .iter()
+            .take(body.len().saturating_sub(1))
+            .position(exits)
+        else {
+            return Ok(body.to_vec());
+        };
+        let mut result = body[..index].to_vec();
+        result.push(append(&body[index], &body[index + 1..], source, next)?);
+        Ok(result)
+    }
+    fn scoped_branch(
+        branch: &Expr,
+        tail: &[Expr],
+        source: &str,
+        next: &mut usize,
+    ) -> Result<Expr, String> {
+        let mut branch = branch.clone();
+        let mut locals = HashSet::new();
+        collect_local_binding_names(&branch, &mut locals);
+        let mut locals = locals.into_iter().collect::<Vec<_>>();
+        locals.sort();
+        let mut tail_values = HashSet::new();
+        let mut tail_locals = HashSet::new();
+        for statement in tail {
+            collect_value_names(statement, &mut tail_values);
+            collect_local_binding_names(statement, &mut tail_locals);
+        }
+        // The continuation cannot refer to a branch-local binding. Preserve
+        // original names for ordinary global-shadowing checks; freshen only
+        // when the continuation independently declares the same spelling.
+        fn rename_declarations(expression: &mut Expr, from: &str, to: &str) {
+            let Expr::List(items) = expression else {
+                return;
+            };
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "#quasiquote"))
+            {
+                return;
+            }
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut" | "#let-else" | "#case" | "#if-let" | "#while-let"))
+            {
+                if let Some(pattern) = items.get_mut(1) {
+                    rename_async_value(pattern, from, to);
+                }
+            }
+            for item in items.iter_mut().skip(1) {
+                rename_declarations(item, from, to);
+            }
+        }
+        for local in locals {
+            if tail_values.contains(&local) && !tail_locals.contains(&local) {
+                return Err(format!("unknown value '{local}' outside its branch scope"));
+            }
+            if !tail_locals.contains(&local) {
+                continue;
+            }
+            let fresh = fresh_async_name(source, next);
+            rename_async_value(&mut branch, &local, &fresh);
+            rename_declarations(&mut branch, &local, &fresh);
+        }
+        let mut statements = if let Some(block) = form(&branch, "#block") {
+            block[1..].to_vec()
+        } else {
+            vec![branch]
+        };
+        statements.extend_from_slice(tail);
+        Ok(Expr::List(
+            std::iter::once(Expr::Symbol("#block".into()))
+                .chain(sequence(&statements, source, next)?)
+                .collect(),
+        ))
+    }
+    fn append(
+        expression: &Expr,
+        tail: &[Expr],
+        source: &str,
+        next: &mut usize,
+    ) -> Result<Expr, String> {
+        if form(expression, "#break").is_some()
+            || form(expression, "#continue").is_some()
+            || form(expression, "#return").is_some()
+        {
+            return Ok(expression.clone());
+        }
+        if let Some(items) = form(expression, "#if") {
+            if items.len() == 4 && !exits(&items[1]) {
+                return Ok(Expr::List(vec![
+                    items[0].clone(),
+                    items[1].clone(),
+                    scoped_branch(&items[2], tail, source, next)?,
+                    scoped_branch(&items[3], tail, source, next)?,
+                ]));
+            }
+        }
+        if let Some(items) = form(expression, "#match") {
+            if items.len() >= 3 && !exits(&items[1]) {
+                let mut rewritten = items[..2].to_vec();
+                for arm in &items[2..] {
+                    let mut case = form(arm, "#case")
+                        .ok_or_else(|| "@async-fn iteration match requires #case arms".to_owned())?
+                        .to_vec();
+                    let body_index = match case.len() {
+                        3 => 2,
+                        4 if form(&case[2], "#when").is_some() => 3,
+                        _ => return Err("@async-fn iteration match has an invalid arm".into()),
+                    };
+                    let mut names = pattern_symbols(&case[1]).into_iter().collect::<Vec<_>>();
+                    names.sort();
+                    let mut tail_values = HashSet::new();
+                    let mut tail_locals = HashSet::new();
+                    for statement in tail {
+                        collect_value_names(statement, &mut tail_values);
+                        collect_local_binding_names(statement, &mut tail_locals);
+                    }
+                    for name in names {
+                        if tail_values.contains(&name) && !tail_locals.contains(&name) {
+                            return Err(format!(
+                                "unknown value '{name}' outside its match arm scope"
+                            ));
+                        }
+                        if !tail_locals.contains(&name) {
+                            continue;
+                        }
+                        let fresh = fresh_async_name(source, next);
+                        for part in &mut case[1..] {
+                            rename_async_value(part, &name, &fresh);
+                        }
+                    }
+                    case[body_index] = scoped_branch(&case[body_index], tail, source, next)?;
+                    rewritten.push(Expr::List(case));
+                }
+                return Ok(Expr::List(rewritten));
+            }
+        }
+        if form(expression, "#block").is_some() {
+            return scoped_branch(expression, tail, source, next);
+        }
+        Err("@async-fn cannot yet terminalize a loop transfer inside this expression".into())
+    }
+    let Expr::List(items) = expression else {
+        return Ok(());
+    };
+    if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#fn" | "#quote" | "#quasiquote"))
+    {
+        return Ok(());
+    }
+    let body_start = match items.first() {
+        Some(Expr::Symbol(head)) => match head.as_str() {
+            "#while" => Some(2),
+            "#while-let" => Some(3),
+            "#for" | "#for-range" => Some(4),
+            "#loop" => Some(1),
+            _ => None,
+        },
+        _ => None,
+    };
+    for item in items.iter_mut().skip(1) {
+        terminalize_async_iterations(item, source, next_name)?;
+    }
+    if let Some(start) = body_start.filter(|start| *start < items.len()) {
+        if items[start..].iter().any(has_await) {
+            let body = sequence(&items[start..], source, next_name)?;
+            items.truncate(start);
+            items.extend(body);
+        }
+    }
+    Ok(())
+}
+
 /// Async loop lowering operates on the loop form itself. A label around an
 /// awaited loop would otherwise be mistaken for an ordinary value-producing
 /// form, causing await extraction to detach the label from its loop. Remove
@@ -10483,12 +10761,15 @@ fn generated_source_with_capture_selection(
     let source = expression_source(&invocation[4])?;
     let waker_source = expression_source(&invocation[3])?;
     let mut statements = body[..body.len() - 1].to_vec();
-    for statement in &mut statements {
+    let mut next_nested_await = 0;
+    for (source_index, statement) in statements.iter_mut().enumerate() {
         lower_labeled_async_loop(statement)?;
+        terminalize_async_iterations(statement, &source, &mut next_nested_await)
+            .map_err(|error| format!("async statement {source_index}: {error}"))?;
         rewrite_async_synchronous_loop_returns(statement, &ready)?;
+        mark_suspending_returns(statement, &function[3]);
         rewrite_async_non_loop_returns(statement, &ready)?;
     }
-    let mut next_nested_await = 0;
     let mut generated_helpers = Vec::new();
     let mut lowered_statements = Vec::new();
     let mut lowering_known = known.clone();

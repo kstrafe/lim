@@ -1588,6 +1588,16 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   borrowed scalar/field/element mutation, and Copy versus linear match payloads.
   Include and run a native example. Arbitrary async control flow remains open
   under the parent ASYNC-01 item.
+- [x] **ASYNC-01-EARLY-TRANSFER: Preserve conditional iteration exits before awaits.**
+  Structurally move iteration continuations into fall-through branches of
+  `#if`, `#match`, and blocks. Preserve lexical scope, local/global shadowing
+  rejection, guarded patterns, nested-loop boundaries, and explicit linear
+  consumption. Route suspending conditional returns as returned values, not
+  discarded expressions; retain the separate let-else lowering path. Test
+  early continue/break/return, for-loop step execution, scoped name reuse,
+  rejected out-of-scope values, and exact escaped-use underlines. Add and run
+  a native example. General source-level typed suspension analysis and other
+  arbitrary control-flow forms remain open under ASYNC-01.
 - [x] **ASYNC-01a: Define pinning as a checked place guarantee.** Add explicit
   pinned types and pinned references without generic traits. Establish stable
   stack and allocator-backed places before creating internal references;
