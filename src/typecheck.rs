@@ -9055,6 +9055,178 @@ mod typed_ownership_tests {
     use super::*;
 
     #[test]
+    fn projected_replacements_require_explicit_linear_consumption() {
+        let resource = "(#struct-literal Resource ((number 1u64)))";
+        for (declaration, ty, constructor, projection, setter) in [
+            (
+                "(#struct Owner ((item Resource)))",
+                "Owner",
+                format!("(#struct-literal Owner ((item {resource})))"),
+                "(#get owner item)",
+                "#set-field owner item",
+            ),
+            (
+                "(#struct Owner ((item Resource))) (#linear Owner)",
+                "Owner",
+                format!("(#struct-literal Owner ((item {resource})))"),
+                "(#get owner item)",
+                "#set-field owner item",
+            ),
+            (
+                "",
+                "(#tuple Resource)",
+                format!("(#tuple {resource})"),
+                "(#get owner 0)",
+                "#set-field owner 0",
+            ),
+            (
+                "",
+                "(#array Resource 1)",
+                format!("(#array {resource})"),
+                "(#index owner 0u64)",
+                "#set-index owner 0u64",
+            ),
+            (
+                "(#enum Owner ((Item Resource)))",
+                "Owner",
+                format!("(Item {resource})"),
+                "(#get-payload owner Item 0)",
+                "#set-payload owner Item 0",
+            ),
+        ] {
+            for consumed in [false, true] {
+                let before = if consumed {
+                    format!("(#forget {projection})")
+                } else {
+                    String::new()
+                };
+                let assignment = format!("({setter} {resource})");
+                let source = format!(
+                    "(#struct Resource ((number u64))) (#linear Resource)
+                     {declaration}
+                     (#fn main () u64
+                       (#let-mut owner {ty} {constructor})
+                       {before}
+                       {assignment}
+                       (#forget owner)
+                       (#return 0u64))"
+                );
+                let program = crate::parse_program(&source).unwrap();
+                let declarations = resolve_program_for_analysis(&program, false).unwrap();
+                let types = crate::linearcheck::LinearTypes::from_program(&program);
+                let results = declarations.flows["main"].check_linear_ownership(
+                    &declarations.bodies["main"],
+                    &types,
+                    &declarations,
+                );
+                if consumed {
+                    for result in results {
+                        result.unwrap();
+                    }
+                    crate::check_types(&program).unwrap();
+                } else {
+                    let error = results.into_iter().last().unwrap().unwrap_err();
+                    assert!(
+                        error
+                            .message
+                            .contains("assignment would destroy live linear projection"),
+                        "{error:?}"
+                    );
+                    let span = error.span.unwrap();
+                    assert_eq!(&source[span.start..span.end], assignment);
+                    assert!(crate::check_types(&program).is_err());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unknown_indices_do_not_prove_projected_consumption() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn main () u64
+            (#let-mut owner (#array Resource 1)
+              (#array (#struct-literal Resource ((number 1u64)))))
+            (#let index u64 0u64)
+            (#forget (#index owner index))
+            (#set-index owner index (#struct-literal Resource ((number 2u64))))
+            (#forget owner)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let results = declarations.flows["main"].check_linear_ownership(
+            &declarations.bodies["main"],
+            &types,
+            &declarations,
+        );
+        let error = results.into_iter().last().unwrap().unwrap_err();
+        let span = error.span.unwrap();
+        assert!(source[span.start..span.end].starts_with("(#set-index owner index"));
+
+        // Reviving an unknown slot after whole-array consumption must not
+        // leave the newly initialized linear member invisible to cleanup.
+        let source = source
+            .replace("(#forget (#index owner index))", "(#forget owner)")
+            .replace(
+                "            (#forget owner)\n            (#return",
+                "            (#return",
+            );
+        let program = crate::parse_program(&source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let results = declarations.flows["main"].check_linear_ownership(
+            &declarations.bodies["main"],
+            &types,
+            &declarations,
+        );
+        results.into_iter().last().unwrap().unwrap_err();
+    }
+
+    #[test]
+    fn projected_aggregate_replacement_requires_all_nested_leaves() {
+        for consumed_second in [false, true] {
+            let members = "(#struct-literal Members
+              ((first (#struct-literal Resource ((number 1u64))))
+               (second (#struct-literal Resource ((number 2u64))))))";
+            let second = if consumed_second {
+                "(#forget (#get (#get owner members) second))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#struct Members ((first Resource) (second Resource)))
+                 (#struct Owner ((members Members)))
+                 (#fn main () u64
+                   (#let-mut owner Owner (#struct-literal Owner ((members {members}))))
+                   (#forget (#get (#get owner members) first))
+                   {second}
+                   (#set-field owner members {members})
+                   (#forget owner)
+                   (#return 0u64))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let results = declarations.flows["main"].check_linear_ownership(
+                &declarations.bodies["main"],
+                &types,
+                &declarations,
+            );
+            if consumed_second {
+                for result in results {
+                    result.unwrap();
+                }
+                crate::check_types(&program).unwrap();
+            } else {
+                let error = results.into_iter().last().unwrap().unwrap_err();
+                assert!(error.message.contains("assignment would destroy"));
+                assert!(crate::check_types(&program).is_err());
+            }
+        }
+    }
+
+    #[test]
     fn typed_flow_requires_consumption_before_replacing_linear_locals() {
         for (before, replacement, valid) in [
             ("", "(#struct-literal Resource ((number 2u64)))", false),

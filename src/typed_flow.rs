@@ -1250,13 +1250,13 @@ impl FlowGraph {
     }
 
     /// Share the move-flow solution between use checks and exit diagnostics.
-    /// Keep all three results so callers can retain their diagnostic priority.
+    /// Keep individual results so callers retain their diagnostic priority.
     pub fn check_linear_ownership(
         &self,
         body: &Body,
         types: &LinearTypes,
         declarations: &crate::typed_ir::Declarations,
-    ) -> [Result<(), ReleaseConflict>; 3] {
+    ) -> [Result<(), ReleaseConflict>; 4] {
         // No move or destruction obligation can arise without a linear
         // binding or expression. References and Copy-only aggregates still
         // undergo the separate borrow checks.
@@ -1269,14 +1269,68 @@ impl FlowGraph {
                 .iter()
                 .any(|node| node.ty.as_ref().is_some_and(|ty| types.is_linear(ty)))
         {
-            return [Ok(()), Ok(()), Ok(())];
+            return [Ok(()), Ok(()), Ok(()), Ok(())];
         }
         let moves = self.consumptions(body, types);
         [
             self.check_linear_releases(body, types),
             self.check_linear_consumptions_with_moves(body, &moves),
             self.check_linear_exit_obligations_with_moves(body, types, declarations, Some(&moves)),
+            self.check_linear_projected_replacements(body, types, declarations, &moves),
         ]
+    }
+
+    fn check_linear_projected_replacements(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+        moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
+        for (index, node) in self.nodes.iter().enumerate() {
+            let FlowAction::Assign { place, value } = &node.action else {
+                continue;
+            };
+            let PlaceRoot::Local(binding) = place.root else {
+                continue;
+            };
+            if place.segments.is_empty() {
+                continue;
+            }
+            let Some(state) = moves.definitely_before[index].as_ref() else {
+                continue;
+            };
+            let Some(ty) = body.nodes[value.0].ty.as_ref() else {
+                continue;
+            };
+            for path in types.linear_obligation_paths(ty) {
+                let Some(mut leaf) = linear_obligation_place(declarations, binding, ty, &path)
+                else {
+                    continue;
+                };
+                let mut segments = place.segments.clone();
+                segments.append(&mut leaf.segments);
+                leaf.segments = segments;
+                let consumed = !leaf.segments.contains(&Segment::DynamicIndex)
+                    && state.iter().any(|prior| {
+                        !prior.segments.contains(&Segment::DynamicIndex)
+                            && place_covers(prior, &leaf)
+                    });
+                if !consumed {
+                    let name = display_linear_place(body, place);
+                    return Err(ReleaseConflict {
+                        message: format!(
+                            "assignment would destroy live linear projection '{name}'; consume it explicitly first"
+                        ),
+                        span: node.span,
+                        labels: body.bindings[binding.0].span.into_iter().map(|span| {
+                            (span, "owner was declared here".into())
+                        }).collect(),
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 
     fn check_linear_exit_obligations_with_moves(
@@ -4433,6 +4487,12 @@ mod tests {
                 graph.check_linear_releases(body, &types),
                 graph.check_linear_consumptions(body, &types),
                 graph.check_linear_exit_obligations(body, &types, declarations),
+                graph.check_linear_projected_replacements(
+                    body,
+                    &types,
+                    declarations,
+                    &graph.consumptions(body, &types),
+                ),
             ];
             let shared = graph.check_linear_ownership(body, &types, declarations);
             for (expected, actual) in independent.into_iter().zip(shared) {

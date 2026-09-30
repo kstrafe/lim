@@ -1330,7 +1330,15 @@ value is intended:
 ```
 
 Assignments reinitialize mutable bindings only after the previous linear value
-has been consumed. A common update pattern moves the old value into the update
+has been consumed. This also applies to linear struct fields, tuple slots,
+enum payloads, and array elements: consume the old member before replacing it.
+Replacing an aggregate member requires consuming all its linear leaves.
+Copy members can be overwritten directly, even inside a linear owner. An
+unknown array index cannot establish that a previously consumed element is
+the element being replaced; use a constant index for checked linear updates.
+`examples/linear_field_replacement.lim` demonstrates explicit consumption and
+replacement of a resource-bearing field and returns 42.
+A common update pattern moves the old value into the update
 and installs the replacement:
 
 ```lisp fragment=bindings
@@ -1632,9 +1640,9 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#return` | `(#return value)` | `(#return ())` (function body) | Exits a function with its explicitly typed result; void functions must return `()`. |
 | `#send` | `(#unsafe-impl #send Type)` | `(#struct Handle ((raw (#ptr u8)))) (#unsafe-impl #send Handle)` (top level) | Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally. |
 | `#set` | `(#set name value)` | `(#set count (#u32.+.wrap count 1u32))` (statement) | Reassigns a mutable local. |
-| `#set-field` | `(#set-field aggregate field-or-index value)` | `(#set-field point x 4u64)` (statement) | Mutates a struct field or tuple slot. |
-| `#set-index` | `(#set-index array index value)` | `(#set-index values 0usize 9u8)` (statement) | Mutates an array element after a bounds check. |
-| `#set-payload` | `(#set-payload enum variant index value)` | `(#set-payload choice Data 0 9u64)` (statement) | Replaces one payload field of a mutable enum value. |
+| `#set-field` | `(#set-field aggregate field-or-index value)` | `(#set-field point x 4u64)` (statement) | Mutates a struct field or tuple slot; a linear member must first be consumed. |
+| `#set-index` | `(#set-index array index value)` | `(#set-index values 0usize 9u8)` (statement) | Mutates an array element after a bounds check; a linear element needs proven prior consumption at a constant index. |
+| `#set-payload` | `(#set-payload enum variant index value)` | `(#set-payload choice Data 0 9u64)` (statement) | Replaces one payload field of a mutable enum value; a linear payload must first be consumed. |
 | `#size-of` | `(#size-of Type)` | `(#return (#size-of Point))` (expression) | Returns the compile-time size in bytes for the Lim or selected C layout. |
 | `#slice` | `(#slice ElementType)` | `(#let view (#slice u8) (#slice-of (#borrow bytes)))` (type) | Immutable dynamically sized view over an array borrow. |
 | `#slice-idx` | `(#slice-idx slice usize-index)` | `(#deref (#slice-idx view 0usize))` (expression) | Bounds-checks and returns a shared reference to an element. |

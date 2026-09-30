@@ -367,6 +367,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 4,
         },
         Case {
+            name: "linear-projection-replacement",
+            diagnostic_code: "E4200",
+            offending_line: "  (#set-field owner item (#struct-literal Resource ((number 2u64))))",
+            line_number: 7,
+        },
+        Case {
             name: "linear-partial-parent",
             diagnostic_code: "E4200",
             offending_line: "  (#forget pair)",
@@ -971,6 +977,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "borrow-conflict-callee-name" => Some("owner"),
             "use-after-reference-release" => Some("view"),
             "linear" => Some("resource"),
+            "linear-projection-replacement" => Some("(#set-field owner item (#struct-literal Resource ((number 2u64))))"),
             "linear-partial-parent" => Some("pair"),
             "linear-copy-after-owner" => Some("(#get pair other)"),
             "opaque-token-constructor" => Some("WakeToken4"),

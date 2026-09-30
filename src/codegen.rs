@@ -6260,7 +6260,7 @@ impl FunctionContext<'_> {
                         self.output.push_str("    movq rdx, xmm0\n");
                     }
                 } else {
-                    self.expression(value)?;
+                    self.expression_as_expected(value, &element_type)?;
                     self.output.push_str("    mov rdx, rax\n");
                 }
                 self.output.push_str("    pop rcx\n");
@@ -6826,7 +6826,7 @@ impl FunctionContext<'_> {
                 slot * 8
             ));
         } else {
-            self.expression(value)?;
+            self.expression_as_expected(value, ty)?;
             if is_narrow_integer(ty) {
                 self.normalize_integer(ty)?;
             }
@@ -13455,14 +13455,15 @@ impl FunctionContext<'_> {
         if items.len() != 4 {
             return Err("get-payload requires an enum, variant, and index".into());
         }
-        let Type::Reference { target, .. } = self
+        let source_type = self
             .expression_type(&items[1])
-            .ok_or_else(|| "get-payload has no known source type".to_owned())?
-        else {
-            return Err("get-payload currently requires an enum reference".into());
+            .ok_or_else(|| "get-payload has no known source type".to_owned())?;
+        let (target, by_value) = match &source_type {
+            Type::Reference { target, .. } => (target.as_ref().clone(), false),
+            other => (other.clone(), true),
         };
-        let Type::Named(enum_name) = *target else {
-            return Err("get-payload requires a reference to an enum".into());
+        let Type::Named(enum_name) = target else {
+            return Err("get-payload requires an enum or enum reference".into());
         };
         let Expr::Symbol(variant_name) = &items[2] else {
             return Err("get-payload requires a variant name".into());
@@ -13492,6 +13493,55 @@ impl FunctionContext<'_> {
             .sum::<usize>();
         let inactive = self.label("inactive_enum_payload_projection");
         let done = self.label("inactive_enum_payload_projection_done");
+        if by_value {
+            let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+            if field_words > VALUE_REGISTERS.len() {
+                return Err("large enum payload projections are unsupported".into());
+            }
+            let before = self.stack_depth;
+            let source_words = storage_word_count(&source_type, &self.structs, &self.enums)?;
+            if source_words > VALUE_REGISTERS.len() {
+                let base = self
+                    .aggregate_temp_base
+                    .ok_or_else(|| "no aggregate temporary is available".to_owned())?;
+                let slots = flat_slots(base, source_words);
+                self.store_value_to_slots(&items[1], &source_type, &slots)?;
+                for slot in slots {
+                    self.output
+                        .push_str(&format!("    push QWORD PTR [rbp-{}]\n", slot * 8));
+                    self.stack_depth += 1;
+                }
+            } else {
+                self.push_value_words(&items[1], &source_type, false)?;
+            }
+            let words = self.stack_depth - before;
+            if words == 0 || payload_offset + field_words > words {
+                return Err("enum payload projection exceeds native storage".into());
+            }
+            self.output.push_str(&format!(
+                "    cmp QWORD PTR [rsp+{}], {discriminant}\n    jne {inactive}\n",
+                (words - 1) * 8
+            ));
+            for (word, register) in VALUE_REGISTERS.iter().enumerate().take(field_words) {
+                let offset = (words - 1 - payload_offset - word) * 8;
+                if matches!(field_type, Type::F32) {
+                    self.output
+                        .push_str(&format!("    movss xmm0, DWORD PTR [rsp+{offset}]\n"));
+                } else if matches!(field_type, Type::F64) {
+                    self.output
+                        .push_str(&format!("    movq xmm0, QWORD PTR [rsp+{offset}]\n"));
+                } else {
+                    self.output
+                        .push_str(&format!("    mov {register}, QWORD PTR [rsp+{offset}]\n"));
+                }
+            }
+            self.output.push_str(&format!(
+                "    add rsp, {}\n    jmp {done}\n{inactive}:\n    ud2\n{done}:\n",
+                words * 8
+            ));
+            self.stack_depth -= words;
+            return Ok(());
+        }
         self.expression(&items[1])?;
         self.output.push_str(&format!(
             "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",

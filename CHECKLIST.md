@@ -1595,6 +1595,21 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   through-reference replacement semantics still require a separate audit;
   this closes the whole-local syntax-only validation gap, not the parent
   ownership migration or arbitrary-body async requirement.
+- [x] **ASYNC-01-TYPED-PROJECTED-REPLACEMENT: Prevent implicit member destruction.**
+  Require definite consumption of the target's linear leaves before struct,
+  tuple, enum-payload, or array-element replacement. Derive these obligations
+  from the member type, not the owner annotation: allow Copy-field writes in
+  linear owners and permit consumed linear-field replacement in indivisible
+  owners. Reject unknown-index consumption as proof of element identity.
+  Test nested aggregate members and preserved valid replacement, add an exact
+  assignment-span UI fixture and document mutation. Fix one-word aggregate
+  stores to use the known member type rather than scalar-expression lowering.
+  Run a native example returning 42 after struct, tuple, array, and payload
+  replacements. Support by-value enum payload emission needed for consuming
+  and inspecting replaced payloads; test locals, computed/indirect receivers,
+  scalar/wide/float/tuple results, inactive-variant traps, and zero-sized
+  payload receiver effects. Run the full suite.
+  Through-reference replacement and the parent migration remain open.
 - [x] **ASYNC-01-TYPED-EXITS: Stabilize loan snapshots and initialized obligations.**
   Model branch-result evaluation snapshots as dependencies of typed loan
   transfers, including results updated by loops. Revisit consumers after
