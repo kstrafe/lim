@@ -9055,6 +9055,28 @@ mod typed_ownership_tests {
     use super::*;
 
     #[test]
+    fn raw_pointer_anchor_does_not_prove_referent_restoration() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) ()
+            (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
+            (#deref-set target (#struct-literal Resource ((number 2u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let moves = flow.referent_consumptions(body, &types);
+        let write = crate::typed_flow::FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| matches!(node.action, crate::typed_flow::FlowAction::Write { .. }))
+                .unwrap(),
+        );
+        assert!(moves.unresolved_nodes().contains(&write));
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};

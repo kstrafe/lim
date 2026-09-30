@@ -104,6 +104,8 @@ pub(crate) struct LoanOrigin {
     pub place: Place,
     pub mutable: bool,
     pub pinned: bool,
+    /// Raw-pointer provenance may identify only a lifetime anchor.
+    pub lifetime_only: bool,
     pub span: Option<Span>,
     /// Immediate reference binding whose referent this loan reborrows.
     pub borrowed_from: Option<BindingId>,
@@ -118,6 +120,7 @@ impl PartialEq for LoanOrigin {
         self.place == other.place
             && self.mutable == other.mutable
             && self.pinned == other.pinned
+            && self.lifetime_only == other.lifetime_only
             && self.borrowed_from == other.borrowed_from
             && self.storage == other.storage
             && self.parameter_storage == other.parameter_storage
@@ -731,6 +734,7 @@ impl FlowGraph {
                     borrowed_from: None,
                     storage: slot.storage.clone(),
                     parameter_storage: Some(slot.storage.clone()),
+                    lifetime_only: false,
                 });
             }
         }
@@ -980,6 +984,14 @@ impl FlowGraph {
             };
             let referents =
                 origins.projected_referents_with_slots(id, binding, &place.segments, true);
+            if indirect
+                && origins
+                    .before(id, binding)
+                    .iter()
+                    .any(|origin| origin.lifetime_only)
+            {
+                return (vec![place.clone()], true);
+            }
             if !referents.is_empty() {
                 (referents, false)
             } else {
@@ -1150,7 +1162,11 @@ impl FlowGraph {
                         };
                         let loans =
                             origins.value_before(body, self, FlowNodeId(index), children[1]);
-                        if loans.is_empty() || loans.iter().any(|loan| !loan.storage.is_empty()) {
+                        if loans.is_empty()
+                            || loans
+                                .iter()
+                                .any(|loan| !loan.storage.is_empty() || loan.lifetime_only)
+                        {
                             unresolved.insert(FlowNodeId(index));
                             Vec::new()
                         } else {
@@ -2761,6 +2777,9 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                         span: node.span,
                         storage: Vec::new(),
                         parameter_storage: None,
+                        lifetime_only: borrowed_from.is_some_and(|binding| {
+                            state[binding.0].iter().any(|origin| origin.lifetime_only)
+                        }),
                     })
                     .collect()
             })
@@ -2772,6 +2791,9 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             ) && children.len() == 3 =>
         {
             let mut origins = value_loan_origins(body, children[1], state);
+            for origin in &mut origins {
+                origin.lifetime_only = true;
+            }
             if matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut") {
                 // The pinned type describes the raw pointer's referent, while
                 // this tracked place is only the lifetime anchor. Do not treat
@@ -2942,6 +2964,9 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     span: node.span,
                     storage: Vec::new(),
                     parameter_storage: None,
+                    lifetime_only: borrowed_from.is_some_and(|binding| {
+                        state[binding.0].iter().any(|origin| origin.lifetime_only)
+                    }),
                 })
                 .collect()
         }
@@ -3169,6 +3194,9 @@ fn value_loan_origins_at_events(
         {
             let mut pointer_origins =
                 value_loan_origins_at_events(body, flow, before, children[1], state);
+            for origin in &mut pointer_origins {
+                origin.lifetime_only = true;
+            }
             if matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut") {
                 for origin in &mut pointer_origins {
                     origin.pinned = false;
@@ -5746,6 +5774,7 @@ mod tests {
             borrowed_from: None,
             storage,
             parameter_storage: None,
+            lifetime_only: false,
         };
         let old_first = origin(1, vec![Segment::Tuple(0)]);
         let old_second = origin(2, vec![Segment::Tuple(1)]);

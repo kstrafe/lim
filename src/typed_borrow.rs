@@ -2970,6 +2970,7 @@ mod tests {
                 borrowed_from: None,
                 storage: Vec::new(),
                 parameter_storage: None,
+                lifetime_only: false,
             },
             LoanOrigin {
                 place: Place::root(PlaceRoot::Local(BindingId(1))),
@@ -2979,6 +2980,7 @@ mod tests {
                 borrowed_from: None,
                 storage: Vec::new(),
                 parameter_storage: None,
+                lifetime_only: false,
             },
         ];
         let alternatives = origin_alternatives(&held, None).unwrap().unwrap();
@@ -3024,6 +3026,7 @@ mod tests {
             borrowed_from: None,
             storage: vec![crate::typed_place::Segment::Payload(variant, field)],
             parameter_storage: None,
+            lifetime_only: false,
         };
         let mutually_exclusive =
             origin_alternatives(&[variant(first, 0), variant(second, 0)], None)
