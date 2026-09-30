@@ -62,19 +62,29 @@ fn declared_lim_function_signatures(
 ) -> Result<HashMap<String, String>, crate::source_error::SourceError> {
     let mut signatures = HashMap::new();
     for expression in expressions {
-        let normalized = crate::normalize_keywords(expression.expr.clone());
-        let Expr::List(items) = &normalized else {
+        let Expr::List(raw_items) = &expression.expr else {
             continue;
         };
-        let Some(Expr::Symbol(kind)) = items.first() else {
+        let Some(Expr::Symbol(kind)) = raw_items.first() else {
             continue;
         };
         let external = match kind.as_str() {
-            "fn" | "unsafe-fn" => false,
-            "extern-fn" => true,
+            "#fn" | "#unsafe-fn" => false,
+            "#extern-fn" => true,
             _ => continue,
         };
-        let function = crate::parse_function(items, external).map_err(|error| {
+        // Capability contracts use signatures, never bodies. Body syntax and
+        // safety are still checked by the ordinary frontend after expansion.
+        let header_len = if external {
+            raw_items.len()
+        } else {
+            raw_items.len().min(4)
+        };
+        let normalized = crate::normalize_keywords(Expr::List(raw_items[..header_len].to_vec()));
+        let Expr::List(items) = &normalized else {
+            unreachable!()
+        };
+        let function = crate::parse_function_parts(items, external, false).map_err(|error| {
             let span = Span {
                 end: expression
                     .children
@@ -109,6 +119,20 @@ fn declared_lim_function_signatures(
         signatures.insert(function.name.clone(), signature);
     }
     Ok(signatures)
+}
+
+#[cfg(test)]
+#[test]
+fn capability_signature_scan_does_not_parse_function_bodies() {
+    let source = "(#fn answer ((value u64)) u64 (#not-a-builtin value))";
+    let signatures = declared_lim_function_signatures(&crate::parse(source).unwrap()).unwrap();
+    assert_eq!(signatures["answer"], "[U64]->U64");
+    // Skipping bodies here must not skip ordinary compilation validation.
+    assert!(crate::parse_program(source).is_err());
+    assert!(declared_lim_function_signatures(
+        &crate::parse("(#extern-fn #abi-c foreign () u64 (#return 42u64))").unwrap()
+    )
+    .is_err());
 }
 
 fn hash_capability_definitions(capabilities: &Capabilities) -> u128 {

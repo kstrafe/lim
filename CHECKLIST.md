@@ -4247,3 +4247,27 @@ commit, documentation, and focused regression coverage.
   that return reference-bearing aggregates. Keep ordinary aggregate field
   reborrows distinct. Cover safe one-request native AIO submission, completion,
   cancellation, and rejection of a second outstanding operation.
+
+- [x] **SYNTAX-01: Bundle explicit await protocol arguments.**
+  Declare immutable literal lists with `(#syntax Name (syntax ...))` and
+  flatten them at explicit `(#syntax-splice Name)` sites before semantic
+  analysis. Preserve type and borrow checking; reject cycles, unknown names,
+  collisions, and excessive expansion. Honor cfg selection and import
+  prefixes, include bundles in generator cache dependencies, and retain use
+  and definition spans for diagnostics. Migrate and run the async example.
+
+- [x] **PERF-05: Share immutable globals across lexical borrow contexts.**
+  Remove per-function copies of imported globals from shadow-checking local
+  name sets. Share borrow-checker global names across functions and branches,
+  while retaining local scope and return-origin state separately. Preserve
+  shadowing rejection and global/local reference escape behavior. Warm async
+  compilation measured 44.21 ms before and 32.20 ms after (40 alternating
+  samples); emitted binaries were identical.
+
+- [x] **PERF-06: Scan generator capability signatures without parsing bodies.**
+  Normalize only function headers when collecting capability contracts.
+  Leave complete body validation to ordinary compilation, and preserve
+  malformed signature, duplicate declaration, and external-body errors.
+  Async compilation measured 32.20 ms before and 31.59 ms after this step;
+  other sampled workloads showed no reliable gain. See the performance
+  baseline for the measurements and limitations.

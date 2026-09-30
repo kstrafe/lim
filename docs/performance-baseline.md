@@ -17,6 +17,39 @@ thresholds. On Linux, the harness prints its process high-water RSS from
 `/proc/self/status` when available. The printed peak covers the whole harness,
 not a per-phase memory profile.
 
+## Shared global scopes and signature-only generator scanning (2026-09-30)
+
+An optimized sampling profile of `examples/async_fn.lim` identified allocation,
+freeing, and repeated `HashSet<String>` construction as significant costs.
+The lexical scope pass now keeps only local names in its mutable set and
+checks the immutable globals separately. Borrow-checker function and branch
+contexts share an `Arc<HashSet<String>>` of globals rather than duplicating
+them into both returnable-origin and in-scope sets. Local escape and shadowing
+rules are unchanged.
+
+Generator capability discovery now normalizes and parses function signatures
+only, rather than copying and parsing every ordinary function body. Full body
+syntax, types, ownership, and unsafe checks still run in the normal frontend;
+external declarations still reject bodies.
+
+Release CLI measurements used 40 warm samples per variant, alternating order
+each iteration, on the same machine. Each command compiled its example to a
+temporary executable using the internal encoder/linker. All three variants
+produced byte-identical binaries and matching exit statuses/stdout/stderr.
+
+| Warm median (ms) | Before | Shared globals | Plus signature-only scan |
+| --- | ---: | ---: | ---: |
+| `async_fn.lim` | 44.21 | 32.20 | 31.59 |
+| `vec_allocator.lim` | 20.04 | 19.61 | 20.65 |
+| `large_reference_projections.lim` | 3.55 | 3.36 | 3.69 |
+
+The import-heavy async example improves 28.6% overall; signature scanning
+adds a modest 1.9% improvement over shared globals in this sample. The other
+workloads show no reliable improvement (and small regressions in this run).
+These measurements are informative, not test thresholds or a general speedup
+claim. Dedicated regressions cover global references through branches, global
+shadowing, local escapes with 512 globals, and deferred function-body checking.
+
 ## Historical external-tool production sample (2026-09-25)
 
 Five iterations, Nix release profile, Intel i7-13700KF, Linux 7.2.6 x86-64,
