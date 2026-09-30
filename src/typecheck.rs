@@ -9055,6 +9055,33 @@ mod typed_ownership_tests {
     use super::*;
 
     #[test]
+    fn unresolved_computed_writes_are_marked_only_when_reachable() {
+        for early_return in [false, true] {
+            let before = if early_return { "(#return ())" } else { "" };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource)
+                   (#return value))
+                 (#fn inspect ((value (#ref-mut Resource))) ()
+                   {before}
+                   (#deref-set (#call identity (: value value))
+                     (#struct-literal Resource ((number 2u64))))
+                   (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = declarations.bodies.get_mut("inspect").unwrap();
+            // Lose the input provenance deliberately; the typed call remains
+            // known, but its returned reference has no tracked actual target.
+            body.parameter_loan_slots.clear();
+            let flow = &declarations.flows["inspect"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let moves = flow.referent_consumptions(body, &types);
+            assert_eq!(moves.unresolved_nodes().is_empty(), early_return);
+        }
+    }
+
+    #[test]
     fn referent_consumption_survives_alias_cleanup_and_tracks_restoration() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};

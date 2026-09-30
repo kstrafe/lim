@@ -9,7 +9,7 @@ use crate::linearcheck::LinearTypes;
 use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind, PlaceRoot};
 use crate::typed_flow::{FlowAction, FlowGraph, FlowNodeId, LoanOrigin};
 use crate::typed_ir::{DeclarationId, FieldId};
-use crate::typed_place::Place;
+use crate::typed_place::{reads_through_reference, Place};
 use crate::{Span, Type};
 
 const MAX_BORROW_ALTERNATIVES: usize = 1024;
@@ -396,37 +396,6 @@ pub(crate) fn check_live_direct_loans_with_types(
         }
     }
     Ok(())
-}
-
-fn reads_through_reference(body: &Body, value: NodeId) -> bool {
-    let Some(node) = body.nodes.get(value.0) else {
-        return false;
-    };
-    match &node.kind {
-        NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
-            reads_through_reference(body, children[1])
-        }
-        NodeKind::Form { head, children, .. } if head == "deref" && children.len() == 2 => true,
-        NodeKind::Form { head, children, .. }
-            if matches!(
-                head.as_str(),
-                "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
-            ) =>
-        {
-            children
-                .get(1)
-                .and_then(|base| body.nodes.get(base.0))
-                .is_some_and(|base| {
-                    matches!(
-                        base.ty,
-                        Some(Type::Reference { .. } | Type::PinnedReference { .. })
-                    ) || children
-                        .get(1)
-                        .is_some_and(|base| reads_through_reference(body, *base))
-                })
-        }
-        _ => false,
-    }
 }
 
 fn scoped_borrows_before(flow: &FlowGraph, scoped_ids: &HashSet<NodeId>) -> Vec<HashSet<NodeId>> {

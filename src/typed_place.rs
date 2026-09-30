@@ -155,6 +155,38 @@ fn literal_index(body: &Body, id: NodeId) -> Option<u128> {
     }
 }
 
+/// Classify an access using checked base types, including nested projections.
+pub(crate) fn reads_through_reference(body: &Body, value: NodeId) -> bool {
+    let Some(node) = body.nodes.get(value.0) else {
+        return false;
+    };
+    match &node.kind {
+        NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
+            reads_through_reference(body, children[1])
+        }
+        NodeKind::Form { head, children, .. } if head == "deref" && children.len() == 2 => true,
+        NodeKind::Form { head, children, .. }
+            if matches!(
+                head.as_str(),
+                "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
+            ) =>
+        {
+            children
+                .get(1)
+                .and_then(|base| body.nodes.get(base.0))
+                .is_some_and(|base| {
+                    matches!(
+                        base.ty,
+                        Some(crate::Type::Reference { .. } | crate::Type::PinnedReference { .. })
+                    ) || children
+                        .get(1)
+                        .is_some_and(|base| reads_through_reference(body, *base))
+                })
+        }
+        _ => false,
+    }
+}
+
 fn index_segment(body: &Body, id: NodeId) -> Segment {
     literal_index(body, id).map_or(Segment::DynamicIndex, Segment::Index)
 }

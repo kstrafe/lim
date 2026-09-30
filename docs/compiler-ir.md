@@ -29,6 +29,11 @@ distinguishes borrowed targets reached through different fields of one
 aggregate parameter. A known-target write clears the corresponding move
 facts. Multiple possible targets produce may-consumption facts, not definite
 proofs; an ambiguous write does not erase every possible moved referent.
+Missing provenance is recorded as an unresolved access, including nested
+reference-field projections. It cannot create a definite-consumption proof or
+clear possible moves. An unresolved write also invalidates definite facts,
+since it may have restored any one of their targets. Reachable unresolved
+events appear in the consumption dump; unreachable events do not.
 
 The ordinary production mode keeps its existing identities and does not
 allocate the extra referent tables. Before changing validation to this mode,

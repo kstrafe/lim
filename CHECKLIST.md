@@ -1578,6 +1578,15 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   at suspension points. Define source syntax, borrowing across suspension, and
   immovable storage before accepting self-referential frames. Preserve exact
   source diagnostics and explicit cleanup for each suspended state.
+- [x] **ASYNC-01-REFERENT-UNKNOWN: Do not turn missing origins into proofs.**
+  Mark unresolved indirect consumption and write events in referent staging,
+  including nested reference-field accesses and computed write targets. Missing
+  provenance cannot establish definite consumption or clear possible moves.
+  An unknown write invalidates definite-consumption facts because it may have
+  restored any target. Filter unreachable markers and include reachable ones
+  in analysis dumps. Share checked indirect-access classification with borrow
+  analysis. Direct tests remove origin metadata to verify the proof boundary,
+  and the full suite passes. Production referent enforcement remains open.
 - [x] **ASYNC-01-REFERENT-FACTS: Stage ownership facts on stable loan roots.**
   Add a referent-resolved mode to typed consumption analysis. Retain borrowed
   storage facts when reference aliases leave scope, distinguish reference

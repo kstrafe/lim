@@ -9,7 +9,7 @@ use crate::typed_body::{
     BindingId, Body, Control, Instruction, NodeId, NodeKind, NumericOpcode, PlaceRoot, Projection,
 };
 use crate::typed_ir::{DeclarationId, FieldId};
-use crate::typed_place::{Place, Segment};
+use crate::typed_place::{reads_through_reference, Place, Segment};
 use crate::{Span, Type};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -151,9 +151,15 @@ pub(crate) struct FlowConsumptions {
     after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     at: Vec<HashSet<Place>>,
     definitely_before: Vec<Option<HashSet<Place>>>,
+    /// Indirect accesses lacking provenance; never an ownership proof.
+    unresolved: HashSet<FlowNodeId>,
 }
 
 impl FlowConsumptions {
+    #[cfg(test)]
+    pub fn unresolved_nodes(&self) -> &HashSet<FlowNodeId> {
+        &self.unresolved
+    }
     pub fn before(&self, node: FlowNodeId, place: &Place) -> Option<&[Option<Span>]> {
         self.before[node.0].as_ref()?.get(place).map(Vec::as_slice)
     }
@@ -179,6 +185,9 @@ impl FlowConsumptions {
         use std::fmt::Write;
         let mut output = String::new();
         for (index, state) in self.after.iter().enumerate() {
+            if self.unresolved.contains(&FlowNodeId(index)) {
+                writeln!(output, "  unresolved-referent {index}").unwrap();
+            }
             let Some(state) = state else { continue };
             let mut places = state.keys().collect::<Vec<_>>();
             places.sort_by_key(|place| format!("{place:?}"));
@@ -939,30 +948,56 @@ impl FlowGraph {
         types: &LinearTypes,
         origins: Option<&FlowLoanOrigins>,
     ) -> FlowConsumptions {
-        let resolve = |id: FlowNodeId, place: &Place| {
+        let resolve = |id: FlowNodeId, place: &Place, value: NodeId| {
+            let value = match &body.nodes[value.0].kind {
+                NodeKind::Form { head, children, .. }
+                    if matches!(head.as_str(), "drop" | "forget") && children.len() == 2 =>
+                {
+                    children[1]
+                }
+                _ => value,
+            };
+            let (indirect, inline_borrow) = match &body.nodes[value.0].kind {
+                NodeKind::Form { head, children, .. } => {
+                    let base = children.get(1).map(|id| &body.nodes[id.0].kind);
+                    let inline = matches!(base, Some(NodeKind::Form { head, .. })
+                        if matches!(head.as_str(), "borrow" | "borrow-mut"));
+                    (
+                        head == "deref-set" || reads_through_reference(body, value),
+                        inline,
+                    )
+                }
+                _ => (false, false),
+            };
             let Some(origins) = origins else {
-                return vec![place.clone()];
+                return (vec![place.clone()], false);
             };
             let PlaceRoot::Local(binding) = place.root else {
-                return vec![place.clone()];
+                return (
+                    vec![place.clone()],
+                    place.segments.contains(&Segment::Dereference) || (indirect && !inline_borrow),
+                );
             };
             let referents =
                 origins.projected_referents_with_slots(id, binding, &place.segments, true);
             if !referents.is_empty() {
-                referents
+                (referents, false)
             } else {
                 let mut resolved = place.clone();
                 // Inline borrows preserve the owned place, but an outer
                 // dereference adds a marker. It is not a pointer stored in
                 // this binding if its type has no reference indirection.
-                if !matches!(
+                let reference_binding = matches!(
                     body.bindings[binding.0].ty,
                     Type::Reference { .. } | Type::PinnedReference { .. }
-                ) && place.segments == [Segment::Dereference]
-                {
+                );
+                if !reference_binding && place.segments == [Segment::Dereference] {
                     resolved.segments.clear();
                 }
-                vec![resolved]
+                let unresolved = (reference_binding && !place.segments.is_empty())
+                    || resolved.segments.contains(&Segment::Dereference)
+                    || (indirect && !inline_borrow);
+                (vec![resolved], unresolved)
             }
         };
         let mut transfer_roots = self
@@ -1099,6 +1134,7 @@ impl FlowGraph {
         let mut after = vec![None; self.nodes.len()];
         let mut consumed_at = vec![HashSet::new(); self.nodes.len()];
         let mut definite_consumed_at = origins.map(|_| vec![HashSet::new(); self.nodes.len()]);
+        let mut unresolved = HashSet::new();
         let write_targets = origins.map(|_| {
             self.nodes
                 .iter()
@@ -1110,7 +1146,20 @@ impl FlowGraph {
                             && matches!(&body.nodes[value.0].kind,
                         NodeKind::Form { head, .. } if head == "deref-set") =>
                     {
-                        resolve(FlowNodeId(index), place)
+                        let (places, unknown) = resolve(FlowNodeId(index), place, *value);
+                        if unknown {
+                            unresolved.insert(FlowNodeId(index));
+                            Vec::new()
+                        } else {
+                            places
+                        }
+                    }
+                    FlowAction::Evaluate(value)
+                        if matches!(&body.nodes[value.0].kind,
+                            NodeKind::Form { head, .. } if head == "deref-set") =>
+                    {
+                        unresolved.insert(FlowNodeId(index));
+                        Vec::new()
                     }
                     _ => Vec::new(),
                 })
@@ -1147,8 +1196,11 @@ impl FlowGraph {
                 {
                     consumed_at[id.0].insert(place.clone());
                     if let Some(definite) = &mut definite_consumed_at {
-                        let referents = resolve(id, place);
-                        if referents.len() == 1 {
+                        let (referents, unknown) = resolve(id, place, *value);
+                        if unknown {
+                            unresolved.insert(id);
+                        }
+                        if !unknown && referents.len() == 1 {
                             definite[id.0].insert(referents[0].clone());
                         }
                         for referent in referents {
@@ -1170,8 +1222,11 @@ impl FlowGraph {
                 {
                     consumed_at[id.0].insert(place.clone());
                     if let Some(definite) = &mut definite_consumed_at {
-                        let referents = resolve(id, place);
-                        if referents.len() == 1 {
+                        let (referents, unknown) = resolve(id, place, *value);
+                        if unknown {
+                            unresolved.insert(id);
+                        }
+                        if !unknown && referents.len() == 1 {
                             definite[id.0].insert(referents[0].clone());
                         }
                         for referent in referents {
@@ -1272,6 +1327,16 @@ impl FlowGraph {
                     state.retain(|moved| !place_covers(place, moved));
                 }
             }
+            if unresolved.contains(&id)
+                && matches!(&self.nodes[id.0].action,
+                    FlowAction::Write { value, .. } | FlowAction::Evaluate(value)
+                        if matches!(&body.nodes[value.0].kind,
+                            NodeKind::Form { head, .. } if head == "deref-set"))
+            {
+                // An unknown write may restore any consumed target. Retain
+                // may facts, but none remains definitely uninitialized.
+                state.clear();
+            }
             for successor in &self.nodes[id.0].successors {
                 let changed = match &mut definitely_before[successor.0] {
                     Some(existing) => {
@@ -1290,11 +1355,13 @@ impl FlowGraph {
                 }
             }
         }
+        unresolved.retain(|id| before[id.0].is_some());
         FlowConsumptions {
             before,
             after,
             at: consumed_at,
             definitely_before,
+            unresolved,
         }
     }
 
@@ -3985,6 +4052,114 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_reference_origins_do_not_establish_consumption_proofs() {
+        for source in [
+            "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn inspect ((reference (#ref-mut Resource))) ()
+            (#forget (#deref reference)) (#return ()))",
+            "(#struct Resource ((number u64))) (#linear Resource)
+             (#struct Wrapped ((item Resource)))
+             (#struct Holder ((view (#ref-mut Wrapped))))
+             (#fn inspect ((holder Holder)) ()
+               (#forget (#get (#get holder view) item)) (#return ()))",
+        ] {
+            let program = crate::parse_program(source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let body = &checked.declarations().bodies["inspect"];
+            let flow = &checked.declarations().flows["inspect"];
+            let types = LinearTypes::from_program(&program);
+            let mut origins = flow.loan_origins(body);
+            for state in origins.before.iter_mut().flatten() {
+                for held in state {
+                    held.clear();
+                }
+            }
+            let moves = flow.consumptions_with_origins(body, &types, Some(&origins));
+            let release = FlowNodeId(
+                flow.nodes
+                    .iter()
+                    .position(|node| matches!(node.action, FlowAction::Release { .. }))
+                    .unwrap(),
+            );
+            assert!(moves.unresolved_nodes().contains(&release));
+            let returned = FlowNodeId(
+                flow.nodes
+                    .iter()
+                    .position(|node| matches!(node.action, FlowAction::Return(_)))
+                    .unwrap(),
+            );
+            let FlowAction::Release { place, .. } = &flow.nodes[release.0].action else {
+                unreachable!()
+            };
+            assert!(moves.before(returned, place).is_some());
+            assert!(!moves.definitely_consumed_before(returned, place));
+            assert!(moves
+                .dump()
+                .contains(&format!("unresolved-referent {}", release.0)));
+        }
+    }
+
+    #[test]
+    fn unknown_reference_writes_do_not_restore_or_preserve_definite_facts() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn inspect ((reference (#ref-mut Resource))) ()
+            (#deref-set reference (#struct-literal Resource ((number 2u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["inspect"];
+        let mut flow = checked.declarations().flows["inspect"].clone();
+        let write = flow
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Write { .. }))
+            .unwrap();
+        let FlowAction::Write { place, value } = flow.nodes[write].action.clone() else {
+            unreachable!()
+        };
+        let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+            unreachable!()
+        };
+        let linear_value = children[2];
+        let predecessor = flow
+            .nodes
+            .iter()
+            .position(|node| node.successors.contains(&FlowNodeId(write)))
+            .unwrap();
+        let moved = FlowNodeId(flow.nodes.len());
+        flow.nodes.push(FlowNode {
+            action: FlowAction::Read {
+                value: linear_value,
+                place,
+                place_base: false,
+            },
+            successors: vec![FlowNodeId(write)],
+            span: None,
+        });
+        for successor in &mut flow.nodes[predecessor].successors {
+            if successor.0 == write {
+                *successor = moved;
+            }
+        }
+        let mut origins = flow.loan_origins(body);
+        for held in origins.before[write].as_mut().unwrap() {
+            held.clear();
+        }
+        let types = LinearTypes::from_program(&program);
+        let moves = flow.consumptions_with_origins(body, &types, Some(&origins));
+        let returned = FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Return(_)))
+                .unwrap(),
+        );
+        let referent = Place::root(PlaceRoot::Parameter(BindingId(0)));
+        assert!(moves.unresolved_nodes().contains(&FlowNodeId(write)));
+        assert!(moves.before(returned, &referent).is_some());
+        assert!(!moves.definitely_consumed_before(returned, &referent));
+    }
     use crate::typed_place::Segment;
 
     #[test]
