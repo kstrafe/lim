@@ -4347,6 +4347,18 @@ commit, documentation, and focused regression coverage.
   async timings showed no meaningful improvement and small-project timings
   were unstable. Native binaries were byte-identical.
 
+- [x] **PERF-11: Avoid redundant typed linear ownership analysis.**
+  Share move-flow facts between consumption checks and exit diagnostics, and
+  skip linear analysis when neither bindings nor expressions have linear
+  types. Keep separate borrow validation and diagnostic priority unchanged.
+  Compare the shared path with independent checks, including repeated
+  destruction and missing exit consumption. Run the full suite and benchmark
+  warm native compilation. Sixty alternating samples measured async
+  30.31 -> 29.97 ms, vector 21.23 -> 22.01 ms, and reference projections
+  3.73 -> 3.67 ms. These noisy results establish no reliable end-to-end
+  improvement; the change eliminates redundant analysis rather than claiming
+  a speedup. All compared native binaries were byte-identical.
+
 - [x] **NATIVE-UNIT-TUPLE: Read zero-sized tuple fields without a slot.**
   Project unit fields without requesting a value register or storage slot.
   Evaluate computed receivers, including indirect aggregate-return calls,

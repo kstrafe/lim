@@ -1486,11 +1486,7 @@ fn check_types_inner(
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {
                 let flow = &declarations.flows[&function.name];
-                for result in [
-                    flow.check_linear_releases(body, &linear_types),
-                    flow.check_linear_consumptions(body, &linear_types),
-                    flow.check_linear_exit_obligations(body, &linear_types, &declarations),
-                ] {
+                for result in flow.check_linear_ownership(body, &linear_types, &declarations) {
                     if typed_linear_error.is_none() {
                         typed_linear_error = result.err();
                     }

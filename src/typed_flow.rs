@@ -1183,12 +1183,21 @@ impl FlowGraph {
     /// Reject use or explicit destruction after a possible linear move on
     /// any reachable predecessor path. Exit obligations remain with the
     /// existing linear checker until the full ownership migration.
+    #[cfg(test)]
     pub fn check_linear_consumptions(
         &self,
         body: &Body,
         types: &LinearTypes,
     ) -> Result<(), ReleaseConflict> {
         let moves = self.consumptions(body, types);
+        self.check_linear_consumptions_with_moves(body, &moves)
+    }
+
+    fn check_linear_consumptions_with_moves(
+        &self,
+        body: &Body,
+        moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
         for (index, node) in self.nodes.iter().enumerate() {
             let place = match &node.action {
                 FlowAction::Read {
@@ -1228,11 +1237,52 @@ impl FlowGraph {
 
     /// Verify every indivisible linear leaf in locals and parameters has a
     /// definite consumption on every path to lexical cleanup or a typed return.
+    #[cfg(test)]
     pub fn check_linear_exit_obligations(
         &self,
         body: &Body,
         types: &LinearTypes,
         declarations: &crate::typed_ir::Declarations,
+    ) -> Result<(), ReleaseConflict> {
+        self.check_linear_exit_obligations_with_moves(body, types, declarations, None)
+    }
+
+    /// Share the move-flow solution between use checks and exit diagnostics.
+    /// Keep all three results so callers can retain their diagnostic priority.
+    pub fn check_linear_ownership(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+    ) -> [Result<(), ReleaseConflict>; 3] {
+        // No move or destruction obligation can arise without a linear
+        // binding or expression. References and Copy-only aggregates still
+        // undergo the separate borrow checks.
+        if !body
+            .bindings
+            .iter()
+            .any(|binding| types.is_linear(&binding.ty))
+            && !body
+                .nodes
+                .iter()
+                .any(|node| node.ty.as_ref().is_some_and(|ty| types.is_linear(ty)))
+        {
+            return [Ok(()), Ok(()), Ok(())];
+        }
+        let moves = self.consumptions(body, types);
+        [
+            self.check_linear_releases(body, types),
+            self.check_linear_consumptions_with_moves(body, &moves),
+            self.check_linear_exit_obligations_with_moves(body, types, declarations, Some(&moves)),
+        ]
+    }
+
+    fn check_linear_exit_obligations_with_moves(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+        moves: Option<&FlowConsumptions>,
     ) -> Result<(), ReleaseConflict> {
         let obligations = body
             .bindings
@@ -1258,7 +1308,14 @@ impl FlowGraph {
             .collect::<HashSet<_>>();
         let (definite_before, _definite_after) =
             self.obligation_consumptions(body, types, &obligation_places);
-        let possible = self.consumptions(body, types);
+        let computed_moves;
+        let possible = match moves {
+            Some(moves) => moves,
+            None => {
+                computed_moves = self.consumptions(body, types);
+                &computed_moves
+            }
+        };
         let active = self.active_bindings_before(body);
         for (index, node) in self.nodes.iter().enumerate() {
             if definite_before[index].is_none() {
@@ -4324,6 +4381,82 @@ mod tests {
         assert_eq!(&source[span.start..span.end], "(#forget a)");
         let first = error.labels[0].0;
         assert_eq!(&source[first.start..first.end], "b");
+    }
+
+    #[test]
+    fn shared_ownership_facts_preserve_independent_check_results() {
+        let source = "(#struct Resource ((value u64))) (#linear Resource)
+          (#fn main () u64
+            (#let a Resource (#struct-literal Resource ((value 1u64))))
+            (#let b Resource (#struct-literal Resource ((value 2u64))))
+            (#forget a) (#forget b) (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let body = &declarations.bodies["main"];
+        let original = &declarations.flows["main"];
+        let types = LinearTypes::from_program(&program);
+        let releases = original
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| {
+                matches!(node.action, FlowAction::Release { .. }).then_some(index)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(releases.len(), 2);
+        for variant in 0..3 {
+            let mut graph = original.clone();
+            if variant == 1 {
+                // Releasing a twice also leaves b unconsumed at return.
+                graph.nodes[releases[1]].action = graph.nodes[releases[0]].action.clone();
+            } else if variant == 2 {
+                // Removing explicit destruction leaves an exit obligation.
+                graph.nodes[releases[1]].action = FlowAction::Entry;
+            }
+            let independent = [
+                graph.check_linear_releases(body, &types),
+                graph.check_linear_consumptions(body, &types),
+                graph.check_linear_exit_obligations(body, &types, declarations),
+            ];
+            let shared = graph.check_linear_ownership(body, &types, declarations);
+            for (expected, actual) in independent.into_iter().zip(shared) {
+                let diagnostic = |result: Result<(), ReleaseConflict>| {
+                    result
+                        .err()
+                        .map(|error| (error.message, error.span, error.labels))
+                };
+                assert_eq!(
+                    diagnostic(expected),
+                    diagnostic(actual),
+                    "variant {variant}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn copy_only_ownership_fast_path_matches_full_checks() {
+        let source = "(#fn main () u64
+          (#let-mut value u64 1u64)
+          (#if #true (#block (#set value 2u64) ())
+            (#block (#set value 3u64) ()))
+          (#let view (#ref u64) (#borrow value))
+          (#return (#deref view)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let body = &declarations.bodies["main"];
+        let graph = &declarations.flows["main"];
+        let types = LinearTypes::from_program(&program);
+        graph.check_linear_releases(body, &types).unwrap();
+        graph.check_linear_consumptions(body, &types).unwrap();
+        graph
+            .check_linear_exit_obligations(body, &types, declarations)
+            .unwrap();
+        for result in graph.check_linear_ownership(body, &types, declarations) {
+            result.unwrap();
+        }
     }
 
     #[test]

@@ -17,6 +17,31 @@ thresholds. On Linux, the harness prints its process high-water RSS from
 `/proc/self/status` when available. The printed peak covers the whole harness,
 not a per-phase memory profile.
 
+## Shared typed ownership facts (2026-09-30)
+
+Linear consumption checks and exit diagnostics now share one move-flow
+solution per function. Functions with no linear bindings or expressions skip
+these linear checks; their type and borrow checks remain unchanged. Tests
+compare the shared path's complete diagnostics against independent checks
+for valid code, repeated destruction, and missing exit consumption.
+
+Sixty warm samples per compiler alternated order, with two untimed builds
+after every compiler switch to warm its generator cache. Compilation includes
+internal native linking. The full test suite passed.
+
+| Warm median (ms) | Before | After | Binary bytes |
+| --- | ---: | ---: | ---: |
+| `async_fn.lim` | 30.31 | 29.97 | 11,280 |
+| `vec_allocator.lim` | 21.23 | 22.01 | 12,488 |
+| `large_reference_projections.lim` | 3.73 | 3.67 | 8,280 |
+
+All compared executables were byte-identical. These results do not establish
+a reliable end-to-end speedup: changes are small, mixed in direction, and
+sequential runs varied considerably. A synthetic 128-branch Copy-only
+function also showed no reliable improvement (18.86 -> 19.68 ms, forty
+sequential samples). This is a reduction in duplicate work, not a demonstrated
+wall-clock performance win.
+
 ## Shared global scopes and signature-only generator scanning (2026-09-30)
 
 An optimized sampling profile of `examples/async_fn.lim` identified allocation,
