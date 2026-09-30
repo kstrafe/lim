@@ -155,6 +155,151 @@ fn async_function_early_returns_from_synchronous_loops_produce_ready() {
 }
 
 #[test]
+fn async_returning_branch_skips_a_suspending_common_tail() {
+    let source = include_str!("../examples/async_conditional_return.lim");
+    build_and_run(source, 49);
+    let matched = source
+        .replace("(#if early", "(#match early (#case true")
+        .replace(
+            "(#return first))\n      ())",
+            "(#return first))) (#case false ()))",
+        );
+    assert_ne!(matched, source);
+    build_and_run(&matched, 49);
+    let borrowed = source
+        .replace(
+            "(#fn work ((early bool))",
+            "(#fn work ((early bool) (counter (#ref-mut u64)))",
+        )
+        .replace(
+            "(#fn run ((early bool)",
+            "(#fn run ((early bool) (counter (#ref-mut u64))",
+        )
+        .replace(
+            "(#call work (: early early))",
+            "(#call work (: early early : counter counter))",
+        )
+        .replace(
+            "(#return first)",
+            "(#deref-set counter first) (#return (#deref counter))",
+        )
+        .replace(
+            "(#return result)",
+            "(#deref-set counter result) (#return (#deref counter))",
+        )
+        .replace(
+            "(#let early u64",
+            "(#let-mut counter u64 0u64) (#let early u64",
+        )
+        .replace(
+            ": early true : waker",
+            ": early true : counter (#borrow-mut counter) : waker",
+        )
+        .replace(
+            ": early false : waker",
+            ": early false : counter (#borrow-mut counter) : waker",
+        )
+        .replace(
+            "(#let later u64",
+            "(#assert (#u64.== counter 7u64)) (#let later u64",
+        )
+        .replace(
+            "(#return (#u64.+.wrap early later))",
+            "(#assert (#u64.== counter 42u64)) (#return (#u64.+.wrap early later))",
+        );
+    build_and_run(&borrowed, 49);
+    let borrowed_work = borrowed.split_once("(#fn run").unwrap().0;
+    let pending = format!(
+        "{borrowed_work}
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let-mut counter u64 0u64)
+        (#let frame Frame (#call work (: early true : counter (#borrow-mut counter))))
+        (#let first Poll (#call poll (: task frame : waker (#borrow waker))))
+        (#let-else (Pending task) Poll first (#unreachable))
+        (#set counter 42u64)
+        (#forget task)
+        (#return counter))"
+    );
+    let scratch = support::Scratch::new("async-conditional-return-borrow");
+    let input = scratch.path().join("borrow.lim");
+    let error = lim::compile_source_to_assembly(
+        &pending,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("borrow"), "{error:?}");
+    let cancelled = pending.replace(
+        "(#set counter 42u64)\n        (#forget task)",
+        "(#forget task)\n        (#set counter 42u64)",
+    );
+    build_and_run(&cancelled, 42);
+
+    let linear = format!(
+        "(#struct Resource ((value u64))) (#linear Resource)\n{}",
+        source
+            .replace(
+                "(#fn work ((early bool))",
+                "(#fn work ((early bool) (resource Resource))"
+            )
+            .replace(
+                "(#fn run ((early bool)",
+                "(#fn run ((early bool) (resource Resource)"
+            )
+            .replace(
+                "(#call work (: early early))",
+                "(#call work (: early early : resource resource))"
+            )
+            .replace("(#let first u64", "(#forget resource) (#let first u64")
+            .replace("(#let result u64", "(#forget resource) (#let result u64")
+            .replace(
+                ": early true : waker",
+                ": early true : resource (#struct-literal Resource ((value 1u64))) : waker"
+            )
+            .replace(
+                ": early false : waker",
+                ": early false : resource (#struct-literal Resource ((value 2u64))) : waker"
+            )
+    );
+    build_and_run(&linear, 49);
+    let missing_consumption = linear.replacen("(#forget resource)", "()", 1);
+    let error = lim::compile_source_to_assembly(
+        &missing_consumption,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("resource") && error.message.contains("consumed"),
+        "{error:?}"
+    );
+    let escaped = source.replace("(#return result)", "(#return first)");
+    let error = lim::compile_source_to_assembly(
+        &escaped,
+        &input,
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("unknown") && error.message.contains("first"),
+        "{error:?}"
+    );
+    let span = error.span.expect("escaped branch-local use span");
+    assert_eq!(&escaped[span.start..span.end], "first");
+    assert_eq!(
+        span.start,
+        escaped.rfind("(#return first)").unwrap() + "(#return ".len()
+    );
+}
+
+#[test]
 fn async_function_returns_ready_from_an_ordinary_if_branch() {
     let source = "(#enum Child (Waiting Resume))
       (#linear Child)

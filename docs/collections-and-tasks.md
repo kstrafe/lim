@@ -499,3 +499,11 @@ Runnable examples: `distributed_errors.lim`, `distributed_slice.lim`,
 `async_fn_two_awaits.lim`,
 `cooperative_tasks.lim`, `async_pipeline.lim`, `task_cancellation.lim`, and
 `threaded_tasks.lim` in `examples/`.
+# Suspending conditional returns
+
+An async function may await inside an early-returning `#if` or `#match`
+branch while its fall-through path also awaits. Only that fall-through path
+runs the common tail. See `examples/async_conditional_return.lim`.
+Pending tasks retain captured loans until consumed or explicitly cancelled;
+linear inputs must be consumed on every return path. Branch-local bindings
+do not become visible in the common tail.

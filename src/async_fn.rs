@@ -8923,7 +8923,8 @@ fn terminalize_async_iterations(
             Some(Expr::Symbol(head))
                 if matches!(
                     head.as_str(),
-                    "#while"
+                    "#let-else"
+                        | "#while"
                         | "#while-let"
                         | "#for"
                         | "#for-range"
@@ -9091,15 +9092,27 @@ fn terminalize_async_iterations(
             "#while-let" => Some(3),
             "#for" | "#for-range" => Some(4),
             "#loop" => Some(1),
+            "#async-body" => Some(1),
             _ => None,
         },
         _ => None,
     };
-    for item in items.iter_mut().skip(1) {
-        terminalize_async_iterations(item, source, next_name)?;
+    let function_body = matches!(items.first(), Some(Expr::Symbol(head)) if head == "#async-body");
+    if !function_body {
+        for item in items.iter_mut().skip(1) {
+            terminalize_async_iterations(item, source, next_name)?;
+        }
     }
     if let Some(start) = body_start.filter(|start| *start < items.len()) {
-        if items[start..].iter().any(has_await) {
+        let needed = if function_body {
+            items[start..]
+                .iter()
+                .take(items.len() - start - 1)
+                .any(|statement| has_await(statement) && exits(statement))
+        } else {
+            items[start..].iter().any(has_await)
+        };
+        if needed {
             let body = sequence(&items[start..], source, next_name)?;
             items.truncate(start);
             items.extend(body);
@@ -10719,7 +10732,25 @@ fn generated_source_with_capture_selection(
         .iter()
         .map(|parameter| parameter.name.clone())
         .collect::<Vec<_>>();
-    let body = &function[4..];
+    let source = expression_source(&invocation[4])?;
+    let mut next_nested_await = 0;
+    let mut normalized_body = Expr::List(
+        std::iter::once(Expr::Symbol("#async-body".into()))
+            .chain(function[4..].iter().cloned())
+            .collect(),
+    );
+    terminalize_async_iterations(&mut normalized_body, &source, &mut next_nested_await)?;
+    let mut normalized_body = list(&normalized_body, "async body")?[1..].to_vec();
+    if !normalized_body
+        .last()
+        .is_some_and(|last| form(last, "#return").is_some())
+    {
+        normalized_body.push(Expr::List(vec![
+            Expr::Symbol("#return".into()),
+            Expr::List(vec![Expr::Symbol("#unreachable".into())]),
+        ]));
+    }
+    let body = normalized_body.as_slice();
     let mut self_references = if pinned {
         pinned_self_references(&params, body)?
     } else {
@@ -10758,10 +10789,8 @@ fn generated_source_with_capture_selection(
     }
     let mut return_await = form(&last[1], "#await").map(<[Expr]>::to_vec);
     let mut return_value = last[1].clone();
-    let source = expression_source(&invocation[4])?;
     let waker_source = expression_source(&invocation[3])?;
     let mut statements = body[..body.len() - 1].to_vec();
-    let mut next_nested_await = 0;
     for (source_index, statement) in statements.iter_mut().enumerate() {
         lower_labeled_async_loop(statement)?;
         terminalize_async_iterations(statement, &source, &mut next_nested_await)

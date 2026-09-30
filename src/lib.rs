@@ -3003,7 +3003,12 @@ fn parse_prepared_program_with_async_captures(
                 };
                 generated.map_err(|error| {
                     let is_async_fn = matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned");
-                    let error_span = if is_async_fn && error.contains("shadowing") {
+                    let escaped_name = error.split_once("unknown value '")
+                        .and_then(|(_, rest)| rest.split_once("' outside").map(|(name, _)| name));
+                    let error_span = if is_async_fn && escaped_name.is_some() {
+                        source_value_symbol_span(&source_expression, escaped_name.unwrap())
+                            .unwrap_or(form_span)
+                    } else if is_async_fn && error.contains("shadowing") {
                         let details = match &normalized_invocation {
                             Expr::List(invocation) => invocation.get(4),
                             _ => None,
@@ -3030,13 +3035,6 @@ fn parse_prepared_program_with_async_captures(
                             async_function_statement_source(&source_expression, statement_index)
                         })
                         .and_then(|statement| {
-                            if let Some(name) = error.split_once("unknown value '")
-                                .and_then(|(_, rest)| rest.split_once("' outside").map(|(name, _)| name))
-                            {
-                                if let Some(span) = source_value_symbol_span(statement, name) {
-                                    return Some(span);
-                                }
-                            }
                             if error.contains("body cannot return")
                                 || error.contains("does not support body returns")
                             {
@@ -3553,6 +3551,11 @@ fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span
         Some("#quote" | "#quasiquote" | "#literal") => None,
         Some("#let" | "#let-mut") => visit(3),
         Some("#let-else") => visit(4).or_else(|| visit(3)),
+        Some("#fn" | "#unsafe-fn") => children
+            .iter()
+            .skip(4)
+            .rev()
+            .find_map(|child| source_value_symbol_span(child, name)),
         Some("#get" | "#get-payload") => visit(1),
         Some("#await") => children
             .last()

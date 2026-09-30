@@ -4301,6 +4301,12 @@ commit, documentation, and focused regression coverage.
   after (40 alternating warm samples, 11.6% reduction); other sampled
   workloads showed no meaningful change.
 
+- [x] **ASYNC-01-CONDITIONAL-RETURN: Preserve suspending early returns.**
+  Lower common tails into the fall-through branches of function-level `#if`
+  and `#match`. Test native results, retained pending mutable loans, explicit
+  cancellation, linear consumption, and exact escaped-local diagnostics.
+  Arbitrary async body lowering remains a separate open requirement.
+
 - [x] **PERF-08: Build async metadata only for selected async users.**
   Detect async invocations after imports, generators, cfg, and syntax bundles
   expand. Skip async copy/type metadata on synchronous projects; scan only
