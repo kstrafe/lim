@@ -2507,6 +2507,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   from a nested loop when translating it would change its target. Verify a
   native `#continue-to` case resumes through Pending and reaches the next
   iteration.
+- [x] **ASYNC-01b172: Count awaits through structured statement trees.** Make
+  suspension detection and counting descend through parsed blocks, loops,
+  labeled statements, assignments, and let-else bodies rather than silently
+  treating structured AST nodes as await-free. Verify the traversal and the
+  block-owned local labeled-transfer rewrite directly. End-to-end expansion of
+  a source `#block` containing an awaited labeled loop remains open under
+  ASYNC-01.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal

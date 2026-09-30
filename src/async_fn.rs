@@ -263,28 +263,59 @@ fn form<'a>(expr: &'a Expr, head: &str) -> Option<&'a [Expr]> {
 }
 
 fn has_await(expr: &Expr) -> bool {
-    match expr {
-        Expr::List(items) => form(expr, "#await").is_some() || items.iter().any(has_await),
-        _ => false,
+    await_count(expr) != 0
+}
+
+fn statement_has_await(statement: &crate::Statement) -> bool {
+    statement_await_count(statement) != 0
+}
+
+fn statement_await_count(statement: &crate::Statement) -> usize {
+    use crate::Statement as S;
+    match statement {
+        S::Let { value, .. }
+        | S::Destructure { value, .. }
+        | S::Assign { value, .. }
+        | S::FieldAssign { value, .. }
+        | S::TupleAssign { value, .. }
+        | S::EnumPayloadAssign { value, .. }
+        | S::BreakValue(value)
+        | S::BreakToValue { value, .. }
+        | S::Expr(value) => await_count(value),
+        S::ArrayAssign { index, value, .. } => await_count(index) + await_count(value),
+        S::LetElse {
+            value, else_body, ..
+        } => await_count(value) + else_body.iter().map(statement_await_count).sum::<usize>(),
+        S::While { condition, body } => {
+            await_count(condition) + body.iter().map(statement_await_count).sum::<usize>()
+        }
+        S::Loop { body } => body.iter().map(statement_await_count).sum(),
+        S::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            statement_await_count(init)
+                + await_count(condition)
+                + statement_await_count(step)
+                + body.iter().map(statement_await_count).sum::<usize>()
+        }
+        S::Labeled { statement, .. } => statement_await_count(statement),
+        S::Return(Some(value)) => await_count(value),
+        S::Return(None) | S::Break | S::BreakTo(_) | S::Continue | S::ContinueTo(_) => 0,
     }
 }
 
 fn await_count(expr: &Expr) -> usize {
     match expr {
         Expr::List(items) => {
-            usize::from(form(expr, "#await").is_some())
+            usize::from(form(expr, "#await").is_some() || form(expr, "await").is_some())
                 + items.iter().map(await_count).sum::<usize>()
         }
-        Expr::Block(statements) | Expr::Loop(statements) => statements
-            .iter()
-            .map(|statement| match statement {
-                crate::Statement::Expr(value)
-                | crate::Statement::Return(Some(value))
-                | crate::Statement::BreakValue(value)
-                | crate::Statement::BreakToValue { value, .. } => await_count(value),
-                _ => 0,
-            })
-            .sum(),
+        Expr::Block(statements) | Expr::Loop(statements) => {
+            statements.iter().map(statement_await_count).sum()
+        }
         Expr::Labeled { expression, .. }
         | Expr::Unquote(expression)
         | Expr::UnquoteSplicing(expression) => await_count(expression),
@@ -8337,7 +8368,7 @@ fn rename_pattern_binding(pattern: &mut Expr, from: &str, to: &str) {
 fn contains_loop_control(expression: &Expr) -> bool {
     match expression {
         Expr::List(items) => {
-            matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break" | "#continue" | "#break-to" | "#continue-to"))
+            matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break" | "break" | "#continue" | "continue" | "#break-to" | "break-to" | "#continue-to" | "continue-to"))
                 || items.iter().skip(1).any(contains_loop_control)
         }
         Expr::Block(statements) | Expr::Loop(statements) => {
@@ -8363,8 +8394,27 @@ fn contains_loop_control(expression: &Expr) -> bool {
 /// transfers. Transfers from nested loops cannot be translated this way: an
 /// unlabelled transfer there would change its target.
 fn lower_labeled_async_loop(statement: &mut Expr) -> Result<(), String> {
+    if let Expr::List(items) = statement {
+        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote" | "#fn" | "fn"))
+        {
+            return Ok(());
+        }
+        let is_label = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#label" | "label"));
+        if !is_label {
+            for item in items.iter_mut().skip(1) {
+                lower_labeled_async_loop(item)?;
+            }
+            return Ok(());
+        }
+    }
+    if let Expr::Block(statements) | Expr::Loop(statements) = statement {
+        for statement in statements {
+            lower_labeled_async_statement(statement)?;
+        }
+        return Ok(());
+    }
     let (label, loop_expression) = match statement {
-        Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#label") =>
+        Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#label" | "label")) =>
         {
             if items.len() != 3 {
                 return Err("@async-fn #label requires a label and one loop statement".into());
@@ -8378,15 +8428,200 @@ fn lower_labeled_async_loop(statement: &mut Expr) -> Result<(), String> {
     if !has_await(&loop_expression) {
         return Ok(());
     }
-    if !["#while", "#while-let", "#loop", "#for", "#for-range"]
-        .iter()
-        .any(|keyword| form(&loop_expression, keyword).is_some())
+    if ![
+        "#while",
+        "while",
+        "#while-let",
+        "while-let",
+        "#loop",
+        "loop",
+        "#for",
+        "for",
+        "#for-range",
+        "for-range",
+    ]
+    .iter()
+    .any(|keyword| form(&loop_expression, keyword).is_some())
     {
         return Err("@async-fn #label must wrap a loop when its body awaits".into());
     }
     let mut lowered = loop_expression;
     rewrite_labeled_async_transfers(&mut lowered, &label, true, false)?;
     *statement = lowered;
+    Ok(())
+}
+
+fn lower_labeled_async_statement(statement: &mut crate::Statement) -> Result<(), String> {
+    use crate::Statement as S;
+    if let S::Labeled {
+        label,
+        statement: inner,
+    } = statement
+    {
+        if statement_has_await(inner) {
+            rewrite_labeled_loop_statement(inner, label)?;
+            *statement = (**inner).clone();
+            return Ok(());
+        }
+        return lower_labeled_async_statement(inner);
+    }
+    match statement {
+        S::Let { value, .. }
+        | S::Destructure { value, .. }
+        | S::Assign { value, .. }
+        | S::FieldAssign { value, .. }
+        | S::TupleAssign { value, .. }
+        | S::EnumPayloadAssign { value, .. }
+        | S::BreakValue(value)
+        | S::BreakToValue { value, .. }
+        | S::Expr(value)
+        | S::Return(Some(value)) => lower_labeled_async_loop(value),
+        S::ArrayAssign { index, value, .. } => {
+            lower_labeled_async_loop(index)?;
+            lower_labeled_async_loop(value)
+        }
+        S::LetElse {
+            value, else_body, ..
+        } => {
+            lower_labeled_async_loop(value)?;
+            for statement in else_body {
+                lower_labeled_async_statement(statement)?;
+            }
+            Ok(())
+        }
+        S::While { condition, body } => {
+            lower_labeled_async_loop(condition)?;
+            for statement in body {
+                lower_labeled_async_statement(statement)?;
+            }
+            Ok(())
+        }
+        S::Loop { body } => {
+            for statement in body {
+                lower_labeled_async_statement(statement)?;
+            }
+            Ok(())
+        }
+        S::For {
+            init,
+            condition,
+            step,
+            body,
+        } => {
+            lower_labeled_async_statement(init)?;
+            lower_labeled_async_loop(condition)?;
+            lower_labeled_async_statement(step)?;
+            for statement in body {
+                lower_labeled_async_statement(statement)?;
+            }
+            Ok(())
+        }
+        S::Return(None) | S::Break | S::BreakTo(_) | S::Continue | S::ContinueTo(_) => Ok(()),
+        S::Labeled { .. } => unreachable!("labeled statement handled above"),
+    }
+}
+
+fn rewrite_labeled_loop_statement(
+    statement: &mut crate::Statement,
+    label: &str,
+) -> Result<(), String> {
+    use crate::Statement as S;
+    let body = match statement {
+        S::While { body, .. } | S::Loop { body } | S::For { body, .. } => body,
+        _ => return Err("@async-fn #label must wrap a loop when its body awaits".into()),
+    };
+    for statement in body {
+        rewrite_labeled_loop_body_statement(statement, label, false)?;
+    }
+    Ok(())
+}
+
+fn rewrite_labeled_loop_body_statement(
+    statement: &mut crate::Statement,
+    label: &str,
+    nested_loop: bool,
+) -> Result<(), String> {
+    use crate::Statement as S;
+    match statement {
+        S::BreakTo(target) if target == label => {
+            if nested_loop {
+                return Err(format!(
+                    "@async-fn cannot lower transfer to outer label '{label}' from a nested loop"
+                ));
+            }
+            *statement = S::Break;
+        }
+        S::BreakToValue {
+            label: target,
+            value,
+        } if target == label => {
+            if nested_loop {
+                return Err(format!(
+                    "@async-fn cannot lower transfer to outer label '{label}' from a nested loop"
+                ));
+            }
+            *statement = S::BreakValue(value.clone());
+        }
+        S::ContinueTo(target) if target == label => {
+            if nested_loop {
+                return Err(format!(
+                    "@async-fn cannot lower transfer to outer label '{label}' from a nested loop"
+                ));
+            }
+            *statement = S::Continue;
+        }
+        S::Labeled {
+            label: nested_label,
+            ..
+        } if nested_label == label => return Ok(()),
+        S::Expr(expression)
+        | S::Let {
+            value: expression, ..
+        }
+        | S::Destructure {
+            value: expression, ..
+        }
+        | S::Assign {
+            value: expression, ..
+        }
+        | S::FieldAssign {
+            value: expression, ..
+        }
+        | S::TupleAssign {
+            value: expression, ..
+        }
+        | S::EnumPayloadAssign {
+            value: expression, ..
+        }
+        | S::BreakValue(expression)
+        | S::BreakToValue {
+            value: expression, ..
+        }
+        | S::Return(Some(expression)) => {
+            rewrite_labeled_async_transfers(expression, label, false, nested_loop)?;
+        }
+        S::ArrayAssign { index, value, .. } => {
+            rewrite_labeled_async_transfers(index, label, false, nested_loop)?;
+            rewrite_labeled_async_transfers(value, label, false, nested_loop)?;
+        }
+        S::LetElse {
+            value, else_body, ..
+        } => {
+            rewrite_labeled_async_transfers(value, label, false, nested_loop)?;
+            for statement in else_body {
+                rewrite_labeled_loop_body_statement(statement, label, nested_loop)?;
+            }
+        }
+        S::While { body, .. } | S::Loop { body } | S::For { body, .. } => {
+            for statement in body {
+                rewrite_labeled_loop_body_statement(statement, label, true)?;
+            }
+        }
+        S::Labeled { statement, .. } => {
+            rewrite_labeled_loop_body_statement(statement, label, nested_loop)?;
+        }
+        _ => {}
+    }
     Ok(())
 }
 
@@ -8413,14 +8648,14 @@ fn rewrite_labeled_async_transfers(
     {
         return Ok(());
     }
-    if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#label")
+    if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#label" | "label"))
         && items
             .get(1)
             .is_some_and(|name| matches!(name, Expr::Symbol(name) if name == label))
     {
         return Ok(());
     }
-    if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break-to" | "#continue-to"))
+    if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break-to" | "break-to" | "#continue-to" | "continue-to"))
         && items
             .get(1)
             .is_some_and(|name| matches!(name, Expr::Symbol(name) if name == label))
@@ -8430,7 +8665,7 @@ fn rewrite_labeled_async_transfers(
                 "@async-fn cannot lower transfer to outer label '{label}' from a nested loop"
             ));
         }
-        let is_break = matches!(items.first(), Some(Expr::Symbol(head)) if head == "#break-to");
+        let is_break = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break-to" | "break-to"));
         if (!is_break && items.len() != 2) || (is_break && !(2..=3).contains(&items.len())) {
             return Err(format!("@async-fn invalid transfer to label '{label}'"));
         }
@@ -8443,7 +8678,7 @@ fn rewrite_labeled_async_transfers(
         *expression = Expr::List(replacement);
         return Ok(());
     }
-    let is_loop = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#while" | "#while-let" | "#loop" | "#for" | "#for-range"));
+    let is_loop = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#while" | "while" | "#while-let" | "while-let" | "#loop" | "loop" | "#for" | "for" | "#for-range" | "for-range"));
     let nested_loop = nested_loop || (is_loop && !root_loop);
     for item in items.iter_mut().skip(1) {
         rewrite_labeled_async_transfers(item, label, false, nested_loop)?;
@@ -10981,5 +11216,35 @@ fn apply_async_output_renames(
         known_order.retain(|name| name != old_name);
         known_order.push(new_binding.name.clone());
         known.insert(new_binding.name.clone(), new_binding.clone());
+    }
+}
+
+#[cfg(test)]
+mod async_lowering_tests {
+    use super::*;
+
+    #[test]
+    fn suspension_detection_walks_structured_control_flow() {
+        let await_expression = Expr::List(vec![Expr::Symbol("#await".into())]);
+        let mut expression = Expr::Block(vec![crate::Statement::Labeled {
+            label: "outer".into(),
+            statement: Box::new(crate::Statement::While {
+                condition: Expr::Symbol("true".into()),
+                body: vec![
+                    crate::Statement::Expr(await_expression),
+                    crate::Statement::ContinueTo("outer".into()),
+                ],
+            }),
+        }]);
+        assert!(has_await(&expression));
+        assert_eq!(await_count(&expression), 1);
+        lower_labeled_async_loop(&mut expression).unwrap();
+        let Expr::Block(statements) = expression else {
+            panic!("block expression was not retained")
+        };
+        let [crate::Statement::While { body, .. }] = statements.as_slice() else {
+            panic!("labeled loop was not lowered")
+        };
+        assert!(matches!(body.last(), Some(crate::Statement::Continue)));
     }
 }
