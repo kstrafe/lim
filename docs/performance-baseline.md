@@ -19,6 +19,31 @@ not a per-phase memory profile.
 
 ## Shared typed ownership facts (2026-09-30)
 
+### Move completed dataflow snapshots instead of cloning them
+
+Loan-origin and consumption solvers now publish each completed outgoing
+state by moving it, after propagating it to successors. This removes one
+deep clone per processed event without changing the stored snapshots or
+fixed-point propagation. The complete test suite and formatting checks pass.
+
+Warm end-to-end measurements used the release compiler, two warmups and
+100 samples per version, with no concurrent test run:
+
+| Warm median (ms) | Before | After | Binary bytes |
+| --- | ---: | ---: | ---: |
+| `async_fn.lim` | 32.75 | 32.25 | 11,280 |
+| `vec_allocator.lim` | 22.95 | 22.66 | 12,488 |
+| `large_reference_projections.lim` | 9.84 | 11.08 | 8,280 |
+
+Every executable was byte-identical. The small async/vector reductions
+(1.5%/1.2%) are observations, not established speedups: the small projection
+workload was particularly noisy (3.03–15.73 ms before, 2.65–17.46 ms after).
+An earlier 60-sample run overlapping tests measured projection medians of
+3.40/3.37 ms. The allocation removal is deterministic; the end-to-end timing
+benefit needs a quieter, alternating-order benchmark to establish.
+
+### Shared consumption solution
+
 Linear consumption checks and exit diagnostics now share one move-flow
 solution per function. Functions with no linear bindings or expressions skip
 these linear checks; their type and borrow checks remain unchanged. Tests

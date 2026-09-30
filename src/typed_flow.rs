@@ -816,7 +816,6 @@ impl FlowGraph {
                 } => replace_projected_origins(&mut state[binding.0], segments, Vec::new()),
                 _ => {}
             }
-            after[id.0] = Some(state.clone());
             for successor in &self.nodes[id.0].successors {
                 let changed = match &mut before[successor.0] {
                     Some(existing) => merge_loan_states(existing, &state),
@@ -838,6 +837,7 @@ impl FlowGraph {
                     }
                 }
             }
+            after[id.0] = Some(state);
         }
         FlowLoanOrigins { before, after }
     }
@@ -1273,7 +1273,6 @@ impl FlowGraph {
                     state.retain(|moved, _| !place_covers(place, moved));
                 }
             }
-            after[id.0] = Some(state.clone());
             for successor in &node.successors {
                 let changed = match &mut before[successor.0] {
                     Some(existing) => {
@@ -1299,6 +1298,7 @@ impl FlowGraph {
                     queued[successor.0] = true;
                 }
             }
+            after[id.0] = Some(state);
         }
         let mut definitely_before = vec![None; self.nodes.len()];
         let definite_consumed_at = definite_consumed_at.as_ref().unwrap_or(&consumed_at);
