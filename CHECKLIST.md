@@ -1578,6 +1578,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   at suspension points. Define source syntax, borrowing across suspension, and
   immovable storage before accepting self-referential frames. Preserve exact
   source diagnostics and explicit cleanup for each suspended state.
+- [x] **ASYNC-01-TYPED-PLACE-USES: Check clone and borrow after consumption.**
+  Include typed clone and borrow actions in use-after-move validation rather
+  than relying solely on syntax fallback. Test whole-owner clones, immutable
+  and mutable borrows, and Copy-field clones after consuming a linear owner.
+  Construct the typed bodies without ownership enforcement so tests prove
+  typed rejection directly. Preserve exact offending-operation spans and
+  previous-consumption labels. Keep valid pre-consumption operations accepted.
 - [x] **ASYNC-01-TYPED-EXITS: Stabilize loan snapshots and initialized obligations.**
   Model branch-result evaluation snapshots as dependencies of typed loan
   transfers, including results updated by loops. Revisit consumers after

@@ -1205,7 +1205,9 @@ impl FlowGraph {
                     place_base: false,
                     ..
                 }
-                | FlowAction::Release { place, .. } => place,
+                | FlowAction::Release { place, .. }
+                | FlowAction::Clone { place, .. }
+                | FlowAction::Borrow { place, .. } => place,
                 _ => continue,
             };
             let Some(state) = moves.before[index].as_ref() else {

@@ -9049,3 +9049,51 @@ fn fits_unsigned_integer(value: u128, ty: &Type) -> bool {
     };
     value <= maximum
 }
+
+#[cfg(test)]
+mod typed_ownership_tests {
+    use super::*;
+
+    #[test]
+    fn typed_flow_rejects_cloning_and_borrowing_consumed_places() {
+        for (operation, ty, cleanup) in [
+            ("(#clone value)", "Resource", "(#forget result)"),
+            ("(#borrow value)", "(#ref Resource)", ""),
+            ("(#borrow-mut value)", "(#ref-mut Resource)", ""),
+            ("(#clone (#get value number))", "u64", ""),
+        ] {
+            for moved in [false, true] {
+                let destruction = if moved { "(#forget value)" } else { "" };
+                let final_destruction = if moved { "" } else { "(#forget value)" };
+                let source = format!(
+                    "(#struct Resource ((number u64))) (#linear Resource)
+                     (#fn main () u64
+                       (#let-mut value Resource (#struct-literal Resource ((number 1u64))))
+                       {destruction}
+                       (#let result {ty} {operation})
+                       {cleanup}
+                       {final_destruction}
+                       (#return 0u64))"
+                );
+                let program = crate::parse_program(&source).unwrap();
+                // Deliberately omit both ownership checkers when constructing
+                // the typed body: the assertion must not depend on fallback.
+                let declarations = resolve_program_for_analysis(&program, false).unwrap();
+                let body = &declarations.bodies["main"];
+                let flow = &declarations.flows["main"];
+                let types = crate::linearcheck::LinearTypes::from_program(&program);
+                let result = flow.check_linear_consumptions(body, &types);
+                if moved {
+                    let error = result.expect_err(operation);
+                    assert!(error.message.contains("used more than once"), "{error:?}");
+                    let span = error.span.unwrap();
+                    assert_eq!(&source[span.start..span.end], operation);
+                    let consumed = error.labels[0].0;
+                    assert_eq!(&source[consumed.start..consumed.end], "(#forget value)");
+                } else {
+                    result.unwrap();
+                }
+            }
+        }
+    }
+}
