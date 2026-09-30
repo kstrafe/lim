@@ -22,6 +22,7 @@ mod linearcheck;
 mod native_assembly;
 mod native_linker;
 mod output;
+mod reachability;
 mod source_error;
 mod stack_usage;
 mod syntax_collection;
@@ -1898,6 +1899,7 @@ pub fn compile_source_to_assembly_for_output(
         target,
         output,
         None,
+        false,
     )
 }
 
@@ -1919,6 +1921,30 @@ pub fn compile_source_with_generated_sources(
         target,
         output,
         Some(generated_directory),
+        false,
+    )
+}
+
+/// Emit only executable-reachable functions after validating the full program.
+/// Assembly/library emission should use `compile_source_with_generated_sources`.
+pub fn compile_executable_source_with_generated_sources(
+    source: &str,
+    source_path: &Path,
+    config: &CompileConfig,
+    cache_directory: &Path,
+    target: TargetDescription,
+    output: Option<&Path>,
+    generated_directory: &Path,
+) -> Result<String, Diagnostic> {
+    compile_source_with_artifacts(
+        source,
+        source_path,
+        config,
+        cache_directory,
+        target,
+        output,
+        Some(generated_directory),
+        true,
     )
 }
 
@@ -1930,6 +1956,7 @@ fn compile_source_with_artifacts(
     target: TargetDescription,
     output: Option<&Path>,
     generated_directory: Option<&Path>,
+    executable: bool,
 ) -> Result<String, Diagnostic> {
     // Import loading lexes and parses the root source, preserving its spans.
     let prepared = prepare_program_syntax(
@@ -1962,8 +1989,12 @@ fn compile_source_with_artifacts(
             }
         }
     }
-    codegen::generate_checked_assembly(&checked, target)
-        .map_err(|message| codegen_diagnostic(message, &program))
+    let assembly = if executable {
+        codegen::generate_checked_executable_assembly(&checked, target)
+    } else {
+        codegen::generate_checked_assembly(&checked, target)
+    };
+    assembly.map_err(|message| codegen_diagnostic(message, &program))
 }
 
 fn analysis_diagnostic(

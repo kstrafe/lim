@@ -56,6 +56,13 @@ imports. See `cargo run -- --help` for the CLI options.
 Editors can request `--diagnostic-format=json`; the versioned schema is
 described in [docs/diagnostics.md](docs/diagnostics.md).
 
+Executable builds emit only functions reachable from `main`, including thread
+workers and symbols referenced by inline assembly. Every imported definition
+is still type-, borrow-, and linearity-checked. `--emit-asm` retains all functions
+for library/export use; builds with linked objects or libraries also retain all
+exports because external code may call them. Generated `.lim` source remains
+fully inspectable even when its unused functions are omitted from the binary.
+
 Run `nix develop --command bash scripts/native-sweep.sh` to compile and run
 every example against `examples/outcomes.txt`. Each entry declares an exact
 exit code, intentional signal, or compile-only module, plus stdout/stderr

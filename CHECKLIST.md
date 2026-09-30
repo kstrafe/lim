@@ -3576,6 +3576,18 @@ and acceptance coverage.
   and check runtime outputs and artifact sizes without timing gates in ordinary
   tests. Keep Nix and dependency-free Rust tooling.
 
+- [x] **PERF-03: Emit executable-reachable functions only.** Follow checked
+  function identities from `main`; retain transitive callees, generated thread
+  workers, and symbols referenced by inline assembly. Prune before backend
+  reconstruction, ABI preparation, and instruction emission, without changing
+  retained source/declaration IDs. Continue checking every imported definition;
+  leave library/assembly emission and builds with external link roots unpruned.
+  Keep generated source fully inspectable. Cover transitive calls, unused import
+  errors, assembly calls, thread entries, external object callbacks, and native
+  outcomes. On `async_fn.lim`, 20 warm builds measured 61.24 ms before and
+  44.50 ms after; executable size fell from 35,856 to 11,280 bytes (68.5%).
+  Exit status/stdout/stderr match. Global-data pruning remains separate work.
+
 - [x] **PERF-02: Measure compile-local symbol interning before adopting it.**
   Count duplicate identifier allocations and AST/generator symbol clones on
   representative cold/warm builds. Prototype a compilation-local interner

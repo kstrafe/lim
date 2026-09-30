@@ -30,7 +30,7 @@ fn round_up(value: usize, alignment: usize) -> Result<usize, String> {
     }
 }
 
-fn asm_symbol(name: &str) -> String {
+pub(crate) fn asm_symbol(name: &str) -> String {
     let mut symbol = String::new();
     for byte in name.bytes() {
         if byte.is_ascii_alphanumeric() || byte == b'_' {
@@ -1028,6 +1028,7 @@ fn non_generic_program_does_not_copy_for_monomorphization() {
 fn prepare_checked_program(
     program: &Program,
     bodies: &HashMap<String, crate::typed_body::Body>,
+    retained: Option<&HashSet<String>>,
 ) -> Program {
     fn expr(value: &Expr) -> Expr {
         if let Expr::List(items) = value {
@@ -1155,7 +1156,41 @@ fn prepare_checked_program(
             other => other.clone(),
         }
     }
-    let mut result = program.clone();
+    let mut result = Program {
+        items: program
+            .items
+            .iter()
+            .filter(|item| match item {
+                Item::Function(function) => {
+                    retained.is_none_or(|symbols| symbols.contains(&function.name))
+                }
+                Item::ThreadTask { name, .. } => {
+                    retained.is_none_or(|symbols| symbols.contains(name))
+                }
+                _ => true,
+            })
+            .cloned()
+            .collect(),
+        // Source metadata retains its original identities after pruning.
+        source: program.source.clone(),
+        source_files: program.source_files.clone(),
+        statement_spans: program
+            .statement_spans
+            .iter()
+            .filter(|((name, _), _)| retained.is_none_or(|symbols| symbols.contains(name)))
+            .map(|(key, value)| (key.clone(), *value))
+            .collect(),
+        statement_expressions: program
+            .statement_expressions
+            .iter()
+            .filter(|((name, _), _)| retained.is_none_or(|symbols| symbols.contains(name)))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+        declaration_spans: program.declaration_spans.clone(),
+        declaration_expressions: program.declaration_expressions.clone(),
+        declaration_occurrences: program.declaration_occurrences.clone(),
+        generated_source_invocations: program.generated_source_invocations.clone(),
+    };
     for item in &mut result.items {
         match item {
             Item::Function(function) if !function.external => {
@@ -1191,11 +1226,28 @@ pub(crate) fn generate_checked_assembly(
     checked: &crate::typecheck::CheckedProgram<'_>,
     target: crate::TargetDescription,
 ) -> Result<String, crate::source_error::SourceError> {
+    generate_checked_assembly_with_roots(checked, target, None)
+}
+
+pub(crate) fn generate_checked_executable_assembly(
+    checked: &crate::typecheck::CheckedProgram<'_>,
+    target: crate::TargetDescription,
+) -> Result<String, crate::source_error::SourceError> {
+    let retained = crate::reachability::executable_symbols(checked);
+    generate_checked_assembly_with_roots(checked, target, Some(&retained))
+}
+
+fn generate_checked_assembly_with_roots(
+    checked: &crate::typecheck::CheckedProgram<'_>,
+    target: crate::TargetDescription,
+    retained: Option<&HashSet<String>>,
+) -> Result<String, crate::source_error::SourceError> {
     if target != crate::TargetDescription::X86_64_SYSTEM_V {
         return Err("native backend has no implementation for the selected target".into());
     }
     let program = checked.program();
-    let prepared_program = prepare_checked_program(program, &checked.declarations().bodies);
+    let prepared_program =
+        prepare_checked_program(program, &checked.declarations().bodies, retained);
     let program = &prepared_program;
     let declarations = checked.declarations();
     let aliases = &declarations.aliases;

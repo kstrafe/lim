@@ -629,7 +629,15 @@ fn compile_with_links(
         .unwrap_or_else(|| Path::new("."))
         .join(".lim");
     let generator_cache_directory = generated_directory.join("cache");
-    let assembly = match lim::compile_source_with_generated_sources(
+    // External objects/libraries may call Lim exports that are not reachable
+    // from main in source. Keep all exports when those roots are opaque.
+    let compile = if emit_assembly || !links.object_files.is_empty() || !links.libraries.is_empty()
+    {
+        lim::compile_source_with_generated_sources
+    } else {
+        lim::compile_executable_source_with_generated_sources
+    };
+    let assembly = match compile(
         &input,
         input_file,
         config,
