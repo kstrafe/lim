@@ -92,7 +92,24 @@ pub(crate) fn check_live_direct_loans_with_types(
         .collect::<HashMap<_, _>>();
     let scoped_before = scoped_borrows_before(flow, &scoped_ids);
     for (index, node) in flow.nodes.iter().enumerate() {
+        // Computed reference operands have no syntactic place, so lowering
+        // represents their write as Evaluate. Resolve the evaluated target
+        // rather than silently omitting the write from conflict checking.
+        let computed_targets = match node.action {
+            FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
+                NodeKind::Form { head, children, .. }
+                    if head == "deref-set" && children.len() == 3 =>
+                {
+                    origins.value_before(body, flow, FlowNodeId(index), children[1])
+                }
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
+        };
         let (place, access) = match &node.action {
+            FlowAction::Evaluate(_) if !computed_targets.is_empty() => {
+                (&computed_targets[0].place, AccessKind::Write)
+            }
             FlowAction::Read {
                 place,
                 place_base: false,
@@ -122,9 +139,14 @@ pub(crate) fn check_live_direct_loans_with_types(
             _ => false,
         };
         let event = FlowNodeId(index);
-        let mut projected = Vec::new();
-        let mut reborrow_parent = None;
-        if !matches!(access, AccessKind::Move) {
+        let mut projected = computed_targets
+            .iter()
+            .map(|origin| origin.place.clone())
+            .collect::<Vec<_>>();
+        let mut reborrow_parent = computed_targets
+            .first()
+            .and_then(|origin| origin.borrowed_from);
+        if computed_targets.is_empty() && !matches!(access, AccessKind::Move) {
             if let PlaceRoot::Local(binding) = &place.root {
                 projected = origins.projected_referents(event, *binding, &place.segments);
                 if !projected.is_empty() {
@@ -1640,6 +1662,11 @@ mod tests {
                 *successor = write;
             }
         }
+        let error = check_live_direct_loans(body, &flow).unwrap_err();
+        assert!(error.message.contains("cannot mutate 'point'"));
+        // Exercise the event representation used when the reference target
+        // cannot be represented by a syntactic place.
+        flow.nodes[write.0].action = FlowAction::Evaluate(value);
         let error = check_live_direct_loans(body, &flow).unwrap_err();
         assert!(error.message.contains("cannot mutate 'point'"));
     }
