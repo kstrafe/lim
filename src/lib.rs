@@ -1932,7 +1932,7 @@ fn compile_source_with_artifacts(
     generated_directory: Option<&Path>,
 ) -> Result<String, Diagnostic> {
     // Import loading lexes and parses the root source, preserving its spans.
-    let (program, capture_plans) = parse_program_in_directory_with_capture_plans(
+    let prepared = prepare_program_syntax(
         source,
         source_path.parent().unwrap_or(Path::new(".")),
         Some(source_path),
@@ -1940,15 +1940,14 @@ fn compile_source_with_artifacts(
         Some(cache_directory),
     )
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    let (program, capture_plans) = parse_prepared_program_with_capture_plans(&prepared)
+        .map_err(|message| generator_diagnostic(message, source_path, source))?;
     if let Some(directory) = generated_directory {
-        write_generated_sources_with_capture_plans(
-            source,
-            source_path.parent().unwrap_or(Path::new(".")),
-            Some(source_path),
+        write_prepared_generated_sources(
+            &prepared,
             directory,
-            config,
             Some(cache_directory),
-            Some(&capture_plans),
+            &capture_plans,
         )
         .map_err(|message| generator_diagnostic(message, source_path, source))?;
     }
@@ -2537,14 +2536,14 @@ fn parse_program_in_directory_with_capture_plans(
     config: &CompileConfig,
     cache_directory: Option<&Path>,
 ) -> Result<(Program, AsyncCapturePlans), SourceError> {
-    let probe = parse_program_in_directory_with_async_captures(
-        source,
-        base,
-        source_path,
-        config,
-        cache_directory,
-        None,
-    )?;
+    let prepared = prepare_program_syntax(source, base, source_path, config, cache_directory)?;
+    parse_prepared_program_with_capture_plans(&prepared)
+}
+
+fn parse_prepared_program_with_capture_plans(
+    prepared: &PreparedProgramSyntax,
+) -> Result<(Program, AsyncCapturePlans), SourceError> {
+    let probe = parse_prepared_program_with_async_captures(prepared, None)?;
     let invocations = async_capture_invocations(&probe);
     if invocations.is_empty() {
         return Ok((probe, AsyncCapturePlans::new()));
@@ -2555,14 +2554,8 @@ fn parse_program_in_directory_with_capture_plans(
             // Keep parsing semantically invalid programs so callers can ask
             // the ordinary checked-program boundary for its source diagnostic.
             let no_typed_capture_plan = AsyncCapturePlans::new();
-            let fallback = parse_program_in_directory_with_async_captures(
-                source,
-                base,
-                source_path,
-                config,
-                cache_directory,
-                Some(&no_typed_capture_plan),
-            )?;
+            let fallback =
+                parse_prepared_program_with_async_captures(prepared, Some(&no_typed_capture_plan))?;
             return Ok((fallback, no_typed_capture_plan));
         }
     };
@@ -2570,40 +2563,73 @@ fn parse_program_in_directory_with_capture_plans(
     if capture_plans.is_empty() {
         return Ok((probe, capture_plans));
     }
-    let program = parse_program_in_directory_with_async_captures(
-        source,
-        base,
-        source_path,
-        config,
-        cache_directory,
-        Some(&capture_plans),
-    )?;
+    let program = parse_prepared_program_with_async_captures(prepared, Some(&capture_plans))?;
     Ok((program, capture_plans))
 }
 
-fn parse_program_in_directory_with_async_captures(
+struct PreparedProgramSyntax {
+    root_source: String,
+    expressions: Vec<SpannedExpr>,
+    source_files: Vec<SourceFile>,
+    dependency_context: String,
+    user_generated: Vec<Expr>,
+    async_copy_types: HashSet<String>,
+    async_types: async_fn::AsyncTypeEnvironment,
+    worker_functions: HashMap<String, Function>,
+}
+
+fn prepare_program_syntax(
     source: &str,
     base: &Path,
     source_path: Option<&Path>,
     config: &CompileConfig,
     cache_directory: Option<&Path>,
-    capture_plans: Option<&AsyncCapturePlans>,
-) -> Result<Program, SourceError> {
-    let (loaded, mut source_files) = load_imports_with_sources(source, base, source_path, config)?;
+) -> Result<PreparedProgramSyntax, SourceError> {
+    let (loaded, source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&loaded, config);
-    let expressions = expand_cfg_forms(
-        generator::expand_with_generated_cached_with_context(
-            loaded,
-            cache_directory,
-            &dependency_context,
-        )
-        .map_err(|error| attach_generator_source(error, &source_files))?
-        .0,
-        config,
+    let (expanded, user_generated) = generator::expand_with_generated_cached_with_context(
+        loaded,
+        cache_directory,
+        &dependency_context,
     )
     .map_err(|error| attach_generator_source(error, &source_files))?;
+    let expressions = expand_cfg_forms(expanded, config)
+        .map_err(|error| attach_generator_source(error, &source_files))?;
     let async_copy_types = async_copy_type_names(&expressions);
     let async_types = async_type_environment(&expressions);
+    let needs_workers = expressions.iter().any(is_thread_spawn_invocation);
+    let worker_functions = expressions
+        .iter()
+        .filter(|_| needs_workers)
+        .filter_map(|expression| {
+            match parse_item(&normalize_keywords(expression.expr.clone())).ok()? {
+                Item::Function(function) if !function.external => {
+                    Some((function.name.clone(), function))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    Ok(PreparedProgramSyntax {
+        root_source: source.to_owned(),
+        expressions,
+        source_files,
+        dependency_context,
+        user_generated,
+        async_copy_types,
+        async_types,
+        worker_functions,
+    })
+}
+
+fn parse_prepared_program_with_async_captures(
+    prepared: &PreparedProgramSyntax,
+    capture_plans: Option<&AsyncCapturePlans>,
+) -> Result<Program, SourceError> {
+    let expressions = prepared.expressions.clone();
+    let mut source_files = prepared.source_files.clone();
+    let async_copy_types = &prepared.async_copy_types;
+    let async_types = &prepared.async_types;
     let mut items = Vec::with_capacity(expressions.len());
     let mut statement_spans = HashMap::new();
     let mut statement_expressions = HashMap::new();
@@ -2611,20 +2637,7 @@ fn parse_program_in_directory_with_async_captures(
     let mut declaration_expressions = HashMap::new();
     let mut declaration_occurrences: HashMap<String, Vec<SpannedExpr>> = HashMap::new();
     let mut generated_source_invocations = HashMap::new();
-    let needs_workers = expressions.iter().any(is_thread_spawn_invocation);
-    let worker_functions = expressions
-        .iter()
-        .filter(|_| needs_workers)
-        .filter_map(|expression| {
-            let parsed = parse_item(&normalize_keywords(expression.expr.clone())).ok()?;
-            match parsed {
-                Item::Function(function) if !function.external => {
-                    Some((function.name.clone(), function))
-                }
-                _ => None,
-            }
-        })
-        .collect::<HashMap<_, _>>();
+    let worker_functions = &prepared.worker_functions;
     for mut expression in expressions {
         validate_prefixed_forms(&expression.expr).map_err(|error| {
             attach_span_to_source_error_kind(error, expression.span, &source_files, "parse error: ")
@@ -2912,7 +2925,7 @@ fn parse_program_in_directory_with_async_captures(
     )?;
     Ok(Program {
         items,
-        source: Some(source.to_owned()),
+        source: Some(prepared.root_source.clone()),
         source_files,
         statement_spans,
         statement_expressions,
@@ -5473,73 +5486,30 @@ fn write_generated_sources_in_directory(
     config: &CompileConfig,
     cache_directory: Option<&Path>,
 ) -> Result<(), SourceError> {
-    write_generated_sources_with_capture_plans(
-        source,
-        base,
-        source_path,
-        directory,
-        config,
-        cache_directory,
-        None,
-    )
-}
-
-fn write_generated_sources_with_capture_plans(
-    source: &str,
-    base: &Path,
-    source_path: Option<&Path>,
-    directory: &Path,
-    config: &CompileConfig,
-    cache_directory: Option<&Path>,
-    prepared_plans: Option<&AsyncCapturePlans>,
-) -> Result<(), SourceError> {
-    let (expressions, source_files) = load_imports_with_sources(source, base, source_path, config)?;
-    let dependency_context = generator_dependency_context(&expressions, config);
-    let (expanded, user_generated) = generator::expand_with_generated_cached_with_context(
-        expressions.clone(),
-        cache_directory,
-        &dependency_context,
-    )
-    .map_err(|error| attach_generator_source(error, &source_files))?;
-    let expanded = expand_cfg_forms(expanded, config)
-        .map_err(|error| attach_generator_source(error, &source_files))?;
-    let has_async_invocation = expanded.iter().any(|expression| {
-        let Expr::List(items) = &expression.expr else {
-            return false;
-        };
-        matches!(items.first(), Some(Expr::At))
-            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "async-fn" | "async-fn-pinned"))
-    });
-    let async_plans = if let Some(plans) = prepared_plans {
-        plans.clone()
-    } else if has_async_invocation {
-        parse_program_in_directory_with_capture_plans(
-            source,
-            base,
-            source_path,
-            config,
-            cache_directory,
-        )?
-        .1
+    let prepared = prepare_program_syntax(source, base, source_path, config, cache_directory)?;
+    let has_async = prepared.expressions.iter().any(|expression| matches!(&expression.expr,
+        Expr::List(items) if matches!(items.first(), Some(Expr::At))
+            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "async-fn" | "async-fn-pinned"))));
+    let plans = if has_async {
+        parse_prepared_program_with_capture_plans(&prepared)?.1
     } else {
         AsyncCapturePlans::new()
     };
-    let needs_workers = expanded.iter().any(is_thread_spawn_invocation);
-    let worker_functions = expanded
-        .iter()
-        .filter(|_| needs_workers)
-        .filter_map(|expression| {
-            let parsed = parse_item(&normalize_keywords(expression.expr.clone())).ok()?;
-            match parsed {
-                Item::Function(function) if !function.external => {
-                    Some((function.name.clone(), function))
-                }
-                _ => None,
-            }
-        })
-        .collect::<HashMap<_, _>>();
-    let copy_types = async_copy_type_names(&expanded);
-    let async_types = async_type_environment(&expanded);
+    write_prepared_generated_sources(&prepared, directory, cache_directory, &plans)
+}
+
+fn write_prepared_generated_sources(
+    prepared: &PreparedProgramSyntax,
+    directory: &Path,
+    cache_directory: Option<&Path>,
+    async_plans: &AsyncCapturePlans,
+) -> Result<(), SourceError> {
+    let expanded = &prepared.expressions;
+    let user_generated = &prepared.user_generated;
+    let dependency_context = &prepared.dependency_context;
+    let worker_functions = &prepared.worker_functions;
+    let copy_types = &prepared.async_copy_types;
+    let async_types = &prepared.async_types;
     let generated_cache = cache_directory
         .map(Path::to_path_buf)
         .unwrap_or_else(|| directory.join("cache"));
@@ -11809,6 +11779,28 @@ mod tests {
         let mut changed = config.clone();
         changed.set("feature", "enabled");
         assert_ne!(key, generator_dependency_context(&expressions, &changed));
+    }
+
+    #[test]
+    fn async_compilation_expands_generators_once_across_all_frontend_stages() {
+        let directory = std::env::temp_dir().join(format!("lim-shared-frontend-{}", std::process::id()));
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_fn.lim");
+        let source = fs::read_to_string(&path).unwrap();
+        let cache = directory.join("cache");
+        let config = CompileConfig::default();
+        let compile = || compile_source_with_generated_sources(
+            &source, &path, &config, &cache, TargetDescription::X86_64_SYSTEM_V,
+            None, &directory,
+        ).unwrap();
+        let (cold, cold_report) = with_cache_report(compile);
+        let (warm, warm_report) = with_cache_report(compile);
+        assert_eq!(cold, warm);
+        // The example invokes three user generators. Probe parsing, final
+        // parsing and artifact writing must share those three expansions.
+        assert_eq!(cold_report.matches("\"kind\":\"syntax\"").count(), 3);
+        assert_eq!(warm_report.matches("\"kind\":\"syntax\"").count(), 3);
+        assert!(!warm_report.contains("\"missing-entry\""));
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
