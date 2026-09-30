@@ -1578,6 +1578,14 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   at suspension points. Define source syntax, borrowing across suspension, and
   immovable storage before accepting self-referential frames. Preserve exact
   source diagnostics and explicit cleanup for each suspended state.
+- [x] **ASYNC-01-REFERENCE-WRITE-VALUES: Preserve typed write values and effects.**
+  Emit one-word aggregate reference writes with the known target type, not
+  scalar expression inference. Evaluate zero-sized aggregate RHS values but
+  perform no memory write. Treat inline target borrows as local uses of the
+  unit-valued write, retaining typed conflict checks and normal RHS checking.
+  Test literal, local, computed, and block aggregate values, preservation of
+  neighboring storage, and trapping RHS effects. Run the full suite. Referent
+  consumption/replacement proofs and arbitrary-body async lowering remain open.
 - [x] **ASYNC-01-TYPED-PLACE-USES: Check clone and borrow after consumption.**
   Include typed clone and borrow actions in use-after-move validation rather
   than relying solely on syntax fallback. Test whole-owner clones, immutable

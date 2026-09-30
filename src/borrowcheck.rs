@@ -2032,6 +2032,17 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     });
                     context.allow_local_reference = previous;
                     checked?;
+                } else if matches!(operator.as_str(), "deref-set" | "pin-write") && items.len() == 3
+                {
+                    // The target reference is used locally, never returned
+                    // by this unit-valued operation. Typed write events still
+                    // check conflicts with retained and derived loans.
+                    let previous = context.allow_local_reference;
+                    context.allow_local_reference = true;
+                    let target = check_expression(&items[1], context);
+                    context.allow_local_reference = previous;
+                    target?;
+                    check_expression(&items[2], context)?;
                 } else if operator == "pin-set-field" && items.len() == 4 {
                     // The checked-place analysis records this as a write to
                     // one projected field of the pinned referent. Treating

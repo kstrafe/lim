@@ -10228,6 +10228,12 @@ impl FunctionContext<'_> {
                 self.output.push_str("    push rax\n");
                 self.stack_depth += 1;
                 let words = storage_word_count(&target, &self.structs, &self.enums)?;
+                if words == 0 {
+                    self.expression_as_expected(&items[2], &target)?;
+                    self.output.push_str("    add rsp, 8\n    xor eax, eax\n");
+                    self.stack_depth -= 1;
+                    return Ok(());
+                }
                 if words > VALUE_REGISTERS.len() {
                     return Err(format!(
                         "{operator} aggregate target exceeds native value registers"
@@ -10262,7 +10268,7 @@ impl FunctionContext<'_> {
                 if is_float_type(&target) {
                     self.expression_as_float(&items[2], &target)?;
                 } else {
-                    self.expression(&items[2])?;
+                    self.expression_as_expected(&items[2], &target)?;
                 }
                 self.output.push_str("    pop rcx\n    and rcx, -2\n");
                 self.stack_depth -= 1;

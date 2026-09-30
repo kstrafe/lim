@@ -259,7 +259,9 @@ other borrow, and a shared borrow cannot overlap a mutation. References to
 locals cannot escape their function; references returned from parameters and
 globals are supported. `#deref` reads through a reference, and `#deref-set`
 writes through a mutable reference when the target fits the native value
-registers. A field reference can
+registers. The known target type is used for aggregate RHS values, including
+one-word structs. Writing a zero-sized aggregate evaluates both operands but
+writes no bytes. A field reference can
 be derived from a named reference to a struct with `(#borrow (#get reference
 field))` or `#borrow-mut` for an exclusive field reference. The derived
 reference retains the original referent's borrow: it cannot escape when that
