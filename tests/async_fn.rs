@@ -7233,6 +7233,56 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
 }
 
 #[test]
+fn async_for_void_await_step_respects_continue_break_and_false_condition() {
+    let source = r#"
+      (#enum ConditionTask ((Check bool)))
+      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+      (#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+        (#return (#match task (#case (Check run) (ConditionReady run)))))
+      (#enum StepTask (Start Resume))
+      (#linear StepTask)
+      (#enum StepPoll ((StepPending StepTask) (StepReady ())))
+      (#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case Start (StepPending Resume))
+          (#case Resume (StepReady ())))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((run bool) (stop bool)) u64
+          (#let-mut keep bool run)
+          (#for ()
+            (#await bool ConditionTask ConditionPending ConditionReady condition-poll (Check keep))
+            (#await () StepTask StepPending StepReady step-poll Start)
+            (#set keep false)
+            (#if stop (#break) (#continue)))
+          (#return 42u64))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (: run true : stop false)) : waker (#borrow waker))))
+        (#let-else (Pending task) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task task : waker (#borrow waker))))
+        (#match second
+          (#case (Ready value) (#assert (#u64.== value 42u64)))
+          (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))
+        (#let broken Poll (#call poll (: task (#call work (: run true : stop true)) : waker (#borrow waker))))
+        (#match broken
+          (#case (Ready value) (#assert (#u64.== value 42u64)))
+          (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))
+        (#let skipped Poll (#call poll (: task (#call work (: run false : stop false)) : waker (#borrow waker))))
+        (#return (#match skipped
+          (#case (Ready value) value)
+          (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    "#;
+    build_and_run(source, 42);
+    let synchronous_condition = source.replace(
+        "(#await bool ConditionTask ConditionPending ConditionReady condition-poll (Check keep))",
+        "keep",
+    );
+    assert_ne!(synchronous_condition, source);
+    build_and_run(&synchronous_condition, 42);
+    build_and_run(include_str!("../examples/async_for_unit_step.lim"), 42);
+}
+
+#[test]
 fn awaited_for_condition_runs_step_after_continue_but_not_break() {
     let source = "(#enum ChildTask ((Waiting u64)))
       (#enum ChildPoll ((ChildPending ChildTask) (ChildReady bool)))

@@ -1761,6 +1761,23 @@ The explicit `#for` form is:
   (#set total (#u64.+.wrap total i)))
 ```
 
+Inside `@async-fn`, a unit-returning await can be the step itself:
+
+```lisp syntax
+(#for () keep-going
+      (#await () StepTask StepPending StepReady step-poll step-task)
+  (#set keep-going false))
+```
+
+The step starts after the body and after `#continue`, but is skipped by
+`#break` and a false condition. A Pending step resumes before the next
+condition check. The condition may itself await. The explicit `()` result
+type makes this an effect-only step; no user-maintained dummy binding is
+required. Generated code contains an ordinary unit assignment, and still
+undergoes normal type, ownership, and borrow checking.
+See `examples/async_for_unit_step.lim` for a runnable Pending/Ready example
+that exits with status 42.
+
 `#for-range` is shorthand with a typed binding, start, and end.  Its bounds
 are explicit and the range is half-open:
 

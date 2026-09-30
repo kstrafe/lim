@@ -7558,6 +7558,90 @@ fn lower_async_for(
     if items.len() < 5 {
         return Err("@async-fn #for await requires init, condition, step, and body".into());
     }
+    // A void await is a valid effect-only step. Route it through the same
+    // assignment machinery as value-producing steps, including the skip-step
+    // path for break and the run-step path for continue.
+    if let Some(awaited) = form(&items[3], "#await") {
+        if awaited.len() == 7
+            && parse_type(Some(&normalize_keywords(awaited[1].clone())))? == Type::Unit
+        {
+            let unit_name = fresh_async_name(source, next_name);
+            let mut child_known = known.clone();
+            child_known.insert(
+                unit_name.clone(),
+                Binding {
+                    name: unit_name.clone(),
+                    ty: "()".into(),
+                    mutable: true,
+                },
+            );
+            let mut child_order = known_order.to_vec();
+            child_order.push(unit_name.clone());
+            let mut rewritten = items.to_vec();
+            rewritten[3] = Expr::List(vec![
+                Expr::Symbol("#set".into()),
+                Expr::Symbol(unit_name.clone()),
+                items[3].clone(),
+            ]);
+            // The three-phase path carries terminal loop transfers through
+            // an awaited condition. An immediate condition adapter adds no
+            // suspension and lets synchronous conditions use that same path.
+            let condition_helper =
+                if !has_await(&items[2]) && items[4..].iter().any(contains_loop_control) {
+                    let base = fresh_async_name(source, next_name);
+                    let task = format!("{base}-condition-task");
+                    let input = format!("{base}-condition-input");
+                    let result = format!("{base}-condition-result");
+                    let pending = format!("{base}-condition-pending");
+                    let ready = format!("{base}-condition-ready");
+                    let poll = format!("{base}-condition-poll");
+                    let condition = expression_source(&items[2])?;
+                    rewritten[2] = crate::parse(&format!(
+                        "(#await bool {task} {pending} {ready} {poll} ({input} {condition}))"
+                    ))?[0]
+                        .expr
+                        .clone();
+                    format!(
+                        "(#enum {task} (({input} bool)))\n(#linear {task})\n\
+                     (#enum {result} (({pending} {task}) ({ready} bool)))\n\
+                     (#fn {poll} ((task {task}) (waker (#ref {waker}))) {result}\n\
+                       (#return (#match task (#case ({input} value) ({ready} value)))))"
+                    )
+                } else {
+                    String::new()
+                };
+            let Some((mut replacement, helper, renames, consumed)) = lower_async_for(
+                &Expr::List(rewritten),
+                &child_known,
+                &child_order,
+                following,
+                return_value,
+                return_type,
+                source,
+                next_name,
+                waker,
+                type_environment,
+            )?
+            else {
+                return Err("@async-fn failed to lower unit-await for step".into());
+            };
+            replacement.insert(
+                0,
+                Expr::List(vec![
+                    Expr::Symbol("#let-mut".into()),
+                    Expr::Symbol(unit_name),
+                    Expr::List(vec![]),
+                    Expr::List(vec![]),
+                ]),
+            );
+            let helper = [condition_helper, helper]
+                .into_iter()
+                .filter(|helper| !helper.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Ok(Some((replacement, helper, renames, consumed)));
+        }
+    }
     let initializer = &items[1];
     let mut condition = items[2].clone();
     normalize_short_circuit_await(&mut condition);

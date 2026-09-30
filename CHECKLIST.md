@@ -4287,3 +4287,12 @@ commit, documentation, and focused regression coverage.
   so effects are preserved. Test leading/trailing local unit fields, global
   unit fields, and trapping small/large computed receivers natively. This
   unblocks unit-valued captures in generated async loop state.
+
+- [x] **ASYNC-01-UNIT-STEP: Suspend in an effect-only `#for` step.**
+  Accept `(#await () Child Pending Ready poll task)` as the step without
+  requiring a user-written result binding. Lower through the existing
+  assignment/state-machine path with an explicit generated unit temporary.
+  Verify synchronous and awaited conditions, Pending/resume, step execution
+  after continue, and step omission after break or an initially false
+  condition. This closes one concrete gap under ASYNC-01; arbitrary-body
+  suspension and the full typed ownership/control-flow migration remain open.
