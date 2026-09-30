@@ -8337,7 +8337,7 @@ fn rename_pattern_binding(pattern: &mut Expr, from: &str, to: &str) {
 fn contains_loop_control(expression: &Expr) -> bool {
     match expression {
         Expr::List(items) => {
-            matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break" | "#continue"))
+            matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break" | "#continue" | "#break-to" | "#continue-to"))
                 || items.iter().skip(1).any(contains_loop_control)
         }
         Expr::Block(statements) | Expr::Loop(statements) => {
@@ -8354,6 +8354,101 @@ fn contains_loop_control(expression: &Expr) -> bool {
         | Expr::UnquoteSplicing(expression) => contains_loop_control(expression),
         _ => false,
     }
+}
+
+/// Async loop lowering operates on the loop form itself. A label around an
+/// awaited loop would otherwise be mistaken for an ordinary value-producing
+/// form, causing await extraction to detach the label from its loop. Remove
+/// that wrapper after translating transfers that target it to local loop
+/// transfers. Transfers from nested loops cannot be translated this way: an
+/// unlabelled transfer there would change its target.
+fn lower_labeled_async_loop(statement: &mut Expr) -> Result<(), String> {
+    let (label, loop_expression) = match statement {
+        Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#label") =>
+        {
+            if items.len() != 3 {
+                return Err("@async-fn #label requires a label and one loop statement".into());
+            }
+            let label = symbol(&items[1], "async loop label")?.to_owned();
+            (label, items[2].clone())
+        }
+        Expr::Labeled { label, expression } => (label.clone(), *expression.clone()),
+        _ => return Ok(()),
+    };
+    if !has_await(&loop_expression) {
+        return Ok(());
+    }
+    if !["#while", "#while-let", "#loop", "#for", "#for-range"]
+        .iter()
+        .any(|keyword| form(&loop_expression, keyword).is_some())
+    {
+        return Err("@async-fn #label must wrap a loop when its body awaits".into());
+    }
+    let mut lowered = loop_expression;
+    rewrite_labeled_async_transfers(&mut lowered, &label, true, false)?;
+    *statement = lowered;
+    Ok(())
+}
+
+fn rewrite_labeled_async_transfers(
+    expression: &mut Expr,
+    label: &str,
+    root_loop: bool,
+    nested_loop: bool,
+) -> Result<(), String> {
+    let Expr::List(items) = expression else {
+        if let Expr::Labeled {
+            label: nested_label,
+            expression,
+        } = expression
+        {
+            if nested_label == label {
+                return Ok(());
+            }
+            return rewrite_labeled_async_transfers(expression, label, false, nested_loop);
+        }
+        return Ok(());
+    };
+    if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote"))
+    {
+        return Ok(());
+    }
+    if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#label")
+        && items
+            .get(1)
+            .is_some_and(|name| matches!(name, Expr::Symbol(name) if name == label))
+    {
+        return Ok(());
+    }
+    if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break-to" | "#continue-to"))
+        && items
+            .get(1)
+            .is_some_and(|name| matches!(name, Expr::Symbol(name) if name == label))
+    {
+        if nested_loop {
+            return Err(format!(
+                "@async-fn cannot lower transfer to outer label '{label}' from a nested loop"
+            ));
+        }
+        let is_break = matches!(items.first(), Some(Expr::Symbol(head)) if head == "#break-to");
+        if (!is_break && items.len() != 2) || (is_break && !(2..=3).contains(&items.len())) {
+            return Err(format!("@async-fn invalid transfer to label '{label}'"));
+        }
+        let mut replacement = vec![Expr::Symbol(
+            if is_break { "#break" } else { "#continue" }.into(),
+        )];
+        if is_break && items.len() == 3 {
+            replacement.push(items[2].clone());
+        }
+        *expression = Expr::List(replacement);
+        return Ok(());
+    }
+    let is_loop = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#while" | "#while-let" | "#loop" | "#for" | "#for-range"));
+    let nested_loop = nested_loop || (is_loop && !root_loop);
+    for item in items.iter_mut().skip(1) {
+        rewrite_labeled_async_transfers(item, label, false, nested_loop)?;
+    }
+    Ok(())
 }
 
 fn contains_return(expression: &Expr) -> bool {
@@ -9578,6 +9673,7 @@ fn generated_source_with_capture_selection(
     let waker_source = expression_source(&invocation[3])?;
     let mut statements = body[..body.len() - 1].to_vec();
     for statement in &mut statements {
+        lower_labeled_async_loop(statement)?;
         rewrite_async_synchronous_loop_returns(statement, &ready)?;
         rewrite_async_non_loop_returns(statement, &ready)?;
     }

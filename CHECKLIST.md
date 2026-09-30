@@ -2500,6 +2500,13 @@ section; then implement ASYNC-02, ASYNC-01, and ASYNC-03 below.
   Keep a mismatch-only await in the selected `#match` arm when every arm ends
   in panic. Verify the successful pattern path skips the child and the generated
   match-based continuation compiles and runs natively.
+- [x] **ASYNC-01b171: Preserve labeled loop transfers across body suspension.**
+  Lower an awaited loop wrapped in `#label` without allowing generic await
+  extraction to detach the label from its loop. Translate transfers targeting
+  that label only when they remain local to the lowered loop; reject a transfer
+  from a nested loop when translating it would change its target. Verify a
+  native `#continue-to` case resumes through Pending and reaches the next
+  iteration.
 - [x] **ASYNC-01c: Permit self-references only in pinned async frames.**
   First give generated frames a stationary polling/cancellation lifecycle;
   then initialize owned fields before pinning and establish internal
