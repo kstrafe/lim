@@ -10143,6 +10143,38 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_consuming_call_entry_rejects_possible_prior_consumption() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn consume ((value (#ref-mut Resource))) ()
+            (#forget (#deref value)) (#return ()))
+          (#fn inspect ((value (#ref-mut Resource)) (choice bool)) ()
+            (#if choice (#call consume (: value value)) ())
+            (#call consume (: value value)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_validate_referent_uses_and_replacements(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("expected call entry conflict")
+        };
+        assert_eq!(function, "inspect");
+        assert!(conflict.message.contains("already consumed"));
+        let span = conflict.span.unwrap();
+        assert_eq!(span.start, source.rfind("(#call consume").unwrap());
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#call consume (: value value))"
+        );
+        let origin = conflict.labels[0].0;
+        assert_eq!(
+            &source[origin.start..origin.end],
+            "(#forget (#deref value))"
+        );
+    }
+
+    #[test]
     fn staged_consuming_calls_require_initialized_referents() {
         for restore in [false, true] {
             let replacement = if restore {
