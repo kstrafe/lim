@@ -1076,7 +1076,6 @@ impl Declarations {
         for (name, slots) in parameter_slots {
             self.bodies.get_mut(&name).unwrap().parameter_loan_slots = slots;
         }
-        #[cfg(test)]
         for name in &names {
             let body = &self.bodies[name];
             let mut schema = vec![Vec::new(); body.bindings.len()];

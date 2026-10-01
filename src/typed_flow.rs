@@ -4968,6 +4968,47 @@ fn projected_value_origins(
             continue;
         }
         if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
+            // A loaded aggregate may retain several reference slots. Select
+            // only value slots below this projection, not loans reachable
+            // through another reference boundary. These symbolic loads are
+            // substituted against actual caller storage by return summaries.
+            let PlaceRoot::Parameter(parameter) = origin.place.root else {
+                unreachable!();
+            };
+            let mut prefix = origin.parameter_storage.clone().unwrap_or_default();
+            prefix.push(Segment::Dereference);
+            prefix.extend_from_slice(&origin.place.segments);
+            prefix.push(slot.clone());
+            let mut selected_schema = false;
+            if let Some(schema) = body.parameter_referent_loan_slots.get(parameter.0) {
+                for seed in schema {
+                    if seed.storage.len() < prefix.len()
+                        || !prefix
+                            .iter()
+                            .zip(&seed.storage)
+                            .all(|(wanted, actual)| storage_slot_matches(wanted, actual))
+                    {
+                        continue;
+                    }
+                    let remaining = &seed.storage[prefix.len()..];
+                    if remaining.contains(&Segment::Dereference) {
+                        continue;
+                    }
+                    let mut loaded = origin.clone();
+                    loaded.place.segments.clear();
+                    let mut input_storage = prefix.clone();
+                    input_storage.extend_from_slice(remaining);
+                    loaded.parameter_storage = Some(input_storage);
+                    loaded.storage = remaining.to_vec();
+                    loaded.mutable &= seed.mutable;
+                    loaded.pinned = seed.pinned;
+                    merge_loan_origins(&mut result, &[loaded]);
+                    selected_schema = true;
+                }
+            }
+            if selected_schema {
+                continue;
+            }
             if let Some(Type::Reference { mutable, .. } | Type::PinnedReference { mutable, .. }) =
                 &body.nodes[value.0].ty
             {

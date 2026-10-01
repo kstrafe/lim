@@ -1,0 +1,38 @@
+(#struct Resource (: number u64))
+(#linear Resource)
+(#struct Container (: item Resource : other Resource))
+(#struct Views (: left (#ref Resource) : right (#ref Resource)))
+(#struct Nested (: views Views))
+(#struct Outer (: nested Nested))
+
+(#fn load (: outer (#ref Outer)) Nested
+  (#return (#get outer nested)))
+
+(#fn forward (: outer (#ref Outer)) Views
+  (#let nested Nested (#call load (: outer outer)))
+  (#return (#get nested views)))
+
+(#fn main () u64
+  (#let-mut owner Container
+    (#struct-literal Container
+      (: item (#struct-literal Resource (: number 19u64))
+       : other (#struct-literal Resource (: number 23u64)))))
+  (#let owner-view (#ref-mut Container) (#borrow-mut owner))
+  (#let outer Outer
+    (#struct-literal Outer
+      (: nested (#struct-literal Nested
+        (: views (#struct-literal Views
+          (: left (#borrow (#get owner-view item))
+           : right (#borrow (#get owner-view other)))))))))
+  (#let view (#ref Outer) (#borrow outer))
+  (#let loaded Views (#call forward (: outer view)))
+  (#let result u64
+    (#u64.+.wrap
+      (#get (#get loaded left) number)
+      (#get (#get loaded right) number)))
+  (#drop view)
+  (#forget outer)
+  (#forget loaded)
+  (#drop owner-view)
+  (#forget owner)
+  (#return result))

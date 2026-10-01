@@ -13418,6 +13418,7 @@ mod typed_ownership_tests {
             "ref_field_mutation",
             "pinned_self_reference",
             "aggregate_reborrow",
+            "borrowed_aggregate_load",
             "pinned_linear_replacement",
             "async_fn",
         ] {
@@ -13749,6 +13750,179 @@ mod typed_ownership_tests {
             .staged_referent_entry_contracts(&types)
             .unwrap();
         crate::check_types(&program).unwrap();
+    }
+
+    #[test]
+    fn borrowed_parameter_aggregate_loads_preserve_each_nested_reference_slot() {
+        for consumed in [false, true] {
+            let destruction = if consumed {
+                "(#forget (#get owner item))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#struct Container ((item Resource) (other Resource)))
+                 (#struct Views ((left (#ref Resource)) (right (#ref Resource))))
+                 (#struct Nested ((views Views)))
+                 (#struct Outer ((nested Nested)))
+                 (#fn load ((outer (#ref Outer))) Nested
+                   (#let selected Nested (#get outer nested))
+                   (#return selected))
+                 (#fn forward ((outer (#ref Outer))) Views
+                   (#let nested Nested (#call load (: outer outer)))
+                   (#return (#get nested views)))
+                 (#fn caller ((owner (#ref-mut Container))) (#ref Resource)
+                   (#let outer Outer (#struct-literal Outer ((nested
+                     (#struct-literal Nested ((views (#struct-literal Views
+                       ((left (#borrow (#get owner item)))
+                        (right (#borrow (#get owner other))))))))))))
+                   (#let view (#ref Outer) (#borrow outer))
+                   (#let loaded Views (#call forward (: outer view)))
+                   (#let result (#ref Resource) (#get loaded left))
+                   (#drop view) (#forget outer) {destruction}
+                   (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["caller"];
+            let forward = declarations.function_id("forward").unwrap();
+            let summary = &body.call_return_origins[&forward];
+            assert_eq!(summary.len(), 2, "both retained slots must be loaded");
+            let field = |owner: &str, name| {
+                crate::typed_place::Segment::Field(
+                    declarations
+                        .field_id(&crate::Type::Named(owner.into()), name)
+                        .unwrap(),
+                )
+            };
+            for (name, entry) in ["left", "right"].into_iter().zip(summary) {
+                assert_eq!(
+                    entry.input_storage,
+                    vec![
+                        crate::typed_place::Segment::Dereference,
+                        field("Outer", "nested"),
+                        field("Nested", "views"),
+                        field("Views", name),
+                    ]
+                );
+                assert_eq!(entry.storage, vec![field("Views", name)]);
+                assert!(entry.referent_projection.is_empty());
+                assert!(!entry.mutable);
+            }
+            let binding = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "loaded")
+                    .unwrap(),
+            );
+            let flow = &declarations.flows["caller"];
+            let event = flow.nodes.iter().position(|node| matches!(node.action,
+                crate::typed_flow::FlowAction::Bind { binding: found, .. } if found == binding
+            )).unwrap();
+            let origins = flow.loan_origins(body);
+            let held = origins.after(crate::typed_flow::FlowNodeId(event), binding);
+            assert_eq!(held.len(), 2);
+            for (name, target) in [("left", "item"), ("right", "other")] {
+                let origin = held
+                    .iter()
+                    .find(|origin| origin.storage == vec![field("Views", name)])
+                    .unwrap();
+                assert_eq!(
+                    origin.place.root,
+                    crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+                );
+                assert_eq!(origin.place.segments, vec![field("Container", target)]);
+                assert!(!origin.lifetime_only);
+            }
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_referent_entry_contracts(&types);
+            if consumed {
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } =
+                    result.unwrap_err()
+                else {
+                    panic!("unexpected failure");
+                };
+                assert_eq!(function, "caller");
+                assert!(
+                    conflict.message.contains("returned reference"),
+                    "{conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#return result)");
+            } else {
+                result.unwrap();
+                crate::check_types(&program).unwrap();
+            }
+            // Describing indirect slots must not seed their contents. With
+            // the actual parameter loan removed, the schema alone cannot
+            // produce a loaded value origin.
+            let load = declarations.bodies.get_mut("load").unwrap();
+            assert!(!load.parameter_referent_loan_slots[0].is_empty());
+            load.parameter_loan_slots[0].clear();
+            let selected = crate::typed_body::BindingId(
+                load.bindings
+                    .iter()
+                    .position(|binding| binding.name == "selected")
+                    .unwrap(),
+            );
+            let flow = &declarations.flows["load"];
+            let event = flow
+                .nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action,
+                        crate::typed_flow::FlowAction::Bind { binding, .. } if binding == selected
+                    )
+                })
+                .unwrap();
+            assert!(flow
+                .loan_origins(load)
+                .after(crate::typed_flow::FlowNodeId(event), selected)
+                .is_empty());
+        }
+    }
+
+    #[test]
+    fn borrowed_aggregate_loads_do_not_upgrade_shared_access_to_exclusive() {
+        for mutable in [false, true] {
+            let reference = if mutable { "#ref-mut" } else { "#ref" };
+            let source = format!(
+                "(#struct Views ((target (#ref-mut u64))))
+                 (#struct Outer ((views Views)))
+                 (#fn load ((outer ({reference} Outer))) ()
+                   (#let selected Views (#get outer views))
+                   (#forget selected) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["load"];
+            let selected = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "selected")
+                    .unwrap(),
+            );
+            let flow = &declarations.flows["load"];
+            let event = flow
+                .nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action,
+                        crate::typed_flow::FlowAction::Bind { binding, .. } if binding == selected
+                    )
+                })
+                .unwrap();
+            let origins = flow.loan_origins(body);
+            let [origin] = origins.after(crate::typed_flow::FlowNodeId(event), selected) else {
+                panic!("expected retained target slot");
+            };
+            assert_eq!(origin.mutable, mutable);
+            assert!(!origin.lifetime_only);
+            assert_eq!(origin.storage.len(), 1);
+            assert!(origin.place.segments.is_empty());
+            assert_eq!(origin.parameter_storage.as_ref().unwrap().len(), 3);
+        }
     }
 
     #[test]
