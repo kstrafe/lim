@@ -13399,4 +13399,81 @@ mod typed_ownership_tests {
             assert_eq!(&source[span.start..span.end], call);
         }
     }
+
+    #[test]
+    fn staged_ownership_agrees_with_checked_reference_examples() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut failures = Vec::new();
+        for name in [
+            "references",
+            "borrow",
+            "slice",
+            "destructure_mutable_references",
+            "large_reference_projections",
+            "match_reference_payload",
+            "projected_reference_release",
+            "branch_borrow_release",
+            "string_array",
+            "string_expression",
+            "ref_field_mutation",
+            "pinned_self_reference",
+        ] {
+            let path = root.join("examples").join(format!("{name}.lim"));
+            let source = std::fs::read_to_string(&path).unwrap();
+            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            crate::check_types(&program).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            if let Err(error) = declarations.staged_referent_entry_contracts(&types) {
+                failures.push(format!("{name}: {error:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// These are valid language programs, not negative language fixtures.
+    /// Preserve the exact known migration gaps until each case can be moved
+    /// into the positive differential corpus above. They prohibit claiming
+    /// the staged checker is ready to replace production ownership analysis.
+    #[test]
+    fn staged_async_migration_gaps_are_explicit() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for (name, expected_function, expected_message) in [
+            ("async_fn", "local-waker-clone", "missing slot provenance"),
+            (
+                "async_fn_local_self_reference",
+                "local-self-ref-poll",
+                "unresolved call inputs",
+            ),
+            (
+                "async_fn_self_reference",
+                "self-ref-poll",
+                "unresolved call inputs",
+            ),
+            (
+                "async_fn_enum_self_reference",
+                "enum-poll",
+                "unresolved call inputs",
+            ),
+        ] {
+            let path = root.join("examples").join(format!("{name}.lim"));
+            let source = std::fs::read_to_string(&path).unwrap();
+            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            crate::check_types(&program).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .expect_err("resolved migration case must be promoted into the positive corpus");
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("unexpected gap for {name}: {error:?}");
+            };
+            assert_eq!(function, expected_function, "{name}");
+            assert!(
+                conflict.message.contains(expected_message),
+                "{name}: {conflict:?}"
+            );
+            assert!(conflict.span.is_some(), "missing causal span for {name}");
+        }
+    }
 }
