@@ -367,3 +367,47 @@ speedup. This is an allocation/hash-work reduction, not a demonstrated overall
 latency improvement. All three executable comparisons were byte-identical;
 709 library tests and all enabled integration tests passed (four existing
 ignored tests). Each compiler was warmed separately to populate its cache.
+
+## Shared borrow-check provenance (2026-10-01)
+
+Scope escapes, returned references, live-loan conflicts, and call arguments
+now share a lazy, validation-local loan-origin result for each immutable
+function body and flow graph. Previously these checks independently solved
+the same dataflow problem up to four times. Their ordering, transfer rules,
+spans, and diagnostics are unchanged. Results are retained until validation
+ends, trading a longer lifetime for fewer analyses; this is not an incremental
+cache or a replacement for return-summary analysis.
+
+Reproduce the targeted workload with:
+
+```sh
+python3 scripts/benchmark-compile.py --reference-heavy \
+  --baseline /path/to/previous/lim --repetitions 100
+```
+
+The workload contains 64 functions, each with 24 immutable reference aliases
+and a reference-returning helper call. All functions are validated, even
+though only one worker is reachable for emission. Sequential warm CLI
+measurements on this machine, after the test suite finished:
+
+| Workload | Before median | After median | Change |
+| --- | ---: | ---: | ---: |
+| Reference-heavy | 44.15 ms | 39.47 ms | 10.6% faster |
+| async_fn | 39.02 ms | 38.16 ms | 2.2% faster |
+| vec_allocator | 28.66 ms | 27.43 ms | 4.3% faster |
+| large_reference_projections | 3.66 ms | 4.91 ms | 34.3% slower |
+
+Each row used 100 measurements per compiler and compared identical executable
+bytes. A previous reference-heavy run measured 43.21 versus 40.03 ms (7.4%
+faster), although it overlapped another benchmark and is not the primary
+measurement. Earlier small-example runs varied substantially, including
+37.95 versus 37.98 ms for async and 7.44 versus 3.69 ms for projections.
+The small-workload results do not establish a reliable latency improvement;
+outliers and background scheduling matter at this scale. No memory reduction
+is claimed. The targeted result supports reducing repeated provenance work,
+not a claim that every compilation is faster.
+
+Verification: 726 library tests and all enabled integration/native/UI tests
+passed, with four existing ignored tests. Formatting, cargo check, and diff
+whitespace checks passed. Regression tests cover shared-result reuse and
+preserve lazy skipping when live-loan and call checks need no provenance.

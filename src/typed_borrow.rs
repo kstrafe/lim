@@ -3,11 +3,12 @@
 //! aggregates, conditional results, and reference-returning calls. Loop break
 //! values are transferred from their checked control-flow instructions.
 
+use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::linearcheck::LinearTypes;
 use crate::typed_body::{BindingId, Body, Control, NodeId, NodeKind, PlaceRoot};
-use crate::typed_flow::{FlowAction, FlowGraph, FlowNodeId, LoanOrigin};
+use crate::typed_flow::{FlowAction, FlowGraph, FlowLoanOrigins, FlowNodeId, LoanOrigin};
 use crate::typed_ir::{DeclarationId, FieldId};
 use crate::typed_place::{reads_through_reference, Place};
 use crate::{Span, Type};
@@ -41,10 +42,20 @@ pub(crate) fn check_live_direct_loans(body: &Body, flow: &FlowGraph) -> Result<(
     check_live_direct_loans_with_types(body, flow, &LinearTypes::default())
 }
 
+#[cfg(test)]
 pub(crate) fn check_live_direct_loans_with_types(
     body: &Body,
     flow: &FlowGraph,
     types: &LinearTypes,
+) -> Result<(), BorrowConflict> {
+    check_live_direct_loans_cached(body, flow, types, &OnceCell::new())
+}
+
+pub(crate) fn check_live_direct_loans_cached(
+    body: &Body,
+    flow: &FlowGraph,
+    types: &LinearTypes,
+    cache: &OnceCell<FlowLoanOrigins>,
 ) -> Result<(), BorrowConflict> {
     if !flow
         .nodes
@@ -64,7 +75,7 @@ pub(crate) fn check_live_direct_loans_with_types(
     {
         return Ok(());
     }
-    let origins = flow.loan_origins(body);
+    let origins = cache.get_or_init(|| flow.loan_origins(body));
     let consumptions = flow.consumptions(body, types);
     let live = flow.liveness(body);
     let scoped_ids = flow
@@ -482,7 +493,16 @@ struct DirectBorrow {
     storage: Vec<crate::typed_place::Segment>,
 }
 
+#[cfg(test)]
 pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
+    check_call_arguments_cached(body, flow, &OnceCell::new())
+}
+
+pub(crate) fn check_call_arguments_cached(
+    body: &Body,
+    flow: &FlowGraph,
+    cache: &OnceCell<FlowLoanOrigins>,
+) -> Result<(), BorrowConflict> {
     let calls = body
         .nodes
         .iter()
@@ -509,7 +529,7 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
             _ => None,
         })
         .collect::<HashMap<_, _>>();
-    let origins = flow.loan_origins(body);
+    let origins = cache.get_or_init(|| flow.loan_origins(body));
     let active = flow.definitely_active_bindings_before(body);
     for (index, node) in calls {
         let NodeKind::Form {
@@ -566,12 +586,22 @@ pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), 
 /// Enforce return-reference lifetimes from checked places and loan origins.
 /// Function parameters are the only local roots permitted to outlive the body;
 /// globals are represented as global places and do not enter this condition.
+#[cfg(test)]
 pub(crate) fn check_return_escapes(
     body: &Body,
     flow: &FlowGraph,
     parameter_count: usize,
 ) -> Result<(), BorrowConflict> {
-    let origins = flow.loan_origins(body);
+    check_return_escapes_cached(body, flow, parameter_count, &OnceCell::new())
+}
+
+pub(crate) fn check_return_escapes_cached(
+    body: &Body,
+    flow: &FlowGraph,
+    parameter_count: usize,
+    cache: &OnceCell<FlowLoanOrigins>,
+) -> Result<(), BorrowConflict> {
+    let origins = cache.get_or_init(|| flow.loan_origins(body));
     for (index, node) in flow.nodes.iter().enumerate() {
         let FlowAction::Return(Some(value)) = &node.action else {
             continue;
@@ -602,8 +632,17 @@ pub(crate) fn check_return_escapes(
 /// owns one of their referents. The source value may be nested in a block,
 /// branch, match arm, or aggregate; typed loan origins resolve those forms
 /// without reconstructing ownership from syntax names.
+#[cfg(test)]
 pub(crate) fn check_scope_escapes(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
-    let origins = flow.loan_origins(body);
+    check_scope_escapes_cached(body, flow, &OnceCell::new())
+}
+
+pub(crate) fn check_scope_escapes_cached(
+    body: &Body,
+    flow: &FlowGraph,
+    cache: &OnceCell<FlowLoanOrigins>,
+) -> Result<(), BorrowConflict> {
+    let origins = cache.get_or_init(|| flow.loan_origins(body));
     let active = flow.definitely_active_bindings_before(body);
     for (index, node) in flow.nodes.iter().enumerate() {
         let value = match node.action {
@@ -1450,6 +1489,56 @@ mod tests {
                (#let-mut value u64 1u64)
                (#return (#call inspect ( {args}))))"
         )
+    }
+
+    #[test]
+    fn borrow_checks_share_one_function_local_provenance_result() {
+        let program = crate::parse_program(
+            "(#fn read ((input (#ref u64))) u64 (#return (#deref input)))
+             (#fn main () u64
+               (#let owner u64 42u64)
+               (#return (#call read (: input (#borrow owner)))))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let flow = &checked.declarations().flows["main"];
+        let cache = std::cell::OnceCell::new();
+        assert!(cache.get().is_none());
+        super::check_scope_escapes_cached(body, flow, &cache).unwrap();
+        let first = cache.get().unwrap() as *const _;
+        super::check_return_escapes_cached(body, flow, 0, &cache).unwrap();
+        super::check_live_direct_loans_cached(
+            body,
+            flow,
+            &crate::linearcheck::LinearTypes::from_program(&program),
+            &cache,
+        )
+        .unwrap();
+        super::check_call_arguments_cached(body, flow, &cache).unwrap();
+        assert_eq!(first, cache.get().unwrap() as *const _);
+        check_scope_escapes(body, flow).unwrap();
+        super::check_return_escapes(body, flow, 0).unwrap();
+        check_live_direct_loans(body, flow).unwrap();
+        check_call_arguments(body, flow).unwrap();
+    }
+
+    #[test]
+    fn skipped_borrow_checks_do_not_solve_provenance() {
+        let program = crate::parse_program("(#fn main () u64 (#return 42u64))").unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let flow = &checked.declarations().flows["main"];
+        let cache = std::cell::OnceCell::new();
+        super::check_live_direct_loans_cached(
+            body,
+            flow,
+            &crate::linearcheck::LinearTypes::from_program(&program),
+            &cache,
+        )
+        .unwrap();
+        super::check_call_arguments_cached(body, flow, &cache).unwrap();
+        assert!(cache.get().is_none());
     }
 
     #[test]

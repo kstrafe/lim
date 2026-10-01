@@ -37,19 +37,40 @@ def measure(compiler, source, output, repetitions, compare_runtime=False):
     return statistics.median(samples), artifact, runtime
 
 
+def reference_heavy_source():
+    """Exercise shared provenance facts without relying on generated code."""
+    lines = ["(#fn identity ((input (#ref u64))) (#ref u64) (#return input))"]
+    for function in range(64):
+        lines.append(f"(#fn worker-{function} ((input (#ref u64))) (#ref u64)")
+        for binding in range(24):
+            previous = "input" if binding == 0 else f"value-{binding - 1}"
+            lines.append(f"  (#let value-{binding} (#ref u64) {previous})")
+        lines.append("  (#return (#call identity (: input value-23))))")
+    lines.append("(#fn main () u64 (#let owner u64 42u64) "
+                 "(#return (#deref (#call worker-0 (: input (#borrow owner))))))")
+    return "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path)
+    parser.add_argument("source", type=Path, nargs="?")
+    parser.add_argument("--reference-heavy", action="store_true",
+                        help="benchmark 64 functions with 24 reference aliases each")
     parser.add_argument("--compiler", type=Path, default=Path("target/release/lim"))
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--repetitions", type=int, default=20)
     parser.add_argument("--compare-runtime", action="store_true",
                         help="compare exit status/stdout/stderr instead of identical binary bytes (no stdin)")
     args = parser.parse_args()
+    if (args.source is None) == (not args.reference_heavy):
+        parser.error("provide a source file or --reference-heavy, not both")
     if args.repetitions < 1:
         parser.error("--repetitions must be positive")
     with tempfile.TemporaryDirectory(prefix="lim-compile-benchmark-") as directory:
         output = Path(directory) / "program"
+        if args.reference_heavy:
+            args.source = Path(directory) / "reference-heavy.lim"
+            args.source.write_text(reference_heavy_source())
         baseline = None
         if args.baseline:
             baseline = measure(args.baseline, args.source, output, args.repetitions, args.compare_runtime)

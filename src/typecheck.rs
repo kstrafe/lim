@@ -1526,13 +1526,26 @@ fn check_types_inner(
         return Err(message);
     }
     *diagnostic_code = crate::DiagnosticCode::Borrow;
+    // These checks inspect the same immutable body/graph pair. Keep their
+    // diagnostic ordering while solving provenance only once per function.
+    // Cells are local to this validation, never reused after a body changes.
+    let loan_caches = declarations
+        .bodies
+        .keys()
+        .map(|name| (name.as_str(), std::cell::OnceCell::new()))
+        .collect::<HashMap<_, _>>();
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let (Some(body), Some(flow)) = (
                 declarations.bodies.get(&function.name),
                 declarations.flows.get(&function.name),
             ) {
-                crate::typed_borrow::check_scope_escapes(body, flow).map_err(|error| {
+                crate::typed_borrow::check_scope_escapes_cached(
+                    body,
+                    flow,
+                    &loan_caches[function.name.as_str()],
+                )
+                .map_err(|error| {
                     *diagnostic_span = error.span;
                     *diagnostic_labels = error
                         .labels
@@ -1547,23 +1560,29 @@ fn check_types_inner(
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     error.message
                 })?;
-                crate::typed_borrow::check_return_escapes(body, flow, function.parameters.len())
-                    .map_err(|error| {
-                        *diagnostic_span = error.span;
-                        *diagnostic_labels = error.labels;
-                        record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                        error.message
-                    })?;
+                crate::typed_borrow::check_return_escapes_cached(
+                    body,
+                    flow,
+                    function.parameters.len(),
+                    &loan_caches[function.name.as_str()],
+                )
+                .map_err(|error| {
+                    *diagnostic_span = error.span;
+                    *diagnostic_labels = error.labels;
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                    error.message
+                })?;
             }
         }
     }
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {
-                crate::typed_borrow::check_live_direct_loans_with_types(
+                crate::typed_borrow::check_live_direct_loans_cached(
                     body,
                     &declarations.flows[&function.name],
                     &linear_types,
+                    &loan_caches[function.name.as_str()],
                 )
                 .map_err(|error| {
                     *diagnostic_span = error
@@ -1583,9 +1602,10 @@ fn check_types_inner(
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     error.message
                 })?;
-                crate::typed_borrow::check_call_arguments(
+                crate::typed_borrow::check_call_arguments_cached(
                     body,
                     &declarations.flows[&function.name],
+                    &loan_caches[function.name.as_str()],
                 )
                 .map_err(|error| {
                     *diagnostic_span = error.span;
