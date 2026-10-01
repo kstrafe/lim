@@ -9526,6 +9526,30 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn referent_replacement_staging_requires_explicit_consumption() {
+        for (cleanup, allowed) in [("", false), ("(#forget (#deref reference))", true)] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn inspect ((reference (#ref-mut Resource))) ()
+                {cleanup}
+                (#deref-set reference (#struct-literal Resource ((number 2u64))))
+                (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let result = declarations.flows["inspect"].check_referent_replacements(
+                &declarations.bodies["inspect"],
+                &crate::linearcheck::LinearTypes::from_program(&program),
+                &declarations,
+            );
+            assert_eq!(result.is_ok(), allowed, "{result:?}");
+            if let Err(error) = result {
+                assert!(error.span.is_some());
+            }
+        }
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};

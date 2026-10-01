@@ -1546,6 +1546,89 @@ impl FlowGraph {
         ]
     }
 
+    /// Staging gate; call effects and escaping initialization are not yet
+    /// sufficient to use this as the production ownership boundary.
+    #[cfg(test)]
+    pub fn check_referent_replacements(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+    ) -> Result<(), ReleaseConflict> {
+        let origins = self.loan_origins(body);
+        let moves = self.consumptions_with_origins(body, types, Some(&origins));
+        for (index, node) in self.nodes.iter().enumerate() {
+            let value = match node.action {
+                FlowAction::Write { value, .. } | FlowAction::Evaluate(value) => value,
+                _ => continue,
+            };
+            let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+                continue;
+            };
+            if head != "deref-set" || children.len() != 3 {
+                continue;
+            }
+            let Some(ty) = &body.nodes[children[2].0].ty else {
+                continue;
+            };
+            let paths = types.linear_obligation_paths(ty);
+            if paths.is_empty() || moves.definitely_before[index].is_none() {
+                continue;
+            }
+            let event = FlowNodeId(index);
+            let targets = origins.value_before(body, self, event, children[1]);
+            let failure = |message: &str| ReleaseConflict {
+                message: message.into(),
+                span: node.span,
+                labels: targets
+                    .iter()
+                    .filter_map(|origin| {
+                        origin
+                            .span
+                            .map(|span| (span, "target reference originates here".into()))
+                    })
+                    .collect(),
+            };
+            if targets.is_empty() || moves.unresolved.contains(&event) {
+                return Err(failure("cannot prove linear referent consumption before replacement: unresolved target"));
+            }
+            for target in targets.iter() {
+                if !target.mutable
+                    || target.pinned
+                    || target.lifetime_only
+                    || !target.storage.is_empty()
+                {
+                    return Err(failure(
+                        "cannot prove permission to replace this linear referent",
+                    ));
+                }
+                let mut destination = target.place.clone();
+                if matches!(destination.root, PlaceRoot::Parameter(_)) {
+                    if let Some(slot) = &target.parameter_storage {
+                        let mut prefix = slot.clone();
+                        prefix.append(&mut destination.segments);
+                        destination.segments = prefix;
+                    }
+                }
+                for path in &paths {
+                    let Some(projection) =
+                        linear_obligation_place(declarations, BindingId(0), ty, path)
+                    else {
+                        return Err(failure(
+                            "cannot resolve linear referent replacement obligation",
+                        ));
+                    };
+                    let mut leaf = destination.clone();
+                    leaf.segments.extend(projection.segments);
+                    if !moves.definitely_consumed_before(event, &leaf) {
+                        return Err(failure("reference write would destroy a live linear referent; consume it explicitly first"));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn check_linear_projected_replacements(
         &self,
         body: &Body,
