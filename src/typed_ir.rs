@@ -799,6 +799,10 @@ impl Declarations {
             .collect::<HashSet<_>>();
         let mut pending = self.bodies.keys().cloned().collect::<Vec<_>>();
         pending.sort();
+        let names_by_id = pending
+            .iter()
+            .map(|name| (self.function_id(name).unwrap(), name.clone()))
+            .collect::<HashMap<_, _>>();
         let mut summaries = HashMap::new();
         while !pending.is_empty() {
             let previous = pending.len();
@@ -846,6 +850,7 @@ impl Declarations {
                 let reachable = flow.reachable();
                 let mut call_reads = Vec::new();
                 let mut call_entry_reads = Vec::new();
+                let mut restorations = Vec::new();
                 let mut unresolved_reads = Vec::new();
                 for (index, node) in flow.nodes.iter().enumerate() {
                     let FlowAction::Evaluate(value) = node.action else {
@@ -871,6 +876,18 @@ impl Declarations {
                     calls.push((event, effects, unknown));
                     match summaries.get(callee) {
                         Some(summary) => {
+                            if let Some(callee_name) = names_by_id.get(callee) {
+                                let (mapped, unknown) = flow.map_referent_call_restorations(
+                                    body,
+                                    event,
+                                    value,
+                                    &self.bodies[callee_name],
+                                    &summary.restored_from_consumed_entry,
+                                );
+                                if !unknown {
+                                    restorations.push((event, mapped));
+                                }
+                            }
                             let (mapped, unknown) = flow.map_referent_call_reads_with_origins(
                                 body,
                                 event,
@@ -925,13 +942,18 @@ impl Declarations {
                         return true;
                     }
                 }
-                let mut summary = flow.referent_function_effects_with_calls(body, types, &calls);
+                let mut summary = flow.referent_function_effects_with_restorations(
+                    body,
+                    types,
+                    &calls,
+                    &restorations,
+                );
                 let (mut entry_reads, _) = flow.referent_reads(body);
                 entry_reads.extend(call_entry_reads);
                 summary.entry_reads =
                     flow.filter_referent_entry_reads_with_calls(body, types, entry_reads, &calls);
-                summary.restored_from_consumed_entry =
-                    flow.referent_restoration_guarantees(body, types, &calls);
+                summary.restored_from_consumed_entry = flow
+                    .referent_restoration_guarantees_with_calls(body, types, &calls, &restorations);
                 summary.reads.extend(call_reads);
                 summary.unresolved_reads.extend(unresolved_reads);
                 summaries.insert(self.function_id(name).unwrap(), summary);

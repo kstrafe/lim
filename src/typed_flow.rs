@@ -1181,7 +1181,19 @@ impl FlowGraph {
         types: &LinearTypes,
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
     ) -> ReferentFunctionEffects {
-        let moves = self.referent_consumptions_with_calls(body, types, calls);
+        self.referent_function_effects_with_restorations(body, types, calls, &[])
+    }
+
+    #[cfg(test)]
+    pub fn referent_function_effects_with_restorations(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+    ) -> ReferentFunctionEffects {
+        let moves =
+            self.referent_consumptions_with_restorations(body, types, calls, restorations, &[]);
         let exits = self.referent_exit_effects_from_moves(body, &moves);
         self.referent_function_effects_from_exits(body, exits)
     }
@@ -1559,6 +1571,17 @@ impl FlowGraph {
         types: &LinearTypes,
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
     ) -> Vec<Place> {
+        self.referent_restoration_guarantees_with_calls(body, types, calls, &[])
+    }
+
+    #[cfg(test)]
+    pub fn referent_restoration_guarantees_with_calls(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+    ) -> Vec<Place> {
         let mut candidates = Vec::new();
         for (index, slots) in body
             .parameter_loan_slots
@@ -1574,8 +1597,13 @@ impl FlowGraph {
                 }
             }
         }
-        let moves =
-            self.referent_consumptions_with_calls_from_entry(body, types, calls, &candidates);
+        let moves = self.referent_consumptions_with_restorations(
+            body,
+            types,
+            calls,
+            restorations,
+            &candidates,
+        );
         let exits = self.referent_exit_effects_from_moves(body, &moves);
         if exits.is_empty() {
             return Vec::new();

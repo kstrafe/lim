@@ -10143,6 +10143,36 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_restoration_postconditions_forward_through_helper_calls() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn initialize ((value (#ref-mut Resource))) ()
+            (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+          (#fn forward ((value (#ref-mut Resource))) ()
+            (#call initialize (: value value)) (#return ()))
+          (#fn a-wrapper ((value (#ref-mut Resource))) ()
+            (#call forward (: value value)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        let expected = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+            crate::typed_body::BindingId(0),
+        ));
+        for name in ["initialize", "forward", "a-wrapper"] {
+            let summary = &summaries[&declarations.function_id(name).unwrap()];
+            assert!(summary.has_normal_return);
+            assert!(summary.effects.is_empty());
+            assert_eq!(
+                summary.restored_from_consumed_entry,
+                vec![expected.clone()],
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn staged_call_restoration_is_path_sensitive_at_caller_joins() {
         for both in [false, true] {
             let alternative = if both {
