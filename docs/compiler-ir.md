@@ -394,6 +394,25 @@ break and continue transfers as diverging branches. Repeated-call version
 correlations, projected/aggregate scrutinees, parameter contents, and restoration
 still need integration; this is not enabled
 in production.
+
+A further opt-in test solver keeps parameter pointee contents separate from
+local reference handles. Entry reference slots are seeded once, indexed by the
+original input pointer slot, including nested reference boundaries. Direct and
+callee stores update that table; whole and projected loads and summary input
+selection consult actual contents rather than reconstructing schema loans on
+every load. Branch joins union possible contents. Whole-value and pinned-field
+replacement tests distinguish the new reference source from the entry source
+while preserving the parameter handle. Clearing and missing table facts do not
+resurrect schema loans. Symbolic array input slots match concrete selections
+conservatively, retaining their entry facts alongside possible new sources.
+The replacement/load case remains a staged regression fixture: the legacy
+production checker rejects the projected read after replacement. Pinned field
+writes now address the container field, not its stored
+reference's pointee. The typed staged solver releases old local field loans and
+retains new ones, but the legacy checker still rejects local reference RHSs for
+projected pinned-field stores. Production return summaries, initialized/moved
+storage, restoration, conditional parameter clearing, and exact symbolic-array
+overwrites remain integration work; this contents table proves none of those.
 Return-variant-conditioned clearing, storage contents after parameter writes,
 and definite restoration must be integrated before replacing production checking.
 

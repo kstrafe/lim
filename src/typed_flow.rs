@@ -217,7 +217,52 @@ impl LoanOrigin {
     }
 }
 
+#[cfg(not(test))]
 type LoanState = Vec<Vec<LoanOrigin>>;
+
+#[cfg(test)]
+#[derive(Clone)]
+struct LoanState {
+    bindings: Vec<Vec<LoanOrigin>>,
+    // The key is the original input pointer slot, not an output value slot.
+    parameter_contents: Option<HashMap<(BindingId, Vec<Segment>), Vec<LoanOrigin>>>,
+}
+
+#[cfg(test)]
+impl From<Vec<Vec<LoanOrigin>>> for LoanState {
+    fn from(bindings: Vec<Vec<LoanOrigin>>) -> Self {
+        Self {
+            bindings,
+            parameter_contents: None,
+        }
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Deref for LoanState {
+    type Target = Vec<Vec<LoanOrigin>>;
+    fn deref(&self) -> &Self::Target {
+        &self.bindings
+    }
+}
+
+#[cfg(test)]
+impl std::ops::DerefMut for LoanState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.bindings
+    }
+}
+
+fn empty_loan_state(count: usize) -> LoanState {
+    #[cfg(test)]
+    {
+        vec![Vec::new(); count].into()
+    }
+    #[cfg(not(test))]
+    {
+        vec![Vec::new(); count]
+    }
+}
 
 /// Direct reference origins at each typed flow point. This is a may-analysis,
 /// not yet an enforcing borrow check; indirect provenance and destructured
@@ -695,7 +740,12 @@ impl FlowLoanOrigins {
     pub fn dump(&self) -> String {
         use std::fmt::Write;
         let mut output = String::new();
-        let binding_count = self.before.iter().flatten().next().map_or(0, Vec::len);
+        let binding_count = self
+            .before
+            .iter()
+            .flatten()
+            .next()
+            .map_or(0, |state| state.len());
         for index in 0..self.before.len() {
             for binding in 0..binding_count {
                 let id = FlowNodeId(index);
@@ -1025,7 +1075,7 @@ impl FlowGraph {
     pub fn loan_origins(&self, body: &Body) -> FlowLoanOrigins {
         #[cfg(test)]
         {
-            self.solve_loan_origins(body, false, false)
+            self.solve_loan_origins(body, false, false, false)
         }
         #[cfg(not(test))]
         {
@@ -1037,14 +1087,21 @@ impl FlowGraph {
     /// clearing and definite storage restoration are established.
     #[cfg(test)]
     pub fn staged_store_loan_origins(&self, body: &Body) -> FlowLoanOrigins {
-        self.solve_loan_origins(body, true, false)
+        self.solve_loan_origins(body, true, false, false)
     }
 
     /// Refine direct call results only while their destination contents are
     /// still the contents written by that call. This remains test-only.
     #[cfg(test)]
     pub fn staged_variant_store_loan_origins(&self, body: &Body) -> FlowLoanOrigins {
-        self.solve_loan_origins(body, true, true)
+        self.solve_loan_origins(body, true, true, false)
+    }
+
+    #[cfg(test)]
+    /// Actual pointee contents experiment, not an initialization/restoration
+    /// proof or a production replacement for interprocedural return checking.
+    pub fn staged_parameter_store_loan_origins(&self, body: &Body) -> FlowLoanOrigins {
+        self.solve_loan_origins(body, true, true, true)
     }
 
     #[cfg(test)]
@@ -1483,6 +1540,7 @@ impl FlowGraph {
         body: &Body,
         #[cfg(test)] include_call_stores: bool,
         #[cfg(test)] include_variant_stores: bool,
+        #[cfg(test)] include_parameter_contents: bool,
     ) -> FlowLoanOrigins {
         // Branch results are read at their evaluation events, before lexical
         // cleanup kills their local bindings. Those snapshots are additional
@@ -1596,7 +1654,7 @@ impl FlowGraph {
                 }
             }
         }
-        let mut empty = vec![Vec::new(); body.bindings.len()];
+        let mut empty = empty_loan_state(body.bindings.len());
         // A reference parameter is an externally supplied loan root. Its
         // referent is intentionally represented by the parameter's stable
         // binding identity: callers have already checked aliasing between
@@ -1616,6 +1674,10 @@ impl FlowGraph {
                     lifetime_only: false,
                 });
             }
+        }
+        #[cfg(test)]
+        if include_parameter_contents {
+            empty.parameter_contents = Some(seed_parameter_contents(body));
         }
         let mut before: Vec<Option<LoanState>> = vec![None; self.nodes.len()];
         let mut after: Vec<Option<LoanState>> = vec![None; self.nodes.len()];
@@ -1758,6 +1820,27 @@ impl FlowGraph {
                             }
                             origins
                         }
+                        NodeKind::Form { head, children, .. }
+                            if head == "pin-set-field" && children.len() == 4 =>
+                        {
+                            let mut origins = value_loan_origins_at_events(
+                                body,
+                                self,
+                                &before,
+                                children[1],
+                                &state,
+                            );
+                            if let NodeKind::Declaration(DeclarationId::Field(field)) =
+                                body.nodes[children[2].0].kind
+                            {
+                                for origin in &mut origins {
+                                    origin.place.segments.push(Segment::Field(field));
+                                }
+                            } else {
+                                origins.clear();
+                            }
+                            origins
+                        }
                         _ => match &self.nodes[id.0].action {
                             FlowAction::Write { place, .. } => {
                                 reborrow_source_origins(place, &state, &mut HashSet::new())
@@ -1773,12 +1856,21 @@ impl FlowGraph {
                     }
                     let strong = known_places.len() == 1
                         && destinations.iter().all(|origin| !origin.lifetime_only);
+                    #[cfg(test)]
+                    let parameter_strong = one_concrete_store_destination(&destinations);
                     for origin in destinations {
                         // Parameter roots describe external pointees, not
                         // the local reference handles indexed by LoanState.
                         if origin.lifetime_only {
                             continue;
                         }
+                        #[cfg(test)]
+                        store_parameter_contents(
+                            &mut state,
+                            &origin,
+                            incoming.clone(),
+                            parameter_strong,
+                        );
                         let destination = origin.place;
                         if let PlaceRoot::Local(binding) = destination.root {
                             if strong {
@@ -1821,6 +1913,12 @@ impl FlowGraph {
                         if store.destination.lifetime_only {
                             continue;
                         }
+                        store_parameter_contents(
+                            &mut state,
+                            &store.destination,
+                            store.incoming.clone(),
+                            store.definitely_written,
+                        );
                         if let PlaceRoot::Local(binding) = store.destination.place.root {
                             if store.definitely_written {
                                 replace_projected_origins(
@@ -5978,10 +6076,128 @@ fn collect_pattern_bindings(body: &Body, id: NodeId, bindings: &mut HashSet<Bind
 
 fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
     let mut changed = false;
-    for (held, other) in existing.iter_mut().zip(incoming) {
+    for (held, other) in existing.iter_mut().zip(incoming.iter()) {
         changed |= merge_loan_origins(held, other);
     }
+    #[cfg(test)]
+    if let (Some(held), Some(other)) = (
+        &mut existing.parameter_contents,
+        &incoming.parameter_contents,
+    ) {
+        for (key, contents) in other {
+            changed |= merge_loan_origins(held.entry(key.clone()).or_default(), contents);
+        }
+    }
     changed
+}
+
+#[cfg(test)]
+fn seed_parameter_contents(body: &Body) -> HashMap<(BindingId, Vec<Segment>), Vec<LoanOrigin>> {
+    let mut contents = HashMap::new();
+    for (parameter, slots) in body.parameter_referent_loan_slots.iter().enumerate() {
+        for slot in slots {
+            let Some(boundary) = slot
+                .storage
+                .iter()
+                .rposition(|segment| *segment == Segment::Dereference)
+            else {
+                continue;
+            };
+            let key = (BindingId(parameter), slot.storage[..boundary].to_vec());
+            let held = LoanOrigin {
+                place: Place::root(PlaceRoot::Parameter(BindingId(parameter))),
+                mutable: slot.mutable,
+                pinned: slot.pinned,
+                span: None,
+                borrowed_from: None,
+                storage: slot.storage[boundary + 1..].to_vec(),
+                parameter_storage: Some(slot.storage.clone()),
+                storage_inputs: (boundary + 1..slot.storage.len()).map(Some).collect(),
+                lifetime_only: false,
+            };
+            merge_loan_origins(contents.entry(key).or_default(), &[held]);
+        }
+    }
+    contents
+}
+
+#[cfg(test)]
+fn loaded_parameter_value_origins(origin: &LoanOrigin, state: &LoanState) -> Vec<LoanOrigin> {
+    let PlaceRoot::Parameter(parameter) = origin.place.root else {
+        return Vec::new();
+    };
+    if origin.lifetime_only || !origin.storage.is_empty() {
+        return Vec::new();
+    }
+    let Some(contents) = &state.parameter_contents else {
+        return Vec::new();
+    };
+    let key = (
+        parameter,
+        origin.parameter_storage.clone().unwrap_or_default(),
+    );
+    let mut result = Vec::new();
+    // Symbolic array input slots can match concrete selections. Retain their
+    // entry facts conservatively rather than treating a missing exact key as
+    // an empty pointee or specializing a source to the destination's index.
+    for ((input_parameter, input), values) in contents {
+        if *input_parameter != key.0
+            || input.len() != key.1.len()
+            || !key
+                .1
+                .iter()
+                .zip(input)
+                .all(|(wanted, actual)| storage_slot_matches(wanted, actual))
+        {
+            continue;
+        }
+        for held in values {
+            let path = &origin.place.segments;
+            if held.storage.len() < path.len()
+                || !path
+                    .iter()
+                    .zip(&held.storage)
+                    .all(|(wanted, actual)| storage_slot_matches(wanted, actual))
+            {
+                continue;
+            }
+            let mut loaded = held.clone();
+            for selected in path {
+                loaded.project_storage(selected);
+            }
+            loaded.mutable &= origin.mutable;
+            merge_loan_origins(&mut result, &[loaded]);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+fn store_parameter_contents(
+    state: &mut LoanState,
+    destination: &LoanOrigin,
+    incoming: Vec<LoanOrigin>,
+    strong: bool,
+) {
+    let PlaceRoot::Parameter(parameter) = destination.place.root else {
+        return;
+    };
+    if destination.lifetime_only || !destination.storage.is_empty() {
+        return;
+    }
+    let Some(contents) = &mut state.parameter_contents else {
+        return;
+    };
+    let key = (
+        parameter,
+        destination.parameter_storage.clone().unwrap_or_default(),
+    );
+    let held = contents.entry(key).or_default();
+    if strong {
+        replace_projected_origins(held, &destination.place.segments, incoming);
+    } else {
+        extend_projected_origins(held, &destination.place.segments, incoming);
+    }
 }
 
 fn merge_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -> bool {
@@ -6244,6 +6460,18 @@ fn select_summary_inputs_with_slots(
     };
     if *head == Segment::Dereference && origin.storage.is_empty() && !origin.lifetime_only {
         if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
+            #[cfg(test)]
+            if state.parameter_contents.is_some() {
+                let mut result = Vec::new();
+                for loaded in loaded_parameter_value_origins(&origin, state) {
+                    for mut selected in select_summary_inputs_with_slots(loaded, tail, state) {
+                        selected.slots.insert(0, Segment::Dereference);
+                        selected.inputs.insert(0, None);
+                        result.push(selected);
+                    }
+                }
+                return result;
+            }
             let mut loaded = origin;
             let storage = loaded.parameter_storage.get_or_insert_with(Vec::new);
             storage.push(Segment::Dereference);
@@ -6394,6 +6622,12 @@ fn projected_value_origins(
             continue;
         }
         if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
+            #[cfg(test)]
+            if state.parameter_contents.is_some() {
+                origin.place.segments.push(slot.clone());
+                merge_loan_origins(&mut result, &loaded_parameter_value_origins(&origin, state));
+                continue;
+            }
             // A loaded aggregate may retain several reference slots. Select
             // only value slots below this projection, not loans reachable
             // through another reference boundary. These symbolic loads are
@@ -6537,6 +6771,11 @@ fn dereference_value_origins(
         let PlaceRoot::Parameter(parameter) = origin.place.root else {
             continue;
         };
+        #[cfg(test)]
+        if state.parameter_contents.is_some() {
+            merge_loan_origins(&mut result, &loaded_parameter_value_origins(&origin, state));
+            continue;
+        }
         let mut prefix = origin.parameter_storage.clone().unwrap_or_default();
         prefix.push(Segment::Dereference);
         prefix.extend_from_slice(&origin.place.segments);
@@ -8330,7 +8569,7 @@ mod tests {
             storage_inputs: vec![Some(0)],
             lifetime_only: false,
         };
-        let state = vec![vec![held]];
+        let state: LoanState = vec![vec![held]].into();
         let mut wrapped = state[0][0].clone();
         let input_identity = wrapped.referent_place();
         wrapped.prepend_storage(&[Segment::Tuple(7)]);
@@ -8385,7 +8624,7 @@ mod tests {
         ] {
             assert!(loaded_local_value_origins(vec![missing], &state).is_empty());
         }
-        assert!(loaded_local_value_origins(vec![address], &vec![Vec::new()]).is_empty());
+        assert!(loaded_local_value_origins(vec![address], &empty_loan_state(1)).is_empty());
     }
 
     #[test]
@@ -8407,7 +8646,7 @@ mod tests {
             let types = LinearTypes::from_program(&program);
             let mut origins = flow.loan_origins(body);
             for state in origins.before.iter_mut().flatten() {
-                for held in state {
+                for held in state.iter_mut() {
                     held.clear();
                 }
             }
@@ -8479,12 +8718,12 @@ mod tests {
             }
         }
         let mut origins = flow.loan_origins(body);
-        for held in origins.before[write].as_mut().unwrap() {
+        for held in origins.before[write].as_mut().unwrap().iter_mut() {
             held.clear();
         }
         for (index, node) in flow.nodes.iter().enumerate() {
             if flow_action_has_value(&node.action, children[1]) {
-                for held in origins.before[index].as_mut().unwrap() {
+                for held in origins.before[index].as_mut().unwrap().iter_mut() {
                     held.clear();
                 }
             }
@@ -10106,14 +10345,15 @@ mod tests {
             parameter_storage: None,
             storage_inputs: Vec::new(),
         };
-        let state = vec![
+        let state: LoanState = vec![
             vec![
                 origin(PlaceRoot::Local(BindingId(1)), vec![Segment::Tuple(0)]),
                 origin(PlaceRoot::Local(BindingId(2)), vec![Segment::Tuple(1)]),
             ],
             vec![],
             vec![],
-        ];
+        ]
+        .into();
         let container = origin(PlaceRoot::Local(BindingId(0)), vec![]);
         let path = [Segment::Dereference, Segment::Tuple(1)];
         let loaded = super::select_summary_inputs(container.clone(), &path, &state);
@@ -11223,6 +11463,46 @@ mod tests {
             .unwrap();
         assert_eq!(origins.before(cleanup, view).len(), 1);
         assert!(origins.after(cleanup, view).is_empty());
+    }
+
+    #[test]
+    fn staged_parameter_clears_and_missing_contents_do_not_resurrect_schema_loans() {
+        let program = crate::parse_program(
+            "(#enum Choice ((Empty) (Full (#ref u64))))
+            (#fn clear (: target (#ref-mut Choice)) Choice
+              (#deref-set target (Empty)) (#return (#deref target)))
+            (#fn read (: target (#ref Choice)) Choice (#return (#deref target)))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        for name in ["clear", "read"] {
+            let body = &checked.declarations().bodies[name];
+            let graph = &checked.declarations().flows[name];
+            let mut origins = graph.staged_parameter_store_loan_origins(body);
+            let (event, value) = graph
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    if let FlowAction::Return(Some(value)) = node.action {
+                        Some((FlowNodeId(index), value))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            if name == "read" {
+                assert!(!origins.value_before(body, graph, event, value).is_empty());
+                for state in origins.before.iter_mut().flatten() {
+                    state.parameter_contents.as_mut().unwrap().clear();
+                }
+            }
+            assert!(
+                origins.value_before(body, graph, event, value).is_empty(),
+                "{name}"
+            );
+            assert_eq!(origins.before(event, BindingId(0)).len(), 1);
+        }
     }
 
     #[test]

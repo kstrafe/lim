@@ -12448,6 +12448,231 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_parameter_contents_follow_writes_without_replacing_the_handle() {
+        // This remains a staged-analysis fixture: the legacy production checker
+        // rejects the field read after replacing the parameter's contents.
+        let native = crate::parse_program(
+            "(#struct Holder (: view (#ref u64)))
+             (#fn load-after-replace (: target (#ref-mut Holder) : replacement (#ref u64)) u64
+               (#deref-set target (#struct-literal Holder (: view replacement)))
+               (#let chosen (#ref u64) (#get target view))
+               (#return (#deref chosen)))",
+        )
+        .unwrap();
+        let declarations = resolve_program_for_analysis(&native, false).unwrap();
+        let body = &declarations.bodies["load-after-replace"];
+        let flow = &declarations.flows["load-after-replace"];
+        let origins = flow.staged_parameter_store_loan_origins(body);
+        let event = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, crate::typed_flow::FlowAction::Return(_))
+                    .then_some(crate::typed_flow::FlowNodeId(index))
+            })
+            .unwrap();
+        let chosen = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "chosen")
+                .unwrap(),
+        );
+        assert!(origins.before(event, chosen).iter().all(|loan| loan
+            .parameter_summary()
+            .unwrap()
+            .parameter
+            == 1));
+        assert!(!origins.before(event, chosen).is_empty());
+        for mode in [
+            "whole",
+            "pinned",
+            "field",
+            "conditional",
+            "forwarded",
+            "getter-call",
+        ] {
+            let pinned = matches!(mode, "pinned" | "field");
+            let target_type = if pinned { "#pin-ref-mut" } else { "#ref-mut" };
+            let direct = "(#deref-set target (#struct-literal Holder (: view replacement)))";
+            let write = match mode {
+                "pinned" => "(#unsafe (#pin-write target (#struct-literal Holder (: view replacement))))",
+                "field" => "(#pin-set-field target view replacement)",
+                "conditional" => "(#if selected (#deref-set target (#struct-literal Holder (: view replacement))) ())",
+                "forwarded" => "(#call replace (: target target : replacement replacement))",
+                _ => direct,
+            };
+            let read = if mode == "getter-call" {
+                "(#call read (: target target))"
+            } else {
+                "(#get target view)"
+            };
+            let source = format!("(#struct Holder (: view (#ref u64)))
+                (#fn replace (: target (#ref-mut Holder) : replacement (#ref u64)) () {direct} (#return ()))
+                (#fn read (: target (#ref-mut Holder)) (#ref u64) (#return (#get target view)))
+                (#fn rewrite (: target ({target_type} Holder) : replacement (#ref u64) : selected bool) (#ref u64)
+                  {write} (#return {read}))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["rewrite"];
+            let flow = &declarations.flows["rewrite"];
+            let origins = flow.staged_parameter_store_loan_origins(body);
+            let (event, value) = flow
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    if let crate::typed_flow::FlowAction::Return(Some(value)) = node.action {
+                        Some((crate::typed_flow::FlowNodeId(index), value))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            let loaded = origins.value_before(body, flow, event, value);
+            let mut parameters = loaded
+                .iter()
+                .filter_map(|loan| loan.parameter_summary().map(|summary| summary.parameter))
+                .collect::<Vec<_>>();
+            parameters.sort();
+            parameters.dedup();
+            assert_eq!(
+                parameters,
+                if mode == "conditional" {
+                    vec![0, 1]
+                } else {
+                    vec![1]
+                },
+                "{mode}: {loaded:?}"
+            );
+            let target = origins.before(event, crate::typed_body::BindingId(0));
+            assert_eq!(target.len(), 1, "{mode}: {target:?}");
+            assert_eq!(
+                target[0].place.root,
+                crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+            );
+            assert!(target[0].storage.is_empty());
+        }
+    }
+
+    #[test]
+    fn staged_parameter_contents_keep_nested_pointer_inputs_distinct() {
+        let source = "(#struct Holder (: view (#ref u64)))
+            (#struct Outer (: inner (#ref-mut Holder)))
+            (#fn rewrite (: target (#ref-mut Outer) : replacement (#ref u64)) (#ref u64)
+              (#let inner (#ref-mut Holder) (#get target inner))
+              (#deref-set inner (#struct-literal Holder (: view replacement)))
+              (#return (#get inner view)))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["rewrite"];
+        let flow = &declarations.flows["rewrite"];
+        let origins = flow.staged_parameter_store_loan_origins(body);
+        let (event, value) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                if let crate::typed_flow::FlowAction::Return(Some(value)) = node.action {
+                    Some((crate::typed_flow::FlowNodeId(index), value))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let loaded = origins.value_before(body, flow, event, value);
+        assert!(!loaded.is_empty());
+        assert!(
+            loaded
+                .iter()
+                .all(|loan| loan.parameter_summary().unwrap().parameter == 1),
+            "{loaded:?}"
+        );
+        let inner = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "inner")
+                .unwrap(),
+        );
+        let addresses = origins.before(event, inner);
+        assert_eq!(addresses.len(), 1);
+        assert_eq!(addresses[0].parameter_storage.as_ref().unwrap().len(), 2);
+        assert!(addresses[0].storage.is_empty());
+    }
+
+    #[test]
+    fn staged_parameter_contents_preserve_symbolic_array_pointee_facts() {
+        let source = "(#struct Holder (: view (#ref u64)))
+            (#fn rewrite (: targets (#array (#ref-mut Holder) 2) : replacement (#ref u64)) (#ref u64)
+              (#let target (#ref-mut Holder) (#index targets 1usize))
+              (#deref-set target (#struct-literal Holder (: view replacement)))
+              (#return (#get target view)))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["rewrite"];
+        let flow = &declarations.flows["rewrite"];
+        let origins = flow.staged_parameter_store_loan_origins(body);
+        let (event, value) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                if let crate::typed_flow::FlowAction::Return(Some(value)) = node.action {
+                    Some((crate::typed_flow::FlowNodeId(index), value))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let loaded = origins.value_before(body, flow, event, value);
+        let mut parameters = loaded
+            .iter()
+            .filter_map(|loan| loan.parameter_summary().map(|summary| summary.parameter))
+            .collect::<Vec<_>>();
+        parameters.sort();
+        parameters.dedup();
+        assert_eq!(parameters, vec![0, 1], "{loaded:?}");
+    }
+
+    #[test]
+    fn staged_pinned_field_reference_stores_release_old_and_retain_new_local_loans() {
+        for premature in [false, true] {
+            let mutation = if premature {
+                "(#set replacement 9u64)"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Holder (: view (#ref u64)))
+                (#fn main () u64 (#let-mut old u64 7u64) (#let-mut replacement u64 42u64)
+                  (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
+                  (#let target (#pin-ref-mut Holder) (#pin-borrow-mut holder))
+                  (#pin-set-field target view (#borrow replacement)) (#drop target)
+                  (#set old 9u64) {mutation}
+                  (#let result u64 (#deref (#get holder view)))
+                  (#forget holder) (#set replacement 9u64) (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_parameter_store_loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if premature {
+                let error = checked.unwrap_err();
+                assert!(
+                    error.message.contains("replacement") && error.message.contains("borrow"),
+                    "{error:?}"
+                );
+            } else {
+                checked.unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn nested_blocks_preserve_loop_control_without_leaking_it_afterward() {
         for source in [
             "(#fn main () u64 (#let-mut count u64 0u64)
