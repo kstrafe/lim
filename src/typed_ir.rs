@@ -1205,6 +1205,7 @@ impl Declarations {
                         referent_projection: origin.place.segments,
                         input_storage: origin.parameter_storage.unwrap_or_default(),
                         storage: origin.storage,
+                        storage_inputs: origin.storage_inputs,
                     };
                     if !returned.contains(&summary) {
                         returned.push(summary);

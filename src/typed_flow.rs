@@ -113,6 +113,9 @@ pub(crate) struct LoanOrigin {
     pub storage: Vec<Segment>,
     /// Original slot inside a function parameter, retained through projections.
     pub parameter_storage: Option<Vec<Segment>>,
+    /// Output storage positions that still select the original input slot.
+    /// Constructor-created positions have no correspondence to input slots.
+    pub storage_inputs: Vec<Option<usize>>,
 }
 
 impl PartialEq for LoanOrigin {
@@ -124,10 +127,55 @@ impl PartialEq for LoanOrigin {
             && self.borrowed_from == other.borrowed_from
             && self.storage == other.storage
             && self.parameter_storage == other.parameter_storage
+            && self.storage_inputs == other.storage_inputs
     }
 }
 
 impl Eq for LoanOrigin {}
+
+impl LoanOrigin {
+    fn project_storage(&mut self, selected: &Segment) -> Option<usize> {
+        let input = self.storage_inputs.first().copied().flatten();
+        if let Some(slot) = input.and_then(|index| {
+            self.parameter_storage
+                .as_mut()
+                .and_then(|slots| slots.get_mut(index))
+        }) {
+            // Static selection refines a symbolic array slot. A dynamic
+            // selection cannot weaken an already known input identity.
+            if !matches!(selected, Segment::DynamicIndex | Segment::SliceDynamicIndex) {
+                *slot = selected.clone();
+            }
+        }
+        self.storage.remove(0);
+        if !self.storage_inputs.is_empty() {
+            self.storage_inputs.remove(0);
+        }
+        input
+    }
+
+    fn drain_storage(&mut self, count: usize) {
+        self.storage.drain(..count);
+        self.storage_inputs
+            .drain(..count.min(self.storage_inputs.len()));
+    }
+
+    fn clear_storage(&mut self) {
+        self.storage.clear();
+        self.storage_inputs.clear();
+    }
+
+    fn prepend_storage(&mut self, path: &[Segment]) {
+        if !self.storage_inputs.is_empty() {
+            let mut inputs = vec![None; path.len()];
+            inputs.append(&mut self.storage_inputs);
+            self.storage_inputs = inputs;
+        }
+        let mut storage = path.to_vec();
+        storage.append(&mut self.storage);
+        self.storage = storage;
+    }
+}
 
 type LoanState = Vec<Vec<LoanOrigin>>;
 
@@ -815,6 +863,7 @@ impl FlowGraph {
                     borrowed_from: None,
                     storage: slot.storage.clone(),
                     parameter_storage: Some(slot.storage.clone()),
+                    storage_inputs: (0..slot.storage.len()).map(Some).collect(),
                     lifetime_only: false,
                 });
             }
@@ -4810,12 +4859,27 @@ fn apply_parameter_loan_summary(
     summary: &crate::typed_body::ParameterLoanSummary,
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
-    select_summary_inputs(origin, &summary.input_storage, state)
+    select_summary_inputs_with_slots(origin, &summary.input_storage, state)
         .into_iter()
-        .map(|mut origin| {
+        .map(|selected| {
+            let mut origin = selected.origin;
             let mut storage = summary.storage.clone();
+            let mut inputs = vec![None; storage.len()];
+            for (output, input) in summary.storage_inputs.iter().enumerate() {
+                if let Some(input) = input {
+                    if let Some(slot) = selected.slots.get(*input) {
+                        storage[output] = slot.clone();
+                    }
+                    inputs[output] = selected.inputs.get(*input).copied().flatten();
+                }
+            }
             storage.extend(origin.storage);
             origin.storage = storage;
+            inputs.extend(origin.storage_inputs);
+            origin.storage_inputs = inputs;
+            if origin.storage_inputs.iter().all(Option::is_none) {
+                origin.storage_inputs.clear();
+            }
             origin.mutable = summary.mutable;
             origin.pinned = summary.pinned;
             origin.lifetime_only |= summary.lifetime_only;
@@ -4828,13 +4892,35 @@ fn apply_parameter_loan_summary(
         .collect()
 }
 
+#[cfg(test)]
 fn select_summary_inputs(
     origin: LoanOrigin,
     path: &[Segment],
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
+    select_summary_inputs_with_slots(origin, path, state)
+        .into_iter()
+        .map(|selected| selected.origin)
+        .collect()
+}
+
+struct SelectedLoan {
+    origin: LoanOrigin,
+    slots: Vec<Segment>,
+    inputs: Vec<Option<usize>>,
+}
+
+fn select_summary_inputs_with_slots(
+    origin: LoanOrigin,
+    path: &[Segment],
+    state: &LoanState,
+) -> Vec<SelectedLoan> {
     let Some((head, tail)) = path.split_first() else {
-        return vec![origin];
+        return vec![SelectedLoan {
+            origin,
+            slots: Vec::new(),
+            inputs: Vec::new(),
+        }];
     };
     if *head == Segment::Dereference && origin.storage.is_empty() && !origin.lifetime_only {
         if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
@@ -4842,8 +4928,15 @@ fn select_summary_inputs(
             let storage = loaded.parameter_storage.get_or_insert_with(Vec::new);
             storage.push(Segment::Dereference);
             storage.append(&mut loaded.place.segments);
+            let tail_start = storage.len();
             storage.extend_from_slice(tail);
-            return vec![loaded];
+            let mut inputs = vec![None];
+            inputs.extend((tail_start..tail_start + tail.len()).map(Some));
+            return vec![SelectedLoan {
+                origin: loaded,
+                slots: path.to_vec(),
+                inputs,
+            }];
         }
         if let PlaceRoot::Local(binding) = origin.place.root {
             let mut result = Vec::new();
@@ -4858,9 +4951,13 @@ fn select_summary_inputs(
                     continue;
                 }
                 let mut loaded = held.clone();
-                loaded.storage.drain(..prefix.len());
+                loaded.drain_storage(prefix.len());
                 loaded.mutable &= origin.mutable;
-                merge_loan_origins(&mut result, &select_summary_inputs(loaded, tail, state));
+                for mut selected in select_summary_inputs_with_slots(loaded, tail, state) {
+                    selected.slots.insert(0, Segment::Dereference);
+                    selected.inputs.insert(0, None);
+                    result.push(selected);
+                }
             }
             return result;
         }
@@ -4872,8 +4969,18 @@ fn select_summary_inputs(
         .first()
         .is_some_and(|actual| storage_slot_matches(head, actual))
     {
-        selected.storage.remove(0);
-        select_summary_inputs(selected, tail, state)
+        let actual = if matches!(head, Segment::DynamicIndex | Segment::SliceDynamicIndex) {
+            selected.storage[0].clone()
+        } else {
+            head.clone()
+        };
+        let input = selected.project_storage(&actual);
+        let mut result = select_summary_inputs_with_slots(selected, tail, state);
+        for selected in &mut result {
+            selected.slots.insert(0, actual.clone());
+            selected.inputs.insert(0, input);
+        }
+        result
     } else {
         Vec::new()
     }
@@ -4892,6 +4999,7 @@ fn global_summary_origin(summary: &crate::typed_body::ParameterLoanSummary) -> O
         borrowed_from: None,
         storage: summary.storage.clone(),
         parameter_storage: None,
+        storage_inputs: Vec::new(),
     })
 }
 
@@ -4917,9 +5025,7 @@ fn extend_projected_origins(
     incoming: Vec<LoanOrigin>,
 ) {
     for mut origin in incoming {
-        let mut storage = path.to_vec();
-        storage.extend(origin.storage);
-        origin.storage = storage;
+        origin.prepend_storage(path);
         if !held.contains(&origin) {
             held.push(origin);
         }
@@ -4959,7 +5065,7 @@ fn projected_value_origins(
     for mut origin in incoming {
         if let Some(held) = origin.storage.first() {
             if storage_slot_matches(slot, held) {
-                origin.storage.remove(0);
+                origin.project_storage(slot);
                 merge_loan_origins(&mut result, &[origin]);
             }
             continue;
@@ -5000,6 +5106,9 @@ fn projected_value_origins(
                     input_storage.extend_from_slice(remaining);
                     loaded.parameter_storage = Some(input_storage);
                     loaded.storage = remaining.to_vec();
+                    loaded.storage_inputs = (prefix.len()..prefix.len() + remaining.len())
+                        .map(Some)
+                        .collect();
                     loaded.mutable &= seed.mutable;
                     loaded.pinned = seed.pinned;
                     merge_loan_origins(&mut result, &[loaded]);
@@ -5048,7 +5157,7 @@ fn projected_value_origins(
                 continue;
             }
             let mut loaded = held.clone();
-            loaded.storage.drain(..path.len());
+            loaded.drain_storage(path.len());
             // A shared container cannot lend exclusive access to an inner
             // mutable reference. Preserve the loaded pointee's own pin flag.
             loaded.mutable &= origin.mutable;
@@ -5156,7 +5265,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     for mut origin in value_loan_origins(body, *argument, state) {
                         // External/unsummarized reference-returning functions
                         // retain the conservative argument-based behavior.
-                        origin.storage.clear();
+                        origin.clear_storage();
                         merge_loan_origins(&mut origins, &[origin]);
                     }
                 }
@@ -5222,7 +5331,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 for origin in &source {
                     let mut origin = origin.clone();
                     origin.borrowed_from = borrowed_from;
-                    origin.storage.insert(0, Segment::SliceHalf(half));
+                    origin.prepend_storage(&[Segment::SliceHalf(half)]);
                     merge_loan_origins(&mut origins, &[origin]);
                 }
             }
@@ -5297,7 +5406,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             };
             let mut origins = value_loan_origins(body, *value, state);
             for origin in &mut origins {
-                origin.storage.insert(0, slot.clone());
+                origin.prepend_storage(&[slot.clone()]);
             }
             origins
         }
@@ -5328,7 +5437,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 };
                 let mut nested = value_loan_origins(body, *child, state);
                 for origin in &mut nested {
-                    origin.storage.insert(0, slot.clone());
+                    origin.prepend_storage(&[slot.clone()]);
                 }
                 merge_loan_origins(&mut origins, &nested);
             }
@@ -5539,7 +5648,7 @@ fn value_loan_origins_at_events(
                 for origin in &source {
                     let mut origin = origin.clone();
                     origin.borrowed_from = borrowed_from;
-                    origin.storage.insert(0, Segment::SliceHalf(half));
+                    origin.prepend_storage(&[Segment::SliceHalf(half)]);
                     merge_loan_origins(&mut result, &[origin]);
                 }
             }
@@ -5599,7 +5708,7 @@ fn value_loan_origins_at_events(
                     for mut origin in
                         value_loan_origins_at_events(body, flow, before, *argument, state)
                     {
-                        origin.storage.clear();
+                        origin.clear_storage();
                         merge_loan_origins(&mut result, &[origin]);
                     }
                 }
@@ -5623,7 +5732,7 @@ fn value_loan_origins_at_events(
                 Segment::DynamicIndex
             };
             for origin in &mut result {
-                origin.storage.insert(0, slot.clone());
+                origin.prepend_storage(&[slot.clone()]);
             }
             return result;
         }
@@ -5651,7 +5760,7 @@ fn value_loan_origins_at_events(
                 };
                 let mut nested = value_loan_origins_at_events(body, flow, before, *child, state);
                 for origin in &mut nested {
-                    origin.storage.insert(0, slot.clone());
+                    origin.prepend_storage(&[slot.clone()]);
                 }
                 merge_loan_origins(&mut result, &nested);
             }
@@ -5692,7 +5801,7 @@ fn reborrow_source_origins(
                 next.place
                     .segments
                     .extend_from_slice(&segments[origin.storage.len()..]);
-                next.storage.clear();
+                next.clear_storage();
                 for mut resolved in reborrow_source_origins(&next.place, state, seen) {
                     resolved.lifetime_only |= next.lifetime_only;
                     resolved.pinned |= next.pinned;
@@ -5719,6 +5828,7 @@ fn reborrow_source_origins(
         borrowed_from: None,
         storage: Vec::new(),
         parameter_storage: None,
+        storage_inputs: Vec::new(),
     }]
 }
 
@@ -5860,7 +5970,7 @@ fn distribute_pattern_origins(
                             return None;
                         }
                         let mut origin = origin.clone();
-                        origin.storage.remove(0);
+                        origin.project_storage(&slot);
                         if let Segment::SliceHalf(half) = held {
                             origin.place.segments.push(Segment::SliceHalf(*half));
                         }
@@ -8173,6 +8283,7 @@ mod tests {
             borrowed_from: None,
             storage,
             parameter_storage: None,
+            storage_inputs: Vec::new(),
             lifetime_only: false,
         };
         let old_first = origin(1, vec![Segment::Tuple(0)]);
@@ -8206,6 +8317,7 @@ mod tests {
             borrowed_from: None,
             storage,
             parameter_storage: None,
+            storage_inputs: Vec::new(),
         };
         let state = vec![
             vec![

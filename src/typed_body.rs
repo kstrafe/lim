@@ -1051,6 +1051,10 @@ pub(crate) struct ParameterLoanSummary {
     /// these are loads, not projections of the container's physical address.
     pub input_storage: Vec<crate::typed_place::Segment>,
     pub storage: Vec<crate::typed_place::Segment>,
+    /// Correspondence from output storage positions to input_storage
+    /// positions, used to specialize symbolic array slots at caller sites.
+    /// Positions introduced by constructors have no input correspondence.
+    pub storage_inputs: Vec<Option<usize>>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

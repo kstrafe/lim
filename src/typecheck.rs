@@ -13884,6 +13884,186 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn static_selection_of_loaded_reference_arrays_preserves_the_selected_input() {
+        let source = "(#struct Outer ((refs (#array (#ref u64) 2))))
+            (#fn select ((outer (#ref Outer))) (#ref u64)
+              (#return (#index (#get outer refs) 1usize)))
+            (#fn caller ((left (#ref u64)) (right (#ref u64))) (#ref u64)
+              (#let outer Outer (#struct-literal Outer
+                ((refs (#array-of (#array (#ref u64) 2) left right)))))
+              (#let result (#ref u64) (#call select (: outer (#borrow outer))))
+              (#forget outer) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["caller"];
+        let select = declarations.function_id("select").unwrap();
+        let [summary] = body.call_return_origins[&select].as_slice() else {
+            panic!("expected one selected reference slot");
+        };
+        assert_eq!(
+            summary.input_storage,
+            vec![
+                crate::typed_place::Segment::Dereference,
+                crate::typed_place::Segment::Field(
+                    declarations
+                        .field_id(&crate::Type::Named("Outer".into()), "refs")
+                        .unwrap()
+                ),
+                crate::typed_place::Segment::Index(1),
+            ]
+        );
+        let binding = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "result")
+                .unwrap(),
+        );
+        let flow = &declarations.flows["caller"];
+        let event = flow
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(node.action,
+                    crate::typed_flow::FlowAction::Bind { binding: found, .. } if found == binding
+                )
+            })
+            .unwrap();
+        let origins = flow.loan_origins(body);
+        let [origin] = origins.after(crate::typed_flow::FlowNodeId(event), binding) else {
+            panic!("static selection must not include the other element");
+        };
+        assert_eq!(
+            origin.place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(1))
+        );
+        assert!(origin.place.segments.is_empty());
+        declarations
+            .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                &program,
+            ))
+            .unwrap();
+        crate::check_types(&program).unwrap();
+    }
+
+    #[test]
+    fn reference_array_slot_correspondence_survives_returns_but_not_repetition() {
+        for repeated in [false, true] {
+            let load = if repeated {
+                "(#fn load ((outer (#ref Outer)) (index usize)) (#array (#ref u64) 2)
+                   (#let picked (#ref u64) (#index (#get outer refs) index))
+                   (#return (#array-repeat picked)))"
+            } else {
+                "(#fn load ((outer (#ref Outer)) (index usize)) (#array (#ref u64) 2)
+                   (#return (#get outer refs)))"
+            };
+            let source = format!(
+                "(#struct Outer ((refs (#array (#ref u64) 2))))
+                 {load}
+                 (#fn identity ((values (#array (#ref u64) 2))) (#array (#ref u64) 2)
+                   (#return values))
+                 (#fn select ((outer (#ref Outer)) (index usize)) (#ref u64)
+                   (#let values (#array (#ref u64) 2)
+                     (#call load (: outer outer : index index)))
+                   (#let moved (#array (#ref u64) 2)
+                     (#call identity (: values values)))
+                   (#return (#index moved 1usize)))
+                 (#fn caller ((left (#ref u64)) (right (#ref u64)) (index usize)) (#ref u64)
+                   (#let outer Outer (#struct-literal Outer
+                     ((refs (#array-of (#array (#ref u64) 2) left right)))))
+                   (#let result (#ref u64)
+                     (#call select (: outer (#borrow outer) : index index)))
+                   (#forget outer) (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["caller"];
+            let select = declarations.function_id("select").unwrap();
+            let [summary] = body.call_return_origins[&select].as_slice() else {
+                panic!("one abstract input slot must remain");
+            };
+            assert_eq!(
+                summary.input_storage.last(),
+                Some(&if repeated {
+                    crate::typed_place::Segment::DynamicIndex
+                } else {
+                    crate::typed_place::Segment::Index(1)
+                })
+            );
+            let binding = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "result")
+                    .unwrap(),
+            );
+            let flow = &declarations.flows["caller"];
+            let event = flow.nodes.iter().position(|node| matches!(node.action,
+                crate::typed_flow::FlowAction::Bind { binding: found, .. } if found == binding
+            )).unwrap();
+            let origins = flow.loan_origins(body);
+            let held = origins.after(crate::typed_flow::FlowNodeId(event), binding);
+            assert_eq!(held.len(), if repeated { 2 } else { 1 });
+            assert!(held.iter().any(|origin| origin.place.root
+                == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(1))));
+            if repeated {
+                assert!(held.iter().any(|origin| origin.place.root
+                    == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))));
+            }
+            declarations
+                .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                    &program,
+                ))
+                .unwrap();
+            crate::check_types(&program).unwrap();
+        }
+    }
+
+    #[test]
+    fn static_reference_array_selection_does_not_require_the_unselected_referent() {
+        for consumed in ["item", "other"] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#struct Container ((item Resource) (other Resource)))
+                 (#struct Outer ((refs (#array (#ref Resource) 2))))
+                 (#fn load ((outer (#ref Outer))) (#array (#ref Resource) 2)
+                   (#return (#get outer refs)))
+                 (#fn select ((outer (#ref Outer))) (#ref Resource)
+                   (#let values (#array (#ref Resource) 2)
+                     (#call load (: outer outer)))
+                   (#return (#index values 1usize)))
+                 (#fn caller ((owner (#ref-mut Container))) (#ref Resource)
+                   (#let outer Outer (#struct-literal Outer
+                     ((refs (#array-of (#array (#ref Resource) 2)
+                       (#borrow (#get owner item)) (#borrow (#get owner other)))))))
+                   (#let result (#ref Resource)
+                     (#call select (: outer (#borrow outer))))
+                   (#forget outer) (#forget (#get owner {consumed}))
+                   (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let result = declarations.staged_referent_entry_contracts(
+                &crate::linearcheck::LinearTypes::from_program(&program),
+            );
+            if consumed == "other" {
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } =
+                    result.unwrap_err()
+                else {
+                    panic!("unexpected failure");
+                };
+                assert_eq!(function, "caller");
+                assert!(
+                    conflict.message.contains("returned reference"),
+                    "{conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#return result)");
+            } else {
+                result.unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn borrowed_aggregate_loads_do_not_upgrade_shared_access_to_exclusive() {
         for mutable in [false, true] {
             let reference = if mutable { "#ref-mut" } else { "#ref" };

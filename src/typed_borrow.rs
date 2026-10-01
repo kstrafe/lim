@@ -3050,6 +3050,7 @@ mod tests {
                 borrowed_from: None,
                 storage: Vec::new(),
                 parameter_storage: None,
+                storage_inputs: Vec::new(),
                 lifetime_only: false,
             },
             LoanOrigin {
@@ -3060,6 +3061,7 @@ mod tests {
                 borrowed_from: None,
                 storage: Vec::new(),
                 parameter_storage: None,
+                storage_inputs: Vec::new(),
                 lifetime_only: false,
             },
         ];
@@ -3106,6 +3108,7 @@ mod tests {
             borrowed_from: None,
             storage: vec![crate::typed_place::Segment::Payload(variant, field)],
             parameter_storage: None,
+            storage_inputs: Vec::new(),
             lifetime_only: false,
         };
         let mutually_exclusive =
