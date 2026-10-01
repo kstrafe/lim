@@ -158,6 +158,14 @@ pub(crate) struct FlowConsumptions {
     unresolved: HashSet<FlowNodeId>,
 }
 
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct ReferentExitEffect {
+    pub place: Place,
+    pub definitely_consumed: bool,
+    pub consumption_spans: Vec<Option<Span>>,
+}
+
 impl FlowConsumptions {
     #[cfg(test)]
     pub fn unresolved_nodes(&self) -> &HashSet<FlowNodeId> {
@@ -998,6 +1006,40 @@ impl FlowGraph {
     pub fn referent_consumptions(&self, body: &Body, types: &LinearTypes) -> FlowConsumptions {
         let origins = self.loan_origins(body);
         self.consumptions_with_origins(body, types, Some(&origins))
+    }
+
+    /// Staged exit facts, not a complete callable ownership contract: missing
+    /// provenance and entry requirements still need separate summary fields.
+    #[cfg(test)]
+    pub fn referent_exit_effects(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+    ) -> Vec<(FlowNodeId, Vec<ReferentExitEffect>)> {
+        let moves = self.referent_consumptions(body, types);
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| {
+                if !matches!(node.action, FlowAction::Return(_)) {
+                    return None;
+                }
+                let state = moves.before[index].as_ref()?;
+                let event = FlowNodeId(index);
+                let effects = state
+                    .iter()
+                    .filter(|(place, _)| {
+                        matches!(place.root, PlaceRoot::Parameter(_) | PlaceRoot::Global(_))
+                    })
+                    .map(|(place, spans)| ReferentExitEffect {
+                        place: place.clone(),
+                        definitely_consumed: moves.definitely_consumed_before(event, place),
+                        consumption_spans: spans.clone(),
+                    })
+                    .collect();
+                Some((event, effects))
+            })
+            .collect()
     }
 
     fn consumptions_with_origins(

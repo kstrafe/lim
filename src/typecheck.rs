@@ -9645,6 +9645,30 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_referent_exit_effects_distinguish_consumption_and_restoration() {
+        for (body_source, count, definite) in [
+            ("(#forget (#deref reference))", 1, true),
+            ("(#if choice (#forget (#deref reference)) ())", 1, false),
+            ("(#forget (#deref reference)) (#deref-set reference (#struct-literal Resource ((number 2u64))))", 0, false),
+        ] {
+            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+              (#fn inspect ((reference (#ref-mut Resource)) (choice bool)) ()
+                {body_source} (#return ()))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let exits = declarations.flows["inspect"].referent_exit_effects(
+                &declarations.bodies["inspect"], &crate::linearcheck::LinearTypes::from_program(&program));
+            assert_eq!(exits.len(), 1);
+            assert_eq!(exits[0].1.len(), count);
+            for effect in &exits[0].1 {
+                assert_eq!(effect.place.root, crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0)));
+                assert_eq!(effect.definitely_consumed, definite);
+                assert!(effect.consumption_spans.iter().any(Option::is_some));
+            }
+        }
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
