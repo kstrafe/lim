@@ -12390,7 +12390,7 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn staged_variant_clear_example_preserves_the_caller_refinement_gap() {
+    fn staged_variant_clear_example_refines_the_original_call_contents() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("examples/callee_variant_clear.lim");
         let source = std::fs::read_to_string(&path).unwrap();
@@ -12411,6 +12411,80 @@ mod typed_ownership_tests {
             "{conflict:?}"
         );
         assert!(conflict.span.is_some());
+        let refined = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
+        crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &refined).unwrap();
+    }
+
+    #[test]
+    fn staged_variant_store_refinement_rejects_stale_results_and_pending_loans() {
+        let original = include_str!("../examples/callee_variant_clear.lim");
+        for mode in [
+            "pending",
+            "write",
+            "conditional-write",
+            "call",
+            "result-assignment",
+        ] {
+            let mut source = original.to_owned();
+            let write = "(#let update (#ref-mut Choice) (#borrow-mut holder))
+                (#deref-set update (Full (#borrow value))) (#drop update)";
+            match mode {
+                "pending" => {
+                    source = source.replace(
+                        "(#case (Pending) (#unreachable))",
+                        "(#case (Pending) (#block (#set value 1u64) result))",
+                    )
+                }
+                "write" => {
+                    source = source.replace(
+                        "(#drop next-target)",
+                        &format!("(#drop next-target) {write}"),
+                    )
+                }
+                "conditional-write" => {
+                    source = source.replace(
+                        "(#drop next-target)",
+                        &format!("(#drop next-target) (#if true (#block {write}) ())"),
+                    )
+                }
+                "call" => {
+                    source.push_str(
+                        "\n(#fn overwrite (: target (#ref-mut Choice) : value (#ref u64)) ()
+                        (#deref-set target (Full value)) (#return ()))",
+                    );
+                    source = source.replace("(#drop next-target)",
+                        "(#call overwrite (: target next-target : value (#borrow value))) (#drop next-target)");
+                }
+                "result-assignment" => {
+                    source = source
+                        .replace("(#let second Outcome", "(#let-mut second Outcome")
+                        .replace(
+                            "(#drop next-target)",
+                            "(#drop next-target) (#set second (Ready))",
+                        );
+                }
+                _ => unreachable!(),
+            }
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
+            let conflict =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                    .expect_err(mode);
+            assert!(
+                conflict.message.contains("value") && conflict.message.contains("borrow"),
+                "{mode}: {conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert_eq!(
+                &source[span.start..span.end],
+                "(#set value 1u64)",
+                "{mode}: {conflict:?}"
+            );
+        }
     }
 
     #[test]

@@ -17,6 +17,9 @@ use crate::{Span, Type};
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct FlowNodeId(pub usize);
 
+#[cfg(test)]
+type CallResultRefinement = (BindingId, FlowNodeId, NodeId, VariantId, Vec<FlowNodeId>);
+
 #[derive(Clone, Debug)]
 pub(crate) enum FlowAction {
     Entry,
@@ -1022,7 +1025,7 @@ impl FlowGraph {
     pub fn loan_origins(&self, body: &Body) -> FlowLoanOrigins {
         #[cfg(test)]
         {
-            self.solve_loan_origins(body, false)
+            self.solve_loan_origins(body, false, false)
         }
         #[cfg(not(test))]
         {
@@ -1034,7 +1037,97 @@ impl FlowGraph {
     /// clearing and definite storage restoration are established.
     #[cfg(test)]
     pub fn staged_store_loan_origins(&self, body: &Body) -> FlowLoanOrigins {
-        self.solve_loan_origins(body, true)
+        self.solve_loan_origins(body, true, false)
+    }
+
+    /// Refine direct call results only while their destination contents are
+    /// still the contents written by that call. This remains test-only.
+    #[cfg(test)]
+    pub fn staged_variant_store_loan_origins(&self, body: &Body) -> FlowLoanOrigins {
+        self.solve_loan_origins(body, true, true)
+    }
+
+    #[cfg(test)]
+    fn call_result_refinements(&self, body: &Body) -> Vec<Option<CallResultRefinement>> {
+        let reachable = self.reachable();
+        let mut predecessors = vec![Vec::new(); self.nodes.len()];
+        for event in &reachable {
+            for successor in &self.nodes[event.0].successors {
+                predecessors[successor.0].push(*event);
+            }
+        }
+        self.nodes
+            .iter()
+            .enumerate()
+            .map(|(index, node)| {
+                let FlowAction::Pattern { pattern, value } = node.action else {
+                    return None;
+                };
+                let variant = constructor_variant_at_storage(body, pattern, &[])?;
+                let place = Place::from_expression(body, value)?;
+                let PlaceRoot::Local(binding) = place.root else {
+                    return None;
+                };
+                if !place.segments.is_empty() {
+                    return None;
+                }
+                let mut definitions = self.nodes.iter().filter_map(|node| match node.action {
+                    FlowAction::Bind {
+                        binding: found,
+                        value,
+                    } if found == binding => Some(value),
+                    _ => None,
+                });
+                let call = definitions.next()?;
+                if definitions.next().is_some() {
+                    return None;
+                }
+                let NodeKind::Form {
+                    callee: Some(callee),
+                    ..
+                } = &body.nodes[call.0].kind
+                else {
+                    return None;
+                };
+                body.call_store_variants.get(callee)?.get(&variant)?;
+                let mut evaluations = self.nodes.iter().enumerate().filter_map(|(index, node)| {
+                    matches!(node.action, FlowAction::Evaluate(found) if found == call)
+                        .then_some(FlowNodeId(index))
+                });
+                let call_event = evaluations.next()?;
+                if evaluations.next().is_some() {
+                    return None;
+                }
+                let mut pending = predecessors[index].clone();
+                let mut visited = HashSet::new();
+                let mut region = Vec::new();
+                let mut reached_call = false;
+                while let Some(event) = pending.pop() {
+                    if event == call_event {
+                        reached_call = true;
+                        continue;
+                    }
+                    if !visited.insert(event) {
+                        continue;
+                    }
+                    // Do not classify effects by builtin spelling here. Until
+                    // every form has an effect contract, any intervening form
+                    // evaluation can invalidate the storage correlation.
+                    match &self.nodes[event.0].action {
+                        FlowAction::Entry | FlowAction::Write { .. } => return None,
+                        FlowAction::Evaluate(value)
+                            if matches!(body.nodes[value.0].kind, NodeKind::Form { .. }) =>
+                        {
+                            return None
+                        }
+                        _ => {}
+                    }
+                    region.push(event);
+                    pending.extend(predecessors[event.0].iter().copied());
+                }
+                reached_call.then_some((binding, call_event, call, variant, region))
+            })
+            .collect()
     }
 
     /// Final reference contents on normal returns. Missing paths retain the
@@ -1251,6 +1344,7 @@ impl FlowGraph {
         &self,
         body: &Body,
         #[cfg(test)] include_call_stores: bool,
+        #[cfg(test)] include_variant_stores: bool,
     ) -> FlowLoanOrigins {
         // Branch results are read at their evaluation events, before lexical
         // cleanup kills their local bindings. Those snapshots are additional
@@ -1350,6 +1444,18 @@ impl FlowGraph {
                 }
             }
         }
+        #[cfg(test)]
+        let refinements = if include_variant_stores {
+            self.call_result_refinements(body)
+        } else {
+            vec![None; self.nodes.len()]
+        };
+        #[cfg(test)]
+        for (event, refinement) in refinements.iter().enumerate() {
+            if let Some((_, call_event, _, _, _)) = refinement {
+                snapshot_users[call_event.0].push(FlowNodeId(event));
+            }
+        }
         let mut empty = vec![Vec::new(); body.bindings.len()];
         // A reference parameter is an externally supplied loan root. Its
         // referent is intentionally represented by the parameter's stable
@@ -1386,6 +1492,56 @@ impl FlowGraph {
                         value_loan_origins_at_events(body, self, &before, *value, &state);
                 }
                 FlowAction::Pattern { pattern, value } => {
+                    #[cfg(test)]
+                    if let Some((binding, call_event, call, variant, region)) = &refinements[id.0] {
+                        if let Some(entry) = &before[call_event.0] {
+                            let NodeKind::Form {
+                                callee: Some(callee),
+                                ..
+                            } = &body.nodes[call.0].kind
+                            else {
+                                unreachable!()
+                            };
+                            if let Some(summaries) = body
+                                .call_store_variants
+                                .get(callee)
+                                .and_then(|groups| groups.get(variant))
+                            {
+                                for store in substitute_call_stores(
+                                    body, self, &before, *call, entry, summaries,
+                                ) {
+                                    let PlaceRoot::Local(target) = store.destination.place.root
+                                    else {
+                                        continue;
+                                    };
+                                    if !store.definitely_written
+                                        || store.destination.lifetime_only
+                                        || region.iter().any(|event| {
+                                            match &self.nodes[event.0].action {
+                                                FlowAction::Assign { place, .. }
+                                                | FlowAction::Release { place, .. } => {
+                                                    place.root == PlaceRoot::Local(target)
+                                                        || place.root == PlaceRoot::Local(*binding)
+                                                }
+                                                FlowAction::ScopeExit(bindings) => {
+                                                    bindings.contains(&target)
+                                                        || bindings.contains(binding)
+                                                }
+                                                _ => false,
+                                            }
+                                        })
+                                    {
+                                        continue;
+                                    }
+                                    replace_projected_origins(
+                                        &mut state[target.0],
+                                        &store.destination.place.segments,
+                                        store.incoming,
+                                    );
+                                }
+                            }
+                        }
+                    }
                     let origins = value_loan_origins_at_events(body, self, &before, *value, &state);
                     distribute_pattern_origins(body, *pattern, &origins, &mut state);
                     if let (Some(place), Some(selected)) = (
@@ -5795,13 +5951,27 @@ fn call_loan_stores(
 ) -> Vec<LoanStore> {
     let NodeKind::Form {
         callee: Some(callee),
-        children,
         ..
     } = &body.nodes[value.0].kind
     else {
         return Vec::new();
     };
     let Some(stores) = body.call_store_origins.get(callee) else {
+        return Vec::new();
+    };
+    substitute_call_stores(body, flow, before, value, state, stores)
+}
+
+#[cfg(test)]
+fn substitute_call_stores(
+    body: &Body,
+    flow: &FlowGraph,
+    before: &[Option<LoanState>],
+    value: NodeId,
+    state: &LoanState,
+    stores: &[crate::typed_body::ParameterStoreSummary],
+) -> Vec<LoanStore> {
+    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
         return Vec::new();
     };
     let substitute = |summary: &crate::typed_body::ParameterLoanSummary| {

@@ -359,9 +359,18 @@ Test-only summaries now distinguish final stores for known returned enum
 variants, including nested branches and loop breaks. Unknown returns remain
 possible in every variant summary; writes after constructor evaluation are
 included. The three self-reference poll examples have clearing Ready summaries
-and retaining Pending summaries. Caller refinement is still absent: conditional
-facts must be tied to the original call and invalidated by intervening writes.
-`examples/callee_variant_clear.lim` preserves that staged caller limitation.
+and retaining Pending summaries. A separate test-only caller solver now refines
+direct, uniquely bound call results at a matching variant pattern. It substitutes
+the original call snapshot, retains source-snapshot wakeup dependencies, and
+requires every backward path to reach that call without an intervening form
+evaluation or indirect write. Assignment, release, and scope exit of the result
+or destination invalidate refinement. Only exact, definitely written local
+destinations can be replaced. Unknown builtin effects are not assumed pure.
+`examples/callee_variant_clear.lim` now passes this staged caller solver, while
+Pending mutation, intervening writes/calls, and reassigned results still fail
+with the original mutation span. Result aliases, computed scrutinees, parameter
+contents, and ownership restoration still need integration; this is not enabled
+in production.
 Return-variant-conditioned clearing, storage contents after parameter writes,
 and definite restoration must be integrated before replacing production checking.
 
