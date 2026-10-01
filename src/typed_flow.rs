@@ -5404,7 +5404,6 @@ impl FlowGraph {
                 continue;
             };
             let event = FlowNodeId(index);
-            let returned = origins.value_before(body, self, event, value);
             if self.value_missing_reference_provenance(body, declarations, origins, event, value) {
                 return Err(ReleaseConflict {
                     message:
@@ -5414,34 +5413,106 @@ impl FlowGraph {
                     labels: Vec::new(),
                 });
             }
-            for origin in returned {
-                if origin.lifetime_only {
-                    continue;
+            let snapshots = self
+                .transparent_return_alternatives(body, origins, event, value)
+                .unwrap_or_else(|| vec![(event, value)]);
+            for (snapshot, alternative) in snapshots {
+                let state = if snapshot == event {
+                    state
+                } else {
+                    moves.after[snapshot.0].as_ref().unwrap_or(state)
+                };
+                let returned = origins.value_before(body, self, snapshot, alternative);
+                for origin in returned {
+                    if origin.lifetime_only {
+                        continue;
+                    }
+                    let place = origin.referent_place();
+                    let conflicts = state
+                        .iter()
+                        .filter(|(consumed, _)| consumed.overlaps(&place))
+                        .collect::<Vec<_>>();
+                    if conflicts.is_empty() {
+                        continue;
+                    }
+                    let previous = conflicts
+                        .iter()
+                        .flat_map(|(_, spans)| spans.iter())
+                        .flatten()
+                        .min_by_key(|span| (span.source_id, span.start));
+                    return Err(ReleaseConflict {
+                        message: "returned reference may point to a consumed linear referent"
+                            .into(),
+                        span: node.span,
+                        labels: previous
+                            .into_iter()
+                            .map(|span| (*span, "referent was consumed here".into()))
+                            .collect(),
+                    });
                 }
-                let place = origin.referent_place();
-                let conflicts = state
-                    .iter()
-                    .filter(|(consumed, _)| consumed.overlaps(&place))
-                    .collect::<Vec<_>>();
-                if conflicts.is_empty() {
-                    continue;
-                }
-                let previous = conflicts
-                    .iter()
-                    .flat_map(|(_, spans)| spans.iter())
-                    .flatten()
-                    .min_by_key(|span| (span.source_id, span.start));
-                return Err(ReleaseConflict {
-                    message: "returned reference may point to a consumed linear referent".into(),
-                    span: node.span,
-                    labels: previous
-                        .into_iter()
-                        .map(|span| (*span, "referent was consumed here".into()))
-                        .collect(),
-                });
             }
         }
         Ok(())
+    }
+
+    /// Preserve branch-specific origins and consumption only when evaluation
+    /// is followed by structural merge/scope nodes and this exact return.
+    /// A later operand, mutation, call, or loop edge needs the merged proof;
+    /// an earlier snapshot alone cannot establish initialization at escape.
+    #[cfg(test)]
+    fn transparent_return_alternatives(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        returned: FlowNodeId,
+        value: NodeId,
+    ) -> Option<Vec<(FlowNodeId, NodeId)>> {
+        let mut alternatives = Vec::new();
+        collect_result_alternatives(body, value, &mut alternatives);
+        if alternatives.len() < 2 {
+            return None;
+        }
+        let mut snapshots = Vec::new();
+        for alternative in alternatives {
+            for &index in &origins.events_by_value[alternative.0] {
+                if origins.before[index].is_none()
+                    || !flow_action_has_value(&self.nodes[index].action, alternative)
+                {
+                    continue;
+                }
+                let mut current = FlowNodeId(index);
+                let mut seen = HashSet::new();
+                let transparent = loop {
+                    if !seen.insert(current) {
+                        break false;
+                    }
+                    let [next] = self.nodes[current.0].successors.as_slice() else {
+                        break false;
+                    };
+                    if *next == returned {
+                        break true;
+                    }
+                    match self.nodes[next.0].action {
+                        FlowAction::ScopeExit(_) => {}
+                        FlowAction::Evaluate(value)
+                            if matches!(
+                                body.nodes[value.0].kind,
+                                NodeKind::If { .. }
+                                    | NodeKind::Match { .. }
+                                    | NodeKind::Block(_)
+                                    | NodeKind::Labeled(_, _)
+                            ) => {}
+                        _ => break false,
+                    }
+                    current = *next;
+                };
+                if !transparent {
+                    return None;
+                }
+                snapshots.push((FlowNodeId(index), alternative));
+            }
+        }
+        (!snapshots.is_empty()).then_some(snapshots)
     }
 
     #[cfg(test)]
@@ -12664,6 +12735,130 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn correlated_return_snapshots_require_a_transparent_suffix() {
+        let program = crate::parse_program(
+            "(#struct Resource ((number u64))) (#linear Resource)
+             (#fn choose ((left (#ref-mut Resource)) (right (#ref-mut Resource))
+                          (selected bool)) (#ref-mut Resource)
+               (#return (#if selected
+                 (#block (#forget (#deref left)) right)
+                 (#block (#forget (#deref right)) left))))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["choose"];
+        let graph = &checked.declarations().flows["choose"];
+        let (returned, value) = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                if let FlowAction::Return(Some(value)) = node.action {
+                    Some((FlowNodeId(index), value))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let origins = graph.loan_origins(body);
+        assert_eq!(
+            graph
+                .transparent_return_alternatives(body, &origins, returned, value)
+                .unwrap()
+                .len(),
+            2
+        );
+        let (place, effect) = graph
+            .nodes
+            .iter()
+            .find_map(|node| {
+                if let FlowAction::Release { place, value } = &node.action {
+                    Some((place.clone(), *value))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        for action in [
+            FlowAction::Assign {
+                place: place.clone(),
+                value: effect,
+            },
+            FlowAction::Write {
+                place: place.clone(),
+                value: effect,
+            },
+            FlowAction::Release {
+                place: place.clone(),
+                value: effect,
+            },
+            FlowAction::Evaluate(effect),
+            FlowAction::Read {
+                place,
+                value: effect,
+                place_base: false,
+            },
+            FlowAction::LoopHead,
+        ] {
+            let mut changed = graph.clone();
+            let barrier = FlowNodeId(changed.nodes.len());
+            for node in &mut changed.nodes {
+                for successor in &mut node.successors {
+                    if *successor == returned {
+                        *successor = barrier;
+                    }
+                }
+            }
+            changed.nodes.push(FlowNode {
+                action,
+                successors: vec![returned],
+                span: None,
+            });
+            assert!(changed
+                .transparent_return_alternatives(body, &origins, returned, value)
+                .is_none());
+        }
+
+        // One safe evaluation of a value must not hide a second evaluation
+        // whose path performs an effect before the same return.
+        let original = graph
+            .transparent_return_alternatives(body, &origins, returned, value)
+            .unwrap()[0]
+            .0;
+        let mut changed = graph.clone();
+        let barrier = FlowNodeId(changed.nodes.len());
+        let duplicate = FlowNodeId(barrier.0 + 1);
+        let fork = FlowNodeId(barrier.0 + 2);
+        for node in &mut changed.nodes {
+            for successor in &mut node.successors {
+                if *successor == original {
+                    *successor = fork;
+                }
+            }
+        }
+        changed.nodes.push(FlowNode {
+            action: FlowAction::Evaluate(effect),
+            successors: vec![returned],
+            span: None,
+        });
+        changed.nodes.push(FlowNode {
+            action: graph.nodes[original.0].action.clone(),
+            successors: vec![barrier],
+            span: graph.nodes[original.0].span,
+        });
+        changed.nodes.push(FlowNode {
+            action: FlowAction::Branch(value),
+            successors: vec![original, duplicate],
+            span: None,
+        });
+        let origins = changed.loan_origins(body);
+        assert!(origins.before[duplicate.0].is_some());
+        assert!(changed
+            .transparent_return_alternatives(body, &origins, returned, value)
+            .is_none());
     }
 
     #[test]

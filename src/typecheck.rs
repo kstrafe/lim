@@ -16598,6 +16598,77 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_return_initialization_keeps_branch_referents_correlated() {
+        for aggregate in [false, true] {
+            let (ty, left, right) = if aggregate {
+                (
+                    "View",
+                    "(#struct-literal View (: value left))",
+                    "(#struct-literal View (: value right))",
+                )
+            } else {
+                ("(#ref-mut Resource)", "left", "right")
+            };
+            let left_branch = format!("(#block (#forget (#deref right)) {left})");
+            let right_branch = format!("(#block (#forget (#deref left)) {right})");
+            for expression in [
+                format!("(#if selected {left_branch} {right_branch})"),
+                format!(
+                    "(#match selected (#case true {left_branch}) (#case false {right_branch}))"
+                ),
+                format!(
+                    "(#if selected (#if selected {left_branch} {right_branch}) {right_branch})"
+                ),
+            ] {
+                let source = format!(
+                    "(#struct Resource ((number u64))) (#linear Resource)
+                  (#struct View ((value (#ref-mut Resource))))
+                  (#fn choose ((left (#ref-mut Resource)) (right (#ref-mut Resource))
+                               (selected bool)) {ty} (#return {expression}))"
+                );
+                let program = crate::parse_program(&source).unwrap();
+                crate::check_types(&program).unwrap();
+                for contents in [false, true] {
+                    let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+                    if contents {
+                        declarations.staged_parameter_contents_summaries();
+                    }
+                    let types = crate::linearcheck::LinearTypes::from_program(&program);
+                    declarations
+                        .staged_referent_entry_contracts(&types)
+                        .unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn staged_correlated_return_rejects_consumption_on_the_returning_branch() {
+        for expression in [
+            "(#if selected (#block (#forget (#deref left)) left) right)",
+            "(#match selected (#case true (#block (#forget (#deref left)) left)) (#case false right))",
+            "(#block (#let view (#ref-mut Resource) (#if selected left right)) (#forget (#deref left)) view)",
+        ] {
+            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+              (#fn choose ((left (#ref-mut Resource)) (right (#ref-mut Resource))
+                           (selected bool)) (#ref-mut Resource) (#return {expression}))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let error = declarations.staged_referent_entry_contracts(&types).unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert_eq!(function, "choose");
+            assert!(conflict.message.contains("returned reference"), "{conflict:?}");
+            let span = conflict.span.unwrap();
+            assert_eq!(&source[span.start..span.end], format!("(#return {expression})"));
+            assert!(conflict.labels.iter().any(|(span, _)|
+                &source[span.start..span.end] == "(#forget (#deref left))"));
+        }
+    }
+
+    #[test]
     fn staged_return_initialization_rejects_spanless_consumed_entry_state() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn initialize-view ((value (#ref-mut Resource)) (choice bool)) (#ref-mut Resource)
