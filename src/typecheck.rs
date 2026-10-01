@@ -13476,4 +13476,79 @@ mod typed_ownership_tests {
             assert!(conflict.span.is_some(), "missing causal span for {name}");
         }
     }
+
+    #[test]
+    fn borrowed_local_reference_fields_retain_the_loaded_pointee_identity() {
+        for consumed in [false, true] {
+            let destruction = if consumed {
+                "(#forget (#get owner item))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#struct Container ((item Resource)))
+              (#struct Holder ((target (#ref Resource))))
+              (#fn caller ((owner (#ref-mut Container))) (#ref Resource)
+                (#let holder Holder (#struct-literal Holder
+                  ((target (#borrow (#get owner item))))))
+                (#let outer-view (#ref Holder) (#borrow holder))
+                (#let inner-view (#ref Resource) (#get outer-view target))
+                (#drop outer-view) (#forget holder) {destruction}
+                (#return inner-view))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["caller"];
+            let flow = &declarations.flows["caller"];
+            let binding = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "inner-view")
+                    .unwrap(),
+            );
+            let bound = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+                matches!(node.action, crate::typed_flow::FlowAction::Bind { binding: found, .. } if found == binding)
+                    .then_some(crate::typed_flow::FlowNodeId(index))
+            }).unwrap();
+            let origins = flow.loan_origins(body);
+            let [origin] = origins.after(bound, binding) else {
+                panic!("missing loaded reference");
+            };
+            assert_eq!(
+                origin.place.root,
+                crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+            );
+            assert_eq!(
+                origin.place.segments,
+                vec![crate::typed_place::Segment::Field(
+                    declarations
+                        .field_id(&crate::Type::Named("Container".into()), "item")
+                        .unwrap()
+                )]
+            );
+            assert!(origin.storage.is_empty());
+            assert!(!origin.mutable);
+            assert!(!origin.lifetime_only);
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_referent_entry_contracts(&types);
+            if consumed {
+                let error = result.unwrap_err();
+                let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                    panic!("unexpected error: {error:?}");
+                };
+                assert!(
+                    conflict.message.contains("returned reference"),
+                    "{conflict:?}"
+                );
+            } else {
+                result.unwrap();
+                // The legacy borrow checker still rejects this aggregate
+                // initializer's projected reborrow. This regression tests
+                // staged identity preservation, not production acceptance.
+                let error = crate::check_types(&program).unwrap_err();
+                assert!(error.contains("already borrowed"), "{error}");
+            }
+        }
+    }
 }

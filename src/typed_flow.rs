@@ -4717,6 +4717,57 @@ fn reference_binding(body: &Body, id: NodeId) -> Option<BindingId> {
     .then_some(binding)
 }
 
+/// A borrowed container's address is not the referent of a reference stored
+/// in one of its fields. Load known local storage slots instead of projecting
+/// the container address into a fictitious pointee identity.
+fn projected_value_origins(
+    body: &Body,
+    base: NodeId,
+    slot: &Segment,
+    incoming: Vec<LoanOrigin>,
+    state: &LoanState,
+) -> Vec<LoanOrigin> {
+    let borrowed_container = matches!(
+        body.nodes[base.0].ty,
+        Some(Type::Reference { .. } | Type::PinnedReference { .. })
+    );
+    let mut result = Vec::new();
+    for mut origin in incoming {
+        if let Some(held) = origin.storage.first() {
+            if storage_slot_matches(slot, held) {
+                origin.storage.remove(0);
+                merge_loan_origins(&mut result, &[origin]);
+            }
+            continue;
+        }
+        if !borrowed_container || origin.lifetime_only {
+            continue;
+        }
+        let PlaceRoot::Local(binding) = origin.place.root else {
+            continue;
+        };
+        let mut path = origin.place.segments.clone();
+        path.push(slot.clone());
+        for held in &state[binding.0] {
+            if held.storage.len() < path.len()
+                || !path
+                    .iter()
+                    .zip(&held.storage)
+                    .all(|(wanted, actual)| storage_slot_matches(wanted, actual))
+            {
+                continue;
+            }
+            let mut loaded = held.clone();
+            loaded.storage.drain(..path.len());
+            // A shared container cannot lend exclusive access to an inner
+            // mutable reference. Preserve the loaded pointee's own pin flag.
+            loaded.mutable &= origin.mutable;
+            merge_loan_origins(&mut result, &[loaded]);
+        }
+    }
+    result
+}
+
 fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOrigin> {
     let node = &body.nodes[id.0];
     match &node.kind {
@@ -4897,17 +4948,13 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             else {
                 return Vec::new();
             };
-            value_loan_origins(body, *base, state)
-                .into_iter()
-                .filter_map(|mut origin| {
-                    let held_slot = origin.storage.first()?;
-                    if !storage_slot_matches(&slot, held_slot) {
-                        return None;
-                    }
-                    origin.storage.remove(0);
-                    Some(origin)
-                })
-                .collect()
+            projected_value_origins(
+                body,
+                *base,
+                &slot,
+                value_loan_origins(body, *base, state),
+                state,
+            )
         }
         NodeKind::Form { head, .. }
             if matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut") =>
@@ -5216,17 +5263,13 @@ fn value_loan_origins_at_events(
             else {
                 return Vec::new();
             };
-            return value_loan_origins_at_events(body, flow, before, *base, state)
-                .into_iter()
-                .filter_map(|mut origin| {
-                    let held_slot = origin.storage.first()?;
-                    if !storage_slot_matches(&slot, held_slot) {
-                        return None;
-                    }
-                    origin.storage.remove(0);
-                    Some(origin)
-                })
-                .collect();
+            return projected_value_origins(
+                body,
+                *base,
+                &slot,
+                value_loan_origins_at_events(body, flow, before, *base, state),
+                state,
+            );
         }
         if let Some(callee) = callee {
             if let Some(summary) = body.call_return_origins.get(callee) {
