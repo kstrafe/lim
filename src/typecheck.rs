@@ -9322,6 +9322,39 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn writing_parameter_pointees_preserves_reference_handle_origins() {
+        let source = "(#fn inspect ((reference (#ref-mut u64))) ()
+          (#deref-set reference 2u64)
+          (#let alias (#ref-mut u64) reference)
+          (#forget alias) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let alias = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "alias")
+                .unwrap(),
+        );
+        let release = crate::typed_flow::FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action, crate::typed_flow::FlowAction::Release { .. })
+                })
+                .unwrap(),
+        );
+        let origins = flow.loan_origins(body);
+        let held = origins.before(release, alias);
+        assert_eq!(held.len(), 1);
+        assert_eq!(
+            held[0].place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};

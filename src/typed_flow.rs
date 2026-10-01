@@ -788,6 +788,12 @@ impl FlowGraph {
                 FlowAction::Write { place, value } => {
                     let source = match &body.nodes[value.0].kind {
                         NodeKind::Form { head, children, .. }
+                            if matches!(head.as_str(), "deref-set" | "pin-write")
+                                && children.len() == 3 =>
+                        {
+                            children[2]
+                        }
+                        NodeKind::Form { head, children, .. }
                             if head == "pin-set-field" && children.len() == 4 =>
                         {
                             children[3]
@@ -796,12 +802,14 @@ impl FlowGraph {
                     };
                     let incoming =
                         value_loan_origins_at_events(body, self, &before, source, &state);
-                    for destination in
-                        resolve_known_referents(body, place, &state, &mut HashSet::new())
-                    {
-                        if let PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) =
-                            destination.root
-                        {
+                    for origin in reborrow_source_origins(place, &state, &mut HashSet::new()) {
+                        // Parameter roots describe external pointees, not
+                        // the local reference handles indexed by LoanState.
+                        if origin.lifetime_only {
+                            continue;
+                        }
+                        let destination = origin.place;
+                        if let PlaceRoot::Local(binding) = destination.root {
                             replace_projected_origins(
                                 &mut state[binding.0],
                                 &destination.segments,
@@ -3393,47 +3401,6 @@ fn reborrow_source_origins(
         storage: Vec::new(),
         parameter_storage: None,
     }]
-}
-
-fn resolve_known_referents(
-    body: &Body,
-    place: &Place,
-    state: &LoanState,
-    seen: &mut HashSet<BindingId>,
-) -> Vec<Place> {
-    let PlaceRoot::Local(binding) = place.root else {
-        return vec![place.clone()];
-    };
-    if place.segments.is_empty()
-        || !matches!(
-            body.bindings[binding.0].ty,
-            Type::Reference { .. } | Type::PinnedReference { .. }
-        )
-        || seen.len() >= 128
-        || !seen.insert(binding)
-    {
-        return vec![place.clone()];
-    }
-    let direct = state[binding.0]
-        .iter()
-        .filter(|origin| origin.storage.is_empty())
-        .collect::<Vec<_>>();
-    if direct.is_empty() || direct.len() != state[binding.0].len() {
-        seen.remove(&binding);
-        return vec![place.clone()];
-    }
-    let mut resolved = Vec::new();
-    for origin in direct {
-        let mut referent = origin.place.clone();
-        referent.segments.extend(place.segments.iter().cloned());
-        for next in resolve_known_referents(body, &referent, state, seen) {
-            if !resolved.contains(&next) {
-                resolved.push(next);
-            }
-        }
-    }
-    seen.remove(&binding);
-    resolved
 }
 
 fn constructor_values_start(ty: Option<&Type>, child_count: usize) -> usize {
