@@ -12473,4 +12473,81 @@ mod typed_ownership_tests {
             }
         }
     }
+
+    #[test]
+    fn staged_referent_replacement_does_not_infer_dynamic_identity() {
+        for consume in ["", "(#forget (#index values index))"] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn replace ((values (#ref-mut (#array Resource 2))) (index u64)) ()
+                {consume}
+                (#deref-set (#borrow-mut (#index values index))
+                  (#struct-literal Resource ((number 1u64))))
+                (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let error = declarations.flows["replace"]
+                .infer_direct_referent_consumed_entry(
+                    &declarations.bodies["replace"],
+                    &types,
+                    &declarations,
+                )
+                .unwrap_err();
+            assert!(
+                error.message.contains("dynamic target identity"),
+                "{error:?}"
+            );
+            let span = error.span.unwrap();
+            assert!(source[span.start..span.end].starts_with("(#deref-set"));
+        }
+    }
+
+    #[test]
+    fn staged_referent_replacement_accepts_consumed_static_parent() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn replace ((values (#ref-mut (#array Resource 2)))) ()
+            (#forget (#deref values))
+            (#deref-set (#borrow-mut (#index values 0u64))
+              (#struct-literal Resource ((number 1u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations.flows["replace"]
+            .check_referent_replacements(&declarations.bodies["replace"], &types, &declarations)
+            .unwrap();
+    }
+
+    #[test]
+    fn staged_initializer_calls_do_not_inherit_dynamic_entry_identities() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn initialize ((value (#ref-mut Resource))) ()
+            (#deref-set value (#struct-literal Resource ((number 1u64))))
+            (#return ()))
+          (#fn caller ((values (#ref-mut (#array Resource 2))) (index u64)) ()
+            (#forget (#index values index))
+            (#call initialize ((value (#borrow-mut (#index values index)))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert_eq!(function, "caller");
+        assert_eq!(
+            conflict.message,
+            "cannot infer a consumed-entry contract for this initializer call"
+        );
+        let span = conflict.span.unwrap();
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#call initialize ((value (#borrow-mut (#index values index)))))"
+        );
+    }
 }

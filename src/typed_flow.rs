@@ -2375,12 +2375,15 @@ impl FlowGraph {
                 return Err(failure());
             }
             for place in places {
-                if state.iter().any(|consumed| place_covers(consumed, place)) {
+                if state
+                    .iter()
+                    .any(|consumed| definite_place_covers(consumed, place))
+                {
                     continue;
                 }
                 // Only caller input storage can acquire an entry contract.
                 // A live local owner requires actual local consumption.
-                if !matches!(place.root, PlaceRoot::Parameter(_)) {
+                if !matches!(place.root, PlaceRoot::Parameter(_)) || has_dynamic_projection(place) {
                     return Err(failure());
                 }
                 if !inherited.contains(place) {
@@ -2426,7 +2429,7 @@ impl FlowGraph {
                 || places.iter().any(|required| {
                     !state
                         .iter()
-                        .any(|consumed| place_covers(consumed, required))
+                        .any(|consumed| definite_place_covers(consumed, required))
                 })
             {
                 return Err(ReleaseConflict {
@@ -3003,7 +3006,17 @@ impl FlowGraph {
                     };
                     let mut leaf = destination.clone();
                     leaf.segments.extend(projection.segments);
-                    if !moves.definitely_consumed_before(event, &leaf) {
+                    let consumed = moves.definitely_before[event.0]
+                        .as_ref()
+                        .is_some_and(|state| {
+                            state
+                                .iter()
+                                .any(|prior| definite_place_covers(prior, &leaf))
+                        });
+                    if !consumed {
+                        if has_dynamic_projection(&leaf) {
+                            return Err(failure("cannot prove linear referent consumption before replacement: dynamic target identity"));
+                        }
                         if matches!(leaf.root, PlaceRoot::Parameter(_)) {
                             if let Some(requirements) = entry_requirements.as_deref_mut() {
                                 if !requirements.contains(&leaf) {
@@ -4170,6 +4183,21 @@ fn linear_obligation_place(
 
 fn place_covers(ancestor: &Place, descendant: &Place) -> bool {
     ancestor.root == descendant.root && descendant.segments.starts_with(&ancestor.segments)
+}
+
+#[cfg(test)]
+fn has_dynamic_projection(place: &Place) -> bool {
+    place
+        .segments
+        .iter()
+        .any(|segment| matches!(segment, Segment::DynamicIndex | Segment::SliceDynamicIndex))
+}
+
+/// A wildcard names possible storage, not an identity shared by independent
+/// index evaluations. A known consumed parent can still cover any child.
+#[cfg(test)]
+fn definite_place_covers(ancestor: &Place, descendant: &Place) -> bool {
+    !has_dynamic_projection(ancestor) && place_covers(ancestor, descendant)
 }
 
 fn release_operand_is_linear(body: &Body, value: NodeId, types: &LinearTypes) -> bool {
