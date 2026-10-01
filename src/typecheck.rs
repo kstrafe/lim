@@ -18117,6 +18117,76 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_scalar_external_boundary_has_no_parameter_referent_contract() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/extern_abs.lim");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let program = crate::parse_program_from_path(&source, &path).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        for name in ["abs", "main"] {
+            let summary = &summaries[&declarations.function_id(name).unwrap()];
+            assert!(summary.has_normal_return);
+            assert!(summary.effects.is_empty());
+            assert!(summary.reads.is_empty());
+            assert!(summary.unresolved_reads.is_empty());
+            assert!(summary.consumed_entry.is_empty());
+            assert!(summary.restored_from_consumed_entry.is_empty());
+        }
+    }
+
+    #[test]
+    fn staged_opaque_external_boundaries_remain_unresolved_at_call_site() {
+        for (parameters, return_type, caller_parameters, arguments) in [
+            (
+                "((pointer (#ptr u64)))",
+                "u64",
+                "((pointer (#ptr u64)))",
+                ": pointer pointer",
+            ),
+            ("()", "(#ptr-mut u64)", "()", ""),
+            (
+                "((value (#ref u64)))",
+                "u64",
+                "((value (#ref u64)))",
+                ": value value",
+            ),
+            (
+                "((value (#ref u64)))",
+                "(#ref u64)",
+                "((value (#ref u64)))",
+                ": value value",
+            ),
+        ] {
+            let call = format!("(#call opaque ({arguments}))");
+            let source = format!(
+                "(#extern-fn #abi-c opaque {parameters} {return_type})
+                 (#fn inspect {caller_parameters} {return_type}
+                   (#return (#unsafe {call})))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let error = declarations
+                .staged_contents_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert_eq!(function, "inspect");
+            assert!(
+                conflict.message.contains("unresolved call inputs"),
+                "{conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert_eq!(&source[span.start..span.end], call);
+        }
+    }
+
+    #[test]
     fn staged_ready_queue_updates_preserve_linear_owner() {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/ready_queue.lim");

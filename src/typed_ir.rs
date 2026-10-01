@@ -278,6 +278,30 @@ pub(crate) struct FunctionDeclaration {
 }
 
 #[cfg(test)]
+fn referent_free_abi_scalar(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Unit
+            | Type::Bool
+            | Type::Char
+            | Type::I8
+            | Type::I16
+            | Type::I32
+            | Type::I64
+            | Type::I128
+            | Type::Isize
+            | Type::U8
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::U128
+            | Type::Usize
+            | Type::F32
+            | Type::F64
+    )
+}
+
+#[cfg(test)]
 #[derive(Debug)]
 pub(crate) enum StagedReferentError {
     Dependency,
@@ -301,6 +325,8 @@ pub(crate) struct Declarations {
     pub globals: HashMap<String, Type>,
     functions: Vec<FunctionDeclaration>,
     function_ids: HashMap<String, FunctionId>,
+    #[cfg(test)]
+    external_function_ids: HashSet<FunctionId>,
     global_names: Vec<String>,
     global_ids: HashMap<String, GlobalId>,
     aggregate_names: Vec<String>,
@@ -593,6 +619,8 @@ impl Declarations {
             globals,
             functions,
             function_ids,
+            #[cfg(test)]
+            external_function_ids: HashSet::new(),
             global_names,
             global_ids,
             aggregate_names,
@@ -676,6 +704,19 @@ impl Declarations {
         statement_spans: &HashMap<StatementId, Span>,
         statement_ids: &HashMap<usize, StatementId>,
     ) -> Result<(), String> {
+        #[cfg(test)]
+        {
+            self.external_function_ids = program
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    crate::Item::Function(function) if function.external => {
+                        self.function_id(&function.name)
+                    }
+                    _ => None,
+                })
+                .collect();
+        }
         // This whole-program adapter is identical for every function. Building
         // it per body made lowering quadratic in the imported program size.
         let expression_spans_by_address = expression_ids
@@ -784,7 +825,7 @@ impl Declarations {
     }
 
     /// Staged ownership summaries over the complete acyclic body call graph.
-    /// Missing external bodies remain unresolved rather than implying no effect.
+    /// Opaque pointer/reference-bearing external bodies remain unresolved.
     #[cfg(test)]
     pub fn staged_referent_function_effects(
         &self,
@@ -866,6 +907,37 @@ impl Declarations {
             .map(|name| (self.function_id(name).unwrap(), name.clone()))
             .collect::<HashMap<_, _>>();
         let mut summaries = HashMap::new();
+        // This is a referent contract, not a purity claim about unsafe code.
+        // A scalar-only external ABI has no typed parameter referents to read,
+        // consume, restore, or return. Pointer/reference-bearing boundaries
+        // still need an explicit contract; an unavailable body proves nothing
+        // about their initialization or provenance.
+        for (name, id) in &self.function_ids {
+            let signature = &self.functions[id.0].signature;
+            if self.external_function_ids.contains(id)
+                && !self.bodies.contains_key(name)
+                && signature.type_parameters.is_empty()
+                && signature.parameters.iter().all(referent_free_abi_scalar)
+                && referent_free_abi_scalar(&signature.return_type)
+            {
+                summaries.insert(
+                    *id,
+                    crate::typed_flow::ReferentFunctionEffects {
+                        has_normal_return: true,
+                        effects: Vec::new(),
+                        unresolved: Vec::new(),
+                        reads: Vec::new(),
+                        unresolved_reads: Vec::new(),
+                        entry_reads: Vec::new(),
+                        consuming_accesses: Vec::new(),
+                        restored_from_consumed_entry: Vec::new(),
+                        consumed_entry: Vec::new(),
+                        effects_from_consumed_entry: Vec::new(),
+                        variant_exits: HashMap::new(),
+                    },
+                );
+            }
+        }
         while !pending.is_empty() {
             let previous = pending.len();
             let mut failure = None;
