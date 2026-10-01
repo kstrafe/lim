@@ -9792,6 +9792,12 @@ mod typed_ownership_tests {
             crate::typed_body::PlaceRoot::Local(owner)
         );
         assert!(effects[0].definitely_consumed);
+        let moves =
+            flow.referent_consumptions_with_calls(body, &types, &[(event, effects, unknown)]);
+        let after_call = flow.nodes[event.0].successors[0];
+        let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Local(owner));
+        assert!(moves.before(after_call, &place).is_some());
+        assert!(moves.definitely_consumed_before(after_call, &place));
     }
 
     #[test]

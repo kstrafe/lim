@@ -176,6 +176,12 @@ pub(crate) struct ReferentFunctionEffects {
     pub unresolved: Vec<FlowNodeId>,
 }
 
+struct CallConsumptionFacts {
+    possible: Vec<(Place, Vec<Option<Span>>)>,
+    definite: Vec<Place>,
+    unresolved: bool,
+}
+
 impl FlowConsumptions {
     #[cfg(test)]
     pub fn unresolved_nodes(&self) -> &HashSet<FlowNodeId> {
@@ -1219,11 +1225,52 @@ impl FlowGraph {
         (mapped, unknown)
     }
 
+    #[cfg(test)]
+    pub fn referent_consumptions_with_calls(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+    ) -> FlowConsumptions {
+        let calls = calls
+            .iter()
+            .map(|(event, effects, unresolved)| {
+                (
+                    *event,
+                    CallConsumptionFacts {
+                        possible: effects
+                            .iter()
+                            .map(|effect| (effect.place.clone(), effect.consumption_spans.clone()))
+                            .collect(),
+                        definite: effects
+                            .iter()
+                            .filter(|effect| effect.definitely_consumed)
+                            .map(|effect| effect.place.clone())
+                            .collect(),
+                        unresolved: *unresolved,
+                    },
+                )
+            })
+            .collect();
+        let origins = self.loan_origins(body);
+        self.consumptions_with_origins_and_calls(body, types, Some(&origins), Some(&calls))
+    }
+
     fn consumptions_with_origins(
         &self,
         body: &Body,
         types: &LinearTypes,
         origins: Option<&FlowLoanOrigins>,
+    ) -> FlowConsumptions {
+        self.consumptions_with_origins_and_calls(body, types, origins, None)
+    }
+
+    fn consumptions_with_origins_and_calls(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        origins: Option<&FlowLoanOrigins>,
+        calls: Option<&HashMap<FlowNodeId, CallConsumptionFacts>>,
     ) -> FlowConsumptions {
         let resolve = |id: FlowNodeId, place: &Place, value: NodeId| {
             let value = match &body.nodes[value.0].kind {
@@ -1557,6 +1604,22 @@ impl FlowGraph {
                 }
                 _ => {}
             }
+            if let Some(call) = calls.and_then(|calls| calls.get(&id)) {
+                for (place, spans) in &call.possible {
+                    let held = state.entry(place.clone()).or_default();
+                    for span in spans {
+                        if !held.contains(span) {
+                            held.push(*span);
+                        }
+                    }
+                }
+                if let Some(definite) = &mut definite_consumed_at {
+                    definite[id.0].extend(call.definite.iter().cloned());
+                }
+                if call.unresolved {
+                    unresolved.insert(id);
+                }
+            }
             if let [place] = targets_for(id) {
                 if !place.segments.contains(&Segment::DynamicIndex) {
                     state.retain(|moved, _| !place_covers(place, moved));
@@ -1620,6 +1683,12 @@ impl FlowGraph {
             // A write through one of several possible aliases can restore
             // any one target, so no overlapping definite-consumption proof
             // remains. May facts are killed only for a single known target.
+            if calls
+                .and_then(|calls| calls.get(&id))
+                .is_some_and(|call| call.unresolved)
+            {
+                state.clear();
+            }
             for place in targets_for(id) {
                 if origins.is_some() {
                     state.retain(|moved| !place.overlaps(moved));
