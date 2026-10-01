@@ -16620,6 +16620,50 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_return_tag_alias_tracing_stops_at_calls_and_unproved_cycles() {
+        for (initial, effects, known) in [
+            ("(#loop (#break (Full 1u64)))", "(#call touch ())", false),
+            (
+                "(#loop (#break (Full 1u64)))",
+                "(#while selected (#set saved saved))",
+                false,
+            ),
+            ("(Full 1u64)", "(#while selected (#set saved saved))", true),
+        ] {
+            let source = format!(
+                "(#enum Choice ((Full u64) Empty))
+              (#fn touch () () (#return ()))
+              (#fn choose ((selected bool)) Choice
+                (#let-mut saved Choice {initial})
+                {effects} (#return saved))
+              (#fn forward ((selected bool)) Choice
+                (#return (#call choose (: selected selected))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations
+                .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                    &program,
+                ))
+                .unwrap();
+            let expected = known.then(|| {
+                declarations
+                    .variant_id(&crate::Type::Named("Choice".into()), "Full")
+                    .unwrap()
+            });
+            assert_eq!(
+                declarations.bodies["forward"].call_return_variants
+                    [&declarations.function_id("choose").unwrap()]
+                    .get(&Vec::new())
+                    .copied(),
+                expected,
+                "{initial}: {effects}"
+            );
+        }
+    }
+
+    #[test]
     fn staged_callee_loop_returns_publish_common_discriminants() {
         for (expression, expected) in [
             ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (Has right)))))", Some("Has")),
@@ -16636,6 +16680,8 @@ mod typed_ownership_tests {
             (#return {expression}))
           (#fn forward ((left (#ref u64)) (right (#ref u64)) (selected bool)) Choice
             (#return (#call choose (: left left : right right : selected selected))))");
+        let stored = source.replace(&format!("(#return {expression})"), &format!("(#let saved Choice {expression}) (#let alias Choice saved) (#return alias)"));
+        for source in [source, stored] {
         let program = crate::parse_program(&source).unwrap();
         crate::check_types(&program).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -16653,6 +16699,7 @@ mod typed_ownership_tests {
                 .get(&Vec::new()).copied(),
             expected
         );
+        }
         }
     }
 

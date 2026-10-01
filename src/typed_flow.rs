@@ -1184,26 +1184,58 @@ impl FlowGraph {
             if states[index].is_none() {
                 continue;
             }
-            let mut pending = vec![(FlowNodeId(index), value)];
-            let mut seen = HashSet::new();
-            while let Some((event, value)) = pending.pop() {
+            let mut pending = vec![(FlowNodeId(index), value, Vec::new())];
+            while let Some((event, value, ancestors)) = pending.pop() {
                 let Some(state) = &states[event.0] else {
                     continue;
                 };
                 let mut alternatives = Vec::new();
                 collect_result_alternatives(body, value, &mut alternatives);
                 for alternative in alternatives {
-                    if !seen.insert((event, alternative)) {
+                    let key = (event, alternative);
+                    if ancestors.contains(&key) {
+                        // A recursive alias is unknown, not an alternative
+                        // that can be silently dropped from the intersection.
+                        returned = Some(HashMap::new());
                         continue;
                     }
+                    let mut next_ancestors = ancestors.clone();
+                    next_ancestors.push(key);
                     if matches!(body.nodes[alternative.0].kind, NodeKind::Loop(_)) {
                         let breaks = origins.reachable_loop_breaks(self, alternative);
                         if !breaks.is_empty() {
-                            pending.extend(breaks);
+                            pending.extend(
+                                breaks
+                                    .into_iter()
+                                    .map(|(event, value)| (event, value, next_ancestors.clone())),
+                            );
                             continue;
                         }
                     }
-                    let facts = value_variant_facts(body, alternative, state)
+                    let value_facts = value_variant_facts(body, alternative, state);
+                    if let NodeKind::Symbol {
+                        binding: Some(binding),
+                        ..
+                    } = body.nodes[alternative.0].kind
+                    {
+                        if value_facts.is_empty() {
+                            if let Some(definitions) = self.unchanged_local_definitions(
+                                body,
+                                origins,
+                                event,
+                                binding,
+                                alternative,
+                            ) {
+                                pending.extend(
+                                    definitions.into_iter().map(|(event, value)| {
+                                        (event, value, next_ancestors.clone())
+                                    }),
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    let facts = value_facts
                         .into_iter()
                         .map(|(place, variant)| (place.segments, variant))
                         .collect::<HashMap<_, _>>();
