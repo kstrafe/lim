@@ -55,11 +55,23 @@ to invalidate a live reference.
 
 `staged_callee_reference_store_retains_the_callers_rhs_loan` reproduces a
 production-accepted mutation and demonstrates its rejection with the test-only
-may-store solver. `staged_callee_store_into_outer_storage_cannot_hide_a_block_local_escape`
+staged store solver.
+`staged_callee_store_into_outer_storage_cannot_hide_a_block_local_escape`
 covers the scope escape and causal source span. Forwarded, conditional,
 computed, pinned, and field-wise stores have additional staged regressions.
-The experiment must not replace production checking until variant-conditioned
-clearing and restoration preserve valid async Ready/cancellation paths;
+The staged solver now intersects physical-write guarantees across normal
+returns and summarizes final contents rather than all intermediate writes.
+`staged_store_contracts_distinguish_all_return_paths_and_final_contents` checks
+sequential replacement, branches, loops, early returns, and forwarding;
+`staged_final_store_contents_account_for_overlapping_and_uncertain_writes`
+covers whole/field overlap and ambiguous/dynamic targets.
+`staged_callee_clearing_preserves_loans_in_the_returned_old_value` prevents
+post-write snapshots from releasing references returned from entry storage.
+These facts do not prove linear ownership restoration.
+
+The experiment must not replace production checking until
+return-variant-conditioned clearing and restoration preserve valid async
+Ready/cancellation paths;
 `staged_store_unions_do_not_claim_ready_path_self_reference_clearing` preserves
-those explicit integration failures. The audit is incomplete while this gap
-remains.
+the remaining explicit Ready-path integration failures. The audit is incomplete
+while this gap remains.

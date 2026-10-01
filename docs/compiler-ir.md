@@ -330,24 +330,33 @@ debugging view (not a stable interchange format).
 ### Reference-bearing writes across calls
 
 The test-only `staged_store_loan_origins` solver supplements return-origin
-summaries with references that a callee may store through an argument. It
+summaries with final reference contents a callee stores through an argument. It
 builds summaries bottom-up over the same acyclic call graph, substitutes
 actual argument loans (including original input slots and physical destination
 projections), and adds the retained references to caller-owned storage.
 Ordinary, pinned, field-wise, forwarded, conditional, and computed writes are
-covered. These are may facts: the solver preserves pre-call loans and does
-not infer definite initialization, consumption, or restoration from a write.
+covered. Stored contents are unioned across normal returns, while physical
+write guarantees are intersected. Sequential writes replace prior contents;
+whole-value and field effects account for overlapping storage. A destination
+written on every normal return can replace caller loan contents, but ambiguous
+or dynamic targets and missing input provenance cannot supply that permission.
+Conditional writes preserve pre-call loans. These reference-content facts do
+not prove linear initialization, consumption, or ownership restoration.
 Missing input loans do not become references merely because a type contains
 reference slots. `examples/callee_reference_store.lim` exercises a valid store
 and consumption of its holder before the referent is mutated.
+`examples/callee_reference_clear.lim` clears its holder explicitly in a callee
+before mutating the referent. Returned references selected from entry storage
+use the call's pre-write snapshot, so clearing the holder cannot release loans
+retained by a returned old value.
 
 This experiment is not enabled in production. It detects caller-side mutation
 and block-local escape cases currently missed by production return-only
 summaries. Conversely, possible stores alone cannot establish that Ready or
 cancellation cleared a self-reference: explicit regressions preserve the
 resulting migration failures for all three self-reference async examples.
-Variant-conditioned clearing, storage contents after parameter writes, and
-definite restoration must be integrated before replacing production checking.
+Return-variant-conditioned clearing, storage contents after parameter writes,
+and definite restoration must be integrated before replacing production checking.
 
 The instruction selector still uses AST-shaped inputs. Compiler-synthesized
 expressions and internal legacy generic specializations retain the old type

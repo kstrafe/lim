@@ -12390,11 +12390,184 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_final_store_sources_follow_callee_updates_to_local_storage() {
+        let source = "(#struct Holder (: view (#ref u64)))
+            (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
+              (#deref-set target (#struct-literal Holder (: view value))) (#return ()))
+            (#fn relay (: destination (#ref-mut Holder) : old (#ref u64) : new (#ref u64)) ()
+              (#let-mut temporary Holder (#struct-literal Holder (: view old)))
+              (#let local (#ref-mut Holder) (#borrow-mut temporary))
+              (#call replace (: target local : value new)) (#drop local)
+              (#deref-set destination temporary) (#forget temporary) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["relay"];
+        let stores = &body.call_store_origins[&declarations.function_id("relay").unwrap()];
+        assert_eq!(stores.len(), 1, "{stores:?}");
+        assert!(stores[0].definitely_written);
+        assert!(!stores[0].sources.is_empty());
+        assert!(
+            stores[0].sources.iter().all(|source| source.parameter == 2),
+            "{stores:?}"
+        );
+    }
+
+    #[test]
+    fn staged_definite_clear_releases_the_referent_before_holder_destruction() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/callee_reference_clear.lim");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let program = crate::parse_program_from_path(&source, &path).unwrap();
+        crate::check_types(&program).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        for (name, body) in &declarations.bodies {
+            let flow = &declarations.flows[name];
+            let cache = std::cell::OnceCell::from(flow.staged_store_loan_origins(body));
+            crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                .unwrap();
+            crate::typed_borrow::check_scope_escapes_cached(body, flow, &cache).unwrap();
+        }
+    }
+
+    #[test]
+    fn staged_store_contracts_distinguish_all_return_paths_and_final_contents() {
+        for (mode, definite, retained) in [
+            ("always-clear", true, false),
+            ("conditional-clear", false, false),
+            ("both-clear", true, false),
+            ("write-then-clear", true, false),
+            ("clear-then-write", true, true),
+            ("loop-clear", true, false),
+            ("zero-trip-clear", false, false),
+            ("early-return", false, false),
+            ("forwarded-clear", true, false),
+        ] {
+            let clear = "(#deref-set target (Empty))";
+            let write = "(#deref-set target (Full value))";
+            let body = match mode {
+                "always-clear" => clear.to_owned(),
+                "conditional-clear" => format!("(#if selected {clear} ())"),
+                "both-clear" => format!("(#if selected {clear} {clear})"),
+                "write-then-clear" => format!("{write} {clear}"),
+                "clear-then-write" => format!("{clear} {write}"),
+                "loop-clear" => format!("(#loop {clear} (#break))"),
+                "zero-trip-clear" => format!("(#while selected {clear})"),
+                "early-return" => format!("(#if selected (#block (#return ())) ()) {clear}"),
+                "forwarded-clear" => "(#call clear (: target target))".to_owned(),
+                _ => unreachable!(),
+            };
+            let source = format!(
+                "(#enum Choice ((Empty) (Full (#ref u64))))
+                (#fn clear (: target (#ref-mut Choice)) () {clear} (#return ()))
+                (#fn replace (: target (#ref-mut Choice) : value (#ref u64) : selected bool) ()
+                  {body} (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["replace"];
+            let callee = declarations.function_id("replace").unwrap();
+            let stores = &body.call_store_origins[&callee];
+            assert_eq!(stores.len(), 1, "{mode}: {stores:?}");
+            assert_eq!(stores[0].definitely_written, definite, "{mode}: {stores:?}");
+            assert_eq!(
+                !stores[0].sources.is_empty(),
+                retained,
+                "{mode}: {stores:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn staged_final_store_contents_account_for_overlapping_and_uncertain_writes() {
+        for mode in [
+            "field-then-whole",
+            "whole-then-field",
+            "conditional-field",
+            "ambiguous-field",
+            "dynamic-index",
+        ] {
+            let whole =
+                "(#deref-set target (#struct-literal Pair (: left (Empty) : right (Empty))))";
+            let field = "(#deref-set (#borrow-mut (#get target left)) (Full value))";
+            let (target, body) = match mode {
+                "field-then-whole" => ("Pair", format!("{field} {whole}")),
+                "whole-then-field" => ("Pair", format!("{whole} {field}")),
+                "conditional-field" => ("Pair", format!("{whole} (#if selected {field} ())")),
+                "ambiguous-field" => ("Pair", "(#deref-set (#if selected (#borrow-mut (#get target left)) (#borrow-mut (#get target right))) (Full value))".to_owned()),
+                "dynamic-index" => ("(#array Choice 2)", "(#deref-set (#borrow-mut (#index target index)) (Full value))".to_owned()),
+                _ => unreachable!(),
+            };
+            let source = format!("(#enum Choice ((Empty) (Full (#ref u64))))
+                (#struct Pair (: left Choice : right Choice))
+                (#fn replace (: target (#ref-mut {target}) : value (#ref u64) : selected bool : index usize) ()
+                  {body} (#return ()))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["replace"];
+            let stores = &body.call_store_origins[&declarations.function_id("replace").unwrap()];
+            assert!(!stores.is_empty(), "{mode}");
+            if matches!(mode, "ambiguous-field" | "dynamic-index") {
+                assert!(
+                    stores.iter().all(|store| !store.definitely_written),
+                    "{mode}: {stores:?}"
+                );
+            } else {
+                assert!(
+                    stores.iter().all(|store| store.definitely_written),
+                    "{mode}: {stores:?}"
+                );
+                assert_eq!(
+                    stores.iter().any(|store| !store.sources.is_empty()),
+                    mode != "field-then-whole",
+                    "{mode}: {stores:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_callee_clearing_preserves_loans_in_the_returned_old_value() {
+        for premature in [false, true] {
+            let mutation = if premature { "(#set value 1u64)" } else { "" };
+            let source = format!(
+                "(#enum Choice ((Empty) (Full (#ref u64))))
+                (#fn take (: target (#ref-mut Choice)) Choice
+                  (#let previous Choice (#deref target))
+                  (#deref-set target (Empty)) (#return previous))
+                (#fn main () u64
+                  (#let-mut value u64 42u64)
+                  (#let-mut holder Choice (Full (#borrow value)))
+                  (#let target (#ref-mut Choice) (#borrow-mut holder))
+                  (#let previous Choice (#call take (: target target)))
+                  (#drop target) {mutation}
+                  (#let result u64 (#match previous
+                    (#case (Empty) 0u64) (#case (Full view) (#deref view))))
+                  (#forget previous) (#forget holder)
+                  (#set value 1u64) (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let cache = std::cell::OnceCell::from(flow.staged_store_loan_origins(body));
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if premature {
+                assert!(result.unwrap_err().message.contains("value"));
+            } else {
+                result.unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn staged_store_unions_do_not_claim_ready_path_self_reference_clearing() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         for (name, owner) in [
             ("async_fn_local_self_reference", "frame"),
-            ("async_fn_self_reference", "cancelled"),
+            ("async_fn_self_reference", "frame"),
             ("async_fn_enum_self_reference", "frame"),
         ] {
             let path = root.join("examples").join(format!("{name}.lim"));
@@ -12535,6 +12708,10 @@ mod typed_ownership_tests {
             stores.iter().all(|store| store.incoming.is_empty()),
             "{stores:?}"
         );
+        assert!(
+            stores.iter().all(|store| !store.definitely_written),
+            "missing input loans cannot clear storage: {stores:?}"
+        );
         declarations
             .bodies
             .get_mut("relay")
@@ -12650,11 +12827,12 @@ mod typed_ownership_tests {
                 "{mode}: {retained:?}"
             );
             assert!(retained.iter().filter(|origin| origin.place.root == crate::typed_body::PlaceRoot::Local(value)).all(|origin| origin.storage.len() == 1), "{mode}: {retained:?}");
-            // A may-store is not permission to discard the pre-call loan.
-            assert!(
+            // Only an every-normal-return write removes the pre-call loan.
+            assert_eq!(
                 retained
                     .iter()
                     .any(|origin| origin.place.root == crate::typed_body::PlaceRoot::Local(old)),
+                mode == "conditional" || mode == "conditional-argument",
                 "{mode}: {retained:?}"
             );
             let cache = std::cell::OnceCell::from(facts);

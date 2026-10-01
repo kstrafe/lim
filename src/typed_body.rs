@@ -1064,13 +1064,14 @@ pub(crate) struct ParameterLoanSeed {
     pub storage: Vec<crate::typed_place::Segment>,
 }
 
-/// References that may be retained by a write through an argument. This is
-/// not a must-initialization or ownership-restoration contract.
+/// Reference contents after normal returns, plus whether every such path
+/// writes this physical destination. This is not an ownership contract.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg(test)]
 pub(crate) struct ParameterStoreSummary {
     pub destination: ParameterLoanSummary,
     pub sources: Vec<ParameterLoanSummary>,
+    pub definitely_written: bool,
 }
 
 #[derive(Clone, Debug)]

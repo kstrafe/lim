@@ -1236,27 +1236,9 @@ impl Declarations {
             let origins = flow.loan_origins(body);
             let mut returned = Vec::new();
             #[cfg(test)]
-            let mut stores = Vec::new();
+            let stores =
+                flow.parameter_store_summaries(body, &flow.staged_store_loan_origins(body));
             for (index, node) in flow.nodes.iter().enumerate() {
-                #[cfg(test)]
-                for store in origins.stores_before(body, flow, crate::typed_flow::FlowNodeId(index))
-                {
-                    let Some(destination) = store.destination.parameter_summary() else {
-                        continue;
-                    };
-                    let sources = store
-                        .incoming
-                        .iter()
-                        .filter_map(|origin| origin.parameter_summary())
-                        .collect();
-                    let store = crate::typed_body::ParameterStoreSummary {
-                        destination,
-                        sources,
-                    };
-                    if !stores.contains(&store) {
-                        stores.push(store);
-                    }
-                }
                 let crate::typed_flow::FlowAction::Return(Some(value)) = &node.action else {
                     continue;
                 };

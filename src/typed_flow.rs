@@ -229,6 +229,7 @@ pub(crate) struct FlowLoanOrigins {
 pub(crate) struct LoanStore {
     pub destination: LoanOrigin,
     pub incoming: Vec<LoanOrigin>,
+    pub definitely_written: bool,
 }
 
 /// May-consumed places after explicit `#drop`/`#forget`. This does not yet
@@ -475,16 +476,19 @@ impl FlowLoanOrigins {
             _ => return Vec::new(),
         };
         let incoming = self.value_before(body, flow, event, source);
-        self.value_before(body, flow, event, children[1])
+        let mut destinations = self.value_before(body, flow, event, children[1]);
+        for destination in &mut destinations {
+            if let Some(field) = field {
+                destination.place.segments.push(Segment::Field(field));
+            }
+        }
+        let definitely_written = one_concrete_store_destination(&destinations);
+        destinations
             .into_iter()
-            .map(|mut destination| {
-                if let Some(field) = field {
-                    destination.place.segments.push(Segment::Field(field));
-                }
-                LoanStore {
-                    destination,
-                    incoming: incoming.clone(),
-                }
+            .map(|destination| LoanStore {
+                destination,
+                incoming: incoming.clone(),
+                definitely_written,
             })
             .collect()
     }
@@ -1031,6 +1035,158 @@ impl FlowGraph {
         self.solve_loan_origins(body, true)
     }
 
+    /// Final reference contents on normal returns. Missing paths retain the
+    /// caller's entry contents; every-path writes may replace those contents.
+    #[cfg(test)]
+    pub fn parameter_store_summaries(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> Vec<crate::typed_body::ParameterStoreSummary> {
+        use crate::typed_body::ParameterStoreSummary;
+        let events = (0..self.nodes.len())
+            .map(|index| origins.stores_before(body, self, FlowNodeId(index)))
+            .collect::<Vec<_>>();
+        let mut destinations = Vec::new();
+        for store in events.iter().flatten() {
+            let Some(summary) = store.destination.parameter_summary() else {
+                continue;
+            };
+            let place = store.destination.referent_place();
+            if !destinations.iter().any(|(known, _)| *known == place) {
+                destinations.push((place, summary));
+            }
+        }
+        if destinations.is_empty() {
+            return Vec::new();
+        }
+        type Contents = Vec<ParameterStoreSummary>;
+        let empty = destinations
+            .iter()
+            .map(|(_, destination)| ParameterStoreSummary {
+                destination: destination.clone(),
+                sources: Vec::new(),
+                definitely_written: false,
+            })
+            .collect::<Contents>();
+        let merge = |held: &mut Contents, incoming: &Contents| {
+            let mut changed = false;
+            for (held, incoming) in held.iter_mut().zip(incoming) {
+                if held.definitely_written && !incoming.definitely_written {
+                    held.definitely_written = false;
+                    changed = true;
+                }
+                for source in &incoming.sources {
+                    if !held.sources.contains(source) {
+                        held.sources.push(source.clone());
+                        changed = true;
+                    }
+                }
+            }
+            changed
+        };
+        let mut before = vec![None; self.nodes.len()];
+        before[self.entry.0] = Some(empty);
+        let mut queued = vec![false; self.nodes.len()];
+        queued[self.entry.0] = true;
+        let mut pending = VecDeque::from([self.entry]);
+        while let Some(event) = pending.pop_front() {
+            queued[event.0] = false;
+            let mut state = before[event.0].as_ref().unwrap().clone();
+            for store in &events[event.0] {
+                let place = store.destination.referent_place();
+                let incoming = store
+                    .incoming
+                    .iter()
+                    .filter_map(LoanOrigin::parameter_summary)
+                    .collect::<Vec<_>>();
+                for ((candidate, _), held) in destinations.iter().zip(&mut state) {
+                    if !place.overlaps(candidate) {
+                        continue;
+                    }
+                    if candidate.segments.len() >= place.segments.len() {
+                        let relative = &candidate.segments[place.segments.len()..];
+                        let selected = incoming
+                            .iter()
+                            .filter_map(|source| {
+                                if source.storage.len() < relative.len()
+                                    || !relative.iter().zip(&source.storage).all(
+                                        |(wanted, actual)| storage_slot_matches(wanted, actual),
+                                    )
+                                {
+                                    return None;
+                                }
+                                let mut source = source.clone();
+                                source.storage.drain(..relative.len());
+                                let count = relative.len().min(source.storage_inputs.len());
+                                source.storage_inputs.drain(..count);
+                                Some(source)
+                            })
+                            .collect::<Vec<_>>();
+                        if store.definitely_written {
+                            held.sources.clear();
+                            held.definitely_written = true;
+                        }
+                        for source in selected {
+                            if !held.sources.contains(&source) {
+                                held.sources.push(source);
+                            }
+                        }
+                    } else {
+                        let relative = &place.segments[candidate.segments.len()..];
+                        if store.definitely_written {
+                            held.sources
+                                .retain(|source| !source.storage.starts_with(relative));
+                        }
+                        for source in &incoming {
+                            let mut source = source.clone();
+                            let mut storage = relative.to_vec();
+                            storage.append(&mut source.storage);
+                            source.storage = storage;
+                            let mut inputs = vec![None; relative.len()];
+                            inputs.append(&mut source.storage_inputs);
+                            source.storage_inputs = inputs;
+                            if !held.sources.contains(&source) {
+                                held.sources.push(source);
+                            }
+                        }
+                    }
+                }
+            }
+            for successor in &self.nodes[event.0].successors {
+                let changed = match &mut before[successor.0] {
+                    Some(held) => merge(held, &state),
+                    slot @ None => {
+                        *slot = Some(state.clone());
+                        true
+                    }
+                };
+                if changed && !queued[successor.0] {
+                    queued[successor.0] = true;
+                    pending.push_back(*successor);
+                }
+            }
+        }
+        let mut returned = None;
+        for (index, node) in self.nodes.iter().enumerate() {
+            if !matches!(node.action, FlowAction::Return(_)) {
+                continue;
+            }
+            let Some(state) = &before[index] else {
+                continue;
+            };
+            match &mut returned {
+                Some(held) => {
+                    merge(held, state);
+                }
+                slot @ None => {
+                    *slot = Some(state.clone());
+                }
+            }
+        }
+        returned.unwrap_or_default()
+    }
+
     fn solve_loan_origins(
         &self,
         body: &Body,
@@ -1328,13 +1484,19 @@ impl FlowGraph {
                             continue;
                         }
                         if let PlaceRoot::Local(binding) = store.destination.place.root {
-                            // Callee writes are may effects, not evidence that
-                            // old storage has been replaced on every path.
-                            extend_projected_origins(
-                                &mut state[binding.0],
-                                &store.destination.place.segments,
-                                store.incoming,
-                            );
+                            if store.definitely_written {
+                                replace_projected_origins(
+                                    &mut state[binding.0],
+                                    &store.destination.place.segments,
+                                    store.incoming,
+                                );
+                            } else {
+                                extend_projected_origins(
+                                    &mut state[binding.0],
+                                    &store.destination.place.segments,
+                                    store.incoming,
+                                );
+                            }
                         }
                     }
                 }
@@ -5562,17 +5724,45 @@ fn call_loan_stores(
     let mut result = Vec::new();
     for store in stores {
         let mut incoming = Vec::new();
+        let mut complete = true;
         for source in &store.sources {
-            merge_loan_origins(&mut incoming, &substitute(source));
+            let selected = substitute(source);
+            complete &= !selected.is_empty();
+            merge_loan_origins(&mut incoming, &selected);
         }
-        for destination in substitute(&store.destination) {
+        let destinations = substitute(&store.destination);
+        let definitely_written =
+            store.definitely_written && complete && one_concrete_store_destination(&destinations);
+        for destination in destinations {
             result.push(LoanStore {
                 destination,
                 incoming: incoming.clone(),
+                definitely_written,
             });
         }
     }
+    // Apply whole-storage effects before refinements of their fields.
+    result.sort_by_key(|store| store.destination.referent_place().segments.len());
     result
+}
+
+#[cfg(test)]
+fn one_concrete_store_destination(destinations: &[LoanOrigin]) -> bool {
+    let Some(first) = destinations.first() else {
+        return false;
+    };
+    let place = first.referent_place();
+    destinations.iter().all(|destination| {
+        !destination.lifetime_only
+            && destination.mutable
+            && destination.storage.is_empty()
+            && destination.referent_place() == place
+    }) && !place.segments.iter().any(|segment| {
+        matches!(
+            segment,
+            Segment::DynamicIndex | Segment::SliceDynamicIndex | Segment::SliceHalf(_)
+        )
+    })
 }
 
 #[cfg(test)]
@@ -6451,6 +6641,26 @@ fn value_loan_origins_at_events(
             );
         }
         if let Some(callee) = callee {
+            #[cfg(test)]
+            let state = if body
+                .call_store_origins
+                .get(callee)
+                .is_some_and(|stores| stores.iter().any(|store| store.definitely_written))
+            {
+                // Return summaries selecting entry storage must not observe
+                // the caller's state after this call has already cleared it.
+                flow.nodes
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, node)| {
+                        matches!(node.action, FlowAction::Evaluate(id) if id == value)
+                            .then(|| before[index].as_ref())
+                            .flatten()
+                    })
+                    .unwrap_or(state)
+            } else {
+                state
+            };
             if let Some(summary) = body.call_return_origins.get(callee) {
                 let mut result = Vec::new();
                 for source in summary {
