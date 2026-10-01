@@ -7797,6 +7797,66 @@ fn async_for_effect_step_awaits_with_a_synchronous_condition() {
 }
 
 #[test]
+fn async_for_effect_step_consumes_linear_operands_and_results() {
+    let source = include_str!("../examples/async_for_effect_step.lim");
+    let source = format!(
+        "(#struct Resource ((value u64)))\n(#linear Resource)\n{}",
+        source
+            .replace(
+                "((Start u64) (Resume u64))",
+                "((Start Resource) (Resume Resource))"
+            )
+            .replace("(StepReady u64)", "(StepReady Resource)")
+            .replace("(: next u64 : counter", "(: next Resource : counter")
+            .replace(
+                "(#deref-set counter next)",
+                "(#deref-set counter (#get next value))\n  (#forget next)"
+            )
+            .replace("(#await u64 StepTask", "(#await Resource StepTask")
+            .replace(
+                "(Start (#u64.+.wrap index 1u64))",
+                "(Start (#struct-literal Resource ((value (#u64.+.wrap index 1u64)))))"
+            )
+    );
+    build_and_run(&source, 42);
+
+    // Cancel after the child owns a Resource; explicitly consume that state.
+    let continuation = source.find("(#let second Poll").unwrap();
+    let cancelled = format!(
+        "{} (#forget first-task) (#return 42u64))",
+        &source[..continuation]
+    );
+    build_and_run(&cancelled, 42);
+
+    let missing_cleanup = source.replace("(#forget next)", "()");
+    let scratch = support::Scratch::new("async-effect-step-linear-cleanup");
+    let error = lim::compile_source_to_assembly(
+        &missing_cleanup,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("next"), "{error:?}");
+    assert!(error.message.contains("consum"), "{error:?}");
+    assert!(error.span.is_some(), "{error:?}");
+
+    let missing_cancellation = cancelled.replace("(#forget first-task)", "()");
+    let error = lim::compile_source_to_assembly(
+        &missing_cancellation,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cancel-cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(error.message.contains("first-task"), "{error:?}");
+    assert!(error.message.contains("consum"), "{error:?}");
+    assert!(error.span.is_some(), "{error:?}");
+}
+
+#[test]
 fn async_for_effect_step_keeps_external_loans_until_ready_or_cancel() {
     let definitions = include_str!("../examples/async_for_effect_step.lim")
         .split("(@async-fn")
