@@ -1781,14 +1781,7 @@ impl FlowGraph {
                                         incomplete = true;
                                         continue;
                                     }
-                                    let mut place = origin.place.clone();
-                                    if matches!(place.root, PlaceRoot::Parameter(_)) {
-                                        if let Some(storage) = origin.parameter_storage {
-                                            let mut path = storage;
-                                            path.append(&mut place.segments);
-                                            place.segments = path;
-                                        }
-                                    }
+                                    let mut place = origin.referent_place();
                                     place
                                         .segments
                                         .extend(effect.referent_projection.iter().cloned());
@@ -2328,13 +2321,7 @@ impl FlowGraph {
                         } else {
                             let mut places = Vec::new();
                             for loan in loans {
-                                let mut place = loan.place;
-                                if matches!(place.root, PlaceRoot::Parameter(_)) {
-                                    if let Some(mut prefix) = loan.parameter_storage {
-                                        prefix.append(&mut place.segments);
-                                        place.segments = prefix;
-                                    }
-                                }
+                                let place = loan.referent_place();
                                 if !places.contains(&place) {
                                     places.push(place);
                                 }
@@ -3463,13 +3450,7 @@ impl FlowGraph {
                 if origin.lifetime_only {
                     continue;
                 }
-                let mut place = origin.place;
-                if matches!(place.root, PlaceRoot::Parameter(_)) {
-                    if let Some(mut slot) = origin.parameter_storage {
-                        slot.append(&mut place.segments);
-                        place.segments = slot;
-                    }
-                }
+                let place = origin.referent_place();
                 let conflicts = state
                     .iter()
                     .filter(|(consumed, _)| consumed.overlaps(&place))
@@ -3678,14 +3659,7 @@ impl FlowGraph {
                         "cannot prove permission to replace this linear referent",
                     ));
                 }
-                let mut destination = target.place.clone();
-                if matches!(destination.root, PlaceRoot::Parameter(_)) {
-                    if let Some(slot) = &target.parameter_storage {
-                        let mut prefix = slot.clone();
-                        prefix.append(&mut destination.segments);
-                        destination.segments = prefix;
-                    }
-                }
+                let destination = target.referent_place();
                 for path in &paths {
                     let Some(projection) =
                         linear_obligation_place(declarations, BindingId(0), ty, path)
@@ -5135,13 +5109,7 @@ fn dereferenced_value_places(
     }
     let mut places = Vec::new();
     for loan in loans {
-        let mut place = loan.place;
-        if matches!(place.root, PlaceRoot::Parameter(_)) {
-            if let Some(mut slot) = loan.parameter_storage {
-                slot.append(&mut place.segments);
-                place.segments = slot;
-            }
-        }
+        let place = loan.referent_place();
         if !places.contains(&place) {
             places.push(place);
         }
@@ -7184,6 +7152,26 @@ mod tests {
             lifetime_only: false,
         };
         let state = vec![vec![held]];
+        let mut wrapped = state[0][0].clone();
+        let input_identity = wrapped.referent_place();
+        wrapped.prepend_storage(&[Segment::Tuple(7)]);
+        assert_eq!(
+            wrapped.referent_place(),
+            input_identity,
+            "constructor output slots must not alter original pointee identity"
+        );
+        wrapped.place.segments.push(Segment::Index(4));
+        assert_eq!(
+            wrapped.referent_place().segments,
+            vec![Segment::DynamicIndex, Segment::Index(4)],
+            "input identity precedes physical referent projections"
+        );
+        wrapped.place.root = PlaceRoot::Local(BindingId(0));
+        assert_eq!(
+            wrapped.referent_place().segments,
+            vec![Segment::Index(4)],
+            "parameter metadata cannot prefix an actual local storage root"
+        );
         let loaded = loaded_local_value_origins(vec![address.clone()], &state);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].place.root, PlaceRoot::Parameter(BindingId(0)));
