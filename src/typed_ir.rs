@@ -801,7 +801,29 @@ impl Declarations {
                 }) {
                     return true;
                 }
-                let flow = &self.flows[name];
+                // A callee with no normal return terminates this path. Keep
+                // original event IDs/spans while excluding its continuation
+                // from loan snapshots, ownership facts, and exit summaries.
+                let mut flow = self.flows[name].clone();
+                for node in &mut flow.nodes {
+                    let FlowAction::Evaluate(value) = node.action else {
+                        continue;
+                    };
+                    let NodeKind::Form {
+                        callee: Some(callee),
+                        ..
+                    } = &body.nodes[value.0].kind
+                    else {
+                        continue;
+                    };
+                    if summaries.get(callee).is_some_and(
+                        |summary: &crate::typed_flow::ReferentFunctionEffects| {
+                            !summary.has_normal_return
+                        },
+                    ) {
+                        node.successors.clear();
+                    }
+                }
                 let mut calls = Vec::new();
                 for (index, node) in flow.nodes.iter().enumerate() {
                     let FlowAction::Evaluate(value) = node.action else {

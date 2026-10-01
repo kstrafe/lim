@@ -10130,6 +10130,39 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_ownership_summaries_cut_nonreturning_call_continuations() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn diverge () () (#unreachable) (#return ()))
+          (#fn caller ((value (#ref-mut Resource))) ()
+            (#call diverge ())
+            (#deref-set value (#struct-literal Resource ((number 2u64))))
+            (#return ()))
+          (#fn wrapper ((value (#ref-mut Resource))) ()
+            (#call caller (: value value)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        for name in ["diverge", "caller", "wrapper"] {
+            let summary = &summaries[&declarations.function_id(name).unwrap()];
+            assert!(!summary.has_normal_return, "{name}");
+            assert!(summary.effects.is_empty());
+            assert!(summary.unresolved.is_empty());
+        }
+        assert!(declarations
+            .staged_validate_referent_replacements(&types)
+            .is_ok());
+        assert!(
+            declarations.flows["caller"]
+                .check_referent_replacements(&declarations.bodies["caller"], &types, &declarations,)
+                .is_err(),
+            "the original graph must remain unchanged"
+        );
+    }
+
+    #[test]
     fn staged_whole_program_replacement_preserves_ambiguous_call_targets() {
         for (consumption, accepted) in [
             ("(#let target (#ref-mut Resource) (#if choice (#borrow-mut left) (#borrow-mut right))) (#call consume (: value target))", false),
