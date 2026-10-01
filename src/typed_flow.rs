@@ -1819,23 +1819,32 @@ impl FlowGraph {
         origins: Option<&FlowLoanOrigins>,
     ) -> Result<(), ReleaseConflict> {
         for (index, node) in self.nodes.iter().enumerate() {
-            let place = match &node.action {
+            let (place, value) = match &node.action {
                 FlowAction::Read {
                     place,
+                    value,
                     place_base: false,
-                    ..
                 }
-                | FlowAction::Release { place, .. }
-                | FlowAction::Clone { place, .. }
-                | FlowAction::Borrow { place, .. } => place,
+                | FlowAction::Release { place, value }
+                | FlowAction::Clone { place, value }
+                | FlowAction::Borrow { place, value, .. } => (place, *value),
                 _ => continue,
             };
             let Some(state) = moves.before[index].as_ref() else {
                 continue;
             };
+            let value = match &body.nodes[value.0].kind {
+                NodeKind::Form { head, children, .. }
+                    if matches!(head.as_str(), "forget" | "drop") && children.len() == 2 =>
+                {
+                    children[1]
+                }
+                _ => value,
+            };
             let resolved = match (origins, &place.root) {
                 (Some(origins), PlaceRoot::Local(binding))
-                    if place.segments.contains(&Segment::Dereference)
+                    if (place.segments.contains(&Segment::Dereference)
+                        || reads_through_reference(body, value))
                         && !origins
                             .before(FlowNodeId(index), *binding)
                             .iter()

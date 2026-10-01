@@ -10143,6 +10143,32 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_reference_field_read_detects_consumed_owner() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn inspect ((value (#ref-mut Resource))) ()
+            (#let alias (#ref-mut Resource) value)
+            (#forget (#deref value))
+            (#let number u64 (#get alias number)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_validate_referent_uses_and_replacements(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("expected use conflict")
+        };
+        assert_eq!(function, "inspect");
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#get alias number)");
+        let origin = conflict.labels[0].0;
+        assert_eq!(
+            &source[origin.start..origin.end],
+            "(#forget (#deref value))"
+        );
+    }
+
+    #[test]
     fn staged_callee_consumption_rejects_reference_alias_reuse() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) ()
