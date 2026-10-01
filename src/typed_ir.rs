@@ -896,8 +896,16 @@ impl Declarations {
                     }
                 }
                 if validate_uses {
-                    if let Err(conflict) =
-                        flow.check_owner_consumptions_with_calls(body, types, &calls)
+                    if let Err(conflict) = flow
+                        .check_owner_consumptions_with_calls(body, types, &calls)
+                        .and_then(|_| {
+                            flow.check_referent_call_entry_reads(
+                                body,
+                                types,
+                                &calls,
+                                &call_entry_reads,
+                            )
+                        })
                     {
                         failure = Some(StagedReferentError::Use {
                             function: name.clone(),

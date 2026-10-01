@@ -1992,6 +1992,44 @@ impl FlowGraph {
 
     /// Staged owner and known reference-projection checks after call effects.
     #[cfg(test)]
+    pub fn check_referent_call_entry_reads(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        reads: &[ReferentRead],
+    ) -> Result<(), ReleaseConflict> {
+        let moves = self.referent_consumptions_with_calls(body, types, calls);
+        for read in reads {
+            let Some(state) = moves.before[read.event.0].as_ref() else {
+                continue;
+            };
+            let previous = state
+                .iter()
+                .filter(|(place, _)| place.overlaps(&read.place))
+                .flat_map(|(_, spans)| spans)
+                .flatten()
+                .min_by_key(|span| (span.source_id, span.start));
+            if let Some(previous) = previous {
+                let mut labels = vec![(*previous, "referent was consumed here".into())];
+                if let Some(span) = read.span {
+                    labels.push((
+                        span,
+                        "callee requires initialized storage for this read".into(),
+                    ));
+                }
+                return Err(ReleaseConflict {
+                    message: "call reads a linear referent that may already be consumed".into(),
+                    span: self.nodes[read.event.0].span,
+                    labels,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Staged owner and known reference-projection checks after call effects.
+    #[cfg(test)]
     pub fn check_owner_consumptions_with_calls(
         &self,
         body: &Body,
