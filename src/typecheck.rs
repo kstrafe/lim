@@ -18117,6 +18117,164 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_thread_call_results_preserve_capture_and_retry_origins() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/thread_spawn.lim");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let program = crate::parse_program_from_path(&source, &path).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        use crate::typed_body::{BindingId, NodeKind, PlaceRoot};
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        use crate::typed_place::Segment;
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let shared = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "shared")
+                .unwrap(),
+        );
+        let owner = declarations
+            .aggregate_id(&Type::Named("ReadValueTask".into()))
+            .unwrap();
+        let mut calls = Vec::new();
+        for (operation, variant_name, expected_storage) in [
+            (
+                "spawn",
+                "ReadValueTask-spawn-ok",
+                vec![Segment::ThreadCapture(owner, 0)],
+            ),
+            (
+                "join",
+                "ReadValueTask-join-error",
+                vec![Segment::Tuple(0), Segment::ThreadCapture(owner, 0)],
+            ),
+        ] {
+            let id = declarations
+                .function_id(&format!("ReadValueTask-{operation}"))
+                .unwrap();
+            let variant = declarations
+                .variant_id(
+                    &Type::Named(format!("ReadValueTask-{operation}-result")),
+                    variant_name,
+                )
+                .unwrap();
+            let (event, value) = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+                let FlowAction::Evaluate(value) = node.action else { return None };
+                matches!(&body.nodes[value.0].kind, NodeKind::Form { callee: Some(callee), .. } if *callee == id)
+                    .then_some((FlowNodeId(index), value))
+            }).unwrap();
+            let origins = flow.loan_origins(body);
+            let loans = origins.value_before(body, flow, event, value);
+            assert_eq!(loans.len(), 1, "{operation}: {loans:?}");
+            assert_eq!(loans[0].place.root, PlaceRoot::Local(shared));
+            assert!(loans[0].place.segments.is_empty());
+            assert!(!loans[0].mutable && !loans[0].pinned && !loans[0].lifetime_only);
+            let mut storage = vec![Segment::Payload(variant, 0)];
+            storage.extend(expected_storage);
+            assert_eq!(loans[0].storage, storage);
+            let alternatives = &body.call_return_variant_bounds[&id][&Vec::new()];
+            assert_eq!(alternatives.len(), 2);
+            assert!(alternatives.contains(&variant));
+            calls.push((id, event, value));
+        }
+        let origins = flow.loan_origins(body);
+        for name in ["task", "retry-task"] {
+            let binding = BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == name)
+                    .unwrap(),
+            );
+            assert!(
+                flow.nodes.iter().enumerate().any(|(index, node)| {
+                    if !matches!(node.action, FlowAction::Pattern { .. }) {
+                        return false;
+                    }
+                    let loans = origins.after(FlowNodeId(index), binding);
+                    loans.len() == 1
+                        && loans[0].place.root == PlaceRoot::Local(shared)
+                        && loans[0].storage == vec![Segment::ThreadCapture(owner, 0)]
+                }),
+                "{name} must retain the real capture after destructuring"
+            );
+        }
+        declarations.bodies.remove("read-value");
+        declarations.flows.remove("read-value");
+        declarations.staged_parameter_contents_summaries();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let origins = flow.loan_origins(body);
+        for (id, event, value) in calls {
+            assert!(!body.call_return_origins.contains_key(&id));
+            assert!(!body.call_return_variant_bounds.contains_key(&id));
+            assert!(origins.value_before(body, flow, event, value).is_empty());
+        }
+    }
+
+    #[test]
+    fn staged_thread_array_captures_specialize_actual_storage_slots() {
+        let source = "(#fn worker ((values (#array (#ref u64) 2))) u64
+            (#let result u64 (#u64.+.wrap (#deref (#index values 0usize)) (#deref (#index values 1usize))))
+            (#forget values) (#return result))
+          (@thread-spawn (: task Task : worker worker))
+          (#fn main () u64
+            (#let left u64 20u64) (#let right u64 22u64)
+            (#let values (#array (#ref u64) 2)
+              (#array-of (#array (#ref u64) 2) (#borrow left) (#borrow right)))
+            (#return (#match (#call Task-spawn (: values values))
+              (#case (Task-spawn-ok task)
+                (#match (#call Task-join (: task task))
+                  (#case (Task-join-ok result) result)
+                  (#case (Task-join-error (#tuple retry error)) (#panic))))
+              (#case (Task-spawn-error error) (#panic)))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        use crate::typed_body::{NodeKind, PlaceRoot};
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        use crate::typed_place::Segment;
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let owner = declarations
+            .aggregate_id(&Type::Named("Task".into()))
+            .unwrap();
+        let origins = flow.loan_origins(body);
+        for operation in ["spawn", "join"] {
+            let id = declarations
+                .function_id(&format!("Task-{operation}"))
+                .unwrap();
+            let (event, value) = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+                let FlowAction::Evaluate(value) = node.action else { return None };
+                matches!(&body.nodes[value.0].kind, NodeKind::Form { callee: Some(callee), .. } if *callee == id)
+                    .then_some((FlowNodeId(index), value))
+            }).unwrap();
+            let loans = origins.value_before(body, flow, event, value);
+            assert_eq!(loans.len(), 2, "{operation}: {loans:?}");
+            for (index, name) in ["left", "right"].into_iter().enumerate() {
+                let binding = crate::typed_body::BindingId(
+                    body.bindings
+                        .iter()
+                        .position(|binding| binding.name == name)
+                        .unwrap(),
+                );
+                let loan = loans
+                    .iter()
+                    .find(|loan| loan.place.root == PlaceRoot::Local(binding))
+                    .unwrap();
+                assert!(loan.storage.ends_with(&[
+                    Segment::ThreadCapture(owner, 0),
+                    Segment::Index(index as u128)
+                ]));
+                assert!(!loan.mutable && !loan.pinned && !loan.lifetime_only);
+            }
+        }
+    }
+
+    #[test]
     fn staged_thread_capture_schemas_preserve_slots_without_runtime_fields() {
         let source = "(#struct Bundle ((shared (#ref u64)) (exclusive (#ref-mut u64))))
           (#fn worker ((shared (#ref u64)) (exclusive (#ref-mut u64))

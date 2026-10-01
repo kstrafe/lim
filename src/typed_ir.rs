@@ -1409,6 +1409,12 @@ impl Declarations {
             FunctionId,
             HashMap<VariantId, Vec<crate::typed_body::ParameterStoreSummary>>,
         >::new();
+        #[cfg(test)]
+        {
+            let (origins, bounds) = self.thread_call_return_metadata();
+            summaries.extend(origins);
+            return_bounds.extend(bounds);
+        }
         for name in order {
             // Loan transfer only consults direct callees. Copying every summary
             // accumulated so far for every body was another quadratic pass.
@@ -1634,6 +1640,101 @@ impl Declarations {
                 body.call_return_variant_bounds = shared_return_bounds.clone();
             }
         }
+    }
+
+    #[cfg(test)]
+    fn thread_call_return_metadata(
+        &self,
+    ) -> (
+        HashMap<FunctionId, Vec<crate::typed_body::ParameterLoanSummary>>,
+        HashMap<FunctionId, crate::typed_flow::VariantBounds>,
+    ) {
+        use crate::typed_body::ParameterLoanSummary;
+        use crate::typed_place::Segment;
+        let mut origins = HashMap::new();
+        let mut bounds = HashMap::new();
+        let available_workers = self
+            .bodies
+            .keys()
+            .filter_map(|name| self.function_id(name))
+            .collect::<HashSet<_>>();
+        for (name, captures) in &self.thread_capture_schemas {
+            // Metadata cannot make an unavailable worker implementation real.
+            if !available_workers.contains(&captures.worker) {
+                continue;
+            }
+            let Some(owner) = self.aggregate_id(&Type::Named(name.clone())) else {
+                continue;
+            };
+            let mut spawned = Vec::new();
+            let mut retried = Vec::new();
+            let spawn_type = Type::Named(format!("{name}-spawn-result"));
+            let join_type = Type::Named(format!("{name}-join-result"));
+            let (Some(spawn_ok), Some(spawn_error), Some(join_ok), Some(join_error)) = (
+                self.variant_id(&spawn_type, &format!("{name}-spawn-ok")),
+                self.variant_id(&spawn_type, &format!("{name}-spawn-error")),
+                self.variant_id(&join_type, &format!("{name}-join-ok")),
+                self.variant_id(&join_type, &format!("{name}-join-error")),
+            ) else {
+                continue;
+            };
+            for (parameter, ty) in captures.parameters.iter().enumerate() {
+                let mut slots = Vec::new();
+                self.collect_parameter_loan_slots(
+                    ty,
+                    &mut Vec::new(),
+                    &mut HashSet::new(),
+                    &mut slots,
+                    false,
+                    false,
+                );
+                for seed in slots {
+                    let mut captured_slot = vec![Segment::ThreadCapture(owner, parameter)];
+                    captured_slot.extend(seed.storage.iter().cloned());
+                    let mut spawn_storage = vec![Segment::Payload(spawn_ok, 0)];
+                    spawn_storage.extend(captured_slot.iter().cloned());
+                    let mut spawn_inputs = vec![None, None];
+                    spawn_inputs.extend((0..seed.storage.len()).map(Some));
+                    spawned.push(ParameterLoanSummary {
+                        parameter,
+                        global: None,
+                        mutable: seed.mutable,
+                        pinned: seed.pinned,
+                        lifetime_only: false,
+                        referent_projection: Vec::new(),
+                        input_storage: seed.storage,
+                        storage: spawn_storage,
+                        storage_inputs: spawn_inputs,
+                    });
+                    let mut retry_storage =
+                        vec![Segment::Payload(join_error, 0), Segment::Tuple(0)];
+                    retry_storage.extend(captured_slot.iter().cloned());
+                    let mut retry_inputs = vec![None, None];
+                    retry_inputs.extend((0..captured_slot.len()).map(Some));
+                    retried.push(ParameterLoanSummary {
+                        parameter: 0,
+                        global: None,
+                        mutable: seed.mutable,
+                        pinned: seed.pinned,
+                        lifetime_only: false,
+                        referent_projection: Vec::new(),
+                        storage: retry_storage,
+                        storage_inputs: retry_inputs,
+                        input_storage: captured_slot,
+                    });
+                }
+            }
+            for (operation, loans, alternatives) in [
+                ("spawn", spawned, HashSet::from([spawn_ok, spawn_error])),
+                ("join", retried, HashSet::from([join_ok, join_error])),
+            ] {
+                if let Some(id) = self.function_id(&format!("{name}-{operation}")) {
+                    origins.insert(id, loans);
+                    bounds.insert(id, HashMap::from([(Vec::new(), alternatives)]));
+                }
+            }
+        }
+        (origins, bounds)
     }
 
     #[cfg(test)]
