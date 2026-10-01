@@ -12682,6 +12682,111 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_matched_destruction_proves_consumption_before_restoration() {
+        for mode in [
+            "ready",
+            "pending",
+            "stale-call",
+            "same-variant",
+            "unknown",
+            "read-before-restore",
+        ] {
+            let selected = if mode == "pending" {
+                "Pending"
+            } else {
+                "Ready"
+            };
+            let between = if mode == "stale-call" {
+                "(#call touch ())"
+            } else {
+                ""
+            };
+            let read = if mode == "read-before-restore" {
+                "(#let invalid u64 (#get target number))"
+            } else {
+                ""
+            };
+            let restore = "(#deref-set target (#struct-literal Resource (: number 42u64)))";
+            let alternative = match mode {
+                "same-variant" => "(Ready)",
+                "unknown" => "unknown",
+                _ => "(Pending)",
+            };
+            let source = format!(
+                "(#struct Resource (: number u64)) (#linear Resource)
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn touch () () (#return ()))
+                (#fn choose (: target (#ref-mut Resource) : selected bool : unknown Outcome) Outcome
+                  (#return (#if selected (#block (#forget (#deref target)) (Ready)) {alternative})))
+                (#fn main () u64
+                  (#let-mut holder Resource (#struct-literal Resource (: number 7u64)))
+                  (#let target (#ref-mut Resource) (#borrow-mut holder))
+                  (#let outcome Outcome (#call choose (: target target : selected true : unknown (Pending)))) {between}
+                  (#let-else ({selected}) Outcome outcome (#unreachable))
+                  (#let marker u64 0u64) {read} {restore}
+                  (#let result u64 (#get target number))
+                  (#drop target) (#forget holder) (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let moves = flow.referent_consumptions_with_calls(body, &types, &[]);
+            let holder = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "holder")
+                    .unwrap(),
+            );
+            let marker = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "marker")
+                    .unwrap(),
+            );
+            let event = crate::typed_flow::FlowNodeId(flow.nodes.iter().position(|node|
+                matches!(node.action, crate::typed_flow::FlowAction::Bind { binding, .. } if binding == marker)).unwrap());
+            let place =
+                crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Local(holder));
+            assert_eq!(
+                moves.definitely_consumed_before(event, &place),
+                matches!(mode, "ready" | "read-before-restore"),
+                "{mode}"
+            );
+            let checked = declarations.staged_validate_referent_uses_and_replacements(&types);
+            if mode == "ready" {
+                checked.unwrap();
+                declarations
+                    .staged_referent_entry_contracts(&types)
+                    .unwrap();
+            } else {
+                let error = checked.unwrap_err();
+                let (function, conflict) = match error {
+                    crate::typed_ir::StagedReferentError::Use { function, conflict }
+                    | crate::typed_ir::StagedReferentError::Replacement { function, conflict } => {
+                        (function, conflict)
+                    }
+                    other => panic!("{mode}: {other:?}"),
+                };
+                assert_eq!(function, "main", "{mode}: {conflict:?}");
+                let span = conflict.span.unwrap();
+                let expected = if mode == "read-before-restore" {
+                    "(#get target number)"
+                } else {
+                    restore
+                };
+                assert_eq!(
+                    &source[span.start..span.end],
+                    expected,
+                    "{mode}: {conflict:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn staged_return_variant_constants_intersect_paths_and_forward_calls() {
         let source = "(#enum Choice ((Empty) (Full (#ref u64))))
             (#struct Pair (: left Choice : right Choice))

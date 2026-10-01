@@ -498,9 +498,18 @@ original pre-call snapshots, even when the matched branch destroys storage.
 Regression checks cover explicit/nested/loop returns, unknown and same-variant
 alternatives, restoration/later calls, branch-result joins, forwarding, stale
 results, sibling retention, and exact mutation spans for escaped loans.
-This is return-conditioned loan contents, not conditional ownership consumption
-or initialization. Those contracts and definite restoration still need
-production integration before replacing the existing ownership checker.
+Matched consuming-clear contracts now also mark their exact physical targets
+definitely consumed in the staged ownership solver. This is based on actual
+linear destruction/moves, not empty reference contents, and records originating
+call-site spans for diagnostics. A reference-free linear resource regression
+proves that Ready can be explicitly restored before reading it, while Pending,
+stale calls, same-variant alternatives, and unknown outcomes cannot justify
+replacement. Reading Ready storage before restoration still fails at the exact
+read span. The positive path passes combined replacement/use validation and
+entry-contract inference. This proves consumption only on a matched destructive
+outcome: absence of a clear is not an initialized/unconsumed guarantee on other
+outcomes. Complete conditional exit effects, initialization contracts, and
+production integration remain required before replacing existing checking.
 
 The instruction selector still uses AST-shaped inputs. Compiler-synthesized
 expressions and internal legacy generic specializations retain the old type

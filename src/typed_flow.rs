@@ -3222,6 +3222,28 @@ impl FlowGraph {
                 .extend(restored.iter().cloned());
         }
         let origins = self.loan_origins(body);
+        // A fresh matched outcome can prove that a callee's conditional
+        // destructive access actually happened. Empty loan contents alone
+        // cannot establish this: use only the separately inferred consuming
+        // clear contracts and their correlation/invalidation checks.
+        for (index, refinement) in origins.clear_refinements.iter().enumerate() {
+            let Some((sources, _, _)) = refinement else {
+                continue;
+            };
+            let event = FlowNodeId(index);
+            let spans = sources
+                .iter()
+                .map(|(source, _)| self.nodes[source.0].span)
+                .collect::<Vec<_>>();
+            for clear in origins.clears_before(body, self, event) {
+                let place = clear.referent_place();
+                let facts = calls.entry(event).or_default();
+                facts.possible.push((place.clone(), spans.clone()));
+                if !facts.definite.contains(&place) {
+                    facts.definite.push(place);
+                }
+            }
+        }
         self.consumptions_with_origins_and_calls(
             body,
             types,
