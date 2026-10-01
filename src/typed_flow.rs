@@ -1970,6 +1970,31 @@ impl FlowGraph {
     ) -> Result<(), ReleaseConflict> {
         let origins = self.loan_origins(body);
         let moves = self.consumptions_with_origins(body, types, Some(&origins));
+        self.check_referent_replacements_with_facts(body, types, declarations, &origins, &moves)
+    }
+
+    #[cfg(test)]
+    pub fn check_referent_replacements_with_calls(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+    ) -> Result<(), ReleaseConflict> {
+        let origins = self.loan_origins(body);
+        let moves = self.referent_consumptions_with_calls(body, types, calls);
+        self.check_referent_replacements_with_facts(body, types, declarations, &origins, &moves)
+    }
+
+    #[cfg(test)]
+    fn check_referent_replacements_with_facts(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+        origins: &FlowLoanOrigins,
+        moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
         for (index, node) in self.nodes.iter().enumerate() {
             let value = match node.action {
                 FlowAction::Write { value, .. } | FlowAction::Evaluate(value) => value,

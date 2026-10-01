@@ -9902,6 +9902,15 @@ mod typed_ownership_tests {
             }).unwrap();
             let (effects, unknown) = flow.map_referent_call_effects(body, event, call, &summary);
             assert!(!unknown);
+            assert!(flow.check_referent_replacements(body, &types, &declarations).is_err());
+            assert!(flow.check_referent_replacements_with_calls(
+                body, &types, &declarations, &[(event, effects, unknown)],
+            ).is_ok(), "{replacement}");
+            let (effects, _) = flow.map_referent_call_effects(body, event, call, &summary);
+            assert!(flow.check_referent_replacements_with_calls(
+                body, &types, &declarations, &[(event, effects, true)],
+            ).is_err(), "unresolved call must not authorize replacement");
+            let (effects, unknown) = flow.map_referent_call_effects(body, event, call, &summary);
             let restored = flow.referent_function_effects_with_calls(
                 body, &types, &[(event, effects, unknown)],
             );
