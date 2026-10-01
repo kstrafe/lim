@@ -11701,6 +11701,123 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn nonreturning_helper_contracts_preserve_known_and_unknown_accesses() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#fn consume ((value (#ref-mut Resource))) ()
+              (#forget (#deref value)) (#unreachable) (#return ()))
+            (#fn forward ((value (#ref-mut Resource))) ()
+              (#call consume (: value value)) (#return ()))
+            (#fn wrapper ((value (#ref-mut Resource))) ()
+              (#call forward (: value value)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let known = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        crate::check_types(&program).unwrap();
+        for name in ["consume", "forward", "wrapper"] {
+            let summary = &known[&declarations.function_id(name).unwrap()];
+            assert!(!summary.has_normal_return);
+            assert!(summary.effects.is_empty());
+            assert!(summary.unresolved.is_empty());
+            let [access] = summary.consuming_accesses.as_slice() else {
+                panic!("nonreturning {name} must retain its actual consuming access");
+            };
+            assert_eq!(
+                access.place.root,
+                crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+            );
+        }
+        // Erase actual provenance without changing the slot schema. Failure
+        // to return must not turn an unresolved consumption into no access.
+        declarations
+            .bodies
+            .get_mut("consume")
+            .unwrap()
+            .parameter_loan_slots[0]
+            .clear();
+        let unknown = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        for (name, causal) in [
+            ("consume", "(#forget (#deref value))"),
+            ("forward", "(#call consume (: value value))"),
+            ("wrapper", "(#call forward (: value value))"),
+        ] {
+            let summary = &unknown[&declarations.function_id(name).unwrap()];
+            assert!(!summary.has_normal_return);
+            assert!(summary.effects.is_empty());
+            assert_eq!(summary.unresolved.len(), 1, "{name}: {summary:?}");
+            let span = declarations.flows[name].nodes[summary.unresolved[0].0]
+                .span
+                .unwrap();
+            assert_eq!(&source[span.start..span.end], causal);
+        }
+    }
+
+    #[test]
+    fn unresolved_consumption_on_a_trapping_branch_is_not_an_exit_effect() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#fn consume ((value (#ref-mut Resource)) (selected bool)) ()
+              (#if selected (#block (#forget (#deref value)) (#unreachable)) ())
+              (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let body = declarations.bodies.get_mut("consume").unwrap();
+        body.parameter_loan_slots[0].clear();
+        let flow = &declarations.flows["consume"];
+        let summary = flow.referent_function_effects(body, &types);
+        assert!(summary.has_normal_return);
+        assert!(
+            summary.effects.is_empty(),
+            "the normal-return path does not consume"
+        );
+        let [event] = summary.unresolved.as_slice() else {
+            panic!("the trapping branch must retain its unresolved access");
+        };
+        let span = flow.nodes[event.0].span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#forget (#deref value))");
+    }
+
+    #[test]
+    fn nonreturning_calls_still_require_initialized_referent_inputs() {
+        let call = "(#call forward (: value value))";
+        let source = format!(
+            "(#struct Resource ((number u64))) (#linear Resource)
+             (#fn consume ((value (#ref-mut Resource))) ()
+               (#forget (#deref value)) (#unreachable) (#return ()))
+             (#fn forward ((value (#ref-mut Resource))) ()
+               (#call consume (: value value)) (#return ()))
+             (#fn caller ((value (#ref-mut Resource))) ()
+               (#forget (#deref value)) {call} (#return ()))"
+        );
+        let program = crate::parse_program(&source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let error = declarations
+            .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                &program,
+            ))
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("unexpected failure");
+        };
+        assert_eq!(function, "caller");
+        assert!(conflict.message.contains("consumed"), "{conflict:?}");
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], call);
+        let previous = source.rfind("(#forget (#deref value))").unwrap();
+        assert!(conflict
+            .labels
+            .iter()
+            .any(|(span, _)| span.start == previous));
+    }
+
+    #[test]
     fn staged_whole_program_replacement_preserves_ambiguous_call_targets() {
         for (consumption, accepted) in [
             ("(#let target (#ref-mut Resource) (#if choice (#borrow-mut left) (#borrow-mut right))) (#call consume (: value target))", false),

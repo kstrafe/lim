@@ -224,6 +224,7 @@ pub(crate) struct ReferentExitEffect {
 pub(crate) struct ReferentFunctionEffects {
     pub has_normal_return: bool,
     pub effects: Vec<ReferentExitEffect>,
+    /// Unknown reachable accesses, including paths without a normal return.
     pub unresolved: Vec<FlowNodeId>,
     pub reads: Vec<ReferentRead>,
     pub unresolved_reads: Vec<FlowNodeId>,
@@ -1350,6 +1351,7 @@ impl FlowGraph {
         let exits = self.referent_exit_effects_from_moves(body, &moves);
         let mut summary = self.referent_function_effects_from_exits(body, exits);
         summary.consuming_accesses = self.referent_consuming_accesses_from_moves(body, &moves);
+        self.retain_unresolved_referent_accesses(&mut summary, &moves);
         summary
     }
 
@@ -1378,7 +1380,28 @@ impl FlowGraph {
         let exits = self.referent_exit_effects_from_moves(body, &moves);
         let mut summary = self.referent_function_effects_from_exits(body, exits);
         summary.consuming_accesses = self.referent_consuming_accesses_from_moves(body, &moves);
+        self.retain_unresolved_referent_accesses(&mut summary, &moves);
         summary
+    }
+
+    /// An access is not made safe by never reaching a normal return. Keep
+    /// unknown direct and mapped call accesses independently of exit facts.
+    #[cfg(test)]
+    fn retain_unresolved_referent_accesses(
+        &self,
+        summary: &mut ReferentFunctionEffects,
+        moves: &FlowConsumptions,
+    ) {
+        let reachable = self.reachable();
+        summary.unresolved.extend(
+            moves
+                .unresolved
+                .iter()
+                .copied()
+                .filter(|event| reachable.contains(event)),
+        );
+        summary.unresolved.sort_by_key(|event| event.0);
+        summary.unresolved.dedup();
     }
 
     /// Preserve residual entry assumptions separately from initialized-entry

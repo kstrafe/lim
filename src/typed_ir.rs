@@ -1029,6 +1029,19 @@ impl Declarations {
                     &restorations,
                 );
                 let (mut entry_reads, _) = flow.referent_reads(body);
+                // Consuming an entry value also requires initialized storage,
+                // even when a later trap or restoration erases exit effects.
+                // The filter below excludes accesses preceded by proven
+                // initialization, so initializer-consumer helpers stay valid.
+                entry_reads.extend(summary.consuming_accesses.iter().map(|access| {
+                    crate::typed_flow::ReferentRead {
+                        event: access.event,
+                        place: access.place.clone(),
+                        input_storage: access.input_storage.clone(),
+                        referent_projection: access.referent_projection.clone(),
+                        span: access.span,
+                    }
+                }));
                 entry_reads.extend(call_entry_reads);
                 summary.entry_reads = flow.filter_referent_entry_reads_with_restorations(
                     body,
