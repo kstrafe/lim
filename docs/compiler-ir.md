@@ -22,6 +22,12 @@ not a prerequisite imposed on every generator.
 ### Staging borrowed-storage ownership facts
 
 Typed consumption analysis has a referent-resolved staging mode exercised by
+tests. Independently, production ownership validation checks permission for
+consuming linear referents: only resolved mutable, unpinned, non-anchor loans
+authorize safe moves or explicit releases. This shares the ordinary move-flow
+facts and computes loan origins only when an indirect consumption needs them.
+Referent restoration, call effects, and escaping initialization are still
+separate unfinished obligations. The referent-resolved staging mode is used by
 tests. Raw-pointer borrow origins carry a lifetime-only
 marker: their anchor is not a physical pointee identity. Such origins cannot
 prove referent consumption or restoration in staging. Return summaries

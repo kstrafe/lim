@@ -1540,22 +1540,32 @@ impl FlowGraph {
         let moves = self.consumptions(body, types);
         [
             self.check_linear_releases(body, types),
-            self.check_linear_consumptions_with_moves(body, &moves),
+            self.check_referent_consumption_permissions_with_moves(body, types, &moves)
+                .and_then(|_| self.check_linear_consumptions_with_moves(body, &moves)),
             self.check_linear_exit_obligations_with_moves(body, types, declarations, Some(&moves)),
             self.check_linear_projected_replacements(body, types, declarations, &moves),
         ]
     }
 
-    /// Staging gate; call effects and escaping initialization are not yet
-    /// sufficient to use this as the production ownership boundary.
+    /// Access permissions are independent of referent restoration and call
+    /// effects, which remain separate ownership obligations.
     #[cfg(test)]
     pub fn check_referent_consumption_permissions(
         &self,
         body: &Body,
         types: &LinearTypes,
     ) -> Result<(), ReleaseConflict> {
-        let origins = self.loan_origins(body);
         let moves = self.consumptions(body, types);
+        self.check_referent_consumption_permissions_with_moves(body, types, &moves)
+    }
+
+    fn check_referent_consumption_permissions_with_moves(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
+        let mut origins = None;
         for (index, node) in self.nodes.iter().enumerate() {
             let event = FlowNodeId(index);
             let value = match &node.action {
@@ -1602,6 +1612,7 @@ impl FlowGraph {
                 }
                 operand = *source;
             }
+            let origins = origins.get_or_insert_with(|| self.loan_origins(body));
             let loans = reference.map_or_else(Vec::new, |reference| {
                 origins.value_before(body, self, event, reference)
             });

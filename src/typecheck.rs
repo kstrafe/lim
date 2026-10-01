@@ -9612,6 +9612,12 @@ mod typed_ownership_tests {
                     &crate::linearcheck::LinearTypes::from_program(&program),
                 );
                 assert_eq!(result.is_ok(), allowed, "{reference_type}: {result:?}");
+                if !allowed {
+                    assert!(
+                        crate::CheckedProgram::validate(&program).is_err(),
+                        "production accepted {reference_type}: {operation}"
+                    );
+                }
             }
         }
     }
