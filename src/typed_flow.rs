@@ -834,7 +834,29 @@ impl FlowGraph {
                         origins_selected_by_variant(body, *pattern, &origins),
                     ) {
                         if let PlaceRoot::Local(binding) = place.root {
-                            state[binding.0] = selected;
+                            // A projected discriminant refines only that
+                            // stored enum, not its owner's unrelated slots.
+                            // Reference bindings hold addresses, not payloads.
+                            if !matches!(
+                                body.bindings[binding.0].ty,
+                                Type::Reference { .. }
+                                    | Type::PinnedReference { .. }
+                                    | Type::Slice(_)
+                                    | Type::MutableSlice(_)
+                            ) && !place.segments.iter().any(|segment| {
+                                matches!(
+                                    segment,
+                                    Segment::Dereference
+                                        | Segment::DynamicIndex
+                                        | Segment::SliceDynamicIndex
+                                )
+                            }) {
+                                replace_projected_origins(
+                                    &mut state[binding.0],
+                                    &place.segments,
+                                    selected,
+                                );
+                            }
                         }
                     }
                 }
@@ -8294,6 +8316,80 @@ mod tests {
             assert_eq!(held.len(), 1, "{name}");
             let span = held[0].span.unwrap();
             assert_eq!(&source[span.start..span.end], expected);
+        }
+    }
+
+    #[test]
+    fn projected_variant_refinement_preserves_sibling_reference_slots() {
+        let source = "(#enum Choice ((Left (#ref u64)) (Right (#ref u64))))
+            (#struct Envelope ((choice Choice) (sibling (#ref u64))))
+            (#fn inspect ((frame Envelope)) u64
+              (#let result u64 (#match (#get frame choice)
+                (#case (Left left) (#block
+                  (#let sibling-left (#ref u64) (#get frame sibling))
+                  (#u64.+.wrap (#deref left) (#deref sibling-left))))
+                (#case (Right right) (#block
+                  (#let sibling-right (#ref u64) (#get frame sibling))
+                  (#u64.+.wrap (#deref right) (#deref sibling-right))))))
+              (#forget frame) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let body = &declarations.bodies["inspect"];
+        let graph = &declarations.flows["inspect"];
+        let origins = graph.loan_origins(body);
+        let ty = Type::Named("Envelope".into());
+        let choice = Segment::Field(declarations.field_id(&ty, "choice").unwrap());
+        let sibling = Segment::Field(declarations.field_id(&ty, "sibling").unwrap());
+        let mut arms = 0;
+        for (index, event) in graph.nodes.iter().enumerate() {
+            let FlowAction::Pattern { pattern, .. } = event.action else {
+                continue;
+            };
+            let NodeKind::Form { children, .. } = &body.nodes[pattern.0].kind else {
+                continue;
+            };
+            let NodeKind::Declaration(DeclarationId::Variant(selected)) =
+                body.nodes[children[0].0].kind
+            else {
+                continue;
+            };
+            let held = origins.after(FlowNodeId(index), BindingId(0));
+            assert_eq!(held.len(), 2, "{held:?}");
+            assert!(held
+                .iter()
+                .any(|origin| origin.storage == vec![sibling.clone()]));
+            assert!(held.iter().any(
+                |origin| origin.storage == vec![choice.clone(), Segment::Payload(selected, 0)]
+            ));
+            arms += 1;
+        }
+        assert_eq!(arms, 2);
+    }
+
+    #[test]
+    fn matching_borrowed_enum_values_does_not_replace_the_address_loan() {
+        let source = "(#enum Choice ((Left (#ref u64)) (Right (#ref u64))))
+            (#fn inspect ((choice (#ref Choice))) (#ref Choice)
+              (#let value u64 (#match (#deref choice)
+                (#case (Left left) (#deref left))
+                (#case (Right right) (#deref right))))
+              (#return choice))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["inspect"];
+        let graph = &checked.declarations().flows["inspect"];
+        let origins = graph.loan_origins(body);
+        for (index, event) in graph.nodes.iter().enumerate() {
+            if matches!(event.action, FlowAction::Pattern { .. }) {
+                let held = origins.after(FlowNodeId(index), BindingId(0));
+                assert_eq!(held.len(), 1);
+                assert!(held[0].storage.is_empty());
+                assert_eq!(
+                    held[0].place,
+                    Place::root(PlaceRoot::Parameter(BindingId(0)))
+                );
+            }
         }
     }
 
