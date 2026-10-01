@@ -16552,6 +16552,67 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_matched_enum_returns_require_active_stored_payload_provenance() {
+        for nested in [false, true] {
+            let ty = if nested { "Envelope" } else { "Choice" };
+            let scrutinee = if nested { "(#get value item)" } else { "value" };
+            let empty = if nested {
+                "(#struct-literal Envelope ((item Empty)))"
+            } else {
+                "Empty"
+            };
+            let source = format!(
+                "(#enum Choice ((Has (#ref u64) (#ref u64)) Empty))
+          (#struct Envelope ((item Choice)))
+          (#fn echo ((value {ty})) {ty}
+            (#match {scrutinee}
+              (#case (Has left right) (#block (#return value)))
+              (#case Empty (#block (#return {empty}))))
+            (#return (#unreachable)))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            declarations
+                .bodies
+                .get_mut("echo")
+                .unwrap()
+                .parameter_loan_slots[0]
+                .remove(0);
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert!(
+                conflict.message.contains("missing slot provenance"),
+                "{conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert_eq!(&source[span.start..span.end], "(#return value)");
+            // A missing Has payload must not require origins for an Empty result.
+            let empty_source = source.replace("(#return value)", &format!("(#return {empty})"));
+            let program = crate::parse_program(&empty_source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations
+                .bodies
+                .get_mut("echo")
+                .unwrap()
+                .parameter_loan_slots[0]
+                .clear();
+            declarations
+                .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                    &program,
+                ))
+                .unwrap();
+        }
+    }
+
+    #[test]
     fn staged_reference_returns_reject_missing_mandatory_slot_provenance() {
         for ty in [
             "(#ref u64)",

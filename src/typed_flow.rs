@@ -1206,6 +1206,28 @@ impl FlowGraph {
             let mut state = before[event.0].as_ref().unwrap().clone();
             let node = &self.nodes[event.0];
             match &node.action {
+                FlowAction::Pattern { pattern, value } => {
+                    if let (Some(variant), Some(place)) = (
+                        constructor_variant_at_storage(body, *pattern, &[]),
+                        Place::from_expression(body, *value),
+                    ) {
+                        // A successful arm establishes the discriminant of
+                        // this owned place, not merely its constructor syntax.
+                        // Do not invent facts for computed or aliased targets.
+                        if !place.segments.iter().any(|segment| {
+                            matches!(segment, Segment::DynamicIndex | Segment::SliceDynamicIndex)
+                        }) && !matches!(
+                            body.nodes[value.0].ty,
+                            Some(
+                                Type::Reference { .. }
+                                    | Type::PinnedReference { .. }
+                                    | Type::RawPointer { .. }
+                            )
+                        ) {
+                            state.insert(place, variant);
+                        }
+                    }
+                }
                 FlowAction::Bind { binding, value } => {
                     let target = Place::root(PlaceRoot::Local(*binding));
                     let incoming = value_variant_facts(body, *value, &state);
@@ -5285,8 +5307,8 @@ impl FlowGraph {
     /// Validate physical referents of escaping reference slots, not the
     /// lifetime-only anchors carried by unsafe pointer-derived references.
     /// Mandatory static slots require provenance in every result alternative;
-    /// Constructor trees identify active enum payloads; stored enum values
-    /// still need variant-flow completeness facts.
+    /// Constructor trees and definite discriminant facts identify active enum
+    /// payloads; unknown stored variants still need completeness facts.
     #[cfg(test)]
     fn check_returned_referents_initialized(
         &self,
@@ -5357,11 +5379,23 @@ impl FlowGraph {
                 continue;
             };
             let alternative_origins = origins.value_before(body, self, event, alternative);
+            let variant_states = origins
+                .variants
+                .get_or_init(|| self.variant_facts_with_origins(body, origins));
+            let stored_variants = variant_states[event.0]
+                .as_ref()
+                .map(|state| value_variant_facts(body, alternative, state));
             for slot in declarations.reference_storage_slots(ty) {
                 if slot.storage.iter().enumerate().any(|(index, segment)| {
                     matches!(segment, Segment::Payload(variant, _)
-                        if constructor_variant_at_storage(body, alternative, &slot.storage[..index]) != Some(*variant))
-                }) { continue; }
+                        if constructor_variant_at_storage(body, alternative, &slot.storage[..index])
+                            .or_else(|| stored_variants.as_ref()?.get(&Place {
+                                root: PlaceRoot::Local(BindingId(0)),
+                                segments: slot.storage[..index].to_vec(),
+                            }).copied()) != Some(*variant))
+                }) {
+                    continue;
+                }
                 if !alternative_origins.iter().any(|origin| {
                     origin.storage.len() == slot.storage.len()
                         && slot
