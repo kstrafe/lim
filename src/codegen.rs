@@ -13358,13 +13358,16 @@ impl FunctionContext<'_> {
                 }
                 self.expression_as_expected(&items[1], &Type::Named(struct_name.clone()))?;
                 let field_type = fields[index].ty.clone();
+                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
+                if field_words == 0 {
+                    return Ok(());
+                }
                 let register_index = fields[..index]
                     .iter()
                     .map(|field| value_word_count(&field.ty, &self.structs, &self.enums))
                     .collect::<Result<Vec<_>, _>>()?
                     .into_iter()
                     .sum::<usize>();
-                let field_words = value_word_count(&field_type, &self.structs, &self.enums)?;
                 if field_words > 1 {
                     for (word, destination) in VALUE_REGISTERS.iter().enumerate().take(field_words)
                     {
@@ -13390,10 +13393,9 @@ impl FunctionContext<'_> {
                         .output
                         .push_str(&format!("    movq xmm0, {register}\n")),
                     _ => {
-                        ensure_integer_type(&fields[index].ty).map_err(|_| {
-                            "native returned-struct field has unsupported type".to_owned()
-                        })?;
-                        if index != 0 {
+                        // Every non-float one-word value uses an integer
+                        // register, including references and small aggregates.
+                        if *register != "rax" {
                             self.output.push_str(&format!("    mov rax, {register}\n"));
                         }
                     }
