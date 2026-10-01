@@ -136,6 +136,25 @@ impl PartialEq for LoanOrigin {
 impl Eq for LoanOrigin {}
 
 impl LoanOrigin {
+    #[cfg(test)]
+    pub fn parameter_summary(&self) -> Option<crate::typed_body::ParameterLoanSummary> {
+        let (parameter, global) = match self.place.root {
+            PlaceRoot::Parameter(binding) => (binding.0, None),
+            PlaceRoot::Global(global) => (0, Some(global)),
+            PlaceRoot::Local(_) => return None,
+        };
+        Some(crate::typed_body::ParameterLoanSummary {
+            parameter,
+            global,
+            mutable: self.mutable,
+            pinned: self.pinned,
+            lifetime_only: self.lifetime_only,
+            referent_projection: self.place.segments.clone(),
+            input_storage: self.parameter_storage.clone().unwrap_or_default(),
+            storage: self.storage.clone(),
+            storage_inputs: self.storage_inputs.clone(),
+        })
+    }
     /// Keep the identity of a parameter's stored pointee separate from its
     /// output value slot and subsequent physical referent projections.
     pub fn referent_place(&self) -> Place {
@@ -203,6 +222,13 @@ pub(crate) struct FlowLoanOrigins {
     variants: std::cell::OnceCell<Vec<Option<HashMap<Place, VariantId>>>>,
     before: Vec<Option<LoanState>>,
     after: Vec<Option<LoanState>>,
+}
+
+#[derive(Clone, Debug)]
+#[cfg(test)]
+pub(crate) struct LoanStore {
+    pub destination: LoanOrigin,
+    pub incoming: Vec<LoanOrigin>,
 }
 
 /// May-consumed places after explicit `#drop`/`#forget`. This does not yet
@@ -409,6 +435,59 @@ impl FlowReleases {
 }
 
 impl FlowLoanOrigins {
+    /// Actual direct or substituted callee stores at this reachable event.
+    #[cfg(test)]
+    pub fn stores_before(
+        &self,
+        body: &Body,
+        flow: &FlowGraph,
+        event: FlowNodeId,
+    ) -> Vec<LoanStore> {
+        let Some(state) = self.before[event.0].as_ref() else {
+            return Vec::new();
+        };
+        let value = match flow.nodes[event.0].action {
+            FlowAction::Write { value, .. } | FlowAction::Evaluate(value) => value,
+            _ => return Vec::new(),
+        };
+        let NodeKind::Form {
+            head,
+            children,
+            callee,
+            ..
+        } = &body.nodes[value.0].kind
+        else {
+            return Vec::new();
+        };
+        if callee.is_some() {
+            return call_loan_stores(body, flow, &self.before, value, state);
+        }
+        let (source, field) = match (head.as_str(), children.len()) {
+            ("deref-set" | "pin-write", 3) => (children[2], None),
+            ("pin-set-field", 4) => {
+                let NodeKind::Declaration(DeclarationId::Field(field)) =
+                    body.nodes[children[2].0].kind
+                else {
+                    return Vec::new();
+                };
+                (children[3], Some(field))
+            }
+            _ => return Vec::new(),
+        };
+        let incoming = self.value_before(body, flow, event, source);
+        self.value_before(body, flow, event, children[1])
+            .into_iter()
+            .map(|mut destination| {
+                if let Some(field) = field {
+                    destination.place.segments.push(Segment::Field(field));
+                }
+                LoanStore {
+                    destination,
+                    incoming: incoming.clone(),
+                }
+            })
+            .collect()
+    }
     pub fn value_before(
         &self,
         body: &Body,
@@ -935,6 +1014,28 @@ impl FlowGraph {
     /// Forward may-analysis of direct reference origins held by local
     /// bindings. The transfer uses checked value IDs rather than syntax names.
     pub fn loan_origins(&self, body: &Body) -> FlowLoanOrigins {
+        #[cfg(test)]
+        {
+            self.solve_loan_origins(body, false)
+        }
+        #[cfg(not(test))]
+        {
+            self.solve_loan_origins(body)
+        }
+    }
+
+    /// May-store experiment. Not a production replacement until conditional
+    /// clearing and definite storage restoration are established.
+    #[cfg(test)]
+    pub fn staged_store_loan_origins(&self, body: &Body) -> FlowLoanOrigins {
+        self.solve_loan_origins(body, true)
+    }
+
+    fn solve_loan_origins(
+        &self,
+        body: &Body,
+        #[cfg(test)] include_call_stores: bool,
+    ) -> FlowLoanOrigins {
         // Branch results are read at their evaluation events, before lexical
         // cleanup kills their local bindings. Those snapshots are additional
         // dataflow dependencies: a changed snapshot must wake its consumers
@@ -974,6 +1075,19 @@ impl FlowGraph {
                 | FlowAction::Assign { value, .. }
                 | FlowAction::Pattern { value, .. }
                 | FlowAction::Write { value, .. } => value,
+                #[cfg(test)]
+                FlowAction::Evaluate(value)
+                    if include_call_stores
+                        && matches!(
+                            &body.nodes[value.0].kind,
+                            NodeKind::Form {
+                                callee: Some(_),
+                                ..
+                            }
+                        ) =>
+                {
+                    value
+                }
                 _ => continue,
             };
             dependencies.clear();
@@ -1197,6 +1311,33 @@ impl FlowGraph {
                         },
                     ..
                 } => replace_projected_origins(&mut state[binding.0], segments, Vec::new()),
+                #[cfg(test)]
+                FlowAction::Evaluate(value)
+                    if include_call_stores
+                        && matches!(
+                            &body.nodes[value.0].kind,
+                            NodeKind::Form {
+                                callee: Some(_),
+                                ..
+                            }
+                        ) =>
+                {
+                    let stores = call_loan_stores(body, self, &before, *value, &state);
+                    for store in stores {
+                        if store.destination.lifetime_only {
+                            continue;
+                        }
+                        if let PlaceRoot::Local(binding) = store.destination.place.root {
+                            // Callee writes are may effects, not evidence that
+                            // old storage has been replaced on every path.
+                            extend_projected_origins(
+                                &mut state[binding.0],
+                                &store.destination.place.segments,
+                                store.incoming,
+                            );
+                        }
+                    }
+                }
                 _ => {}
             }
             for successor in &self.nodes[id.0].successors {
@@ -5383,6 +5524,55 @@ fn apply_parameter_loan_summary(
             origin
         })
         .collect()
+}
+
+#[cfg(test)]
+fn call_loan_stores(
+    body: &Body,
+    flow: &FlowGraph,
+    before: &[Option<LoanState>],
+    value: NodeId,
+    state: &LoanState,
+) -> Vec<LoanStore> {
+    let NodeKind::Form {
+        callee: Some(callee),
+        children,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
+        return Vec::new();
+    };
+    let Some(stores) = body.call_store_origins.get(callee) else {
+        return Vec::new();
+    };
+    let substitute = |summary: &crate::typed_body::ParameterLoanSummary| {
+        if let Some(origin) = global_summary_origin(summary) {
+            return vec![origin];
+        }
+        children
+            .get(summary.parameter + 1)
+            .into_iter()
+            .flat_map(|argument| {
+                value_loan_origins_at_events(body, flow, before, *argument, state)
+                    .into_iter()
+                    .flat_map(|origin| apply_parameter_loan_summary(origin, summary, state))
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut result = Vec::new();
+    for store in stores {
+        let mut incoming = Vec::new();
+        for source in &store.sources {
+            merge_loan_origins(&mut incoming, &substitute(source));
+        }
+        for destination in substitute(&store.destination) {
+            result.push(LoanStore {
+                destination,
+                incoming: incoming.clone(),
+            });
+        }
+    }
+    result
 }
 
 #[cfg(test)]

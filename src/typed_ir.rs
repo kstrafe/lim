@@ -1190,6 +1190,8 @@ impl Declarations {
         }
 
         let mut summaries = HashMap::new();
+        #[cfg(test)]
+        let mut store_summaries = HashMap::new();
         for name in order {
             // Loan transfer only consults direct callees. Copying every summary
             // accumulated so far for every body was another quadratic pass.
@@ -1209,11 +1211,52 @@ impl Declarations {
                 })
                 .collect();
             self.bodies.get_mut(&name).unwrap().call_return_origins = Arc::new(needed);
+            #[cfg(test)]
+            let needed_stores = self.bodies[&name]
+                .nodes
+                .iter()
+                .filter_map(|node| match &node.kind {
+                    crate::typed_body::NodeKind::Form {
+                        callee: Some(callee),
+                        ..
+                    } => store_summaries.get(callee).map(
+                        |summary: &Vec<crate::typed_body::ParameterStoreSummary>| {
+                            (*callee, summary.clone())
+                        },
+                    ),
+                    _ => None,
+                })
+                .collect();
+            #[cfg(test)]
+            {
+                self.bodies.get_mut(&name).unwrap().call_store_origins = Arc::new(needed_stores);
+            }
             let body = &self.bodies[&name];
             let flow = &self.flows[&name];
             let origins = flow.loan_origins(body);
             let mut returned = Vec::new();
+            #[cfg(test)]
+            let mut stores = Vec::new();
             for (index, node) in flow.nodes.iter().enumerate() {
+                #[cfg(test)]
+                for store in origins.stores_before(body, flow, crate::typed_flow::FlowNodeId(index))
+                {
+                    let Some(destination) = store.destination.parameter_summary() else {
+                        continue;
+                    };
+                    let sources = store
+                        .incoming
+                        .iter()
+                        .filter_map(|origin| origin.parameter_summary())
+                        .collect();
+                    let store = crate::typed_body::ParameterStoreSummary {
+                        destination,
+                        sources,
+                    };
+                    if !stores.contains(&store) {
+                        stores.push(store);
+                    }
+                }
                 let crate::typed_flow::FlowAction::Return(Some(value)) = &node.action else {
                     continue;
                 };
@@ -1245,11 +1288,19 @@ impl Declarations {
                 // An empty summary distinguishes a known body with no
                 // parameter-derived loans from an unavailable external body.
                 summaries.insert(id, returned);
+                #[cfg(test)]
+                store_summaries.insert(id, stores);
             }
         }
         let shared = Arc::new(summaries);
+        #[cfg(test)]
+        let shared_stores = Arc::new(store_summaries);
         for body in self.bodies.values_mut() {
             body.call_return_origins = shared.clone();
+            #[cfg(test)]
+            {
+                body.call_store_origins = shared_stores.clone();
+            }
         }
     }
 

@@ -327,6 +327,28 @@ debugging view (not a stable interchange format).
 
 ## Remaining migration
 
+### Reference-bearing writes across calls
+
+The test-only `staged_store_loan_origins` solver supplements return-origin
+summaries with references that a callee may store through an argument. It
+builds summaries bottom-up over the same acyclic call graph, substitutes
+actual argument loans (including original input slots and physical destination
+projections), and adds the retained references to caller-owned storage.
+Ordinary, pinned, field-wise, forwarded, conditional, and computed writes are
+covered. These are may facts: the solver preserves pre-call loans and does
+not infer definite initialization, consumption, or restoration from a write.
+Missing input loans do not become references merely because a type contains
+reference slots. `examples/callee_reference_store.lim` exercises a valid store
+and consumption of its holder before the referent is mutated.
+
+This experiment is not enabled in production. It detects caller-side mutation
+and block-local escape cases currently missed by production return-only
+summaries. Conversely, possible stores alone cannot establish that Ready or
+cancellation cleared a self-reference: explicit regressions preserve the
+resulting migration failures for all three self-reference async examples.
+Variant-conditioned clearing, storage contents after parameter writes, and
+definite restoration must be integrated before replacing production checking.
+
 The instruction selector still uses AST-shaped inputs. Compiler-synthesized
 expressions and internal legacy generic specializations retain the old type
 lookup path. Specialization provenance and a uniform ownership-place model

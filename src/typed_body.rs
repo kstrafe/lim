@@ -1064,6 +1064,15 @@ pub(crate) struct ParameterLoanSeed {
     pub storage: Vec<crate::typed_place::Segment>,
 }
 
+/// References that may be retained by a write through an argument. This is
+/// not a must-initialization or ownership-restoration contract.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(test)]
+pub(crate) struct ParameterStoreSummary {
+    pub destination: ParameterLoanSummary,
+    pub sources: Vec<ParameterLoanSummary>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum Projection {
     Local,
@@ -1091,6 +1100,8 @@ pub(crate) struct Body {
     pub parameter_count: usize,
     /// Interprocedural return-origin summaries shared by all checked bodies.
     pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
+    #[cfg(test)]
+    pub call_store_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterStoreSummary>>>,
     /// Reference-bearing slots in each parameter value, indexed by binding ID.
     pub parameter_loan_slots: Vec<Vec<ParameterLoanSeed>>,
     /// Slot schema beyond reference boundaries. These describe loads;

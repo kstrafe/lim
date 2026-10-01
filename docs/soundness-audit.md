@@ -44,3 +44,22 @@ or parent exit. This closes pipes held by ordinary descendants as well as
 reaping the immediate child. Test programs must not escape that process group;
 this is a regression-test resource guard, not a hostile-program sandbox.
 Scratch directories are exclusively created and removed only by their owner.
+
+## Known interprocedural reference-store gap
+
+Production loan summaries track returned references but do not yet retain
+references written by a callee into caller-owned storage. Consequently the
+checker can miss a mutation of the new referent, or a block-local reference
+escaping through such a write. This is a known checking gap, not permission
+to invalidate a live reference.
+
+`staged_callee_reference_store_retains_the_callers_rhs_loan` reproduces a
+production-accepted mutation and demonstrates its rejection with the test-only
+may-store solver. `staged_callee_store_into_outer_storage_cannot_hide_a_block_local_escape`
+covers the scope escape and causal source span. Forwarded, conditional,
+computed, pinned, and field-wise stores have additional staged regressions.
+The experiment must not replace production checking until variant-conditioned
+clearing and restoration preserve valid async Ready/cancellation paths;
+`staged_store_unions_do_not_claim_ready_path_self_reference_clearing` preserves
+those explicit integration failures. The audit is incomplete while this gap
+remains.

@@ -12390,6 +12390,314 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_store_unions_do_not_claim_ready_path_self_reference_clearing() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for (name, owner) in [
+            ("async_fn_local_self_reference", "frame"),
+            ("async_fn_self_reference", "cancelled"),
+            ("async_fn_enum_self_reference", "frame"),
+        ] {
+            let path = root.join("examples").join(format!("{name}.lim"));
+            let source = std::fs::read_to_string(&path).unwrap();
+            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            crate::check_types(&program).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_store_loan_origins(body));
+            let conflict =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                    .expect_err(
+                        "resolved store-clearing case must be promoted to the positive corpus",
+                    );
+            assert!(
+                conflict.message.contains(owner) && conflict.message.contains("borrow"),
+                "{name}: {conflict:?}"
+            );
+            assert!(conflict.span.is_some(), "{name}: {conflict:?}");
+        }
+    }
+
+    #[test]
+    fn staged_callee_store_into_outer_storage_cannot_hide_a_block_local_escape() {
+        let source = "(#struct Holder (: view (#ref u64)))
+            (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
+              (#deref-set target (#struct-literal Holder (: view value))) (#return ()))
+            (#fn main () u64
+              (#let old u64 7u64)
+              (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
+              (#block
+                (#let local u64 42u64)
+                (#let target (#ref-mut Holder) (#borrow-mut holder))
+                (#call replace (: target target : value (#borrow local)))
+                (#drop target))
+              (#let result u64 (#deref (#get holder view)))
+              (#forget holder) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let cache = std::cell::OnceCell::from(flow.staged_store_loan_origins(body));
+        let error =
+            crate::typed_borrow::check_scope_escapes_cached(body, flow, &cache).unwrap_err();
+        assert!(
+            error.message.contains("local") && error.message.contains("scope"),
+            "{error:?}"
+        );
+        let span = error.labels.first().map(|(span, _)| *span).unwrap();
+        assert_eq!(&source[span.start..span.end], "(#borrow local)");
+    }
+
+    #[test]
+    fn staged_callee_store_preserves_projected_destination_slots() {
+        let source = "(#struct Holder (: view (#ref u64)))
+            (#struct Outer (: holder Holder))
+            (#fn replace (: outer (#ref-mut Outer) : value (#ref u64)) ()
+              (#deref-set (#borrow-mut (#get outer holder))
+                (#struct-literal Holder (: view value))) (#return ()))
+            (#fn main () u64
+              (#let old u64 7u64) (#let-mut value u64 42u64)
+              (#let-mut outer Outer (#struct-literal Outer
+                (: holder (#struct-literal Holder (: view (#borrow old))))))
+              (#call replace (: outer (#borrow-mut outer) : value (#borrow value)))
+              (#set value 1u64)
+              (#let result u64 (#deref (#get (#get outer holder) view)))
+              (#forget outer) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let origins = flow.staged_store_loan_origins(body);
+        let outer = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "outer")
+                .unwrap(),
+        );
+        let value = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "value")
+                .unwrap(),
+        );
+        let held = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .flat_map(|(index, _)| origins.after(crate::typed_flow::FlowNodeId(index), outer));
+        assert!(held.into_iter().any(|origin| origin.place.root
+            == crate::typed_body::PlaceRoot::Local(value)
+            && origin.storage.len() == 2));
+        let cache = std::cell::OnceCell::from(origins);
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        assert!(
+            crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                .unwrap_err()
+                .message
+                .contains("value")
+        );
+    }
+
+    #[test]
+    fn staged_store_substitution_requires_actual_input_loans() {
+        let source = "(#struct Holder (: view (#ref u64)))
+            (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
+              (#deref-set target (#struct-literal Holder (: view value))) (#return ()))
+            (#fn relay (: target (#ref-mut Holder) : value (#ref u64)) ()
+              (#call replace (: target target : value value)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let inspect = |body: &crate::typed_body::Body, flow: &crate::typed_flow::FlowGraph| {
+            let origins = flow.staged_store_loan_origins(body);
+            flow.nodes
+                .iter()
+                .enumerate()
+                .flat_map(|(index, _)| {
+                    origins.stores_before(body, flow, crate::typed_flow::FlowNodeId(index))
+                })
+                .collect::<Vec<_>>()
+        };
+        let stores = inspect(&declarations.bodies["relay"], &declarations.flows["relay"]);
+        assert!(stores.iter().any(|store| !store.incoming.is_empty()));
+        declarations
+            .bodies
+            .get_mut("relay")
+            .unwrap()
+            .parameter_loan_slots[1]
+            .clear();
+        let stores = inspect(&declarations.bodies["relay"], &declarations.flows["relay"]);
+        assert!(
+            !stores.is_empty(),
+            "the real destination loan remains available"
+        );
+        assert!(
+            stores.iter().all(|store| store.incoming.is_empty()),
+            "{stores:?}"
+        );
+        declarations
+            .bodies
+            .get_mut("relay")
+            .unwrap()
+            .parameter_loan_slots[0]
+            .clear();
+        assert!(inspect(&declarations.bodies["relay"], &declarations.flows["relay"]).is_empty());
+    }
+
+    #[test]
+    fn staged_store_loans_are_released_with_their_caller_owned_holder() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/callee_reference_store.lim");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let program = crate::parse_program_from_path(&source, &path).unwrap();
+        crate::check_types(&program).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        for (name, body) in &declarations.bodies {
+            let flow = &declarations.flows[name];
+            let cache = std::cell::OnceCell::from(flow.staged_store_loan_origins(body));
+            crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                .unwrap();
+            crate::typed_borrow::check_scope_escapes_cached(body, flow, &cache).unwrap();
+        }
+    }
+
+    #[test]
+    fn staged_store_summaries_map_forwarded_pinned_and_conditional_writes() {
+        for mode in [
+            "ordinary",
+            "pinned",
+            "field",
+            "forwarded",
+            "conditional",
+            "computed",
+            "conditional-argument",
+            "loop-argument",
+        ] {
+            let pinned = matches!(mode, "pinned" | "field");
+            let target_type = if pinned { "#pin-ref-mut" } else { "#ref-mut" };
+            let borrow = if pinned {
+                "#pin-borrow-mut"
+            } else {
+                "#borrow-mut"
+            };
+            let write = match mode {
+                "pinned" => "(#unsafe (#pin-write target (#struct-literal Holder (: view value))))",
+                "field" => "(#pin-set-field target view value)",
+                "conditional" => "(#if selected (#deref-set target (#struct-literal Holder (: view value))) ())",
+                "computed" => "(#deref-set (#if selected target target) (#struct-literal Holder (: view value)))",
+                _ => "(#deref-set target (#struct-literal Holder (: view value)))",
+            };
+            let relay = if mode == "forwarded" {
+                "(#fn relay (: target (#ref-mut Holder) : value (#ref u64) : selected bool) ()
+                  (#call replace (: target target : value value : selected selected)) (#return ()))"
+            } else {
+                ""
+            };
+            let called = if mode == "forwarded" {
+                "relay"
+            } else {
+                "replace"
+            };
+            let argument = match mode {
+                "conditional-argument" => "(#if true (#borrow value) (#borrow old))",
+                "loop-argument" => "(#loop (#break (#borrow value)))",
+                _ => "(#borrow value)",
+            };
+            let source = format!(
+                "(#struct Holder (: view (#ref u64)))
+                (#fn replace (: target ({target_type} Holder) : value (#ref u64) : selected bool) ()
+                  {write} (#return ())) {relay}
+                (#fn main () u64
+                  (#let old u64 7u64) (#let-mut value u64 42u64)
+                  (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
+                  (#let target ({target_type} Holder) ({borrow} holder))
+                  (#call {called} (: target target : value {argument} : selected true))
+                  (#drop target) (#set value 1u64)
+                  (#let result u64 (#deref (#get holder view)))
+                  (#forget holder) (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let facts = flow.staged_store_loan_origins(body);
+            let holder = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "holder")
+                    .unwrap(),
+            );
+            let old = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "old")
+                    .unwrap(),
+            );
+            let value = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "value")
+                    .unwrap(),
+            );
+            let event = flow.nodes.iter().position(|node| matches!(node.action,
+                crate::typed_flow::FlowAction::Evaluate(id) if matches!(body.nodes[id.0].kind, crate::typed_body::NodeKind::Form { callee: Some(_), .. }))).unwrap();
+            let retained = facts.after(crate::typed_flow::FlowNodeId(event), holder);
+            assert!(
+                retained
+                    .iter()
+                    .any(|origin| origin.place.root == crate::typed_body::PlaceRoot::Local(value)),
+                "{mode}: {retained:?}"
+            );
+            assert!(retained.iter().filter(|origin| origin.place.root == crate::typed_body::PlaceRoot::Local(value)).all(|origin| origin.storage.len() == 1), "{mode}: {retained:?}");
+            // A may-store is not permission to discard the pre-call loan.
+            assert!(
+                retained
+                    .iter()
+                    .any(|origin| origin.place.root == crate::typed_body::PlaceRoot::Local(old)),
+                "{mode}: {retained:?}"
+            );
+            let cache = std::cell::OnceCell::from(facts);
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let conflict =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                    .unwrap_err();
+            assert!(conflict.message.contains("value"), "{mode}: {conflict:?}");
+        }
+    }
+
+    #[test]
+    fn staged_callee_reference_store_retains_the_callers_rhs_loan() {
+        let source = "(#struct Holder (: view (#ref u64)))
+            (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
+              (#deref-set target (#struct-literal Holder (: view value)))
+              (#return ()))
+            (#fn main () u64
+              (#let old u64 7u64) (#let-mut value u64 42u64)
+              (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
+              (#let target (#ref-mut Holder) (#borrow-mut holder))
+              (#call replace (: target target : value (#borrow value)))
+              (#drop target) (#set value 1u64)
+              (#let result u64 (#deref (#get holder view)))
+              (#forget holder) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let cache = std::cell::OnceCell::from(flow.staged_store_loan_origins(body));
+        let error = crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+            .unwrap_err();
+        assert!(
+            error.message.contains("value") && error.message.contains("borrow"),
+            "{error:?}"
+        );
+        // This remains an explicit production migration gap. May-store
+        // unions cannot yet replace variant-conditioned clearing contracts.
+        crate::check_types(&program).unwrap();
+    }
+
+    #[test]
     fn local_holder_restoration_cannot_duplicate_an_exclusive_loan() {
         let source = "(#struct Pair (: left (#ref-mut u64) : right (#ref-mut u64)))
             (#fn main () u64
