@@ -435,3 +435,28 @@ Verification: 726 library tests and all enabled integration/native/UI tests
 passed, with four existing ignored tests. Formatting, cargo check, and diff
 whitespace checks passed. Regression tests cover shared-result reuse and
 preserve lazy skipping when live-loan and call checks need no provenance.
+
+## Successor-first liveness scheduling (2026-10-01)
+
+Backward liveness now starts in deterministic DFS postorder rather than hash
+set iteration order. Dense visitation and an iterative DFS avoid event-ID
+hashing and recursive stack growth. The transfer rules are unchanged. A
+test-only work counter verifies exactly one visit per reachable event in an
+acyclic 130-binding fixture; forward and randomized schedules need more visits
+and produce identical facts. Differential checks also cover loops, branches,
+unreachable code, and multi-word bitsets.
+
+Sequential warm CLI measurements, 100 samples per compiler, after tests:
+
+| Workload | Before median | After median | Change |
+| --- | ---: | ---: | ---: |
+| Reference-heavy | 38.91 ms | 39.30 ms | 1.0% slower |
+| async_fn | 43.70 ms | 43.36 ms | 0.8% faster |
+| vec_allocator | 32.64 ms | 31.76 ms | 2.7% faster |
+
+Executable bytes were identical in every comparison. An earlier reference
+run overlapping a targeted test measured 39.64 versus 38.14 ms. Variability
+and a 2-second outlier mean these runs do not establish a reliable overall
+latency improvement. The demonstrated win is reduced solver work on acyclic
+graphs, not a universal compilation speedup. All 763 library tests and enabled
+integration/native/UI tests passed; four existing tests remain ignored.

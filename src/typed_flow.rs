@@ -99,6 +99,8 @@ pub(crate) struct FlowLiveness {
     before: Vec<Vec<u64>>,
     after: Vec<Vec<u64>>,
     binding_count: usize,
+    #[cfg(test)]
+    worklist_visits: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -5284,6 +5286,33 @@ impl FlowGraph {
     /// Definitions kill older values only on the edge where the binding is
     /// introduced or wholly replaced. Projected writes read the aggregate.
     pub fn liveness(&self, body: &Body) -> FlowLiveness {
+        self.liveness_in_order(body, &self.reachable_postorder())
+    }
+
+    /// Successors precede predecessors except at cycle back edges. Dense
+    /// visitation avoids hashing event IDs and the explicit stack avoids
+    /// recursion on large generated bodies.
+    fn reachable_postorder(&self) -> Vec<FlowNodeId> {
+        let mut visited = vec![false; self.nodes.len()];
+        let mut stack = vec![(self.entry, 0usize)];
+        let mut order = Vec::new();
+        visited[self.entry.0] = true;
+        while let Some((id, next)) = stack.last_mut() {
+            if let Some(successor) = self.nodes[id.0].successors.get(*next).copied() {
+                *next += 1;
+                if !visited[successor.0] {
+                    visited[successor.0] = true;
+                    stack.push((successor, 0));
+                }
+            } else {
+                order.push(*id);
+                stack.pop();
+            }
+        }
+        order
+    }
+
+    fn liveness_in_order(&self, body: &Body, reachable: &[FlowNodeId]) -> FlowLiveness {
         let count = body.bindings.len();
         let words = count.div_ceil(64);
         let mut before = vec![vec![0u64; words]; self.nodes.len()];
@@ -5291,8 +5320,7 @@ impl FlowGraph {
         let mut uses = before.clone();
         let mut defs = before.clone();
         let mut predecessors = vec![Vec::<FlowNodeId>::new(); self.nodes.len()];
-        let reachable = self.reachable();
-        for id in &reachable {
+        for id in reachable {
             let node = &self.nodes[id.0];
             for successor in &node.successors {
                 predecessors[successor.0].push(*id);
@@ -5369,10 +5397,16 @@ impl FlowGraph {
         }
         let mut pending = VecDeque::from_iter(reachable.iter().copied());
         let mut queued = vec![false; self.nodes.len()];
-        for id in &reachable {
+        for id in reachable {
             queued[id.0] = true;
         }
+        #[cfg(test)]
+        let mut worklist_visits = 0;
         while let Some(id) = pending.pop_front() {
+            #[cfg(test)]
+            {
+                worklist_visits += 1;
+            }
             queued[id.0] = false;
             // Compute one word at a time in the existing snapshots. Successor
             // reads must precede the update, including for a self-loop.
@@ -5400,6 +5434,8 @@ impl FlowGraph {
             before,
             after,
             binding_count: count,
+            #[cfg(test)]
+            worklist_visits,
         }
     }
 
@@ -10834,6 +10870,54 @@ mod tests {
             .unwrap();
         assert_eq!(origins.before(cleanup, view).len(), 1);
         assert!(origins.after(cleanup, view).is_empty());
+    }
+
+    #[test]
+    fn liveness_postorder_matches_other_worklist_orders() {
+        let mut wide = String::from("(#fn main () u64 ");
+        for index in 0..130 {
+            wide.push_str(&format!("(#let value{index} u64 {index}u64) "));
+        }
+        for index in 0..129 {
+            wide.push_str(&format!("(#forget value{index}) "));
+        }
+        wide.push_str("(#return value129))");
+        for source in [
+            wide.as_str(),
+            "(#fn main () u64 (#let-mut counter u64 0u64)
+             (#while (#u64.< counter 3u64)
+               (#set counter (#u64.+.wrap counter 1u64))) (#return counter))",
+            "(#enum Choice ((Some u64) None))
+             (#fn main () u64 (#let flag bool (#bool.&& true false))
+               (#return (#if flag (#match (Some 42u64)
+                 (#case (Some value) value) (#case None 0u64)) 0u64)))",
+            "(#fn main () u64 (#return 42u64) (#let unreachable u64 1u64)
+             (#return unreachable))",
+            include_str!("../examples/labeled_loop.lim"),
+        ] {
+            let program = crate::parse_program(source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            for (name, graph) in &checked.declarations().flows {
+                let body = &checked.declarations().bodies[name];
+                let order = graph.reachable_postorder();
+                let reachable = graph.reachable();
+                assert_eq!(order.len(), reachable.len());
+                assert_eq!(order.iter().copied().collect::<HashSet<_>>(), reachable);
+                assert_eq!(order, graph.reachable_postorder());
+                let expected = graph.liveness(body);
+                let mut alternative = order.clone();
+                alternative.reverse();
+                for scheduling in [alternative, reachable.into_iter().collect()] {
+                    let actual = graph.liveness_in_order(body, &scheduling);
+                    assert_eq!(actual.before, expected.before, "{name}");
+                    assert_eq!(actual.after, expected.after, "{name}");
+                    if source == wide {
+                        assert_eq!(expected.worklist_visits, order.len());
+                        assert!(actual.worklist_visits > expected.worklist_visits);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
