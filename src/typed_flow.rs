@@ -192,6 +192,16 @@ pub(crate) struct ReferentRead {
     pub span: Option<Span>,
 }
 
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct ReferentCallFacts {
+    pub effects: Vec<(FlowNodeId, Vec<ReferentExitEffect>, bool)>,
+    pub restorations: Vec<(FlowNodeId, Vec<Place>)>,
+    pub consumed_inputs: Vec<(FlowNodeId, Vec<Place>, bool)>,
+    pub read_inputs: Vec<ReferentRead>,
+    pub unresolved_inputs: Vec<FlowNodeId>,
+}
+
 #[derive(Default)]
 struct CallConsumptionFacts {
     possible: Vec<(Place, Vec<Option<Span>>)>,
@@ -2790,6 +2800,101 @@ impl FlowGraph {
         )?;
         self.check_referent_body_from_entry(body, types, declarations, &requirements)?;
         Ok(requirements)
+    }
+
+    /// Combined staged inference; owned exits and escaping-reference
+    /// initialization remain separate obligations before production use.
+    #[cfg(test)]
+    pub fn infer_referent_consumed_entry_with_call_facts(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+        calls: &ReferentCallFacts,
+    ) -> Result<Vec<Place>, ReleaseConflict> {
+        let reachable = self.reachable();
+        if let Some(event) = calls
+            .unresolved_inputs
+            .iter()
+            .copied()
+            .chain(
+                calls
+                    .effects
+                    .iter()
+                    .filter(|(_, _, unknown)| *unknown)
+                    .map(|(event, _, _)| *event),
+            )
+            .find(|event| reachable.contains(event))
+        {
+            return Err(ReleaseConflict {
+                message: "cannot infer a referent entry contract with unresolved call inputs"
+                    .into(),
+                span: self.nodes[event.0].span,
+                labels: Vec::new(),
+            });
+        }
+        let origins = self.loan_origins(body);
+        let moves = self.referent_consumptions_with_restorations(
+            body,
+            types,
+            &calls.effects,
+            &calls.restorations,
+            &[],
+        );
+        let mut entry = Vec::new();
+        self.check_referent_replacements_and_entry_requirements(
+            body,
+            types,
+            declarations,
+            &origins,
+            &moves,
+            Some(&mut entry),
+        )?;
+        let inherited = self.infer_referent_call_consumed_entry(
+            body,
+            types,
+            &calls.effects,
+            &calls.restorations,
+            &calls.consumed_inputs,
+        )?;
+        for place in inherited {
+            if !entry.contains(&place) {
+                entry.push(place);
+            }
+        }
+        self.check_referent_call_consumed_entry_from_entry(
+            body,
+            types,
+            &calls.effects,
+            &calls.restorations,
+            &calls.consumed_inputs,
+            &entry,
+        )?;
+        self.check_owner_consumptions_with_restorations_from_entry(
+            body,
+            types,
+            &calls.effects,
+            &calls.restorations,
+            &entry,
+        )?;
+        self.check_referent_call_entry_reads_from_entry(
+            body,
+            types,
+            &calls.effects,
+            &calls.restorations,
+            &calls.read_inputs,
+            &entry,
+        )?;
+        let seeded = self.referent_consumptions_with_restorations(
+            body,
+            types,
+            &calls.effects,
+            &calls.restorations,
+            &entry,
+        );
+        self.check_referent_consumption_permissions_with_moves(body, types, &seeded)?;
+        self.check_referent_replacements_with_facts(body, types, declarations, &origins, &seeded)?;
+        Ok(entry)
     }
 
     #[cfg(test)]

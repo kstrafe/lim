@@ -10162,11 +10162,15 @@ mod typed_ownership_tests {
         let (required_reads, unknown) = declarations.flows["read"]
             .direct_referent_entry_reads(&declarations.bodies["read"], &types);
         assert!(unknown.is_empty());
+        let required_consumed = declarations.flows["initialize"]
+            .infer_direct_referent_consumed_entry(initializer, &types, &declarations)
+            .unwrap();
         let body = &declarations.bodies["caller"];
         let flow = &declarations.flows["caller"];
         let mut calls = Vec::new();
         let mut restorations = Vec::new();
         let mut reads = Vec::new();
+        let mut consumed_inputs = Vec::new();
         for (index, node) in flow.nodes.iter().enumerate() {
             let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
                 continue;
@@ -10185,6 +10189,14 @@ mod typed_ownership_tests {
                     flow.map_referent_call_restorations(body, event, value, initializer, &restored);
                 assert!(!unknown);
                 restorations.push((event, mapped));
+                let (mapped, unknown) = flow.map_referent_call_consumed_entry(
+                    body,
+                    event,
+                    value,
+                    initializer,
+                    &required_consumed,
+                );
+                consumed_inputs.push((event, mapped, unknown));
             } else {
                 let (mapped, unknown) =
                     flow.map_referent_call_reads(body, event, value, &required_reads);
@@ -10219,9 +10231,28 @@ mod typed_ownership_tests {
                 &calls,
                 &restorations,
                 &reads,
-                &[entry],
+                &[entry.clone()],
             )
             .is_ok());
+        let mut facts = crate::typed_flow::ReferentCallFacts {
+            effects: calls,
+            restorations,
+            consumed_inputs,
+            read_inputs: reads,
+            unresolved_inputs: Vec::new(),
+        };
+        assert_eq!(flow.infer_referent_consumed_entry_with_call_facts(
+            body, &types, &declarations, &facts,
+        ).unwrap(), vec![entry]);
+        facts.restorations.clear();
+        let conflict = flow
+            .infer_referent_consumed_entry_with_call_facts(body, &types, &declarations, &facts)
+            .unwrap_err();
+        let span = conflict.span.unwrap();
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#call read (: value value))"
+        );
     }
 
     #[test]
