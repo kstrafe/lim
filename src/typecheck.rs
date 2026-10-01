@@ -10144,15 +10144,15 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_symbolic_entry_consumption_tracks_initialization_before_reads() {
-        for initialized in [false, true] {
-            let write = if initialized {
-                "(#deref-set value (#struct-literal Resource ((number 2u64))))"
-            } else {
-                ""
-            };
+        for (write, initialized, definitely_consumed) in [
+            ("", false, true),
+            ("(#deref-set value (#struct-literal Resource ((number 2u64))))", true, false),
+            ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) ())", false, false),
+            ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", true, false),
+        ] {
             let source = format!(
                 "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn inspect ((value (#ref-mut Resource))) u64
+              (#fn inspect ((value (#ref-mut Resource)) (choice bool)) u64
                 {write} (#return (#get value number)))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -10172,8 +10172,11 @@ mod typed_ownership_tests {
             assert_eq!(moves.before(reads[0].event, &place).is_none(), initialized);
             assert_eq!(
                 moves.definitely_consumed_before(reads[0].event, &place),
-                !initialized
+                definitely_consumed
             );
+            let (requirements, unknown) = flow.direct_referent_entry_reads(body, &types);
+            assert!(unknown.is_empty());
+            assert_eq!(requirements.is_empty(), initialized, "{write}");
         }
     }
 

@@ -1455,6 +1455,36 @@ impl FlowGraph {
         self.consumptions_with_origins_and_calls(body, types, Some(&origins), None, consumed)
     }
 
+    /// Direct-read entry requirements under symbolic input initialization.
+    /// Callee reads/restoration, write preconditions, and validity of local
+    /// consumption are separate obligations, not proven by this filter.
+    #[cfg(test)]
+    pub fn direct_referent_entry_reads(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+    ) -> (Vec<ReferentRead>, Vec<FlowNodeId>) {
+        let (reads, unresolved) = self.referent_reads(body);
+        let mut candidates = Vec::new();
+        for read in &reads {
+            if matches!(
+                read.place.root,
+                PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
+            ) && !candidates.contains(&read.place)
+            {
+                candidates.push(read.place.clone());
+            }
+        }
+        let moves = self.referent_consumptions_from_entry(body, types, &candidates);
+        let requirements = reads
+            .into_iter()
+            .filter(|read| {
+                candidates.contains(&read.place) && moves.before(read.event, &read.place).is_some()
+            })
+            .collect();
+        (requirements, unresolved)
+    }
+
     fn consumptions_with_origins_and_calls(
         &self,
         body: &Body,
