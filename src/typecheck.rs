@@ -1488,7 +1488,13 @@ fn check_types_inner(
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {
                 let flow = &declarations.flows[&function.name];
-                for (value, place) in flow.local_pin_accesses(body, &linear_types) {
+                let (ownership_results, local_pin_accesses) = flow
+                    .check_linear_ownership_with_local_pin_accesses(
+                        body,
+                        &linear_types,
+                        &declarations,
+                    );
+                for (value, place) in local_pin_accesses {
                     if matches!(&body.nodes[value.0].kind,
                         crate::typed_body::NodeKind::Form { head, .. } if head == "pin-read")
                         && body.nodes[value.0]
@@ -1515,7 +1521,7 @@ fn check_types_inner(
                         }
                     }
                 }
-                for result in flow.check_linear_ownership(body, &linear_types, &declarations) {
+                for result in ownership_results {
                     if typed_linear_error.is_none() {
                         typed_linear_error = result.err();
                     }

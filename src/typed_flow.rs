@@ -3085,12 +3085,25 @@ impl FlowGraph {
 
     /// Share the move-flow solution between use checks and exit diagnostics.
     /// Keep individual results so callers retain their diagnostic priority.
+    #[cfg(test)]
     pub fn check_linear_ownership(
         &self,
         body: &Body,
         types: &LinearTypes,
         declarations: &crate::typed_ir::Declarations,
     ) -> [Result<(), ReleaseConflict>; 4] {
+        self.check_linear_ownership_with_local_pin_accesses(body, types, declarations)
+            .0
+    }
+
+    /// Return the checked local-target facts from the same ownership solution
+    /// for the syntax adapter, rather than solving loan origins a second time.
+    pub fn check_linear_ownership_with_local_pin_accesses(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+    ) -> ([Result<(), ReleaseConflict>; 4], HashMap<NodeId, Place>) {
         // No move or destruction obligation can arise without a linear
         // binding or expression. References and Copy-only aggregates still
         // undergo the separate borrow checks.
@@ -3103,10 +3116,10 @@ impl FlowGraph {
                 .iter()
                 .any(|node| node.ty.as_ref().is_some_and(|ty| types.is_linear(ty)))
         {
-            return [Ok(()), Ok(()), Ok(()), Ok(())];
+            return ([Ok(()), Ok(()), Ok(()), Ok(())], HashMap::new());
         }
         let moves = self.consumptions(body, types);
-        [
+        let results = [
             self.check_guard_preview_consumptions(body, &moves)
                 .and_then(|_| self.check_linear_releases(body, types)),
             self.check_referent_consumption_permissions_with_moves(body, types, &moves)
@@ -3119,7 +3132,8 @@ impl FlowGraph {
                 false,
             ),
             self.check_linear_projected_replacements(body, types, declarations, &moves),
-        ]
+        ];
+        (results, moves.local_pin_accesses)
     }
 
     /// Access permissions are independent of referent restoration and call
