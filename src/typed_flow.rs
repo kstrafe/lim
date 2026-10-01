@@ -2278,8 +2278,33 @@ impl FlowGraph {
         restorations: &[(FlowNodeId, Vec<Place>)],
         requirements: &[(FlowNodeId, Vec<Place>, bool)],
     ) -> Result<(), ReleaseConflict> {
-        let moves =
-            self.referent_consumptions_with_restorations(body, types, calls, restorations, &[]);
+        self.check_referent_call_consumed_entry_from_entry(
+            body,
+            types,
+            calls,
+            restorations,
+            requirements,
+            &[],
+        )
+    }
+
+    #[cfg(test)]
+    pub fn check_referent_call_consumed_entry_from_entry(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        requirements: &[(FlowNodeId, Vec<Place>, bool)],
+        entry_consumed: &[Place],
+    ) -> Result<(), ReleaseConflict> {
+        let moves = self.referent_consumptions_with_restorations(
+            body,
+            types,
+            calls,
+            restorations,
+            entry_consumed,
+        );
         for (event, places, unknown) in requirements {
             let Some(state) = moves.definitely_before[event.0].as_ref() else {
                 continue;
