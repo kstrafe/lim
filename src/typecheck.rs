@@ -12448,6 +12448,164 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_callee_field_destruction_preserves_sibling_loans() {
+        for premature in [false, true] {
+            let mutation = if premature { "(#set right 9u64)" } else { "" };
+            let source = format!(
+                "(#struct Part (: view (#ref u64))) (#linear Part)
+                 (#struct Pair (: left Part : right Part))
+                 (#fn wipe-left (: target (#ref-mut Pair)) ()
+                   (#forget (#get target left)) (#return ()))
+                 (#fn main () u64
+                   (#let-mut left u64 7u64) (#let-mut right u64 42u64)
+                   (#let-mut holder Pair (#struct-literal Pair
+                     (: left (#struct-literal Part (: view (#borrow left)))
+                      : right (#struct-literal Part (: view (#borrow right))))))
+                   (#let target (#ref-mut Pair) (#borrow-mut holder))
+                   (#call wipe-left (: target target)) (#drop target)
+                   (#set left 9u64) {mutation}
+                   (#let value u64 (#deref (#get (#get holder right) view)))
+                   (#forget (#get holder right)) (#set right 9u64) (#return value))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_parameter_store_loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if premature {
+                let conflict = checked.unwrap_err();
+                assert!(conflict.message.contains("right"), "{conflict:?}");
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], mutation);
+            } else {
+                checked.unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn staged_nested_callee_destruction_selects_updated_pointer_inputs() {
+        let source = "(#struct Part (: view (#ref u64))) (#linear Part)
+            (#struct Outer (: inner (#ref-mut Part)))
+            (#fn wipe (: target (#ref-mut Outer)) ()
+              (#forget (#deref (#get target inner))) (#return ()))
+            (#fn redirect (: target (#ref-mut Outer) : replacement (#ref-mut Part)) ()
+              (#deref-set target (#struct-literal Outer (: inner replacement)))
+              (#call wipe (: target target)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let wipe = declarations.function_id("wipe").unwrap();
+        let nested = &declarations.bodies["wipe"].call_parameter_clears[&wipe];
+        assert_eq!(nested.len(), 1);
+        assert_eq!(nested[0].parameter, 0);
+        assert_eq!(nested[0].input_storage.len(), 2);
+        let redirect = declarations.function_id("redirect").unwrap();
+        let updated = &declarations.bodies["redirect"].call_parameter_clears[&redirect];
+        assert_eq!(updated.len(), 1, "{updated:?}");
+        assert_eq!(updated[0].parameter, 1);
+        assert!(updated[0].input_storage.is_empty());
+    }
+
+    #[test]
+    fn staged_callee_destruction_contents_contracts_follow_forwarding_and_restoration() {
+        let source = "(#struct Part (: view (#ref u64))) (#linear Part)
+            (#fn wipe (: target (#ref-mut Part)) () (#forget (#deref target)) (#return ()))
+            (#fn forward (: target (#ref-mut Part)) () (#call wipe (: target target)) (#return ()))
+            (#fn maybe (: target (#ref-mut Part) : selected bool) ()
+              (#if selected (#forget (#deref target))) (#return ()))
+            (#fn restore (: target (#ref-mut Part) : replacement (#ref u64)) ()
+              (#forget (#deref target)) (#deref-set target (#struct-literal Part (: view replacement))) (#return ()))
+            (#fn take (: target (#pin-ref-mut Part)) Part (#return (#unsafe (#pin-read target))))
+            (#fn idle () () (#return ()))
+            (#fn later-call (: target (#ref-mut Part)) ()
+              (#forget (#deref target)) (#call idle ()) (#return ()))
+            (#fn no-return (: target (#ref-mut Part)) ()
+              (#forget (#deref target)) (#return (#unreachable)))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        for (name, expected) in [
+            ("wipe", 1),
+            ("forward", 1),
+            ("maybe", 0),
+            ("restore", 0),
+            ("take", 1),
+            ("later-call", 0),
+            ("no-return", 0),
+        ] {
+            let id = declarations.function_id(name).unwrap();
+            let clears = &declarations.bodies[name].call_parameter_clears[&id];
+            assert_eq!(clears.len(), expected, "{name}: {clears:?}");
+            assert!(clears.iter().all(|clear| clear.parameter == 0
+                && clear.input_storage.is_empty()
+                && clear.storage.is_empty()));
+        }
+        let id = declarations.function_id("restore").unwrap();
+        let stores = &declarations.bodies["restore"].call_store_origins[&id];
+        assert_eq!(stores.len(), 1);
+        assert!(stores[0].definitely_written);
+        assert_eq!(stores[0].sources[0].parameter, 1);
+    }
+
+    #[test]
+    fn staged_callee_destruction_releases_contents_but_retains_escaped_loans() {
+        for escaped in [false, true] {
+            let result_type = if escaped { "(#ref u64)" } else { "()" };
+            let capture = if escaped {
+                "(#let escaped (#ref u64) (#get target view))"
+            } else {
+                ""
+            };
+            let returned = if escaped { "escaped" } else { "()" };
+            let invocation = "(#call forward (: target target))";
+            let invocation = if escaped {
+                format!("(#let escaped (#ref u64) {invocation})")
+            } else {
+                invocation.into()
+            };
+            let finish = if escaped {
+                "(#let value u64 (#deref escaped)) (#drop escaped) (#return value)"
+            } else {
+                "(#return 42u64)"
+            };
+            let source = format!(
+                "(#struct Part (: view (#ref u64))) (#linear Part)
+                 (#fn wipe (: target (#ref-mut Part)) {result_type}
+                   {capture} (#forget (#deref target)) (#return {returned}))
+                 (#fn forward (: target (#ref-mut Part)) {result_type}
+                   (#return (#call wipe (: target target))))
+                 (#fn main () u64
+                   (#let-mut old u64 7u64)
+                   (#let-mut holder Part (#struct-literal Part (: view (#borrow old))))
+                   (#let target (#ref-mut Part) (#borrow-mut holder))
+                   {invocation} (#drop target) (#set old 9u64) {finish})"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_parameter_store_loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if escaped {
+                let conflict = checked.unwrap_err();
+                assert!(conflict.message.contains("old"), "{conflict:?}");
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#set old 9u64)");
+            } else {
+                checked.unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn staged_copy_valued_pin_reads_keep_parameter_contents() {
         let source = "(#struct Holder (: view (#ref u64)))
             (#fn peek (: target (#pin-ref-mut Holder)) (#ref u64)

@@ -489,6 +489,43 @@ impl FlowReleases {
 }
 
 impl FlowLoanOrigins {
+    /// Proven final callee clears or an exact direct destructive access.
+    /// Empty contents are not an initialization or ownership proof.
+    #[cfg(test)]
+    fn clears_before(&self, body: &Body, flow: &FlowGraph, event: FlowNodeId) -> Vec<LoanOrigin> {
+        let Some(state) = &self.before[event.0] else {
+            return Vec::new();
+        };
+        if state.parameter_contents.is_none() {
+            return Vec::new();
+        }
+        let value = match flow.nodes[event.0].action {
+            FlowAction::Release { value, .. } | FlowAction::Evaluate(value) => value,
+            _ => return Vec::new(),
+        };
+        let NodeKind::Form {
+            children, callee, ..
+        } = &body.nodes[value.0].kind
+        else {
+            return Vec::new();
+        };
+        if callee.is_some() {
+            return call_parameter_clears(body, flow, &self.before, value, state);
+        }
+        let destinations = if body.consuming_releases.contains(&value) {
+            released_reference_destinations(body, flow, &self.before, children[1], state)
+        } else if body.consuming_pin_reads.contains(&value) {
+            self.value_before(body, flow, event, children[1])
+        } else {
+            Vec::new()
+        };
+        if one_concrete_store_destination(&destinations) {
+            destinations
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Actual direct or substituted callee stores at this reachable event.
     #[cfg(test)]
     pub fn stores_before(
@@ -1330,6 +1367,151 @@ impl FlowGraph {
         (!calls.is_empty()).then_some(calls)
     }
 
+    /// Contents destruction proven on every normal return, separately from
+    /// writes and initialization. Unknown effects invalidate prior proofs.
+    #[cfg(test)]
+    pub fn parameter_clear_summaries(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> Vec<crate::typed_body::ParameterLoanSummary> {
+        let clears = (0..self.nodes.len())
+            .map(|index| origins.clears_before(body, self, FlowNodeId(index)))
+            .collect::<Vec<_>>();
+        let stores = (0..self.nodes.len())
+            .map(|index| origins.stores_before(body, self, FlowNodeId(index)))
+            .collect::<Vec<_>>();
+        let mut candidates = Vec::new();
+        for clear in clears.iter().flatten() {
+            let Some(summary) = clear.parameter_summary() else {
+                continue;
+            };
+            let place = clear.referent_place();
+            if !candidates.iter().any(|(known, _)| *known == place) {
+                candidates.push((place, summary));
+            }
+        }
+        if candidates.is_empty() {
+            return Vec::new();
+        }
+        let mut before = vec![None; self.nodes.len()];
+        before[self.entry.0] = Some(vec![false; candidates.len()]);
+        let mut pending = VecDeque::from([self.entry]);
+        let mut queued = vec![false; self.nodes.len()];
+        queued[self.entry.0] = true;
+        while let Some(event) = pending.pop_front() {
+            queued[event.0] = false;
+            let mut state = before[event.0].as_ref().unwrap().clone();
+            // Calls may restore storage through aliases. Their proved final
+            // clears are applied below, but prior clears are not preserved.
+            let invalidates = match self.nodes[event.0].action {
+                FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
+                    NodeKind::Form {
+                        head,
+                        children,
+                        callee,
+                        numeric,
+                        ..
+                    } => {
+                        callee.is_some()
+                            || (numeric.is_none()
+                                && !matches!(
+                                    head.as_str(),
+                                    "forget"
+                                        | "drop"
+                                        | "pin-read"
+                                        | "pin-write"
+                                        | "pin-set-field"
+                                        | "deref"
+                                        | "deref-set"
+                                        | "get"
+                                        | "get-payload"
+                                        | "index"
+                                        | "unsafe"
+                                        | "borrow"
+                                        | "borrow-mut"
+                                        | "pin-borrow"
+                                        | "pin-borrow-mut"
+                                )
+                                && !children.first().is_some_and(|id| {
+                                    matches!(
+                                        body.nodes[id.0].kind,
+                                        NodeKind::Declaration(
+                                            DeclarationId::Aggregate(_) | DeclarationId::Variant(_)
+                                        )
+                                    )
+                                }))
+                    }
+                    _ => false,
+                },
+                FlowAction::Write { .. } => stores[event.0].is_empty(),
+                _ => false,
+            };
+            if invalidates {
+                state.fill(false);
+            }
+            for store in &stores[event.0] {
+                let place = store.destination.referent_place();
+                for ((candidate, _), cleared) in candidates.iter().zip(&mut state) {
+                    if place.overlaps(candidate) {
+                        *cleared = false;
+                    }
+                }
+            }
+            for clear in &clears[event.0] {
+                let place = clear.referent_place();
+                for ((candidate, _), cleared) in candidates.iter().zip(&mut state) {
+                    if place_covers(&place, candidate) {
+                        *cleared = true;
+                    }
+                }
+            }
+            for successor in &self.nodes[event.0].successors {
+                let changed = match &mut before[successor.0] {
+                    Some(held) => {
+                        let mut changed = false;
+                        for (held, incoming) in held.iter_mut().zip(&state) {
+                            if *held && !incoming {
+                                *held = false;
+                                changed = true;
+                            }
+                        }
+                        changed
+                    }
+                    slot @ None => {
+                        *slot = Some(state.clone());
+                        true
+                    }
+                };
+                if changed && !queued[successor.0] {
+                    queued[successor.0] = true;
+                    pending.push_back(*successor);
+                }
+            }
+        }
+        let mut returned: Option<Vec<bool>> = None;
+        for (index, node) in self.nodes.iter().enumerate() {
+            if !matches!(node.action, FlowAction::Return(_)) {
+                continue;
+            }
+            let Some(state) = &before[index] else {
+                continue;
+            };
+            if let Some(held) = &mut returned {
+                for (held, incoming) in held.iter_mut().zip(state) {
+                    *held &= incoming;
+                }
+            } else {
+                returned = Some(state.clone());
+            }
+        }
+        candidates
+            .into_iter()
+            .zip(returned.unwrap_or_default())
+            .filter_map(|((_, summary), cleared)| cleared.then_some(summary))
+            .collect()
+    }
+
     /// Final reference contents on normal returns. Missing paths retain the
     /// caller's entry contents; every-path writes may replace those contents.
     #[cfg(test)]
@@ -1955,6 +2137,11 @@ impl FlowGraph {
                             }
                         ) =>
                 {
+                    let clears = if include_parameter_contents {
+                        call_parameter_clears(body, self, &before, *value, &state)
+                    } else {
+                        Vec::new()
+                    };
                     let stores = call_loan_stores(body, self, &before, *value, &state);
                     for store in stores {
                         if store.destination.lifetime_only {
@@ -1980,6 +2167,16 @@ impl FlowGraph {
                                     store.incoming,
                                 );
                             }
+                        }
+                    }
+                    for clear in clears {
+                        store_parameter_contents(&mut state, &clear, Vec::new(), true);
+                        if let PlaceRoot::Local(binding) = clear.place.root {
+                            replace_projected_origins(
+                                &mut state[binding.0],
+                                &clear.place.segments,
+                                Vec::new(),
+                            );
                         }
                     }
                 }
@@ -6427,6 +6624,46 @@ fn joined_call_variant_stores(
 }
 
 #[cfg(test)]
+fn call_parameter_clears(
+    body: &Body,
+    flow: &FlowGraph,
+    before: &[Option<LoanState>],
+    value: NodeId,
+    state: &LoanState,
+) -> Vec<LoanOrigin> {
+    let NodeKind::Form {
+        callee: Some(callee),
+        children,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
+        return Vec::new();
+    };
+    let Some(clears) = body.call_parameter_clears.get(callee) else {
+        return Vec::new();
+    };
+    let mut result = Vec::new();
+    for clear in clears {
+        let destinations = if let Some(global) = global_summary_origin(clear) {
+            vec![global]
+        } else {
+            children
+                .get(clear.parameter + 1)
+                .map_or_else(Vec::new, |argument| {
+                    value_loan_origins_at_events(body, flow, before, *argument, state)
+                        .into_iter()
+                        .flat_map(|origin| apply_parameter_loan_summary(origin, clear, state))
+                        .collect()
+                })
+        };
+        if one_concrete_store_destination(&destinations) {
+            merge_loan_origins(&mut result, &destinations);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
 fn call_loan_stores(
     body: &Body,
     flow: &FlowGraph,
@@ -7440,6 +7677,10 @@ fn value_loan_origins_at_events(
                 .call_store_origins
                 .get(callee)
                 .is_some_and(|stores| stores.iter().any(|store| store.definitely_written))
+                || body
+                    .call_parameter_clears
+                    .get(callee)
+                    .is_some_and(|clears| !clears.is_empty())
             {
                 // Return summaries selecting entry storage must not observe
                 // the caller's state after this call has already cleared it.

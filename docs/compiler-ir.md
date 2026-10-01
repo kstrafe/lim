@@ -449,6 +449,22 @@ These reference facts are not initialization/restoration proofs or outgoing
 consumption effects. The production syntax-only ownership fallback still
 rejects ordinary restore-through-reference sequences, and callee destruction
 must be integrated with consumption contracts before promotion.
+The staged interprocedural contents pass now exports a separate table of
+destruction destinations proved cleared on every normal return. These are not
+write summaries and must never count as initialization or restoration evidence.
+Definite clear facts are intersected across branches and normal returns; an
+overlapping possible write invalidates a clear, and calls or unclassified
+effects conservatively invalidate prior proofs before applying any final callee
+clears. Non-returning bodies export no clears. Caller substitution requires an
+exact mutable destination and updates local or parameter stored reference facts,
+preserving the handle and sibling fields. Nested input selectors follow current
+pointer contents, including redirected pointers. Return-value substitution uses
+the original pre-call snapshot when the call clears contents, so old references
+escaping from the callee still retain their loans. Staged regressions cover
+forwarding, whole/field destruction, sibling protection, nested redirection,
+conditional clearing, later restoration/calls, non-returning bodies, and exact
+escaped/sibling mutation spans. Conditional consumption, complete ownership
+contracts, and production migration remain open.
 Return-variant-conditioned clearing, storage contents after parameter writes,
 and definite restoration must be integrated before replacing production checking.
 

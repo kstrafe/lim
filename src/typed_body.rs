@@ -1104,6 +1104,9 @@ pub(crate) struct Body {
     pub consuming_pin_reads: std::collections::HashSet<NodeId>,
     #[cfg(test)]
     pub consuming_releases: std::collections::HashSet<NodeId>,
+    /// Every-normal-return contents clearing, not an initialization contract.
+    #[cfg(test)]
+    pub call_parameter_clears: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     /// Interprocedural return-origin summaries shared by all checked bodies.
     pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     #[cfg(test)]
