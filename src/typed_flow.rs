@@ -134,6 +134,20 @@ impl PartialEq for LoanOrigin {
 impl Eq for LoanOrigin {}
 
 impl LoanOrigin {
+    /// Keep the identity of a parameter's stored pointee separate from its
+    /// output value slot and subsequent physical referent projections.
+    pub fn referent_place(&self) -> Place {
+        let mut place = self.place.clone();
+        if matches!(place.root, PlaceRoot::Parameter(_)) {
+            if let Some(slot) = &self.parameter_storage {
+                let mut segments = slot.clone();
+                segments.append(&mut place.segments);
+                place.segments = segments;
+            }
+        }
+        place
+    }
+
     fn project_storage(&mut self, selected: &Segment) -> Option<usize> {
         let input = self.storage_inputs.first().copied().flatten();
         if let Some(slot) = input.and_then(|index| {
@@ -499,7 +513,7 @@ impl FlowLoanOrigins {
         binding: BindingId,
         segments: &[Segment],
     ) -> Vec<Place> {
-        self.projected_referents_with_slots(node, binding, segments, false)
+        self.projected_referents_with_slots(node, binding, segments, true)
     }
 
     fn projected_referents_with_slots(
@@ -510,15 +524,11 @@ impl FlowLoanOrigins {
         parameter_slots: bool,
     ) -> Vec<Place> {
         let origin_place = |origin: &LoanOrigin| {
-            let mut place = origin.place.clone();
-            if parameter_slots && matches!(place.root, PlaceRoot::Parameter(_)) {
-                if let Some(slot) = &origin.parameter_storage {
-                    let mut segments = slot.clone();
-                    segments.append(&mut place.segments);
-                    place.segments = segments;
-                }
+            if parameter_slots {
+                origin.referent_place()
+            } else {
+                origin.place.clone()
             }
-            place
         };
         let through_deref = segments
             .iter()
@@ -7067,6 +7077,12 @@ mod tests {
         let body = &declarations.bodies["inspect"];
         let flow = &declarations.flows["inspect"];
         let origins = flow.loan_origins(body);
+        let loaded = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "loaded")
+                .unwrap(),
+        );
         let mut accesses = Vec::new();
         for (index, node) in flow.nodes.iter().enumerate() {
             let FlowAction::Evaluate(value) = node.action else {
@@ -7080,6 +7096,40 @@ mod tests {
             let places =
                 dereferenced_value_places(body, flow, FlowNodeId(index), value, &origins).unwrap();
             assert_eq!(places.len(), 1);
+            let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                unreachable!()
+            };
+            let NodeKind::Form {
+                children: projection,
+                ..
+            } = &body.nodes[children[1].0].kind
+            else {
+                unreachable!()
+            };
+            let NodeKind::Declaration(crate::typed_ir::DeclarationId::Field(field)) =
+                body.nodes[projection[2].0].kind
+            else {
+                unreachable!()
+            };
+            assert_eq!(
+                origins.projected_referents(
+                    FlowNodeId(index),
+                    loaded,
+                    &[Segment::Field(field), Segment::Dereference]
+                ),
+                places,
+                "production projected accesses must preserve the same input identity"
+            );
+            let held = origins
+                .before(FlowNodeId(index), loaded)
+                .iter()
+                .find(|origin| origin.storage == vec![Segment::Field(field)])
+                .unwrap();
+            assert_eq!(
+                held.referent_place(),
+                places[0],
+                "held-loan comparisons must use the same identity as accesses"
+            );
             accesses.push(places[0].clone());
         }
         let source = PlaceRoot::Parameter(BindingId(0));

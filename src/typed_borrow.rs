@@ -163,7 +163,7 @@ pub(crate) fn check_live_direct_loans_cached(
         let event = FlowNodeId(index);
         let mut projected = computed_targets
             .iter()
-            .map(|origin| origin.place.clone())
+            .map(|origin| origin.referent_place())
             .collect::<Vec<_>>();
         let mut reborrow_parent = computed_targets
             .first()
@@ -214,6 +214,7 @@ pub(crate) fn check_live_direct_loans_cached(
                 continue;
             }
             for held in origins.before(event, binding) {
+                let held_place = held.referent_place();
                 let releasing_reborrow_parent =
                     match (&place.root, place.segments.is_empty(), access) {
                         (
@@ -244,9 +245,9 @@ pub(crate) fn check_live_direct_loans_cached(
                 let forbidden_pinned_access = held.pinned
                     && !reference_value_access
                     && access_places.iter().any(|place| {
-                        held.place.overlaps(place)
+                        held_place.overlaps(place)
                             && match access {
-                                AccessKind::Read => held.place == *place,
+                                AccessKind::Read => held_place == *place,
                                 AccessKind::Clone => true,
                                 _ => false,
                             }
@@ -276,7 +277,7 @@ pub(crate) fn check_live_direct_loans_cached(
                     AccessKind::Borrow { mutable } => held.mutable || mutable,
                     AccessKind::Move | AccessKind::Write | AccessKind::Release => true,
                 };
-                if conflicts && access_places.iter().any(|place| held.place.overlaps(place)) {
+                if conflicts && access_places.iter().any(|place| held_place.overlaps(place)) {
                     let owner = match &held.place.root {
                         PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
                             body.bindings[binding.0].name.as_str()
