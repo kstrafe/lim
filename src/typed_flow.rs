@@ -1800,6 +1800,27 @@ impl FlowGraph {
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
     ) -> Result<(), ReleaseConflict> {
         let moves = self.referent_consumptions_with_calls(body, types, calls);
+        // A known outgoing consumption necessarily accesses that storage.
+        // This is only a subset of entry requirements: read-only and
+        // consume-then-restore callees need independent access summaries.
+        for (event, effects, _) in calls {
+            let Some(state) = moves.before[event.0].as_ref() else {
+                continue;
+            };
+            let previous = state
+                .iter()
+                .filter(|(place, _)| effects.iter().any(|effect| effect.place.overlaps(place)))
+                .flat_map(|(_, spans)| spans)
+                .flatten()
+                .min_by_key(|span| (span.source_id, span.start));
+            if let Some(previous) = previous {
+                return Err(ReleaseConflict {
+                    message: "call may consume a linear referent that was already consumed".into(),
+                    span: self.nodes[event.0].span,
+                    labels: vec![(*previous, "referent was consumed here".into())],
+                });
+            }
+        }
         let origins = self.loan_origins(body);
         self.check_linear_consumptions_with_origins(body, &moves, Some(&origins))
     }
