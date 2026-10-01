@@ -1,0 +1,20 @@
+; Loaded reference fields retain their pointees, not the pinned holder address.
+(#struct Views (: left (#ref u64) : right (#ref u64)))
+
+(#fn load (: source (#pin-ref Views)) Views
+  (#return (#unsafe (#pin-read source))))
+
+(#fn main () u64
+  (#let left u64 19u64)
+  (#let right u64 23u64)
+  (#let holder Views
+    (#struct-literal Views
+      (: left (#borrow left) : right (#borrow right))))
+  (#let source (#pin-ref Views) (#pin-borrow holder))
+  (#let loaded Views (#call load (: source source)))
+  (#drop source)
+  (#forget holder)
+  (#let result u64
+    (#u64.+.wrap (#deref (#get loaded left)) (#deref (#get loaded right))))
+  (#forget loaded)
+  (#return result))

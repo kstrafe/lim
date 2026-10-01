@@ -5463,9 +5463,10 @@ fn loaded_local_value_origins(incoming: Vec<LoanOrigin>, state: &LoanState) -> V
     result
 }
 
-/// Ordinary dereference loads can describe retained parameter slots without
+/// Whole-value loads can describe retained parameter slots without
 /// equating their pointees with the borrowed container address. This is not a
-/// pinned move/restore contract and must not be used for parameter pin-read.
+/// pinned move/restore contract: preserving value provenance alone does not
+/// establish referent initialization or variant-conditioned call effects.
 fn dereference_value_origins(
     body: &Body,
     incoming: Vec<LoanOrigin>,
@@ -5646,11 +5647,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             if matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2 =>
         {
             let incoming = value_loan_origins(body, children[1], state);
-            if head == "deref" {
-                dereference_value_origins(body, incoming, state)
-            } else {
-                loaded_local_value_origins(incoming, state)
-            }
+            dereference_value_origins(body, incoming, state)
         }
         NodeKind::Form { head, children, .. }
             if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 =>
@@ -5964,11 +5961,7 @@ fn value_loan_origins_at_events(
         }
         if matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2 {
             let incoming = value_loan_origins_at_events(body, flow, before, children[1], state);
-            return if head == "deref" {
-                dereference_value_origins(body, incoming, state)
-            } else {
-                loaded_local_value_origins(incoming, state)
-            };
+            return dereference_value_origins(body, incoming, state);
         }
         if matches!(
             head.as_str(),

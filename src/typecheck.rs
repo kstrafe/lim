@@ -14077,6 +14077,7 @@ mod typed_ownership_tests {
             "pinned_aggregate_load",
             "pinned_local_move",
             "borrowed_whole_load",
+            "pinned_parameter_load",
             "pinned_linear_replacement",
             "async_fn",
         ] {
@@ -14121,7 +14122,7 @@ mod typed_ownership_tests {
             let source = std::fs::read_to_string(&path).unwrap();
             let program = crate::parse_program_from_path(&source, &path).unwrap();
             crate::check_types(&program).unwrap();
-            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
             let error = declarations
                 .staged_referent_entry_contracts(&types)
@@ -14129,7 +14130,7 @@ mod typed_ownership_tests {
             let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
                 panic!("unexpected gap for {name}: {error:?}");
             };
-            assert_eq!(function, expected_function, "{name}");
+            assert_eq!(function, "main", "{name}: {conflict:?}");
             assert!(
                 conflict.message.contains(expected_message),
                 "{name}: {conflict:?}"
@@ -14150,15 +14151,34 @@ mod typed_ownership_tests {
                 .nodes
                 .iter()
                 .position(|node| {
-                    node.span == conflict.span
-                        && matches!(node.action, crate::typed_flow::FlowAction::Evaluate(_))
+                    matches!(node.action, crate::typed_flow::FlowAction::Bind { binding, .. } if binding == state)
                 })
                 .unwrap();
+            let origins = flow.loan_origins(body);
+            let held = origins.after(crate::typed_flow::FlowNodeId(event), state);
             assert!(
-                flow.loan_origins(body)
-                    .before(crate::typed_flow::FlowNodeId(event), state)
+                !held.is_empty(),
+                "parameter pin-read must retain actual slots"
+            );
+            for origin in held {
+                assert!(!origin.lifetime_only);
+                assert!(origin.parameter_storage.as_ref().is_some_and(
+                    |path| path.first() == Some(&crate::typed_place::Segment::Dereference)
+                ));
+                assert!(
+                    !origin.storage.is_empty(),
+                    "stored loans cannot become frame address loans"
+                );
+            }
+            let without_input = declarations.bodies.get_mut(expected_function).unwrap();
+            for seeds in &mut without_input.parameter_loan_slots {
+                seeds.clear();
+            }
+            assert!(
+                flow.loan_origins(without_input)
+                    .after(crate::typed_flow::FlowNodeId(event), state)
                     .is_empty(),
-                "pin-read provenance gap changed; re-audit the unresolved call"
+                "an indirect schema must not fabricate a loaded loan"
             );
         }
     }
@@ -14794,27 +14814,38 @@ mod typed_ownership_tests {
 
     #[test]
     fn borrowed_parameter_aggregate_loads_preserve_each_nested_reference_slot() {
-        for (consumed, whole) in [(false, false), (true, false), (false, true), (true, true)] {
+        for (consumed, whole, pinned) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, true, true),
+            (true, true, true),
+        ] {
             let destruction = if consumed {
                 "(#forget (#get owner item))"
             } else {
                 ""
             };
-            let loading = if whole {
+            let loading = if pinned {
+                "(#get (#unsafe (#pin-read outer)) nested)"
+            } else if whole {
                 "(#get (#deref outer) nested)"
             } else {
                 "(#get outer nested)"
             };
+            let reference = if pinned { "#pin-ref" } else { "#ref" };
+            let borrow = if pinned { "#pin-borrow" } else { "#borrow" };
             let source = format!(
                 "(#struct Resource ((number u64))) (#linear Resource)
                  (#struct Container ((item Resource) (other Resource)))
                  (#struct Views ((left (#ref Resource)) (right (#ref Resource))))
                  (#struct Nested ((views Views)))
                  (#struct Outer ((nested Nested)))
-                 (#fn load ((outer (#ref Outer))) Nested
+                 (#fn load ((outer ({reference} Outer))) Nested
                    (#let selected Nested {loading})
                    (#return selected))
-                 (#fn forward ((outer (#ref Outer))) Views
+                 (#fn forward ((outer ({reference} Outer))) Views
                    (#let nested Nested (#call load (: outer outer)))
                    (#return (#get nested views)))
                  (#fn caller ((owner (#ref-mut Container))) (#ref Resource)
@@ -14822,7 +14853,7 @@ mod typed_ownership_tests {
                      (#struct-literal Nested ((views (#struct-literal Views
                        ((left (#borrow (#get owner item)))
                         (right (#borrow (#get owner other))))))))))))
-                   (#let view (#ref Outer) (#borrow outer))
+                   (#let view ({reference} Outer) ({borrow} outer))
                    (#let loaded Views (#call forward (: outer view)))
                    (#let result (#ref Resource) (#get loaded left))
                    (#drop view) (#forget outer) {destruction}

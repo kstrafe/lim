@@ -370,8 +370,10 @@ reference fields of the loaded value. Each field remains tied to its original
 input slot through function returns and caller substitution, rather than to
 the address of the container. A shared container cannot grant exclusive
 access through a stored mutable reference. See `examples/borrowed_whole_load.lim`.
-This provenance rule does not supply a parameter `#pin-read` move/restore
-contract or prove variant-conditioned async frame accesses.
+Parameter `#pin-read` loads preserve those retained value slots as well;
+see `examples/pinned_parameter_load.lim`. This provenance rule does not
+supply a complete parameter move/restore contract or prove variant-conditioned
+async frame accesses. The operation remains unsafe.
 
 This local rule does not establish complete contracts for parameter-loaded
 frames, projected/ambiguous storage, or lifetime-anchored raw pointers. Those
