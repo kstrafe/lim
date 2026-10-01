@@ -10143,6 +10143,89 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_initializer_entry_checks_every_ambiguous_destination() {
+        for both in [false, true] {
+            let consume_right = if both { "(#forget (#deref right))" } else { "" };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource))) ()
+                (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+              (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (choice bool)) ()
+                (#let target (#ref-mut Resource) (#if choice left right))
+                (#forget (#deref left)) {consume_right}
+                (#call initialize (: value target)) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let callee = &declarations.bodies["initialize"];
+            let required = declarations.flows["initialize"]
+                .infer_direct_referent_consumed_entry(callee, &types, &declarations)
+                .unwrap();
+            let body = &declarations.bodies["caller"];
+            let flow = &declarations.flows["caller"];
+            let (event, call) = flow
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
+                        return None;
+                    };
+                    if matches!(
+                        body.nodes[value.0].kind,
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(_),
+                            ..
+                        }
+                    ) {
+                        Some((crate::typed_flow::FlowNodeId(index), value))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            let (mapped, unknown) =
+                flow.map_referent_call_consumed_entry(body, event, call, callee, &required);
+            assert!(!unknown);
+            assert_eq!(mapped.len(), 2);
+            for parameter in [0, 1] {
+                assert!(mapped.iter().any(|place| place.root
+                    == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(
+                        parameter
+                    ))));
+            }
+            let calls = [(event, Vec::new(), false)];
+            let unknown_result = flow.check_referent_call_consumed_entry(
+                body,
+                &types,
+                &calls,
+                &[],
+                &[(event, mapped.clone(), true)],
+            );
+            assert!(
+                unknown_result.is_err(),
+                "unknown targets cannot establish an entry proof"
+            );
+            let result = flow.check_referent_call_consumed_entry(
+                body,
+                &types,
+                &calls,
+                &[],
+                &[(event, mapped, unknown)],
+            );
+            assert_eq!(result.is_ok(), both);
+            if !both {
+                let span = result.unwrap_err().span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#call initialize (: value target))"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn staged_initializer_calls_require_consumed_caller_storage() {
         for consumed in [false, true] {
             let forget = if consumed {
