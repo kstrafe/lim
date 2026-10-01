@@ -9723,6 +9723,28 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_effects_separate_input_slots_from_referent_projections() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+          (#fn inspect ((pair Pair)) ()
+            (#let target (#ref-mut Resource) (#get pair left))
+            (#forget (#deref target)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let effects = declarations.flows["inspect"].referent_function_effects(
+            &declarations.bodies["inspect"],
+            &crate::linearcheck::LinearTypes::from_program(&program),
+        );
+        assert_eq!(effects.effects.len(), 1);
+        let effect = &effects.effects[0];
+        assert!(
+            matches!(effect.input_storage.as_deref(), Some([crate::typed_place::Segment::Field(field)]) if field.index == 0)
+        );
+        assert!(effect.referent_projection.is_empty());
+        assert!(effect.definitely_consumed);
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};

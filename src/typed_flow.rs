@@ -162,6 +162,8 @@ pub(crate) struct FlowConsumptions {
 #[derive(Debug)]
 pub(crate) struct ReferentExitEffect {
     pub place: Place,
+    pub input_storage: Option<Vec<Segment>>,
+    pub referent_projection: Vec<Segment>,
     pub definitely_consumed: bool,
     pub consumption_spans: Vec<Option<Span>>,
 }
@@ -1045,10 +1047,16 @@ impl FlowGraph {
                     .filter(|(place, _)| {
                         matches!(place.root, PlaceRoot::Parameter(_) | PlaceRoot::Global(_))
                     })
-                    .map(|(place, spans)| ReferentExitEffect {
-                        place: place.clone(),
-                        definitely_consumed: moves.definitely_consumed_before(event, place),
-                        consumption_spans: spans.clone(),
+                    .map(|(place, spans)| {
+                        let (input_storage, referent_projection) =
+                            split_referent_effect_place(body, place);
+                        ReferentExitEffect {
+                            place: place.clone(),
+                            input_storage,
+                            referent_projection,
+                            definitely_consumed: moves.definitely_consumed_before(event, place),
+                            consumption_spans: spans.clone(),
+                        }
                     })
                     .collect();
                 let mut ancestors = HashSet::new();
@@ -1114,8 +1122,12 @@ impl FlowGraph {
                         }
                     }
                 }
+                let (input_storage, referent_projection) =
+                    split_referent_effect_place(body, &place);
                 ReferentExitEffect {
                     place,
+                    input_storage,
+                    referent_projection,
                     definitely_consumed,
                     consumption_spans,
                 }
@@ -2932,6 +2944,27 @@ impl FlowGraph {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+fn split_referent_effect_place(body: &Body, place: &Place) -> (Option<Vec<Segment>>, Vec<Segment>) {
+    let PlaceRoot::Parameter(binding) = place.root else {
+        return (None, place.segments.clone());
+    };
+    let slot = body
+        .parameter_loan_slots
+        .get(binding.0)
+        .into_iter()
+        .flatten()
+        .filter(|slot| place.segments.starts_with(&slot.storage))
+        .max_by_key(|slot| slot.storage.len());
+    match slot {
+        Some(slot) => (
+            Some(slot.storage.clone()),
+            place.segments[slot.storage.len()..].to_vec(),
+        ),
+        None => (None, place.segments.clone()),
     }
 }
 
