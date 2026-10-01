@@ -9692,6 +9692,37 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_function_effects_intersect_all_normal_returns() {
+        for (early_cleanup, definite) in [("", false), ("(#forget (#deref reference))", true)] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn inspect ((reference (#ref-mut Resource)) (choice bool)) ()
+                (#if choice (#block {early_cleanup} (#return ())) ())
+                (#forget (#deref reference)) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let summary = declarations.flows["inspect"].referent_function_effects(
+                &declarations.bodies["inspect"],
+                &crate::linearcheck::LinearTypes::from_program(&program),
+            );
+            assert!(summary.has_normal_return);
+            assert!(summary.unresolved.is_empty());
+            assert_eq!(summary.effects.len(), 1);
+            assert_eq!(summary.effects[0].definitely_consumed, definite);
+        }
+        let program =
+            crate::parse_program("(#fn diverge () () (#unreachable) (#return ()))").unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let summary = declarations.flows["diverge"].referent_function_effects(
+            &declarations.bodies["diverge"],
+            &crate::linearcheck::LinearTypes::from_program(&program),
+        );
+        assert!(!summary.has_normal_return);
+        assert!(summary.effects.is_empty());
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};

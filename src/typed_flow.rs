@@ -166,6 +166,14 @@ pub(crate) struct ReferentExitEffect {
     pub consumption_spans: Vec<Option<Span>>,
 }
 
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct ReferentFunctionEffects {
+    pub has_normal_return: bool,
+    pub effects: Vec<ReferentExitEffect>,
+    pub unresolved: Vec<FlowNodeId>,
+}
+
 impl FlowConsumptions {
     #[cfg(test)]
     pub fn unresolved_nodes(&self) -> &HashSet<FlowNodeId> {
@@ -1060,6 +1068,64 @@ impl FlowGraph {
                 Some((event, effects, unresolved))
             })
             .collect()
+    }
+
+    #[cfg(test)]
+    pub fn referent_function_effects(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+    ) -> ReferentFunctionEffects {
+        let exits = self.referent_exit_effects(body, types);
+        let mut places = Vec::new();
+        let mut unresolved = Vec::new();
+        for (_, effects, unknown) in &exits {
+            for effect in effects {
+                if !places.contains(&effect.place) {
+                    places.push(effect.place.clone());
+                }
+            }
+            for event in unknown {
+                if !unresolved.contains(event) {
+                    unresolved.push(*event);
+                }
+            }
+        }
+        places.sort_by_key(|place| format!("{place:?}"));
+        unresolved.sort_by_key(|event| event.0);
+        let effects = places
+            .into_iter()
+            .map(|place| {
+                let definitely_consumed = exits.iter().all(|(_, effects, _)| {
+                    effects.iter().any(|effect| {
+                        effect.definitely_consumed && place_covers(&effect.place, &place)
+                    })
+                });
+                let mut consumption_spans = Vec::new();
+                for (_, effects, _) in &exits {
+                    for effect in effects
+                        .iter()
+                        .filter(|effect| effect.place.overlaps(&place))
+                    {
+                        for span in &effect.consumption_spans {
+                            if !consumption_spans.contains(span) {
+                                consumption_spans.push(*span);
+                            }
+                        }
+                    }
+                }
+                ReferentExitEffect {
+                    place,
+                    definitely_consumed,
+                    consumption_spans,
+                }
+            })
+            .collect();
+        ReferentFunctionEffects {
+            has_normal_return: !exits.is_empty(),
+            effects,
+            unresolved,
+        }
     }
 
     fn consumptions_with_origins(
