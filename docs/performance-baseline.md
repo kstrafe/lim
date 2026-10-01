@@ -685,3 +685,27 @@ async regression are too small to establish a general timing improvement.
 The deterministic benefit is eliminating one whole-program AST copy and its
 allocations. All 835 library tests, 183 async tests, and enabled integrations
 pass; four preexisting integrations remain ignored.
+
+## Eliminate the duplicate branch-join context copy
+
+Branch merging now borrows the original context for membership checks and
+clones it only once to construct the independently owned result. Previously
+it copied every loan and provenance table twice. Join equations, labels,
+thread state, and independently owned branch mutations are unchanged.
+
+Baseline: ce594b2. Warm release CLI runs, two warmups, no concurrent builds
+or tests. Compared executables are byte-identical:
+
+| Workload | Samples per compiler | Before median | After median |
+| --- | ---: | ---: | ---: |
+| Snapshot-heavy, baseline first | 30 | 321.91 ms | 308.87 ms |
+| Snapshot-heavy, optimized first | 40 | 331.33 ms | 322.52 ms |
+| async_fn, baseline first | 40 | 50.89 ms | 51.77 ms |
+| Reference-heavy, baseline first | 40 | 38.89 ms | 39.44 ms |
+
+The branch-heavy workload improves by 4.1% and 2.7% in opposite measurement
+orders. Async and reference-heavy medians regress by 1.7% and 1.4%; large
+outliers (up to 2.7 seconds) indicate host scheduling noise, so no universal
+speedup is claimed. Removing one complete context copy per branch merge is
+deterministic. All 835 library tests, 183 async tests, and enabled integrations
+pass; four preexisting integrations remain ignored.

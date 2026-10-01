@@ -2364,7 +2364,9 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
 /// borrow. Shared-loan counts use the maximum branch count because branches
 /// are mutually exclusive.
 fn merge_branch_context(context: &mut Context, branches: &[Context]) {
-    let base = context.clone();
+    // The original state is only queried while building the independent join.
+    // Borrow it instead of cloning every loan/provenance table a second time.
+    let base = &*context;
     let mut merged = base.clone();
     merged.loans.active.clear();
     merged.loans.origins.clear();
