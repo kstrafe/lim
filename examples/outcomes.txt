@@ -370,3 +370,4 @@ exit 42 pinned_aggregate_load.lim - -
 exit 42 pinned_local_move.lim - -
 exit 42 borrowed_whole_load.lim - -
 exit 42 pinned_parameter_load.lim - -
+exit 42 borrowed_variant.lim - -

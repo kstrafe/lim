@@ -12231,6 +12231,121 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn borrowed_owned_variants_exclude_only_proven_inactive_payload_reads() {
+        for opaque in [false, true] {
+            let mutation = if opaque {
+                "(#call touch (: target (#borrow-mut choice)))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#enum Choice ((Empty) (Full (#ref u64))))
+                (#fn read (: source (#ref Choice)) u64
+                  (#return (#match (#deref source)
+                    (#case (Empty) 0u64)
+                    (#case (Full value) (#deref value)))))
+                (#fn touch (: target (#ref-mut Choice)) () (#return ()))
+                (#fn caller () u64
+                  (#let-mut choice Choice (Empty)) {mutation}
+                  (#let borrowed (#ref Choice) (#borrow choice))
+                  (#let result u64 (#call read (: source borrowed)))
+                  (#drop borrowed) (#forget choice) (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let (reads, unresolved) =
+                declarations.flows["read"].referent_reads(&declarations.bodies["read"]);
+            assert!(unresolved.is_empty());
+            assert!(reads
+                .iter()
+                .any(|read| read.input_storage.as_ref().is_some_and(|path| path
+                    .iter()
+                    .any(|slot| matches!(slot, crate::typed_place::Segment::Payload(_, _))))));
+            let body = &declarations.bodies["caller"];
+            let flow = &declarations.flows["caller"];
+            let read = declarations.function_id("read").unwrap();
+            let (event, call) = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Evaluate(call) = node.action else { return None; };
+                matches!(&body.nodes[call.0].kind, crate::typed_body::NodeKind::Form { callee: Some(found), .. } if *found == read)
+                    .then_some((crate::typed_flow::FlowNodeId(index), call))
+            }).unwrap();
+            let (mapped, unknown) = flow.map_referent_call_reads(body, event, call, &reads);
+            assert_eq!(
+                unknown, opaque,
+                "opaque mutation must invalidate the variant proof"
+            );
+            assert!(
+                mapped.iter().all(|read| read.place.segments.is_empty()),
+                "the container read remains, but no payload pointee is fabricated"
+            );
+            if !opaque {
+                declarations
+                    .staged_referent_entry_contracts(
+                        &crate::linearcheck::LinearTypes::from_program(&program),
+                    )
+                    .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn indirect_variant_writes_require_one_actual_local_destination() {
+        let program = crate::parse_program(
+            "(#enum Choice ((Empty) (Full u64)))
+            (#fn inspect (: selected bool) ()
+              (#let-mut left Choice (Empty)) (#let-mut right Choice (Empty))
+              (#let target (#ref-mut Choice)
+                (#if selected (#borrow-mut left) (#borrow-mut right)))
+              (#deref-set target (Full 1u64)) (#drop target)
+              (#let uncertain Choice left)
+              (#set left (Empty))
+              (#let pinned (#pin-ref-mut Choice) (#pin-borrow-mut left))
+              (#unsafe (#pin-write pinned (Full 2u64))) (#drop pinned)
+              (#let after-pin Choice left)
+              (#let exact (#ref-mut Choice) (#borrow-mut right))
+              (#deref-set exact (Empty)) (#drop exact)
+              (#let after-exact Choice right)
+              (#forget left) (#forget right) (#return ()))",
+        )
+        .unwrap();
+        crate::check_types(&program).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let facts = flow.variant_facts(body);
+        let binding = |name: &str| {
+            crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == name)
+                    .unwrap(),
+            )
+        };
+        for (site, owner, variant) in [
+            ("uncertain", "left", None),
+            ("after-pin", "left", Some("Full")),
+            ("after-exact", "right", Some("Empty")),
+        ] {
+            let index = flow.nodes.iter().position(|node| matches!(node.action,
+                crate::typed_flow::FlowAction::Bind { binding: found, .. } if found == binding(site))).unwrap();
+            let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Local(
+                binding(owner),
+            ));
+            let expected = variant.map(|name| {
+                declarations
+                    .variant_id(&crate::Type::Named("Choice".into()), name)
+                    .unwrap()
+            });
+            assert_eq!(
+                facts[index].as_ref().unwrap().get(&place).copied(),
+                expected,
+                "{site}"
+            );
+        }
+    }
+
+    #[test]
     fn repeated_array_call_slots_retain_alternatives_and_reject_missing_elements() {
         let source = "(#fn read ((values (#array (#ref u64) 2))) u64
               (#return (#deref (#index values 1usize))))
@@ -14235,6 +14350,7 @@ mod typed_ownership_tests {
             "pinned_local_move",
             "borrowed_whole_load",
             "pinned_parameter_load",
+            "borrowed_variant",
             "pinned_linear_replacement",
             "async_fn",
         ] {

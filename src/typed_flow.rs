@@ -724,9 +724,19 @@ fn display_linear_place(body: &Body, place: &Place) -> String {
 
 impl FlowGraph {
     /// Must-known enum constructors in owned storage. This staged table does
-    /// not infer callee restoration or aliases through borrowed storage.
+    /// not infer callee restoration. Borrowed writes require one exact,
+    /// concrete local target from the actual loan snapshots.
     #[cfg(test)]
     pub fn variant_facts(&self, body: &Body) -> Vec<Option<HashMap<Place, VariantId>>> {
+        self.variant_facts_with_origins(body, &self.loan_origins(body))
+    }
+
+    #[cfg(test)]
+    fn variant_facts_with_origins(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> Vec<Option<HashMap<Place, VariantId>>> {
         let mut before = vec![None; self.nodes.len()];
         before[self.entry.0] = Some(HashMap::new());
         let mut pending = VecDeque::from([self.entry]);
@@ -777,6 +787,41 @@ impl FlowGraph {
                         !matches!(place.root,
                         PlaceRoot::Local(binding) if bindings.contains(&binding))
                     });
+                }
+                FlowAction::Write { value, .. } | FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, children, .. }
+                        if matches!(head.as_str(), "deref-set" | "pin-write") && children.len() == 3) =>
+                {
+                    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                        unreachable!()
+                    };
+                    let targets = origins.value_before(body, self, event, children[1]);
+                    let exact = targets.first().filter(|first| {
+                        matches!(first.place.root, PlaceRoot::Local(_))
+                            && !first.place.segments.iter().any(|segment| {
+                                matches!(
+                                    segment,
+                                    Segment::DynamicIndex | Segment::SliceDynamicIndex
+                                )
+                            })
+                            && targets.iter().all(|target| {
+                                target.mutable
+                                    && !target.lifetime_only
+                                    && target.storage.is_empty()
+                                    && target.place == first.place
+                            })
+                    });
+                    if let Some(target) = exact {
+                        let incoming = value_variant_facts(body, children[2], &state);
+                        state.retain(|place, _| !target.place.overlaps(place));
+                        for (place, variant) in incoming {
+                            let mut destination = target.place.clone();
+                            destination.segments.extend(place.segments);
+                            state.insert(destination, variant);
+                        }
+                    } else {
+                        state.clear();
+                    }
                 }
                 FlowAction::Write { .. } => state.clear(),
                 FlowAction::Evaluate(value)
@@ -1847,7 +1892,11 @@ impl FlowGraph {
                         .any(|segment| matches!(segment, Segment::Payload(_, _)))
                 })
             })
-            .then(|| origins.variants.get_or_init(|| self.variant_facts(body)));
+            .then(|| {
+                origins
+                    .variants
+                    .get_or_init(|| self.variant_facts_with_origins(body, origins))
+            });
         for effect in &summary.effects {
             let mut places = Vec::new();
             let mut incomplete = false;
