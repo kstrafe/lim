@@ -3338,6 +3338,23 @@ impl FlowGraph {
     }
 
     #[cfg(test)]
+    pub fn map_initialized_referent_call_reads_with_origins(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        reads: &[ReferentRead],
+        origins: &FlowLoanOrigins,
+    ) -> (Vec<ReferentRead>, bool) {
+        // An explicitly unsafe pointer borrow promises a valid initialized
+        // reference, but its tracked owner is only a lifetime anchor. Discharge
+        // ordinary reads at that boundary without inventing a physical place.
+        // Do not use this adapter for consumed-entry, consumption, restoration,
+        // or nested referent contents: those require actual referent identities.
+        self.map_referent_call_reads_with_unsafe_boundary(body, event, call, reads, origins, true)
+    }
+
+    #[cfg(test)]
     pub fn map_referent_call_reads_with_origins(
         &self,
         body: &Body,
@@ -3345,6 +3362,19 @@ impl FlowGraph {
         call: NodeId,
         reads: &[ReferentRead],
         origins: &FlowLoanOrigins,
+    ) -> (Vec<ReferentRead>, bool) {
+        self.map_referent_call_reads_with_unsafe_boundary(body, event, call, reads, origins, false)
+    }
+
+    #[cfg(test)]
+    fn map_referent_call_reads_with_unsafe_boundary(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        reads: &[ReferentRead],
+        origins: &FlowLoanOrigins,
+        initialized_unsafe_reads: bool,
     ) -> (Vec<ReferentRead>, bool) {
         // Reuse storage/slot substitution, not consumption transfer. The
         // adapter is private and its result is converted back to read facts.
@@ -3378,8 +3408,14 @@ impl FlowGraph {
             effects_from_consumed_entry: Vec::new(),
             variant_exits: HashMap::new(),
         };
-        let (mapped, unknown) =
-            self.map_referent_call_effects_with_origins(body, event, call, &summary, origins);
+        let (mapped, unknown) = self.map_referent_call_effects_with_unsafe_boundary(
+            body,
+            event,
+            call,
+            &summary,
+            origins,
+            initialized_unsafe_reads,
+        );
         let reads = mapped
             .into_iter()
             .map(|mapped| ReferentRead {
@@ -3415,6 +3451,21 @@ impl FlowGraph {
         summary: &ReferentFunctionEffects,
         origins: &FlowLoanOrigins,
     ) -> (Vec<ReferentExitEffect>, bool) {
+        self.map_referent_call_effects_with_unsafe_boundary(
+            body, event, call, summary, origins, false,
+        )
+    }
+
+    #[cfg(test)]
+    fn map_referent_call_effects_with_unsafe_boundary(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        summary: &ReferentFunctionEffects,
+        origins: &FlowLoanOrigins,
+        initialized_unsafe_reads: bool,
+    ) -> (Vec<ReferentExitEffect>, bool) {
         let NodeKind::Form { children, .. } = &body.nodes[call.0].kind else {
             return (Vec::new(), true);
         };
@@ -3436,6 +3487,7 @@ impl FlowGraph {
             });
         for effect in &summary.effects {
             let mut places = Vec::new();
+            let mut unsafe_initialized = false;
             let mut incomplete = false;
             let mut inactive = false;
             let mut conditional = false;
@@ -3486,6 +3538,17 @@ impl FlowGraph {
                             let mut selected_alternative = false;
                             let mut inactive_alternative = false;
                             for source in sources {
+                                if initialized_unsafe_reads
+                                    && !effect.definitely_consumed
+                                    && selected_slot.is_empty()
+                                    && !effect.referent_projection.contains(&Segment::Dereference)
+                                    && source.lifetime_only
+                                    && source.storage.is_empty()
+                                {
+                                    unsafe_initialized = true;
+                                    selected_alternative = true;
+                                    continue;
+                                }
                                 if selected_slot.first() == Some(&Segment::Dereference)
                                     && selected_slot[1..]
                                         .iter()
@@ -3564,7 +3627,7 @@ impl FlowGraph {
                 }
                 _ => incomplete = true,
             }
-            if places.is_empty() && !inactive {
+            if places.is_empty() && !inactive && !unsafe_initialized {
                 incomplete = true;
             }
             let definite = effect.definitely_consumed

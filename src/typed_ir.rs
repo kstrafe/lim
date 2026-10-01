@@ -278,7 +278,7 @@ pub(crate) struct FunctionDeclaration {
 }
 
 #[cfg(test)]
-fn referent_free_abi_scalar(ty: &Type) -> bool {
+fn referent_free_abi_value(ty: &Type) -> bool {
     matches!(
         ty,
         Type::Unit
@@ -298,6 +298,7 @@ fn referent_free_abi_scalar(ty: &Type) -> bool {
             | Type::Usize
             | Type::F32
             | Type::F64
+            | Type::RawPointer { .. }
     )
 }
 
@@ -825,7 +826,7 @@ impl Declarations {
     }
 
     /// Staged ownership summaries over the complete acyclic body call graph.
-    /// Opaque pointer/reference-bearing external bodies remain unresolved.
+    /// Opaque checked-reference-bearing external bodies remain unresolved.
     #[cfg(test)]
     pub fn staged_referent_function_effects(
         &self,
@@ -908,17 +909,17 @@ impl Declarations {
             .collect::<HashMap<_, _>>();
         let mut summaries = HashMap::new();
         // This is a referent contract, not a purity claim about unsafe code.
-        // A scalar-only external ABI has no typed parameter referents to read,
-        // consume, restore, or return. Pointer/reference-bearing boundaries
-        // still need an explicit contract; an unavailable body proves nothing
-        // about their initialization or provenance.
+        // Scalars and raw pointers carry no checked parameter referents. Raw
+        // memory validity remains the caller's explicit unsafe obligation;
+        // these summaries cannot initialize storage or manufacture safe loans.
+        // Checked-reference-bearing boundaries still require a real contract.
         for (name, id) in &self.function_ids {
             let signature = &self.functions[id.0].signature;
             if self.external_function_ids.contains(id)
                 && !self.bodies.contains_key(name)
                 && signature.type_parameters.is_empty()
-                && signature.parameters.iter().all(referent_free_abi_scalar)
-                && referent_free_abi_scalar(&signature.return_type)
+                && signature.parameters.iter().all(referent_free_abi_value)
+                && referent_free_abi_value(&signature.return_type)
             {
                 summaries.insert(
                     *id,
@@ -1064,16 +1065,17 @@ impl Declarations {
                                     restorations.push((event, mapped));
                                 }
                             }
-                            let (mapped, unknown) = flow.map_referent_call_reads_with_origins(
-                                body,
-                                event,
-                                value,
-                                &summary.reads,
-                                &origins,
-                            );
+                            let (mapped, unknown) = flow
+                                .map_initialized_referent_call_reads_with_origins(
+                                    body,
+                                    event,
+                                    value,
+                                    &summary.reads,
+                                    &origins,
+                                );
                             call_reads.extend(mapped);
                             let (entry_reads, entry_unknown) = flow
-                                .map_referent_call_reads_with_origins(
+                                .map_initialized_referent_call_reads_with_origins(
                                     body,
                                     event,
                                     value,

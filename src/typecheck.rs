@@ -18142,13 +18142,6 @@ mod typed_ownership_tests {
     fn staged_opaque_external_boundaries_remain_unresolved_at_call_site() {
         for (parameters, return_type, caller_parameters, arguments) in [
             (
-                "((pointer (#ptr u64)))",
-                "u64",
-                "((pointer (#ptr u64)))",
-                ": pointer pointer",
-            ),
-            ("()", "(#ptr-mut u64)", "()", ""),
-            (
                 "((value (#ref u64)))",
                 "u64",
                 "((value (#ref u64)))",
@@ -18183,6 +18176,196 @@ mod typed_ownership_tests {
             );
             let span = conflict.span.unwrap();
             assert_eq!(&source[span.start..span.end], call);
+        }
+    }
+
+    #[test]
+    fn staged_raw_pointer_external_boundary_does_not_restore_consumed_referents() {
+        let source = "(#struct Resource ((value u64))) (#linear Resource)
+            (#extern-fn #abi-c touch ((address (#ptr-mut Resource))) ())
+            (#fn inspect ((target (#ref-mut Resource)) (address (#ptr-mut Resource))) u64
+              (#forget (#deref target))
+              (#unsafe (#call touch (: address address)))
+              (#return (#get target value)))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert_eq!(function, "inspect");
+        assert!(
+            conflict.message.contains("used more than once"),
+            "{conflict:?}"
+        );
+        assert!(!conflict.message.contains("unresolved call inputs"));
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#get target value)");
+        assert!(conflict
+            .labels
+            .iter()
+            .any(|(span, _)| &source[span.start..span.end] == "(#forget (#deref target))"));
+    }
+
+    #[test]
+    fn staged_unsafe_pointer_borrow_reads_do_not_invent_physical_places() {
+        let source = "(#struct Resource ((value u64))) (#linear Resource)
+            (#fn read ((value (#ref Resource))) u64 (#return (#get value value)))
+            (#fn inspect ((anchor (#ref Resource)) (address (#ptr Resource))) u64
+              (#return (#call read (: value (#unsafe (#ptr-borrow anchor address))))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let reads = &summaries[&declarations.function_id("read").unwrap()].entry_reads;
+        assert!(!reads.is_empty());
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let read = declarations.function_id("read").unwrap();
+        let (event, call) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
+                    return None;
+                };
+                matches!(&body.nodes[value.0].kind,
+                crate::typed_body::NodeKind::Form { callee: Some(callee), .. } if *callee == read)
+                .then_some((crate::typed_flow::FlowNodeId(index), value))
+            })
+            .unwrap();
+        let origins = flow.loan_origins(body);
+        let (physical, unknown) =
+            flow.map_referent_call_reads_with_origins(body, event, call, reads, &origins);
+        assert!(physical.is_empty() && unknown);
+        let (physical, unknown) = flow
+            .map_initialized_referent_call_reads_with_origins(body, event, call, reads, &origins);
+        assert!(physical.is_empty() && !unknown);
+        // A type schema alone cannot fabricate the actual unsafe borrow's
+        // lifetime anchor. The special read boundary needs a real input loan.
+        declarations
+            .bodies
+            .get_mut("inspect")
+            .unwrap()
+            .parameter_loan_slots[0]
+            .clear();
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert_eq!(function, "inspect");
+        assert!(conflict.message.contains("unresolved call inputs"));
+        let span = conflict.span.unwrap();
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#call read (: value (#unsafe (#ptr-borrow anchor address))))"
+        );
+    }
+
+    #[test]
+    fn staged_mixed_unsafe_and_physical_read_inputs_keep_physical_requirements() {
+        let call = "(#call read (: value (#if choose (#unsafe (#ptr-borrow anchor (#clone address))) other)))";
+        let source = format!(
+            "(#struct Resource ((value u64))) (#linear Resource)
+            (#fn read ((value (#ref Resource))) u64 (#return (#get value value)))
+            (#fn inspect ((anchor (#ref Resource)) (other (#ref Resource))
+                          (address (#ptr Resource)) (choose bool)) u64
+              (#let result u64 {call}) (#forget address) (#return result))"
+        );
+        let program = crate::parse_program(&source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("inspect").unwrap()];
+        assert!(summary.entry_reads.iter().any(|read| read.place.root
+            == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(1))));
+        assert!(!summary.entry_reads.iter().any(|read| read.place.root
+            == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))));
+        declarations
+            .bodies
+            .get_mut("inspect")
+            .unwrap()
+            .parameter_loan_slots[1]
+            .clear();
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert_eq!(function, "inspect");
+        assert!(
+            conflict.message.contains("unresolved call inputs"),
+            "{conflict:?}"
+        );
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], call);
+    }
+
+    #[test]
+    fn staged_unsafe_pointer_borrow_cannot_prove_consumption_or_restoration() {
+        for operation in [
+            "(#forget (#deref value))",
+            "(#deref-set value (#struct-literal Resource ((value 42u64))))",
+        ] {
+            let call = "(#call operate (: value (#unsafe (#ptr-borrow-mut anchor address))))";
+            let source = format!(
+                "(#struct Resource ((value u64))) (#linear Resource)
+                (#fn operate ((value (#ref-mut Resource))) () {operation} (#return ()))
+                (#fn inspect ((anchor (#ref-mut Resource)) (address (#ptr-mut Resource))) ()
+                  {call} (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let error = declarations
+                .staged_contents_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert_eq!(function, "inspect");
+            assert!(
+                conflict.message.contains("unresolved call inputs"),
+                "{conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert_eq!(&source[span.start..span.end], call);
+        }
+    }
+
+    #[test]
+    fn staged_raw_pointer_external_boundaries_preserve_allocator_program() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/vec_allocator.lim");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let program = crate::parse_program_from_path(&source, &path).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        for name in ["malloc", "realloc", "free"] {
+            let summary = &summaries[&declarations.function_id(name).unwrap()];
+            assert!(summary.has_normal_return);
+            assert!(summary.effects.is_empty());
+            assert!(summary.reads.is_empty());
+            assert!(summary.consumed_entry.is_empty());
+            assert!(summary.restored_from_consumed_entry.is_empty());
+            assert!(summary.variant_exits.is_empty());
         }
     }
 
