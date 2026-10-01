@@ -10143,6 +10143,43 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_direct_body_validation_distinguishes_referent_entry_states() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn initialize ((value (#ref-mut Resource))) ()
+            (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+          (#fn consume ((value (#ref-mut Resource))) ()
+            (#forget (#deref value)) (#return ()))
+          (#fn read ((value (#ref-mut Resource))) u64 (#return (#get value number)))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let consumed = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+            crate::typed_body::BindingId(0),
+        ));
+        for name in ["initialize", "consume", "read"] {
+            let body = &declarations.bodies[name];
+            let flow = &declarations.flows[name];
+            assert_eq!(
+                flow.check_referent_body_from_entry(body, &types, &declarations, &[])
+                    .is_ok(),
+                name != "initialize",
+                "initialized entry: {name}"
+            );
+            assert_eq!(
+                flow.check_referent_body_from_entry(
+                    body,
+                    &types,
+                    &declarations,
+                    &[consumed.clone()]
+                )
+                .is_ok(),
+                name == "initialize",
+                "consumed entry: {name}"
+            );
+        }
+    }
+
+    #[test]
     fn staged_call_entry_conflicts_survive_missing_consumption_spans() {
         for read_only in [false, true] {
             let next = if read_only {

@@ -2303,6 +2303,29 @@ impl FlowGraph {
         self.check_linear_consumptions_with_origins(body, &moves, Some(&origins))
     }
 
+    /// Direct-body validation under specified referent entry assumptions.
+    /// This does not infer or validate interprocedural entry/exit contracts.
+    #[cfg(test)]
+    pub fn check_referent_body_from_entry(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+        entry_consumed: &[Place],
+    ) -> Result<(), ReleaseConflict> {
+        let origins = self.loan_origins(body);
+        let moves = self.consumptions_with_origins_and_calls(
+            body,
+            types,
+            Some(&origins),
+            None,
+            entry_consumed,
+        );
+        self.check_referent_consumption_permissions_with_moves(body, types, &moves)?;
+        self.check_linear_consumptions_with_origins(body, &moves, Some(&origins))?;
+        self.check_referent_replacements_with_facts(body, types, declarations, &origins, &moves)
+    }
+
     fn check_linear_consumptions_with_origins(
         &self,
         body: &Body,
