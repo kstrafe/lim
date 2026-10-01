@@ -10143,6 +10143,32 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_read_facts_separate_input_slots_from_referent_fields() {
+        for (slot, index) in [("left", 0), ("right", 1)] {
+            let source = format!(
+                "(#struct Resource ((number u64)))
+              (#struct Pair ((left (#ref Resource)) (right (#ref Resource))))
+              (#fn inspect ((pair Pair)) u64
+                (#let selected (#ref Resource) (#get pair {slot}))
+                (#return (#get selected number)))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let (reads, unresolved) =
+                declarations.flows["inspect"].referent_reads(&declarations.bodies["inspect"]);
+            assert!(unresolved.is_empty());
+            assert_eq!(reads.len(), 1);
+            let read = &reads[0];
+            assert!(matches!(read.input_storage.as_deref(),
+                Some([crate::typed_place::Segment::Field(field)]) if field.index == index));
+            assert!(matches!(read.referent_projection.as_slice(),
+                [crate::typed_place::Segment::Field(field)] if field.index == 0));
+            let span = read.span.unwrap();
+            assert_eq!(&source[span.start..span.end], "(#get selected number)");
+        }
+    }
+
+    #[test]
     fn staged_read_only_referent_access_is_independent_of_consumption() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn inspect ((value (#ref Resource))) u64
