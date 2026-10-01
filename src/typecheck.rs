@@ -10130,6 +10130,37 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_whole_program_replacement_preserves_ambiguous_call_targets() {
+        for (consumption, accepted) in [
+            ("(#let target (#ref-mut Resource) (#if choice (#borrow-mut left) (#borrow-mut right))) (#call consume (: value target))", false),
+            ("(#call consume (: value (#borrow-mut left))) (#call consume (: value (#borrow-mut right)))", true),
+        ] {
+            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+              (#fn consume ((value (#ref-mut Resource))) ()
+                (#forget (#deref value)) (#return ()))
+              (#fn replace ((choice bool)) ()
+                (#let-mut left Resource (#struct-literal Resource ((number 1u64))))
+                (#let-mut right Resource (#struct-literal Resource ((number 2u64))))
+                {consumption}
+                (#deref-set (#borrow-mut left) (#struct-literal Resource ((number 3u64))))
+                (#forget left) (#return ()))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_validate_referent_replacements(&types);
+            assert_eq!(result.is_ok(), accepted, "{consumption}");
+            if !accepted {
+                let crate::typed_ir::StagedReferentError::Replacement { function, conflict } =
+                    result.unwrap_err() else { panic!("expected replacement conflict") };
+                assert_eq!(function, "replace");
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end],
+                    "(#deref-set (#borrow-mut left) (#struct-literal Resource ((number 3u64))))");
+            }
+        }
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
