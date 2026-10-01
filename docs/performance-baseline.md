@@ -483,3 +483,37 @@ samples per compiler, after tests:
 Executable bytes were identical throughout. These small, mixed timing changes
 do not demonstrate a general latency improvement. The guaranteed reduction
 is temporary allocations and vector-header storage, not peak process RSS.
+
+## Indexed loan snapshot queries (2026-10-01)
+
+Published loan facts now retain the dense expression-to-event index already
+built for snapshot dependencies. `value_before` selects candidate evaluation
+events from this index instead of scanning every flow event for each result
+alternative, including alternatives in loop breaks. The original action and
+reachability filters and ascending event order remain unchanged. A differential
+regression compares indexed membership/order with exhaustive scans for every
+expression in the branch and loop fixtures. Internal recursive solver queries
+still scan events; this change does not eliminate those scans.
+
+No additional index construction is introduced, but the previously temporary
+index remains allocated for the lifetime of published loan facts. This trades
+retained memory for fewer event comparisons, not an allocation-count reduction.
+All 777 library tests and enabled integration/native/UI tests pass; four
+existing integration tests remain ignored.
+
+Warm end-to-end release compilation, including native linking, with 80 samples
+per compiler after tests and three warmups. The first three workloads alternate
+before/after order each iteration; reference-heavy uses the existing sequential
+benchmark script with two warmups:
+
+| Workload | Before median | After median | Change |
+| --- | ---: | ---: | ---: |
+| async_fn | 45.21 ms | 45.37 ms | 0.3% slower |
+| vec_allocator | 33.40 ms | 33.21 ms | 0.5% faster |
+| callee_variant_branch_clear | 3.32 ms | 3.28 ms | 1.3% faster |
+| Reference-heavy | 38.03 ms | 38.62 ms | 1.5% slower |
+
+Executable bytes are identical for all workloads. These small, mixed results
+do not establish a general wall-clock speedup. The deterministic improvement
+is candidate lookup proportional to matching events rather than the entire
+control-flow graph for each published snapshot query.

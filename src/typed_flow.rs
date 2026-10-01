@@ -272,6 +272,9 @@ pub(crate) struct FlowLoanOrigins {
     variants: std::cell::OnceCell<Vec<Option<HashMap<Place, VariantId>>>>,
     before: Vec<Option<LoanState>>,
     after: Vec<Option<LoanState>>,
+    // Reuse the solver's dense, source-ordered snapshot dependency index.
+    // Break events also occur here, so queries retain the original action filter.
+    events_by_value: Vec<Vec<usize>>,
 }
 
 #[derive(Clone, Debug)]
@@ -569,7 +572,8 @@ impl FlowLoanOrigins {
                 collect_result_alternatives(body, *break_value, &mut alternatives);
                 let mut evaluated = false;
                 for alternative in alternatives {
-                    for (event_index, candidate) in flow.nodes.iter().enumerate() {
+                    for &event_index in &self.events_by_value[alternative.0] {
+                        let candidate = &flow.nodes[event_index];
                         if flow_action_has_value(&candidate.action, alternative) {
                             if let Some(state) = &self.before[event_index] {
                                 evaluated = true;
@@ -608,7 +612,8 @@ impl FlowLoanOrigins {
         let mut alternatives = Vec::new();
         collect_result_alternatives(body, value, &mut alternatives);
         for alternative in alternatives {
-            for (index, event) in flow.nodes.iter().enumerate() {
+            for &index in &self.events_by_value[alternative.0] {
+                let event = &flow.nodes[index];
                 if !flow_action_has_value(&event.action, alternative) {
                     continue;
                 }
@@ -1964,6 +1969,7 @@ impl FlowGraph {
         FlowLoanOrigins {
             before,
             after,
+            events_by_value,
             #[cfg(test)]
             variants: std::cell::OnceCell::new(),
         }
@@ -11041,6 +11047,39 @@ mod tests {
                 graph.loan_origins(body).before(return_node, view).len(),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn loan_snapshot_event_index_matches_full_scans() {
+        for source in [
+            include_str!("../examples/callee_variant_branch_clear.lim"),
+            include_str!("../examples/callee_variant_loop_clear.lim"),
+        ] {
+            let program = crate::parse_program(source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            for (name, body) in &checked.declarations().bodies {
+                let graph = &checked.declarations().flows[name];
+                let origins = graph.loan_origins(body);
+                for value in 0..body.nodes.len() {
+                    let scanned = graph
+                        .nodes
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, node)| {
+                            flow_action_has_value(&node.action, NodeId(value)).then_some(index)
+                        })
+                        .collect::<Vec<_>>();
+                    let indexed = origins.events_by_value[value]
+                        .iter()
+                        .copied()
+                        .filter(|index| {
+                            flow_action_has_value(&graph.nodes[*index].action, NodeId(value))
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(indexed, scanned, "{name}: value {value}");
+                }
+            }
         }
     }
 
