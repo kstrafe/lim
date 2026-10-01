@@ -8,6 +8,8 @@ use crate::linearcheck::LinearTypes;
 use crate::typed_body::{
     BindingId, Body, Control, Instruction, NodeId, NodeKind, NumericOpcode, PlaceRoot, Projection,
 };
+#[cfg(test)]
+use crate::typed_ir::VariantId;
 use crate::typed_ir::{DeclarationId, FieldId};
 use crate::typed_place::{reads_through_reference, Place, Segment};
 use crate::{Span, Type};
@@ -197,6 +199,8 @@ type LoanState = Vec<Vec<LoanOrigin>>;
 /// not yet an enforcing borrow check; indirect provenance and destructured
 /// payloads still need the full IR-04 transfer.
 pub(crate) struct FlowLoanOrigins {
+    #[cfg(test)]
+    variants: std::cell::OnceCell<Vec<Option<HashMap<Place, VariantId>>>>,
     before: Vec<Option<LoanState>>,
     after: Vec<Option<LoanState>>,
 }
@@ -719,6 +723,102 @@ fn display_linear_place(body: &Body, place: &Place) -> String {
 }
 
 impl FlowGraph {
+    /// Must-known enum constructors in owned storage. This staged table does
+    /// not infer callee restoration or aliases through borrowed storage.
+    #[cfg(test)]
+    pub fn variant_facts(&self, body: &Body) -> Vec<Option<HashMap<Place, VariantId>>> {
+        let mut before = vec![None; self.nodes.len()];
+        before[self.entry.0] = Some(HashMap::new());
+        let mut pending = VecDeque::from([self.entry]);
+        let mut queued = vec![false; self.nodes.len()];
+        queued[self.entry.0] = true;
+        while let Some(event) = pending.pop_front() {
+            queued[event.0] = false;
+            let mut state = before[event.0].as_ref().unwrap().clone();
+            let node = &self.nodes[event.0];
+            match &node.action {
+                FlowAction::Bind { binding, value } => {
+                    let target = Place::root(PlaceRoot::Local(*binding));
+                    let incoming = value_variant_facts(body, *value, &state);
+                    state.retain(|place, _| !target.overlaps(place));
+                    for (mut place, variant) in incoming {
+                        place.root = target.root.clone();
+                        state.insert(place, variant);
+                    }
+                }
+                FlowAction::Assign {
+                    place: target,
+                    value,
+                } => {
+                    if matches!(target.root, PlaceRoot::Local(binding)
+                        if matches!(body.bindings[binding.0].ty,
+                            Type::Reference { .. } | Type::PinnedReference { .. }))
+                    {
+                        state.clear();
+                    } else {
+                        let incoming = value_variant_facts(body, *value, &state);
+                        state.retain(|place, _| !target.overlaps(place));
+                        if !target.segments.iter().any(|segment| {
+                            matches!(segment, Segment::DynamicIndex | Segment::SliceDynamicIndex)
+                        }) {
+                            for (place, variant) in incoming {
+                                let mut destination = target.clone();
+                                destination.segments.extend(place.segments);
+                                state.insert(destination, variant);
+                            }
+                        }
+                    }
+                }
+                FlowAction::Release { place: target, .. } => {
+                    state.retain(|place, _| !target.overlaps(place));
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    state.retain(|place, _| {
+                        !matches!(place.root,
+                        PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    });
+                }
+                FlowAction::Write { .. } => state.clear(),
+                FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind,
+                    NodeKind::Form { head, .. } if head == "pin-read") =>
+                {
+                    state.clear()
+                }
+                FlowAction::Evaluate(value)
+                    if matches!(
+                        &body.nodes[value.0].kind,
+                        NodeKind::Form {
+                            callee: Some(_),
+                            ..
+                        }
+                    ) =>
+                {
+                    state.clear()
+                }
+                _ => {}
+            }
+            for successor in &node.successors {
+                let changed = match &mut before[successor.0] {
+                    None => {
+                        before[successor.0] = Some(state.clone());
+                        true
+                    }
+                    Some(previous) => {
+                        let count = previous.len();
+                        previous.retain(|place, variant| state.get(place) == Some(variant));
+                        previous.len() != count
+                    }
+                };
+                if changed && !queued[successor.0] {
+                    queued[successor.0] = true;
+                    pending.push_back(*successor);
+                }
+            }
+        }
+        before
+    }
+
     pub fn lower(body: &Body) -> Result<Self, String> {
         let mut builder = Builder {
             body,
@@ -1077,7 +1177,12 @@ impl FlowGraph {
             }
             after[id.0] = Some(state);
         }
-        FlowLoanOrigins { before, after }
+        FlowLoanOrigins {
+            before,
+            after,
+            #[cfg(test)]
+            variants: std::cell::OnceCell::new(),
+        }
     }
 
     /// Forward may-analysis of explicitly released places. Replacement and
@@ -1733,10 +1838,21 @@ impl FlowGraph {
         };
         let mut unknown = !summary.unresolved.is_empty();
         let mut mapped = Vec::new();
+        let variants = summary
+            .effects
+            .iter()
+            .any(|effect| {
+                effect.input_storage.as_ref().is_some_and(|slot| {
+                    slot.iter()
+                        .any(|segment| matches!(segment, Segment::Payload(_, _)))
+                })
+            })
+            .then(|| origins.variants.get_or_init(|| self.variant_facts(body)));
         for effect in &summary.effects {
             let mut places = Vec::new();
             let mut incomplete = false;
             let mut inactive = false;
+            let mut conditional = false;
             match effect.place.root {
                 PlaceRoot::Global(_) => places.push(effect.place.clone()),
                 PlaceRoot::Parameter(parameter) => {
@@ -1758,8 +1874,61 @@ impl FlowGraph {
                                 }
                             };
                             let sources = origins.value_before(body, self, event, alternative);
+                            let state = variants.and_then(|facts| facts[event.0].as_ref());
+                            if selected_slot.first() != Some(&Segment::Dereference)
+                                && selected_slot
+                                    .iter()
+                                    .any(|slot| matches!(slot, Segment::Payload(_, _)))
+                                && !Place::from_expression(body, alternative).is_some_and(|place| {
+                                    state.is_some_and(|state| {
+                                        known_variant_slot(state, &place, &selected_slot)
+                                    })
+                                })
+                            {
+                                conditional = true;
+                            }
+                            if selected_slot.first() != Some(&Segment::Dereference)
+                                && Place::from_expression(body, alternative).is_some_and(|place| {
+                                    state.is_some_and(|state| {
+                                        inactive_variant_slot(state, &place, &selected_slot)
+                                    })
+                                })
+                            {
+                                inactive = true;
+                                continue;
+                            }
                             let mut selected_alternative = false;
+                            let mut inactive_alternative = false;
                             for source in sources {
+                                if selected_slot.first() == Some(&Segment::Dereference)
+                                    && selected_slot[1..]
+                                        .iter()
+                                        .any(|slot| matches!(slot, Segment::Payload(_, _)))
+                                    && !state.is_some_and(|state| {
+                                        known_variant_slot(
+                                            state,
+                                            &source.place,
+                                            &selected_slot[1..],
+                                        )
+                                    })
+                                {
+                                    conditional = true;
+                                }
+                                if selected_slot.first() == Some(&Segment::Dereference)
+                                    && !source.lifetime_only
+                                    && source.storage.is_empty()
+                                    && state.is_some_and(|state| {
+                                        inactive_variant_slot(
+                                            state,
+                                            &source.place,
+                                            &selected_slot[1..],
+                                        )
+                                    })
+                                {
+                                    inactive = true;
+                                    inactive_alternative = true;
+                                    continue;
+                                }
                                 let crosses_referent = selected_slot
                                     .iter()
                                     .position(|segment| *segment == Segment::Dereference)
@@ -1799,7 +1968,7 @@ impl FlowGraph {
                                     }
                                 }
                             }
-                            if !selected_alternative {
+                            if !selected_alternative && !inactive_alternative {
                                 incomplete = true;
                             }
                         }
@@ -1812,8 +1981,11 @@ impl FlowGraph {
             if places.is_empty() && !inactive {
                 incomplete = true;
             }
-            let definite =
-                effect.definitely_consumed && places.len() == 1 && !incomplete && !inactive;
+            let definite = effect.definitely_consumed
+                && places.len() == 1
+                && !incomplete
+                && !inactive
+                && !conditional;
             unknown |= incomplete;
             for place in places {
                 let (input_storage, referent_projection) =
@@ -6218,6 +6390,94 @@ enum CallInputComponent {
     Missing,
     /// A resolved constructor of another variant in the same enum.
     Inactive,
+}
+
+#[cfg(test)]
+fn inactive_variant_slot(
+    state: &HashMap<Place, VariantId>,
+    base: &Place,
+    path: &[Segment],
+) -> bool {
+    let mut place = base.clone();
+    for segment in path {
+        if let Segment::Payload(wanted, _) = segment {
+            if state
+                .get(&place)
+                .is_some_and(|actual| actual.owner == wanted.owner && actual != wanted)
+            {
+                return true;
+            }
+        }
+        place.segments.push(segment.clone());
+    }
+    false
+}
+
+#[cfg(test)]
+fn value_variant_facts(
+    body: &Body,
+    value: NodeId,
+    state: &HashMap<Place, VariantId>,
+) -> HashMap<Place, VariantId> {
+    if let Some(source) = Place::from_expression(body, value) {
+        return state
+            .iter()
+            .filter_map(|(place, variant)| {
+                (place.root == source.root && place.segments.starts_with(&source.segments)).then(
+                    || {
+                        (
+                            Place {
+                                root: PlaceRoot::Local(BindingId(0)),
+                                segments: place.segments[source.segments.len()..].to_vec(),
+                            },
+                            *variant,
+                        )
+                    },
+                )
+            })
+            .collect();
+    }
+    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+        return HashMap::new();
+    };
+    if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
+        return value_variant_facts(body, children[1], state);
+    }
+    let mut result = HashMap::new();
+    if let Some(NodeKind::Declaration(DeclarationId::Variant(variant))) =
+        children.first().map(|id| &body.nodes[id.0].kind)
+    {
+        result.insert(Place::root(PlaceRoot::Local(BindingId(0))), *variant);
+    }
+    let start = if matches!(head.as_str(), "tuple" | "array" | "array-of") {
+        constructor_values_start(body.nodes[value.0].ty.as_ref(), children.len())
+    } else {
+        1
+    };
+    for (index, child) in children.iter().skip(start).enumerate() {
+        let Some(slot) = aggregate_slot(body, head, children, index) else {
+            continue;
+        };
+        for (mut place, variant) in value_variant_facts(body, *child, state) {
+            place.segments.insert(0, slot.clone());
+            result.insert(place, variant);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+fn known_variant_slot(state: &HashMap<Place, VariantId>, base: &Place, path: &[Segment]) -> bool {
+    let mut place = base.clone();
+    for segment in path {
+        if let Segment::Payload(wanted, _) = segment {
+            if state.get(&place) != Some(wanted) {
+                return false;
+            }
+        }
+        place.segments.push(segment.clone());
+    }
+    true
 }
 
 #[cfg(test)]

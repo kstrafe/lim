@@ -12077,6 +12077,8 @@ mod typed_ownership_tests {
     fn enum_call_slots_distinguish_inactive_payloads_from_missing_provenance() {
         for (argument, count, definite) in [
             ("(Empty)", 0, false),
+            ("stored", 0, false),
+            ("maybe", 1, false),
             ("(Full left)", 1, true),
             ("(#if selected (Full left) (Empty))", 1, false),
         ] {
@@ -12089,6 +12091,8 @@ mod typed_ownership_tests {
                     (#case (Full value) (#block (#forget (#deref value)) ()))))
                   (#return ()))
                 (#fn caller (: left (#ref-mut Resource) : selected bool) ()
+                  (#let stored Choice (Empty))
+                  (#let maybe Choice (#if selected (Full left) (Empty)))
                   (#call consume (: choice {argument})) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -12132,6 +12136,97 @@ mod typed_ownership_tests {
                 count != 0,
                 "inactive is not missing; active is not fabricated"
             );
+        }
+    }
+
+    #[test]
+    fn owned_variant_facts_intersect_branches_and_invalidate_unknown_calls() {
+        let source = "(#enum Choice ((Empty) (Full u64)))
+            (#struct Holder (: choice Choice))
+            (#fn touch () () (#return ()))
+            (#fn inspect (: selected bool) ()
+              (#let-mut choice Choice (Empty))
+              (#let initial Choice choice)
+              (#if selected (#block (#set choice (Full 1u64)) ())
+                            (#block (#set choice (Full 2u64)) ()))
+              (#let agreed Choice choice)
+              (#if selected (#block (#set choice (Empty)) ()) ())
+              (#let mixed Choice choice)
+              (#set choice (Empty))
+              (#let restored Choice choice)
+              (#let holder Holder (#struct-literal Holder (: choice choice)))
+              (#let projected Choice (#get holder choice))
+              (#let pinned (#pin-ref Choice) (#pin-borrow choice))
+              (#let copied Choice (#unsafe (#pin-read pinned)))
+              (#drop pinned)
+              (#let after-pin Choice choice)
+              (#set choice (Empty))
+              (#call touch ())
+              (#let after-call Choice choice)
+              (#forget holder) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let facts = flow.variant_facts(body);
+        let choice = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "choice")
+                .unwrap(),
+        );
+        let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Local(choice));
+        for (name, expected) in [
+            ("initial", Some("Empty")),
+            ("agreed", Some("Full")),
+            ("mixed", None),
+            ("restored", Some("Empty")),
+            ("projected", Some("Empty")),
+            ("after-pin", None),
+            ("after-call", None),
+        ] {
+            let binding = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == name)
+                    .unwrap(),
+            );
+            let index = flow
+                .nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action,
+                crate::typed_flow::FlowAction::Bind { binding: found, .. } if found == binding)
+                })
+                .unwrap();
+            let known = facts[index].as_ref().unwrap().get(&place).copied();
+            let expected = expected.map(|name| {
+                declarations
+                    .variant_id(&crate::Type::Named("Choice".into()), name)
+                    .unwrap()
+            });
+            assert_eq!(known, expected, "{name}");
+            if name == "projected" {
+                let holder = crate::typed_body::BindingId(
+                    body.bindings
+                        .iter()
+                        .position(|binding| binding.name == "holder")
+                        .unwrap(),
+                );
+                let nested = crate::typed_place::Place {
+                    root: crate::typed_body::PlaceRoot::Local(holder),
+                    segments: vec![crate::typed_place::Segment::Field(
+                        declarations
+                            .field_id(&crate::Type::Named("Holder".into()), "choice")
+                            .unwrap(),
+                    )],
+                };
+                assert_eq!(
+                    facts[index].as_ref().unwrap().get(&nested).copied(),
+                    expected
+                );
+            }
         }
     }
 
