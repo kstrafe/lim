@@ -12768,4 +12768,77 @@ mod typed_ownership_tests {
         let span = conflict.span.unwrap();
         assert_eq!(&source[span.start..span.end], "(#return value)");
     }
+
+    #[test]
+    fn staged_reference_returns_reject_missing_mandatory_slot_provenance() {
+        for ty in [
+            "(#ref u64)",
+            "Holder",
+            "(#tuple (#ref u64) (#ref u64))",
+            "(#array (#ref u64) 1)",
+        ] {
+            let source = format!(
+                "(#struct Holder ((left (#ref u64)) (right (#ref u64))))
+              (#fn echo ((value {ty})) {ty} (#return value))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            // Deliberately erase one seed after normal typed lowering. One
+            // surviving slot cannot stand in for another missing slot.
+            declarations
+                .bodies
+                .get_mut("echo")
+                .unwrap()
+                .parameter_loan_slots[0]
+                .remove(0);
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert_eq!(function, "echo");
+            assert!(
+                conflict.message.contains("missing slot provenance"),
+                "{ty}: {conflict:?}"
+            );
+            assert!(conflict.labels.is_empty());
+            let span = conflict.span.unwrap();
+            assert_eq!(&source[span.start..span.end], "(#return value)");
+        }
+    }
+
+    #[test]
+    fn staged_reference_return_alternatives_do_not_hide_missing_origins() {
+        let source = "(#fn choose ((left (#ref u64)) (right (#ref u64)) (choice bool)) (#ref u64)
+          (#return (#if choice left right)))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        declarations
+            .bodies
+            .get_mut("choose")
+            .unwrap()
+            .parameter_loan_slots[1]
+            .clear();
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert!(conflict.message.contains("missing slot provenance"));
+        let span = conflict.span.unwrap();
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#return (#if choice left right))"
+        );
+    }
 }

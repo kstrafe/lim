@@ -1203,6 +1203,13 @@ impl Declarations {
         }
     }
 
+    #[cfg(test)]
+    pub fn reference_storage_slots(&self, ty: &Type) -> Vec<crate::typed_body::ParameterLoanSeed> {
+        let mut slots = Vec::new();
+        self.collect_parameter_loan_slots(ty, &mut Vec::new(), &mut HashSet::new(), &mut slots);
+        slots
+    }
+
     fn collect_parameter_loan_slots(
         &self,
         ty: &Type,

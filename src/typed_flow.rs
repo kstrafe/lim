@@ -2998,17 +2998,19 @@ impl FlowGraph {
         self.check_linear_consumptions_with_origins(body, &seeded, Some(&origins))?;
         self.check_referent_consumption_permissions_with_moves(body, types, &seeded)?;
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &seeded)?;
-        self.check_returned_referents_initialized(body, &origins, &seeded)?;
+        self.check_returned_referents_initialized(body, declarations, &origins, &seeded)?;
         Ok(entry)
     }
 
     /// Validate physical referents of escaping reference slots, not the
     /// lifetime-only anchors carried by unsafe pointer-derived references.
-    /// Missing physical origins still need an independent completeness gate.
+    /// Mandatory static slots require provenance in every result alternative;
+    /// active enum payloads and array wildcards still need completeness facts.
     #[cfg(test)]
     fn check_returned_referents_initialized(
         &self,
         body: &Body,
+        declarations: &crate::typed_ir::Declarations,
         origins: &FlowLoanOrigins,
         moves: &FlowConsumptions,
     ) -> Result<(), ReleaseConflict> {
@@ -3020,7 +3022,35 @@ impl FlowGraph {
                 continue;
             };
             let event = FlowNodeId(index);
-            for origin in origins.value_before(body, self, event, value) {
+            let returned = origins.value_before(body, self, event, value);
+            let mut alternatives = Vec::new();
+            collect_result_alternatives(body, value, &mut alternatives);
+            for alternative in alternatives {
+                let alternative_origins = origins.value_before(body, self, event, alternative);
+                if let Some(ty) = &body.nodes[alternative.0].ty {
+                    for slot in declarations.reference_storage_slots(ty) {
+                        // Enum payloads require active-variant facts, and array
+                        // wildcards require per-element coverage. Neither may be
+                        // treated as an unconditional slot in this staged gate.
+                        if slot.storage.iter().any(|segment| {
+                            matches!(segment, Segment::Payload(_, _) | Segment::DynamicIndex)
+                        }) {
+                            continue;
+                        }
+                        if !alternative_origins
+                            .iter()
+                            .any(|origin| origin.storage == slot.storage)
+                        {
+                            return Err(ReleaseConflict {
+                            message: "cannot prove initialization of returned reference: missing slot provenance".into(),
+                            span: node.span,
+                            labels: Vec::new(),
+                        });
+                        }
+                    }
+                }
+            }
+            for origin in returned {
                 if origin.lifetime_only {
                     continue;
                 }
