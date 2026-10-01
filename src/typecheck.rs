@@ -10143,6 +10143,72 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_caller_use_validation_shares_entry_and_restoration_state() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn initialize ((value (#ref-mut Resource))) ()
+            (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+          (#fn caller ((value (#ref-mut Resource))) u64
+            (#call initialize (: value value)) (#return (#get value number)))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let callee = &declarations.bodies["initialize"];
+        let restored =
+            declarations.flows["initialize"].referent_restoration_guarantees(callee, &types, &[]);
+        let body = &declarations.bodies["caller"];
+        let flow = &declarations.flows["caller"];
+        let (event, call) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
+                    return None;
+                };
+                if matches!(
+                    body.nodes[value.0].kind,
+                    crate::typed_body::NodeKind::Form {
+                        callee: Some(_),
+                        ..
+                    }
+                ) {
+                    Some((crate::typed_flow::FlowNodeId(index), value))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let (mapped, unknown) =
+            flow.map_referent_call_restorations(body, event, call, callee, &restored);
+        assert!(!unknown);
+        let entry = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+            crate::typed_body::BindingId(0),
+        ));
+        let calls = [(event, Vec::new(), false)];
+        let conflict = flow
+            .check_owner_consumptions_with_restorations_from_entry(
+                body,
+                &types,
+                &calls,
+                &[],
+                &[entry.clone()],
+            )
+            .unwrap_err();
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#get value number)");
+        assert!(conflict.labels.is_empty());
+        assert!(flow
+            .check_owner_consumptions_with_restorations_from_entry(
+                body,
+                &types,
+                &calls,
+                &[(event, mapped)],
+                &[entry],
+            )
+            .is_ok());
+    }
+
+    #[test]
     fn staged_forwarded_initializer_entry_accepts_inherited_consumption() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()

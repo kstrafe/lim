@@ -2387,7 +2387,25 @@ impl FlowGraph {
         types: &LinearTypes,
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
     ) -> Result<(), ReleaseConflict> {
-        let moves = self.referent_consumptions_with_calls(body, types, calls);
+        self.check_owner_consumptions_with_restorations_from_entry(body, types, calls, &[], &[])
+    }
+
+    #[cfg(test)]
+    pub fn check_owner_consumptions_with_restorations_from_entry(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        entry_consumed: &[Place],
+    ) -> Result<(), ReleaseConflict> {
+        let moves = self.referent_consumptions_with_restorations(
+            body,
+            types,
+            calls,
+            restorations,
+            entry_consumed,
+        );
         // A known outgoing consumption necessarily accesses that storage.
         // This is only a subset of entry requirements: read-only and
         // consume-then-restore callees need independent access summaries.
