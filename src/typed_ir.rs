@@ -1287,6 +1287,8 @@ impl Declarations {
         let mut return_variants =
             HashMap::<FunctionId, HashMap<Vec<crate::typed_place::Segment>, VariantId>>::new();
         #[cfg(test)]
+        let mut return_bounds = HashMap::<FunctionId, crate::typed_flow::VariantBounds>::new();
+        #[cfg(test)]
         let mut store_variants = HashMap::<
             FunctionId,
             HashMap<VariantId, Vec<crate::typed_body::ParameterStoreSummary>>,
@@ -1385,6 +1387,23 @@ impl Declarations {
                     })
                     .collect();
                 self.bodies.get_mut(&name).unwrap().call_return_variants = Arc::new(needed);
+                let needed = self.bodies[&name]
+                    .nodes
+                    .iter()
+                    .filter_map(|node| match &node.kind {
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(callee),
+                            ..
+                        } => return_bounds
+                            .get(callee)
+                            .map(|bounds| (*callee, bounds.clone())),
+                        _ => None,
+                    })
+                    .collect();
+                self.bodies
+                    .get_mut(&name)
+                    .unwrap()
+                    .call_return_variant_bounds = Arc::new(needed);
             }
             let body = &self.bodies[&name];
             let flow = &self.flows[&name];
@@ -1414,7 +1433,14 @@ impl Declarations {
                 Vec::new()
             };
             #[cfg(test)]
-            let returned_variants = flow.returned_variant_summaries(body, &store_origins);
+            let returned_bounds = flow.returned_variant_bounds(body, &store_origins);
+            #[cfg(test)]
+            let returned_variants = returned_bounds
+                .iter()
+                .filter_map(|(path, variants)| {
+                    (variants.len() == 1).then(|| (path.clone(), *variants.iter().next().unwrap()))
+                })
+                .collect();
             #[cfg(test)]
             let conditional_clears = if include_parameter_contents {
                 flow.parameter_clear_variant_summaries(body, &store_origins)
@@ -1463,6 +1489,8 @@ impl Declarations {
                 clear_variants.insert(id, conditional_clears);
                 #[cfg(test)]
                 return_variants.insert(id, returned_variants);
+                #[cfg(test)]
+                return_bounds.insert(id, returned_bounds);
             }
         }
         let shared = Arc::new(summaries);
@@ -1476,6 +1504,8 @@ impl Declarations {
         let shared_clear_variants = Arc::new(clear_variants);
         #[cfg(test)]
         let shared_return_variants = Arc::new(return_variants);
+        #[cfg(test)]
+        let shared_return_bounds = Arc::new(return_bounds);
         for body in self.bodies.values_mut() {
             body.call_return_origins = shared.clone();
             #[cfg(test)]
@@ -1485,6 +1515,7 @@ impl Declarations {
                 body.call_parameter_clears = shared_clears.clone();
                 body.call_clear_variants = shared_clear_variants.clone();
                 body.call_return_variants = shared_return_variants.clone();
+                body.call_return_variant_bounds = shared_return_bounds.clone();
             }
         }
     }

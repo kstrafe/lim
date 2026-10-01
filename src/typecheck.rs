@@ -16620,6 +16620,116 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_unknown_return_alternatives_remove_possible_variant_bounds() {
+        let source = "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
+          (#fn choose ((view (#ref u64)) (other Choice) (selected bool)) Choice
+            (#return (#if selected
+              (#block (#forget other) (Has view)) other)))
+          (#fn forward ((view (#ref u64)) (other Choice) (selected bool)) Choice
+            (#return (#call choose (: view view : other other : selected selected))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        let choose = declarations.function_id("choose").unwrap();
+        assert!(declarations.bodies["forward"].call_return_variant_bounds[&choose].is_empty());
+        declarations
+            .bodies
+            .get_mut("choose")
+            .unwrap()
+            .parameter_loan_slots[1]
+            .remove(0);
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert_eq!(function, "choose");
+        assert!(
+            conflict.message.contains("missing slot provenance"),
+            "{conflict:?}"
+        );
+        assert!(conflict.span.is_some());
+    }
+
+    #[test]
+    fn staged_mixed_callee_variants_exclude_unreachable_reference_payloads() {
+        for expression in [
+            "(#if selected (Has view) Empty)",
+            "(#loop (#if selected (#block (#break (Has view))) (#block (#break Empty))))",
+        ] {
+            for consumer in [
+                "(#fn forward ((view (#ref u64)) (selected bool)) Choice
+              (#let saved Choice (#call choose (: view view : selected selected)))
+              (#return saved))
+             (#fn again ((view (#ref u64)) (selected bool)) Choice
+              (#return (#call forward (: view view : selected selected))))",
+                "(#fn wrap ((view (#ref u64)) (selected bool)) Envelope
+              (#return (#struct-literal Envelope
+                ((choice (#call choose (: view view : selected selected)))))))
+             (#fn forward ((view (#ref u64)) (selected bool)) Envelope
+              (#let saved Envelope (#call wrap (: view view : selected selected)))
+              (#return saved))",
+            ] {
+                let source = format!(
+                    "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
+          (#struct Envelope ((choice Choice)))
+          (#fn choose ((view (#ref u64)) (selected bool)) Choice
+            (#return {expression})) {consumer}"
+                );
+                let program = crate::parse_program(&source).unwrap();
+                crate::check_types(&program).unwrap();
+                for parameter_contents in [false, true] {
+                    let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+                    if parameter_contents {
+                        declarations.staged_parameter_contents_summaries();
+                    }
+                    let types = crate::linearcheck::LinearTypes::from_program(&program);
+                    declarations
+                        .staged_referent_entry_contracts(&types)
+                        .unwrap();
+                    let choose = declarations.function_id("choose").unwrap();
+                    let bounds =
+                        &declarations.bodies["forward"].call_return_variant_bounds[&choose];
+                    assert_eq!(bounds[&Vec::new()].len(), 2);
+                    assert!(!bounds[&Vec::new()].contains(
+                        &declarations
+                            .variant_id(&crate::Type::Named("Choice".into()), "Other")
+                            .unwrap()
+                    ));
+                    declarations
+                        .bodies
+                        .get_mut("choose")
+                        .unwrap()
+                        .parameter_loan_slots[0]
+                        .clear();
+                    let error = declarations
+                        .staged_referent_entry_contracts(&types)
+                        .unwrap_err();
+                    let crate::typed_ir::StagedReferentError::Use { function, conflict } = error
+                    else {
+                        panic!("unexpected error: {error:?}");
+                    };
+                    assert_eq!(function, "choose");
+                    assert!(
+                        conflict.message.contains("missing slot provenance"),
+                        "{conflict:?}"
+                    );
+                    let span = conflict.span.unwrap();
+                    assert_eq!(
+                        &source[span.start..span.end],
+                        format!("(#return {expression})")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn staged_return_tag_alias_tracing_stops_at_calls_and_unproved_cycles() {
         for (initial, effects, known) in [
             ("(#loop (#break (Full 1u64)))", "(#call touch ())", false),

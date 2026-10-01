@@ -1132,6 +1132,10 @@ pub(crate) struct Body {
             HashMap<Vec<crate::typed_place::Segment>, crate::typed_ir::VariantId>,
         >,
     >,
+    /// Conservative output-relative bounds; missing paths are unknown.
+    #[cfg(test)]
+    pub call_return_variant_bounds:
+        Arc<HashMap<crate::typed_ir::FunctionId, crate::typed_flow::VariantBounds>>,
     /// Interprocedural return-origin summaries shared by all checked bodies.
     pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     #[cfg(test)]

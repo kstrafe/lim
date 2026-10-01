@@ -1166,17 +1166,28 @@ fn display_linear_place(body: &Body, place: &Place) -> String {
     output
 }
 
+#[cfg(test)]
+pub(crate) type VariantBounds = HashMap<Vec<Segment>, HashSet<VariantId>>;
+
+#[cfg(test)]
+fn join_variant_bounds(held: &mut VariantBounds, incoming: &VariantBounds) {
+    held.retain(|path, variants| {
+        if let Some(other) = incoming.get(path) {
+            variants.extend(other);
+            true
+        } else {
+            false
+        }
+    });
+}
+
 impl FlowGraph {
-    /// Output-relative variant facts common to every reachable normal return.
-    /// Missing/unknown alternatives remove facts rather than guessing a shape.
+    /// Output-relative variant upper bounds for every reachable normal return.
+    /// Unknown alternatives remove bounds rather than guessing a shape.
     #[cfg(test)]
-    pub fn returned_variant_summaries(
-        &self,
-        body: &Body,
-        origins: &FlowLoanOrigins,
-    ) -> HashMap<Vec<Segment>, VariantId> {
+    pub fn returned_variant_bounds(&self, body: &Body, origins: &FlowLoanOrigins) -> VariantBounds {
         let states = self.variant_facts_with_origins(body, origins);
-        let mut returned: Option<HashMap<Vec<Segment>, VariantId>> = None;
+        let mut returned: Option<VariantBounds> = None;
         for (index, event) in self.nodes.iter().enumerate() {
             let FlowAction::Return(Some(value)) = event.action else {
                 continue;
@@ -1212,7 +1223,7 @@ impl FlowGraph {
                             continue;
                         }
                     }
-                    let value_facts = value_variant_facts(body, alternative, state);
+                    let value_facts = value_variant_bounds(body, alternative, state);
                     if let NodeKind::Symbol {
                         binding: Some(binding),
                         ..
@@ -1235,12 +1246,9 @@ impl FlowGraph {
                             }
                         }
                     }
-                    let facts = value_facts
-                        .into_iter()
-                        .map(|(place, variant)| (place.segments, variant))
-                        .collect::<HashMap<_, _>>();
+                    let facts = value_facts;
                     if let Some(held) = &mut returned {
-                        held.retain(|path, variant| facts.get(path) == Some(variant));
+                        join_variant_bounds(held, &facts);
                     } else {
                         returned = Some(facts);
                     }
@@ -5626,6 +5634,9 @@ impl FlowGraph {
             let stored_variants = variant_states[event.0]
                 .as_ref()
                 .map(|state| value_variant_facts(body, alternative, state));
+            let stored_bounds = variant_states[event.0]
+                .as_ref()
+                .map(|state| value_variant_bounds(body, alternative, state));
             for slot in slots {
                 if slot.storage.iter().enumerate().any(|(index, segment)| {
                     matches!(segment, Segment::Payload(variant, _)
@@ -5633,7 +5644,9 @@ impl FlowGraph {
                             .or_else(|| stored_variants.as_ref()?.get(&Place {
                                 root: PlaceRoot::Local(BindingId(0)),
                                 segments: slot.storage[..index].to_vec(),
-                            }).copied()).is_some_and(|selected| selected != *variant))
+                            }).copied()).is_some_and(|selected| selected != *variant)
+                            || stored_bounds.as_ref().and_then(|bounds| bounds.get(&slot.storage[..index]))
+                                .is_some_and(|possible| !possible.is_empty() && !possible.contains(variant)))
                 }) {
                     continue;
                 }
@@ -8926,6 +8939,72 @@ fn inactive_variant_slot(
         place.segments.push(segment.clone());
     }
     false
+}
+
+#[cfg(test)]
+fn value_variant_bounds(
+    body: &Body,
+    value: NodeId,
+    state: &HashMap<Place, VariantId>,
+) -> VariantBounds {
+    if matches!(
+        body.nodes[value.0].ty,
+        Some(Type::Reference { .. } | Type::PinnedReference { .. } | Type::RawPointer { .. })
+    ) {
+        return HashMap::new();
+    }
+    let mut alternatives = Vec::new();
+    collect_result_alternatives(body, value, &mut alternatives);
+    if alternatives.len() != 1 || alternatives[0] != value {
+        let mut result = None;
+        for alternative in alternatives {
+            let incoming = value_variant_bounds(body, alternative, state);
+            if let Some(held) = &mut result {
+                join_variant_bounds(held, &incoming);
+            } else {
+                result = Some(incoming);
+            }
+        }
+        return result.unwrap_or_default();
+    }
+    let mut result = value_variant_facts(body, value, state)
+        .into_iter()
+        .map(|(place, variant)| (place.segments, HashSet::from([variant])))
+        .collect::<VariantBounds>();
+    let NodeKind::Form {
+        head,
+        children,
+        callee,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
+        return result;
+    };
+    if let Some(callee) = callee {
+        return body
+            .call_return_variant_bounds
+            .get(callee)
+            .cloned()
+            .unwrap_or_default();
+    }
+    if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
+        return value_variant_bounds(body, children[1], state);
+    }
+    let start = if matches!(head.as_str(), "tuple" | "array" | "array-of") {
+        constructor_values_start(body.nodes[value.0].ty.as_ref(), children.len())
+    } else {
+        1
+    };
+    for (index, child) in children.iter().skip(start).enumerate() {
+        let Some(slot) = aggregate_slot(body, head, children, index) else {
+            continue;
+        };
+        for (mut path, variants) in value_variant_bounds(body, *child, state) {
+            path.insert(0, slot.clone());
+            result.insert(path, variants);
+        }
+    }
+    result
 }
 
 #[cfg(test)]
