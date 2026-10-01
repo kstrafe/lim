@@ -1084,6 +1084,23 @@ impl Declarations {
     /// preserving parameter and aggregate-slot identities without a repeated
     /// whole-program fixed-point pass.
     fn summarize_returned_parameter_loans(&mut self) {
+        self.summarize_parameter_loans_with_contents(
+            #[cfg(test)]
+            false,
+        );
+    }
+
+    /// Recompute interprocedural contracts using actual parameter contents.
+    /// This remains staged until initialization and restoration are enforced.
+    #[cfg(test)]
+    pub fn staged_parameter_contents_summaries(&mut self) {
+        self.summarize_parameter_loans_with_contents(true);
+    }
+
+    fn summarize_parameter_loans_with_contents(
+        &mut self,
+        #[cfg(test)] include_parameter_contents: bool,
+    ) {
         let mut names = self.bodies.keys().cloned().collect::<Vec<_>>();
         names.sort();
         let mut parameter_slots = HashMap::new();
@@ -1193,7 +1210,10 @@ impl Declarations {
         #[cfg(test)]
         let mut store_summaries = HashMap::new();
         #[cfg(test)]
-        let mut store_variants = HashMap::new();
+        let mut store_variants = HashMap::<
+            FunctionId,
+            HashMap<VariantId, Vec<crate::typed_body::ParameterStoreSummary>>,
+        >::new();
         for name in order {
             // Loan transfer only consults direct callees. Copying every summary
             // accumulated so far for every body was another quadratic pass.
@@ -1232,13 +1252,38 @@ impl Declarations {
             #[cfg(test)]
             {
                 self.bodies.get_mut(&name).unwrap().call_store_origins = Arc::new(needed_stores);
+                let needed_variants = self.bodies[&name]
+                    .nodes
+                    .iter()
+                    .filter_map(|node| match &node.kind {
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(callee),
+                            ..
+                        } => store_variants
+                            .get(callee)
+                            .map(|summary| (*callee, summary.clone())),
+                        _ => None,
+                    })
+                    .collect();
+                self.bodies.get_mut(&name).unwrap().call_store_variants = Arc::new(needed_variants);
             }
             let body = &self.bodies[&name];
             let flow = &self.flows[&name];
+            #[cfg(not(test))]
             let origins = flow.loan_origins(body);
+            #[cfg(test)]
+            let origins = if include_parameter_contents {
+                flow.staged_parameter_store_loan_origins(body)
+            } else {
+                flow.loan_origins(body)
+            };
             let mut returned = Vec::new();
             #[cfg(test)]
-            let store_origins = flow.staged_store_loan_origins(body);
+            let store_origins = if include_parameter_contents {
+                flow.staged_parameter_store_loan_origins(body)
+            } else {
+                flow.staged_store_loan_origins(body)
+            };
             #[cfg(test)]
             let stores = flow.parameter_store_summaries(body, &store_origins);
             #[cfg(test)]

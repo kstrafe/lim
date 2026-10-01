@@ -413,6 +413,16 @@ retains new ones, but the legacy checker still rejects local reference RHSs for
 projected pinned-field stores. Production return summaries, initialized/moved
 storage, restoration, conditional parameter clearing, and exact symbolic-array
 overwrites remain integration work; this contents table proves none of those.
+An opt-in interprocedural pass now recomputes return and store contracts with
+this contents solver in callee-before-caller order. Only direct callee tables
+are supplied during inference, including return-variant store tables, then
+the completed tables are shared across bodies. Direct, callee, and pinned-field
+replacement contracts select the replacement input through forwarding calls;
+conditional writes retain both inputs, and a saved pre-write reference retains
+its original input. A staged caller regression permits mutation of the released
+old input and rejects mutation of the retained replacement, with the exact
+offending statement span. This is test-only contract integration, not production
+promotion: initialized/moved contents and restoration remain unproved.
 Return-variant-conditioned clearing, storage contents after parameter writes,
 and definite restoration must be integrated before replacing production checking.
 

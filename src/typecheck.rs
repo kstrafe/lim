@@ -12448,6 +12448,114 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_updated_return_contracts_retain_only_the_actual_returned_loan() {
+        for premature in [false, true] {
+            let mutation = if premature {
+                "(#set replacement 9u64)"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Holder (: view (#ref u64)))
+                 (#fn rewrite (: target (#ref-mut Holder) : replacement (#ref u64)) (#ref u64)
+                   (#deref-set target (#struct-literal Holder (: view replacement)))
+                   (#return (#get target view)))
+                 (#fn forward (: target (#ref-mut Holder) : replacement (#ref u64)) (#ref u64)
+                   (#return (#call rewrite (: target target : replacement replacement))))
+                 (#fn main () u64
+                   (#let-mut old u64 7u64) (#let-mut replacement u64 42u64)
+                   (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
+                   (#let target (#ref-mut Holder) (#borrow-mut holder))
+                   (#let result (#ref u64) (#call forward (: target target : replacement (#borrow replacement))))
+                   (#drop target) (#forget holder) (#set old 9u64) {mutation}
+                   (#let value u64 (#deref result)) (#drop result)
+                   (#set replacement 9u64) (#return value))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_parameter_store_loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if premature {
+                let conflict = checked.unwrap_err();
+                assert!(conflict.message.contains("replacement"), "{conflict:?}");
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], mutation);
+            } else {
+                checked.unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn staged_parameter_contents_return_contracts_follow_call_chains() {
+        for (mode, write, expected) in [
+            (
+                "direct",
+                "(#deref-set target (#struct-literal Holder (: view replacement)))",
+                vec![1],
+            ),
+            (
+                "callee",
+                "(#call replace (: target target : replacement replacement))",
+                vec![1],
+            ),
+            ("field", "(#pin-set-field target view replacement)", vec![1]),
+            (
+                "conditional",
+                "(#if selected (#deref-set target (#struct-literal Holder (: view replacement))))",
+                vec![0, 1],
+            ),
+            (
+                "saved-before-write",
+                "(#let saved (#ref u64) (#get target view))
+                 (#deref-set target (#struct-literal Holder (: view replacement)))",
+                vec![0],
+            ),
+        ] {
+            let target_type = if mode == "field" {
+                "(#pin-ref-mut Holder)"
+            } else {
+                "(#ref-mut Holder)"
+            };
+            let returned = if mode == "saved-before-write" {
+                "saved"
+            } else {
+                "(#call read (: target target))"
+            };
+            let source = format!(
+                "(#struct Holder (: view (#ref u64)))
+                 (#fn replace (: target (#ref-mut Holder) : replacement (#ref u64)) ()
+                   (#deref-set target (#struct-literal Holder (: view replacement))) (#return ()))
+                 (#fn read (: target {target_type}) (#ref u64) (#return (#get target view)))
+                 (#fn rewrite (: target {target_type} : replacement (#ref u64) : selected bool) (#ref u64)
+                   {write} (#return {returned}))
+                 (#fn forward (: target {target_type} : replacement (#ref u64) : selected bool) (#ref u64)
+                   (#return (#call rewrite (: target target : replacement replacement : selected selected))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            for name in ["rewrite", "forward"] {
+                let id = declarations.function_id(name).unwrap();
+                let summaries = &declarations.bodies[name].call_return_origins[&id];
+                let mut parameters = summaries
+                    .iter()
+                    .map(|source| source.parameter)
+                    .collect::<Vec<_>>();
+                parameters.sort();
+                parameters.dedup();
+                assert_eq!(parameters, expected, "{mode}: {name}: {summaries:?}");
+                assert!(summaries.iter().all(|source| source.storage.is_empty()));
+            }
+        }
+    }
+
+    #[test]
     fn staged_parameter_contents_follow_writes_without_replacing_the_handle() {
         // This remains a staged-analysis fixture: the legacy production checker
         // rejects the field read after replacing the parameter's contents.
