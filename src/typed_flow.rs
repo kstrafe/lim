@@ -1682,45 +1682,55 @@ impl FlowGraph {
                     if let (Some(argument), Some(slot)) =
                         (children.get(parameter.0 + 1), &effect.input_storage)
                     {
-                        for source in origins.value_before(body, self, event, *argument) {
-                            let crosses_referent = slot
-                                .iter()
-                                .position(|segment| *segment == Segment::Dereference)
-                                .is_some_and(|boundary| {
-                                    source.storage.len() >= boundary
-                                        && slot[..boundary].iter().zip(&source.storage).all(
-                                            |(wanted, held)| storage_slot_matches(wanted, held),
-                                        )
-                                });
-                            let selected = origins.before[event.0]
-                                .as_ref()
-                                .map(|state| select_summary_inputs(source, slot, state))
-                                .unwrap_or_default();
-                            if crosses_referent && selected.is_empty() {
-                                incomplete = true;
-                            }
-                            for origin in selected {
-                                if !origin.storage.is_empty() {
-                                    continue;
-                                }
-                                if origin.lifetime_only {
+                        let mut alternatives = Vec::new();
+                        collect_result_alternatives(body, *argument, &mut alternatives);
+                        for alternative in alternatives {
+                            let sources = origins.value_before(body, self, event, alternative);
+                            let mut selected_alternative = false;
+                            for source in sources {
+                                let crosses_referent = slot
+                                    .iter()
+                                    .position(|segment| *segment == Segment::Dereference)
+                                    .is_some_and(|boundary| {
+                                        source.storage.len() >= boundary
+                                            && slot[..boundary].iter().zip(&source.storage).all(
+                                                |(wanted, held)| storage_slot_matches(wanted, held),
+                                            )
+                                    });
+                                let selected = origins.before[event.0]
+                                    .as_ref()
+                                    .map(|state| select_summary_inputs(source, slot, state))
+                                    .unwrap_or_default();
+                                if crosses_referent && selected.is_empty() {
                                     incomplete = true;
-                                    continue;
                                 }
-                                let mut place = origin.place.clone();
-                                if matches!(place.root, PlaceRoot::Parameter(_)) {
-                                    if let Some(storage) = origin.parameter_storage {
-                                        let mut path = storage;
-                                        path.append(&mut place.segments);
-                                        place.segments = path;
+                                for origin in selected {
+                                    if !origin.storage.is_empty() {
+                                        continue;
+                                    }
+                                    if origin.lifetime_only {
+                                        incomplete = true;
+                                        continue;
+                                    }
+                                    let mut place = origin.place.clone();
+                                    if matches!(place.root, PlaceRoot::Parameter(_)) {
+                                        if let Some(storage) = origin.parameter_storage {
+                                            let mut path = storage;
+                                            path.append(&mut place.segments);
+                                            place.segments = path;
+                                        }
+                                    }
+                                    place
+                                        .segments
+                                        .extend(effect.referent_projection.iter().cloned());
+                                    selected_alternative = true;
+                                    if !places.contains(&place) {
+                                        places.push(place);
                                     }
                                 }
-                                place
-                                    .segments
-                                    .extend(effect.referent_projection.iter().cloned());
-                                if !places.contains(&place) {
-                                    places.push(place);
-                                }
+                            }
+                            if !selected_alternative {
+                                incomplete = true;
                             }
                         }
                     } else {

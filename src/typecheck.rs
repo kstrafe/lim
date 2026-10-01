@@ -11818,6 +11818,117 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn conditional_call_effects_do_not_prove_missing_argument_alternatives() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#fn consume ((value (#ref-mut Resource))) ()
+              (#forget (#deref value)) (#return ()))
+            (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (selected bool)) ()
+              (#call consume (: value (#if selected left right))) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let callee = declarations.flows["consume"]
+            .referent_function_effects(&declarations.bodies["consume"], &types);
+        let consume = declarations.function_id("consume").unwrap();
+        let flow = &declarations.flows["caller"];
+        let (event, call) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Evaluate(call) = node.action else {
+                    return None;
+                };
+                matches!(&declarations.bodies["caller"].nodes[call.0].kind,
+                crate::typed_body::NodeKind::Form { callee: Some(found), .. } if *found == consume)
+                .then_some((crate::typed_flow::FlowNodeId(index), call))
+            })
+            .unwrap();
+        let (known, unknown) =
+            flow.map_referent_call_effects(&declarations.bodies["caller"], event, call, &callee);
+        assert!(!unknown);
+        assert_eq!(known.len(), 2);
+        assert!(known.iter().all(|effect| !effect.definitely_consumed));
+        declarations
+            .bodies
+            .get_mut("caller")
+            .unwrap()
+            .parameter_loan_slots[1]
+            .clear();
+        let (partial, unknown) =
+            flow.map_referent_call_effects(&declarations.bodies["caller"], event, call, &callee);
+        assert!(
+            unknown,
+            "a known alternative cannot hide an origin-free branch"
+        );
+        let [effect] = partial.as_slice() else {
+            panic!("retain the known may effect");
+        };
+        assert_eq!(
+            effect.place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+        assert!(
+            !effect.definitely_consumed,
+            "partial provenance cannot prove replacement safety"
+        );
+    }
+
+    #[test]
+    fn an_unrelated_slot_cannot_hide_a_missing_conditional_call_input() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#struct Holder ((target (#ref-mut Resource)) (spare (#ref u64))))
+            (#fn consume ((holder Holder)) ()
+              (#forget (#deref (#get holder target))) (#forget holder) (#return ()))
+            (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource))
+                         (spare (#ref u64)) (selected bool)) ()
+              (#call consume (: holder (#if selected
+                (#struct-literal Holder ((target left) (spare spare)))
+                (#struct-literal Holder ((target right) (spare spare))))))
+              (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let callee = declarations.flows["consume"]
+            .referent_function_effects(&declarations.bodies["consume"], &types);
+        let consume = declarations.function_id("consume").unwrap();
+        let flow = &declarations.flows["caller"];
+        let (event, call) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Evaluate(call) = node.action else {
+                    return None;
+                };
+                matches!(&declarations.bodies["caller"].nodes[call.0].kind,
+                crate::typed_body::NodeKind::Form { callee: Some(found), .. } if *found == consume)
+                .then_some((crate::typed_flow::FlowNodeId(index), call))
+            })
+            .unwrap();
+        declarations
+            .bodies
+            .get_mut("caller")
+            .unwrap()
+            .parameter_loan_slots[1]
+            .clear();
+        let (mapped, unknown) =
+            flow.map_referent_call_effects(&declarations.bodies["caller"], event, call, &callee);
+        assert!(
+            unknown,
+            "the spare field does not supply the missing target slot"
+        );
+        let [effect] = mapped.as_slice() else {
+            panic!("retain only the known target");
+        };
+        assert_eq!(
+            effect.place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+        assert!(!effect.definitely_consumed);
+    }
+
+    #[test]
     fn staged_whole_program_replacement_preserves_ambiguous_call_targets() {
         for (consumption, accepted) in [
             ("(#let target (#ref-mut Resource) (#if choice (#borrow-mut left) (#borrow-mut right))) (#call consume (: value target))", false),
