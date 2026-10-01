@@ -3005,7 +3005,8 @@ impl FlowGraph {
     /// Validate physical referents of escaping reference slots, not the
     /// lifetime-only anchors carried by unsafe pointer-derived references.
     /// Mandatory static slots require provenance in every result alternative;
-    /// Active enum payloads still need variant-specific completeness facts.
+    /// Constructor trees identify active enum payloads; stored enum values
+    /// still need variant-flow completeness facts.
     #[cfg(test)]
     fn check_returned_referents_initialized(
         &self,
@@ -3029,13 +3030,12 @@ impl FlowGraph {
                 let alternative_origins = origins.value_before(body, self, event, alternative);
                 if let Some(ty) = &body.nodes[alternative.0].ty {
                     for slot in declarations.reference_storage_slots(ty) {
-                        // Enum payloads need active-variant facts rather than
-                        // unconditional completeness across inactive variants.
-                        if slot
-                            .storage
-                            .iter()
-                            .any(|segment| matches!(segment, Segment::Payload(_, _)))
-                        {
+                        // Constructor trees identify active nested payloads.
+                        // Stored enums still need separate variant-flow facts.
+                        if slot.storage.iter().enumerate().any(|(index, segment)| {
+                            matches!(segment, Segment::Payload(variant, _)
+                                if constructor_variant_at_storage(body, alternative, &slot.storage[..index]) != Some(*variant))
+                        }) {
                             continue;
                         }
                         if !alternative_origins.iter().any(|origin| {
@@ -5170,6 +5170,40 @@ fn constructor_values_start(ty: Option<&Type>, child_count: usize) -> usize {
         1
     } else {
         2
+    }
+}
+
+#[cfg(test)]
+fn constructor_variant_at_storage(
+    body: &Body,
+    mut value: NodeId,
+    storage: &[Segment],
+) -> Option<crate::typed_ir::VariantId> {
+    for segment in storage {
+        let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+            return None;
+        };
+        let start = if matches!(head.as_str(), "array" | "array-of" | "tuple") {
+            constructor_values_start(body.nodes[value.0].ty.as_ref(), children.len())
+        } else {
+            1
+        };
+        value = children
+            .iter()
+            .skip(start)
+            .enumerate()
+            .find_map(|(index, child)| {
+                (aggregate_slot(body, head, children, index).as_ref() == Some(segment))
+                    .then_some(*child)
+            })?;
+    }
+    let node = match &body.nodes[value.0].kind {
+        NodeKind::Form { children, .. } => &body.nodes[children.first()?.0].kind,
+        node => node,
+    };
+    match node {
+        NodeKind::Declaration(DeclarationId::Variant(variant)) => Some(*variant),
+        _ => None,
     }
 }
 

@@ -12882,4 +12882,97 @@ mod typed_ownership_tests {
             );
         }
     }
+
+    #[test]
+    fn staged_return_enum_constructors_require_only_the_active_payload() {
+        for returned in ["(Has value)", "(#if choice (Has value) Empty)", "Empty"] {
+            let source = format!(
+                "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
+              (#fn make-choice ((value (#ref u64)) (choice bool)) Choice
+                (#return {returned}))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            declarations
+                .bodies
+                .get_mut("make-choice")
+                .unwrap()
+                .parameter_loan_slots[0]
+                .clear();
+            let result = declarations.staged_referent_entry_contracts(&types);
+            if returned == "Empty" {
+                result.unwrap();
+            } else {
+                let error = result.unwrap_err();
+                let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                    panic!("unexpected error: {error:?}");
+                };
+                assert!(
+                    conflict.message.contains("missing slot provenance"),
+                    "{conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    format!("(#return {returned})")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_nested_enum_constructors_require_active_reference_provenance() {
+        for (ty, returned) in [
+            (
+                "Wrapper",
+                "(#struct-literal Wrapper ((choice (Has value))))",
+            ),
+            (
+                "(#tuple Choice u64)",
+                "(#tuple (#tuple Choice u64) (Has value) 0u64)",
+            ),
+            (
+                "(#array Choice 2)",
+                "(#array-of (#array Choice 2) (Has value) Empty)",
+            ),
+            ("Outer", "(Wrap (Has value))"),
+        ] {
+            let source = format!(
+                "(#enum Choice ((Has (#ref u64)) Empty))
+              (#struct Wrapper ((choice Choice))) (#enum Outer ((Wrap Choice)))
+              (#fn make ((value (#ref u64))) {ty} (#return {returned}))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            declarations
+                .bodies
+                .get_mut("make")
+                .unwrap()
+                .parameter_loan_slots[0]
+                .clear();
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert!(
+                conflict.message.contains("missing slot provenance"),
+                "{ty}: {conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert_eq!(
+                &source[span.start..span.end],
+                format!("(#return {returned})")
+            );
+        }
+    }
 }
