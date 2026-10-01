@@ -13418,6 +13418,7 @@ mod typed_ownership_tests {
             "ref_field_mutation",
             "pinned_self_reference",
             "aggregate_reborrow",
+            "pinned_linear_replacement",
             "async_fn",
         ] {
             let path = root.join("examples").join(format!("{name}.lim"));
@@ -13743,6 +13744,142 @@ mod typed_ownership_tests {
             crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
         );
         assert_eq!(origin.place.segments, vec![field("Container", "item")]);
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        crate::check_types(&program).unwrap();
+    }
+
+    #[test]
+    fn pinned_linear_reads_move_and_writes_restore_the_same_referent() {
+        for read_twice in [false, true] {
+            let second = if read_twice {
+                "(#let second Resource (#unsafe (#pin-read target))) (#forget second)"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#fn cycle ((target (#pin-ref-mut Resource))) ()
+                   (#let old Resource (#unsafe (#pin-read target)))
+                   {second} (#forget old)
+                   (#unsafe (#pin-write target (#struct-literal Resource ((number 42u64)))))
+                   (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let checked = declarations.staged_referent_entry_contracts(&types);
+            if read_twice {
+                let crate::typed_ir::StagedReferentError::Use { conflict, .. } =
+                    checked.unwrap_err()
+                else {
+                    panic!("unexpected failure");
+                };
+                assert!(
+                    conflict.message.contains("used more than once"),
+                    "{conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#pin-read target)");
+                assert!(!conflict.labels.is_empty());
+            } else {
+                let summaries = checked.unwrap();
+                let summary = &summaries[&declarations.function_id("cycle").unwrap()];
+                assert!(summary.effects.is_empty(), "{summary:?}");
+                assert!(summary.consumed_entry.is_empty());
+                assert!(!summary.entry_reads.is_empty());
+                crate::check_types(&program).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn pinned_writes_cannot_implicitly_destroy_live_linear_storage() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#fn main () ()
+              (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
+              (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
+              (#unsafe (#pin-write target (#struct-literal Resource ((number 42u64)))))
+              (#drop target) (#forget owner) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+            panic!("unexpected failure");
+        };
+        assert!(
+            conflict.message.contains("destroy a live linear referent"),
+            "{conflict:?}"
+        );
+        let span = conflict.span.unwrap();
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#pin-write target (#struct-literal Resource ((number 42u64))))"
+        );
+    }
+
+    #[test]
+    fn pinned_helper_reads_require_initialization_and_initializer_calls_restore_it() {
+        for restore in [false, true] {
+            let fill = if restore {
+                "(#call fill (: target (#pin-borrow-mut (#get owner item))))"
+            } else {
+                ""
+            };
+            let call = "(#call take (: target (#pin-borrow-mut (#get owner item))))";
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#struct Container ((item Resource)))
+                 (#fn take ((target (#pin-ref-mut Resource))) ()
+                   (#let old Resource (#unsafe (#pin-read target)))
+                   (#forget old) (#return ()))
+                 (#fn fill ((target (#pin-ref-mut Resource))) ()
+                   (#unsafe (#pin-write target (#struct-literal Resource ((number 42u64)))))
+                   (#return ()))
+                 (#fn caller ((owner (#pin-ref-mut Container))) ()
+                   {call} {fill} {call} (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let checked = declarations.staged_referent_entry_contracts(&types);
+            if restore {
+                checked.unwrap();
+            } else {
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } =
+                    checked.unwrap_err()
+                else {
+                    panic!("unexpected failure");
+                };
+                assert_eq!(function, "caller");
+                assert!(conflict.message.contains("consumed"), "{conflict:?}");
+                let span = conflict.span.unwrap();
+                assert_eq!(span.start, source.rfind(call).unwrap());
+                assert_eq!(&source[span.start..span.end], call);
+            }
+        }
+    }
+
+    #[test]
+    fn computed_pinned_read_targets_preserve_the_consumed_identity() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#struct Container ((item Resource)))
+            (#fn view ((target (#pin-ref-mut Resource))) (#pin-ref-mut Resource)
+              (#return target))
+            (#fn cycle ((owner (#pin-ref-mut Container))) ()
+              (#let old Resource (#unsafe (#pin-read
+                (#call view (: target (#pin-borrow-mut (#get owner item)))))))
+              (#forget old)
+              (#unsafe (#pin-write (#pin-borrow-mut (#get owner item))
+                (#struct-literal Resource ((number 42u64)))))
+              (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
         declarations
             .staged_referent_entry_contracts(&types)

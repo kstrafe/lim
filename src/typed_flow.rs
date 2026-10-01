@@ -1085,6 +1085,28 @@ impl FlowGraph {
             if !reachable.contains(&event) {
                 continue;
             }
+            if let FlowAction::Evaluate(value) = node.action {
+                if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "pin-read")
+                {
+                    let places = dereferenced_value_places(body, self, event, value, &origins)
+                        .unwrap_or_default();
+                    if places.is_empty() {
+                        unresolved.push(event);
+                    }
+                    for place in places {
+                        let (input_storage, referent_projection) =
+                            split_referent_effect_place(body, &place);
+                        reads.push(ReferentRead {
+                            event,
+                            place,
+                            input_storage,
+                            referent_projection,
+                            span: node.span,
+                        });
+                    }
+                    continue;
+                }
+            }
             let FlowAction::Read {
                 value,
                 place,
@@ -2054,7 +2076,7 @@ impl FlowGraph {
                     FlowAction::Assign { place, .. } => vec![place.clone()],
                     FlowAction::Write { value, .. } | FlowAction::Evaluate(value)
                         if matches!(&body.nodes[value.0].kind,
-                        NodeKind::Form { head, .. } if head == "deref-set") =>
+                        NodeKind::Form { head, .. } if matches!(head.as_str(), "deref-set" | "pin-write")) =>
                     {
                         let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
                             unreachable!()
@@ -2166,6 +2188,43 @@ impl FlowGraph {
                         }
                     } else {
                         let spans = state.entry(place.clone()).or_default();
+                        if !spans.contains(&node.span) {
+                            spans.push(node.span);
+                        }
+                    }
+                }
+                FlowAction::Evaluate(value)
+                    if origins.is_some()
+                        && matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "pin-read")
+                        && body.nodes[value.0]
+                            .ty
+                            .as_ref()
+                            .is_some_and(|ty| types.is_linear(ty)) =>
+                {
+                    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                        unreachable!()
+                    };
+                    let (referents, unknown) =
+                        if let Some(mut place) = Place::from_expression(body, children[1]) {
+                            place.segments.push(Segment::Dereference);
+                            consumed_at[id.0].insert(place.clone());
+                            resolve(id, &place, *value)
+                        } else {
+                            let places =
+                                dereferenced_value_places(body, self, id, *value, origins.unwrap())
+                                    .unwrap_or_default();
+                            let unknown = places.is_empty();
+                            consumed_at[id.0].extend(places.iter().cloned());
+                            (places, unknown)
+                        };
+                    if unknown {
+                        unresolved.insert(id);
+                    }
+                    if !unknown && referents.len() == 1 {
+                        definite_consumed_at.as_mut().unwrap()[id.0].insert(referents[0].clone());
+                    }
+                    for referent in referents {
+                        let spans = state.entry(referent).or_default();
                         if !spans.contains(&node.span) {
                             spans.push(node.span);
                         }
@@ -2296,7 +2355,7 @@ impl FlowGraph {
                 && matches!(&self.nodes[id.0].action,
                     FlowAction::Write { value, .. } | FlowAction::Evaluate(value)
                         if matches!(&body.nodes[value.0].kind,
-                            NodeKind::Form { head, .. } if head == "deref-set"))
+                            NodeKind::Form { head, .. } if matches!(head.as_str(), "deref-set" | "pin-write")))
             {
                 // An unknown write may restore any consumed target. Retain
                 // may facts, but none remains definitely uninitialized.
@@ -2639,6 +2698,19 @@ impl FlowGraph {
         origins: Option<&FlowLoanOrigins>,
     ) -> Result<(), ReleaseConflict> {
         for (index, node) in self.nodes.iter().enumerate() {
+            let pinned_read_place = match node.action {
+                FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind,
+                    NodeKind::Form { head, .. } if head == "pin-read") =>
+                {
+                    origins
+                        .and_then(|origins| {
+                            dereferenced_value_places(body, self, FlowNodeId(index), value, origins)
+                        })
+                        .and_then(|places| places.into_iter().next())
+                }
+                _ => None,
+            };
             let (place, value) = match &node.action {
                 FlowAction::Read {
                     place,
@@ -2648,6 +2720,9 @@ impl FlowGraph {
                 | FlowAction::Release { place, value }
                 | FlowAction::Clone { place, value }
                 | FlowAction::Borrow { place, value, .. } => (place, *value),
+                FlowAction::Evaluate(value) if pinned_read_place.is_some() => {
+                    (pinned_read_place.as_ref().unwrap(), *value)
+                }
                 _ => continue,
             };
             let Some(state) = moves.before[index].as_ref() else {
@@ -3207,7 +3282,7 @@ impl FlowGraph {
                 | FlowAction::Write { value, .. } => value,
                 FlowAction::Evaluate(value)
                     if matches!(&body.nodes[value.0].kind,
-                    NodeKind::Form { head, .. } if head == "deref-set") =>
+                    NodeKind::Form { head, .. } if matches!(head.as_str(), "deref-set" | "pin-write")) =>
                 {
                     value
                 }
@@ -3218,7 +3293,8 @@ impl FlowGraph {
             }
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
-                    if head == "deref-set" && children.len() == 3 =>
+                    if matches!(head.as_str(), "deref-set" | "pin-write")
+                        && children.len() == 3 =>
                 {
                     children[2]
                 }
@@ -3260,7 +3336,7 @@ impl FlowGraph {
             let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
                 continue;
             };
-            if head != "deref-set" || children.len() != 3 {
+            if !matches!(head.as_str(), "deref-set" | "pin-write") || children.len() != 3 {
                 continue;
             }
             let Some(ty) = &body.nodes[children[2].0].ty else {
@@ -3289,7 +3365,7 @@ impl FlowGraph {
             }
             for target in targets.iter() {
                 if !target.mutable
-                    || target.pinned
+                    || (target.pinned != (head == "pin-write"))
                     || target.lifetime_only
                     || !target.storage.is_empty()
                 {
@@ -4674,7 +4750,7 @@ fn dereferenced_value_places(
     let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
         return None;
     };
-    if head != "deref" || children.len() != 2 {
+    if !matches!(head.as_str(), "deref" | "pin-read") || children.len() != 2 {
         return None;
     }
     let loans = origins.value_before(body, flow, event, children[1]);
