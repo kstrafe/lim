@@ -583,3 +583,31 @@ baseline first, two warmups per compiler, and no simultaneous builds/tests:
 All executable bytes match. The differences (0.4% and 0.1% faster, and 0.1%
 slower respectively) do not establish a meaningful wall-clock improvement.
 This removes repeated full-graph searches; other work dominates these samples.
+
+## Borrow incoming provenance when loading references (2026-10-01)
+
+Local reference-slot loading now borrows incoming origins instead of taking
+ownership. Dereference transfer no longer deep-clones the entire incoming
+vector before checking local storage and then parameter storage. Selected
+output loans still own their projections, preserving deduplication, shared
+access restrictions, and pin metadata. A regression checks 128 repeated inputs
+and verifies that mutating an output cannot modify inputs or stored contents.
+All 813 library tests and enabled integrations pass, with four preexisting
+integration tests ignored.
+
+Warm release CLI measurements include native linking and use 60 samples per
+compiler, two warmups, and no concurrent build/test work. Before includes the
+indexed recursive snapshot optimization above:
+
+| Workload and measurement order | Before median | After median |
+| --- | ---: | ---: |
+| async_fn, before first | 49.09 ms | 48.55 ms |
+| async_fn, after first | 48.17 ms | 48.99 ms |
+| vec_allocator, before first | 37.12 ms | 36.20 ms |
+| vec_allocator, after first | 37.54 ms | 36.98 ms |
+
+Executable bytes match in every comparison. Async improves 1.1% in the first
+run but regresses 1.7% in the reverse-order repeat. Vector improves 2.5% and
+1.5% respectively. Outliers reach multiple seconds; these small differences
+do not establish a general speedup. Eliminating the redundant incoming vector
+and its nested projection clones is deterministic.

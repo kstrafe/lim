@@ -7800,7 +7800,7 @@ fn projected_value_origins(
 /// Loading a local value transfers its retained reference slots, not the
 /// address used to reach the value. Parameter/global storage has no local
 /// slot contents here and remains unresolved rather than inventing loans.
-fn loaded_local_value_origins(incoming: Vec<LoanOrigin>, state: &LoanState) -> Vec<LoanOrigin> {
+fn loaded_local_value_origins(incoming: &[LoanOrigin], state: &LoanState) -> Vec<LoanOrigin> {
     let mut result = Vec::new();
     for origin in incoming {
         if origin.lifetime_only || !origin.storage.is_empty() {
@@ -7839,7 +7839,7 @@ fn dereference_value_origins(
     incoming: Vec<LoanOrigin>,
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
-    let mut result = loaded_local_value_origins(incoming.clone(), state);
+    let mut result = loaded_local_value_origins(&incoming, state);
     for origin in incoming {
         if origin.lifetime_only || !origin.storage.is_empty() {
             continue;
@@ -9728,7 +9728,7 @@ mod tests {
             vec![Segment::Index(4)],
             "parameter metadata cannot prefix an actual local storage root"
         );
-        let loaded = loaded_local_value_origins(vec![address.clone()], &state);
+        let loaded = loaded_local_value_origins(std::slice::from_ref(&address), &state);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].place.root, PlaceRoot::Parameter(BindingId(0)));
         assert_eq!(loaded[0].parameter_storage, Some(vec![Segment::Index(1)]));
@@ -9739,6 +9739,20 @@ mod tests {
             "a shared address cannot grant exclusivity"
         );
         assert!(loaded[0].pinned, "the stored pointee's pin flag survives");
+        let incoming = vec![address.clone(); 128];
+        let original_incoming = incoming.clone();
+        let original_contents = state[0].clone();
+        let mut repeated = loaded_local_value_origins(&incoming, &state);
+        assert_eq!(
+            repeated, loaded,
+            "duplicate inputs keep output deduplication"
+        );
+        repeated[0].place.segments.push(Segment::Index(99));
+        assert_eq!(incoming, original_incoming, "loading borrows input origins");
+        assert_eq!(
+            state[0], original_contents,
+            "selected outputs own their loans"
+        );
         for missing in [
             LoanOrigin {
                 lifetime_only: true,
@@ -9760,9 +9774,9 @@ mod tests {
                 ..address.clone()
             },
         ] {
-            assert!(loaded_local_value_origins(vec![missing], &state).is_empty());
+            assert!(loaded_local_value_origins(&[missing], &state).is_empty());
         }
-        assert!(loaded_local_value_origins(vec![address], &empty_loan_state(1)).is_empty());
+        assert!(loaded_local_value_origins(&[address], &empty_loan_state(1)).is_empty());
     }
 
     #[test]
