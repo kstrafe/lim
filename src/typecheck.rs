@@ -10146,6 +10146,7 @@ mod typed_ownership_tests {
     fn staged_read_only_callee_reads_map_to_caller_storage() {
         let source = "(#struct Resource ((number u64)))
           (#fn inspect ((value (#ref Resource))) u64 (#return (#get value number)))
+          (#fn forward ((value (#ref Resource))) u64 (#return (#call inspect (: value value))))
           (#fn caller () u64
             (#let owner Resource (#struct-literal Resource ((number 1u64))))
             (#return (#call inspect (: value (#borrow owner)))))";
@@ -10195,6 +10196,27 @@ mod typed_ownership_tests {
         assert_eq!(mapped[0].event, event);
         assert_eq!(mapped[0].span, reads[0].span);
         assert!(mapped[0].input_storage.is_none());
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        let forwarded = &summaries[&declarations.function_id("forward").unwrap()];
+        assert!(forwarded.effects.is_empty());
+        assert!(forwarded.unresolved_reads.is_empty());
+        assert_eq!(forwarded.reads.len(), 1);
+        assert_eq!(
+            forwarded.reads[0].place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+        assert_eq!(forwarded.reads[0].span, reads[0].span);
+        assert_eq!(
+            forwarded.reads[0].referent_projection,
+            reads[0].referent_projection
+        );
+        let caller = &summaries[&declarations.function_id("caller").unwrap()];
+        assert!(caller.unresolved_reads.is_empty());
+        assert_eq!(caller.reads.len(), 1);
+        assert_eq!(caller.reads[0].place, mapped[0].place);
     }
 
     #[test]

@@ -843,6 +843,9 @@ impl Declarations {
                 // not once for every invocation in the body.
                 let origins = flow.loan_origins(body);
                 let mut calls = Vec::new();
+                let reachable = flow.reachable();
+                let mut call_reads = Vec::new();
+                let mut unresolved_reads = Vec::new();
                 for (index, node) in flow.nodes.iter().enumerate() {
                     let FlowAction::Evaluate(value) = node.action else {
                         continue;
@@ -855,6 +858,9 @@ impl Declarations {
                         continue;
                     };
                     let event = FlowNodeId(index);
+                    if !reachable.contains(&event) {
+                        continue;
+                    }
                     let (effects, unknown) = match summaries.get(callee) {
                         Some(summary) => flow.map_referent_call_effects_with_origins(
                             body, event, value, summary, &origins,
@@ -862,6 +868,22 @@ impl Declarations {
                         None => (Vec::new(), true),
                     };
                     calls.push((event, effects, unknown));
+                    match summaries.get(callee) {
+                        Some(summary) => {
+                            let (mapped, unknown) = flow.map_referent_call_reads_with_origins(
+                                body,
+                                event,
+                                value,
+                                &summary.reads,
+                                &origins,
+                            );
+                            call_reads.extend(mapped);
+                            if unknown || !summary.unresolved_reads.is_empty() {
+                                unresolved_reads.push(event);
+                            }
+                        }
+                        None => unresolved_reads.push(event),
+                    }
                 }
                 if validate_uses {
                     if let Err(conflict) =
@@ -885,10 +907,10 @@ impl Declarations {
                         return true;
                     }
                 }
-                summaries.insert(
-                    self.function_id(name).unwrap(),
-                    flow.referent_function_effects_with_calls(body, types, &calls),
-                );
+                let mut summary = flow.referent_function_effects_with_calls(body, types, &calls);
+                summary.reads.extend(call_reads);
+                summary.unresolved_reads.extend(unresolved_reads);
+                summaries.insert(self.function_id(name).unwrap(), summary);
                 false
             });
             if let Some(failure) = failure {

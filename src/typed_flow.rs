@@ -174,6 +174,8 @@ pub(crate) struct ReferentFunctionEffects {
     pub has_normal_return: bool,
     pub effects: Vec<ReferentExitEffect>,
     pub unresolved: Vec<FlowNodeId>,
+    pub reads: Vec<ReferentRead>,
+    pub unresolved_reads: Vec<FlowNodeId>,
 }
 
 /// Independent read facts, not outgoing consumption or complete entry
@@ -1234,10 +1236,13 @@ impl FlowGraph {
                 }
             })
             .collect();
+        let (reads, unresolved_reads) = self.referent_reads(body);
         ReferentFunctionEffects {
             has_normal_return: !exits.is_empty(),
             effects,
             unresolved,
+            reads,
+            unresolved_reads,
         }
     }
 
@@ -1251,6 +1256,19 @@ impl FlowGraph {
         event: FlowNodeId,
         call: NodeId,
         reads: &[ReferentRead],
+    ) -> (Vec<ReferentRead>, bool) {
+        let origins = self.loan_origins(body);
+        self.map_referent_call_reads_with_origins(body, event, call, reads, &origins)
+    }
+
+    #[cfg(test)]
+    pub fn map_referent_call_reads_with_origins(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        reads: &[ReferentRead],
+        origins: &FlowLoanOrigins,
     ) -> (Vec<ReferentRead>, bool) {
         // Reuse storage/slot substitution, not consumption transfer. The
         // adapter is private and its result is converted back to read facts.
@@ -1275,8 +1293,11 @@ impl FlowGraph {
                 })
                 .collect(),
             unresolved: Vec::new(),
+            reads: Vec::new(),
+            unresolved_reads: Vec::new(),
         };
-        let (mapped, unknown) = self.map_referent_call_effects(body, event, call, &summary);
+        let (mapped, unknown) =
+            self.map_referent_call_effects_with_origins(body, event, call, &summary, origins);
         let reads = mapped
             .into_iter()
             .map(|mapped| ReferentRead {
