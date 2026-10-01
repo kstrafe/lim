@@ -10130,6 +10130,39 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_diverging_branch_does_not_weaken_returning_consumption() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn diverge () () (#unreachable) (#return ()))
+          (#fn consume ((value (#ref-mut Resource)) (choice bool)) ()
+            (#if choice (#call diverge ()) (#forget (#deref value)))
+            (#return ()))
+          (#fn replace ((value (#ref-mut Resource)) (choice bool)) ()
+            (#call consume (: value value : choice choice))
+            (#deref-set value (#struct-literal Resource ((number 2u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("consume").unwrap()];
+        assert!(summary.has_normal_return);
+        assert!(summary.unresolved.is_empty());
+        assert_eq!(summary.effects.len(), 1);
+        assert!(summary.effects[0].definitely_consumed);
+        assert!(declarations
+            .staged_validate_referent_replacements(&types)
+            .is_ok());
+        let direct = declarations.flows["consume"]
+            .referent_function_effects(&declarations.bodies["consume"], &types);
+        assert!(
+            !direct.effects[0].definitely_consumed,
+            "without interprocedural divergence the branch is still returning"
+        );
+    }
+
+    #[test]
     fn staged_ownership_summaries_cut_nonreturning_call_continuations() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn diverge () () (#unreachable) (#return ()))
