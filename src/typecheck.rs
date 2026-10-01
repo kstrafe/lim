@@ -13141,4 +13141,82 @@ mod typed_ownership_tests {
             }
         }
     }
+
+    #[test]
+    fn staged_enum_destructuring_transfers_cleanup_to_payload_bindings() {
+        for cleanup in [
+            "(#forget payload)",
+            "(#let-mut extracted Token payload) (#call consume ((value (#borrow-mut extracted))))",
+            "",
+        ] {
+            let source = format!(
+                "(#struct Token ((value u64))) (#linear Token)
+              (#enum Choice ((Owned Token) Empty))
+              (#fn consume ((value (#ref-mut Token))) ()
+                (#forget (#deref value)) (#return ()))
+              (#fn caller () ()
+                (#let-mut choice Choice (Owned (#struct-literal Token ((value 1u64)))))
+                (#match choice
+                  (#case (Owned payload) (#block {cleanup} ()))
+                  (#case Empty ())) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_referent_entry_contracts(&types);
+            if !cleanup.is_empty() {
+                result.unwrap();
+            } else {
+                let error = result.unwrap_err();
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                    panic!("unexpected error: {error:?}");
+                };
+                assert_eq!(function, "caller");
+                assert!(
+                    conflict.message.contains("linear value 'payload'"),
+                    "{conflict:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_loop_transfers_require_cleanup_after_helper_consumption() {
+        for transfer in ["(#break)", "(#continue)", "(#return ())"] {
+            for consumed in [false, true] {
+                let cleanup = if consumed {
+                    "(#call consume ((value (#borrow-mut owner))))"
+                } else {
+                    ""
+                };
+                let source = format!(
+                    "(#struct Resource ((number u64))) (#linear Resource)
+                  (#fn consume ((value (#ref-mut Resource))) ()
+                    (#forget (#deref value)) (#return ()))
+                  (#fn caller ((repeat bool)) ()
+                    (#while repeat
+                      (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
+                      {cleanup} {transfer}) (#return ()))"
+                );
+                let program = crate::parse_program(&source).unwrap();
+                let declarations = resolve_program_for_analysis(&program, false).unwrap();
+                let types = crate::linearcheck::LinearTypes::from_program(&program);
+                let result = declarations.staged_referent_entry_contracts(&types);
+                if consumed {
+                    result.unwrap();
+                } else {
+                    let error = result.unwrap_err();
+                    let crate::typed_ir::StagedReferentError::Use { function, conflict } = error
+                    else {
+                        panic!("unexpected error: {error:?}");
+                    };
+                    assert_eq!(function, "caller");
+                    assert!(
+                        conflict.message.contains("linear value 'owner'"),
+                        "{conflict:?}"
+                    );
+                }
+            }
+        }
+    }
 }
