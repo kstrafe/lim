@@ -10143,6 +10143,46 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_write_entry_inference_keeps_independent_parameter_slots_live() {
+        for read_slot in ["left", "right"] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+              (#fn initialize-left ((pair Pair)) u64
+                (#let selected (#ref-mut Resource) (#get pair left))
+                (#let inspected (#ref-mut Resource) (#get pair {read_slot}))
+                (#let number u64 (#get inspected number))
+                (#deref-set selected (#struct-literal Resource ((number 2u64))))
+                (#return number))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.flows["initialize-left"]
+                .infer_direct_referent_consumed_entry(
+                    &declarations.bodies["initialize-left"],
+                    &types,
+                    &declarations,
+                );
+            if read_slot == "right" {
+                let requirements = result.unwrap();
+                assert_eq!(requirements.len(), 1);
+                assert_eq!(
+                    requirements[0].root,
+                    crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+                );
+                assert!(matches!(requirements[0].segments.as_slice(),
+                    [crate::typed_place::Segment::Field(field)] if field.index == 0));
+            } else {
+                let conflict = result.unwrap_err();
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#get inspected number)");
+                assert!(conflict.labels.is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn staged_direct_write_entry_inference_rejects_contradictory_consumption() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
