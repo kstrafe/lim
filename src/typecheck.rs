@@ -12430,4 +12430,47 @@ mod typed_ownership_tests {
             "(#call initialize ((value (#borrow-mut value))))"
         );
     }
+
+    #[test]
+    fn staged_initializer_exit_state_distinguishes_residual_entry_consumption() {
+        for (write, residual) in [
+            (
+                "(#deref-set value (#struct-literal Resource ((number 1u64))))",
+                false,
+            ),
+            (
+                "(#if choice (#deref-set value (#struct-literal Resource ((number 1u64)))) ())",
+                true,
+            ),
+        ] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource)) (choice bool)) ()
+                {write} (#return ()))
+              (#fn forward ((value (#ref-mut Resource)) (choice bool)) ()
+                (#call initialize ((value value) (choice choice))) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let summaries = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            for name in ["initialize", "forward"] {
+                let summary = &summaries[&declarations.function_id(name).unwrap()];
+                assert_eq!(summary.consumed_entry.len(), 1);
+                assert!(summary.effects.is_empty(), "no actual consumption: {name}");
+                assert_eq!(
+                    summary.effects_from_consumed_entry.len(),
+                    usize::from(residual)
+                );
+                if residual {
+                    let effect = &summary.effects_from_consumed_entry[0];
+                    assert!(effect.consumption_spans.iter().all(Option::is_none));
+                    assert!(effect.place.overlaps(&summary.consumed_entry[0]));
+                    assert!(!effect.definitely_consumed, "{name}");
+                }
+            }
+        }
+    }
 }

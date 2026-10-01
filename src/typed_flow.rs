@@ -179,6 +179,9 @@ pub(crate) struct ReferentFunctionEffects {
     pub entry_reads: Vec<ReferentRead>,
     pub restored_from_consumed_entry: Vec<Place>,
     pub consumed_entry: Vec<Place>,
+    /// Exit storage state under the inferred consumed-entry assumptions, not
+    /// evidence that the function actually consumed this storage.
+    pub effects_from_consumed_entry: Vec<ReferentExitEffect>,
 }
 
 /// Independent read facts, not outgoing consumption or complete entry
@@ -1209,6 +1212,29 @@ impl FlowGraph {
         self.referent_function_effects_from_exits(body, exits)
     }
 
+    /// Preserve residual entry assumptions separately from initialized-entry
+    /// effects. A surviving seed does not imply an access by the callee.
+    #[cfg(test)]
+    pub fn referent_exit_state_from_entry(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        consumed_entry: &[Place],
+    ) -> Vec<ReferentExitEffect> {
+        let moves = self.referent_consumptions_with_restorations(
+            body,
+            types,
+            calls,
+            restorations,
+            consumed_entry,
+        );
+        let exits = self.referent_exit_effects_from_moves(body, &moves);
+        self.referent_function_effects_from_exits(body, exits)
+            .effects
+    }
+
     #[cfg(test)]
     fn referent_function_effects_from_exits(
         &self,
@@ -1273,6 +1299,7 @@ impl FlowGraph {
             entry_reads: Vec::new(),
             restored_from_consumed_entry: Vec::new(),
             consumed_entry: Vec::new(),
+            effects_from_consumed_entry: Vec::new(),
         }
     }
 
@@ -1309,6 +1336,7 @@ impl FlowGraph {
             entry_reads: Vec::new(),
             restored_from_consumed_entry: Vec::new(),
             consumed_entry: Vec::new(),
+            effects_from_consumed_entry: Vec::new(),
         };
         // The definite flag here requests exact destination substitution,
         // not a consumption effect. Never pass this adapter to move flow.
@@ -1404,6 +1432,7 @@ impl FlowGraph {
             entry_reads: Vec::new(),
             restored_from_consumed_entry: Vec::new(),
             consumed_entry: Vec::new(),
+            effects_from_consumed_entry: Vec::new(),
         };
         let (mapped, unknown) =
             self.map_referent_call_effects_with_origins(body, event, call, &summary, origins);
