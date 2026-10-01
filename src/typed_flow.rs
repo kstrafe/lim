@@ -2210,14 +2210,20 @@ impl FlowGraph {
             let Some(state) = moves.before[read.event.0].as_ref() else {
                 continue;
             };
+            if !state.keys().any(|place| place.overlaps(&read.place)) {
+                continue;
+            }
             let previous = state
                 .iter()
                 .filter(|(place, _)| place.overlaps(&read.place))
                 .flat_map(|(_, spans)| spans)
                 .flatten()
                 .min_by_key(|span| (span.source_id, span.start));
-            if let Some(previous) = previous {
-                let mut labels = vec![(*previous, "referent was consumed here".into())];
+            {
+                let mut labels = previous
+                    .into_iter()
+                    .map(|span| (*span, "referent was consumed here".into()))
+                    .collect::<Vec<_>>();
                 if let Some(span) = read.span {
                     labels.push((
                         span,
@@ -2250,17 +2256,26 @@ impl FlowGraph {
             let Some(state) = moves.before[event.0].as_ref() else {
                 continue;
             };
+            if !state
+                .keys()
+                .any(|place| effects.iter().any(|effect| effect.place.overlaps(place)))
+            {
+                continue;
+            }
             let previous = state
                 .iter()
                 .filter(|(place, _)| effects.iter().any(|effect| effect.place.overlaps(place)))
                 .flat_map(|(_, spans)| spans)
                 .flatten()
                 .min_by_key(|span| (span.source_id, span.start));
-            if let Some(previous) = previous {
+            {
                 return Err(ReleaseConflict {
                     message: "call may consume a linear referent that was already consumed".into(),
                     span: self.nodes[event.0].span,
-                    labels: vec![(*previous, "referent was consumed here".into())],
+                    labels: previous
+                        .into_iter()
+                        .map(|span| (*span, "referent was consumed here".into()))
+                        .collect(),
                 });
             }
         }

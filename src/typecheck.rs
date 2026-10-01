@@ -10143,6 +10143,60 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_call_entry_conflicts_survive_missing_consumption_spans() {
+        for read_only in [false, true] {
+            let next = if read_only {
+                "(#let number u64 (#call inspect (: value value)))"
+            } else {
+                "(#call consume (: value value))"
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn consume ((value (#ref-mut Resource))) ()
+                (#forget (#deref value)) (#return ()))
+              (#fn inspect ((value (#ref-mut Resource))) u64 (#return (#get value number)))
+              (#fn caller ((value (#ref-mut Resource))) ()
+                (#call consume (: value value)) {next} (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            for node in &mut declarations.flows.get_mut("consume").unwrap().nodes {
+                if matches!(node.action, crate::typed_flow::FlowAction::Release { .. }) {
+                    node.span = None;
+                }
+            }
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let error = declarations
+                .staged_validate_referent_uses_and_replacements(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("expected call-entry conflict")
+            };
+            assert_eq!(function, "caller");
+            let span = conflict.span.unwrap();
+            assert_eq!(
+                &source[span.start..span.end],
+                if read_only {
+                    "(#call inspect (: value value))"
+                } else {
+                    "(#call consume (: value value))"
+                }
+            );
+            assert_eq!(
+                span.start,
+                source
+                    .rfind(if read_only {
+                        "(#call inspect"
+                    } else {
+                        "(#call consume"
+                    })
+                    .unwrap()
+            );
+            assert_eq!(conflict.labels.len(), usize::from(read_only));
+        }
+    }
+
+    #[test]
     fn staged_consumed_entry_uses_do_not_require_a_consumption_span() {
         for initialized in [false, true] {
             let write = if initialized {
