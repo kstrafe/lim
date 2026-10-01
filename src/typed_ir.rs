@@ -278,6 +278,12 @@ pub(crate) struct FunctionDeclaration {
 }
 
 #[cfg(test)]
+pub(crate) struct ThreadCaptureSchema {
+    pub worker: FunctionId,
+    pub parameters: Vec<Type>,
+}
+
+#[cfg(test)]
 fn referent_free_abi_value(ty: &Type) -> bool {
     matches!(
         ty,
@@ -328,6 +334,8 @@ pub(crate) struct Declarations {
     function_ids: HashMap<String, FunctionId>,
     #[cfg(test)]
     external_function_ids: HashSet<FunctionId>,
+    #[cfg(test)]
+    pub thread_capture_schemas: HashMap<String, ThreadCaptureSchema>,
     global_names: Vec<String>,
     global_ids: HashMap<String, GlobalId>,
     aggregate_names: Vec<String>,
@@ -622,6 +630,8 @@ impl Declarations {
             function_ids,
             #[cfg(test)]
             external_function_ids: HashSet::new(),
+            #[cfg(test)]
+            thread_capture_schemas: HashMap::new(),
             global_names,
             global_ids,
             aggregate_names,
@@ -707,6 +717,23 @@ impl Declarations {
     ) -> Result<(), String> {
         #[cfg(test)]
         {
+            self.thread_capture_schemas = program
+                .items
+                .iter()
+                .filter_map(|item| {
+                    let crate::Item::ThreadTask { name, worker, .. } = item else {
+                        return None;
+                    };
+                    let worker = self.function_id(worker)?;
+                    Some((
+                        name.clone(),
+                        ThreadCaptureSchema {
+                            worker,
+                            parameters: self.function(worker).signature.parameters.clone(),
+                        },
+                    ))
+                })
+                .collect();
             self.external_function_ids = program
                 .items
                 .iter()
@@ -1720,6 +1747,23 @@ impl Declarations {
                 }
             }
             Type::Named(name) if seen.insert(name.clone()) => {
+                #[cfg(test)]
+                if let Some(captures) = self.thread_capture_schemas.get(name) {
+                    if let Some(owner) = self.aggregate_ids.get(name).copied() {
+                        for (index, ty) in captures.parameters.iter().enumerate() {
+                            path.push(Segment::ThreadCapture(owner, index));
+                            self.collect_parameter_loan_slots(
+                                ty,
+                                path,
+                                seen,
+                                output,
+                                expand_arrays,
+                                include_referents,
+                            );
+                            path.pop();
+                        }
+                    }
+                }
                 if let Some(fields) = self.structs.get(name) {
                     if let Some(owner) = self.aggregate_ids.get(name).copied() {
                         for (index, field) in fields.iter().enumerate() {

@@ -9,6 +9,9 @@ use crate::Expr;
 pub(crate) enum Segment {
     Dereference,
     Field(FieldId),
+    /// Logical storage owned by an opaque thread task, not a runtime field.
+    #[cfg(test)]
+    ThreadCapture(crate::typed_ir::AggregateId, usize),
     Tuple(usize),
     Payload(VariantId, usize),
     Index(u128),

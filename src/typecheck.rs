@@ -18117,6 +18117,109 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_thread_capture_schemas_preserve_slots_without_runtime_fields() {
+        let source = "(#struct Bundle ((shared (#ref u64)) (exclusive (#ref-mut u64))))
+          (#fn worker ((shared (#ref u64)) (exclusive (#ref-mut u64))
+                       (bundle Bundle) (view (#slice (#ref u64)))
+                       (array (#array (#ref u64) 2)) (pinned (#pin-ref u64))
+                       (number u64)) u64
+            (#forget bundle) (#forget view) (#forget array) (#return number))
+          (@thread-spawn (: task Task : worker worker))
+          (@thread-spawn (: task OtherTask : worker worker))
+          (#fn main () u64 (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        use crate::typed_body::ParameterLoanSeed;
+        use crate::typed_place::Segment;
+        let mut by_task = Vec::new();
+        for name in ["Task", "OtherTask"] {
+            let ty = Type::Named(name.into());
+            let owner = declarations.aggregate_id(&ty).unwrap();
+            let captures = &declarations.thread_capture_schemas[name];
+            assert_eq!(captures.worker, declarations.function_id("worker").unwrap());
+            let mut expected = Vec::new();
+            for (index, ty) in captures.parameters.iter().enumerate() {
+                for mut seed in declarations.reference_storage_slots(ty) {
+                    seed.storage.insert(0, Segment::ThreadCapture(owner, index));
+                    expected.push(seed);
+                }
+            }
+            let slots = declarations.reference_storage_slots(&ty);
+            assert_eq!(slots, expected);
+            assert_eq!(slots.len(), 8);
+            assert!(slots.contains(&ParameterLoanSeed {
+                storage: vec![Segment::ThreadCapture(owner, 0)],
+                mutable: false,
+                pinned: false,
+            }));
+            assert!(slots.contains(&ParameterLoanSeed {
+                storage: vec![Segment::ThreadCapture(owner, 1)],
+                mutable: true,
+                pinned: false,
+            }));
+            assert!(slots.contains(&ParameterLoanSeed {
+                storage: vec![Segment::ThreadCapture(owner, 5)],
+                mutable: false,
+                pinned: true,
+            }));
+            // Captures are semantic ownership metadata, never layout fields.
+            let fields = &declarations.structs[name];
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].name, "__lim_thread_context");
+            assert!(matches!(fields[0].ty, Type::RawPointer { .. }));
+            let spawn_ok = declarations
+                .variant_id(
+                    &Type::Named(format!("{name}-spawn-result")),
+                    &format!("{name}-spawn-ok"),
+                )
+                .unwrap();
+            let mut expected_spawn = slots.clone();
+            for seed in &mut expected_spawn {
+                seed.storage.insert(0, Segment::Payload(spawn_ok, 0));
+            }
+            assert_eq!(
+                declarations.reference_storage_slots(&Type::Named(format!("{name}-spawn-result"))),
+                expected_spawn
+            );
+            let join_error = declarations
+                .variant_id(
+                    &Type::Named(format!("{name}-join-result")),
+                    &format!("{name}-join-error"),
+                )
+                .unwrap();
+            let mut expected_retry = slots.clone();
+            for seed in &mut expected_retry {
+                seed.storage.insert(0, Segment::Tuple(0));
+                seed.storage.insert(0, Segment::Payload(join_error, 0));
+            }
+            assert_eq!(
+                declarations.reference_storage_slots(&Type::Named(format!("{name}-join-result"))),
+                expected_retry
+            );
+            by_task.push(slots);
+        }
+        assert!(by_task[0].iter().all(|seed| !by_task[1].contains(seed)));
+        let body = &declarations.bodies["worker"];
+        assert_eq!(
+            body.parameter_loan_slots
+                .iter()
+                .map(Vec::len)
+                .sum::<usize>(),
+            7
+        );
+        let seeds = &body.parameter_loan_slots[4];
+        assert_eq!(seeds.len(), 1); // Multi-element parameters use symbolic indices.
+        assert!(seeds
+            .iter()
+            .any(|seed| seed.storage.last() == Some(&Segment::DynamicIndex)));
+        assert!(body.parameter_referent_loan_slots[3].iter().any(|seed| seed
+            .storage
+            .ends_with(&[Segment::Dereference, Segment::DynamicIndex])));
+    }
+
+    #[test]
     fn staged_scalar_external_boundary_has_no_parameter_referent_contract() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/extern_abs.lim");
         let source = std::fs::read_to_string(&path).unwrap();

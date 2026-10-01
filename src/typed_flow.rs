@@ -1139,6 +1139,10 @@ fn display_linear_place(body: &Body, place: &Place) -> String {
     let mut output = root;
     for segment in &place.segments {
         match segment {
+            #[cfg(test)]
+            Segment::ThreadCapture(_, index) => {
+                output.push_str(&format!(".<thread-capture:{index}>"));
+            }
             Segment::Dereference => output.push_str(".*"),
             Segment::Field(field) => {
                 output.push('.');
