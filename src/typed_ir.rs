@@ -277,6 +277,16 @@ pub(crate) struct FunctionDeclaration {
     pub span: Option<Span>,
 }
 
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) enum StagedReferentError {
+    Dependency,
+    Replacement {
+        function: String,
+        conflict: crate::typed_flow::ReleaseConflict,
+    },
+}
+
 pub(crate) struct Declarations {
     pub bodies: HashMap<String, crate::typed_body::Body>,
     pub flows: HashMap<String, crate::typed_flow::FlowGraph>,
@@ -747,6 +757,25 @@ impl Declarations {
         &self,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, &'static str> {
+        self.staged_referent_analysis(types, false)
+            .map_err(|_| "cyclic or unresolved internal ownership summary dependencies")
+    }
+
+    #[cfg(test)]
+    pub fn staged_validate_referent_replacements(
+        &self,
+        types: &crate::linearcheck::LinearTypes,
+    ) -> Result<(), StagedReferentError> {
+        self.staged_referent_analysis(types, true).map(|_| ())
+    }
+
+    #[cfg(test)]
+    fn staged_referent_analysis(
+        &self,
+        types: &crate::linearcheck::LinearTypes,
+        validate_replacements: bool,
+    ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
+    {
         use crate::typed_body::NodeKind;
         use crate::typed_flow::{FlowAction, FlowNodeId};
         let body_ids = self
@@ -759,7 +788,11 @@ impl Declarations {
         let mut summaries = HashMap::new();
         while !pending.is_empty() {
             let previous = pending.len();
+            let mut failure = None;
             pending.retain(|name| {
+                if failure.is_some() {
+                    return true;
+                }
                 let body = &self.bodies[name];
                 if body.nodes.iter().any(|node| {
                     matches!(&node.kind,
@@ -790,14 +823,28 @@ impl Declarations {
                     };
                     calls.push((event, effects, unknown));
                 }
+                if validate_replacements {
+                    if let Err(conflict) =
+                        flow.check_referent_replacements_with_calls(body, types, self, &calls)
+                    {
+                        failure = Some(StagedReferentError::Replacement {
+                            function: name.clone(),
+                            conflict,
+                        });
+                        return true;
+                    }
+                }
                 summaries.insert(
                     self.function_id(name).unwrap(),
                     flow.referent_function_effects_with_calls(body, types, &calls),
                 );
                 false
             });
+            if let Some(failure) = failure {
+                return Err(failure);
+            }
             if pending.len() == previous {
-                return Err("cyclic or unresolved internal ownership summary dependencies");
+                return Err(StagedReferentError::Dependency);
             }
         }
         Ok(summaries)

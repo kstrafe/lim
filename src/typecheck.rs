@@ -9916,6 +9916,7 @@ mod typed_ownership_tests {
             );
             assert!(restored.has_normal_return);
             assert!(restored.unresolved.is_empty());
+            assert!(declarations.staged_validate_referent_replacements(&types).is_ok());
             assert_eq!(!restored.effects.is_empty(), remaining, "{replacement}");
             if remaining {
                 assert_eq!(restored.effects.len(), 1);
@@ -9924,6 +9925,32 @@ mod typed_ownership_tests {
                     summary.effects[0].consumption_spans);
             }
         }
+    }
+
+    #[test]
+    fn staged_whole_program_replacement_rejects_live_callee_referent() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn inspect ((value (#ref-mut Resource))) () (#return ()))
+          (#fn replace ((value (#ref-mut Resource))) ()
+            (#call inspect (: value value))
+            (#deref-set value (#struct-literal Resource ((number 2u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_validate_referent_replacements(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Replacement { function, conflict } = error else {
+            panic!("expected a replacement conflict")
+        };
+        assert_eq!(function, "replace");
+        assert!(conflict.message.contains("consume it explicitly first"));
+        let span = conflict.span.unwrap();
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#deref-set value (#struct-literal Resource ((number 2u64))))"
+        );
     }
 
     #[test]
