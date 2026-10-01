@@ -473,10 +473,18 @@ Default test bodies and production builds keep their previous behavior. A
 combined regression verifies destroy/restore forwarding with reference-bearing
 storage across both ownership contracts and live loans. Reading the destroyed
 field before restoration remains an error despite empty reference facts, with
-the exact read span and destruction label. The three self-referential async
-examples still fail combined ownership inference in `main` with unresolved
-call inputs at the polling call; this remains an explicit migration gate,
-not evidence of arbitrary-body suspension support.
+the exact read span and destruction label. Constant return-variant summaries
+now intersect output-relative enum facts across every reachable normal return
+and flow through constructor/forwarding calls. Unknown or differing returns
+remove facts; pointer/reference results never manufacture owned discriminants,
+and raw/kernel writes invalidate existing facts. This lets caller initialization
+prove inactive payload slots rather than demanding nonexistent reference inputs
+from a fresh frame. All three self-referential async examples pass combined
+staged entry-contract inference and live-loan checking for every function.
+Negative regressions still reject destruction of a frame while its Pending
+reference is needed by the next poll, underlining the exact destruction form.
+Default-mode polling-input gaps remain covered separately. This closes one
+staged integration gate, not production migration or arbitrary-body suspension.
 Return-variant-conditioned clearing, storage contents after parameter writes,
 and definite restoration must be integrated before replacing production checking.
 

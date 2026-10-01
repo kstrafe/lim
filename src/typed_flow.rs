@@ -903,6 +903,40 @@ fn display_linear_place(body: &Body, place: &Place) -> String {
 }
 
 impl FlowGraph {
+    /// Output-relative variant facts common to every reachable normal return.
+    /// Missing/unknown alternatives remove facts rather than guessing a shape.
+    #[cfg(test)]
+    pub fn returned_variant_summaries(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> HashMap<Vec<Segment>, VariantId> {
+        let states = self.variant_facts_with_origins(body, origins);
+        let mut returned: Option<HashMap<Vec<Segment>, VariantId>> = None;
+        for (index, event) in self.nodes.iter().enumerate() {
+            let FlowAction::Return(Some(value)) = event.action else {
+                continue;
+            };
+            let Some(state) = &states[index] else {
+                continue;
+            };
+            let mut alternatives = Vec::new();
+            collect_result_alternatives(body, value, &mut alternatives);
+            for alternative in alternatives {
+                let facts = value_variant_facts(body, alternative, state)
+                    .into_iter()
+                    .map(|(place, variant)| (place.segments, variant))
+                    .collect::<HashMap<_, _>>();
+                if let Some(held) = &mut returned {
+                    held.retain(|path, variant| facts.get(path) == Some(variant));
+                } else {
+                    returned = Some(facts);
+                }
+            }
+        }
+        returned.unwrap_or_default()
+    }
+
     /// Must-known enum constructors in owned storage. This staged table does
     /// not infer callee restoration. Borrowed writes require one exact,
     /// concrete local target from the actual loan snapshots.
@@ -1020,6 +1054,13 @@ impl FlowGraph {
                     ) =>
                 {
                     state.clear()
+                }
+                FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind,
+                        NodeKind::Form { head, .. } if matches!(head.as_str(), "ptr-write" | "linux-syscall")) =>
+                {
+                    // Raw or kernel writes may alias any previously known tag.
+                    state.clear();
                 }
                 _ => {}
             }
@@ -7907,6 +7948,14 @@ fn value_variant_facts(
     value: NodeId,
     state: &HashMap<Place, VariantId>,
 ) -> HashMap<Place, VariantId> {
+    // Enum facts describe owned value storage, not a reference's address slot.
+    // Borrowing an enum must not turn its discriminant into a pointer fact.
+    if matches!(
+        body.nodes[value.0].ty,
+        Some(Type::Reference { .. } | Type::PinnedReference { .. } | Type::RawPointer { .. })
+    ) {
+        return HashMap::new();
+    }
     if let Some(source) = Place::from_expression(body, value) {
         return state
             .iter()
@@ -7925,9 +7974,34 @@ fn value_variant_facts(
             })
             .collect();
     }
-    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+    let NodeKind::Form {
+        head,
+        children,
+        callee,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
         return HashMap::new();
     };
+    if let Some(callee) = callee {
+        return body
+            .call_return_variants
+            .get(callee)
+            .map_or_else(HashMap::new, |facts| {
+                facts
+                    .iter()
+                    .map(|(path, variant)| {
+                        (
+                            Place {
+                                root: PlaceRoot::Local(BindingId(0)),
+                                segments: path.clone(),
+                            },
+                            *variant,
+                        )
+                    })
+                    .collect()
+            });
+    }
     if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
         return value_variant_facts(body, children[1], state);
     }

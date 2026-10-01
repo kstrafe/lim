@@ -12448,6 +12448,63 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_return_variant_constants_intersect_paths_and_forward_calls() {
+        let source = "(#enum Choice ((Empty) (Full (#ref u64))))
+            (#struct Pair (: left Choice : right Choice))
+            (#fn empty () Choice (#return (Empty)))
+            (#fn forward () Choice (#return (#call empty ())))
+            (#fn same (: selected bool) Choice (#return (#if selected (Empty) (Empty))))
+            (#fn different (: selected bool : source (#ref u64)) Choice
+              (#return (#if selected (Empty) (Full source))))
+            (#fn unknown (: value Choice) Choice (#return value))
+            (#fn borrowed (: source (#ref Choice)) (#ref Choice) (#return source))
+            (#fn partial (: selected bool : source (#ref u64)) Pair
+              (#return (#struct-literal Pair
+                (: left (#call forward ()) : right (#if selected (Empty) (Full source))))))
+            (#fn early (: selected bool : source (#ref u64)) Choice
+              (#if selected (#block (#return (Full source)) ())) (#return (Empty)))
+            (#fn raw-write (: source (#ref u64)) Choice
+              (#let-mut value Choice (Empty))
+              (#let-mut scalar u64 0u64)
+              (#unsafe (#ptr-write (#addr-of-mut scalar) 1u64)) (#return value))
+            (#fn syscall-write () Choice (#let-mut value Choice (Empty))
+              (#let-mut scalar u64 0u64)
+              (#unsafe (#linux-syscall () 0u64 (0u64 (#addr-of-mut scalar) 0u64))) (#return value))
+            (#fn no-return () Choice (#return (#unreachable)))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        for name in ["empty", "forward", "same"] {
+            let id = declarations.function_id(name).unwrap();
+            let facts = &declarations.bodies[name].call_return_variants[&id];
+            assert_eq!(facts.len(), 1, "{name}: {facts:?}");
+            assert!(facts.contains_key(&Vec::new()));
+        }
+        for name in [
+            "different",
+            "unknown",
+            "borrowed",
+            "early",
+            "raw-write",
+            "syscall-write",
+            "no-return",
+        ] {
+            let id = declarations.function_id(name).unwrap();
+            assert!(
+                declarations.bodies[name].call_return_variants[&id].is_empty(),
+                "{name}"
+            );
+        }
+        let id = declarations.function_id("partial").unwrap();
+        let facts = &declarations.bodies["partial"].call_return_variants[&id];
+        let field = declarations
+            .field_id(&Type::Named("Pair".into()), "left")
+            .unwrap();
+        assert_eq!(facts.len(), 1);
+        assert!(facts.contains_key(&vec![crate::typed_place::Segment::Field(field)]));
+    }
+
+    #[test]
     fn staged_contents_do_not_hide_reads_of_destroyed_reference_storage() {
         let source = "(#struct Part (: view (#ref u64))) (#linear Part)
             (#fn inspect (: target (#ref-mut Part) : replacement (#ref u64)) ()
@@ -12478,7 +12535,42 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn staged_contents_async_ownership_migration_audit() {
+    fn staged_contents_async_pending_loans_prevent_releasing_the_frame() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for name in [
+            "async_fn_local_self_reference",
+            "async_fn_enum_self_reference",
+        ] {
+            let path = root.join("examples").join(format!("{name}.lim"));
+            let original = std::fs::read_to_string(&path).unwrap();
+            let marker = "(#let second ";
+            assert_eq!(original.matches(marker).count(), 1, "{name}");
+            let source = original.replacen(marker, "(#forget frame)\n  (#let second ", 1);
+            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let cache = std::cell::OnceCell::from(flow.loan_origins(body));
+            let conflict =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                    .unwrap_err();
+            let span = conflict.span.unwrap();
+            assert_eq!(
+                &source[span.start..span.end],
+                "(#forget frame)",
+                "{name}: {conflict:?}"
+            );
+            assert!(
+                conflict.message.contains("while it is borrowed"),
+                "{name}: {conflict:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn staged_contents_async_entry_contracts_accept_self_reference_examples() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         for name in [
             "async_fn_local_self_reference",
@@ -12491,22 +12583,15 @@ mod typed_ownership_tests {
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             declarations.staged_parameter_contents_summaries();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
-            let error = declarations
+            declarations
                 .staged_referent_entry_contracts(&types)
-                .expect_err("resolved async ownership cases must move into the positive corpus");
-            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
-                panic!("{name}: {error:?}");
-            };
-            assert_eq!(function, "main", "{name}");
-            assert!(
-                conflict.message.contains("unresolved call inputs"),
-                "{name}: {conflict:?}"
-            );
-            let span = conflict.span.unwrap();
-            assert!(
-                source[span.start..span.end].starts_with("(#call"),
-                "{name}: {conflict:?}"
-            );
+                .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+            for (function, body) in &declarations.bodies {
+                let flow = &declarations.flows[function];
+                let cache = std::cell::OnceCell::from(flow.loan_origins(body));
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                    .unwrap_or_else(|conflict| panic!("{name}/{function}: {conflict:?}"));
+            }
         }
     }
 

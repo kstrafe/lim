@@ -1111,6 +1111,14 @@ pub(crate) struct Body {
     /// their inferred contracts. Production bodies have no such mode flag.
     #[cfg(test)]
     pub staged_parameter_contents: bool,
+    /// Constant enum facts proved on every normal return, relative to output.
+    #[cfg(test)]
+    pub call_return_variants: Arc<
+        HashMap<
+            crate::typed_ir::FunctionId,
+            HashMap<Vec<crate::typed_place::Segment>, crate::typed_ir::VariantId>,
+        >,
+    >,
     /// Interprocedural return-origin summaries shared by all checked bodies.
     pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     #[cfg(test)]
