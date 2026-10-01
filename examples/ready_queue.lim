@@ -1,3 +1,4 @@
+; Queue operations update Copy fields in place; main consumes the linear owner.
 (#import "../library/ready_queue.lim")
 (@ready-queue ReadyQueue ReadyQueueEnqueueResult ReadyQueueDequeueResult
   ready-queue-create ready-queue-enqueue ready-queue-dequeue

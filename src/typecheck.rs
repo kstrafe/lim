@@ -17938,6 +17938,27 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_ready_queue_updates_preserve_linear_owner() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/ready_queue.lim");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let program = crate::parse_program_from_path(&source, &path).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        for name in ["ready-queue-enqueue", "ready-queue-dequeue"] {
+            let summary = &summaries[&declarations.function_id(name).unwrap()];
+            assert!(summary.consumed_entry.is_empty(), "{name}");
+            assert!(summary.effects.is_empty(), "{name}");
+            assert!(summary.consuming_accesses.is_empty(), "{name}");
+            assert!(summary.has_normal_return, "{name}");
+        }
+    }
+
+    #[test]
     fn staged_async_contents_contracts_preserve_pinned_frame_referents() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         for (name, poll) in [

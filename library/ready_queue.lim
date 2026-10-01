@@ -2,6 +2,8 @@
 ;; distinct concrete queues can coexist without generated symbol collisions.
 ;; The literal slot list fixes capacity; its values are identity inputs, not
 ;; runtime storage. IDs are u64; generations and task ownership are separate.
+;; Operations write only Copy fields through derived references. The linear
+;; queue owner remains alive and must still be explicitly consumed by its user.
 (#gn ready-queue
   (name enqueue-result dequeue-result create enqueue dequeue
     enqueued full item empty slots)
@@ -27,9 +29,10 @@
               (#let next-tail u64
                 (#if (#u64.== (#u64.+.wrap (#clone (#get queue tail)) 1u64) ,(#gn-length slots))
                   0u64 (#u64.+.wrap (#clone (#get queue tail)) 1u64)))
-              (#deref-set queue
-                (#struct-literal ,name ((items items) (head (#clone (#get queue head)))
-                  (tail next-tail) (length (#u64.+.wrap (#clone (#get queue length)) 1u64)))))
+              (#deref-set (#borrow-mut (#get queue items)) items)
+              (#deref-set (#borrow-mut (#get queue tail)) next-tail)
+              (#deref-set (#borrow-mut (#get queue length))
+                (#u64.+.wrap (#clone (#get queue length)) 1u64))
               ,enqueued))))
       (#fn ,dequeue ((queue (#ref-mut ,name))) ,dequeue-result
         (#return
@@ -40,7 +43,7 @@
               (#let next-head u64
                 (#if (#u64.== (#u64.+.wrap (#clone (#get queue head)) 1u64) ,(#gn-length slots))
                   0u64 (#u64.+.wrap (#clone (#get queue head)) 1u64)))
-              (#deref-set queue
-                (#struct-literal ,name ((items (#get queue items)) (head next-head)
-                  (tail (#clone (#get queue tail))) (length (#u64.-.wrap (#clone (#get queue length)) 1u64)))))
+              (#deref-set (#borrow-mut (#get queue head)) next-head)
+              (#deref-set (#borrow-mut (#get queue length))
+                (#u64.-.wrap (#clone (#get queue length)) 1u64))
               (,item item))))))))
