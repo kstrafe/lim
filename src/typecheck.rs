@@ -10045,6 +10045,18 @@ mod typed_ownership_tests {
             crate::typed_body::PlaceRoot::Local(owner)
         );
         assert!(effects[0].definitely_consumed);
+        let conflict = flow
+            .check_owner_consumptions_with_calls(body, &types, &[(event, effects, unknown)])
+            .unwrap_err();
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#forget owner)");
+        assert_eq!(conflict.labels.len(), 1);
+        let origin = conflict.labels[0].0;
+        assert_eq!(
+            &source[origin.start..origin.end],
+            "(#forget (#deref value))"
+        );
+        let (effects, unknown) = flow.map_referent_call_effects(body, event, call, &summary);
         let (unresolved_effects, _) = flow.map_referent_call_effects(body, event, call, &summary);
         let unresolved_moves = flow.referent_consumptions_with_calls(
             body,

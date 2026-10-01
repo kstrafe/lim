@@ -1791,6 +1791,19 @@ impl FlowGraph {
         self.check_linear_consumptions_with_moves(body, &moves)
     }
 
+    /// Staged checks for direct owner accesses after inferred call effects.
+    /// Reference-projected accesses still need resolved access identities.
+    #[cfg(test)]
+    pub fn check_owner_consumptions_with_calls(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+    ) -> Result<(), ReleaseConflict> {
+        let moves = self.referent_consumptions_with_calls(body, types, calls);
+        self.check_linear_consumptions_with_moves(body, &moves)
+    }
+
     fn check_linear_consumptions_with_moves(
         &self,
         body: &Body,
