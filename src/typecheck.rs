@@ -9954,6 +9954,50 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_whole_program_replacement_requires_consumption_on_every_callee_path() {
+        for (consume, accepted) in [
+            ("(#if choice (#forget (#deref value)) ())", false),
+            (
+                "(#if choice (#forget (#deref value)) (#forget (#deref value)))",
+                true,
+            ),
+            (
+                "(#if choice (#block (#return ())) ()) (#forget (#deref value))",
+                false,
+            ),
+        ] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn consume ((value (#ref-mut Resource)) (choice bool)) ()
+                {consume} (#return ()))
+              (#fn replace ((value (#ref-mut Resource)) (choice bool)) ()
+                (#call consume (: value value : choice choice))
+                (#deref-set value (#struct-literal Resource ((number 2u64))))
+                (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_validate_referent_replacements(&types);
+            assert_eq!(result.is_ok(), accepted, "{consume}");
+            if !accepted {
+                let crate::typed_ir::StagedReferentError::Replacement { function, conflict } =
+                    result.unwrap_err()
+                else {
+                    panic!("expected replacement conflict")
+                };
+                assert_eq!(function, "replace");
+                assert!(conflict.message.contains("consume it explicitly first"));
+                let span = conflict.span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#deref-set value (#struct-literal Resource ((number 2u64))))"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn staged_callee_consumption_maps_to_caller_owned_storage() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) () (#forget (#deref value)) (#return ()))
