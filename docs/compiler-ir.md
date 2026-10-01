@@ -485,8 +485,22 @@ Negative regressions still reject destruction of a frame while its Pending
 reference is needed by the next poll, underlining the exact destruction form.
 Default-mode polling-input gaps remain covered separately. This closes one
 staged integration gate, not production migration or arbitrary-body suspension.
-Return-variant-conditioned clearing, storage contents after parameter writes,
-and definite restoration must be integrated before replacing production checking.
+The contents experiment now also summarizes destruction separately for each
+explicit returned variant. It reuses the store solver's return-path filtering,
+retaining unknown alternatives and intersecting all paths with the selected
+outcome. Caller matching applies only common exact mutable physical clears
+from mutually exclusive calls, with the same stale-result barriers as stores
+plus conservative release/assignment invalidation. Clearing a field preserves
+its siblings and the address handle. Published pattern-clear events let these
+facts propagate through functions that match and reconstruct their outcomes.
+Direct-call and bound-result matching preserve escaped reference payloads via
+original pre-call snapshots, even when the matched branch destroys storage.
+Regression checks cover explicit/nested/loop returns, unknown and same-variant
+alternatives, restoration/later calls, branch-result joins, forwarding, stale
+results, sibling retention, and exact mutation spans for escaped loans.
+This is return-conditioned loan contents, not conditional ownership consumption
+or initialization. Those contracts and definite restoration still need
+production integration before replacing the existing ownership checker.
 
 The instruction selector still uses AST-shaped inputs. Compiler-synthesized
 expressions and internal legacy generic specializations retain the old type

@@ -1107,6 +1107,10 @@ pub(crate) struct Body {
     /// Every-normal-return contents clearing, not an initialization contract.
     #[cfg(test)]
     pub call_parameter_clears: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
+    /// Destruction facts conditioned on an explicitly matched return variant.
+    #[cfg(test)]
+    pub call_clear_variants:
+        Arc<HashMap<crate::typed_ir::FunctionId, HashMap<VariantId, Vec<ParameterLoanSummary>>>>,
     /// Keep opt-in ownership passes on the same provenance interpretation as
     /// their inferred contracts. Production bodies have no such mode flag.
     #[cfg(test)]

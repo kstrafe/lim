@@ -270,6 +270,8 @@ fn empty_loan_state(count: usize) -> LoanState {
 pub(crate) struct FlowLoanOrigins {
     #[cfg(test)]
     variants: std::cell::OnceCell<Vec<Option<HashMap<Place, VariantId>>>>,
+    #[cfg(test)]
+    clear_refinements: Vec<Option<CallResultRefinement>>,
     before: Vec<Option<LoanState>>,
     after: Vec<Option<LoanState>>,
     // Reuse the solver's dense, source-ordered snapshot dependency index.
@@ -498,6 +500,9 @@ impl FlowLoanOrigins {
         };
         if state.parameter_contents.is_none() {
             return Vec::new();
+        }
+        if let Some(refinement) = &self.clear_refinements[event.0] {
+            return correlated_call_variant_clears(body, flow, &self.before, refinement);
         }
         let value = match flow.nodes[event.0].action {
             FlowAction::Release { value, .. } | FlowAction::Evaluate(value) => value,
@@ -1718,6 +1723,29 @@ impl FlowGraph {
         body: &Body,
         origins: &FlowLoanOrigins,
     ) -> HashMap<VariantId, Vec<crate::typed_body::ParameterStoreSummary>> {
+        self.return_variant_graphs(body)
+            .into_iter()
+            .map(|(variant, filtered)| (variant, filtered.parameter_store_summaries(body, origins)))
+            .collect()
+    }
+
+    /// A selected return can prove destruction without claiming initialization.
+    #[cfg(test)]
+    pub fn parameter_clear_variant_summaries(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> HashMap<VariantId, Vec<crate::typed_body::ParameterLoanSummary>> {
+        self.return_variant_graphs(body)
+            .into_iter()
+            .map(|(variant, filtered)| (variant, filtered.parameter_clear_summaries(body, origins)))
+            .collect()
+    }
+
+    /// Remove only incompatible explicit constructors. Unknown alternatives
+    /// remain possible for every selected variant; event IDs stay unchanged.
+    #[cfg(test)]
+    fn return_variant_graphs(&self, body: &Body) -> HashMap<VariantId, Self> {
         let mut alternatives = Vec::new();
         for node in &self.nodes {
             if let FlowAction::Return(Some(value)) = node.action {
@@ -1762,7 +1790,7 @@ impl FlowGraph {
                     node.successors.clear();
                 }
             }
-            result.insert(selected, filtered.parameter_store_summaries(body, origins));
+            result.insert(selected, filtered);
         }
         result
     }
@@ -1979,6 +2007,23 @@ impl FlowGraph {
                                 &store.destination.place.segments,
                                 store.incoming,
                             );
+                        }
+                        if include_parameter_contents {
+                            for clear in correlated_call_variant_clears(
+                                body,
+                                self,
+                                &before,
+                                refinements[id.0].as_ref().unwrap(),
+                            ) {
+                                store_parameter_contents(&mut state, &clear, Vec::new(), true);
+                                if let PlaceRoot::Local(binding) = clear.place.root {
+                                    replace_projected_origins(
+                                        &mut state[binding.0],
+                                        &clear.place.segments,
+                                        Vec::new(),
+                                    );
+                                }
+                            }
                         }
                     }
                     let origins = value_loan_origins_at_events(body, self, &before, *value, &state);
@@ -2256,6 +2301,12 @@ impl FlowGraph {
             events_by_value,
             #[cfg(test)]
             variants: std::cell::OnceCell::new(),
+            #[cfg(test)]
+            clear_refinements: if include_parameter_contents {
+                refinements
+            } else {
+                vec![None; self.nodes.len()]
+            },
         }
     }
 
@@ -6687,6 +6738,18 @@ fn call_parameter_clears(
     let Some(clears) = body.call_parameter_clears.get(callee) else {
         return Vec::new();
     };
+    substitute_call_clears(body, flow, before, state, children, clears)
+}
+
+#[cfg(test)]
+fn substitute_call_clears(
+    body: &Body,
+    flow: &FlowGraph,
+    before: &[Option<LoanState>],
+    state: &LoanState,
+    children: &[NodeId],
+    clears: &[crate::typed_body::ParameterLoanSummary],
+) -> Vec<LoanOrigin> {
     let mut result = Vec::new();
     for clear in clears {
         let destinations = if let Some(global) = global_summary_origin(clear) {
@@ -6706,6 +6769,91 @@ fn call_parameter_clears(
         }
     }
     result
+}
+
+/// Never erase fresh contents on the strength of an old outcome tag.
+#[cfg(test)]
+fn correlated_call_variant_clears(
+    body: &Body,
+    flow: &FlowGraph,
+    before: &[Option<LoanState>],
+    refinement: &CallResultRefinement,
+) -> Vec<LoanOrigin> {
+    let (calls, variant, region) = refinement;
+    joined_call_variant_clears(body, flow, before, calls, *variant)
+        .into_iter()
+        .filter(|clear| {
+            !region
+                .iter()
+                .any(|event| match &flow.nodes[event.0].action {
+                    FlowAction::Release { .. } => true,
+                    FlowAction::Assign { place, .. } => {
+                        place.root == clear.place.root
+                            || matches!(clear.place.root, PlaceRoot::Parameter(_))
+                    }
+                    FlowAction::ScopeExit(bindings) => match clear.place.root {
+                        PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
+                            bindings.contains(&binding)
+                        }
+                        _ => true,
+                    },
+                    _ => false,
+                })
+        })
+        .collect()
+}
+
+/// Matching mutually exclusive calls proves only their common physical clears.
+#[cfg(test)]
+fn joined_call_variant_clears(
+    body: &Body,
+    flow: &FlowGraph,
+    before: &[Option<LoanState>],
+    calls: &[(FlowNodeId, NodeId)],
+    variant: VariantId,
+) -> Vec<LoanOrigin> {
+    let mut result: Option<Vec<LoanOrigin>> = None;
+    for (event, call) in calls {
+        let Some(entry) = &before[event.0] else {
+            return Vec::new();
+        };
+        let NodeKind::Form {
+            callee: Some(callee),
+            children,
+            ..
+        } = &body.nodes[call.0].kind
+        else {
+            return Vec::new();
+        };
+        let Some(summaries) = body
+            .call_clear_variants
+            .get(callee)
+            .and_then(|groups| groups.get(&variant))
+        else {
+            return Vec::new();
+        };
+        let clears = substitute_call_clears(body, flow, before, entry, children, summaries);
+        if let Some(common) = &mut result {
+            common.retain(|held| {
+                clears
+                    .iter()
+                    .any(|incoming| incoming.referent_place() == held.referent_place())
+            });
+        } else {
+            result = Some(
+                clears
+                    .into_iter()
+                    .filter(|clear| {
+                        matches!(
+                            clear.place.root,
+                            PlaceRoot::Local(_) | PlaceRoot::Parameter(_)
+                        )
+                    })
+                    .collect(),
+            );
+        }
+    }
+    result.unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -7726,6 +7874,10 @@ fn value_loan_origins_at_events(
                     .call_parameter_clears
                     .get(callee)
                     .is_some_and(|clears| !clears.is_empty())
+                || body
+                    .call_clear_variants
+                    .get(callee)
+                    .is_some_and(|groups| groups.values().any(|clears| !clears.is_empty()))
             {
                 // Return summaries selecting entry storage must not observe
                 // the caller's state after this call has already cleared it.

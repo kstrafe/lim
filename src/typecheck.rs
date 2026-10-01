@@ -12448,6 +12448,240 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_return_conditioned_destruction_intersects_all_selected_paths() {
+        for (mode, definite) in [
+            ("explicit", true),
+            ("nested", true),
+            ("loop", true),
+            ("unknown", false),
+            ("same-variant", false),
+            ("restore", false),
+            ("later-call", false),
+        ] {
+            let clear = "(#forget (#deref target))";
+            let choose = match mode {
+                "explicit" => format!("(#if selected (#block {clear} (#return (Ready))) (#block (#return (Pending)))) (#return unknown)"),
+                "nested" => format!("(#return (#if selected (#block {clear} (Ready)) (Pending)))"),
+                "loop" => format!("(#return (#loop (#if selected (#block {clear} (#break (Ready))) (#block (#break (Pending))))))"),
+                "unknown" => format!("(#return (#if selected (#block {clear} (Ready)) unknown))"),
+                "same-variant" => format!("(#return (#if selected (#block {clear} (Ready)) (Ready)))"),
+                "restore" => format!("{clear} (#deref-set target (#struct-literal Part (: view replacement))) (#return (Ready))"),
+                "later-call" => format!("{clear} (#call touch ()) (#return (Ready))"),
+                _ => unreachable!(),
+            };
+            let source = format!("(#struct Part (: view (#ref u64))) (#linear Part)
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn touch () () (#return ()))
+                (#fn choose (: target (#ref-mut Part) : selected bool : unknown Outcome : replacement (#ref u64)) Outcome {choose})");
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let id = declarations.function_id("choose").unwrap();
+            let body = &declarations.bodies["choose"];
+            let ready = declarations
+                .variant_id(&Type::Named("Outcome".into()), "Ready")
+                .unwrap();
+            let groups = &body.call_clear_variants[&id];
+            assert_eq!(!groups[&ready].is_empty(), definite, "{mode}: {groups:?}");
+            if definite {
+                assert_eq!(groups[&ready].len(), 1, "{mode}");
+                assert_eq!(groups[&ready][0].parameter, 0);
+                assert!(body.call_parameter_clears[&id].is_empty(), "{mode}");
+            }
+        }
+    }
+
+    #[test]
+    fn staged_return_conditioned_destruction_releases_only_current_ready_contents() {
+        for (mode, accepts) in [
+            ("ready", true),
+            ("pending", false),
+            ("unknown", false),
+            ("same-variant", false),
+            ("post-write", false),
+            ("post-call", false),
+            ("branches", true),
+            ("unknown-branch", false),
+            ("loop-result", true),
+            ("forward", true),
+        ] {
+            let alternative = if mode == "same-variant" {
+                "(Ready)"
+            } else if mode == "unknown" {
+                "unknown"
+            } else {
+                "(Pending)"
+            };
+            let call = "(#call choose (: target target : selected true : unknown (Pending)))";
+            let result = match mode {
+                "branches" => format!("(#if true {call} {call})"),
+                "unknown-branch" => format!("(#if true {call} (Ready))"),
+                "loop-result" => format!("(#loop (#break {call}))"),
+                "forward" => call.replace("choose", "relay"),
+                _ => call.into(),
+            };
+            let between = match mode {
+                "post-write" => {
+                    "(#deref-set target (#struct-literal Part (: view (#borrow value))))"
+                }
+                "post-call" => "(#call touch ())",
+                _ => "",
+            };
+            let ready_body = if mode == "pending" {
+                "()"
+            } else {
+                "(#set value 9u64)"
+            };
+            let pending_body = if mode == "pending" {
+                "(#set value 9u64)"
+            } else {
+                "()"
+            };
+            // Negative cases keep the uncertain holder live through cleanup;
+            // a dead reference would legitimately stop blocking mutation.
+            let ready_cleanup = if accepts { "" } else { "(#forget holder)" };
+            let source = format!(
+                "(#struct Part (: view (#ref u64))) (#linear Part)
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn touch () () (#return ()))
+                (#fn choose (: target (#ref-mut Part) : selected bool : unknown Outcome) Outcome
+                  (#return (#if selected (#block (#forget (#deref target)) (Ready)) {alternative})))
+                (#fn relay (: target (#ref-mut Part) : selected bool : unknown Outcome) Outcome
+                  (#let result Outcome (#call choose (: target target : selected selected : unknown unknown)))
+                  (#return (#match result (#case (Ready) (Ready)) (#case (Pending) (Pending)))))
+                (#fn main () u64 (#let-mut value u64 42u64)
+                  (#let-mut holder Part (#struct-literal Part (: view (#borrow value))))
+                  (#let target (#ref-mut Part) (#borrow-mut holder))
+                  (#let outcome Outcome {result}) {between}
+                  (#match outcome
+                    (#case (Ready) (#block {ready_body} (#drop target) {ready_cleanup} ()))
+                    (#case (Pending) (#block {pending_body} (#drop target) (#forget holder) ())))
+                  (#return value))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            if mode == "forward" {
+                let id = declarations.function_id("relay").unwrap();
+                let ready = declarations
+                    .variant_id(&Type::Named("Outcome".into()), "Ready")
+                    .unwrap();
+                assert_eq!(
+                    declarations.bodies["relay"].call_clear_variants[&id][&ready].len(),
+                    1
+                );
+                assert!(declarations.bodies["relay"].call_parameter_clears[&id].is_empty());
+            }
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if accepts {
+                checked.unwrap_or_else(|error| panic!("{mode}: {error:?}"));
+            } else {
+                let conflict = checked.expect_err(mode);
+                let span = conflict.span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#set value 9u64)",
+                    "{mode}: {conflict:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_conditional_destruction_preserves_escaped_return_loans() {
+        for direct in [false, true] {
+            let call = "(#call choose (: target target : selected true))";
+            let bind = if direct {
+                String::new()
+            } else {
+                format!("(#let outcome Outcome {call})")
+            };
+            let scrutinee = if direct { call } else { "outcome" };
+            let source = format!("(#struct Part (: view (#ref u64))) (#linear Part)
+                (#enum Outcome ((Ready (#ref u64)) (Pending)))
+                (#fn choose (: target (#ref-mut Part) : selected bool) Outcome
+                  (#return (#if selected (#block (#let saved (#ref u64) (#get target view))
+                    (#forget (#deref target)) (Ready saved)) (Pending))))
+                (#fn main () u64 (#let-mut value u64 42u64)
+                  (#let-mut holder Part (#struct-literal Part (: view (#borrow value))))
+                  (#let target (#ref-mut Part) (#borrow-mut holder)) {bind}
+                  (#return (#match {scrutinee}
+                    (#case (Ready escaped) (#block (#set value 9u64) (#drop target) (#deref escaped)))
+                    (#case (Pending) (#block (#drop target) (#forget holder) 0u64)))))");
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.loan_origins(body));
+            let conflict =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                    .unwrap_err();
+            let span = conflict.span.unwrap();
+            assert_eq!(
+                &source[span.start..span.end],
+                "(#set value 9u64)",
+                "direct={direct}: {conflict:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn staged_conditional_field_destruction_preserves_sibling_contents() {
+        for premature in [false, true] {
+            let mutation = if premature {
+                "(#set right-value 9u64)"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Part (: view (#ref u64))) (#linear Part)
+                (#struct Pair (: left Part : right Part))
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn choose (: target (#ref-mut Pair) : selected bool) Outcome
+                  (#return (#if selected (#block (#forget (#get target left)) (Ready)) (Pending))))
+                (#fn main () u64 (#let-mut left-value u64 7u64) (#let-mut right-value u64 42u64)
+                  (#let-mut holder Pair (#struct-literal Pair
+                    (: left (#struct-literal Part (: view (#borrow left-value)))
+                     : right (#struct-literal Part (: view (#borrow right-value))))))
+                  (#let target (#ref-mut Pair) (#borrow-mut holder))
+                  (#let outcome Outcome (#call choose (: target target : selected true)))
+                  (#return (#match outcome
+                    (#case (Ready) (#block (#set left-value 9u64) {mutation}
+                      (#let result u64 (#deref (#get (#get target right) view)))
+                      (#drop target) (#forget (#get holder right)) result))
+                    (#case (Pending) (#block (#drop target) (#forget holder) 0u64)))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if premature {
+                let conflict = checked.unwrap_err();
+                let span = conflict.span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#set right-value 9u64)",
+                    "{conflict:?}"
+                );
+            } else {
+                checked.unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn staged_return_variant_constants_intersect_paths_and_forward_calls() {
         let source = "(#enum Choice ((Empty) (Full (#ref u64))))
             (#struct Pair (: left Choice : right Choice))

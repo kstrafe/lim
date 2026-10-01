@@ -1246,6 +1246,11 @@ impl Declarations {
         let mut clear_summaries =
             HashMap::<FunctionId, Vec<crate::typed_body::ParameterLoanSummary>>::new();
         #[cfg(test)]
+        let mut clear_variants = HashMap::<
+            FunctionId,
+            HashMap<VariantId, Vec<crate::typed_body::ParameterLoanSummary>>,
+        >::new();
+        #[cfg(test)]
         let mut return_variants =
             HashMap::<FunctionId, HashMap<Vec<crate::typed_place::Segment>, VariantId>>::new();
         #[cfg(test)]
@@ -1326,6 +1331,20 @@ impl Declarations {
                         crate::typed_body::NodeKind::Form {
                             callee: Some(callee),
                             ..
+                        } => clear_variants
+                            .get(callee)
+                            .map(|summary| (*callee, summary.clone())),
+                        _ => None,
+                    })
+                    .collect();
+                self.bodies.get_mut(&name).unwrap().call_clear_variants = Arc::new(needed);
+                let needed = self.bodies[&name]
+                    .nodes
+                    .iter()
+                    .filter_map(|node| match &node.kind {
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(callee),
+                            ..
                         } => return_variants
                             .get(callee)
                             .map(|summary| (*callee, summary.clone())),
@@ -1364,6 +1383,12 @@ impl Declarations {
             #[cfg(test)]
             let returned_variants = if include_parameter_contents {
                 flow.returned_variant_summaries(body, &store_origins)
+            } else {
+                HashMap::new()
+            };
+            #[cfg(test)]
+            let conditional_clears = if include_parameter_contents {
+                flow.parameter_clear_variant_summaries(body, &store_origins)
             } else {
                 HashMap::new()
             };
@@ -1406,6 +1431,8 @@ impl Declarations {
                 #[cfg(test)]
                 clear_summaries.insert(id, clears);
                 #[cfg(test)]
+                clear_variants.insert(id, conditional_clears);
+                #[cfg(test)]
                 return_variants.insert(id, returned_variants);
             }
         }
@@ -1417,6 +1444,8 @@ impl Declarations {
         #[cfg(test)]
         let shared_clears = Arc::new(clear_summaries);
         #[cfg(test)]
+        let shared_clear_variants = Arc::new(clear_variants);
+        #[cfg(test)]
         let shared_return_variants = Arc::new(return_variants);
         for body in self.bodies.values_mut() {
             body.call_return_origins = shared.clone();
@@ -1425,6 +1454,7 @@ impl Declarations {
                 body.call_store_origins = shared_stores.clone();
                 body.call_store_variants = shared_variants.clone();
                 body.call_parameter_clears = shared_clears.clone();
+                body.call_clear_variants = shared_clear_variants.clone();
                 body.call_return_variants = shared_return_variants.clone();
             }
         }
