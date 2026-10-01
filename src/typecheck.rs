@@ -10143,6 +10143,79 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_call_restoration_is_path_sensitive_at_caller_joins() {
+        for both in [false, true] {
+            let alternative = if both {
+                "(#call initialize (: value value))"
+            } else {
+                "()"
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource))) ()
+                (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+              (#fn caller ((value (#ref-mut Resource)) (choice bool)) ()
+                (#forget (#deref value))
+                (#if choice (#call initialize (: value value)) {alternative}) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let callee = &declarations.bodies["initialize"];
+            let restored = declarations.flows["initialize"].referent_restoration_guarantees(
+                callee,
+                &types,
+                &[],
+            );
+            let body = &declarations.bodies["caller"];
+            let flow = &declarations.flows["caller"];
+            let mut calls = Vec::new();
+            let mut restorations = Vec::new();
+            for (index, node) in flow.nodes.iter().enumerate() {
+                let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
+                    continue;
+                };
+                if !matches!(
+                    body.nodes[value.0].kind,
+                    crate::typed_body::NodeKind::Form {
+                        callee: Some(_),
+                        ..
+                    }
+                ) {
+                    continue;
+                }
+                let event = crate::typed_flow::FlowNodeId(index);
+                let (mapped, unknown) =
+                    flow.map_referent_call_restorations(body, event, value, callee, &restored);
+                assert!(!unknown);
+                calls.push((event, Vec::new(), false));
+                restorations.push((event, mapped));
+            }
+            assert_eq!(calls.len(), if both { 2 } else { 1 });
+            let moves = flow.referent_consumptions_with_restorations(
+                body,
+                &types,
+                &calls,
+                &restorations,
+                &[],
+            );
+            let returned = crate::typed_flow::FlowNodeId(
+                flow.nodes
+                    .iter()
+                    .position(|node| {
+                        matches!(node.action, crate::typed_flow::FlowAction::Return(_))
+                    })
+                    .unwrap(),
+            );
+            let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+                crate::typed_body::BindingId(0),
+            ));
+            assert_eq!(moves.before(returned, &place).is_none(), both);
+            assert!(!moves.definitely_consumed_before(returned, &place));
+        }
+    }
+
+    #[test]
     fn staged_call_restoration_clears_consumed_caller_referents() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
