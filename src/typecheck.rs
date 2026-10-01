@@ -12290,6 +12290,38 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn outer_storage_cannot_retain_a_block_local_reference_after_scope_exit() {
+        let source = "(#struct Holder (: view (#ref u64)))
+            (#fn inspect (: external (#ref u64)) u64
+              (#let-mut holder Holder (#struct-literal Holder (: view external)))
+              (#let done () (#block
+                (#let local u64 7u64)
+                (#let temporary Holder (#struct-literal Holder (: view (#borrow local))))
+                (#deref-set (#borrow-mut holder) temporary) ()))
+              (#let result u64 (#deref (#get holder view)))
+              (#forget holder) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let conflict = crate::typed_borrow::check_scope_escapes(
+            &declarations.bodies["inspect"],
+            &declarations.flows["inspect"],
+        )
+        .unwrap_err();
+        assert!(
+            conflict
+                .message
+                .contains("block-local variable 'local' escapes"),
+            "{conflict:?}"
+        );
+        assert!(conflict.span.is_some());
+        assert!(conflict
+            .labels
+            .iter()
+            .any(|(span, _)| &source[span.start..span.end] == "(#borrow local)"));
+        assert!(crate::check_types(&program).is_err());
+    }
+
+    #[test]
     fn indirect_variant_writes_require_one_actual_local_destination() {
         let program = crate::parse_program(
             "(#enum Choice ((Empty) (Full u64)))

@@ -646,12 +646,48 @@ pub(crate) fn check_scope_escapes_cached(
     let origins = cache.get_or_init(|| flow.loan_origins(body));
     let active = flow.definitely_active_bindings_before(body);
     for (index, node) in flow.nodes.iter().enumerate() {
+        let Some(active) = active[index].as_ref() else {
+            continue;
+        };
+        if let FlowAction::ScopeExit(exiting) = &node.action {
+            if exiting.is_empty() {
+                continue;
+            }
+            let event = FlowNodeId(index);
+            // Stable binding order keeps the chosen diagnostic deterministic
+            // when several outer holders retain references to dying locals.
+            for holder in (0..body.bindings.len())
+                .map(BindingId)
+                .filter(|holder| active.contains(holder))
+            {
+                if exiting.contains(&holder) {
+                    continue;
+                }
+                for origin in origins.before(event, holder) {
+                    let PlaceRoot::Local(binding) = origin.place.root else {
+                        continue;
+                    };
+                    if !exiting.contains(&binding) {
+                        continue;
+                    }
+                    return Err(BorrowConflict {
+                        message: format!(
+                            "reference to block-local variable '{}' escapes its scope",
+                            body.bindings[binding.0].name
+                        ),
+                        span: node.span.or(origin.span).or(body.bindings[binding.0].span),
+                        labels: origin
+                            .span
+                            .into_iter()
+                            .map(|span| (span, "reference originates here".into()))
+                            .collect(),
+                    });
+                }
+            }
+        }
         let value = match node.action {
             FlowAction::Bind { value, .. } | FlowAction::Pattern { value, .. } => value,
             _ => continue,
-        };
-        let Some(active) = active[index].as_ref() else {
-            continue;
         };
         for origin in origins.value_before(body, flow, FlowNodeId(index), value) {
             let PlaceRoot::Local(binding) = origin.place.root else {

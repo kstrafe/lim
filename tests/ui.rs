@@ -11,6 +11,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "outer-storage-scope-escape",
+            diagnostic_code: "E4100",
+            offending_line: "    (#let temporary Holder (#struct-literal Holder (: view (#borrow local))))",
+            line_number: 6,
+        },
+        Case {
             name: "local-pin-alias-read",
             diagnostic_code: "E4200",
             offending_line: "  (#let value u64 (#get target number))",
@@ -943,6 +949,7 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "outer-storage-scope-escape" => Some("(#borrow local)"),
             "local-pin-alias-read" => Some("(#get target number)"),
             "local-pin-read-twice" => Some("(#pin-read target)"),
             "local-pin-write-live" => Some("(#pin-write target (#struct-literal Resource (: number 2u64)))"),
